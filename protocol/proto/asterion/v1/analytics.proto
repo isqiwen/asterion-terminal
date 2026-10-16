@@ -1,0 +1,41 @@
+syntax = "proto3";
+package asterion.analytics.v1;
+
+// Local Terminal analysis helper. Input comes from Task-verified backtest evidence.
+message SettlementEquity {
+  string trading_day = 1;
+  string equity = 2; // Exact Decimal text; floating point is used only for statistics.
+}
+message QuantStatsRequest {
+  string task_id = 1;
+  string result_sha256 = 2;
+  string deposit = 3;
+  repeated SettlementEquity settlements = 4;
+}
+message DailyReturn {
+  string trading_day = 1;
+  double value = 2;
+}
+message QuantStatsReport {
+  string task_id = 1;
+  string result_sha256 = 2;
+  string library_version = 3;
+  uint32 periods_per_year = 4;
+  repeated DailyReturn returns = 5;
+  optional double sortino = 6;
+  optional double omega = 7;
+  optional double tail_ratio = 8;
+  optional double ulcer_index = 9;
+  optional double value_at_risk = 10;
+  optional double conditional_value_at_risk = 11;
+}
+message AnalyticsError {
+  string code = 1; // foundation ErrorCode name
+  string message = 2;
+}
+message QuantStatsReply {
+  oneof outcome {
+    QuantStatsReport report = 1;
+    AnalyticsError error = 2;
+  }
+}

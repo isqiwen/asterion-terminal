@@ -134,13 +134,20 @@ set(ASTERION_PROTO_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${ASTERION_PROTO_GEN})
 set(ASTERION_PROTO_SOURCES)
 file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/v1/*.proto)
-foreach(schema health domain trading node market task backtest factor data data_service)
+foreach(schema health domain trading node market task backtest factor data data_service analytics)
   add_custom_command(
     OUTPUT ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.h
     COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/v1/${schema}.proto
     DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
   list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc)
 endforeach()
+# Python IPC bindings use the same locked protoc as the C++ transport.
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated-python/asterion/v1/analytics_pb2.py"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated-python"
+  COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --python_out=${CMAKE_BINARY_DIR}/generated-python ${ASTERION_PROTO_ROOT}/asterion/v1/analytics.proto
+  DEPENDS ${ASTERION_PROTO_ROOT}/asterion/v1/analytics.proto)
+add_custom_target(asterion_analytics_python DEPENDS "${CMAKE_BINARY_DIR}/generated-python/asterion/v1/analytics_pb2.py")
+
 add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/backtest_result.cpp protocol/src/factor.cpp protocol/src/data.cpp protocol/src/table_series.cpp)
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
@@ -193,7 +200,7 @@ target_link_libraries(asterion_node_operations PUBLIC Asterion::Kernel asterion_
 add_executable(asterion-node-agent apps/services/node-agent/main.cpp)
 target_link_libraries(asterion-node-agent PRIVATE asterion_node_operations asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
 
-add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/clients/terminal/native/service_io.cpp apps/clients/terminal/native/market_client.cpp apps/clients/terminal/native/market_snapshot.cpp apps/clients/terminal/native/task_client.cpp apps/clients/terminal/native/data_client.cpp apps/clients/terminal/native/terminal_application.cpp apps/clients/terminal/native/commands_live.cpp apps/clients/terminal/native/commands_node.cpp apps/clients/terminal/native/commands_data.cpp apps/clients/terminal/native/commands_task.cpp apps/clients/terminal/native/commands_backtest.cpp apps/clients/terminal/native/commands_factor.cpp apps/clients/terminal/native/commands_node_data_tasks.cpp apps/clients/terminal/native/commands_history_usage.cpp apps/clients/terminal/native/commands_connections.cpp apps/clients/terminal/native/data_credentials.cpp apps/clients/terminal/native/keychain_store.cpp apps/clients/terminal/native/ctp_connections.cpp apps/clients/terminal/native/commands_market.cpp apps/clients/terminal/native/trading_client.cpp apps/clients/terminal/native/node_client.cpp apps/clients/terminal/native/plugin_catalog.cpp apps/clients/terminal/native/node_snapshot.cpp apps/clients/terminal/native/service_programs.cpp apps/clients/terminal/native/local_node.cpp apps/clients/terminal/native/node_service.cpp apps/clients/terminal/native/node_program.cpp apps/clients/terminal/native/node_identity.cpp apps/clients/terminal/native/node_enrollment.cpp apps/clients/terminal/native/remote_bundle.cpp)
+add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/clients/terminal/native/service_io.cpp apps/clients/terminal/native/market_client.cpp apps/clients/terminal/native/market_snapshot.cpp apps/clients/terminal/native/task_client.cpp apps/clients/terminal/native/data_client.cpp apps/clients/terminal/native/terminal_application.cpp apps/clients/terminal/native/commands_live.cpp apps/clients/terminal/native/commands_node.cpp apps/clients/terminal/native/commands_data.cpp apps/clients/terminal/native/commands_task.cpp apps/clients/terminal/native/quantstats.cpp apps/clients/terminal/native/commands_backtest.cpp apps/clients/terminal/native/commands_factor.cpp apps/clients/terminal/native/commands_node_data_tasks.cpp apps/clients/terminal/native/commands_history_usage.cpp apps/clients/terminal/native/commands_connections.cpp apps/clients/terminal/native/data_credentials.cpp apps/clients/terminal/native/keychain_store.cpp apps/clients/terminal/native/ctp_connections.cpp apps/clients/terminal/native/commands_market.cpp apps/clients/terminal/native/trading_client.cpp apps/clients/terminal/native/node_client.cpp apps/clients/terminal/native/plugin_catalog.cpp apps/clients/terminal/native/node_snapshot.cpp apps/clients/terminal/native/service_programs.cpp apps/clients/terminal/native/local_node.cpp apps/clients/terminal/native/node_service.cpp apps/clients/terminal/native/node_program.cpp apps/clients/terminal/native/node_identity.cpp apps/clients/terminal/native/node_enrollment.cpp apps/clients/terminal/native/remote_bundle.cpp)
 target_compile_definitions(asterion_terminal_api PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 set_source_files_properties(apps/clients/terminal/native/remote_bundle.cpp PROPERTIES COMPILE_DEFINITIONS ASTERION_SERVICE_SOURCE_SHA256="${ASTERION_SERVICE_SOURCE_SHA256}")
 target_include_directories(asterion_terminal_api PUBLIC bindings/c/include PRIVATE apps/clients/terminal/native)

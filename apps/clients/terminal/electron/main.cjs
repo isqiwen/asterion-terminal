@@ -8,6 +8,7 @@ const {
   net,
   session,
   screen,
+  shell,
 } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -41,6 +42,11 @@ for (const [key, name] of Object.entries(variables))
 const library = process.platform === "darwin" ? ".dylib" : ".so";
 process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
 process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
+process.env.ASTERION_QUANTSTATS_EXECUTABLE = path.join(
+  resources,
+  "quantstats",
+  "asterion-quantstats",
+);
 process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -130,7 +136,12 @@ function trusted(value) {
 function configure(win) {
   owned.add(win);
   win.on("closed", () => owned.delete(win));
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    // Lightweight Charts' attribution opens its publisher in the system browser.
+    if (url === "https://www.tradingview.com/")
+      void shell.openExternal("https://www.tradingview.com/");
+    return { action: "deny" };
+  });
   win.webContents.on("will-navigate", (event, url) => {
     if (!trusted(url)) event.preventDefault();
   });

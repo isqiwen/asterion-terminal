@@ -1,9 +1,26 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  AreaSeries,
+  CandlestickSeries,
+  ColorType,
+  CrosshairMode,
+  HistogramSeries,
+  LineSeries,
+  createChart,
+  createSeriesMarkers,
+  type IChartApi,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type SeriesType,
+  type Time,
+  type UTCTimestamp,
+  type LogicalRange,
+} from "lightweight-charts";
 import "./price-chart.css";
 
-// Providers retain exact values and own fetching, subscriptions and aggregation.
-// Numeric conversion here is exclusively for screen coordinates.
-export type PricePoint = { timestamp_ns: string; price: string; volume?: string };
+// Exact domain values and timestamps stay with providers. Ordinal chart times
+// avoid rounding nanoseconds or inventing calendar minutes between observations.
+export type PricePoint = { timestamp_ns: string; price: string | null; volume?: string };
 export type Candle = {
   timestamp_ns: string;
   open: string;
@@ -14,226 +31,469 @@ export type Candle = {
 };
 type Series =
   { kind: "line"; points: readonly PricePoint[] } | { kind: "candles"; points: readonly Candle[] };
-function localX(event: PointerEvent<SVGSVGElement>) {
-  const matrix = event.currentTarget.getScreenCTM();
-  return matrix
-    ? new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse()).x
-    : 0;
-}
-const close = (point: PricePoint | Candle) => ("close" in point ? point.close : point.price);
-export function PriceChart({
-  series,
-  label,
-  volumeLabel,
-  formatTime,
-  formatAxisTime = formatTime,
-  describe,
-  controls,
-  showVolume = true,
-  compact = false,
-  overlays = [],
-  fillArea = false,
-  fitHeight = false,
-  oscillator,
-  referencePrice,
-  showPriceExtremes = false,
-  mirrorPriceAxis = false,
-  formatIndicatorValue = (value: number) => Number(value.toPrecision(8)).toString(),
-}: {
-  referencePrice?: { value: string; label: string };
-  showPriceExtremes?: boolean;
-  mirrorPriceAxis?: boolean;
-  formatIndicatorValue?: (value: number) => string;
-  oscillator?: {
-    label: string;
-    histogramLabel?: string;
-    emptyLabel: string;
-    lines: readonly { label: string; color: string; values: readonly (number | null)[] }[];
-    histogram: readonly (number | null)[];
-  };
-  fitHeight?: boolean;
-  fillArea?: boolean;
-  overlays?: readonly { label: string; color: string; values: readonly (number | null)[] }[];
-  showVolume?: boolean;
-  compact?: boolean;
-  controls?: { zoomIn: string; zoomOut: string; earlier: string; later: string; latest: string };
+type Line = { label: string; color: string; values: readonly (number | null)[] };
+type Props = {
   series: Series;
   label: string;
   volumeLabel: string;
   formatTime: (value: string) => string;
   formatAxisTime?: (value: string) => string;
   describe: (index: number) => ReactNode;
-}) {
-  const frame = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(1000);
-  const [plotHeight, setPlotHeight] = useState(0);
-  const plot = useRef<SVGSVGElement>(null);
-  const hasPoints = series.points.length > 0;
-  // Measure before the first paint; observers maintain dimensions after resizing.
-  useLayoutEffect(() => {
-    const element = frame.current;
-    if (!element) return;
-    setWidth(Math.max(320, element.getBoundingClientRect().width));
-    const observer = new ResizeObserver(entries => {
-      setWidth(Math.max(320, entries[0].contentRect.width));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [hasPoints]);
-  useLayoutEffect(() => {
-    const element = plot.current;
-    if (!fitHeight || !element) return;
-    setPlotHeight(Math.max(190, element.getBoundingClientRect().height));
-    const observer = new ResizeObserver(entries => {
-      setPlotHeight(Math.max(190, entries[0].contentRect.height));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [fitHeight, hasPoints]);
-  const [focus, setFocus] = useState<string | null>(null);
-  const [windowSize, setWindowSize] = useState<number | null>(null);
-  // Null follows the latest record. Browsing anchors to a timestamp so appends
-  // cannot move the viewport. Owners remount on dataset/contract changes.
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const drag = useRef<{ x: number; end: number } | null>(null);
-  const points = series.points;
-  const count = points.length;
-  const size = Math.min(count, windowSize ?? count);
-  const found = anchor === null ? count - 1 : points.findIndex(p => p.timestamp_ns === anchor);
-  const end = Math.min(count, Math.max(size, found < 0 ? size : found + 1));
-  const start = end - size;
-  const visible = points.slice(start, end);
-  if (!count) return null;
-  // A rolling quote buffer changes indices, but a retained event keeps its identity.
-  const focusedIndex = focus === null ? -1 : points.findIndex(p => p.timestamp_ns === focus);
-  const index = Math.max(start, Math.min(end - 1, focusedIndex < 0 ? end - 1 : focusedIndex));
-  const active = points[index];
-  const overlayValues = overlays
-    .flatMap(line => line.values.slice(start, end))
-    .filter((value): value is number => value !== null && Number.isFinite(value));
-  const rawHigh = Math.max(
-    ...visible.map(p => Number("high" in p ? p.high : p.price)),
-    ...overlayValues,
-  );
-  const rawLow = Math.min(
-    ...visible.map(p => Number("low" in p ? p.low : p.price)),
-    ...overlayValues,
-  );
-  const padding = rawHigh === rawLow ? Math.max(Math.abs(rawHigh) * 0.01, 0.00000001) : 0;
-  const referenceValue = Number(referencePrice?.value);
-  const reference = Number.isFinite(referenceValue) && referenceValue > 0 ? referenceValue : null;
-  const radius =
-    reference === null
-      ? 0
-      : Math.max(Math.abs(rawHigh - reference), Math.abs(rawLow - reference), reference * 0.001);
-  const high = reference === null ? rawHigh + padding : reference + radius;
-  const low = reference === null ? rawLow - padding : reference - radius;
-  const span = high - low;
-  const maxVolume = Math.max(1, ...visible.map(p => Number(p.volume ?? "0")));
-  const bottom =
-    fitHeight && plotHeight
-      ? plotHeight - 20
-      : showVolume
-        ? compact
-          ? 215
-          : 300
-        : compact
-          ? 170
-          : 235;
-  const volumeHeight = fitHeight ? Math.max(40, bottom * 0.23) : compact ? 40 : 55;
-  const oscillatorHeight = oscillator
-    ? fitHeight
-      ? bottom * 0.28
-      : Math.min(85, bottom * 0.28)
-    : 0;
-  const volumeBottom = bottom - (oscillator ? oscillatorHeight + 24 : 0);
-  const priceBottom = volumeBottom - (showVolume ? volumeHeight + 25 : 20);
-  const oscillatorValues = oscillator
-    ? [
-        ...oscillator.histogram.slice(start, end),
-        ...oscillator.lines.flatMap(line => line.values.slice(start, end)),
-      ].filter((value): value is number => value !== null && Number.isFinite(value))
-    : [];
-  const oscillatorScale = Math.max(0.00000001, ...oscillatorValues.map(Math.abs));
-  const oscillatorZero = bottom - oscillatorHeight / 2;
-  const oscillatorY = (value: number) =>
-    oscillatorZero - ((value / oscillatorScale) * oscillatorHeight) / 2;
+  controls?: { zoomIn: string; zoomOut: string; earlier: string; later: string; latest: string };
+  showVolume?: boolean;
+  compact?: boolean;
+  fillArea?: boolean;
+  fitHeight?: boolean;
+  overlays?: readonly Line[];
+  oscillator?: {
+    label: string;
+    histogramLabel?: string;
+    emptyLabel: string;
+    lines: readonly Line[];
+    histogram: readonly (number | null)[];
+  };
+  referencePrice?: { value: string; label: string };
+  showPriceExtremes?: boolean;
+  mirrorPriceAxis?: boolean;
+  formatIndicatorValue?: (value: number) => string;
+  formatPrice?: (value: number) => string;
+};
+const emptyLines: readonly Line[] = [];
+const time = (index: number) => (index + 1) as UTCTimestamp;
+const valueAt = (point: PricePoint | Candle) => ("close" in point ? point.close : point.price);
+const numberText = (value: number) => Number(value.toPrecision(8)).toString();
 
-  const axisWidth = Math.min(
-    width * 0.45,
-    Math.max(
-      80,
-      oscillatorValues.length
-        ? String(Number((-oscillatorScale).toPrecision(5))).length * 7 + 16
-        : 0,
-      Math.max(
-        ...Array.from(
-          { length: 5 },
-          (_, i) => String(Number((high - (i / 4) * (high - low)).toFixed(8))).length,
+// Whitespace preserves an observation on the time axis, but Lightweight Charts
+// connects lines over whitespace. Separate contiguous runs preserve real gaps.
+export function chartRuns(values: readonly (number | null)[]) {
+  const runs: { time: UTCTimestamp; value: number }[][] = [];
+  let current: { time: UTCTimestamp; value: number }[] | undefined;
+  values.forEach((value, index) => {
+    if (value === null) {
+      current = undefined;
+      return;
+    }
+    if (!current) {
+      current = [];
+      runs.push(current);
+    }
+    current.push({ time: time(index), value });
+  });
+  return runs;
+}
+
+export function PriceChart(props: Props) {
+  const {
+    series,
+    label,
+    volumeLabel,
+    describe,
+    controls,
+    showVolume = true,
+    compact = false,
+    fillArea = false,
+    fitHeight = false,
+    overlays = emptyLines,
+    oscillator,
+    referencePrice,
+    showPriceExtremes = false,
+    mirrorPriceAxis = false,
+    formatIndicatorValue = numberText,
+  } = props;
+  const container = useRef<HTMLDivElement>(null);
+  const chart = useRef<IChartApi | null>(null);
+  const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const layers = useRef(new Map<string, ISeriesApi<SeriesType>>());
+  const latest = useRef(props);
+  const saved = useRef<{ anchor: string | null; size: number; all: boolean }>({
+    anchor: null,
+    size: 0,
+    all: true,
+  });
+  const updating = useRef(false);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [view, setView] = useState({ start: 0, end: series.points.length });
+  const points = series.points,
+    count = points.length;
+  const start = Math.min(view.start, Math.max(0, count - 1));
+  const end = Math.max(start + 1, Math.min(view.end, count));
+  const size = end - start;
+  const selected = focus === null ? -1 : points.findIndex(p => p.timestamp_ns === focus);
+  let lastObserved = end - 1;
+  while (count && lastObserved > start && valueAt(points[lastObserved]) === null) lastObserved--;
+  const index = Math.max(start, Math.min(end - 1, selected < 0 ? lastObserved : selected));
+
+  const recordRange = useCallback((first: number, last: number) => {
+    const p = latest.current.series.points;
+    saved.current = {
+      anchor: last === p.length || !last ? null : p[last - 1].timestamp_ns,
+      size: last - first,
+      all: first === 0 && last === p.length,
+    };
+    setView({ start: first, end: last });
+  }, []);
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
+  useLayoutEffect(() => {
+    if (!container.current) return;
+    const css = getComputedStyle(container.current);
+    const text = css.getPropertyValue("--muted").trim() || "#999faa";
+    const grid = css.getPropertyValue("--grid").trim() || "#23262c";
+    const when = (at: Time, axis: boolean) => {
+      const p = latest.current;
+      const point = p.series.points[Number(at) - 1];
+      return point
+        ? (axis ? (p.formatAxisTime ?? p.formatTime) : p.formatTime)(point.timestamp_ns)
+        : "";
+    };
+    const api = createChart(container.current, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: text,
+        fontSize: 11,
+        attributionLogo: false,
+        panes: { separatorColor: grid, separatorHoverColor: grid },
+      },
+      grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+      crosshair: { mode: CrosshairMode.Normal },
+      timeScale: {
+        tickMarkFormatter: (t: Time) => when(t, true),
+        rightOffset: 0,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+        minBarSpacing: 0.0001,
+      },
+      localization: { timeFormatter: (t: Time) => when(t, false) },
+    });
+    chart.current = api;
+    const rangeChanged = (range: LogicalRange | null) => {
+      if (!range || updating.current) return;
+      const p = latest.current.series.points;
+      const first = Math.max(0, Math.round(range.from));
+      const last = Math.min(p.length, Math.round(range.to) + 1);
+      if (!p.length || last <= first) return;
+      recordRange(first, last);
+    };
+    api.timeScale().subscribeVisibleLogicalRangeChange(rangeChanged);
+    api.subscribeCrosshairMove(event => {
+      if (updating.current || !event.sourceEvent) return;
+      if (event.time !== undefined) {
+        const point = latest.current.series.points[Number(event.time) - 1];
+        if (point) setFocus(point.timestamp_ns);
+      } else setFocus(null);
+    });
+    const held = layers.current;
+    return () => {
+      markers.current?.detach();
+      markers.current = null;
+      api.remove();
+      chart.current = null;
+      held.clear();
+    };
+  }, [recordRange]);
+
+  useLayoutEffect(() => {
+    const api = chart.current;
+    if (!api) return;
+    updating.current = true;
+    const css = getComputedStyle(container.current!);
+    const color = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    const up = color("--quote-up", "#e45a65"),
+      down = color("--quote-down", "#45b997");
+    const price = color("--price-line", "#86aaff");
+    const reference = referencePrice ? Number(referencePrice.value) : null;
+    const priceScaleId = reference === null ? "right" : "left";
+    const format = props.formatPrice ?? numberText;
+    api.applyOptions({
+      leftPriceScale: { visible: reference !== null || mirrorPriceAxis, borderVisible: false },
+      rightPriceScale: { visible: true, borderVisible: false },
+    });
+    const used = new Set<string>();
+    const layer = (key: string, kind: "line" | "area" | "candle" | "histogram", pane: number) => {
+      used.add(key);
+      let entry = layers.current.get(key);
+      if (!entry) {
+        entry =
+          kind === "candle"
+            ? api.addSeries(CandlestickSeries, {}, pane)
+            : kind === "histogram"
+              ? api.addSeries(HistogramSeries, {}, pane)
+              : kind === "area"
+                ? api.addSeries(AreaSeries, {}, pane)
+                : api.addSeries(LineSeries, {}, pane);
+        layers.current.set(key, entry);
+      }
+      entry.moveToPane(pane);
+      entry.applyOptions({ lastValueVisible: false, priceLineVisible: false });
+      return entry;
+    };
+    const priceOptions = {
+      priceScaleId,
+      priceFormat: { type: "custom" as const, minMove: 0.00000001, formatter: format },
+      autoscaleInfoProvider: (
+        original: () => { priceRange: { minValue: number; maxValue: number } } | null,
+      ) => {
+        if (reference === null && !mirrorPriceAxis) return original();
+        // Both price axes use the same visible candles and overlays. Scaling
+        // the mirror from close alone would misalign wicks and percentages.
+        const range = api.timeScale().getVisibleLogicalRange();
+        const first = range ? Math.max(0, Math.floor(range.from)) : 0;
+        const last = range ? Math.min(count, Math.ceil(range.to) + 1) : count;
+        let low = reference ?? Infinity,
+          high = reference ?? -Infinity;
+        const include = (value: number) => {
+          low = Math.min(low, value);
+          high = Math.max(high, value);
+        };
+        for (let i = first; i < last; i++) {
+          const point = points[i];
+          if ("high" in point) {
+            include(Number(point.high));
+            include(Number(point.low));
+          } else if (point.price !== null) include(Number(point.price));
+          for (const line of overlays) if (line.values[i] != null) include(line.values[i]!);
+        }
+        if (low === Infinity) return null;
+        if (reference !== null) {
+          const radius = Math.max(
+            Math.abs(low - reference),
+            Math.abs(high - reference),
+            Math.abs(reference) * 0.001,
+          );
+          low = reference - radius;
+          high = reference + radius;
+        }
+        return { priceRange: { minValue: low, maxValue: high } };
+      },
+    };
+    const timeline = layer("timeline", "line", 0);
+    timeline.setData(points.map((_, i) => ({ time: time(i) })));
+    timeline.applyOptions({ ...priceOptions, visible: false });
+    const lines = (
+      key: string,
+      values: readonly (number | null)[],
+      stroke: string,
+      pane: number,
+      area = false,
+    ) => {
+      chartRuns(values).forEach((run, i) => {
+        const entry = layer(`${key}:${area}:${i}`, area ? "area" : "line", pane);
+        entry.applyOptions({
+          ...(pane === 0 ? priceOptions : { priceScaleId: "right" }),
+          color: stroke,
+          lineColor: stroke,
+          lineWidth: 1,
+          pointMarkersVisible: run.length === 1,
+          topColor: color("--chart-area", "#5278ce26"),
+          bottomColor: "transparent",
+        });
+        entry.setData(run);
+      });
+    };
+    if (series.kind === "candles") {
+      const entry = layer("candles", "candle", 0);
+      entry.applyOptions({
+        ...priceOptions,
+        upColor: color("--canvas", "#0f1115"),
+        downColor: down,
+        borderUpColor: up,
+        borderDownColor: down,
+        wickUpColor: up,
+        wickDownColor: down,
+      });
+      entry.setData(
+        series.points.map((p, i) => ({
+          time: time(i),
+          open: Number(p.open),
+          high: Number(p.high),
+          low: Number(p.low),
+          close: Number(p.close),
+        })),
+      );
+    } else
+      lines(
+        "price",
+        points.map(p => {
+          const value = valueAt(p);
+          return value === null ? null : Number(value);
+        }),
+        price,
+        0,
+        fillArea,
+      );
+    overlays.forEach(line => lines(`overlay:${line.label}`, line.values, line.color, 0));
+    if (reference !== null || mirrorPriceAxis) {
+      const mirror = layer("mirror", "line", 0);
+      mirror.applyOptions({
+        ...priceOptions,
+        priceScaleId: reference === null ? "left" : "right",
+        lineVisible: false,
+        crosshairMarkerVisible: false,
+        priceFormat: {
+          type: "custom",
+          minMove: 0.00000001,
+          formatter:
+            reference === null
+              ? format
+              : (value: number) => `${(((value - reference) / reference) * 100).toFixed(2)}%`,
+        },
+      });
+      mirror.setData(
+        points.map((p, i) =>
+          valueAt(p) === null ? { time: time(i) } : { time: time(i), value: Number(valueAt(p)) },
         ),
-      ) *
-        7 +
-        16,
-    ),
-  );
-  const left =
-    reference === null && !mirrorPriceAxis
-      ? 20
-      : Math.min(
-          width * 0.25,
-          Math.max(
-            40,
-            ...Array.from(
-              { length: 5 },
-              (_, i) => String(Number((high - (i / 4) * span).toFixed(8))).length * 6 + 12,
-            ),
-          ),
-        );
-  const rightWidth =
-    reference === null
-      ? axisWidth
-      : Math.min(
-          width * 0.3,
-          Math.max(
-            64,
-            `${((-radius / reference) * 100).toFixed(2)}%`.length * 6 + 16,
-            String(Number(maxVolume.toPrecision(4))).length * 6 + 16,
-          ),
-        );
-  const right = width - rightWidth;
-  const step = (right - left - 10) / size;
-  const x = (i: number) => left + 5 + step * (i + 0.5);
-  const axisLabelWidth =
-    Math.max(...visible.map(point => formatAxisTime(point.timestamp_ns).length)) * 7 + 16;
-  const timeLabelCount = Math.min(
-    5,
-    size,
-    Math.max(1, Math.floor((right - left) / axisLabelWidth)),
-  );
-  const timeIndices = Array.from({ length: timeLabelCount }, (_, i) =>
-    timeLabelCount === 1 ? size - 1 : Math.round((i * (size - 1)) / (timeLabelCount - 1)),
-  );
-  const y = (value: string) => 25 + ((high - Number(value)) / span) * (priceBottom - 25);
-  const pan = (next: number) => {
-    const target = Math.max(size, Math.min(count, next));
-    setAnchor(points[target - 1].timestamp_ns);
+      );
+    }
+    if (referencePrice) {
+      const ref = layer("reference", "line", 0);
+      ref.applyOptions({
+        ...priceOptions,
+        color: color("--muted", "#999faa"),
+        lineWidth: 1,
+        lineStyle: 2,
+        crosshairMarkerVisible: false,
+        title: referencePrice.label,
+      });
+      ref.setData(points.map((_, i) => ({ time: time(i), value: Number(referencePrice.value) })));
+    }
+    if (showVolume) {
+      const volume = layer("volume", "histogram", 1);
+      volume.applyOptions({ priceScaleId: "right", priceFormat: { type: "volume" } });
+      volume.setData(
+        points.map((p, i) => {
+          const rising =
+            "open" in p
+              ? Number(p.close) >= Number(p.open)
+              : i === 0 || Number(valueAt(p)) >= Number(valueAt(points[i - 1]));
+          return p.volume === undefined
+            ? { time: time(i) }
+            : { time: time(i), value: Number(p.volume), color: rising ? up : down };
+        }),
+      );
+    }
+    if (oscillator) {
+      const pane = showVolume ? 2 : 1;
+      const histogram = layer("oscillator", "histogram", pane);
+      histogram.setData(
+        oscillator.histogram.map((value, i) =>
+          value === null
+            ? { time: time(i) }
+            : { time: time(i), value, color: value >= 0 ? up : down },
+        ),
+      );
+      oscillator.lines.forEach(line =>
+        lines(`oscillator:${line.label}`, line.values, line.color, pane),
+      );
+    }
+    for (const [key, entry] of layers.current)
+      if (!used.has(key)) {
+        if (key === "candles") {
+          markers.current?.detach();
+          markers.current = null;
+        }
+        api.removeSeries(entry);
+        layers.current.delete(key);
+      }
+    api.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
+    const remembered = saved.current;
+    const width = remembered.all ? count : Math.min(count, remembered.size);
+    const at =
+      remembered.anchor === null
+        ? count - 1
+        : points.findIndex(p => p.timestamp_ns === remembered.anchor);
+    const right = Math.min(count, Math.max(width, at < 0 ? width : at + 1));
+    if (count) api.timeScale().setVisibleLogicalRange({ from: right - width, to: right - 1 });
+    updating.current = false;
+    recordRange(Math.max(0, right - width), right);
+  }, [
+    series,
+    overlays,
+    oscillator,
+    showVolume,
+    referencePrice,
+    mirrorPriceAxis,
+    fillArea,
+    props.formatPrice,
+    count,
+    points,
+    recordRange,
+  ]);
+
+  useLayoutEffect(() => {
+    const candles = layers.current.get("candles");
+    if (!candles || series.kind !== "candles") return;
+    if (!markers.current) markers.current = createSeriesMarkers(candles, []);
+    if (!showPriceExtremes || !count) {
+      markers.current.setMarkers([]);
+      return;
+    }
+    const visible = series.points.slice(start, end);
+    markers.current.setMarkers(
+      (["high", "low"] as const)
+        .map(field => {
+          const best = visible.reduce(
+            (at, p, i) =>
+              (
+                field === "high"
+                  ? Number(p[field]) > Number(visible[at][field])
+                  : Number(p[field]) < Number(visible[at][field])
+              )
+                ? i
+                : at,
+            0,
+          );
+          return {
+            time: time(start + best),
+            position: field === "high" ? ("aboveBar" as const) : ("belowBar" as const),
+            color: "#999faa",
+            shape: "circle" as const,
+            text: visible[best][field],
+            size: 0,
+          };
+        })
+        .sort((a, b) => Number(a.time) - Number(b.time)),
+    );
+  }, [series, showPriceExtremes, start, end, count]);
+
+  useLayoutEffect(() => {
+    const api = chart.current;
+    if (!api) return;
+    const main = layers.current.get("candles") ?? layers.current.get(`price:${fillArea}:0`);
+    if (selected < 0 || !main || valueAt(points[selected]) === null) api.clearCrosshairPosition();
+    else api.setCrosshairPosition(Number(valueAt(points[selected])), time(selected), main);
+  }, [selected, points, fillArea]);
+
+  const showRange = (first: number, last: number) => {
+    // Remember navigation synchronously; the engine applies its range on the
+    // next animation frame. Rapid key presses must compose before that frame.
+    recordRange(first, last);
+    chart.current?.timeScale().setVisibleLogicalRange({ from: first, to: last - 1 });
+  };
+  const pan = (right: number) => {
+    const next = Math.max(size, Math.min(count, right));
+    showRange(next - size, next);
     setFocus(null);
   };
-  const zoom = (factor: number) =>
-    setWindowSize(Math.max(Math.min(5, count), Math.min(count, Math.round(size * factor))));
+  const zoom = (factor: number) => {
+    const width = Math.max(Math.min(5, count), Math.min(count, Math.round(size * factor)));
+    const right = Math.max(width, end);
+    showRange(right - width, right);
+  };
+  const last = () => {
+    pan(count);
+    setFocus(null);
+  };
   return (
-    <div className="price-chart" data-fit-height={fitHeight || undefined} ref={frame}>
+    <div className="price-chart" data-fit-height={fitHeight || undefined}>
       <p className="price-chart-cursor" aria-live="polite">
-        {describe(index)}
+        {count ? describe(index) : null}
       </p>
       {!!overlays.length && (
         <div className="price-chart-legend">
           {overlays.map(line => (
-            <span
-              key={line.label}
-              style={{ color: line.color }}
-              title={line.values[index]?.toString()}
-            >
+            <span data-indicator={line.label} key={line.label} style={{ color: line.color }}>
               {line.label}:{" "}
               {line.values[index] == null ? "—" : formatIndicatorValue(line.values[index]!)}
             </span>
@@ -270,390 +530,75 @@ export function PriceChart({
           >
             →
           </button>
-          <button
-            onClick={() => {
-              setAnchor(null);
-              setFocus(null);
-            }}
-          >
-            {controls.latest}
-          </button>
+          <button onClick={last}>{controls.latest}</button>
         </div>
       )}
-      <svg
-        ref={plot}
-        viewBox={`0 0 ${width} ${bottom + 20}`}
+      <div
+        className="price-chart-canvas"
+        style={{ height: fitHeight ? undefined : compact ? 240 : oscillator ? 430 : 340 }}
+        ref={container}
         role="img"
         aria-label={label}
         tabIndex={0}
         data-visible-count={size}
         data-window-start={start}
+        onPointerLeave={() => setFocus(null)}
         onKeyDown={event => {
+          if (!count) return;
           if (["ArrowLeft", "ArrowRight", "+", "=", "-", "Home", "End"].includes(event.key))
             event.preventDefault();
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             const direction = event.key === "ArrowLeft" ? -1 : 1;
             if (event.shiftKey) pan(end + direction * Math.max(1, Math.round(size / 5)));
-            else
-              setFocus(points[Math.max(start, Math.min(end - 1, index + direction))].timestamp_ns);
+            else {
+              const next = Math.max(start, Math.min(end - 1, index + direction));
+              setFocus(points[next].timestamp_ns);
+            }
           } else if (event.key === "+" || event.key === "=") zoom(0.8);
           else if (event.key === "-") zoom(1.25);
           else if (event.key === "Home") pan(size);
-          else if (event.key === "End") {
-            setAnchor(null);
-            setFocus(null);
-          }
+          else if (event.key === "End") last();
         }}
-        onPointerDown={event => {
-          if (event.button !== 0) return;
-          event.currentTarget.focus();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          drag.current = { x: localX(event), end };
-        }}
-        onPointerMove={event => {
-          const pointerX = localX(event);
-          if (drag.current) {
-            pan(drag.current.end - Math.round((pointerX - drag.current.x) / step));
-          } else
-            setFocus(
-              points[
-                start + Math.max(0, Math.min(size - 1, Math.floor((pointerX - left - 5) / step)))
-              ].timestamp_ns,
-            );
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onLostPointerCapture={() => {
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
-      >
-        {Array.from({ length: high === low ? 1 : 5 }, (_, tick) => {
-          const ratio = tick / 4;
-          const height = 25 + ratio * (priceBottom - 25);
-          const value =
-            reference === null ? high - ratio * span : reference + radius * (1 - ratio * 2);
-          return (
-            <g key={tick} className="price-chart-axis-tick">
-              <path d={`M${left} ${height}H${right}`} stroke="var(--grid)" strokeDasharray="2 4" />
-              <text
-                x={reference === null ? right + 8 : left - 8}
-                y={height + 4}
-                textAnchor={reference === null ? "start" : "end"}
-                style={
-                  reference === null
-                    ? undefined
-                    : {
-                        fill:
-                          value > reference
-                            ? "var(--quote-up)"
-                            : value < reference
-                              ? "var(--quote-down)"
-                              : "var(--muted)",
-                      }
-                }
-              >
-                {Number(value.toFixed(8))}
-              </text>
-              {reference !== null && (
-                <text
-                  data-chart-percent="true"
-                  x={right + 8}
-                  y={height + 4}
-                  style={{
-                    fill:
-                      value > reference
-                        ? "var(--quote-up)"
-                        : value < reference
-                          ? "var(--quote-down)"
-                          : "var(--muted)",
-                  }}
-                >
-                  {value > reference ? "+" : ""}
-                  {(((value - reference) / reference) * 100).toFixed(2)}%
-                </text>
-              )}
-              {reference === null && mirrorPriceAxis && (
-                <text x={left - 8} y={height + 4} textAnchor="end" data-mirrored-price="true">
-                  {Number(value.toFixed(8))}
-                </text>
-              )}
-            </g>
-          );
-        })}
-        {reference !== null && (
-          <path
-            data-chart-reference={referencePrice!.value}
-            d={`M${left} ${y(String(reference))}H${right}`}
-            stroke="var(--muted)"
-            strokeDasharray="5 5"
-            opacity="0.65"
-          >
-            <title>
-              {referencePrice!.label}: {referencePrice!.value}
-            </title>
-          </path>
-        )}
-        {showVolume && <path d={`M${left} ${volumeBottom}H${right}`} stroke="var(--grid)" />}
-        {showVolume && (
-          <g data-chart-volume-axis="true">
-            <text x={left} y={volumeBottom - volumeHeight - 8}>
-              {volumeLabel}
-            </text>
-            {[0, 0.5, 1].map(ratio => (
-              <g key={ratio}>
-                <path
-                  d={`M${left} ${volumeBottom - ratio * volumeHeight}H${right}`}
-                  stroke="var(--grid)"
-                  strokeDasharray="2 4"
-                />
-                <text x={right + 8} y={volumeBottom - ratio * volumeHeight + 3}>
-                  {Number((maxVolume * ratio).toPrecision(4))}
-                </text>
-              </g>
+      />
+      {referencePrice && (
+        <div className="price-chart-legend" data-chart-reference={referencePrice.value}>
+          {referencePrice.label}: {referencePrice.value}
+        </div>
+      )}
+      {showVolume && (
+        <div className="price-chart-legend" data-chart-volume-axis>
+          {volumeLabel}: {points[index]?.volume ?? "—"}
+        </div>
+      )}
+      {oscillator && (
+        <div className="price-chart-legend" data-oscillator={oscillator.label}>
+          <span data-oscillator-legend>
+            {oscillator.label}{" "}
+            {oscillator.lines.map(line => (
+              <span key={line.label} style={{ color: line.color }}>
+                {line.label}:{" "}
+                {line.values[index] == null ? "—" : formatIndicatorValue(line.values[index]!)}{" "}
+              </span>
             ))}
-          </g>
-        )}
-        {fillArea && series.kind === "line" && size > 1 && (
-          <path
-            d={`M${x(0)} ${priceBottom} ${visible.map((point, i) => `L${x(i)} ${y(close(point))}`).join(" ")} L${x(size - 1)} ${priceBottom} Z`}
-            fill="var(--chart-area, #5278ce26)"
-          />
-        )}
-        {series.kind === "line" &&
-          (size === 1 ? (
-            <circle cx={x(0)} cy={y(close(visible[0]))} r="3" fill="var(--accent)" />
-          ) : (
-            <polyline
-              points={visible.map((p, i) => `${x(i)},${y(close(p))}`).join(" ")}
-              fill="none"
-              stroke="var(--price-line, var(--accent))"
-              strokeWidth="1.5"
-            />
-          ))}
-        {visible.map((p, i) => {
-          const color =
-            "open" in p
-              ? Number(p.close) >= Number(p.open)
-                ? "var(--quote-up)"
-                : "var(--quote-down)"
-              : start + i > 0 && Number(close(p)) < Number(close(points[start + i - 1]))
-                ? "var(--quote-down)"
-                : "var(--quote-up)";
-          const width = Math.max(1, Math.min(20, step * 0.65));
-          const height = (Number(p.volume ?? "0") / maxVolume) * volumeHeight;
-          return (
-            <g key={`${p.timestamp_ns}:${start + i}`}>
-              {series.kind === "candles" && "open" in p && (
-                <>
-                  <path d={`M${x(i)} ${y(p.high)}V${y(p.low)}`} stroke={color} />
-                  <rect
-                    x={x(i) - width / 2}
-                    y={Math.min(y(p.open), y(p.close))}
-                    width={width}
-                    height={Math.max(1, Math.abs(y(p.open) - y(p.close)))}
-                    fill={Number(p.close) >= Number(p.open) ? "var(--canvas, #0f1115)" : color}
-                    stroke={color}
-                  />
-                </>
-              )}
-              {showVolume && p.volume !== undefined && (
-                <rect
-                  data-chart-volume="true"
-                  x={x(i) - width / 2}
-                  y={volumeBottom - height}
-                  width={width}
-                  height={height}
-                  fill={color}
-                  opacity="0.55"
-                />
-              )}
-            </g>
-          );
-        })}
-        {showPriceExtremes &&
-          series.kind === "candles" &&
-          (["high", "low"] as const).map(field => {
-            const candles = visible as readonly Candle[];
-            const extreme = candles.reduce(
-              (best, candle, i) =>
-                (
-                  field === "high"
-                    ? Number(candle[field]) > Number(candles[best][field])
-                    : Number(candle[field]) < Number(candles[best][field])
-                )
-                  ? i
-                  : best,
-              0,
-            );
-            const value = candles[extreme][field];
-            const px = x(extreme);
-            const py = y(value);
-            const direction = px > (left + right) / 2 ? -1 : 1;
-            return (
-              <g key={field} data-price-extreme={field} pointerEvents="none">
-                <path d={`M${px} ${py}h${direction * 10}`} stroke="var(--muted)" />
-                <text
-                  x={px + direction * 13}
-                  y={Math.max(12, Math.min(priceBottom - 2, py + (field === "high" ? -4 : 12)))}
-                  textAnchor={direction === 1 ? "start" : "end"}
-                >
-                  {value}
-                </text>
-              </g>
-            );
-          })}
-        {overlays.map(line => {
-          let drawing = false;
-          const path = visible
-            .map((_, i) => {
-              const value = line.values[start + i];
-              if (value == null || !Number.isFinite(value)) {
-                drawing = false;
-                return "";
-              }
-              const command = drawing ? "L" : "M";
-              drawing = true;
-              return `${command}${x(i)} ${y(String(value))}`;
-            })
-            .join(" ");
-          return (
-            <path
-              key={line.label}
-              data-indicator={line.label}
-              d={path}
-              fill="none"
-              stroke={line.color}
-              strokeWidth="1"
-            />
-          );
-        })}
-        {oscillator && (
-          <g data-oscillator={oscillator.label}>
-            <text
-              x={left}
-              y={bottom - oscillatorHeight - 8}
-              data-oscillator-legend={oscillator.label}
-            >
-              <tspan>{oscillator.label} </tspan>
-              {oscillator.lines.map(line => (
-                <tspan key={line.label} fill={line.color}>
-                  {line.label}:{" "}
-                  {line.values[index] == null
-                    ? "—"
-                    : formatIndicatorValue(line.values[index]!)}{" "}
-                </tspan>
-              ))}
-              <tspan
-                fill={
-                  (oscillator.histogram[index] ?? 0) >= 0 ? "var(--quote-up)" : "var(--quote-down)"
-                }
-              >
-                {oscillator.histogramLabel ?? oscillator.label}:{" "}
-                {oscillator.histogram[index] == null
-                  ? "—"
-                  : formatIndicatorValue(oscillator.histogram[index]!)}
-              </tspan>
-            </text>
-            {oscillatorValues.length === 0 ? (
-              <text
-                data-oscillator-empty
-                x={(left + right) / 2}
-                y={oscillatorZero}
-                textAnchor="middle"
-              >
-                {oscillator.emptyLabel}
-              </text>
-            ) : (
-              <g data-oscillator-axis>
-                <path
-                  d={`M${left} ${oscillatorZero}H${right}`}
-                  stroke="var(--grid)"
-                  strokeDasharray="2 4"
-                />
-                {[-1, 0, 1].map(sign => (
-                  <text
-                    key={sign}
-                    x={right + 8}
-                    y={oscillatorY(sign * oscillatorScale) + (sign === -1 ? -2 : 4)}
-                  >
-                    {Number((sign * oscillatorScale).toPrecision(5))}
-                  </text>
-                ))}
-                {visible.map((_, i) => {
-                  const value = oscillator.histogram[start + i];
-                  if (value == null || !Number.isFinite(value)) return null;
-                  return (
-                    <path
-                      key={i}
-                      d={`M${x(i)} ${oscillatorZero}V${oscillatorY(value)}`}
-                      stroke={value >= 0 ? "var(--quote-up)" : "var(--quote-down)"}
-                    />
-                  );
-                })}
-                {oscillator.lines.map(line => {
-                  let drawing = false;
-                  const path = visible
-                    .map((_, i) => {
-                      const value = line.values[start + i];
-                      if (value == null || !Number.isFinite(value)) {
-                        drawing = false;
-                        return "";
-                      }
-                      const command = drawing ? "L" : "M";
-                      drawing = true;
-                      return `${command}${x(i)} ${oscillatorY(value)}`;
-                    })
-                    .join(" ");
-                  return (
-                    <path
-                      key={line.label}
-                      data-oscillator-line={line.label}
-                      d={path}
-                      fill="none"
-                      stroke={line.color}
-                    />
-                  );
-                })}
-              </g>
-            )}
-          </g>
-        )}
-        <path
-          className="price-chart-crosshair"
-          d={`M${x(index - start)} 15V${bottom} M${left} ${y(close(active))}H${right}`}
-        />
-        {timeIndices.map((pointIndex, i) => (
-          <text
-            key={pointIndex}
-            data-chart-time
-            x={
-              size === 1
-                ? x(pointIndex)
-                : timeLabelCount === 1 || i === timeLabelCount - 1
-                  ? right
-                  : i === 0
-                    ? left
-                    : x(pointIndex)
-            }
-            y={bottom + 18}
-            textAnchor={
-              size === 1
-                ? "middle"
-                : timeLabelCount === 1 || i === timeLabelCount - 1
-                  ? "end"
-                  : i === 0
-                    ? "start"
-                    : "middle"
-            }
-          >
-            {formatAxisTime(visible[pointIndex].timestamp_ns)}
-          </text>
-        ))}
-      </svg>
+            {oscillator.histogramLabel ?? oscillator.label}:{" "}
+            {oscillator.histogram[index] == null
+              ? "—"
+              : formatIndicatorValue(oscillator.histogram[index]!)}
+          </span>
+          {!oscillator.histogram.slice(start, end).some(value => value !== null) &&
+            !oscillator.lines.some(line =>
+              line.values.slice(start, end).some(value => value !== null),
+            ) && <span data-oscillator-empty>{oscillator.emptyLabel}</span>}
+        </div>
+      )}
+      <a
+        className="chart-attribution"
+        href="https://www.tradingview.com/"
+        target="_blank"
+        rel="noreferrer"
+      >
+        TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
+      </a>
     </div>
   );
 }

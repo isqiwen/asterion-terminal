@@ -275,30 +275,6 @@ nav.research-modes {
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
-/* The curve with its highest and lowest equity on the left edge. */
-.research-chart {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 20px;
-}
-.research-axis {
-  grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding-block: 8px;
-  color: var(--muted);
-  font-family: var(--font-terminal);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-.research-equity {
-  width: 100%;
-  height: 240px;
-  background: var(--panel);
-}
 .research-range {
   display: flex;
   justify-content: space-between;
@@ -308,11 +284,6 @@ nav.research-modes {
 }
 .research-result > .research-range {
   margin: 18px 0;
-}
-/* The time range sits under the curve, not under the axis. */
-.research-chart > .research-range {
-  grid-column: 2;
-  margin-bottom: 12px;
 }
 .research-experiment {
   margin: 12px 0;

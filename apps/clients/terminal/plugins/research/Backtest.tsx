@@ -3,6 +3,7 @@ import {
   SettlementMarginDetails,
   SettlementMarginResults,
 } from "./SettlementMargins";
+import { QuantStatsReport } from "./QuantStatsReport";
 import { ResearchExport } from "./ResearchExport";
 import { BacktestComparison } from "./BacktestComparison";
 import { SlippageSensitivity } from "./SlippageSensitivity";
@@ -12,7 +13,8 @@ import { AccountReconciliation } from "./AccountReconciliation";
 import { TradeStatistics } from "./TradeStatistics";
 import { MonthlyContributions } from "./MonthlyContributions";
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import { PriceChart } from "@asterion/client-ui/PriceChart";
 import {
   useWorkspaceDraft,
   useWorkspaceRequestId,
@@ -240,30 +242,16 @@ export function Backtest({
     }
   }
   const result = snapshot?.task_result?.kind === "backtest" ? snapshot.task_result : null;
-  const values = result?.result.equity.map(p => Number(p.equity)) ?? [];
-  // Full task results can exceed the JavaScript argument-count limit. The
-  // axis shows the extremes as the result states them, not as recomputed
-  // numbers.
-  let low = values[0] ?? 0;
-  let high = low;
-  let lowText = result?.result.equity[0]?.equity ?? "";
-  let highText = lowText;
-  values.forEach((value, index) => {
-    if (value < low) {
-      low = value;
-      lowText = result!.result.equity[index].equity;
-    }
-    if (value > high) {
-      high = value;
-      highText = result!.result.equity[index].equity;
-    }
-  });
-  const points = values
-    .map(
-      (value, index) =>
-        `${8 + (index * 624) / Math.max(1, values.length - 1)},${152 - ((value - low) * 144) / Math.max(1, high - low)}`,
-    )
-    .join(" ");
+  const equitySeries = useMemo(
+    () => ({
+      kind: "line" as const,
+      points: (result?.result.equity ?? []).map(point => ({
+        timestamp_ns: point.timestamp_ns,
+        price: point.equity,
+      })),
+    }),
+    [result?.result.equity],
+  );
   return (
     <ResearchPage title={t("策略回测")} taskService={taskService} error={error}>
       <div className="workflow-heading research-navigation">
@@ -713,6 +701,13 @@ export function Backtest({
                   ))}
                 </div>
                 <Figures label={t("绩效")} value={result.performance} />
+                <QuantStatsReport
+                  key={`quantstats-${taskService?.connection_id}-${result.id}-${result.task.result_digest}`}
+                  id={result.id}
+                  resultDigest={result.task.result_digest}
+                  busy={busy}
+                  query={query}
+                />
                 {result.performance.development && (
                   <>
                     <h4>{t("比较")}</h4>
@@ -832,31 +827,17 @@ export function Backtest({
                   key={`months-${result.id}`}
                   months={result.performance.by_month}
                 />
-                <div className="research-chart">
-                  <div className="research-axis" aria-hidden>
-                    <span>{highText}</span>
-                    <span>{lowText}</span>
-                  </div>
-                  <svg
-                    className="research-equity"
-                    viewBox="0 0 640 160"
-                    preserveAspectRatio="none"
-                    role="img"
-                    aria-label={t("权益曲线")}
-                  >
-                    <polyline
-                      points={points}
-                      fill="none"
-                      stroke="var(--accent)"
-                      strokeWidth="2"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
-                  <div className="research-range">
-                    <span>{timestamp(result.result.equity[0]?.timestamp_ns ?? null)}</span>
-                    <span>{timestamp(result.result.equity.at(-1)?.timestamp_ns ?? null)}</span>
-                  </div>
-                </div>
+                <PriceChart
+                  key={`equity-${taskService?.connection_id}-${result.id}`}
+                  series={equitySeries}
+                  label={t("权益曲线")}
+                  volumeLabel={t("成交量")}
+                  showVolume={false}
+                  formatTime={timestamp}
+                  describe={index =>
+                    `${timestamp(result.result.equity[index].timestamp_ns)} · ${result.result.equity[index].equity}`
+                  }
+                />
                 <details className="research-settlements">
                   <summary>{t("逐日结算")}</summary>
                   <div className="research-table">

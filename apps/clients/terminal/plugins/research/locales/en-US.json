@@ -669,5 +669,20 @@
   "按因子值从高到低列出实际参与成员，并列按输入顺序；这是分组顺序，秩 IC 仍使用平均秩。未列出者未参与此观测，资格通过不代表特征和标签完整。未来收益是评价标签，不是扣费交易收益。": "Actual participants are ordered by descending factor value, with ties in input order. This is grouping order; rank IC still uses average ranks. Unlisted series did not participate in this observation. Eligibility does not guarantee a complete feature and label. Forward returns are evaluation labels, not trading returns after costs.",
   "实际评价观测不同": "Evaluated observations differ",
   "实际参与成员不同": "Actual participants differ",
-  "仅支持日线全样本因子。同口径要求实际评价观测和参与成员相同；未重算共同样本。分组收益是因子标签差，不是扣费回测收益。因子无交易费用、保证金或账户风险口径。": "Only full-sample daily factors are supported. Comparable methodology requires identical evaluated observations and participants; common samples are not recomputed. Group returns are factor-label differences, not backtest returns after costs. Factors have no trading-cost, margin or account-risk methodology."
+  "仅支持日线全样本因子。同口径要求实际评价观测和参与成员相同；未重算共同样本。分组收益是因子标签差，不是扣费回测收益。因子无交易费用、保证金或账户风险口径。": "Only full-sample daily factors are supported. Comparable methodology requires identical evaluated observations and participants; common samples are not recomputed. Group returns are factor-label differences, not backtest returns after costs. Factors have no trading-cost, margin or account-risk methodology.",
+  "QuantStats 绩效分析": "QuantStats Performance Analysis",
+  "按全程实际结算权益计算扣费后日收益，包含训练段；不补齐缺失交易日。年化按 252 日，无风险利率为 0。至少需要 20 个结算日且权益始终为正。": "Daily returns use actual full-period settlement equity after costs, including training. Missing trading days are not filled. Annualization uses 252 days and a zero risk-free rate. At least 20 settlement days and consistently positive equity are required.",
+  "正在分析…": "Analyzing…",
+  "生成 QuantStats 报告": "Generate QuantStats Report",
+  "QuantStats 返回的结果与当前回测不一致": "The QuantStats report does not match the current backtest",
+  "索提诺比率": "Sortino Ratio",
+  "Omega 比率": "Omega Ratio",
+  "尾部比率": "Tail Ratio",
+  "溃疡指数": "Ulcer Index",
+  "日 VaR（95%）": "Daily VaR (95%)",
+  "日 CVaR（95%）": "Daily CVaR (95%)",
+  "日收益率": "Daily Return",
+  "分析来源": "Analysis Source",
+  "VaR 与 CVaR 均使用收益正态分布估计，CVaR 为最差 5% 情形的条件期望；负值表示损失。无定义指标显示为 —。这些统计不参与交易风控或策略选择。": "VaR and CVaR assume normally distributed returns; CVaR is the conditional expectation in the worst 5% of outcomes. Negative values represent losses. Undefined metrics display —. These statistics do not control trading risk or strategy selection.",
+  "成交量": "Volume"
 }

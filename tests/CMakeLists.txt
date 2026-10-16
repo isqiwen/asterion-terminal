@@ -293,3 +293,6 @@ target_link_libraries(asterion_test_history PRIVATE asterion_shfe)
 target_link_libraries(asterion_task_execution_tests PRIVATE asterion_shfe)
 add_executable(asterion_shfe_margin_probe EXCLUDE_FROM_ALL acceptance/shfe_margin_probe.cpp)
 target_link_libraries(asterion_shfe_margin_probe PRIVATE asterion_data_queries asterion_history_providers asterion_shfe CLI11::CLI11)
+
+asterion_unit_tests(asterion_quantstats_tests terminal/quantstats_test.cpp asterion_terminal_api 90)
+target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_QUANTSTATS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/quantstats/asterion-quantstats")

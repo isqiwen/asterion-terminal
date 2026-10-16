@@ -3,7 +3,7 @@
 ## 环境
 
 - macOS（Apple Silicon；不支持 Intel Mac），Xcode 26 及以上的 Command Line Tools（Apple Clang；Xcode 16 的标准库没有 `std::stop_token` 和 `std::jthread`，编译不过）；或 Linux x86_64，GCC 13 及以上
-- Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja
+- Node.js 22+、pnpm 10、Python 3、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja
 - clang-format 23.1.1，即 CI 固定的版本。`pnpm run format` 和格式检查使用 `PATH` 上的 `clang-format`，其它版本的排版结果不同（21.1.8 会判定现有源码未格式化）。
 - 可选：OrbStack 或 Docker（重建远程 Linux 服务包）。它和上面的工具链一样由开发者自己在机器上安装，项目的脚本和任务不安装系统软件；Ubuntu 上是 `sudo apt install docker.io`。Linux 上当前用户还要能不经 `sudo` 运行 `docker`，例如 `sudo usermod -aG docker $USER`；新的组要等该用户的全部会话（包括 SSH）退出后重新登录，或重启后才生效，此前可以用 `sg docker -c '<命令>'` 运行。
 
@@ -22,9 +22,19 @@ pnpm install --frozen-lockfile
 pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进制
 ```
 
-随后用 `pnpm desktop` 完成第一次构建。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。`pnpm desktop:check` 还要求下文的远程 Linux 服务包，新机器上先用 `pnpm desktop`。
+随后用 `pnpm desktop --prepare-quantstats` 显式准备冻结分析助手并完成第一次构建与启动。后续使用 `pnpm desktop`；已有 CMake 构建目录时，也可单独运行 `pnpm prepare:quantstats`。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。`pnpm desktop:check` 还要求下文的远程 Linux 服务包，新机器上先用 `pnpm desktop --prepare-quantstats`。
 
 `build/local-profile` 存在时，桌面脚本会使用它。macOS 强制系统 Apple Clang；Linux 使用 Conan profile 中的编译器，依赖按 Release 构建（带调试信息的内嵌 DuckDB 会超过 Agent 的程序大小上限），项目自身在开发模式下按 Debug 构建。
+
+### QuantStats 桌面依赖
+
+`pnpm prepare:quantstats` 使用 `plugins/tools/quantstats/uv.lock` 显式准备 CPython 3.12.12、QuantStats 0.0.86 及冻结构建工具，再使用 Conan 锁定的 protoc 生成 Python IPC 类型。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。虚拟环境和冻结中间文件只写 `build/`，不会进入服务源码指纹。
+
+NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。最终 `build/electron-resources/quantstats/` 包含解释器、库、许可证及产物清单；安装版无需系统 Python，也不在启动或分析时下载依赖。Linux 本次产物约 335 MB，压缩前大小。
+
+`desktop`、`desktop:check`、`desktop:build` 验证该目录的源码摘要、平台与文件摘要；缺失或过期时重新执行显式准备命令。Electron 与开发桥接都指向同一资源目录中的 `asterion-quantstats`。打包时作为独立桌面资源携带，远程 Linux 服务包不携带 Python 助手。macOS 签名会改变二进制字节，安装包验证结合资源集合、源码身份与应用完整签名；本地未签名资源仍逐文件核对摘要。
+
+`ctest --test-dir build/Debug -R '^QuantStats\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 
 ## 构建
 

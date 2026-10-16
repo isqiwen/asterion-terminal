@@ -9,6 +9,7 @@ export function QuoteChart({ market, row }: { market: LiveMarket; row: QuoteRow 
   const history = market.history;
   const points =
     history?.points.filter(p => p.venue === row.venue && p.symbol === row.symbol) ?? [];
+  const reference = row.quote?.previous_settlement;
   const available = market.transport_online && market.phase === "connected" && history?.available;
   return (
     <section className="contract-live-chart" aria-label={t("最近报价走势")}>
@@ -19,8 +20,8 @@ export function QuoteChart({ market, row }: { market: LiveMarket; row: QuoteRow 
           fillArea
           key={`${quoteId(row)}:${history.stream_id}:${history.generation}`}
           referencePrice={
-            row.quote?.previous_settlement
-              ? { value: row.quote.previous_settlement, label: t("昨结价") }
+            reference && Number.isFinite(Number(reference)) && Number(reference) > 0
+              ? { value: reference, label: t("昨结价") }
               : undefined
           }
           series={{ kind: "line", points }}

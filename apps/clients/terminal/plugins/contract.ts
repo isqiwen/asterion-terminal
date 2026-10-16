@@ -58,6 +58,7 @@ export type TerminalContext = {
       | "task.metadata.read"
       | "task.evidence.export"
       | "task.comparison.export"
+      | "task.quantstats.analyze"
       | "data.minutes.page"
       | "data.minutes.range"
       | "data.minutes.evidence"

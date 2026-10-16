@@ -1049,5 +1049,16 @@
   "historical margins require one contract and no manual settlement events": "historical margins require one contract and no manual settlement events",
   "historical margins require a percentage cost schedule covering every day": "historical margins require a percentage cost schedule covering every day",
   "historical margin selection changed; preview again": "historical margin selection changed; preview again",
-  "Historical margin preview is missing": "Historical margin preview is missing"
+  "Historical margin preview is missing": "Historical margin preview is missing",
+  "QuantStats requires at least 20 settlement observations": "QuantStats requires at least 20 settlement observations",
+  "QuantStats requires positive finite equity": "QuantStats requires positive finite equity",
+  "QuantStats settlement dates must ascend": "QuantStats settlement dates must ascend",
+  "QuantStats requires finite daily returns": "QuantStats requires finite daily returns",
+  "QuantStats requires a completed backtest result": "QuantStats requires a completed backtest result",
+  "QuantStats runtime unavailable; prepare or reinstall Terminal": "QuantStats runtime unavailable; prepare or reinstall Terminal",
+  "QuantStats temporary directory unavailable": "QuantStats temporary directory unavailable",
+  "QuantStats analysis timed out": "QuantStats analysis timed out",
+  "QuantStats analysis process failed": "QuantStats analysis process failed",
+  "QuantStats returned an invalid report": "QuantStats returned an invalid report",
+  "backtest result changed; reopen the result before analysis": "backtest result changed; reopen the result before analysis"
 }
