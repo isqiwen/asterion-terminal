@@ -4,9 +4,9 @@
 
 ## 当前交付边界
 
-统一装载器接受 data、strategy、risk、execution、storage、tool 六类能力。当前正式开放并已接入生产调用链的能力是 `asterion.history.v3`（分钟来源发现与分钟线）、`asterion.history.tables.v1`（全市场数据表）、`asterion.history.connection.v1`（连接配置与访问验证）及 `asterion.risk.pre-trade.v1`（交易前风控）。Tushare 已使用这一 ABI，由数据服务和下载工作进程动态加载，服务不再静态链接 Tushare。
+统一装载器接受 data、strategy、risk、execution、storage、tool 六类能力。当前正式开放并已接入生产调用链的能力包括 `asterion.history.v3`（分钟来源发现与分钟线）、`asterion.history.tables.v1`（全市场数据表）、`asterion.history.connection.v1`（连接配置与访问验证）及 `asterion.risk.pre-trade.v1`（交易前风控）。Tushare 与 SHFE 数据获取通过这一 ABI，由数据服务和下载工作进程动态加载。Data 和注册层仍静态链接供应商格式的证据校验代码，用于独立复核允许的原始响应；这些校验不承担联网获取。
 
-订单限额风控已由 CTP 交易和回测动态装载。现有 CTP、策略、执行、文件存储和分析工具的业务接口仍使用仓库内 C++ 接口与静态目标，尚未全部迁移到动态 ABI。六类标签不代表已发布六套业务 SDK。实时订阅、交易执行、风险状态恢复等能力应结合现有用例分别定义类型化协议和契约测试后再迁移；不能把尚未实现的能力声明为可用。Terminal 的 TypeScript 工作区插件继续使用它自己的 UI 契约。
+订单限额风控已由 CTP 交易和回测动态装载。现有 CTP、策略、执行、文件存储和分析工具的业务接口仍使用仓库内 C++ 接口与静态目标，尚未全部迁移到动态 ABI。六类标签不代表已发布六套业务 SDK。实时订阅、交易执行、风险状态恢复等能力应结合现有用例分别定义类型化协议和契约测试后再迁移；不能把尚未实现的能力声明为可用。Terminal 的 TypeScript 工作区采用构建期 UI 契约；QuantStats 是随桌面分发的独立 Protobuf 分析助手，不是原生动态插件。
 
 ## 插件结构和构建
 
@@ -99,7 +99,7 @@ ctest --test-dir build/Debug -R 'NativePlugin|NativeHistoryPlugin' --output-on-f
 
 实际供应商实现参考 `plugins/data/tushare/native_plugin.cpp`。新增来源不需要修改 Core、数据服务分支或 UI 来源列表：数据服务从插件读取能力，经 Protobuf 返回 Terminal。历史目录和存储仍使用统一身份、来源与归一化版本，供应商私有代码不进入通用路径规则。
 
-服务配置为 v5，分别记录 Data/Task 配对和各自插件摘要集合，插件清单参与服务修订号。
+服务配置保存 Data/Task 配对和各自插件摘要集合，插件清单参与内容修订号；没有内部持久格式递增计数或旧格式迁移。
 
 ## 在 Terminal 中管理插件
 
@@ -119,7 +119,7 @@ CTP 的 `plugins/execution/ctp/ctp_reconciliation.*` 负责委托、成交和持
 
 Terminal 的 `native/plugin_catalog.*` 负责读取动态库目录和解析用户选择，以 `PluginCatalog`、`PluginArtifact`、`PluginSelection` 传递结果；JSON 仅在生成界面快照时构造。`native/node_snapshot.*` 负责节点状态的展示序列化，NodeClient 和部署命令直接使用类型化节点状态及服务种类。`ServiceDeployment`、`ServiceUpdate` 明确列出目标平台、程序、插件、目录和修订号，部署与升级共用 `native/service_programs.*` 的程序路径解析。
 
-Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务插件目录发布；`service_configuration.*` 负责服务配置的读取、持久化与修订号计算，进程对象仍由 Agent 持有。配置只保留当前结构；内容修订号和插件目录摘要用于验证身份。Terminal 启动页和设置页共用 `src/host/native-plugins.ts` 的能力筛选与选择操作；服务端始终重新验证选择。
+Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务插件目录发布；`service_configuration.*` 负责服务配置的读取、持久化与修订号计算，进程对象仍由 Agent 持有。配置只保留当前结构；内容修订号和插件目录摘要用于验证身份。Native 目录通过 `PluginCatalogEntry::selectable_for_data_tasks()` 统一计算可选资格，随 `native_plugins.items[].selectable` 返回。Terminal 启动页和设置页共用 `src/host/native-plugins.ts` 的选择操作，不解释能力 ID/版本；Native 和 Agent 在各自边界重新验证当前选择与部署条件。
 
 ## 数据源凭据
 
@@ -161,9 +161,9 @@ Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务�
 
 当前 CTP 交易和回测仍使用订单限额的既有配置表单，没有开放任意风控配置编辑器或多风控组合。该 ABI 也不声明有状态风控的快照能力；新增算法需要围绕实际配置和恢复语义扩展契约。
 
-## 其他现有插件的迁移顺序
+## 静态模块与动态化条件
 
-现有代码检查后的下一步顺序如下；这里记录实际调用与恢复约束，不声明尚未实现的 ABI。
+策略、存储、CTP/执行和内部工具继续按当前调用方式组织。只有出现独立交付需求时，才为对应能力设计动态 ABI；下表是需要满足的条件，不是全模块动态化计划。
 
 | 插件 | 当前入口 | 动态化前必须闭合的边界 |
 | --- | --- | --- |
@@ -179,4 +179,4 @@ Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务�
 
 `asterion.history.response.v1`（`bindings/plugin/include/asterion/plugin/history_response.h`）是现有表读取实例上的只读可选观测，不替代表行接口。宿主在同一次成功 read 后调用 get，至多接收一份 1 MiB 以内的原始响应体、格式标识和生产者接收时间；该调用不得请求供应商或再次申请请求额度。下一次读取开始时清除上次观测，失败/无观测不能复用旧响应。
 
-当前 Data 只接受受限 `tushare.fut_daily.raw.v1` 的 SHFE 日分区格式并独立复核允许结构。未知格式拒绝；没有该能力的源仍交付规范化行，原文状态为未记录。生产实现仅在 Tushare 的允许成功响应提供原文；测试 C 源模拟同一格式，不是另一家真实供应商接入。不得输出请求、鉴权值、HTTP头或未经允许的响应字段；不能将修改后的对象标为完整原始字节。插件为现有受信任原生代码，能力不构成进程隔离。
+Data 接受受限 `tushare.fut_daily.raw.v1` 的 SHFE 日分区格式，以及 SHFE 保证金的 `shfe.margin.reports` 双报表证据容器，并独立复核允许结构。后者保留两份原报表字符串，不能称为单个 HTTP 响应。未知格式拒绝；没有该能力的源仍交付规范化行，原文状态为未记录。测试 C 源仅用于契约验证。不得输出请求、鉴权值、HTTP头或未经允许的响应字段；不能将修改后的对象标为完整原始字节。插件为现有受信任原生代码，能力不构成进程隔离。

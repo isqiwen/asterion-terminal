@@ -1,5 +1,6 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useEffect, useRef, useState } from "react";
-import type { SavedNamedDataset, Snapshot, TerminalCommand } from "../bridge/client";
+import type { SavedNamedDataset, Snapshot } from "../bridge/client";
 import { translate, type MessageValues } from "../i18n";
 import { asDisplayError, ErrorNotice, type DisplayError } from "../i18n/errors";
 import type { HistoryQuery } from "./useHistoryDatasets";
@@ -15,7 +16,7 @@ export function SavedDatasets({
   snapshot: Snapshot | null;
   busy: boolean;
   query: HistoryQuery;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
   // Changes whenever a dataset was saved elsewhere on the page.
   revision: number;
   onSelected?: () => void;
@@ -129,7 +130,7 @@ export function SaveSelection({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
   onSaved: () => void;
 }) {
   const [name, setName] = useState("");

@@ -1,3 +1,4 @@
+import type { CommandCall } from "../bridge/commands";
 import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import type { dailyTableOf } from "./useDailyTable";
@@ -48,10 +49,7 @@ export function DailyBarsPicker({
   kind: keyof typeof kinds;
   daily: ReturnType<typeof dailyTableOf>;
   disabled: boolean;
-  select: (
-    command: (typeof kinds)[keyof typeof kinds]["command"],
-    params: Record<string, unknown>,
-  ) => void;
+  select: (...args: CommandCall<"data.dataset.daily" | "data.dataset.product">) => void;
 }) {
   const words = kinds[kind];
   const [instrument, setInstrument] = useState("");
@@ -66,12 +64,10 @@ export function DailyBarsPicker({
       aria-label={t(words.name)}
       onSubmit={event => {
         event.preventDefault();
-        select(words.command, {
-          [words.parameter]: instrument.trim(),
-          daily: daily.table,
-          begin_day: begin,
-          end_day: end,
-        });
+        const range = { daily: daily.table, begin_day: begin, end_day: end };
+        if (kind === "contract")
+          select("data.dataset.daily", { ...range, contract_id: instrument.trim() });
+        else select("data.dataset.product", { ...range, product: instrument.trim() });
       }}
     >
       <p className="subtle">{t(words.about)}</p>

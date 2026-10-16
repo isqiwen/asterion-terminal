@@ -441,23 +441,12 @@ backtest::v1::BacktestResult replay(
             && (d + 1 == schedule.days() || schedule.day(d + 1).trading_day >= until))
             return result;
     }
-    auto summary = execution.snapshot();
-    const auto manifest = protocol::decode_input(p, protocol::DatasetView::metadata);
-    Json contracts = Json::array();
-    for (std::size_t c = 0; c < manifest.at("contracts").size(); ++c) {
-        const auto& item = manifest.at("contracts").at(c);
-        contracts.push_back(
-            {{"contract", item.at("dataset").at("contract")},
-                {"costs",
-                    protocol::decode_costs(protocol::encode_costs(account.contracts()[c].costs))},
-                {"cost_schedule", item.at("cost_schedule")},
-                {"mark", summary.at("marks").at(c).at("mark")}});
-    }
-    summary.erase("marks");
-    summary["contracts"] = std::move(contracts);
-    summary["risk"] = manifest.at("risk");
-    summary["storage_state"] = "ready";
-    *result.mutable_account() = protocol::encode_snapshot(summary);
+    auto* summary = result.mutable_account();
+    *summary = protocol::encode_snapshot(account, p);
+    summary->set_cursor(static_cast<std::uint32_t>(execution.cursor()));
+    summary->set_total(static_cast<std::uint32_t>(execution.size()));
+    if (const auto timestamp = execution.timestamp_ns())
+        summary->set_timestamp_ns(*timestamp);
     result.mutable_max_drawdown()->set_units(drawdown.raw());
     for (auto& follower : followers)
         for (auto& strategy : follower.strategies)

@@ -18,6 +18,21 @@
 namespace asterion::trading {
 namespace {
 
+protocol::v1::Offset wire_offset(Offset offset)
+{
+    switch (offset) {
+        case Offset::open:
+            return protocol::v1::OPEN;
+        case Offset::close_today:
+            return protocol::v1::CLOSE_TODAY;
+        case Offset::close_yesterday:
+            return protocol::v1::CLOSE_YESTERDAY;
+        case Offset::close:
+            return protocol::v1::CLOSE;
+    }
+    throw std::logic_error("invalid open/close offset");
+}
+
 constexpr auto quote_validity = std::chrono::seconds(10);
 
 std::string text(const Json& value, const char* key)
@@ -140,7 +155,8 @@ LiveAccountState::LiveAccountState(
         std::move(post),
         persistence);
     capacity_ = journal_->initial_capacity();
-    auto definition = manifest.at("policy");
+    auto definition =
+        PolicyDefinition::from_wire(protocol::encode_live_policy(manifest.at("policy")));
     auto revision =
         create_manifest.is_null() ? text(header_, "policy_revision") : unique_process_id();
     auto artifact = create_manifest.is_null() ? text(header_, "risk_artifact") : std::string{};
@@ -185,8 +201,7 @@ LiveAccountState::LiveAccountState(
                 revision = command.new_policy_revision;
                 if (!revisions.insert(revision).second)
                     throw std::invalid_argument("account policy revision is repeated");
-                definition =
-                    protocol::decode_live_policy(protocol::encode_live_policy(change->definition));
+                definition = change->definition;
                 artifact = command.risk_artifact;
             } else if (const auto* resolve = request.as<ResolveOrder>()) {
                 if (!intents_.erase(resolve->order_id))
@@ -205,7 +220,8 @@ LiveAccountState::LiveAccountState(
     auto algorithm = create_manifest.is_null()
         ? risk_providers::Module::pinned(directory / "plugins" / artifact, artifact)
         : risk_providers::Module::selected();
-    policy_ = std::make_unique<AccountPolicy>(definition, revision, std::move(algorithm));
+    policy_ =
+        std::make_unique<AccountPolicy>(std::move(definition), revision, std::move(algorithm));
     trader_ = std::make_unique<ctp::Trader>(
         ctp_library,
         directory / "ctp-flow",
@@ -322,7 +338,7 @@ void LiveAccountState::connect(std::string password, std::string auth_code)
 void LiveAccountState::query_costs()
 {
     std::vector<std::pair<InstrumentId, std::string>> contracts;
-    for (const auto& c : policy_->contracts)
+    for (const auto& c : policy_->definition.contracts)
         contracts.emplace_back(c.instrument.id, c.product);
     trader_->query_costs(contracts);
 }
@@ -715,8 +731,10 @@ AccountCommand LiveAccountState::cancel_run_orders()
         }
     std::exception_ptr failure;
     for (const auto& id : due) {
-        const auto request = AccountRequest::parse(
-            {{"request_id", "cancel." + id}, {"action", "cancel"}, {"order_id", id}});
+        protocol::v1::Command command;
+        command.set_request_id("cancel." + id);
+        command.mutable_cancel()->set_order_id(id);
+        const auto request = AccountRequest::from_wire(command);
         try {
             co_await cancel(request, id);
         } catch (...) {
@@ -756,16 +774,17 @@ AccountCommand LiveAccountState::place_target(std::uint64_t control)
     for (const auto& order : target_orders(*bar.target, *held, close_policy(id.venue))) {
         const auto order_id =
             run.id + "." + std::to_string(bar.start_ms) + std::string(order.suffix);
-        const auto request = AccountRequest::parse(
-            {{"request_id", order_id},
-                {"action", "submit"},
-                {"order_id", order_id},
-                {"venue", id.venue},
-                {"symbol", id.symbol},
-                {"side", side_name(order.side)},
-                {"offset", offset_name(order.offset)},
-                {"quantity", order.quantity.str()},
-                {"price", bar.close.str()}});
+        protocol::v1::Command command;
+        command.set_request_id(order_id);
+        auto* value = command.mutable_submit();
+        value->set_order_id(order_id);
+        value->set_venue(id.venue);
+        value->set_symbol(id.symbol);
+        value->set_side(order.side == Side::buy ? protocol::v1::BUY : protocol::v1::SELL);
+        value->set_offset(wire_offset(order.offset));
+        value->mutable_quantity()->set_units(order.quantity.raw());
+        value->mutable_price()->set_units(bar.close.raw());
+        const auto request = AccountRequest::from_wire(command);
         std::exception_ptr failure;
         try {
             co_await submit(request, *request.as<SubmitOrder>(), control);
@@ -807,7 +826,8 @@ void LiveAccountState::check_price(
     const auto distance = order.limit_price > *reference ? order.limit_price - *reference
                                                          : *reference - order.limit_price;
     // Rounded: an exact product could exceed eight decimal places.
-    const auto bound = multiply(*reference, policy_->max_price_deviation, Rounding::half_up);
+    const auto bound =
+        multiply(*reference, policy_->definition.max_price_deviation, Rounding::half_up);
     if (distance > bound)
         throw std::invalid_argument(
             "limit price deviates from the latest price beyond the session limit");
@@ -1075,137 +1095,137 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         && identities_ready(state);
 }
 
-Json LiveAccountState::snapshot() const
+protocol::v1::LiveSnapshot LiveAccountState::snapshot() const
 {
     const auto state = trader_->snapshot();
     log_broker_observations(state);
-    const auto capacity = capacity_;
-    const auto definition = policy_->definition();
-    Json result{
-        {"broker",
-            {{"broker_id", broker_id_},
-                {"user_id", investor_id_},
-                {"front", trade_front_},
-                {"app_id", app_id_}}},
-        {"policy_revision", policy_->revision},
-        {"risk_artifact", policy_->algorithm.artifact()},
-        {"account_id", account_id_},
-        {"segment_count", capacity.segment_count},
-        {"risk", definition.at("risk")},
-        {"max_price_deviation", definition.at("max_price_deviation")},
-        {"contracts", definition.at("contracts")},
-        {"phase",
-            broker_phase_name(
-                state.phase == BrokerPhase::ready && !identities_ready(state)
-                    ? BrokerPhase::synchronizing
-                    : state.phase)},
-        {"error_code", state.error_code},
-        {"trading_day", state.trading_day},
-        {"synchronized_ms", state.synchronized_ms},
-        {"funds", nullptr},
-        {"positions", Json::array()},
-        {"orders", Json::array()},
-        {"trades", Json::array()},
-        {"authorization", authorization_ && !failed_ ? authorization_->json() : Json(nullptr)},
-        {"strategy", nullptr},
-        {"unconfirmed", Json::array()},
-        {"costs", Json::array()},
-        {"storage_state", failed_ ? "recovery_required" : "ready"},
-        {"capacity",
-            {{"records_used", capacity.records_used},
-                {"records_limit", capacity.records_limit},
-                {"bytes_used", capacity.bytes_used},
-                {"bytes_limit", capacity.bytes_limit}}}
-    };
+    protocol::v1::LiveSnapshot result;
+    auto* broker = result.mutable_broker();
+    broker->set_broker_id(broker_id_);
+    broker->set_user_id(investor_id_);
+    broker->set_front(trade_front_);
+    broker->set_app_id(app_id_);
+    result.set_account_id(account_id_);
+    result.set_policy_revision(policy_->revision);
+    result.set_risk_artifact(policy_->algorithm.artifact());
+    auto* risk = result.mutable_risk();
+    risk->mutable_max_order_quantity()->set_units(
+        policy_->definition.limits.max_order_quantity.raw());
+    risk->mutable_max_gross_quantity()->set_units(
+        policy_->definition.limits.max_gross_quantity.raw());
+    risk->set_max_working_orders(policy_->definition.limits.max_working_orders);
+    result.mutable_max_price_deviation()->set_units(policy_->definition.max_price_deviation.raw());
+    for (const auto& contract : policy_->definition.contracts) {
+        const auto& terms = contract.instrument;
+        auto* item = result.add_contracts();
+        item->set_venue(terms.id.venue);
+        item->set_symbol(terms.id.symbol);
+        item->set_currency(terms.quote_currency);
+        item->mutable_price_increment()->set_units(terms.price_increment.raw());
+        item->mutable_quantity_increment()->set_units(terms.quantity_increment.raw());
+        item->mutable_multiplier()->set_units(terms.multiplier.raw());
+        item->set_product(contract.product);
+        item->set_delivery_month(contract.delivery_month);
+    }
+    result.set_phase(
+        std::string(broker_phase_name(
+            state.phase == BrokerPhase::ready && !identities_ready(state)
+                ? BrokerPhase::synchronizing
+                : state.phase)));
+    result.set_error_code(state.error_code);
+    result.set_trading_day(state.trading_day);
+    result.set_synchronized_ms(state.synchronized_ms);
+    result.set_recovery_required(failed_);
+    result.set_segment_count(capacity_.segment_count);
+    auto* capacity = result.mutable_capacity();
+    capacity->set_records_used(capacity_.records_used);
+    capacity->set_records_limit(capacity_.records_limit);
+    capacity->set_bytes_used(capacity_.bytes_used);
+    capacity->set_bytes_limit(capacity_.bytes_limit);
+    if (authorization_ && !failed_)
+        result.mutable_authorization()->set_authorized_at_ms(authorization_->authorized_at_ms);
     if (run_) {
-        Json orders = Json::array();
-        for (const auto& order : run_->orders)
-            if (intents_.contains(order.first))
-                orders.push_back(order.first);
-        result["strategy"] = {
-            {"id", run_->id},
-            {"venue", run_->instrument.id.venue},
-            {"symbol", run_->instrument.id.symbol},
-            {"strategy", protocol::decode_strategy(run_->strategy)},
-            {"warmup", protocol::strategy_warmup(run_->strategy)},
-            {"state", running() ? "running" : "stopped"},
-            {"reason", run_->ended},
-            {"started_ms", run_->started_ms},
-            {"bars", run_->bars},
-            {"bar_ms", run_->bar ? run_->bar->start_ms : 0},
-            {"target",
-                run_->bar && run_->bar->target ? Json(run_->bar->target->str()) : Json(nullptr)},
-            {"orders", std::move(orders)}
-        };
+        auto* item = result.mutable_strategy();
+        item->set_id(run_->id);
+        item->set_venue(run_->instrument.id.venue);
+        item->set_symbol(run_->instrument.id.symbol);
+        *item->mutable_strategy() = run_->strategy;
+        item->set_warmup(protocol::strategy_warmup(run_->strategy));
+        item->set_state(running() ? "running" : "stopped");
+        item->set_reason(run_->ended);
+        item->set_started_ms(run_->started_ms);
+        item->set_bars(run_->bars);
+        item->set_bar_ms(run_->bar ? run_->bar->start_ms : 0);
+        if (run_->bar && run_->bar->target)
+            item->mutable_target()->set_units(run_->bar->target->raw());
+        for (const auto& [order, cancel_requested] : run_->orders)
+            if (intents_.contains(order))
+                item->add_orders(order);
     }
-    for (const auto& c : state.costs) {
-        Json costs = nullptr;
-        if (c.costs)
-            costs = {
-                {"margin_per_lot", c.costs->margin_per_lot.str()},
-                {"open_fee", c.costs->open_fee.str()},
-                {"close_today_fee", c.costs->close_today_fee.str()},
-                {"close_yesterday_fee", c.costs->close_yesterday_fee.str()},
-                {"margin_rate", c.costs->margin_rate.str()},
-                {"open_fee_rate", c.costs->open_fee_rate.str()},
-                {"close_today_fee_rate", c.costs->close_today_fee_rate.str()},
-                {"close_yesterday_fee_rate", c.costs->close_yesterday_fee_rate.str()}
-            };
-        result["costs"].push_back(
-            {{"venue", c.instrument.venue},
-                {"symbol", c.instrument.symbol},
-                {"state", broker_costs_state_name(c.state)},
-                {"error_code", c.error_code},
-                {"queried_ms", c.queried_ms},
-                {"costs", std::move(costs)}});
+    for (const auto& costs : state.costs) {
+        auto* item = result.add_costs();
+        item->set_venue(costs.instrument.venue);
+        item->set_symbol(costs.instrument.symbol);
+        item->set_state(std::string(broker_costs_state_name(costs.state)));
+        item->set_error_code(costs.error_code);
+        item->set_queried_ms(costs.queried_ms);
+        if (costs.costs)
+            *item->mutable_costs() = protocol::encode_costs(*costs.costs);
     }
-    if (state.funds)
-        result["funds"] = {
-            {"balance", state.funds->balance.str()},
-            {"available", state.funds->available.str()},
-            {"margin", state.funds->margin.str()},
-            {"commission", state.funds->commission.str()},
-            {"close_profit", state.funds->close_profit.str()},
-            {"position_profit", state.funds->position_profit.str()}
-        };
-    for (const auto& p : state.positions)
-        result["positions"].push_back(
-            {{"venue", p.instrument.venue},
-                {"symbol", p.instrument.symbol},
-                {"side", side_name(p.side)},
-                {"today", p.today.str()},
-                {"yesterday", p.yesterday.str()}});
-    for (const auto& o : state.orders)
-        result["orders"].push_back(
-            {{"id", o.order_id},
-                {"broker_key", o.broker_key},
-                {"exchange_order_id", o.exchange_order_id},
-                {"venue", o.instrument.venue},
-                {"symbol", o.instrument.symbol},
-                {"side", side_name(o.side)},
-                {"offset", offset_name(o.offset)},
-                {"quantity", o.quantity.str()},
-                {"filled", o.filled.str()},
-                {"limit_price", o.limit_price.str()},
-                {"status", status_name(o.status)},
-                {"error_code", o.error_code}});
-    for (const auto& t : state.trades)
-        result["trades"].push_back(
-            {{"id", t.trade_id},
-                {"order_id", t.order_id},
-                {"venue", t.instrument.venue},
-                {"symbol", t.instrument.symbol},
-                {"side", side_name(t.side)},
-                {"offset", offset_name(t.offset)},
-                {"quantity", t.quantity.str()},
-                {"price", t.price.str()},
-                {"trading_day", t.trading_day},
-                {"trade_time", t.trade_time}});
-    for (const auto& [order_id, intent] : unconfirmed(state))
-        result["unconfirmed"].push_back(
-            {{"id", order_id},
-                {"broker_key", intent->broker_key},
-                {"trading_day", intent->trading_day}});
+    if (state.funds) {
+        auto* funds = result.mutable_funds();
+        funds->mutable_balance()->set_units(state.funds->balance.raw());
+        funds->mutable_available()->set_units(state.funds->available.raw());
+        funds->mutable_margin()->set_units(state.funds->margin.raw());
+        funds->mutable_commission()->set_units(state.funds->commission.raw());
+        funds->mutable_close_profit()->set_units(state.funds->close_profit.raw());
+        funds->mutable_position_profit()->set_units(state.funds->position_profit.raw());
+    }
+    const auto wire_side = [](Side side) {
+        return side == Side::buy ? protocol::v1::BUY : protocol::v1::SELL;
+    };
+    for (const auto& position : state.positions) {
+        auto* item = result.add_positions();
+        item->set_venue(position.instrument.venue);
+        item->set_symbol(position.instrument.symbol);
+        item->set_side(wire_side(position.side));
+        item->mutable_today()->set_units(position.today.raw());
+        item->mutable_yesterday()->set_units(position.yesterday.raw());
+    }
+    for (const auto& order : state.orders) {
+        auto* item = result.add_orders();
+        item->set_id(order.order_id);
+        item->set_broker_key(order.broker_key);
+        item->set_exchange_order_id(order.exchange_order_id);
+        item->set_venue(order.instrument.venue);
+        item->set_symbol(order.instrument.symbol);
+        item->set_side(wire_side(order.side));
+        item->set_offset(wire_offset(order.offset));
+        item->mutable_quantity()->set_units(order.quantity.raw());
+        item->mutable_filled()->set_units(order.filled.raw());
+        item->mutable_limit_price()->set_units(order.limit_price.raw());
+        item->set_status(status_name(order.status));
+        item->set_error_code(order.error_code);
+    }
+    for (const auto& trade : state.trades) {
+        auto* item = result.add_trades();
+        item->set_id(trade.trade_id);
+        item->set_order_id(trade.order_id);
+        item->set_venue(trade.instrument.venue);
+        item->set_symbol(trade.instrument.symbol);
+        item->set_side(wire_side(trade.side));
+        item->set_offset(wire_offset(trade.offset));
+        item->mutable_quantity()->set_units(trade.quantity.raw());
+        item->mutable_price()->set_units(trade.price.raw());
+        item->set_trading_day(trade.trading_day);
+        item->set_trade_time(trade.trade_time);
+    }
+    for (const auto& [order, intent] : unconfirmed(state)) {
+        auto* item = result.add_unconfirmed();
+        item->set_id(order);
+        item->set_broker_key(intent->broker_key);
+        item->set_trading_day(intent->trading_day);
+    }
     return result;
 }
 

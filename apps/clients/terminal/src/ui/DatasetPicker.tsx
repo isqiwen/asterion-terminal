@@ -1,8 +1,9 @@
+import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { SaveSelection, SavedDatasets } from "./SavedDatasets";
 import { useEffect, useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
-import type { HistoryDatasetRecord, Snapshot, TerminalCommand } from "../bridge/client";
+import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
 import { useHistoryDatasets, type HistoryQuery } from "./useHistoryDatasets";
 import { useDailyTable, type DailyTableQuery } from "./useDailyTable";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
@@ -48,7 +49,7 @@ export function DatasetPicker({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
   query: HistoryQuery & DailyTableQuery;
   locked?: boolean;
   sourceRequest?: { id: string; connection: string; request: string };
@@ -150,15 +151,15 @@ export function DatasetPicker({
     snapshot?.data?.online,
     draft.consumed,
   ]);
-  async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
+  async function run(...args: CommandCall) {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       if (
-        method === "data.dataset.select" ||
-        method === "data.dataset.daily" ||
-        method === "data.dataset.series" ||
-        method === "data.dataset.product"
+        args[0] === "data.dataset.select" ||
+        args[0] === "data.dataset.daily" ||
+        args[0] === "data.dataset.series" ||
+        args[0] === "data.dataset.product"
       )
         onSelected?.();
     } catch (reason) {
@@ -339,7 +340,7 @@ export function DatasetPicker({
               kind="contract"
               daily={daily.held}
               disabled={busy || !data.online || daily.loading}
-              select={(command, params) => void run(command, params)}
+              select={(...args) => void run(...args)}
             />
           </div>
           <div hidden={method !== "daily-series"}>
@@ -348,7 +349,7 @@ export function DatasetPicker({
               kind="product"
               daily={daily.held}
               disabled={busy || !data.online || daily.loading}
-              select={(command, params) => void run(command, params)}
+              select={(...args) => void run(...args)}
             />
           </div>
           <div hidden={method !== "minute"}>

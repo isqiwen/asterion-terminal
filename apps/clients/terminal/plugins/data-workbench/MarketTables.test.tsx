@@ -242,7 +242,7 @@ test("a column is named for what it means in its table, with what a reader must 
     ],
   };
   const asked: Record<string, unknown>[] = [];
-  const query: TerminalContext["query"] = async (method, params) => {
+  const query: TerminalContext["query"] = async (...[method, params]) => {
     if (method !== "data.tables.page") return { ...snapshot, table_coverage: held };
     asked.push(params!);
     return {

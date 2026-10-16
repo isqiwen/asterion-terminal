@@ -392,14 +392,9 @@ std::optional<std::int64_t> PaperExecution::timestamp_ns() const
     return bar(event(cursor_ - 1)).timestamp_ns;
 }
 
-Json PaperExecution::snapshot() const
+PaperExecution::Snapshot PaperExecution::snapshot() const
 {
-    auto result = account_.snapshot();
-    result["cursor"] = cursor_;
-    result["total"] = size();
-    result["timestamp_ns"] = cursor_ ? Json(std::to_string(*timestamp_ns())) : Json(nullptr);
-    result["mode"] = "historical_paper";
-    return result;
+    return {account_.snapshot(), cursor_, size(), timestamp_ns()};
 }
 
 } // namespace asterion

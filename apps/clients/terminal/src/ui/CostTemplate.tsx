@@ -260,9 +260,16 @@ export function contractCostRequest(
       {
         effective_from: owner.first_day,
         source: "User-entered fixed costs",
-        values: Object.fromEntries(
-          costFields.map(field => [field, (drafts[contractKey(owner)] ?? blank)[field]]),
-        ),
+        values: {
+          margin_per_lot: (drafts[contractKey(owner)] ?? blank).margin_per_lot,
+          open_fee: (drafts[contractKey(owner)] ?? blank).open_fee,
+          close_today_fee: (drafts[contractKey(owner)] ?? blank).close_today_fee,
+          close_yesterday_fee: (drafts[contractKey(owner)] ?? blank).close_yesterday_fee,
+          margin_rate: (drafts[contractKey(owner)] ?? blank).margin_rate,
+          open_fee_rate: (drafts[contractKey(owner)] ?? blank).open_fee_rate,
+          close_today_fee_rate: (drafts[contractKey(owner)] ?? blank).close_today_fee_rate,
+          close_yesterday_fee_rate: (drafts[contractKey(owner)] ?? blank).close_yesterday_fee_rate,
+        },
       },
     ],
   });

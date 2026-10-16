@@ -55,8 +55,7 @@ export const test = base.extend<{
         await call("market.local");
         const plugins = (await call("native.plugins.inspect")).native_plugins.items
           .filter(
-            (item: { state: string; managed?: boolean }) =>
-              item.state === "available" && !item.managed,
+            (item: { selectable: boolean; managed?: boolean }) => item.selectable && !item.managed,
           )
           .map((item: { sha256: string }) => item.sha256);
         await call("node.data_tasks.local.create", { plugins });

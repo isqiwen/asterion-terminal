@@ -32,16 +32,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
     plugins: [
       ...state.native_plugins.items
         .filter(
-          (item: { managed?: boolean; state: string; capabilities: { id: string }[] }) =>
-            !item.managed &&
-            item.state === "available" &&
-            item.capabilities.some(capability =>
-              [
-                "asterion.history.v3",
-                "asterion.history.tables.v1",
-                "asterion.risk.pre-trade.v1",
-              ].includes(capability.id),
-            ),
+          (item: { managed?: boolean; selectable: boolean }) => !item.managed && item.selectable,
         )
         .map((item: { sha256: string }) => item.sha256),
       candidate.sha256,

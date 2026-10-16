@@ -1,4 +1,5 @@
-import type { Snapshot, TerminalCommand } from "../bridge/client";
+import type { CommandHandler } from "../bridge/commands";
+import type { Snapshot } from "../bridge/client";
 import { t } from "./service-state";
 export function AgentProgram({
   agentProgram,
@@ -7,7 +8,7 @@ export function AgentProgram({
 }: {
   agentProgram: Snapshot["agent_program"];
   busy: boolean;
-  run: (method: TerminalCommand, params: Record<string, string>) => Promise<boolean>;
+  run: CommandHandler<boolean>;
 }) {
   return (
     <details>

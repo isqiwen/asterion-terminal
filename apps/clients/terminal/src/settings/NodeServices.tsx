@@ -1,3 +1,4 @@
+import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { useEffect, useState } from "react";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import type { NodeStatus, Snapshot, TerminalCommand } from "../bridge/client";
@@ -34,7 +35,7 @@ export function NodeServices({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   const [view, setView] = useState<"overview" | "machines">("overview");
   const [selected, setSelected] = useState("local");
@@ -50,10 +51,10 @@ export function NodeServices({
   const nodes = snapshot?.nodes ?? [];
   const node = nodes.find(n => n.id === selected);
   const disabled = busy;
-  async function run(method: TerminalCommand, params: Record<string, string> = {}) {
+  async function run(...args: CommandCall) {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

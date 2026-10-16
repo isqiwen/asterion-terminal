@@ -10,7 +10,6 @@ import { tableNames } from "./table-names";
 const Panel = lazy(() => import("./DataPanel").then(module => ({ default: module.DataPanel })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.data-workbench",
-  apiVersion: 1,
   commands: [
     "task.page",
     "data.download.budget.configure",

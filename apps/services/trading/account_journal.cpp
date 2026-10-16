@@ -245,7 +245,7 @@ AccountJournal::Write AccountJournal::restore_orders(std::string day, std::uint6
 
 AccountJournal::Write AccountJournal::prepare_policy(
     std::filesystem::path plugins,
-    Json definition,
+    PolicyDefinition definition,
     std::string revision,
     std::string requested_artifact,
     std::string current_artifact)
@@ -264,8 +264,10 @@ AccountJournal::Write AccountJournal::prepare_policy(
                 throw Error(
                     ErrorCode::conflict,
                     "requested policy algorithm is not the deployed risk plugin");
-            auto policy =
-                std::make_unique<AccountPolicy>(definition, revision, std::move(algorithm));
+            auto policy = std::make_unique<AccountPolicy>(
+                std::move(definition),
+                revision,
+                std::move(algorithm));
             policy->capture(plugins);
             Result result;
             result.policy = std::move(policy);

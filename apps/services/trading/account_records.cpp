@@ -13,26 +13,27 @@ std::string text(const Json& value, const char* key)
     return result;
 }
 
-Side side_of(const std::string& value)
+Offset offset_of(protocol::v1::Offset value)
 {
-    if (value == "buy")
-        return Side::buy;
-    if (value == "sell")
-        return Side::sell;
-    throw std::invalid_argument("invalid order side");
+    switch (value) {
+        case protocol::v1::OPEN:
+            return Offset::open;
+        case protocol::v1::CLOSE_TODAY:
+            return Offset::close_today;
+        case protocol::v1::CLOSE_YESTERDAY:
+            return Offset::close_yesterday;
+        case protocol::v1::CLOSE:
+            return Offset::close;
+        default:
+            throw std::invalid_argument("invalid open/close offset");
+    }
 }
 
-Offset offset_of(const std::string& value)
+const std::string& required_text(const std::string& value)
 {
-    if (value == "open")
-        return Offset::open;
-    if (value == "close_today")
-        return Offset::close_today;
-    if (value == "close_yesterday")
-        return Offset::close_yesterday;
-    if (value == "close")
-        return Offset::close;
-    throw std::invalid_argument("invalid open/close offset");
+    if (value.empty() || value.find('\0') != std::string::npos)
+        throw std::invalid_argument("invalid live trading field");
+    return value;
 }
 
 bool not_sent_code(int code)
@@ -90,26 +91,6 @@ JournalEntry command_body(const AccountRequest& request, std::string_view policy
 
 } // namespace
 
-std::string_view side_name(Side side) noexcept
-{
-    return side == Side::buy ? "buy" : "sell";
-}
-
-std::string_view offset_name(Offset offset) noexcept
-{
-    switch (offset) {
-        case Offset::open:
-            return "open";
-        case Offset::close_today:
-            return "close_today";
-        case Offset::close_yesterday:
-            return "close_yesterday";
-        case Offset::close:
-            return "close";
-    }
-    return "open";
-}
-
 std::string_view status_name(BrokerOrderStatus status) noexcept
 {
     switch (status) {
@@ -129,75 +110,72 @@ std::string_view status_name(BrokerOrderStatus status) noexcept
     return "submitted";
 }
 
-AccountRequest AccountRequest::parse(const Json& command)
+AccountRequest AccountRequest::from_wire(const protocol::v1::Command& command)
 {
     AccountRequest result;
-    result.id = text(command, "request_id");
+    result.id = command.request_id();
     validate_id(result.id);
-    const auto action = text(command, "action");
-    if (action == "submit") {
-        require_fields(
-            command,
-            {"request_id",
-                "action",
-                "order_id",
-                "venue",
-                "symbol",
-                "side",
-                "offset",
-                "quantity",
-                "price"});
-        auto order_id = text(command, "order_id");
-        validate_id(order_id);
-        result.operation = SubmitOrder{
-            {std::move(order_id),
-                {text(command, "venue"), text(command, "symbol")},
-                side_of(text(command, "side")),
-                Decimal::parse(text(command, "quantity")),
-                Decimal::parse(text(command, "price"))},
-            offset_of(text(command, "offset"))
-        };
-    } else if (action == "cancel") {
-        require_fields(command, {"request_id", "action", "order_id"});
-        result.operation = CancelOrder{text(command, "order_id")};
-    } else if (action == "live_authorize") {
-        require_fields(command, {"request_id", "action", "user_id"});
-        result.operation = Authorize{command.at("user_id").get<std::string>()};
-    } else if (action == "live_revoke") {
-        require_fields(command, {"request_id", "action"});
-        result.operation = Revoke{};
-    } else if (action == "live_resolve") {
-        require_fields(command, {"request_id", "action", "order_id"});
-        result.operation = ResolveOrder{text(command, "order_id")};
-    } else if (action == "live_policy") {
-        require_fields(command, {"request_id", "action", "policy", "risk_artifact"});
-        result.operation = ChangePolicy{command.at("policy"), text(command, "risk_artifact")};
-    } else if (action == "strategy_start") {
-        require_fields(
-            command,
-            {"request_id",
-                "action",
-                "venue",
-                "symbol",
-                "strategy",
-                "market_endpoint",
-                "market_service"});
-        // Order IDs derived from the run stay within the identity length.
-        if (result.id.size() > 64)
-            throw std::invalid_argument("strategy run identity is too long");
-        auto service = text(command, "market_service");
-        validate_id(service);
-        result.operation = StartStrategy{
-            {text(command, "venue"), text(command, "symbol")},
-            protocol::encode_strategy(command.at("strategy")),
-            text(command, "market_endpoint"),
-            std::move(service)
-        };
-    } else if (action == "strategy_stop") {
-        require_fields(command, {"request_id", "action"});
-        result.operation = StopStrategy{};
-    } else
-        throw std::invalid_argument("unsupported live trading operation");
+    // The current durable representation is derived once at the ingress boundary.
+    // It is never parsed to obtain the typed operation below.
+    result.command = protocol::decode_command(command);
+    switch (command.operation_case()) {
+        case protocol::v1::Command::kSubmit: {
+            const auto& order = command.submit();
+            validate_id(order.order_id());
+            result.operation = SubmitOrder{
+                {order.order_id(),
+                    {order.venue(), order.symbol()},
+                    order.side() == protocol::v1::BUY ? Side::buy : Side::sell,
+                    Decimal::from_raw(order.quantity().units()),
+                    Decimal::from_raw(order.price().units())},
+                offset_of(order.offset())
+            };
+            break;
+        }
+        case protocol::v1::Command::kCancel:
+            result.operation = CancelOrder{required_text(command.cancel().order_id())};
+            break;
+        case protocol::v1::Command::kLiveAuthorize:
+            result.operation = Authorize{command.live_authorize().user_id()};
+            break;
+        case protocol::v1::Command::kLiveRevoke:
+            result.operation = Revoke{};
+            break;
+        case protocol::v1::Command::kLiveResolve:
+            result.operation = ResolveOrder{required_text(command.live_resolve().order_id())};
+            break;
+        case protocol::v1::Command::kLivePolicy:
+            result.operation = ChangePolicy{
+                PolicyDefinition::from_wire(command.live_policy().policy()),
+                required_text(command.live_policy().risk_artifact())
+            };
+            break;
+        case protocol::v1::Command::kStrategyStart: {
+            const auto& start = command.strategy_start();
+            if (result.id.size() > 64)
+                throw std::invalid_argument("strategy run identity is too long");
+            validate_id(start.market_service());
+            result.operation = StartStrategy{
+                {start.venue(), start.symbol()},
+                start.strategy(),
+                required_text(start.market_endpoint()),
+                start.market_service()
+            };
+            break;
+        }
+        case protocol::v1::Command::kStrategyStop:
+            result.operation = StopStrategy{};
+            break;
+        default:
+            throw std::invalid_argument("unsupported live trading operation");
+    }
+    return result;
+}
+
+AccountRequest AccountRequest::from_record(const Json& command)
+{
+    auto result = from_wire(protocol::encode_command(command));
+    // Preserve recorded content exactly for request identity comparisons.
     result.command = command;
     return result;
 }
@@ -295,9 +273,14 @@ JournalRecord parse_record(const Json& record)
     if (!record.is_object() || !record.contains("command"))
         throw std::invalid_argument("invalid live trading record");
     const auto& command = record.at("command");
-    static_cast<void>(protocol::encode_command(command));
-    CommandRecord
-        result{AccountRequest::parse(command), text(record, "policy_revision"), {}, {}, {}, {}};
+    CommandRecord result{
+        AccountRequest::from_record(command),
+        text(record, "policy_revision"),
+        {},
+        {},
+        {},
+        {}
+    };
     if (const auto* policy = result.request.as<ChangePolicy>()) {
         require_fields(
             record,

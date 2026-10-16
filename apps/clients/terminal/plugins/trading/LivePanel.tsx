@@ -1,3 +1,4 @@
+import type { AccountRun, AccountMethod, CommandCall, LiveAction } from "../../src/bridge/commands";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { StrategyStart, StrategyStatus } from "./StrategyRun";
@@ -15,7 +16,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import { readableCtpConnection } from "../../src/bridge/client";
-import type { CtpConnection, LiveSession, TerminalCommand } from "../../src/bridge/client";
+import type { CtpConnection, LiveSession } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 
@@ -58,10 +59,12 @@ export function LivePanel(context: TerminalContext) {
   // Commands always carry the account they were issued for.
   const runFor =
     (id: string): Run =>
-    async (method, params = {}) => {
+    async (...[method, params]) => {
       setError("");
       try {
-        await trade(method, { account: id, ...params });
+        // The tuple map guarantees each method's fields; this adapter adds the
+        // one account it owns. Keep the identity last so callers cannot override it.
+        await trade(...([method, { ...params, account: id }] as CommandCall<AccountMethod>));
         return true;
       } catch (reason) {
         setError(asDisplayError(reason));
@@ -170,7 +173,7 @@ export function LivePanel(context: TerminalContext) {
   );
 }
 
-type Run = (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
+type Run = AccountRun;
 
 function CreateLive({
   account,
@@ -452,7 +455,12 @@ function LiveAccount({
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
   const confirmed = confirmedPolicy === live.policy_revision;
-  const [order, setOrder] = useState({
+  const [order, setOrder] = useState<{
+    contract: string;
+    offset: Extract<LiveAction, { action: "submit" }>["offset"];
+    quantity: string;
+    price: string;
+  }>({
     contract: "",
     offset: "open",
     quantity: "1",
@@ -471,7 +479,7 @@ function LiveAccount({
           ? "close_today"
           : order.offset
         : "close";
-  const act = (params: Record<string, unknown>) =>
+  const act = (params: LiveAction) =>
     run("live.act", {
       request_id: crypto.randomUUID(),
       account_id: live.account_id,
@@ -828,7 +836,9 @@ function LiveAccount({
                 <select
                   aria-label={t("开平仓")}
                   value={offset}
-                  onChange={event => setOrder({ ...order, offset: event.target.value })}
+                  onChange={event =>
+                    setOrder({ ...order, offset: event.target.value as typeof order.offset })
+                  }
                 >
                   <option value="open">{t("开仓")}</option>
                   {explicitBuckets ? (

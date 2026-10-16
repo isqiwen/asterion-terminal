@@ -65,8 +65,8 @@ const products: TableProduct[] = [
 test("instruments of the market-wide table are submitted together under the store's snapshot", async () => {
   const asked: [string, Record<string, unknown>][] = [];
   const snapshot = readySnapshot();
-  const query: TerminalContext["query"] = async (method, params) => {
-    asked.push([method, params]);
+  const query: TerminalContext["query"] = async (...[method, params]) => {
+    asked.push([method, params ?? {}]);
     return method === "data.tables.products"
       ? { ...snapshot, table_products: products }
       : { ...snapshot, table_coverage: coverage };
@@ -190,7 +190,7 @@ test("with no daily table stored the form says so and has nothing to start", asy
 });
 
 test("what is chosen and submitted belongs to the services it was made on", async () => {
-  const query: TerminalContext["query"] = async method =>
+  const query: TerminalContext["query"] = async (...[method]) =>
     method === "data.tables.products"
       ? { ...readySnapshot(), table_products: products }
       : { ...readySnapshot(), table_coverage: coverage };

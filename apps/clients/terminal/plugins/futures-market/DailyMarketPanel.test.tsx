@@ -86,7 +86,7 @@ const contextFor = (snapshot: Snapshot, query: TerminalContext["query"]): Termin
 
 test("daily-only contracts select a month and pin the chart to the catalog snapshot", async () => {
   const snapshot = readySnapshot();
-  const query = vi.fn<TerminalContext["query"]>(async (method, params) => ({
+  const query = vi.fn<TerminalContext["query"]>(async (...[method, params]) => ({
     ...answer(snapshot, method),
     ...(method === "data.tables.listed_contracts"
       ? {
@@ -122,7 +122,7 @@ test("a delayed catalog from the previous data service cannot select a contract"
   let deliver: (value: Snapshot) => void = () => {
     throw new Error("query not started");
   };
-  const query = vi.fn<TerminalContext["query"]>(async method => {
+  const query = vi.fn<TerminalContext["query"]>(async (...[method]) => {
     if (method === "data.tables.listed_contracts")
       return new Promise(resolve => {
         deliver = resolve;

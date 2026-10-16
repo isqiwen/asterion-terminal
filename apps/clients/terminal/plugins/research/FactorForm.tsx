@@ -1,3 +1,4 @@
+import type { CommandParams } from "../../src/bridge/commands";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useWorkspaceDraft,
@@ -40,7 +41,7 @@ function FactorParameters({
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   kind: Kind;
   factor?: FactorKind;
-  series: Record<string, unknown> | null;
+  series: CommandParams["factor.submit"]["series"] | null;
   identity: string;
   observations?: number;
   selectionCount?: number;
@@ -69,7 +70,8 @@ function FactorParameters({
     event.preventDefault();
     const id = pendingId ?? `factor-${crypto.randomUUID()}`;
     setPendingId(id);
-    const payload = {
+    if (!series || !factor) return;
+    const payload: CommandParams["factor.submit"] = {
       id,
       series,
       factor,
@@ -515,7 +517,7 @@ export function TableFactorForm({
     range.begin <= range.end &&
     !unavailable;
   // A factor reads closes only: the contract list is not part of its request.
-  const series = complete
+  const series: CommandParams["factor.submit"]["series"] | null = complete
     ? {
         kind: "tables",
         snapshot: daily.table.snapshot,

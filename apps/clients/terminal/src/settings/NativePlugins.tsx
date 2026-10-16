@@ -1,7 +1,8 @@
+import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { request } from "../bridge/client";
 import { desktop, open } from "../bridge/desktop";
 import { useEffect, useState } from "react";
-import type { NativePluginInfo, Snapshot, TerminalCommand } from "../bridge/client";
+import type { NativePluginInfo, Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import {
   availableDataTaskPlugins,
@@ -14,7 +15,7 @@ const t = (key: string) => translate("host", key);
 type Props = {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 };
 type Service = NonNullable<Snapshot["nodes"][number]["health"]>["services"][number];
 // A selected required plugin cannot be cleared; choosing another version replaces it.
@@ -79,10 +80,10 @@ function ServicePlugins({
       hashes: selectPlugin(selected, hash, checked, items),
     });
   };
-  const run = async (method: TerminalCommand, params: Record<string, unknown>) => {
+  const run = async (...args: CommandCall) => {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

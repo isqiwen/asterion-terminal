@@ -6,18 +6,24 @@
 #include <fstream>
 #include <regex>
 #include <asterion/kernel/process/artifact.hpp>
+#include <asterion/plugin/history.h>
+#include <asterion/plugin/history_tables.h>
+#include <asterion/plugin/risk.h>
 #include <algorithm>
 #include <map>
 #include <set>
 
 namespace asterion::terminal {
 
-bool PluginCatalogEntry::supports_history() const
+bool PluginCatalogEntry::selectable_for_data_tasks() const
 {
-    return std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
-        return (capability.id == "asterion.history.v3" && capability.version == 3)
-            || (capability.id == "asterion.history.tables.v1" && capability.version == 1);
-    });
+    return availability == PluginAvailability::available
+        && std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
+               return (capability.id == AST_HISTORY_V3 && capability.version == 3)
+                   || (capability.id == AST_HISTORY_TABLES_V1 && capability.version == 1)
+                   || (capability.id == AST_RISK_V1 && capability.version == 1
+                       && capability.kind == "risk");
+           });
 }
 
 PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory)
@@ -60,19 +66,6 @@ PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory)
     return catalog;
 }
 
-namespace {
-
-bool data_task_capable(const PluginCatalogEntry& entry)
-{
-    return entry.supports_history()
-        || std::ranges::any_of(entry.descriptor.capabilities, [](const auto& item) {
-               return item.id == "asterion.risk.pre-trade.v1" && item.version == 1
-                   && item.kind == "risk";
-           });
-}
-
-} // namespace
-
 PluginSelection PluginCatalog::select_data_task_plugins(
     std::span<const std::string> hashes,
     std::span<const std::string> installed) const
@@ -97,7 +90,7 @@ PluginSelection PluginCatalog::select_data_task_plugins(
         });
         if (found == entries.end())
             throw std::invalid_argument("native plugin catalog changed; inspect again");
-        if (!data_task_capable(*found))
+        if (!found->selectable_for_data_tasks())
             throw std::invalid_argument(
                 "plugin does not provide a supported data or task capability");
         selection.uploads.push_back(found->artifact);
@@ -105,8 +98,8 @@ PluginSelection PluginCatalog::select_data_task_plugins(
     // Plugins shipped with the application are part of the product: one version
     // of each stays enabled. Only user-installed plugins are optional.
     for (const auto& entry : entries)
-        if (!entry.managed && entry.availability == PluginAvailability::available
-            && data_task_capable(entry) && !selected_ids.contains(entry.descriptor.id))
+        if (!entry.managed && entry.selectable_for_data_tasks()
+            && !selected_ids.contains(entry.descriptor.id))
             throw std::invalid_argument("bundled plugin is required: " + entry.descriptor.id);
     return selection;
 }
@@ -267,6 +260,7 @@ Json plugin_catalog_json(const PluginCatalog& catalog)
                 {"version", entry.descriptor.version},
                 {"sha256", entry.artifact.sha256},
                 {"capabilities", capabilities},
+                {"selectable", entry.selectable_for_data_tasks()},
                 {"state",
                     entry.availability == PluginAvailability::available ? "available" : "invalid"},
                 {"error", entry.error}});

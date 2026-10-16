@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/domain/order.hpp>
-#include <asterion/foundation/serialization.hpp>
 #include <optional>
 #include <memory>
 #include <set>
@@ -76,6 +75,7 @@ struct PositionLot
     Side side;
     bool today;
     Decimal quantity, price;
+    bool operator==(const PositionLot&) const = default;
 };
 
 struct AccountOrder
@@ -90,6 +90,41 @@ struct AccountFill
 {
     Fill execution;
     Decimal fee;
+};
+
+// Detached account observation. Monetary values remain Decimal until presentation.
+struct AccountSnapshot
+{
+    struct Mark
+    {
+        InstrumentId instrument;
+        Decimal price;
+        bool operator==(const Mark&) const = default;
+    };
+
+    struct OrderView
+    {
+        LimitOrder request;
+        Offset offset;
+        Decimal filled;
+        OrderState state;
+        bool operator==(const OrderView&) const = default;
+    };
+
+    struct FillView
+    {
+        Fill execution;
+        InstrumentId instrument;
+        Decimal fee;
+        bool operator==(const FillView&) const = default;
+    };
+
+    Decimal balance, equity, available, margin, frozen, fees, realized, unrealized;
+    std::vector<Mark> marks;
+    std::vector<PositionLot> positions;
+    std::vector<OrderView> orders;
+    std::vector<FillView> fills;
+    bool operator==(const AccountSnapshot&) const = default;
 };
 
 // Single-currency futures portfolio ledger over a fixed set of contracts.
@@ -147,7 +182,7 @@ public:
     // each contract trades at from then on. Orders, fills and marks are on it;
     // prices before stay what they were.
     void update_price_increments(const std::vector<Decimal>& increments);
-    Json snapshot() const;
+    AccountSnapshot snapshot() const;
 
     const std::vector<ContractTerms>& contracts() const noexcept
     {

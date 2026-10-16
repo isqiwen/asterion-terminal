@@ -1,3 +1,4 @@
+import type { CommandHandler } from "../../src/bridge/commands";
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 import { useEffect, useRef, useState } from "react";
 import { historySources, type HistorySource } from "./history-sources";
@@ -158,10 +159,10 @@ function SourceDownloads({
   const result = snapshot?.task_result ? source.dataset(snapshot.task_result) : null;
   const update = (key: keyof typeof form, value: string) =>
     setForm(previous => ({ ...previous, [key]: value }));
-  const run = async (method: Parameters<typeof trade>[0], params?: Record<string, unknown>) => {
+  const run: CommandHandler<boolean> = async (...args) => {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

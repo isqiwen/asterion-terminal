@@ -1,16 +1,8 @@
 import type { NativePluginInfo } from "../bridge/client";
 
 export function availableDataTaskPlugins(items: readonly NativePluginInfo[]): NativePluginInfo[] {
-  return items.filter(
-    plugin =>
-      plugin.state === "available" &&
-      plugin.capabilities.some(
-        capability =>
-          (capability.id === "asterion.history.v3" && capability.version === 3) ||
-          (capability.id === "asterion.history.tables.v1" && capability.version === 1) ||
-          (capability.id === "asterion.risk.pre-trade.v1" && capability.version === 1),
-      ),
-  );
+  // Native owns capability compatibility; UI only edits the published choices.
+  return items.filter(plugin => plugin.selectable);
 }
 
 // Plugins shipped with the application are required; only installed ones are optional.

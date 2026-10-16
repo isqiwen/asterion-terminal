@@ -1350,6 +1350,48 @@ FAKE_EXPORT void asterion_fake_trader_reset()
     x.query_rejections = 0;
 }
 
+// A read-only broker history fixture for the explicitly requested scale probe.
+// Seed only before creating sessions; it never sends orders or emits live callbacks.
+FAKE_EXPORT void asterion_fake_trader_seed_history(int count)
+{
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    for (int i = 1; i <= count; ++i) {
+        CThostFtdcOrderField order{};
+        put(order.BrokerID, "9999");
+        put(order.InvestorID, "000001");
+        put(order.InstrumentID, "rb2610");
+        put(order.ExchangeID, "SHFE");
+        put(order.OrderRef, std::to_string(i));
+        put(order.OrderSysID, std::to_string(i));
+        put(order.TradingDay, x.trading_day);
+        order.FrontID = order.SessionID = 1;
+        order.Direction = THOST_FTDC_D_Buy;
+        order.CombOffsetFlag[0] = THOST_FTDC_OF_Open;
+        order.OrderStatus = THOST_FTDC_OST_AllTraded;
+        order.OrderSubmitStatus = THOST_FTDC_OSS_Accepted;
+        order.VolumeTotalOriginal = order.VolumeTraded = 1;
+        order.LimitPrice = 3500;
+        x.orders.push_back(order);
+        CThostFtdcTradeField trade{};
+        put(trade.InstrumentID, "rb2610");
+        put(trade.ExchangeID, "SHFE");
+        put(trade.OrderRef, std::to_string(i));
+        put(trade.OrderSysID, std::to_string(i));
+        put(trade.TradeID, std::to_string(i));
+        put(trade.TradingDay, x.trading_day);
+        put(trade.TradeDate, x.trading_day);
+        put(trade.TradeTime, "09:30:00");
+        trade.Direction = THOST_FTDC_D_Buy;
+        trade.OffsetFlag = THOST_FTDC_OF_Open;
+        trade.Volume = 1;
+        trade.Price = 3500;
+        x.trades.push_back(trade);
+    }
+    if (count)
+        x.positions[{"rb2610@SHFE", THOST_FTDC_PD_Long}].today = count;
+}
+
 FAKE_EXPORT int asterion_fake_trader_next_session()
 {
     auto& x = exchange();

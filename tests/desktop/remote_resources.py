@@ -29,6 +29,9 @@ with tempfile.TemporaryDirectory() as folder:
  protocol.write_text('schema 1');assert fingerprint(root)==before
  extra=root/'protocol/extra.proto';extra.write_text('new schema');assert fingerprint(root)!=before
  extra.unlink();assert fingerprint(root)==before
+ rule=root/"cmake/Architecture.cmake";rule.parent.mkdir();rule.write_text("link rules")
+ assert fingerprint(root)!=before
+ rule.unlink();assert fingerprint(root)==before
 
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  root=Path(folder); fixture=make_bundle(root/'fixture'); archives=root/'archives'; archives.mkdir()

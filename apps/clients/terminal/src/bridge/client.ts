@@ -281,97 +281,8 @@ export type FirewallPlan = {
   observed_source?: string;
   owned?: boolean;
 };
-export type TerminalCommand =
-  | "node.agent.upgrade"
-  | "node.agent.inspect"
-  | "data.download.budget.configure"
-  | "task.page"
-  | "data.credentials.save"
-  | "data.credentials.clear"
-  | "data.credentials.verify"
-  | "ctp.connections.save"
-  | "ctp.connections.remove"
-  | "ctp.connections.market"
-  | "node.data_tasks.local.create"
-  | "native.plugins.inspect"
-  | "native.plugins.preview"
-  | "native.plugins.install"
-  | "native.plugins.uninstall"
-  | "node.plugins.configure"
-  | "node.update"
-  | "node.data_tasks.local.open"
-  | "node.data_tasks.attach"
-  | "backtest.margins.preview"
-  | "backtest.submit"
-  | "backtest.reuse"
-  | "backtest.budget.review"
-  | "factor.submit"
-  | "factor.reuse"
-  | "data.minutes.page"
-  | "data.minutes.range"
-  | "data.minutes.evidence"
-  | "data.download.minutes.submit"
-  | "data.datasets"
-  | "data.dataset.saved"
-  | "data.dataset.save"
-  | "data.dataset.use"
-  | "data.coverage"
-  | "data.history.usage"
-  | "data.download.update.plan"
-  | "data.download.update.submit"
-  | "data.tables.refresh.plan"
-  | "data.tables.refresh.submit"
-  | "data.tables.update.submit"
-  | "data.tables.coverage"
-  | "data.tables.page"
-  | "data.tables.products"
-  | "data.tables.listed_contracts"
-  | "data.tables.daily"
-  | "data.tables.contracts"
-  | "data.dataset.select"
-  | "data.dataset.series"
-  | "data.dataset.daily"
-  | "data.dataset.product"
-  | "data.dataset.remove"
-  | "data.dataset.clear"
-  | "task.action"
-  | "task.result"
-  | "task.result.read"
-  | "task.metadata.read"
-  | "task.metadata.edit"
-  | "task.evidence.export"
-  | "task.comparison.export"
-  | "task.quantstats.analyze"
-  | "market.local"
-  | "market.attach"
-  | "market.connect"
-  | "market.credentials.save"
-  | "market.credentials.clear"
-  | "market.catalog"
-  | "market.subscribe"
-  | "market.disconnect"
-  | "market.minutes"
-  | "node.initializer.export"
-  | "node.key.prepare"
-  | "node.firewall.inspect"
-  | "node.firewall.apply"
-  | "node.service_firewall"
-  | "live.create"
-  | "live.policy.configure"
-  | "live.open"
-  | "live.connect"
-  | "live.disconnect"
-  | "live.costs"
-  | "live.act"
-  | "live.strategy.start"
-  | "live.close"
-  | "node.bootstrap"
-  | "node.connect"
-  | "node.identity.replace"
-  | "node.local"
-  | "node.disconnect"
-  | "node.deploy"
-  | "node.action";
+export type { TerminalCommand, CommandParams, CommandCall, CommandHandler } from "./commands";
+import type { TerminalCommand, CommandCall } from "./commands";
 export type ProgressObservation = {
   observed: boolean;
   pending: boolean;
@@ -1538,6 +1449,7 @@ export type NativePluginInfo = {
   version: string;
   sha256: string;
   capabilities: { id: string; kind: string; version: number }[];
+  selectable: boolean;
   state: "available" | "invalid";
   error: string;
 };
@@ -1721,10 +1633,9 @@ function snapshotContract(result: unknown): Snapshot {
   return value;
 }
 export async function request(
-  method: "runtime.snapshot" | TerminalCommand,
-  params: Record<string, unknown> = {},
+  ...args: CommandCall<keyof import("./commands").CommandParams>
 ): Promise<Snapshot> {
-  return snapshotContract(await call(method, params));
+  return snapshotContract(await call(args[0], args[1] ?? {}));
 }
 export function timestamp(ns: string | null): string {
   if (!ns) return "—";

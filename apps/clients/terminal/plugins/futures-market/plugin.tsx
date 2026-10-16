@@ -10,7 +10,6 @@ import type { TerminalPlugin } from "../contract";
 const Panel = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.futures-market",
-  apiVersion: 1,
   commands: [
     "market.local",
     "market.connect",
@@ -48,7 +47,6 @@ const Contract = lazy(() =>
 );
 export const watchlistPlugin: TerminalPlugin = {
   id: "asterion.terminal.watchlist",
-  apiVersion: 1,
   commands: plugin.commands,
   workspace: {
     id: "workspace.watchlist",
@@ -63,7 +61,6 @@ export const watchlistPlugin: TerminalPlugin = {
 };
 export const contractPlugin: TerminalPlugin = {
   id: "asterion.terminal.contract",
-  apiVersion: 1,
   commands: plugin.commands,
   workspace: {
     id: "workspace.contract",

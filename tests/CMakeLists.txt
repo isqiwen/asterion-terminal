@@ -16,6 +16,11 @@ set(asterion_test_node_capacity "ASTERION_TEST_HOST_CAPACITY=set:10,16384")
 find_package(GTest CONFIG REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 include(GoogleTest)
+add_test(NAME Architecture.SourceBoundaries
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/core/architecture.py")
+
+add_test(NAME Architecture.LinkGuards
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/core/architecture_links.py")
 
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.

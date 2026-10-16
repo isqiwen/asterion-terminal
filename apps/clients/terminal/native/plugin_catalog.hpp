@@ -23,7 +23,7 @@ struct PluginCatalogEntry
     PluginAvailability availability = PluginAvailability::invalid;
     std::string error = "cannot load native plugin library";
     bool managed = false;
-    bool supports_history() const;
+    bool selectable_for_data_tasks() const;
 };
 
 struct PluginSelection

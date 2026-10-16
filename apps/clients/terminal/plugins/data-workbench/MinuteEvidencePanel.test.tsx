@@ -34,7 +34,7 @@ test("observations preserve night labels, expose unknown rows, and page without 
     first_ns: ns("2026-09-04T21:01:00"),
     last_ns: ns("2026-09-04T21:01:00"),
   };
-  const query = vi.fn(async (_method: string, params: Record<string, unknown>) => {
+  const query = vi.fn(async (_method: string, params: Record<string, unknown> = {}) => {
     const offset = Number(params.offset);
     return reply({
       ...evidence,

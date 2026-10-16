@@ -70,13 +70,13 @@ TEST(FuturesAccount, FreezesPartialFillsClosesAndDeduplicates)
         std::invalid_argument);
     account.mark(instrument().id, d("100"));
     account.submit(order("a", Side::buy, "2", "100"), Offset::open);
-    EXPECT_EQ(account.snapshot()["frozen"], "204");
-    EXPECT_EQ(account.snapshot()["available"], "796");
+    EXPECT_EQ(account.snapshot().frozen, d("204"));
+    EXPECT_EQ(account.snapshot().available, d("796"));
     Fill report{"fill.1", "a", d("1"), d("99")};
     ASSERT_TRUE(account.fill(report));
-    EXPECT_EQ(account.snapshot()["balance"], "998");
-    EXPECT_EQ(account.snapshot()["margin"], "100");
-    EXPECT_EQ(account.snapshot()["frozen"], "102");
+    EXPECT_EQ(account.snapshot().balance, d("998"));
+    EXPECT_EQ(account.snapshot().margin, d("100"));
+    EXPECT_EQ(account.snapshot().frozen, d("102"));
     const auto state = account.snapshot();
     EXPECT_FALSE(account.fill(report));
     EXPECT_EQ(account.snapshot(), state);
@@ -85,17 +85,17 @@ TEST(FuturesAccount, FreezesPartialFillsClosesAndDeduplicates)
     EXPECT_THROW(account.fill(conflict), std::invalid_argument);
     EXPECT_EQ(account.snapshot(), state);
     account.cancel("a");
-    EXPECT_EQ(account.snapshot()["frozen"], "0");
+    EXPECT_EQ(account.snapshot().frozen, d("0"));
     account.submit(order("close", Side::sell, "1", "110"), Offset::close_today);
     EXPECT_THROW(
         account.submit(order("double", Side::sell, "1", "110"), Offset::close_today),
         std::invalid_argument);
     account.fill({"fill.2", "close", d("1"), d("111")});
-    EXPECT_EQ(account.snapshot()["balance"], "1115");
-    EXPECT_EQ(account.snapshot()["realized"], "120");
-    EXPECT_EQ(account.snapshot()["fees"], "5");
-    EXPECT_TRUE(account.snapshot()["positions"].empty());
-    EXPECT_EQ(account.snapshot()["available"], "1115");
+    EXPECT_EQ(account.snapshot().balance, d("1115"));
+    EXPECT_EQ(account.snapshot().realized, d("120"));
+    EXPECT_EQ(account.snapshot().fees, d("5"));
+    EXPECT_TRUE(account.snapshot().positions.empty());
+    EXPECT_EQ(account.snapshot().available, d("1115"));
 }
 
 TEST(FuturesAccount, RejectsWithoutMutationAndSettlesShortPositions)
@@ -117,16 +117,16 @@ TEST(FuturesAccount, RejectsWithoutMutationAndSettlesShortPositions)
     EXPECT_THROW(account.settle({d("90")}), std::invalid_argument);
     account.fill({"f", "short", d("2"), d("100")});
     account.settle({d("90")});
-    EXPECT_EQ(account.snapshot()["balance"], "1196");
-    EXPECT_EQ(account.snapshot()["unrealized"], "0");
-    EXPECT_EQ(account.snapshot()["positions"][0]["bucket"], "yesterday");
+    EXPECT_EQ(account.snapshot().balance, d("1196"));
+    EXPECT_EQ(account.snapshot().unrealized, d("0"));
+    EXPECT_EQ(account.snapshot().positions[0].today, false);
     EXPECT_THROW(
         account.submit(order("wrong-bucket", Side::buy, "1", "90"), Offset::close_today),
         std::invalid_argument);
     account.submit(order("close", Side::buy, "2", "90"), Offset::close_yesterday);
     account.fill({"close.f", "close", d("2"), d("89")});
-    EXPECT_EQ(account.snapshot()["balance"], "1208");
-    EXPECT_EQ(account.snapshot()["fees"], "12");
+    EXPECT_EQ(account.snapshot().balance, d("1208"));
+    EXPECT_EQ(account.snapshot().fees, d("12"));
 }
 
 TEST(SqliteJournal, RecoveryReadsConsecutiveBoundedPagesAndRejectsGaps)
@@ -327,14 +327,14 @@ TEST(FuturesAccount, LossesBlockNewExposureButDoNotBlockClosing)
     account.submit(order("open", Side::buy, "1", "100"), Offset::open);
     account.fill({"f1", "open", d("1"), d("100")});
     account.mark(instrument().id, d("1"));
-    EXPECT_EQ(account.snapshot()["available"], "-892");
+    EXPECT_EQ(account.snapshot().available, d("-892"));
     EXPECT_THROW(
         account.submit(order("more", Side::buy, "1", "1"), Offset::open),
         std::invalid_argument);
     account.submit(order("close", Side::sell, "1", "1"), Offset::close_today);
     account.fill({"f2", "close", d("1"), d("1")});
-    EXPECT_EQ(account.snapshot()["balance"], "-795");
-    EXPECT_TRUE(account.snapshot()["positions"].empty());
+    EXPECT_EQ(account.snapshot().balance, d("-795"));
+    EXPECT_TRUE(account.snapshot().positions.empty());
 }
 
 TEST(PaperExecution, UnmatchedOrdersCancelAndReleaseAllReserves)
@@ -349,10 +349,10 @@ TEST(PaperExecution, UnmatchedOrdersCancelAndReleaseAllReserves)
     engine.advance();
     engine.submit(order("a", Side::buy, "1", "99"), Offset::open);
     engine.advance();
-    EXPECT_TRUE(engine.snapshot()["fills"].empty());
+    EXPECT_TRUE(engine.snapshot().account.fills.empty());
     engine.cancel("a");
-    EXPECT_EQ(engine.snapshot()["available"], "1000");
-    EXPECT_EQ(engine.snapshot()["frozen"], "0");
+    EXPECT_EQ(engine.snapshot().account.available, d("1000"));
+    EXPECT_EQ(engine.snapshot().account.frozen, d("0"));
 }
 
 TEST(PaperExecution, FailedTargetReplacementKeepsExistingOrdersAndReserves)
@@ -371,7 +371,7 @@ TEST(PaperExecution, FailedTargetReplacementKeepsExistingOrdersAndReserves)
         std::invalid_argument);
     EXPECT_EQ(engine.snapshot(), before);
     engine.advance();
-    EXPECT_EQ(engine.snapshot().at("fills").size(), 1U);
+    EXPECT_EQ(engine.snapshot().account.fills.size(), 1U);
 }
 
 TEST(PaperExecution, TargetsHoldShortsAndReverseByClosingBeforeOpening)
@@ -389,37 +389,37 @@ TEST(PaperExecution, TargetsHoldShortsAndReverseByClosingBeforeOpening)
     engine.advance();
     engine.reconcile_target("short", instrument().id, d("-2"), d("100"));
     auto state = engine.snapshot();
-    EXPECT_EQ(state.at("orders")[0].at("side"), "sell");
-    EXPECT_EQ(state.at("orders")[0].at("offset"), "open");
+    EXPECT_EQ(state.account.orders[0].request.side, Side::sell);
+    EXPECT_EQ(state.account.orders[0].offset, Offset::open);
     engine.advance();
     engine.advance();
     state = engine.snapshot();
-    ASSERT_EQ(state.at("positions").size(), 1U);
-    EXPECT_EQ(state.at("positions")[0].at("side"), "sell");
-    EXPECT_EQ(state.at("positions")[0].at("quantity"), "2");
+    ASSERT_EQ(state.account.positions.size(), 1U);
+    EXPECT_EQ(state.account.positions[0].side, Side::sell);
+    EXPECT_EQ(state.account.positions[0].quantity, d("2"));
     // Two lots sold at 100 and marked at 96, ten per point.
-    EXPECT_EQ(state.at("unrealized"), "80");
-    EXPECT_EQ(state.at("margin"), "200");
+    EXPECT_EQ(state.account.unrealized, d("80"));
+    EXPECT_EQ(state.account.margin, d("200"));
     // A long target first only buys the short back.
     engine.reconcile_target("flip", instrument().id, d("1"), d("96"));
     state = engine.snapshot();
-    ASSERT_EQ(state.at("orders").size(), 2U);
-    EXPECT_EQ(state.at("orders")[1].at("id"), "flip.today");
-    EXPECT_EQ(state.at("orders")[1].at("side"), "buy");
-    EXPECT_EQ(state.at("orders")[1].at("offset"), "close_today");
-    EXPECT_EQ(state.at("orders")[1].at("quantity"), "2");
+    ASSERT_EQ(state.account.orders.size(), 2U);
+    EXPECT_EQ(state.account.orders[1].request.id, "flip.today");
+    EXPECT_EQ(state.account.orders[1].request.side, Side::buy);
+    EXPECT_EQ(state.account.orders[1].offset, Offset::close_today);
+    EXPECT_EQ(state.account.orders[1].request.quantity, d("2"));
     engine.advance();
     state = engine.snapshot();
-    EXPECT_TRUE(state.at("positions").empty());
-    EXPECT_EQ(state.at("realized"), "80");
-    EXPECT_EQ(state.at("fees"), "10"); // Two opens at 2 and two closes of today's lots at 3.
+    EXPECT_TRUE(state.account.positions.empty());
+    EXPECT_EQ(state.account.realized, d("80"));
+    EXPECT_EQ(state.account.fees, d("10")); // Two opens at 2 and two closes of today's lots at 3.
     // Flat now: the same target opens its own side.
     engine.reconcile_target("long", instrument().id, d("1"), d("98"));
     engine.advance();
     state = engine.snapshot();
-    ASSERT_EQ(state.at("positions").size(), 1U);
-    EXPECT_EQ(state.at("positions")[0].at("side"), "buy");
-    EXPECT_EQ(state.at("positions")[0].at("quantity"), "1");
+    ASSERT_EQ(state.account.positions.size(), 1U);
+    EXPECT_EQ(state.account.positions[0].side, Side::buy);
+    EXPECT_EQ(state.account.positions[0].quantity, d("1"));
 }
 
 TEST(PaperExecution, TargetRefusesAContractHeldOnBothSides)
@@ -437,7 +437,7 @@ TEST(PaperExecution, TargetRefusesAContractHeldOnBothSides)
     engine.submit(order("short", Side::sell, "1", "100"), Offset::open);
     engine.advance();
     const auto before = engine.snapshot();
-    ASSERT_EQ(before.at("positions").size(), 2U);
+    ASSERT_EQ(before.account.positions.size(), 2U);
     EXPECT_THROW(
         engine.reconcile_target("net", instrument().id, d("1"), d("100")),
         std::invalid_argument);
@@ -506,27 +506,27 @@ TEST(PaperExecution, ScheduledSettlementCarriesBasisAndClosesBucketsWithDistinct
 {
     PaperExecution engine(d("1000"), {{{instrument(), costs()}, settlement_bars()}}, risk());
     mixed_longs(engine);
-    const auto positions = engine.snapshot().at("positions");
+    const auto positions = engine.snapshot().account.positions;
     ASSERT_EQ(positions.size(), 2U);
-    EXPECT_EQ(positions[0].at("bucket"), "yesterday");
-    EXPECT_EQ(positions[0].at("basis"), "105");
-    EXPECT_EQ(positions[1].at("bucket"), "today");
+    EXPECT_EQ(positions[0].today, false);
+    EXPECT_EQ(positions[0].price, d("105"));
+    EXPECT_EQ(positions[1].today, true);
     engine.reconcile_target("close", instrument().id, d("0"), d("104"));
     auto state = engine.snapshot();
-    EXPECT_EQ(state.at("orders")[2].at("id"), "close.yesterday");
-    EXPECT_EQ(state.at("orders")[2].at("offset"), "close_yesterday");
-    EXPECT_EQ(state.at("orders")[3].at("id"), "close.today");
-    EXPECT_EQ(state.at("orders")[3].at("offset"), "close_today");
-    EXPECT_EQ(state.at("frozen"), "11");
+    EXPECT_EQ(state.account.orders[2].request.id, "close.yesterday");
+    EXPECT_EQ(state.account.orders[2].offset, Offset::close_yesterday);
+    EXPECT_EQ(state.account.orders[3].request.id, "close.today");
+    EXPECT_EQ(state.account.orders[3].offset, Offset::close_today);
+    EXPECT_EQ(state.account.frozen, d("11"));
     engine.advance();
-    EXPECT_EQ(engine.snapshot().at("orders")[3].at("filled"), "0");
+    EXPECT_EQ(engine.snapshot().account.orders[3].filled, d("0"));
     engine.advance();
     state = engine.snapshot();
-    EXPECT_TRUE(state.at("positions").empty());
-    EXPECT_EQ(state.at("balance"), "1173");
-    EXPECT_EQ(state.at("fees"), "17");
-    EXPECT_EQ(state.at("realized"), "190");
-    EXPECT_EQ(state.at("unrealized"), "0");
+    EXPECT_TRUE(state.account.positions.empty());
+    EXPECT_EQ(state.account.balance, d("1173"));
+    EXPECT_EQ(state.account.fees, d("17"));
+    EXPECT_EQ(state.account.realized, d("190"));
+    EXPECT_EQ(state.account.unrealized, d("0"));
 }
 
 TEST(PaperExecution, SecondBucketRiskRejectionPreservesOriginalOrdersAndAccount)
@@ -543,10 +543,10 @@ TEST(PaperExecution, SecondBucketRiskRejectionPreservesOriginalOrdersAndAccount)
     EXPECT_EQ(engine.snapshot(), before);
     // Only the yesterday bucket is needed: one order fits the same risk limit.
     engine.reconcile_target("reduce", instrument().id, d("1"), d("104"));
-    EXPECT_EQ(engine.snapshot().at("orders").back().at("offset"), "close_yesterday");
+    EXPECT_EQ(engine.snapshot().account.orders.back().offset, Offset::close_yesterday);
     engine.advance();
-    ASSERT_EQ(engine.snapshot().at("positions").size(), 1U);
-    EXPECT_EQ(engine.snapshot().at("positions")[0].at("bucket"), "today");
+    ASSERT_EQ(engine.snapshot().account.positions.size(), 1U);
+    EXPECT_EQ(engine.snapshot().account.positions[0].today, true);
 }
 
 TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomically)
@@ -575,7 +575,7 @@ TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomica
         << "settled once per day";
     EXPECT_EQ(engine.snapshot(), settled);
     engine.advance();
-    EXPECT_EQ(engine.snapshot().at("unrealized"), "10");
+    EXPECT_EQ(engine.snapshot().account.unrealized, d("10"));
     for (int i = 0; i < 4; ++i)
         engine.advance();
     const auto finished = engine.snapshot();
@@ -601,19 +601,19 @@ TEST(PaperExecution, ADayWithoutBarsIsSettledInItsPlace)
         risk());
     engine.start();
     engine.settle_scheduled("2026-09-24", {d("101")});
-    EXPECT_EQ(engine.snapshot().at("balance"), "1000");
+    EXPECT_EQ(engine.snapshot().account.balance, d("1000"));
     engine.advance();
     engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
     engine.advance();
     // Bought at 99 for a fee of 2, and settled at 105: 6 a lot of ten.
     engine.settle_scheduled("2026-09-25", {d("105")});
-    EXPECT_EQ(engine.snapshot().at("balance"), "1058");
-    EXPECT_EQ(engine.snapshot().at("margin"), "100");
+    EXPECT_EQ(engine.snapshot().account.balance, d("1058"));
+    EXPECT_EQ(engine.snapshot().account.margin, d("100"));
     // Nothing trades the next day and the contract settles at 103.
     engine.settle_scheduled("2026-09-26", {d("103")});
-    EXPECT_EQ(engine.snapshot().at("balance"), "1038");
-    EXPECT_EQ(engine.snapshot().at("unrealized"), "0");
-    EXPECT_EQ(engine.snapshot().at("margin"), "150");
+    EXPECT_EQ(engine.snapshot().account.balance, d("1038"));
+    EXPECT_EQ(engine.snapshot().account.unrealized, d("0"));
+    EXPECT_EQ(engine.snapshot().account.margin, d("150"));
     const auto held = engine.snapshot();
     EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("104")}), std::invalid_argument)
         << "days are settled in order";
@@ -622,11 +622,11 @@ TEST(PaperExecution, ADayWithoutBarsIsSettledInItsPlace)
     EXPECT_EQ(engine.snapshot(), held);
     for (int i = 0; i < 5; ++i)
         engine.advance();
-    EXPECT_EQ(engine.snapshot().at("unrealized"), "60");
+    EXPECT_EQ(engine.snapshot().account.unrealized, d("60"));
     engine.settle_scheduled("2026-09-28", {d("108")});
-    EXPECT_EQ(engine.snapshot().at("balance"), "1088");
+    EXPECT_EQ(engine.snapshot().account.balance, d("1088"));
     engine.settle_scheduled("2026-09-29", {d("110")});
-    EXPECT_EQ(engine.snapshot().at("balance"), "1108");
+    EXPECT_EQ(engine.snapshot().account.balance, d("1108"));
 }
 
 TEST(PaperExecution, ChildIdentityConflictCannotPartiallyReplaceMixedBucketOrders)
@@ -653,10 +653,10 @@ TEST(FuturesAccount, TypedQueriesMatchSnapshotAndRejectedFillsLeaveLedgerUntouch
     ASSERT_TRUE(account.fill({"e1", "o1", d("1"), d("100")}));
     account.mark(instrument().id, d("103"));
     const auto before = account.snapshot();
-    EXPECT_EQ(before.at("available"), account.available().str());
-    EXPECT_EQ(before.at("frozen"), account.frozen().str());
-    EXPECT_EQ(before.at("margin"), account.margin().str());
-    EXPECT_EQ(before.at("unrealized"), account.unrealized().str());
+    EXPECT_EQ(before.available, account.available());
+    EXPECT_EQ(before.frozen, account.frozen());
+    EXPECT_EQ(before.margin, account.margin());
+    EXPECT_EQ(before.unrealized, account.unrealized());
     EXPECT_TRUE(account.has_working_orders());
     // Limit violation, conflicting duplicate and unknown order all fail atomically.
     EXPECT_THROW(account.fill({"e2", "o1", d("1"), d("101")}), std::invalid_argument);
@@ -842,7 +842,7 @@ TEST(FuturesAccount, ExchangeClosePoliciesAssignBucketsAndFees)
                                           : d("2") * d("2") + d("1") * d("5"); // 9
         EXPECT_EQ((account.fees() - before).str(), expected.str()) << venue;
         EXPECT_EQ(account.fills().back().fee, expected) << venue;
-        EXPECT_EQ(account.snapshot()["fills"].back()["fee"], expected.str());
+        EXPECT_EQ(account.snapshot().fills.back().fee, expected);
         ASSERT_EQ(account.positions().size(), 1U);
         EXPECT_EQ(account.positions()[0].today, !today_first) << venue;
     }
@@ -920,7 +920,7 @@ TEST(PaperExecution, SlippageMovesEveryFillAgainstTheOrderAndNotWhetherItFills)
     execution.advance();
     // A target decided at 100 is placed at 102, the worst price it accepts.
     execution.reconcile_target("long", instrument().id, d("1"), d("100"));
-    EXPECT_EQ(execution.snapshot().at("orders")[0].at("limit_price"), "102");
+    EXPECT_EQ(execution.snapshot().account.orders[0].request.limit_price, d("102"));
     // A low of 101 is inside that limit and still does not reach 100: no fill.
     execution.advance();
     EXPECT_TRUE(execution.account().fills().empty());
@@ -937,7 +937,7 @@ TEST(PaperExecution, SlippageMovesEveryFillAgainstTheOrderAndNotWhetherItFills)
     // Selling both at a price of 103: placed at 101, filled once the high
     // reaches 103, at max(open 104, 103) less two.
     execution.reconcile_target("flat", instrument().id, d("0"), d("103"));
-    EXPECT_EQ(execution.snapshot().at("orders").back().at("limit_price"), "101");
+    EXPECT_EQ(execution.snapshot().account.orders.back().request.limit_price, d("101"));
     execution.advance();
     ASSERT_EQ(execution.account().fills().size(), 3U);
     EXPECT_EQ(execution.account().fills()[2].execution.price.str(), "102");
@@ -991,7 +991,7 @@ TEST(PaperExecution, EachDayTradesOnTheIncrementOfThatDay)
     // taken down to 1124, the limit four below it, filled at 1124 less four.
     execution.advance(PaperExecution::Target{"flat", d("0"), d("1125")});
     EXPECT_EQ(execution.account().contracts()[0].instrument.price_increment, d("2"));
-    EXPECT_EQ(execution.snapshot().at("orders").back().at("limit_price"), "1120");
+    EXPECT_EQ(execution.snapshot().account.orders.back().request.limit_price, d("1120"));
     ASSERT_EQ(execution.account().fills().size(), 2U);
     EXPECT_EQ(execution.account().fills()[1].execution.price.str(), "1120");
     // Bought again at 1125: taken up to 1126, filled at 1126 and four more.
@@ -1210,7 +1210,7 @@ TEST(FuturesAccount, OfficialSettlementMarginRevaluesOccupancyWithoutInventingFe
         },
         std::invalid_argument);
     EXPECT_EQ(account.snapshot(), intraday_mark);
-    Json settled_old_rate;
+    AccountSnapshot settled_old_rate;
     {
         auto batch = account.transaction();
         account.settle({d("1002")});
@@ -1252,18 +1252,29 @@ TEST(FuturesAccount, OfficialSettlementMarginRevaluesOccupancyWithoutInventingFe
     EXPECT_EQ(account.fees(), d("6"));
     EXPECT_EQ(account.margin(), d("0"));
     EXPECT_EQ(account.available(), d("153994"));
+    const auto observation = [](const AccountSnapshot& state) {
+        return Json{
+            {"balance", state.balance.str()},
+            {"equity", state.equity.str()},
+            {"available", state.available.str()},
+            {"margin", state.margin.str()},
+            {"fees", state.fees.str()},
+            {"realized", state.realized.str()},
+            {"unrealized", state.unrealized.str()}
+        };
+    };
     RecordProperty(
         "phase_observations",
         Json{
             {"prices_and_positions", "synthetic"},
             {"official_events",
                 {events.at(1).at("source"), events.at(2).at("source"), events.at(3).at("source")}},
-            {"opened", opened},
-            {"intraday_mark", intraday_mark},
-            {"settled_before_rate_change", settled_old_rate},
-            {"settlement_revalued", revalued},
-            {"next_day_mark", next_mark},
-            {"explicit_close", account.snapshot()}
+            {"opened", observation(opened)},
+            {"intraday_mark", observation(intraday_mark)},
+            {"settled_before_rate_change", observation(settled_old_rate)},
+            {"settlement_revalued", observation(revalued)},
+            {"next_day_mark", observation(next_mark)},
+            {"explicit_close", observation(account.snapshot())}
         }.dump());
 }
 
@@ -1406,12 +1417,12 @@ TEST(PaperExecution, SettlementMarginFailureRollsBackPnlAndSuccessfulChangeDoesN
     EXPECT_EQ(changed->margin_before, d("140"));
     EXPECT_EQ(changed->available_before, d("18"));
     const auto settled = engine.snapshot();
-    EXPECT_EQ(settled.at("balance"), "158");
-    EXPECT_EQ(settled.at("fees"), "2");
-    EXPECT_EQ(settled.at("margin"), "180");
-    EXPECT_EQ(settled.at("available"), "-22");
-    EXPECT_EQ(settled.at("positions").size(), 1U);
-    EXPECT_EQ(settled.at("orders").size(), filled.at("orders").size());
+    EXPECT_EQ(settled.account.balance, d("158"));
+    EXPECT_EQ(settled.account.fees, d("2"));
+    EXPECT_EQ(settled.account.margin, d("180"));
+    EXPECT_EQ(settled.account.available, d("-22"));
+    EXPECT_EQ(settled.account.positions.size(), 1U);
+    EXPECT_EQ(settled.account.orders.size(), filled.account.orders.size());
     engine.advance();
     EXPECT_EQ(engine.account().contracts()[0].costs.margin_rate, d("0.15"));
 }

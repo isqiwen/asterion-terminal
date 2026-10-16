@@ -1,4 +1,6 @@
 #pragma once
+#include "account_records.hpp"
+#include <asterion/v1/trading.pb.h>
 #include <asterion/foundation/serialization.hpp>
 #include <filesystem>
 #include <asterion/kernel/progress.hpp>
@@ -37,8 +39,9 @@ public:
     std::future<void> query_costs();
     // Admission is bounded; completion acknowledges the durable command outcome.
     [[nodiscard]] std::future<void>
-    execute(std::string_view account_id, std::string_view policy_revision, const Json& command);
-    std::future<Json> snapshot() const;
+    execute(std::string_view account_id, std::string_view policy_revision, AccountRequest request);
+    // Detached transport value constructed on the account owner; JSON belongs to Terminal.
+    std::future<protocol::v1::LiveSnapshot> snapshot() const;
     bool recovery_required() const noexcept;
 
     struct Health

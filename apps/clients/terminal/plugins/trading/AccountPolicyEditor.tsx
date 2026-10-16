@@ -1,6 +1,7 @@
+import type { AccountRun } from "../../src/bridge/commands";
 import { useState } from "react";
 import { translate, type TerminalContext } from "../contract";
-import type { LiveSession, TerminalCommand } from "../../src/bridge/client";
+import type { LiveSession } from "../../src/bridge/client";
 
 const t = (key: string) => translate("asterion.terminal.trading", key);
 const contractKey = (item: { venue: string; symbol: string }) => `${item.venue}.${item.symbol}`;
@@ -14,7 +15,7 @@ export function AccountPolicyEditor({
   live: LiveSession;
   snapshot: TerminalContext["snapshot"];
   disabled: boolean;
-  run: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
+  run: AccountRun;
 }) {
   const [limits, setLimits] = useState({
     ...live.risk,

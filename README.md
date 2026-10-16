@@ -16,14 +16,14 @@
 
 ## 快速开始
 
-依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode 26 及以上的 Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
+依赖：Node.js 22+、pnpm 10、Python 3、uv、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode 26 及以上的 Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
 
 ```sh
 conan profile detect --exist-ok     # 生成本机 Conan profile；已有时不改动
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
 pnpm install --frozen-lockfile
 pnpm exec install-electron          # 下载锁定版本的 Electron 运行时
-pnpm desktop                        # 构建并启动桌面开发窗口
+pnpm desktop --prepare-quantstats    # 首次显式准备分析助手、构建并启动；之后用 pnpm desktop
 ```
 
 | 命令 | 用途 |
@@ -43,7 +43,7 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 | 路径 | 内容 |
 | --- | --- |
 | `core/` | C++ 基础（Decimal、ID、时间、错误）、内核（插件、IPC、进程、日志）、期货领域模型 |
-| `plugins/` | 数据（CTP、Tushare、历史数据源注册）、执行（回测撮合、CTP）、存储、策略、风控、工具插件 |
+| `plugins/` | 数据（CTP、Tushare、SHFE、历史数据源注册）、执行（回测撮合、CTP）、存储、策略、风控、工具插件 |
 | `protocol/` | Protobuf 契约与校验 |
 | `apps/services/` | 常驻服务：node-agent、market-data、trading、data-service、task-service；任务工作程序：backtest、factor、data-pipeline |
 | `apps/clients/terminal/` | 桌面终端：Electron 主进程、React 宿主与工作区插件、C++ 应用编排 |
@@ -64,7 +64,7 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 - [因子分析](docs/factors.md)
 - [服务与部署](docs/services.md)
 - [现状与下一步](docs/status.md)
-- [目标架构设计](docs/reviews/architecture-design-review.md) · [架构实施进度](docs/reviews/architecture-implementation.md) · [整改记录](docs/reviews/audit-progress.md) · [全市场数据表设计](docs/reviews/history-tables-design.md)
+- [文档导航](docs/README.md) · [设计与验收记录](docs/reviews/README.md) · [整改记录](docs/reviews/audit-progress.md)
 - [贡献约束](AGENTS.md)
 
-第三方数据源与风控插件接入：[原生插件 SDK](docs/native-plugins.md)。
+UI 工作区随应用统一编译；原生数据源与风控可独立安装，策略、存储和内部工具按实际需要保持静态模块。第三方数据源与风控插件接入：[原生插件 SDK](docs/native-plugins.md)。

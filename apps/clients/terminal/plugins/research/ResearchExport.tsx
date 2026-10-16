@@ -1,3 +1,4 @@
+import type { Snapshot } from "../../src/bridge/client";
 import { useState } from "react";
 import {
   ErrorNotice,
@@ -8,12 +9,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import { namespace, t } from "./shared";
-export async function saveResearchExport(
-  query: TerminalContext["query"],
-  method: "task.evidence.export" | "task.comparison.export",
-  params: Record<string, unknown>,
-  name: string,
-) {
+export async function saveResearchExport(query: (path: string) => Promise<Snapshot>, name: string) {
   let path = "";
   if (nativeDesktop) {
     const chosen = await save({
@@ -24,7 +20,7 @@ export async function saveResearchExport(
     if (!chosen) return null;
     path = chosen;
   }
-  const reply = await query(method, { ...params, path });
+  const reply = await query(path);
   const value = reply.research_export;
   if (!value) throw new Error(t("研究证据导出未返回确认"));
   if (!nativeDesktop) {
@@ -55,7 +51,10 @@ export function ResearchExport({
     setError("");
     try {
       setReceipt(
-        await saveResearchExport(query, "task.evidence.export", { id }, `${id}.evidence.json`),
+        await saveResearchExport(
+          path => query("task.evidence.export", { id, path }),
+          `${id}.evidence.json`,
+        ),
       );
     } catch (reason) {
       setError(asDisplayError(reason));

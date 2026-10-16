@@ -466,26 +466,18 @@ std::future<void> LiveSession::query_costs()
 std::future<void> LiveSession::execute(
     std::string_view account_id,
     std::string_view policy_revision,
-    const Json& command)
+    AccountRequest request)
 {
-    std::optional<AccountRequest> request;
-    try {
-        request = AccountRequest::parse(command);
-    } catch (...) {
-        std::promise<void> rejected;
-        rejected.set_exception(std::current_exception());
-        return rejected.get_future();
-    }
-    const bool revoke = request->as<Revoke>();
-    const bool stops = request->as<StopStrategy>();
-    const auto* cancel = request->as<CancelOrder>();
+    const bool revoke = request.as<Revoke>();
+    const bool stops = request.as<StopStrategy>();
+    const auto* cancel = request.as<CancelOrder>();
     const bool cancels = cancel != nullptr;
-    auto id = request->id;
+    auto id = request.id;
     auto cancel_order = cancels ? cancel->order_id : std::string{};
     auto begin = [record = std::string(account_id),
                      policy = std::string(policy_revision),
                      request =
-                         std::move(*request)](LiveAccountState& account, std::uint64_t control) {
+                         std::move(request)](LiveAccountState& account, std::uint64_t control) {
         return account.execute(record, policy, request, control);
     };
     if (revoke)
@@ -509,7 +501,7 @@ std::future<void> LiveSession::execute(
         std::move(cancel_order));
 }
 
-std::future<Json> LiveSession::snapshot() const
+std::future<protocol::v1::LiveSnapshot> LiveSession::snapshot() const
 {
     return loop_->call(
         [](LiveAccountState& account) {

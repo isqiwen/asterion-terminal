@@ -1,3 +1,4 @@
+import type { CommandHandler } from "../bridge/commands";
 import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
 import { version } from "../../electron/package.json";
@@ -12,7 +13,7 @@ import { DataSources } from "./DataSources";
 import { CtpConnections } from "./CtpConnections";
 import { NativePlugins } from "./NativePlugins";
 import { Connections } from "./Connections";
-import type { TerminalCommand, Snapshot } from "@asterion/desktop-bridge/client";
+import type { Snapshot } from "@asterion/desktop-bridge/client";
 export function Settings({
   plugins,
   snapshot,
@@ -28,7 +29,7 @@ export function Settings({
   refresh: () => void;
   error: DisplayError;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   const [page, setPage] = useState<string>(initialPage);
   useEffect(() => {
@@ -192,7 +193,7 @@ export function Settings({
                       <tr key={plugin.id}>
                         <td>{plugin.workspace.title}</td>
                         <td>{t("用户界面")}</td>
-                        <td>{t("已注册 · 按需加载")}</td>
+                        <td>{t("内置 · 随应用发布")}</td>
                       </tr>
                     ))}
                   </tbody>

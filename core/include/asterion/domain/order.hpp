@@ -30,6 +30,7 @@ struct LimitOrder
     Decimal quantity;
     Decimal limit_price;
     void validate(const Instrument& spec) const;
+    bool operator==(const LimitOrder&) const = default;
 };
 
 struct Fill

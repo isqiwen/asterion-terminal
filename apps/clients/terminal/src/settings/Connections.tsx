@@ -1,4 +1,5 @@
-import type { Snapshot, TerminalCommand } from "../bridge/client";
+import type { CommandHandler } from "../bridge/commands";
+import type { Snapshot } from "../bridge/client";
 import { NodeServices } from "./NodeServices";
 export function Connections({
   snapshot,
@@ -7,7 +8,7 @@ export function Connections({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   return (
     <section className="service-connections">

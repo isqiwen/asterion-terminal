@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/v1/trading.pb.h>
 #include "ctp_trader.hpp"
 #include "account_policy.hpp"
 #include "account_journal.hpp"
@@ -46,7 +47,7 @@ public:
         std::string policy_revision,
         AccountRequest request,
         std::uint64_t admitted_control);
-    Json snapshot() const;
+    protocol::v1::LiveSnapshot snapshot() const;
 
     bool waiting_for_sdk() const
     {

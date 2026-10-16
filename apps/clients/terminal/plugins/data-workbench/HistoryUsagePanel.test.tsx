@@ -57,7 +57,7 @@ test("a reply for a version that is no longer shown is ignored", async () => {
   const held = new Promise<Snapshot>(resolve => {
     release = resolve;
   });
-  const query = vi.fn(async (_method: string, params: Record<string, unknown>) =>
+  const query = vi.fn(async (_method: string, params: Record<string, unknown> = {}) =>
     params.id === "minute" ? held : usedBy("daily", ["output"]),
   );
   const view = render(panel(query, "minute"));

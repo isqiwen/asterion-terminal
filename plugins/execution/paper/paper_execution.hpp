@@ -113,7 +113,16 @@ public:
         const InstrumentId& instrument,
         Decimal target,
         Decimal price);
-    Json snapshot() const;
+
+    struct Snapshot
+    {
+        AccountSnapshot account;
+        std::size_t cursor, total;
+        std::optional<std::int64_t> timestamp_ns;
+        bool operator==(const Snapshot&) const = default;
+    };
+
+    Snapshot snapshot() const;
 
     const FuturesAccount& account() const noexcept
     {

@@ -1,10 +1,8 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useEffect, useRef, useState } from "react";
 import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
-export type HistoryQuery = (
-  method: "data.datasets" | "data.dataset.saved",
-  params: Record<string, unknown>,
-) => Promise<Snapshot>;
+export type HistoryQuery = CommandHandler<Snapshot, "data.datasets" | "data.dataset.saved">;
 export function useHistoryDatasets(snapshot: Snapshot | null, query: HistoryQuery) {
   const ref = useRef(query);
   ref.current = query;

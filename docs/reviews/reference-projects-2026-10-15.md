@@ -58,11 +58,11 @@ OMS 查询和 Qt 界面；CTA、价差、组合、算法交易、数据管理等
 `MainEngine.send_order` 则按 gateway 名称调用适配器。`OffsetConverter` 跟踪今仓、昨仓、
 活动委托冻结量，把用户平仓意图转换为交易所要求的委托。这些领域细节比“支持多少接口”更值得借鉴。
 
-源码依据：[事件队列](../../../vnpy/vnpy/event/engine.py)、
-[主引擎与 OMS](../../../vnpy/vnpy/trader/engine.py)、
-[Gateway 契约](../../../vnpy/vnpy/trader/gateway.py)、
-[开平转换](../../../vnpy/vnpy/trader/converter.py)、
-[转换测试](../../../vnpy/tests/test_converter.py)。
+源码依据：事件队列（外部基线路径 `../../../vnpy/vnpy/event/engine.py`）、
+主引擎与 OMS（外部基线路径 `../../../vnpy/vnpy/trader/engine.py`）、
+Gateway 契约（外部基线路径 `../../../vnpy/vnpy/trader/gateway.py`）、
+开平转换（外部基线路径 `../../../vnpy/vnpy/trader/converter.py`）、
+转换测试（外部基线路径 `../../../vnpy/tests/test_converter.py`）。
 
 对 Asterion 的价值有两点。第一，用户应该能看到总持仓、可平量、冻结量、平今/平昨和实际
 委托之间的关系；失败信息应解释是哪一项限制了操作。第二，数据选择、参数设置、结果分析应
@@ -79,9 +79,9 @@ OMS 查询和 Qt 界面；CTA、价差、组合、算法交易、数据管理等
 - Alpha 回测代码有用上一价格补缺失 bar、按前收盘价乘 `1.1/0.9` 计算涨跌幅边界的路径。
   这些具体模型不适用于直接充当中国期货历史规则；价格和金额的 `float` 也不能进入 Asterion 权威账本。
 
-研究依据：[AlphaLab](../../../vnpy/vnpy/alpha/lab.py)、
-[AlphaDataset](../../../vnpy/vnpy/alpha/dataset/template.py)、
-[Alpha 回测](../../../vnpy/vnpy/alpha/strategy/backtesting.py)。AlphaLab 的文件更新方式也不应
+研究依据：AlphaLab（外部基线路径 `../../../vnpy/vnpy/alpha/lab.py`）、
+AlphaDataset（外部基线路径 `../../../vnpy/vnpy/alpha/dataset/template.py`）、
+Alpha 回测（外部基线路径 `../../../vnpy/vnpy/alpha/strategy/backtesting.py`）。AlphaLab 的文件更新方式也不应
 替代 Asterion 的不可变快照。README 链接的 `vnpy_ctp`、`vnpy_ctastrategy` 等独立实现不在
 本地目录，Fusion 的文档不能证明商业服务的具体实现。
 
@@ -95,12 +95,12 @@ OMS 查询和 Qt 界面；CTA、价差、组合、算法交易、数据管理等
 执行缓存；`commit_cached_targets` 应用缩放/过滤并交给执行器。`ICtaStraCtx` 同时由实盘
 上下文和回测 `CtaMocker` 实现，使策略面向同一类业务操作。
 
-源码依据：[策略上下文](../../../wondertrader/src/Includes/ICtaStraCtx.h)、
-[CTA 引擎](../../../wondertrader/src/WtCore/WtCtaEngine.cpp)、
-[执行管理](../../../wondertrader/src/WtCore/WtExecMgr.cpp)、
-[执行单元契约](../../../wondertrader/src/Includes/ExecuteDefs.h)、
-[回测上下文](../../../wondertrader/src/WtBtCore/CtaMocker.h)、
-[主力映射](../../../wondertrader/src/Includes/IHotMgr.h)。
+源码依据：策略上下文（外部基线路径 `../../../wondertrader/src/Includes/ICtaStraCtx.h`）、
+CTA 引擎（外部基线路径 `../../../wondertrader/src/WtCore/WtCtaEngine.cpp`）、
+执行管理（外部基线路径 `../../../wondertrader/src/WtCore/WtExecMgr.cpp`）、
+执行单元契约（外部基线路径 `../../../wondertrader/src/Includes/ExecuteDefs.h`）、
+回测上下文（外部基线路径 `../../../wondertrader/src/WtBtCore/CtaMocker.h`）、
+主力映射（外部基线路径 `../../../wondertrader/src/Includes/IHotMgr.h`）。
 
 Asterion 已有类似的正确基础：`Strategy::on_bar` 只输出可选目标，host 拥有数据源，账户拥有
 执行权；目标转订单还规定先完成反向平仓再开仓。因此不需要新建“信号服务”和“执行服务”。
@@ -116,26 +116,26 @@ Asterion 已有类似的正确基础：`Strategy::on_bar` 只输出可选目标�
 - “离合器”说明停止信号执行与停止策略观察可以不同；Asterion 的停止策略、撤销授权、撤单、
   平仓仍须分别有明确语义，不通过一个总开关隐式触发全部动作。
 
-[HisDataReplayer](../../../wondertrader/src/WtBtCore/HisDataReplayer.h) 还包含 CSV 加载和模拟 Tick
+HisDataReplayer（外部基线路径 `../../../wondertrader/src/WtBtCore/HisDataReplayer.h`） 还包含 CSV 加载和模拟 Tick
 路径，不能当作 Asterion 的生产数据来源。
-[简单风控](../../../wondertrader/src/WtRiskMonFact/WtSimpRiskMon.cpp) 可参考回撤监控的产品含义，
-其数值与线程实现不直接移植；[decimal.h](../../../wondertrader/src/Share/decimal.h) 是 double
+简单风控（外部基线路径 `../../../wondertrader/src/WtRiskMonFact/WtSimpRiskMon.cpp`） 可参考回撤监控的产品含义，
+其数值与线程实现不直接移植；decimal.h（外部基线路径 `../../../wondertrader/src/Share/decimal.h`） 是 double
 容差工具，并非本项目的精确 Decimal。`wtpy` 监控台和 README 延迟指标本轮均未验证。
 
 ### NautilusTrader：学习事件语义和时间边界，不把单节点 Kernel 当成分布式服务架构
 
 本地版本已经以 Rust 原生运行时为主，不能沿用旧版 Cython 架构印象。其
-[ROADMAP](../../../nautilus_trader/ROADMAP.md) 优先稳定核心、改善文档和 API；明确将完整 UI、
+ROADMAP（外部基线路径 `../../../nautilus_trader/ROADMAP.md`） 优先稳定核心、改善文档和 API；明确将完整 UI、
 内置分布式调度、参数优化及 AI/ML 工具排除在核心开源范围之外。这种范围纪律值得采用。
 
 `NautilusKernel` 组合 Clock、Cache、Portfolio、Trader 和 Data/Risk/Execution engines。
 这些对象通过进程内消息机制协作，代码使用 `Rc<RefCell<_>>`，并非多个服务共享一份分布式缓存。
 Backtest、Sandbox 和 Live 共用业务组件，环境主要改变时间、数据来源与执行实现。
 
-源码依据：[架构说明](../../../nautilus_trader/docs/concepts/architecture.md)、
-[Kernel 所有权](../../../nautilus_trader/crates/system/src/kernel.rs)、
-[Clock](../../../nautilus_trader/crates/common/src/clock/mod.rs)、
-[RiskEngine](../../../nautilus_trader/crates/risk/src/engine/mod.rs)。
+源码依据：架构说明（外部基线路径 `../../../nautilus_trader/docs/concepts/architecture.md`）、
+Kernel 所有权（外部基线路径 `../../../nautilus_trader/crates/system/src/kernel.rs`）、
+Clock（外部基线路径 `../../../nautilus_trader/crates/common/src/clock/mod.rs`）、
+RiskEngine（外部基线路径 `../../../nautilus_trader/crates/risk/src/engine/mod.rs`）。
 
 最有价值的三个细节：
 
@@ -146,11 +146,11 @@ Backtest、Sandbox 和 Live 共用业务组件，环境主要改变时间、数�
 3. 分批回测明确要求同一个末尾 `ts_init` 的数据不能切到下一批，否则计时器或场所模块可能
    过早完成该时点。Asterion 的 F11 也必须按完整观测截面/交易日语义切块，不能只按行数分页。
 
-对应证据：[订单状态](../../../nautilus_trader/crates/model/src/orders/mod.rs)、
-[核对模块](../../../nautilus_trader/crates/execution/src/reconciliation/mod.rs)、
-[核对说明](../../../nautilus_trader/docs/concepts/execution/reconciliation.md)、
-[核对性质测试](../../../nautilus_trader/crates/execution/src/reconciliation/proptests.rs)、
-[BacktestEngine 分批契约](../../../nautilus_trader/crates/backtest/src/engine.rs)。
+对应证据：订单状态（外部基线路径 `../../../nautilus_trader/crates/model/src/orders/mod.rs`）、
+核对模块（外部基线路径 `../../../nautilus_trader/crates/execution/src/reconciliation/mod.rs`）、
+核对说明（外部基线路径 `../../../nautilus_trader/docs/concepts/execution/reconciliation.md`）、
+核对性质测试（外部基线路径 `../../../nautilus_trader/crates/execution/src/reconciliation/proptests.rs`）、
+BacktestEngine 分批契约（外部基线路径 `../../../nautilus_trader/crates/backtest/src/engine.rs`）。
 
 不能直接采用的行为包括风险 `bypass`、可配置的合成核对成交，以及其架构说明中的部分无界
 异步通道。合成调整是该项目明确建模的功能，不等于真实柜台成交；Asterion 不能通过补造
@@ -167,11 +167,11 @@ LEAN 将 Universe Selection、Alpha、Portfolio Construction、Risk Management �
 委托。目标数量与本次新增委托数量分开，使已有持仓和在途委托都能进入执行判断。
 `AlgorithmManager` 还明确处理时间推进、预热结束、合约映射事件与撮合的先后次序。
 
-源码依据：[Framework](../../../Lean/Algorithm/QCAlgorithm.Framework.cs)、
-[立即执行模型](../../../Lean/Algorithm/Execution/ImmediateExecutionModel.cs)、
-[事件推进](../../../Lean/Engine/AlgorithmManager.cs)、
-[回测交易处理](../../../Lean/Engine/TransactionHandlers/BacktestingTransactionHandler.cs)、
-[按持仓量选期货](../../../Lean/Algorithm.Framework/Selection/OpenInterestFutureUniverseSelectionModel.cs)。
+源码依据：Framework（外部基线路径 `../../../Lean/Algorithm/QCAlgorithm.Framework.cs`）、
+立即执行模型（外部基线路径 `../../../Lean/Algorithm/Execution/ImmediateExecutionModel.cs`）、
+事件推进（外部基线路径 `../../../Lean/Engine/AlgorithmManager.cs`）、
+回测交易处理（外部基线路径 `../../../Lean/Engine/TransactionHandlers/BacktestingTransactionHandler.cs`）、
+按持仓量选期货（外部基线路径 `../../../Lean/Algorithm.Framework/Selection/OpenInterestFutureUniverseSelectionModel.cs`）。
 
 这对 Asterion 的直接启发是区分：
 
@@ -184,11 +184,11 @@ Asterion 的 F04 已用于日线截面因子资格，不能再提一个同名筛
 多个实际实现时才考虑额外端口，不为了对齐 LEAN 的五阶段名称建立五套空抽象。
 
 期货历史规则也值得读，但不能原样采用：
-[FutureMarginModel](../../../Lean/Common/Securities/Future/FutureMarginModel.cs) 区分初始/维持及
+FutureMarginModel（外部基线路径 `../../../Lean/Common/Securities/Future/FutureMarginModel.cs`） 区分初始/维持及
 日内/隔夜保证金，并以历史条目选择适用值；其公开取值属性存在缺失时 `?? 0m` 的行为。
 Asterion 必须继续缺配置拒绝，并沿已实现的日初/结算阶段合同处理中国期货保证金。
-[FutureFillModel](../../../Lean/Common/Orders/Fills/FutureFillModel.cs) 的成交规则与
-[测试](../../../Lean/Tests/Common/Orders/Fills/FutureFillModelTests.cs) 可用于梳理时段、滑点和跳空
+FutureFillModel（外部基线路径 `../../../Lean/Common/Orders/Fills/FutureFillModel.cs`） 的成交规则与
+测试（外部基线路径 `../../../Lean/Tests/Common/Orders/Fills/FutureFillModelTests.cs`） 可用于梳理时段、滑点和跳空
 假设，不能证明中国期货封板排队可成交。LEAN 的股票、期权、多币种、CLI 和 Notebook 范围
 不进入本项目规划；其云产品能力也不由此仓库阅读得到验证。
 
@@ -198,12 +198,12 @@ Qlib 的组织单位是一次可配置研究流程：数据加载/处理/切段�
 组合回测和实验记录。`DatasetH` 定义时间段，`DataHandlerLP` 区分 raw、infer、learn 数据，
 Processor 负责特定处理，Trainer 组织训练，Recorder 保管配置、模型、预测和评价产物。
 
-源码依据：[研究流程说明](../../../qlib/docs/component/workflow.rst)、
-[DatasetH](../../../qlib/qlib/data/dataset/__init__.py)、
-[DataHandlerLP](../../../qlib/qlib/data/dataset/handler.py)、
-[Processor](../../../qlib/qlib/data/dataset/processor.py)、
-[Trainer](../../../qlib/qlib/model/trainer.py)、
-[评价记录](../../../qlib/qlib/workflow/record_temp.py)。
+源码依据：研究流程说明（外部基线路径 `../../../qlib/docs/component/workflow.rst`）、
+DatasetH（外部基线路径 `../../../qlib/qlib/data/dataset/__init__.py`）、
+DataHandlerLP（外部基线路径 `../../../qlib/qlib/data/dataset/handler.py`）、
+Processor（外部基线路径 `../../../qlib/qlib/data/dataset/processor.py`）、
+Trainer（外部基线路径 `../../../qlib/qlib/model/trainer.py`）、
+评价记录（外部基线路径 `../../../qlib/qlib/workflow/record_temp.py`）。
 
 其中最值得转化为 Asterion 设计约束的是：
 
@@ -217,9 +217,9 @@ Processor 负责特定处理，Trainer 组织训练，Recorder 保管配置、�
 - PIT 区分数据所属期间与观察时点。下载时刻、来源报表更新时间、首次可知时间仍必须分开；
   不可变快照解决复算身份，不能自行证明历史可交易性。
 
-时间与调度依据：[RollingGen](../../../qlib/qlib/workflow/task/gen.py)、
-[PIT 运算](../../../qlib/qlib/data/pit.py)、
-[TaskManager](../../../qlib/qlib/workflow/task/manage.py)。TaskManager 使用 MongoDB 原子领取，
+时间与调度依据：RollingGen（外部基线路径 `../../../qlib/qlib/workflow/task/gen.py`）、
+PIT 运算（外部基线路径 `../../../qlib/qlib/data/pit.py`）、
+TaskManager（外部基线路径 `../../../qlib/qlib/workflow/task/manage.py`）。TaskManager 使用 MongoDB 原子领取，
 `safe_fetch_task` 异常时将任务返回原状态；这是其研究任务策略，不能替换 Asterion 的 attempt
 身份、显式重试和持久完成裁决。MLflow/MongoDB、配置导入和序列化对象加载也不是当前必需依赖。
 
@@ -232,20 +232,20 @@ RD-Agent 把提出假设、生成实验、编写实现、运行、评价和记�
 组合这些步骤，`Trace` 保存实验与反馈及其父节点关系；`QuantRDLoop` 进一步组织因子/模型
 研究。`QlibFBWorkspace` 在所选 Docker 或 Conda 环境运行 `qrun`，读取输出产物。
 
-源码依据：[RDLoop](../../../RD-Agent/rdagent/components/workflow/rd_loop.py)、
-[Hypothesis/Trace](../../../RD-Agent/rdagent/core/proposal.py)、
-[Experiment/Workspace](../../../RD-Agent/rdagent/core/experiment.py)、
-[QuantRDLoop](../../../RD-Agent/rdagent/app/qlib_rd_loop/quant.py)、
-[Qlib 工作区](../../../RD-Agent/rdagent/scenarios/qlib/experiment/workspace.py)。
+源码依据：RDLoop（外部基线路径 `../../../RD-Agent/rdagent/components/workflow/rd_loop.py`）、
+Hypothesis/Trace（外部基线路径 `../../../RD-Agent/rdagent/core/proposal.py`）、
+Experiment/Workspace（外部基线路径 `../../../RD-Agent/rdagent/core/experiment.py`）、
+QuantRDLoop（外部基线路径 `../../../RD-Agent/rdagent/app/qlib_rd_loop/quant.py`）、
+Qlib 工作区（外部基线路径 `../../../RD-Agent/rdagent/scenarios/qlib/experiment/workspace.py`）。
 
 值得借鉴的是把“为什么试这个参数”和“计算实际说明什么”保留下来。Asterion 已有来源任务、
 名称备注和固定证据导出，先让这些入口足以表达研究假设、选择依据和否定结论即可。
 只有已有元数据表达不了实际需求时再加字段，不先造知识图谱或通用研究 DAG。
 
 代码能运行、结果格式正确、统计表现更好也是三种不同结论。
-[因子实现评价](../../../RD-Agent/rdagent/components/coder/factor_coder/evaluators.py) 分开运行与值检查，
-[factor runner](../../../RD-Agent/rdagent/scenarios/qlib/developer/factor_runner.py) 组织基准与新因子，
-[反馈模块](../../../RD-Agent/rdagent/scenarios/qlib/developer/feedback.py) 将指标送给模型生成解释和
+因子实现评价（外部基线路径 `../../../RD-Agent/rdagent/components/coder/factor_coder/evaluators.py`） 分开运行与值检查，
+factor runner（外部基线路径 `../../../RD-Agent/rdagent/scenarios/qlib/developer/factor_runner.py`） 组织基准与新因子，
+反馈模块（外部基线路径 `../../../RD-Agent/rdagent/scenarios/qlib/developer/feedback.py`） 将指标送给模型生成解释和
 是否替换当前最佳结果的判断。这里可以参考流程，但 LLM 的肯定意见不能代替确定性业务验收。
 
 若今后引入 AI，最小范围应是读取用户选定的实验、解释已有差异、生成待审阅的参数草稿。
@@ -259,21 +259,21 @@ RD-Agent 把提出假设、生成实验、编写实现、运行、评价和记�
 ### FinceptTerminal：学习终端工作流，保留 Asterion 的进程生命周期
 
 本地项目已是 C++20/Qt6 桌面与 Python 分析子进程，不能按旧网页技术栈描述。
-[架构文档](../../../FinceptTerminal/docs/ARCHITECTURE.md) 明确采用桌面模块化单体，文中同时
+架构文档（外部基线路径 `../../../FinceptTerminal/docs/ARCHITECTURE.md`） 明确采用桌面模块化单体，文中同时
 包含 current 与 target。其引用的 `docs/REFACTOR_PLAN.md` 和 ADR 索引中的具体条目在本地
 未找到，不能将这些缺失文档视为已读或已落实的架构证据。
 
 源码上有三组可用参考：
 
-- [DockScreenRouter](../../../FinceptTerminal/fincept-qt/src/app/DockScreenRouter.h) 按需创建界面，
+- DockScreenRouter（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/app/DockScreenRouter.h`） 按需创建界面，
   支持面板复制、布局与窗口操作；
-  [ScreenStateManager](../../../FinceptTerminal/fincept-qt/src/core/session/ScreenStateManager.h)
+  ScreenStateManager（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/core/session/ScreenStateManager.h`）
   用面板实例身份区分同一类屏幕的多个状态。
-- [SymbolGroup](../../../FinceptTerminal/fincept-qt/src/core/symbol/SymbolGroup.h) 表达可选择的合约联动组。
+- SymbolGroup（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/core/symbol/SymbolGroup.h`） 表达可选择的合约联动组。
   联动应传递明确上下文，而非让全局“当前合约”覆盖全部面板。
-- [DataHub](../../../FinceptTerminal/fincept-qt/src/datahub/DataHub.h) 及其
-  [实现](../../../FinceptTerminal/fincept-qt/src/datahub/DataHub.cpp) 将订阅绑定 owner 生命周期，
-  集中处理在途请求、最新值与错误；[TopicPolicy](../../../FinceptTerminal/fincept-qt/src/datahub/TopicPolicy.h)
+- DataHub（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/datahub/DataHub.h`） 及其
+  实现（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/datahub/DataHub.cpp`） 将订阅绑定 owner 生命周期，
+  集中处理在途请求、最新值与错误；TopicPolicy（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/datahub/TopicPolicy.h`）
   区分刷新、推送、显示合并和非活动窗口策略。
 
 Asterion 不需要为此引入全局 DataHub。Native 已按服务身份发布投影，前端有行情增量合并和
@@ -284,7 +284,7 @@ Asterion 不需要为此引入全局 DataHub。Native 已按服务身份发布�
 同样，合并 UI 刷新不能合并原始行情或交易回报。DataHub 的 TTL 和最后值策略并不是完整的
 交易数据质量模型，其 push-only 默认也不能直接用作本项目的新鲜度规则。
 
-[PythonRunner](../../../FinceptTerminal/fincept-qt/src/python/PythonRunner.h) 的并发、超时、结构化
+PythonRunner（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/python/PythonRunner.h`） 的并发、超时、结构化
 输出体现了分析子进程的生命周期需求，但 Asterion 已由 Agent/Task/worker 承担这些责任。
 另建桌面脚本运行池会绕过任务保管与资源准入。其屏幕状态兼容路径、数据库迁移、凭据方案、
 多资产模块和商业版本功能都不作为当前移植目标。UI 保持 [Terminal 设计](../terminal.md)

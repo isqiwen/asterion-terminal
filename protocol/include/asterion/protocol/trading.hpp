@@ -50,14 +50,15 @@ inline constexpr unsigned max_slippage_ticks = 100;
 Json decode_input(const v1::PaperInput& input, DatasetView view = DatasetView::full);
 v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);
-v1::Snapshot encode_snapshot(const Json& snapshot);
+// Account observation encoded directly; the worker supplies replay progress.
+v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput& input);
 Json decode_snapshot(const v1::Snapshot& snapshot);
 // Live manifest ("live_ctp") and the broker-reported session state.
 v1::LivePolicy encode_live_policy(const Json& policy);
+void validate_live_policy(const v1::LivePolicy& policy);
 Json decode_live_policy(const v1::LivePolicy& policy);
 v1::LiveInput encode_live_input(const Json& manifest);
 Json decode_live_input(const v1::LiveInput& input);
-v1::LiveSnapshot encode_live_snapshot(const Json& snapshot);
 Json decode_live_snapshot(const v1::LiveSnapshot& snapshot);
 void validate_message(const google::protobuf::Message& message);
 

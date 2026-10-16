@@ -1,3 +1,4 @@
+import type { CommandParams } from "../../src/bridge/commands";
 import { useState } from "react";
 import {
   diagnosticSummary,
@@ -88,7 +89,9 @@ export function StrategyStart({
 }: {
   live: LiveSession;
   busy: boolean;
-  onStart: (params: Record<string, unknown>) => void;
+  onStart: (
+    params: Pick<CommandParams["live.strategy.start"], "venue" | "symbol" | "strategy">,
+  ) => void;
 }) {
   const [contract, setContract] = useState("");
   const [strategy, setStrategy] = useState(strategyDefaults);

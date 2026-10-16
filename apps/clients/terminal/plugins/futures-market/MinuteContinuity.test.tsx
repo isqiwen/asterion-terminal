@@ -79,9 +79,9 @@ const versions: HistoryDatasetRecord[] = ["a", "b"].map(c => ({
 function fixture() {
   const snapshot = readySnapshot();
   snapshot.data = { ...snapshot.data!, online: true, connection_id: "isolated-data" };
-  const query = vi.fn<TerminalContext["query"]>(async (method, p = {}) => {
+  const query = vi.fn<TerminalContext["query"]>(async (...[method, p]) => {
     if (method === "data.datasets") return { ...snapshot, history_datasets: versions };
-    expect(method).toBe("data.minutes.page");
+    if (method !== "data.minutes.page") throw new Error(`Unexpected query: ${method}`);
     expect(p.offset).toBe(119);
     expect(p.limit).toBe(1);
     expect(p.include_macd).toBe(false);

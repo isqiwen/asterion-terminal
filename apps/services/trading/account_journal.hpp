@@ -73,7 +73,7 @@ public:
     Write restore_orders(std::string day, std::uint64_t after);
     Write prepare_policy(
         std::filesystem::path plugins,
-        Json definition,
+        PolicyDefinition definition,
         std::string revision,
         std::string requested_artifact,
         std::string current_artifact);

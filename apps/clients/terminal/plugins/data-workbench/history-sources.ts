@@ -1,3 +1,4 @@
+import type { CommandParams } from "../../src/bridge/commands";
 import { getLocale, translate } from "../../src/i18n";
 import type {
   NativeHistorySource,
@@ -25,7 +26,7 @@ export type HistorySource = {
     query: HistoryQuery,
     credential: string,
     contracts: TableContracts,
-  ) => Record<string, unknown>;
+  ) => Omit<CommandParams["data.download.minutes.submit"], "id">;
   ownsTask: (task: TaskRecord) => boolean;
   dataset: (result: TaskResult) => HistoryDataset | null;
 };

@@ -6,7 +6,6 @@ import type { TerminalContext, TerminalPlugin } from "../../plugins/contract";
 
 const plugin: TerminalPlugin = {
   id: "test.panel",
-  apiVersion: 1,
   commands: ["node.data_tasks.local.open"],
   workspace: {
     id: "test.workspace",
@@ -16,12 +15,9 @@ const plugin: TerminalPlugin = {
   },
 };
 
-test("registration rejects conflicting identities and unsupported contracts", () => {
+test("registration rejects conflicting identities and preserves registered contributions", () => {
   expect(() => registerTerminalPlugins([plugin, plugin])).toThrow("UI 插件");
   expect(() => registerTerminalPlugins([plugin, { ...plugin, id: "other" }])).toThrow("工作区");
-  expect(() =>
-    registerTerminalPlugins([{ ...plugin, apiVersion: 2 } as unknown as typeof plugin]),
-  ).toThrow("契约");
   const registered = registerTerminalPlugins([plugin]);
   plugin.workspace.title = "Changed by caller";
   expect(registered[0].workspace.title).toBe("Test");
@@ -39,8 +35,17 @@ test("plugins can only invoke the commands they declare", async () => {
   const [registered] = registerTerminalPlugins([plugin]);
   const scoped = scopedContext(registered, base);
   await scoped.trade("node.data_tasks.local.open");
-  await expect(scoped.trade("live.act")).rejects.toThrow("live.act");
-  await expect(scoped.query("data.minutes.page", {})).rejects.toThrow("data.minutes.page");
+  await expect(scoped.trade("live.open", { account: "test" })).rejects.toThrow("live.open");
+  await expect(
+    scoped.query("data.minutes.page", {
+      id: "test",
+      offset: 0,
+      limit: 1,
+      start: "",
+      end: "",
+      include_macd: false,
+    }),
+  ).rejects.toThrow("data.minutes.page");
   expect("inspect" in scoped).toBe(false);
   expect(calls).toEqual(["node.data_tasks.local.open"]);
   expect(Object.isFrozen(registered.commands)).toBe(true);

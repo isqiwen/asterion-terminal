@@ -274,14 +274,15 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     if (period === "year") assert.equal(grouped.candles[0].volume, "2400");
     await expect(board.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
   }
-  const dateAlignment = await board
-    .getByRole("img", { name: "合约历史 K 线", exact: true })
-    .evaluate(svg => {
-      const text = svg.querySelector("[data-chart-time]").getBBox();
-      const crosshair = svg.querySelector(".price-chart-crosshair").getPointAtLength(0);
-      return Math.abs(text.x + text.width / 2 - crosshair.x);
-    });
-  assert.ok(dateAlignment < 1, "the single date label must align with its candle");
+  // The current chart uses a canvas; single-candle navigation must keep the
+  // one published observation and its date visible in the accessible readout.
+  const yearly = board.getByRole("img", { name: "合约历史 K 线", exact: true });
+  await expect(yearly.locator("canvas").first()).toBeVisible();
+  await expect(yearly).toHaveAttribute("data-visible-count", "1");
+  await yearly.press("Home");
+  await expect(board.locator(".price-chart-cursor")).toContainText("2023-04-30");
+  await yearly.press("End");
+  await expect(board.locator(".price-chart-cursor")).toContainText("2023-04-30");
   await capture(page, "native-yearly-market");
   console.log(
     "Electron minute/daily history: Agent-dispatched minute worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",

@@ -11,8 +11,8 @@ export function scopedContext(plugin: TerminalPlugin, base: TerminalContext): Te
     Promise.reject(new Error(t("插件 {p0} 未声明命令 {p1}", { p0: plugin.id, p1: method })));
   return {
     ...base,
-    query: (method, params) => (allowed.has(method) ? base.query(method, params) : denied(method)),
-    trade: (method, params) => (allowed.has(method) ? base.trade(method, params) : denied(method)),
+    query: (...args) => (allowed.has(args[0]) ? base.query(...args) : denied(args[0])),
+    trade: (...args) => (allowed.has(args[0]) ? base.trade(...args) : denied(args[0])),
   };
 }
 export function registerTerminalPlugins(plugins: readonly TerminalPlugin[]) {
@@ -21,8 +21,6 @@ export function registerTerminalPlugins(plugins: readonly TerminalPlugin[]) {
   for (const plugin of plugins) {
     if (!plugin.id || ids.has(plugin.id))
       throw new Error(t("重复或无效的 UI 插件: {p0}", { p0: plugin.id }));
-    if (plugin.apiVersion !== 1)
-      throw new Error(t("不支持的 UI 插件契约: {p0}", { p0: plugin.id }));
     if (
       !Array.isArray(plugin.commands) ||
       !plugin.commands.every(command => typeof command === "string" && command.length > 0)

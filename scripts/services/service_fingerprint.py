@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-TREES = ("core", "protocol", "plugins", "bindings", "apps/services", "conan", "scripts/node")
+TREES = ("core", "protocol", "plugins", "bindings", "apps/services", "conan", "cmake", "scripts/node")
 SUFFIXES = {".cpp", ".hpp", ".h", ".c", ".proto", ".cmake", ".py", ".json"}
 FILES = ("CMakeLists.txt", "conanfile.py", "conan.lock", "scripts/services/service_fingerprint.py",
          "scripts/services/deployment_bundle.py", "scripts/prepare_ctp.py")

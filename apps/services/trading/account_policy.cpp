@@ -6,52 +6,36 @@
 
 namespace asterion::trading {
 
-AccountPolicy::AccountPolicy(const Json& definition, std::string id, risk_providers::Module module)
+PolicyDefinition PolicyDefinition::from_wire(const protocol::v1::LivePolicy& policy)
+{
+    protocol::validate_live_policy(policy);
+    PolicyDefinition result;
+    result.limits = {
+        Decimal::from_raw(policy.risk().max_order_quantity().units()),
+        Decimal::from_raw(policy.risk().max_gross_quantity().units()),
+        policy.risk().max_working_orders()
+    };
+    result.max_price_deviation = Decimal::from_raw(policy.max_price_deviation().units());
+    for (const auto& contract : policy.contracts())
+        result.contracts.push_back(
+            {protocol::instrument(contract), contract.product(), contract.delivery_month()});
+    return result;
+}
+
+AccountPolicy::AccountPolicy(PolicyDefinition value, std::string id, risk_providers::Module module)
     : revision(std::move(id)),
-      limits(decode_order_limits(definition.at("risk"))),
-      max_price_deviation(Decimal::parse(definition.at("max_price_deviation").get<std::string>())),
+      definition(std::move(value)),
       algorithm(std::move(module))
 {
     validate_id(revision);
-    const auto input = protocol::encode_live_policy(definition);
-    for (const auto& contract : input.contracts()) {
-        FuturesContract value{
-            protocol::instrument(contract),
-            contract.product(),
-            contract.delivery_month()
-        };
-        contracts.push_back(std::move(value));
-    }
-    auto instance = algorithm.create(limits);
+    auto instance = algorithm.create(definition.limits);
     instance->start();
     risk = std::move(instance);
 }
 
-Json AccountPolicy::definition() const
-{
-    Json values = Json::array();
-    for (const auto& contract : contracts) {
-        const auto& terms = contract.instrument;
-        values.push_back(
-            {{"venue", terms.id.venue},
-                {"symbol", terms.id.symbol},
-                {"currency", terms.quote_currency},
-                {"price_increment", terms.price_increment.str()},
-                {"quantity_increment", terms.quantity_increment.str()},
-                {"multiplier", terms.multiplier.str()},
-                {"product", contract.product},
-                {"delivery_month", contract.delivery_month}});
-    }
-    return {
-        {"risk", encode_order_limits(limits)},
-        {"max_price_deviation", max_price_deviation.str()},
-        {"contracts", std::move(values)}
-    };
-}
-
 const FuturesContract* AccountPolicy::find(const InstrumentId& id) const
 {
-    for (const auto& contract : contracts)
+    for (const auto& contract : definition.contracts)
         if (contract.instrument.id == id)
             return &contract;
     return nullptr;

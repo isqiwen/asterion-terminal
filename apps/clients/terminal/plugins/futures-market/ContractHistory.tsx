@@ -164,8 +164,9 @@ export function ContractHistory({
       daily
         ? invoke
             .current("data.tables.daily", {
-              daily: held,
-              contract: contractId,
+              // A daily source is formed only with held and contractId.
+              daily: held!,
+              contract: contractId!,
               period: activePeriod,
               offset: from,
               limit,

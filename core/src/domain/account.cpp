@@ -82,17 +82,17 @@ bool active(const AccountOrder& item)
         || item.order.state() == OrderState::partially_filled;
 }
 
-const char* offset_name(Offset value)
+void validate_offset(Offset value)
 {
     switch (value) {
         case Offset::open:
-            return "open";
+            return;
         case Offset::close_today:
-            return "close_today";
+            return;
         case Offset::close_yesterday:
-            return "close_yesterday";
+            return;
         case Offset::close:
-            return "close";
+            return;
     }
     throw std::invalid_argument("invalid open/close offset");
 }
@@ -109,25 +109,6 @@ Decimal notional_part(Decimal quantity, Decimal price, Decimal multiplier, Decim
         multiply(price * quantity * multiplier, rate, Rounding::half_up),
         cent,
         Rounding::half_up);
-}
-
-const char* state_name(OrderState value)
-{
-    switch (value) {
-        case OrderState::pending:
-            return "pending";
-        case OrderState::accepted:
-            return "accepted";
-        case OrderState::partially_filled:
-            return "partially_filled";
-        case OrderState::filled:
-            return "filled";
-        case OrderState::cancelled:
-            return "cancelled";
-        case OrderState::rejected:
-            return "rejected";
-    }
-    throw std::invalid_argument("invalid order state");
 }
 
 } // namespace
@@ -395,7 +376,7 @@ FuturesAccount::closable(const InstrumentId& instrument, Side side, std::optiona
 // mutation; the remaining mutations either cannot throw or are rolled back.
 void FuturesAccount::submit(LimitOrder request, Offset offset)
 {
-    (void)offset_name(offset);
+    validate_offset(offset);
     if (request.side != Side::buy && request.side != Side::sell)
         throw std::invalid_argument("invalid order side");
     if (orders_.size() >= 10000)
@@ -615,62 +596,29 @@ void FuturesAccount::settle_traded(const std::vector<std::optional<Decimal>>& pr
     }
 }
 
-Json FuturesAccount::snapshot() const
+AccountSnapshot FuturesAccount::snapshot() const
 {
-    Json positions = Json::array(), orders = Json::array(), fills = Json::array(),
-         marks = Json::array();
+    AccountSnapshot result;
+    result.balance = balance_;
+    result.unrealized = unrealized();
+    result.equity = balance_ + result.unrealized;
+    result.margin = margin();
+    result.frozen = frozen();
+    result.available = available();
+    result.fees = fees_;
+    result.realized = realized_;
     for (std::size_t i = 0; i < contracts_.size(); ++i)
-        marks.push_back(
-            {{"venue", contracts_[i].instrument.id.venue},
-                {"symbol", contracts_[i].instrument.id.symbol},
-                {"mark", marks_[i].str()}});
-    for (const auto& lot : lots_)
-        positions.push_back(
-            {{"venue", lot.instrument.venue},
-                {"symbol", lot.instrument.symbol},
-                {"side", lot.side == Side::buy ? "buy" : "sell"},
-                {"bucket", lot.today ? "today" : "yesterday"},
-                {"quantity", lot.quantity.str()},
-                {"basis", lot.price.str()}});
-    for (const auto& item : orders_) {
-        const auto& r = item.order.request();
-        orders.push_back(
-            {{"id", r.id},
-                {"venue", r.instrument.venue},
-                {"symbol", r.instrument.symbol},
-                {"side", r.side == Side::buy ? "buy" : "sell"},
-                {"offset", offset_name(item.offset)},
-                {"quantity", r.quantity.str()},
-                {"limit_price", r.limit_price.str()},
-                {"filled", item.order.filled_quantity().str()},
-                {"state", state_name(item.order.state())}});
-    }
+        result.marks.push_back({contracts_[i].instrument.id, marks_[i]});
+    result.positions = lots_;
+    for (const auto& item : orders_)
+        result.orders.push_back(
+            {item.order.request(), item.offset, item.order.filled_quantity(), item.order.state()});
     for (const auto& recorded : fills_) {
-        const auto& f = recorded.execution;
-        const auto& r = orders_[index_of(f.order_id)].order.request();
-        fills.push_back(
-            {{"id", f.execution_id},
-                {"order_id", f.order_id},
-                {"venue", r.instrument.venue},
-                {"symbol", r.instrument.symbol},
-                {"quantity", f.quantity.str()},
-                {"price", f.price.str()},
-                {"fee", recorded.fee.str()}});
+        const auto& fill = recorded.execution;
+        result.fills.push_back(
+            {fill, orders_[index_of(fill.order_id)].order.request().instrument, recorded.fee});
     }
-    return {
-        {"balance", balance_.str()},
-        {"equity", (balance_ + unrealized()).str()},
-        {"available", available().str()},
-        {"margin", margin().str()},
-        {"frozen", frozen().str()},
-        {"fees", fees_.str()},
-        {"realized", realized_.str()},
-        {"unrealized", unrealized().str()},
-        {"marks", marks},
-        {"positions", positions},
-        {"orders", orders},
-        {"fills", fills}
-    };
+    return result;
 }
 
 } // namespace asterion

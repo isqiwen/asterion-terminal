@@ -36,6 +36,14 @@ NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，
 
 `ctest --test-dir build/Debug -R '^QuantStats\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 
+## 修改入口与验证边界
+
+按[现行架构](architecture.md)选择修改位置：界面贡献在 Terminal plugins，应用编排在 Native，业务状态在所属服务，供应商/算法实现留在 plugins。Core 不导入应用或具体插件；Task 不运行计算引擎，Agent 不解释业务结果。
+
+UI 贡献与宿主同步修改并编译。原生插件目录可选资格由 Native 统一发布；修改能力支持时同步目录/实际消费者，在 C++ 验证资格，在组件测试验证界面消费，在隔离 E2E 验证真实装配。新增动态 ABI 需要纯 C 契约及所有权验证；不要仅为内部模块建立运行时版本计数。
+
+现行使用说明位于 `docs/` 和模块 README，日期、基线、失败及复验记录位于 `docs/reviews/`；见[文档导航](README.md)。测试数字不能跨源码或 checkout 沿用。
+
 ## 构建
 
 | 命令 | 说明 |
@@ -229,3 +237,28 @@ Terminal 原生日志默认位于 Electron 的 `app.getPath("logs")`，可在启
 官方报表，保存到独立临时仓库并输出固定证据；不注册到 CTest，不接触用户仓库。
 自动回归 `ShfeMargins.*` 使用 `tests/data/fixtures/shfe_margin_reports.json` 的
 缩减报表形状；它仅用于测试，不是生产数据源。
+
+## 类型与架构检查
+
+`pnpm build` 的 TypeScript 阶段同时检查 `src/bridge/commands.typecheck.ts` 的正反调用示例。
+UI 命令的参数和方法名称以 `src/bridge/commands.ts` 为同一来源；包装回调时保留 `CommandCall`
+或 `CommandHandler`，不重新声明为 `Record<string, unknown>`。新增命令仍须实现 Native 的
+输入校验，类型声明不能替代真实协议验证。
+
+CMake 配置自动运行 `cmake/Architecture.cmake`，检查本地目标的传递链接依赖。
+`ctest --test-dir build/Debug -R Architecture --output-on-failure` 检查核心源文件边界。
+检查失败应修正职责或依赖，不添加架构例外来绕过已有不变量。构建规则纳入服务源码指纹，
+修改后须按本文的 Linux 服务包流程重新构建。
+
+
+### 实盘观察规模测量
+
+先构建 Release，再显式运行只读测试 SDK 夹具：
+
+```sh
+build/Release/asterion_live_tests --gtest_filter=Live.DISABLED_ObservationScaleMeasurements --gtest_also_run_disabled_tests --gtest_output=json:build/live-snapshot-measurements.json
+```
+
+该测量在 `tests/trading/`，不连接真实柜台、不提交订单；普通 CTest 默认不运行。
+输出包括不同委托/成交数量与多账户下的观察、编码和 UI 投影耗时、总字节及进程 RSS 高水位。
+测量口径和限制见[专项记录](reviews/command-boundaries-2026-10-16.md)。

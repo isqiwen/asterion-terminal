@@ -3,6 +3,16 @@
 当前产品为运行于 macOS（Apple Silicon）与 Linux x86_64 的期货 Terminal，本机服务与 Terminal 运行在同一台机器，远程节点服务仅支持 Linux x86_64。
 本文描述当前代码；架构改造的逐项实现、验收证据及运行限制见[实施记录](reviews/architecture-implementation.md)。
 
+## 架构约束
+
+采用分层核心、按状态所有权划分的服务进程和类型化插件。长期事实只有一个明确拥有者，
+插件交付方式按实际扩展需求选择；不以插件数量或进程数量衡量模块化程度。
+Terminal 的草稿和缓存属于界面状态，不能成为账户、历史版本或任务终态的第二个权威。
+策略产生意图，风控返回裁决，账户服务统一决定发送许可；受信任插件契约不是恶意代码沙箱。
+
+当前实现和验证范围见[本轮收敛记录](reviews/architecture-convergence-2026-10-16.md)。
+历史设计记录说明当时的方案比较，不替代本文的现行契约。
+
 ## 分层
 
 ```mermaid
@@ -26,6 +36,26 @@ flowchart TB
 
 领域依赖内核，内核依赖基础，不能反向依赖。
 Terminal 的 JSON 命令注册与分派属于 Native 应用边界，核心库不提供 UI 命令宿主。
+
+## 接口与序列化边界
+
+领域接口返回结构化 C++ 类型。账户快照的金额与价格保留 `Decimal`，订单方向、开平和状态
+保留枚举；回测 worker 直接把账户观察编码为 Protobuf，不通过 JSON 中转计算结果。
+服务间传输继续使用现有 Protobuf。Native 的界面快照、供应商响应解析、日志/配置编解码
+可以使用 JSON，但不能据此把领域模型改成动态字典。
+
+UI 命令参数在 `src/bridge/commands.ts` 按方法定义，组件与宿主传递保持方法/参数关联的
+联合元组，bridge 才进行 JSON 编码。Native 仍在输入边界验证结构与业务条件；前端类型
+不是授权机制。实盘账户线程直接构造已有 `LiveSnapshot`，通过类型化 future 交给服务 I/O，
+Terminal 收到后才转换为展示 JSON。账户状态和执行权不会随观察值转移，见
+[实盘观察记录](reviews/live-observation-2026-10-16.md)。
+
+实盘命令在 RPC 入口从 Protobuf 映射为 `AccountRequest`，账户循环只处理类型化操作。
+政策定义以具体类型贯穿接纳、日志线程准备与账户采用；JSON 命令仅用于当前日志及请求内容核对，
+恢复时在记录边界解析。详见[命令与政策收敛](reviews/command-boundaries-2026-10-16.md)。
+
+CMake 配置检查核心链接依赖方向和 Task/Agent 不执行算法的边界；CTest 检查核心 include
+与领域 JSON 使用，并用实际 CMake 负例验证拒绝行为。新增 CMake 规则也属于 Linux 服务源码指纹的输入。
 
 ## 进程
 
@@ -82,18 +112,29 @@ Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结�
 
 | 类别 | 实现 |
 | --- | --- |
-| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线、全市场数据表）、`data/registry`（历史数据源组合与目录入口） |
+| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线、全市场数据表）、`data/shfe`（已核验范围的历史保证金）、`data/registry`（历史数据源组合与目录入口） |
 | 执行 | `execution/paper`（回测撮合）、`execution/ctp`（CTP 交易接口） |
 | 存储 | `storage/sqlite`（交易记录与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录、全市场数据表的分区登记）、`storage/parquet`（K 线与数据表分区文件） |
 | 策略 | `strategy/cta`（均线交叉、通道突破、时序动量、布林回归） |
 | 风控 | `risk/order-limits`（交易前限额） |
-| 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis` |
+| 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/performance`；QuantStats 为独立桌面分析助手 |
 
 Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPort`，内置订单限额与原生风控）和历史分钟线读取（`HistoricalBarPort`，Tushare 与原生历史适配器）。全市场数据表通过插件注册层的 `history_providers::TableReader` 读取；日线与合约目录统一来自这些表，没有单独的日线端口。只有一个实现的能力不设端口，宿主直接使用具体类型：CTP 行情 `ctp::Feed`、CTP 交易 `ctp::Trader`、回测撮合 `PaperExecution`、`SqliteJournal` 与历史仓库 `Archive`。交易策略是例外：四条规则共用插件内的 `Strategy` 接口（`plugins/strategy/cta`），由 `make_strategy` 按策略定义创建，回测引擎和实盘策略运行都通过它使用。Kernel 不再有统一的插件生命周期基类；需要启停的插件自行提供 `start`/`stop`，原生历史适配器由自身持有的 `NativeInstance` 完成启停。
 
 存储与回测插件直接读写 Protobuf 契约类型（数据集、任务事件、回测输入），因此依赖 `asterion_protocol`；这是持久格式的类型化表示，不是对服务或传输的依赖。
 
-历史数据与交易前风控通过原生 ABI 动态装载，其余业务插件仍使用仓库内 C++ 接口和静态目标。UI 插件在构建时注册。所有插件均为宿主进程内的可信代码；能力范围见 [原生插件 SDK](native-plugins.md)。
+| 扩展方式 | 当前用途 | 契约与所有权 |
+| --- | --- | --- |
+| 构建期 UI 贡献 | 工作区、工具栏、任务入口、多语言 | TypeScript 契约，宿主限制声明命令；React 管理挂载和清理，无独立运行时 API 版本 |
+| 原生动态库 | 历史数据、连接与原文观测、交易前风控 | C ABI 与能力函数表，明确版本/大小/平台检查；NativeInstance 持有库生命周期 |
+| 仓库内静态模块 | 策略、CTP/执行、存储及内部分析 | 具体类型或已有多实现接口，由所属服务装配，不预建通用插件框架 |
+| 独立桌面分析助手 | QuantStats | Native 按需通过 Protobuf 调用冻结程序，不属于原生插件 ABI，也不拥有 Task 结果 |
+
+原生动态库与内置 UI 模块都是可信代码；插件不等于独立进程或沙箱。只在实际需要独立交付时定义新的动态 ABI，不设全模块迁移计划。能力范围见 [原生插件 SDK](native-plugins.md)。
+
+Native 的插件目录统一计算本机数据/任务插件的 `selectable`，启动、设置和测试入口消费相同投影；UI 不解释原生 ABI 版本。保存时 Native 重新核对目录、固定摘要、必选插件和服务修订，Agent 验证部署产物及停止状态。前端选择只是草稿，不能越过后端检查。
+
+Data 和 Task 各自保存插件集合；当前本机配对创建使用共同的所选集合，各宿主只消费对应能力。后续修改分别保存，不把目录中存在某个库等同于所有服务均启用它。
 
 ## Terminal
 
@@ -128,12 +169,12 @@ Node-API 直接接纳异步请求并将完成交回 JS，不再建请求线程�
 | 数据服务 | 状态与 I/O、一条串行持久写入线程、固定文件池；候选验证与发布裁决分离 |
 | 任务服务 | 状态与 I/O、一条日志线程、固定文件池；算法只在 worker 执行 |
 | Node Agent | 管理与 I/O、一条配置写入线程、固定管理池；监督与资源准入属于同一 owner |
+| 下载 / 回测 / 因子 worker | 主控制线程与执行线程各一条；I/O、心跳、取消和父进程检查在主线程推进 |
 
 任务服务和数据服务的状态拥有者分别是 `TaskHost` 与 `DataHost`，`main()` 只解析参数并把端点
 接到它们。Node Agent 的请求路由按操作拆成成员函数；制品上传（`ArtifactUploads`）、防火墙计划
 （`FirewallControl`）和升级计划（`UpgradePlan`）各有自己的类型，`Agent` 保留服务登记、监督与
 升级协调。
-| 下载 / 回测 / 因子 worker | 主控制线程与执行线程各一条；I/O、心跳、取消和父进程检查在主线程推进 |
 
 固定池大小来自节点预算，不随请求数增加；当前 Data/Task 文件池由 Agent 分配一或两条线程。
 SDK、DuckDB、Chromium、V8 与 libuv 的内部线程仍消耗真实资源，上表不是 OS 总线程数。

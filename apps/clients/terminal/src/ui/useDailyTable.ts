@@ -1,3 +1,4 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useEffect, useRef, useState } from "react";
 import type { Snapshot, TableCoverage, TableCoverageRow } from "../bridge/client";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
@@ -11,10 +12,7 @@ export type DailyTable = {
   calendar_source: string;
   contracts_source: string;
 };
-export type DailyTableQuery = (
-  method: "data.tables.coverage",
-  params: Record<string, unknown>,
-) => Promise<Snapshot>;
+export type DailyTableQuery = CommandHandler<Snapshot, "data.tables.coverage">;
 
 // The daily table that holds data, and the calendar and contract list of the
 // same data source, with what the table holds of each exchange.

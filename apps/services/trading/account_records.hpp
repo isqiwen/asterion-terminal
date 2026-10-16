@@ -1,4 +1,5 @@
 #pragma once
+#include "account_policy.hpp"
 #include <asterion/domain/broker_execution.hpp>
 #include <asterion/v1/trading.pb.h>
 #include <asterion/foundation/serialization.hpp>
@@ -11,9 +12,8 @@
 namespace asterion::trading {
 
 // Account commands and journal records as types. JSON is only their durable
-// and wire form: it is read and written here, and account logic never inspects
-// it. The JSON written by this file is the journal format of the engine
-// identifier in live_session.cpp.
+// form: it is read and written here. Business operations are decoded directly
+// from Protobuf; the JSON command is retained only for journaling and deduplication.
 struct SubmitOrder
 {
     LimitOrder order;
@@ -41,7 +41,7 @@ struct ResolveOrder
 // The definition belongs to AccountPolicy, which alone interprets it.
 struct ChangePolicy
 {
-    Json definition;
+    PolicyDefinition definition;
     std::string risk_artifact;
 };
 
@@ -73,7 +73,8 @@ struct AccountRequest
     Operation operation;
     // Durable form. A request ID seen again must carry exactly this content.
     Json command;
-    static AccountRequest parse(const Json& command);
+    static AccountRequest from_wire(const protocol::v1::Command& command);
+    static AccountRequest from_record(const Json& command);
 
     template <class T>
     const T* as() const noexcept
@@ -170,8 +171,6 @@ JournalEntry entry(const OrdersTerminal& record);
 JournalEntry entry(const OrderNotSent& record);
 JournalEntry entry(const CancelResult& record);
 
-std::string_view side_name(Side side) noexcept;
-std::string_view offset_name(Offset offset) noexcept;
 std::string_view status_name(BrokerOrderStatus status) noexcept;
 
 } // namespace asterion::trading

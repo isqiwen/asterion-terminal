@@ -1,5 +1,6 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useState } from "react";
-import type { Snapshot, TerminalCommand } from "../bridge/client";
+import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
@@ -10,7 +11,7 @@ export function TaskPagination({
 }: {
   taskService: Snapshot["task_service"] | undefined;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   const [error, setError] = useState<DisplayError>("");
   if (!taskService || (!taskService.before_sequence && !taskService.next_before_sequence))

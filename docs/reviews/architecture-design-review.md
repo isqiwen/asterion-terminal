@@ -1,5 +1,7 @@
 # Asterion 整体架构评估与目标设计
 
+> 本文保留原日期和源码基线的设计/验收事实；现行契约见[架构](../architecture.md)，后续实现与验证见[评审索引](README.md)。阶段状态与旧产物摘要不代表当前发行验收。
+
 评估日期：2026-10-04。范围：macOS 期货 Terminal，以及为其服务的 Linux x86_64 节点。本文讨论架构目标、领域边界、状态所有权、失败语义和设计取舍，不提出实现补丁。
 
 实施授权：2026-10-04，用户明确批准按本文完整改造。下文的“目标”“建议”和设计时未实施说明
@@ -169,7 +171,7 @@ flowchart TB
 | `workspace.research`、“研究”页面 | 依内容称“回测与因子”或分别呈现“回测”“因子分析”；数据管理与任务管理使用各自名称，页面数量由交互需要决定。2026-10-09 用户决定：工作区重新定名为“研究”（`workspace.research`），内含“回测”“因子”两页；这个词现在只指回测和因子，数据管理与任务管理仍用各自的名称和入口 |
 | 文档入口 | 已按职责整理为任务管理、回测、因子分析、行情与数据四份说明，原综合文档已移除 |
 
-当前职责混合的证据见 [research_client.hpp](../../apps/clients/terminal/native/research_client.hpp)、[task.proto](../../protocol/proto/asterion/v1/task.proto) 和 [plugin.tsx](../../apps/clients/terminal/plugins/research/plugin.tsx)。不能把所有 `research` 统一替换为 `data` 或 `task`，否则只是将同一混合边界换名；也不引入 `analytics`、`compute` 等新的笼统上层所有者。
+当前职责混合的证据见 research_client.hpp（原基线路径 `apps/clients/terminal/native/research_client.hpp`，现已拆分）、[task.proto](../../protocol/proto/asterion/v1/task.proto) 和 [plugin.tsx](../../apps/clients/terminal/plugins/research/plugin.tsx)。不能把所有 `research` 统一替换为 `data` 或 `task`，否则只是将同一混合边界换名；也不引入 `analytics`、`compute` 等新的笼统上层所有者。
 
 设计正文使用明确对象，例如“历史数据与计算产物”“回测时钟”“回测引擎”“因子评价结果”。“量化研究”可用于说明人的活动或引用资料，不承担架构身份。既有源码路径、审计原文与历史证据按事实引用；引用旧名称不代表目标保留该抽象。文档已按职责拆分，现行代码和协议标识尚未更名。文档中的实际路径与现行界面标签按当前事实保留。
 

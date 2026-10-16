@@ -1,4 +1,5 @@
-import type { FirewallPlan, TerminalCommand } from "../bridge/client";
+import type { CommandHandler } from "../bridge/commands";
+import type { FirewallPlan } from "../bridge/client";
 import { t } from "./service-state";
 export function FirewallPreview({
   plan,
@@ -13,7 +14,7 @@ export function FirewallPreview({
   keyReady?: boolean;
   privateKey?: string;
   clearKey?: () => void;
-  run: (method: TerminalCommand, params: Record<string, string>) => Promise<boolean>;
+  run: CommandHandler<boolean>;
 }) {
   return (
     <section aria-label={t("防火墙规则预览")}>

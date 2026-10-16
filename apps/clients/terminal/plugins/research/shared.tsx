@@ -1,3 +1,4 @@
+import type { CommandHandler } from "../../src/bridge/commands";
 import { ExperimentMetadata } from "./ExperimentMetadata";
 import { useState, type ReactNode } from "react";
 import {
@@ -10,7 +11,6 @@ import {
   type MessageValues,
   type TerminalContext,
 } from "../contract";
-import type { TerminalCommand } from "../../src/bridge/client";
 
 export const namespace = "asterion.terminal.research";
 export const t = (key: string, values?: MessageValues) => translate(namespace, key, values);
@@ -80,15 +80,15 @@ export const factorWords = {
 } as const;
 type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_service"]>;
 export type ResearchTask = TaskService["tasks"][number];
-export type Run = (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
+export type Run = CommandHandler<boolean>;
 
 /** Runs commands for one page; a failure becomes the page's error instead of an exception. */
 export function useRun(trade: TerminalContext["trade"]) {
   const [error, setError] = useState<DisplayError>("");
-  const run: Run = async (method, params = {}) => {
+  const run: Run = async (...args) => {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

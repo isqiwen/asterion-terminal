@@ -14,7 +14,7 @@ execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/ser
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ASTERION_SERVICE_INPUTS})
 # Detect added/deleted inputs as well as edits to the existing source files.
 file(GLOB_RECURSE ASTERION_SERVICE_TREE CONFIGURE_DEPENDS
-  core/* protocol/* plugins/* bindings/* apps/services/* conan/* scripts/node/*)
+  core/* protocol/* plugins/* bindings/* apps/services/* conan/* cmake/* scripts/node/*)
 file(WRITE "${CMAKE_BINARY_DIR}/service-source.sha256" "${ASTERION_SERVICE_SOURCE_SHA256}\n")
 
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -267,6 +267,9 @@ foreach(target asterion_order_limits_config asterion_risk_providers asterion_ord
     $<$<CXX_COMPILER_ID:GNU>:-Wno-missing-field-initializers>
     $<$<AND:$<CXX_COMPILER_ID:GNU>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,15>>:-Wno-maybe-uninitialized>)
 endforeach()
+
+include(cmake/Architecture.cmake)
+asterion_check_architecture()
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

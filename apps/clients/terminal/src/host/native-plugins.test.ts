@@ -14,6 +14,7 @@ test("table-only bundled plugins are enabled and required while installed ones r
     version: "1.0.0",
     sha256: "a".repeat(64),
     capabilities: [{ id: "asterion.history.tables.v1", version: 1, kind: "data" }],
+    selectable: true,
     state: "available",
     error: "",
   };
@@ -33,4 +34,19 @@ test("table-only bundled plugins are enabled and required while installed ones r
   const selected = selectPlugin(defaults, installed.sha256, true, items);
   expect(selected).toEqual([bundled.sha256, installed.sha256]);
   expect(selectPlugin(selected, installed.sha256, false, items)).toEqual(defaults);
+});
+
+test("the UI uses Native eligibility instead of interpreting capability versions", () => {
+  const entry: NativePluginInfo = {
+    id: "provider",
+    file: "provider.so",
+    version: "1.0.0",
+    sha256: "c".repeat(64),
+    capabilities: [],
+    selectable: true,
+    state: "available",
+    error: "",
+  };
+  expect(defaultDataTaskPlugins([entry])).toEqual([entry.sha256]);
+  expect(availableDataTaskPlugins([{ ...entry, selectable: false }])).toEqual([]);
 });

@@ -558,12 +558,21 @@ v1::RiskLimits encode_risk(const Json& value)
     return result;
 }
 
-Json decode_risk(const v1::RiskLimits& value)
+namespace {
+
+void validate_risk(const v1::RiskLimits& value)
 {
     if (!value.has_max_order_quantity() || !value.has_max_gross_quantity()
         || value.max_order_quantity().units() <= 0 || value.max_gross_quantity().units() <= 0
         || !value.max_working_orders())
         throw std::invalid_argument("missing explicit risk limits");
+}
+
+} // namespace
+
+Json decode_risk(const v1::RiskLimits& value)
+{
+    validate_risk(value);
     return {
         {"max_order_quantity", get(value.max_order_quantity())},
         {"max_gross_quantity", get(value.max_gross_quantity())},
@@ -760,18 +769,26 @@ Json decode_command(const v1::Command& c)
     return result;
 }
 
-v1::Snapshot encode_snapshot(const Json& s)
+v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput& input)
 {
+    const auto s = account.snapshot();
     v1::Snapshot result;
-    *result.mutable_risk() = encode_risk(s.at("risk"));
-    for (const auto& c : s.at("contracts")) {
+    *result.mutable_risk() = input.risk();
+    if (s.marks.size() != static_cast<std::size_t>(input.contracts_size()))
+        throw std::logic_error("account contracts differ from fixed input");
+    for (std::size_t i = 0; i < s.marks.size(); ++i) {
+        const auto& source = input.contracts(static_cast<int>(i));
+        const auto& identity = s.marks[i].instrument;
+        if (identity.venue != source.dataset().contract().venue()
+            || identity.symbol != source.dataset().contract().symbol())
+            throw std::logic_error("account contracts differ from fixed input");
         auto* item = result.add_contracts();
-        *item->mutable_contract() = contract(c.at("contract"));
-        *item->mutable_costs() = encode_costs(c.at("costs"));
-        *item->mutable_cost_schedule() = encode_cost_schedule(c.at("cost_schedule"));
-        set(item->mutable_mark(), c.at("mark"));
+        *item->mutable_contract() = source.dataset().contract();
+        *item->mutable_costs() = encode_costs(account.contracts()[i].costs);
+        *item->mutable_cost_schedule() = source.cost_schedule();
+        item->mutable_mark()->set_units(s.marks[i].price.raw());
     }
-#define VALUE(name) set(result.mutable_##name(), s.at(#name))
+#define VALUE(name) result.mutable_##name()->set_units(s.name.raw())
     VALUE(balance);
     VALUE(equity);
     VALUE(available);
@@ -781,41 +798,67 @@ v1::Snapshot encode_snapshot(const Json& s)
     VALUE(realized);
     VALUE(unrealized);
 #undef VALUE
-    result.set_cursor(s.at("cursor").get<std::uint32_t>());
-    result.set_total(s.at("total").get<std::uint32_t>());
-    if (!s.at("timestamp_ns").is_null())
-        result.set_timestamp_ns(std::stoll(s.at("timestamp_ns").get<std::string>()));
-    result.set_recovery_required(s.at("storage_state") == "recovery_required");
-    for (const auto& p : s.at("positions")) {
+    for (const auto& p : s.positions) {
         auto* item = result.add_positions();
-        item->set_venue(p.at("venue").get<std::string>());
-        item->set_symbol(p.at("symbol").get<std::string>());
-        item->set_side(side(p.at("side").get<std::string>()));
-        item->set_today(p.at("bucket") == "today");
-        set(item->mutable_quantity(), p.at("quantity"));
-        set(item->mutable_basis(), p.at("basis"));
+        item->set_venue(p.instrument.venue);
+        item->set_symbol(p.instrument.symbol);
+        item->set_side(p.side == Side::buy ? v1::BUY : v1::SELL);
+        item->set_today(p.today);
+        item->mutable_quantity()->set_units(p.quantity.raw());
+        item->mutable_basis()->set_units(p.price.raw());
     }
-    for (const auto& o : s.at("orders")) {
+    for (const auto& o : s.orders) {
         auto* item = result.add_orders();
-        item->set_id(o.at("id").get<std::string>());
-        item->set_venue(o.at("venue").get<std::string>());
-        item->set_symbol(o.at("symbol").get<std::string>());
-        item->set_side(side(o.at("side").get<std::string>()));
-        item->set_offset(offset(o.at("offset").get<std::string>()));
-        set(item->mutable_quantity(), o.at("quantity"));
-        set(item->mutable_limit_price(), o.at("limit_price"));
-        set(item->mutable_filled(), o.at("filled"));
-        item->set_state(state(o.at("state").get<std::string>()));
+        item->set_id(o.request.id);
+        item->set_venue(o.request.instrument.venue);
+        item->set_symbol(o.request.instrument.symbol);
+        item->set_side(o.request.side == Side::buy ? v1::BUY : v1::SELL);
+        switch (o.offset) {
+            case Offset::open:
+                item->set_offset(v1::OPEN);
+                break;
+            case Offset::close_today:
+                item->set_offset(v1::CLOSE_TODAY);
+                break;
+            case Offset::close_yesterday:
+                item->set_offset(v1::CLOSE_YESTERDAY);
+                break;
+            case Offset::close:
+                item->set_offset(v1::CLOSE);
+                break;
+        }
+        item->mutable_quantity()->set_units(o.request.quantity.raw());
+        item->mutable_limit_price()->set_units(o.request.limit_price.raw());
+        item->mutable_filled()->set_units(o.filled.raw());
+        switch (o.state) {
+            case OrderState::accepted:
+                item->set_state(v1::ACCEPTED);
+                break;
+            case OrderState::partially_filled:
+                item->set_state(v1::PARTIALLY_FILLED);
+                break;
+            case OrderState::filled:
+                item->set_state(v1::FILLED);
+                break;
+            case OrderState::cancelled:
+                item->set_state(v1::CANCELLED);
+                break;
+            case OrderState::rejected:
+                item->set_state(v1::REJECTED);
+                break;
+            case OrderState::pending:
+                throw std::logic_error("account observation contains an unaccepted order");
+        }
     }
-    for (const auto& f : s.at("fills")) {
+    for (const auto& f : s.fills) {
         auto* item = result.add_fills();
-        item->set_id(f.at("id").get<std::string>());
-        item->set_order_id(f.at("order_id").get<std::string>());
-        item->set_venue(f.at("venue").get<std::string>());
-        item->set_symbol(f.at("symbol").get<std::string>());
-        set(item->mutable_quantity(), f.at("quantity"));
-        set(item->mutable_price(), f.at("price"));
-        set(item->mutable_fee(), f.at("fee"));
+        item->set_id(f.execution.execution_id);
+        item->set_order_id(f.execution.order_id);
+        item->set_venue(f.instrument.venue);
+        item->set_symbol(f.instrument.symbol);
+        item->mutable_quantity()->set_units(f.execution.quantity.raw());
+        item->mutable_price()->set_units(f.execution.price.raw());
+        item->mutable_fee()->set_units(f.fee.raw());
     }
     return result;
 }
@@ -974,37 +1017,42 @@ v1::LivePolicy encode_live_policy(const Json& policy)
         throw std::invalid_argument("price deviation requires canonical decimal text");
     for (const auto& c : policy.at("contracts"))
         *result.add_contracts() = contract(c);
-    static_cast<void>(decode_live_policy(result));
+    validate_live_policy(result);
     return result;
 }
 
-Json decode_live_policy(const v1::LivePolicy& policy)
+void validate_live_policy(const v1::LivePolicy& policy)
 {
     if (!policy.has_risk() || policy.contracts().empty()
         || static_cast<std::size_t>(policy.contracts_size()) > max_portfolio_contracts)
         throw std::invalid_argument("live policy requires risk and 1 to 20 contracts");
-    auto risk = decode_risk(policy.risk());
+    validate_risk(policy.risk());
     const auto deviation = Decimal::from_raw(policy.max_price_deviation().units());
     if (!policy.has_max_price_deviation() || deviation <= Decimal{}
         || deviation >= Decimal::parse("1"))
         throw std::invalid_argument("price deviation limit must be above 0 and below 1");
-    Json contracts = Json::array();
     std::set<InstrumentId> seen;
     for (const auto& c : policy.contracts()) {
         const auto terms = instrument(c);
         FuturesContract{terms, c.product(), c.delivery_month()}.validate();
         if (!seen.insert(terms.id).second)
             throw std::invalid_argument("duplicate live contract");
-        contracts.push_back(contract(c));
     }
+}
+
+Json decode_live_policy(const v1::LivePolicy& policy)
+{
+    validate_live_policy(policy);
+    Json contracts = Json::array();
+    for (const auto& value : policy.contracts())
+        contracts.push_back(contract(value));
     return {
-        {"risk", std::move(risk)},
-        {"max_price_deviation", deviation.str()},
+        {"risk", decode_risk(policy.risk())},
+        {"max_price_deviation", get(policy.max_price_deviation())},
         {"contracts", std::move(contracts)}
     };
 }
 
-// The owned account record uses its stable Terminal ID.
 v1::LiveInput encode_live_input(const Json& m)
 {
     require_fields(m, {"type", "account_id", "broker", "policy"});
@@ -1039,124 +1087,6 @@ Json decode_live_input(const v1::LiveInput& input)
         {"broker", std::move(broker)},
         {"policy", std::move(policy)}
     };
-}
-
-v1::LiveSnapshot encode_live_snapshot(const Json& s)
-{
-    v1::LiveSnapshot result;
-    result.set_account_id(s.at("account_id").get<std::string>());
-    result.set_segment_count(s.at("segment_count").get<std::uint64_t>());
-    const auto& capacity = s.at("capacity");
-    auto* stored = result.mutable_capacity();
-    stored->set_records_used(capacity.at("records_used").get<std::uint64_t>());
-    stored->set_records_limit(capacity.at("records_limit").get<std::uint64_t>());
-    stored->set_bytes_used(capacity.at("bytes_used").get<std::uint64_t>());
-    stored->set_bytes_limit(capacity.at("bytes_limit").get<std::uint64_t>());
-    const auto input = encode_live_input(
-        {{"account_id", s.at("account_id")},
-            {"type", "live_ctp"},
-            {"broker", s.at("broker")},
-            {"policy",
-                {{"risk", s.at("risk")},
-                    {"max_price_deviation", s.at("max_price_deviation")},
-                    {"contracts", s.at("contracts")}}}});
-    *result.mutable_broker() = input.broker();
-    *result.mutable_risk() = input.policy().risk();
-    *result.mutable_max_price_deviation() = input.policy().max_price_deviation();
-    *result.mutable_contracts() = input.policy().contracts();
-    result.set_policy_revision(s.at("policy_revision").get<std::string>());
-    result.set_risk_artifact(s.at("risk_artifact").get<std::string>());
-    result.set_phase(s.at("phase").get<std::string>());
-    result.set_error_code(s.at("error_code").get<int>());
-    result.set_trading_day(s.at("trading_day").get<std::string>());
-    result.set_synchronized_ms(s.at("synchronized_ms").get<std::int64_t>());
-    if (!s.at("funds").is_null()) {
-        const auto& f = s.at("funds");
-        auto* funds = result.mutable_funds();
-        set(funds->mutable_balance(), f.at("balance"));
-        set(funds->mutable_available(), f.at("available"));
-        set(funds->mutable_margin(), f.at("margin"));
-        set(funds->mutable_commission(), f.at("commission"));
-        set(funds->mutable_close_profit(), f.at("close_profit"));
-        set(funds->mutable_position_profit(), f.at("position_profit"));
-    }
-    for (const auto& p : s.at("positions")) {
-        auto* item = result.add_positions();
-        item->set_venue(p.at("venue"));
-        item->set_symbol(p.at("symbol"));
-        item->set_side(side(p.at("side").get<std::string>()));
-        set(item->mutable_today(), p.at("today"));
-        set(item->mutable_yesterday(), p.at("yesterday"));
-    }
-    for (const auto& o : s.at("orders")) {
-        auto* item = result.add_orders();
-        item->set_id(o.at("id"));
-        item->set_broker_key(o.at("broker_key"));
-        item->set_exchange_order_id(o.at("exchange_order_id"));
-        item->set_venue(o.at("venue"));
-        item->set_symbol(o.at("symbol"));
-        item->set_side(side(o.at("side").get<std::string>()));
-        item->set_offset(offset(o.at("offset").get<std::string>()));
-        set(item->mutable_quantity(), o.at("quantity"));
-        set(item->mutable_filled(), o.at("filled"));
-        set(item->mutable_limit_price(), o.at("limit_price"));
-        item->set_status(live_status(o.at("status")));
-        item->set_error_code(o.at("error_code").get<int>());
-    }
-    for (const auto& t : s.at("trades")) {
-        auto* item = result.add_trades();
-        item->set_id(t.at("id"));
-        item->set_order_id(t.at("order_id"));
-        item->set_venue(t.at("venue"));
-        item->set_symbol(t.at("symbol"));
-        item->set_side(side(t.at("side").get<std::string>()));
-        item->set_offset(offset(t.at("offset").get<std::string>()));
-        set(item->mutable_quantity(), t.at("quantity"));
-        set(item->mutable_price(), t.at("price"));
-        item->set_trading_day(t.at("trading_day"));
-        item->set_trade_time(t.at("trade_time"));
-    }
-    if (!s.at("authorization").is_null()) {
-        const auto& a = s.at("authorization");
-        result.mutable_authorization()->set_authorized_at_ms(
-            a.at("authorized_at_ms").get<std::int64_t>());
-    }
-    if (!s.at("strategy").is_null()) {
-        const auto& run = s.at("strategy");
-        auto* item = result.mutable_strategy();
-        item->set_id(run.at("id"));
-        item->set_venue(run.at("venue"));
-        item->set_symbol(run.at("symbol"));
-        *item->mutable_strategy() = encode_strategy(run.at("strategy"));
-        item->set_warmup(run.at("warmup"));
-        item->set_state(run.at("state"));
-        item->set_reason(run.at("reason"));
-        item->set_started_ms(run.at("started_ms"));
-        item->set_bars(run.at("bars"));
-        item->set_bar_ms(run.at("bar_ms"));
-        if (!run.at("target").is_null())
-            set(item->mutable_target(), run.at("target"));
-        for (const auto& order : run.at("orders"))
-            item->add_orders(order);
-    }
-    for (const auto& u : s.at("unconfirmed")) {
-        auto* item = result.add_unconfirmed();
-        item->set_id(u.at("id"));
-        item->set_broker_key(u.at("broker_key"));
-        item->set_trading_day(u.at("trading_day"));
-    }
-    result.set_recovery_required(s.at("storage_state") == "recovery_required");
-    for (const auto& c : s.at("costs")) {
-        auto* item = result.add_costs();
-        item->set_venue(c.at("venue"));
-        item->set_symbol(c.at("symbol"));
-        item->set_state(live_costs_state(c.at("state")));
-        item->set_error_code(c.at("error_code").get<int>());
-        item->set_queried_ms(c.at("queried_ms").get<std::int64_t>());
-        if (c.at("state") == "ready")
-            *item->mutable_costs() = encode_costs(c.at("costs"));
-    }
-    return result;
 }
 
 Json decode_live_snapshot(const v1::LiveSnapshot& s)

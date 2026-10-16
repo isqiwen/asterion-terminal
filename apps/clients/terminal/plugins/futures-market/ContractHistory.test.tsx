@@ -30,10 +30,12 @@ const versions: HistoryDatasetRecord[] = ["a", "b"].map(c => ({
 }));
 function fixture() {
   const snapshot = readySnapshot();
-  const query = vi.fn<TerminalContext["query"]>(async (method, p = {}) => {
+  const query = vi.fn<TerminalContext["query"]>(async (...[method, p]) => {
     if (method === "data.datasets") return { ...snapshot, history_datasets: versions };
-    const offset = p.offset as number,
-      limit = p.limit as number;
+    if (method !== "data.tables.daily" && method !== "data.minutes.page")
+      throw new Error(`Unexpected query: ${method}`);
+    const offset = p.offset,
+      limit = p.limit;
     const bars = Array.from({ length: Math.max(0, Math.min(limit, 120 - offset)) }, (_, i) => ({
       timestamp_ns: String(1790000000000000000n + BigInt(offset + i) * 60000000000n),
       trading_day: new Date(Date.UTC(2026, 0, offset + i + 1)).toISOString().slice(0, 10),
@@ -121,9 +123,9 @@ test("daily page survives leaving the workspace and repeated returns; a new snap
     view.unmount();
     view = render(page(f.context, store, "day"));
     await waitFor(() => expect(pages()?.textContent).toContain("101–120 / 120"));
-    expect(f.query.mock.calls.filter(([m]) => m === "data.tables.daily").at(-1)?.[1]?.offset).toBe(
-      41,
-    );
+    expect(
+      f.query.mock.calls.filter(call => call[0] === "data.tables.daily").at(-1)?.[1]?.offset,
+    ).toBe(41);
   }
   view.unmount();
   render(page(f.context, store, "day", { ...daily, snapshot: "e".repeat(64) }));

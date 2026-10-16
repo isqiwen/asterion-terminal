@@ -1,3 +1,4 @@
+import type { CommandCall } from "./bridge/commands";
 import { TaskPagination } from "./ui/TaskPagination";
 import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
@@ -12,12 +13,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { WindowFrame } from "@asterion/workbench/components/WindowFrame";
 import { Workbench } from "@asterion/workbench/workspace/Workbench";
 import { usePreferences } from "./ui/preferences";
-import {
-  request,
-  pollSnapshot,
-  type Snapshot,
-  type TerminalCommand,
-} from "@asterion/desktop-bridge/client";
+import { request, pollSnapshot, type Snapshot } from "@asterion/desktop-bridge/client";
 import { Settings } from "./settings/Settings";
 import { terminalPlugins, workspaces, workspaceShortcuts } from "./plugins";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
@@ -199,12 +195,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       window.clearInterval(timer);
     };
   }, [visible, polling, live, accept]);
-  async function trade(method: TerminalCommand, params: Record<string, unknown> = {}) {
+  async function trade(...args: CommandCall) {
     const current = ++generation.current;
     commands.current += 1;
     setBusy(true);
     try {
-      const next = await request(method, params);
+      const next = await request(...args);
       if (current === generation.current) accept(next);
     } catch (reason) {
       // A durable commit can succeed even if the response is lost. Refresh state
@@ -228,7 +224,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     marketMode,
     workspacePage: workspacePages[view],
     workspaceParams: workspaceParams[view],
-    query: (method, params) => request(method, params),
+    query: (...args) => request(...args),
     navigate: (id, options) => {
       if (options?.marketMode) setMarketMode(options.marketMode);
       if (options?.page) setWorkspacePages(previous => ({ ...previous, [id]: options.page! }));

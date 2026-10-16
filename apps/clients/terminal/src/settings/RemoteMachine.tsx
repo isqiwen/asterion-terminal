@@ -1,7 +1,8 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useState } from "react";
 import { open } from "@asterion/desktop-bridge/desktop";
 import { nativeDesktop } from "../bridge/desktop";
-import { exportLinuxInitializer, type Snapshot, type TerminalCommand } from "../bridge/client";
+import { exportLinuxInitializer, type Snapshot } from "../bridge/client";
 import { asDisplayError, ErrorNotice, type DisplayError } from "../i18n/errors";
 import { FirewallPreview } from "./FirewallPreview";
 import { t } from "./service-state";
@@ -49,7 +50,7 @@ export function RemoteMachine({
   snapshot: Snapshot | null;
   busy: boolean;
   initial?: MachineProfile;
-  run: (method: TerminalCommand, params: Record<string, string>) => Promise<boolean>;
+  run: CommandHandler<boolean>;
   onCancel: () => void;
   onInstalled: (profile: MachineProfile) => void;
   onSaved: (profile: MachineProfile) => void;

@@ -1,3 +1,28 @@
+export type QueryCommand =
+  | "task.result.read"
+  | "backtest.budget.review"
+  | "backtest.margins.preview"
+  | "task.metadata.read"
+  | "task.evidence.export"
+  | "task.comparison.export"
+  | "task.quantstats.analyze"
+  | "data.minutes.page"
+  | "data.minutes.range"
+  | "data.minutes.evidence"
+  | "data.datasets"
+  | "data.dataset.saved"
+  | "data.coverage"
+  | "data.history.usage"
+  | "data.download.update.plan"
+  | "data.tables.refresh.plan"
+  | "data.tables.coverage"
+  | "data.tables.page"
+  | "data.tables.products"
+  | "data.tables.listed_contracts"
+  | "data.tables.daily"
+  | "data.tables.contracts"
+  | "market.minutes";
+import type { CommandHandler } from "../src/bridge/commands";
 export { TaskPagination } from "../src/ui/TaskPagination";
 export {
   StrategyFields,
@@ -50,40 +75,13 @@ export type TerminalContext = {
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
   openSettings: (page?: "preferences" | "connections" | "ctp" | "sources") => void;
-  query: (
-    method:
-      | "task.result.read"
-      | "backtest.budget.review"
-      | "backtest.margins.preview"
-      | "task.metadata.read"
-      | "task.evidence.export"
-      | "task.comparison.export"
-      | "task.quantstats.analyze"
-      | "data.minutes.page"
-      | "data.minutes.range"
-      | "data.minutes.evidence"
-      | "data.datasets"
-      | "data.dataset.saved"
-      | "data.coverage"
-      | "data.history.usage"
-      | "data.download.update.plan"
-      | "data.tables.refresh.plan"
-      | "data.tables.coverage"
-      | "data.tables.page"
-      | "data.tables.products"
-      | "data.tables.listed_contracts"
-      | "data.tables.daily"
-      | "data.tables.contracts"
-      | "market.minutes",
-    params: Record<string, unknown>,
-  ) => Promise<Snapshot>;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  query: CommandHandler<Snapshot, QueryCommand>;
+  trade: CommandHandler;
 };
 // Core methods a plugin may invoke; the host rejects anything undeclared.
 export type PluginCommand = TerminalCommand;
 export type TerminalPlugin = {
   id: string;
-  apiVersion: 1;
   // Declared capability: the host scopes context.trade to these.
   // Built-in plugins are trusted code; this prevents accidental coupling
   // between plugins, it is not a sandbox.

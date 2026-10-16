@@ -15,6 +15,8 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <thread>
+#include <algorithm>
+#include <sys/resource.h>
 using namespace asterion;
 
 using namespace std::chrono_literals;
@@ -51,14 +53,24 @@ public:
         session_.query_costs().get();
     }
 
-    Json snapshot() const
+    protocol::v1::LiveSnapshot wire_snapshot() const
     {
         return session_.snapshot().get();
     }
 
+    // Exercise the same presentation decoder used by Terminal, after the typed
+    // account-thread boundary. JSON exists only in this test's UI assertions.
+    Json snapshot() const
+    {
+        return protocol::decode_live_snapshot(wire_snapshot());
+    }
+
     auto execute(std::string_view record, std::string_view policy, const Json& command)
     {
-        return session_.execute(record, policy, command);
+        return session_.execute(
+            record,
+            policy,
+            trading::AccountRequest::from_wire(protocol::encode_command(command)));
     }
 
     bool recovery_required() const
@@ -2009,112 +2021,112 @@ TEST_F(Live, StrategyRunEndsWithARevokeOrAFailedStepAndIsNeverRestored)
     EXPECT_TRUE(recovered.snapshot().at("strategy").is_null());
 }
 
-TEST(LiveProtocol, SnapshotAndCommandsRoundTrip)
+TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
 {
-    Json snapshot{
-        {"account_id", "fixture-record"},
-        {"policy_revision", "fixture-policy"},
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    const auto disconnected = session.wire_snapshot();
+    EXPECT_EQ(disconnected.phase(), "disconnected");
+    EXPECT_FALSE(disconnected.has_funds());
+    EXPECT_FALSE(disconnected.has_authorization());
+    EXPECT_FALSE(disconnected.has_strategy());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    session.query_costs();
+    ASSERT_EQ(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return !state.at("costs").empty() && state.at("costs")[0].at("state") == "ready";
+            })
+            .at("costs")[0]
+            .at("state"),
+        "ready");
+    act(session, authorize());
+    act(session, submit("observed", "2"));
+    ASSERT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "observed", "filled");
+            }),
+        "observed",
+        "filled"));
+    const auto snapshot = session.wire_snapshot();
+    EXPECT_EQ(snapshot.account_id(), "fixture-account");
+    EXPECT_EQ(snapshot.risk().max_order_quantity().units(), Decimal::parse("5").raw());
+    EXPECT_EQ(snapshot.max_price_deviation().units(), Decimal::parse("0.02").raw());
+    ASSERT_EQ(snapshot.contracts_size(), 1);
+    EXPECT_EQ(snapshot.contracts(0).multiplier().units(), Decimal::parse("10").raw());
+    ASSERT_TRUE(snapshot.has_funds());
+    EXPECT_EQ(snapshot.funds().commission().units(), Decimal::parse("12.34").raw());
+    ASSERT_EQ(snapshot.orders_size(), 1);
+    EXPECT_EQ(snapshot.orders(0).side(), protocol::v1::BUY);
+    EXPECT_EQ(snapshot.orders(0).offset(), protocol::v1::OPEN);
+    EXPECT_EQ(snapshot.orders(0).limit_price().units(), Decimal::parse("3500").raw());
+    EXPECT_EQ(snapshot.orders(0).filled().units(), Decimal::parse("2").raw());
+    ASSERT_EQ(snapshot.costs_size(), 1);
+    EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().units(), Decimal::parse("1.5").raw());
+    EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().units(), Decimal::parse("0.0001").raw());
+    ASSERT_TRUE(snapshot.has_authorization());
+    protocol::v1::LiveSnapshot received;
+    ASSERT_TRUE(received.ParseFromString(snapshot.SerializeAsString()));
+    EXPECT_EQ(protocol::decode_live_snapshot(received), protocol::decode_live_snapshot(snapshot));
+    act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
+    EXPECT_FALSE(session.wire_snapshot().has_authorization());
+    EXPECT_TRUE(snapshot.has_authorization()) << "a published value cannot follow later mutations";
+    EXPECT_EQ(disconnected.phase(), "disconnected");
+
+    auto invalid = snapshot;
+    invalid.clear_capacity();
+    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
+    invalid = snapshot;
+    invalid.mutable_capacity()->set_records_used(snapshot.capacity().records_limit() + 1);
+    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
+    invalid = snapshot;
+    invalid.mutable_orders(0)->set_status("lost");
+    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
+    invalid = snapshot;
+    invalid.mutable_costs(0)->set_state("querying");
+    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument)
+        << "rates only accompany a ready state";
+}
+
+TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
+{
+    const Json command{
+        {"request_id", "change"},
+        {"action", "live_policy"},
         {"risk_artifact", std::string(64, 'a')},
-        {"segment_count", std::uint64_t{0}},
-        {"broker", manifest().at("broker")},
-        {"risk", manifest().at("policy").at("risk")},
-        {"max_price_deviation", "0.02"},
-        {"contracts", manifest().at("policy").at("contracts")},
-        {"phase", "ready"},
-        {"error_code", 0},
-        {"trading_day", "20260928"},
-        {"synchronized_ms", 5},
-        {"funds",
-            {{"balance", "1000000"},
-                {"available", "950000"},
-                {"margin", "50000"},
-                {"commission", "12.34"},
-                {"close_profit", "0"},
-                {"position_profit", "-10"}}},
-        {"positions",
-            Json::array(
-                {{{"venue", "SHFE"},
-                    {"symbol", "rb2610"},
-                    {"side", "buy"},
-                    {"today", "2"},
-                    {"yesterday", "0"}}})},
-        {"orders",
-            Json::array(
-                {{{"venue", "SHFE"},
-                    {"symbol", "rb2610"},
-                    {"id", "o1"},
-                    {"broker_key", "1:2:3"},
-                    {"exchange_order_id", "SHFE:1"},
-                    {"side", "buy"},
-                    {"offset", "open"},
-                    {"quantity", "2"},
-                    {"filled", "2"},
-                    {"limit_price", "3500"},
-                    {"status", "filled"},
-                    {"error_code", 0}}})},
-        {"trades",
-            Json::array(
-                {{{"venue", "SHFE"},
-                    {"symbol", "rb2610"},
-                    {"id", "SHFE:9"},
-                    {"order_id", "o1"},
-                    {"side", "buy"},
-                    {"offset", "open"},
-                    {"quantity", "2"},
-                    {"price", "3500"},
-                    {"trading_day", "20260928"},
-                    {"trade_time", "09:01:02"}}})},
-        {"authorization", {{"authorized_at_ms", 7}}},
-        {"strategy",
-            {{"id", "run"},
-                {"venue", "SHFE"},
-                {"symbol", "rb2610"},
-                {"strategy",
-                    {{"quantity", "1"},
-                        {"sides", "both"},
-                        {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}},
-                {"warmup", 20},
-                {"state", "running"},
-                {"reason", ""},
-                {"started_ms", 8},
-                {"bars", 21},
-                {"bar_ms", 1790000040000},
-                {"target", "1"},
-                {"orders", Json::array({"run.1790000040000"})}}},
-        {"unconfirmed",
-            Json::array({{{"id", "o2"}, {"broker_key", "1:2:4"}, {"trading_day", "20260928"}}})},
-        {"costs",
-            Json::array(
-                {{{"venue", "SHFE"},
-                    {"symbol", "rb2610"},
-                    {"state", "ready"},
-                    {"error_code", 0},
-                    {"queried_ms", 9},
-                    {"costs",
-                        {{"margin_per_lot", "0"},
-                            {"open_fee", "0"},
-                            {"close_today_fee", "1.5"},
-                            {"close_yesterday_fee", "0"},
-                            {"margin_rate", "0.12"},
-                            {"open_fee_rate", "0.0001"},
-                            {"close_today_fee_rate", "0.0003"},
-                            {"close_yesterday_fee_rate", "0.0001"}}}}})},
-        {"storage_state", "ready"},
-        {"capacity",
-            {{"records_used", 12},
-                {"records_limit", 100001},
-                {"bytes_used", 2048},
-                {"bytes_limit", 268435456}}}
+        {"policy", manifest().at("policy")}
     };
-    auto expected = snapshot;
-    expected["mode"] = "live";
-    EXPECT_EQ(protocol::decode_live_snapshot(protocol::encode_live_snapshot(snapshot)), expected);
-    auto missing_capacity = protocol::encode_live_snapshot(snapshot);
-    missing_capacity.clear_capacity();
-    EXPECT_THROW(protocol::decode_live_snapshot(missing_capacity), std::invalid_argument);
-    auto invalid_capacity = protocol::encode_live_snapshot(snapshot);
-    invalid_capacity.mutable_capacity()->set_records_used(100002);
-    EXPECT_THROW(protocol::decode_live_snapshot(invalid_capacity), std::invalid_argument);
+    const auto wire = protocol::encode_command(command);
+    const auto admitted = trading::AccountRequest::from_wire(wire);
+    ASSERT_NE(admitted.as<trading::ChangePolicy>(), nullptr);
+    EXPECT_EQ(
+        admitted.as<trading::ChangePolicy>()->definition.limits.max_order_quantity,
+        Decimal::parse("5"));
+    EXPECT_EQ(
+        admitted.as<trading::ChangePolicy>()->definition.max_price_deviation,
+        Decimal::parse("0.02"));
+    EXPECT_EQ(admitted.command, command);
+    const auto restored = trading::AccountRequest::from_record(command);
+    EXPECT_EQ(restored.command, admitted.command);
+    EXPECT_EQ(restored.id, admitted.id);
+    auto invalid = wire;
+    invalid.mutable_live_policy()->mutable_policy()->clear_risk();
+    EXPECT_THROW(trading::AccountRequest::from_wire(invalid), std::invalid_argument);
+    invalid = wire;
+    auto* policy = invalid.mutable_live_policy()->mutable_policy();
+    *policy->add_contracts() = policy->contracts(0);
+    EXPECT_THROW(trading::AccountRequest::from_wire(invalid), std::invalid_argument);
+    auto order = protocol::encode_command(submit("exact", "2", "3500.25"));
+    const auto typed = trading::AccountRequest::from_wire(order);
+    EXPECT_EQ(typed.as<trading::SubmitOrder>()->order.limit_price, Decimal::parse("3500.25"));
+    order.mutable_submit()->set_side(protocol::v1::SIDE_UNSPECIFIED);
+    EXPECT_THROW(trading::AccountRequest::from_wire(order), std::invalid_argument);
+}
+
+TEST(LiveProtocol, CommandsRoundTripAndBrokerIdentityValidation)
+{
     for (const auto& command :
         {authorize(),
             Json{{"request_id", "r"}, {"action", "live_revoke"}},
@@ -2122,13 +2134,6 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip)
             FakeMarket().start("run", "1"),
             stop_strategy("stop")})
         EXPECT_EQ(protocol::decode_command(protocol::encode_command(command)), command);
-    auto wrong = snapshot;
-    wrong["orders"][0]["status"] = "lost";
-    EXPECT_THROW(protocol::encode_live_snapshot(wrong), std::invalid_argument);
-    auto wire = protocol::encode_live_snapshot(snapshot);
-    wire.mutable_costs(0)->set_state("querying");
-    EXPECT_THROW(protocol::decode_live_snapshot(wire), std::invalid_argument)
-        << "rates only accompany a ready state";
     auto spaced = manifest();
     spaced["broker"]["user_id"] = "000 001";
     EXPECT_THROW(protocol::encode_live_input(spaced), std::invalid_argument);
@@ -2452,4 +2457,98 @@ TEST_F(Live, ShutdownFencesPendingSendsDrainsRepliesAndWaitsForSdkRelease)
     ASSERT_EQ(session.stopped().wait_for(2s), std::future_status::ready);
     EXPECT_NO_THROW(session.stopped().get());
     EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_trader_sdk_thread_mismatches"), 0);
+}
+
+// Explicit measurement, excluded from ordinary regression runs. Uses only SDK
+// fixtures; no real broker, trading authorization or orders are submitted.
+TEST_F(Live, DISABLED_ObservationScaleMeasurements)
+{
+    Json measurements = Json::array();
+    for (const auto [accounts, rows] : {std::pair{1, 0}, {1, 250}, {1, 1000}, {4, 1000}}) {
+        exchange.reset();
+        exchange.call<void (*)(int)>("asterion_fake_trader_seed_history", rows);
+        std::vector<std::unique_ptr<trading::LiveSession>> sessions;
+        for (int i = 0; i < accounts; ++i) {
+            const auto id =
+                std::to_string(accounts) + "." + std::to_string(rows) + "." + std::to_string(i);
+            auto config = manifest();
+            config["account_id"] = "measure." + id;
+            config["broker"]["user_id"] = "u" + id;
+            fs::create_directory(directory.path / id);
+            auto session = std::make_unique<trading::LiveSession>(
+                directory.path / id,
+                ASTERION_TEST_CTP_TRADER,
+                owners.path,
+                config);
+            session->initialized().get();
+            session->connect("test-only", "test-only").get();
+            const auto deadline = std::chrono::steady_clock::now() + 20s;
+            auto snapshot = session->snapshot().get();
+            while (snapshot.phase() != "ready" && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(20ms);
+                snapshot = session->snapshot().get();
+            }
+            ASSERT_EQ(snapshot.phase(), "ready");
+            ASSERT_EQ(snapshot.orders_size(), rows);
+            ASSERT_EQ(snapshot.trades_size(), rows);
+            sessions.push_back(std::move(session));
+        }
+        std::vector<double> observation_ms, encoding_ms, presentation_ms;
+        std::size_t wire_bytes = 0, json_bytes = 0;
+        const auto elapsed = [](auto begin) {
+            return std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - begin)
+                .count();
+        };
+        for (int sample = 0; sample < 35; ++sample) {
+            const auto begin = std::chrono::steady_clock::now();
+            std::vector<std::future<protocol::v1::LiveSnapshot>> pending;
+            for (const auto& session : sessions)
+                pending.push_back(session->snapshot());
+            std::vector<protocol::v1::LiveSnapshot> snapshots;
+            for (auto& future : pending)
+                snapshots.push_back(future.get());
+            const auto observation = elapsed(begin);
+            const auto encode_begin = std::chrono::steady_clock::now();
+            wire_bytes = 0;
+            for (const auto& snapshot : snapshots)
+                wire_bytes += snapshot.SerializeAsString().size();
+            const auto encoding = elapsed(encode_begin);
+            const auto present_begin = std::chrono::steady_clock::now();
+            json_bytes = 0;
+            for (const auto& snapshot : snapshots)
+                json_bytes += protocol::decode_live_snapshot(snapshot).dump().size();
+            const auto presentation = elapsed(present_begin);
+            if (sample >= 5) {
+                observation_ms.push_back(observation);
+                encoding_ms.push_back(encoding);
+                presentation_ms.push_back(presentation);
+            }
+        }
+        const auto quantiles = [](std::vector<double> values) {
+            std::sort(values.begin(), values.end());
+            return Json{
+                {"p50_ms", values[values.size() / 2]},
+                {"p95_ms", values[values.size() * 95 / 100]}
+            };
+        };
+        rusage usage{};
+        ASSERT_EQ(getrusage(RUSAGE_SELF, &usage), 0);
+#ifdef __APPLE__
+        const auto peak_rss_bytes = usage.ru_maxrss;
+#else
+        const auto peak_rss_bytes = usage.ru_maxrss * 1024L;
+#endif
+        measurements.push_back(
+            {{"accounts", accounts},
+                {"orders_per_account", rows},
+                {"trades_per_account", rows},
+                {"observation", quantiles(observation_ms)},
+                {"protobuf_encoding", quantiles(encoding_ms)},
+                {"ui_projection", quantiles(presentation_ms)},
+                {"wire_bytes_total", wire_bytes},
+                {"json_bytes_total", json_bytes},
+                {"process_peak_rss_bytes", peak_rss_bytes}});
+    }
+    RecordProperty("measurements", measurements.dump());
 }

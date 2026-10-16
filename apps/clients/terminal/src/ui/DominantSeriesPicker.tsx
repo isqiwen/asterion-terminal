@@ -1,3 +1,4 @@
+import type { CommandParams } from "../bridge/commands";
 import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import type { HistoryDatasetRecord } from "../bridge/client";
@@ -52,7 +53,7 @@ export function DominantSeriesPicker({
   versions: HistoryDatasetRecord[];
   daily: ReturnType<typeof dailyTableOf>;
   disabled: boolean;
-  select: (params: Record<string, unknown>) => void;
+  select: (params: CommandParams["data.dataset.series"]) => void;
 }) {
   const available = groups(versions);
   const [key, setKey] = useState("");

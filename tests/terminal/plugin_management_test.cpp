@@ -48,6 +48,26 @@ TEST_F(PluginManagement, BrokenModuleDoesNotHideHealthySelection)
     const auto view = terminal::plugin_catalog_json(catalog);
     EXPECT_EQ(view.at("items").at(0).at("state"), "invalid");
     EXPECT_EQ(view.at("items").at(1).at("state"), "available");
+    EXPECT_FALSE(view.at("items").at(0).at("selectable").get<bool>());
+    EXPECT_TRUE(view.at("items").at(1).at("selectable").get<bool>());
+}
+
+TEST_F(PluginManagement, TableOnlyEligibilityMatchesSelectionAndRejectsUnsupportedVersion)
+{
+    terminal::PluginCatalog catalog{.directory = root};
+    catalog.entries.push_back(
+        {.artifact = {root / "tables.so", std::string(64, 'a')},
+            .descriptor = {"tables", "1.0.0", {{"asterion.history.tables.v1", "data", 1}}},
+            .availability = terminal::PluginAvailability::available,
+            .error = {}});
+    const std::vector<std::string> hashes{catalog.entries.front().artifact.sha256};
+    EXPECT_TRUE(terminal::plugin_catalog_json(catalog).at("items").at(0).at("selectable"));
+    EXPECT_EQ(catalog.select_data_task_plugins(hashes).uploads.size(), 1);
+    EXPECT_THROW(catalog.select_data_task_plugins({}), std::invalid_argument);
+
+    catalog.entries.front().descriptor.capabilities.front().version = 2;
+    EXPECT_FALSE(terminal::plugin_catalog_json(catalog).at("items").at(0).at("selectable"));
+    EXPECT_THROW(catalog.select_data_task_plugins(hashes), std::invalid_argument);
 }
 
 TEST_F(PluginManagement, RetainedArtifactDoesNotRequireSourceButNewSelectionDoes)

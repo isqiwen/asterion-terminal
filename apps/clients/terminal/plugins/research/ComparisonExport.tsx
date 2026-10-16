@@ -70,9 +70,7 @@ export function ComparisonExport({
       }));
       setReceipt(
         await saveResearchExport(
-          query,
-          "task.comparison.export",
-          { expected, matrix },
+          path => query("task.comparison.export", { expected, matrix, path }),
           "research-comparison.evidence.json",
         ),
       );

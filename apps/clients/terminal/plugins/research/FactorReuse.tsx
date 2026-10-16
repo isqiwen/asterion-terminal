@@ -88,6 +88,7 @@ export function FactorReuse({
     setCreated("");
   };
   async function create() {
+    if (!mode) return;
     const id = pending ?? `factor-${crypto.randomUUID()}`;
     setPending(id);
     if (

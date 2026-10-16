@@ -9,7 +9,6 @@ import type { TerminalPlugin } from "../contract";
 const Workspace = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
-  apiVersion: 1,
   commands: [
     "task.page",
     "node.data_tasks.local.open",

@@ -66,6 +66,7 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
       version: "",
       sha256: "f".repeat(64),
       capabilities: [],
+      selectable: false,
       state: "invalid",
       error: "plugin entry point is missing",
     });

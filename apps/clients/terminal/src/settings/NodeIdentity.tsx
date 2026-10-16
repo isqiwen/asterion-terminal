@@ -1,5 +1,5 @@
+import type { CommandHandler } from "../bridge/commands";
 import { useState } from "react";
-import type { TerminalCommand } from "../bridge/client";
 import type { MachineProfile } from "./RemoteMachine";
 import { t } from "./service-state";
 
@@ -15,7 +15,7 @@ export function NodeIdentity({
 }: {
   profile: MachineProfile;
   busy: boolean;
-  run: (method: TerminalCommand, params: Record<string, string>) => Promise<boolean>;
+  run: CommandHandler<boolean>;
   onCancel: () => void;
   onReplaced: () => void;
 }) {

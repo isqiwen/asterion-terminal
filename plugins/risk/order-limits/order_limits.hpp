@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/foundation/serialization.hpp>
 #include <asterion/domain/risk_port.hpp>
 
 namespace asterion {

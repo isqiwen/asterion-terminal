@@ -1,3 +1,4 @@
+import type { CommandParams } from "../../src/bridge/commands";
 import { useEffect, useRef, useState } from "react";
 import {
   type TerminalContext,
@@ -69,7 +70,7 @@ export function HistoryUpdatePanel({
   }, [end, rate, saved?.requests_per_minute]);
   const task = context.snapshot?.task_service?.tasks.find(task => task.id === id);
   const accepted = submitted || !!task;
-  const params = {
+  const params: CommandParams["data.download.update.plan"] = {
     dataset_id: item.id,
     daily: daily ?? null,
     mode: daily ? "repair" : "extend",

@@ -83,16 +83,7 @@ test("research chain integration @joint: fixed evidence through revision recover
         .health.services.find((s: { id: string }) => s.id === "historical-data");
       const plugins = stopped.native_plugins.items
         .filter(
-          (item: { managed?: boolean; state: string; capabilities: { id: string }[] }) =>
-            !item.managed &&
-            item.state === "available" &&
-            item.capabilities.some(c =>
-              [
-                "asterion.history.v3",
-                "asterion.history.tables.v1",
-                "asterion.risk.pre-trade.v1",
-              ].includes(c.id),
-            ),
+          (item: { managed?: boolean; selectable: boolean }) => !item.managed && item.selectable,
         )
         .map((item: { sha256: string }) => item.sha256);
       await rpc(page.request, "node.plugins.configure", {

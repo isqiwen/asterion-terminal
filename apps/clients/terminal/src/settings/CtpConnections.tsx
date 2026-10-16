@@ -1,6 +1,7 @@
+import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { useState } from "react";
 import { readableCtpConnection } from "../bridge/client";
-import type { CtpConnection, Snapshot, TerminalCommand } from "../bridge/client";
+import type { CtpConnection, Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
@@ -22,7 +23,7 @@ export function CtpConnections({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   const entries = snapshot?.ctp_connections ?? [];
   const connections = entries.filter(readableCtpConnection);
@@ -33,10 +34,10 @@ export function CtpConnections({
   const [removing, setRemoving] = useState("");
   // The form stays out of the way until an account is added or edited.
   const [adding, setAdding] = useState(false);
-  const run = async (method: TerminalCommand, params?: Record<string, unknown>) => {
+  const run = async (...args: CommandCall) => {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

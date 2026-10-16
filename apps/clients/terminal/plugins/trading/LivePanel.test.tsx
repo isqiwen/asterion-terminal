@@ -83,7 +83,7 @@ const button = (name: string) => screen.getByRole("button", { name }) as HTMLBut
 test("a revoke is sent while another command of the window is in flight", async () => {
   const sent: [string, Record<string, unknown> | undefined][] = [];
   let answer = () => {};
-  const trade: TerminalContext["trade"] = (method, params) => {
+  const trade: TerminalContext["trade"] = (...[method, params]) => {
     sent.push([method, params]);
     return new Promise(resolve => {
       answer = resolve;

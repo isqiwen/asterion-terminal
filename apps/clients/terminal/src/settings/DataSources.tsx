@@ -1,10 +1,6 @@
+import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { useState } from "react";
-import type {
-  DataCredential,
-  NativeHistorySource,
-  Snapshot,
-  TerminalCommand,
-} from "../bridge/client";
+import type { DataCredential, NativeHistorySource, Snapshot } from "../bridge/client";
 import { translate, useLocale, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
@@ -30,7 +26,7 @@ export function DataSources({
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
-  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  trade: CommandHandler;
 }) {
   const { locale } = useLocale();
   const online = !!snapshot?.data?.online;
@@ -43,10 +39,10 @@ export function DataSources({
   const [rate, setRate] = useState("60");
   const [error, setError] = useState<DisplayError>("");
   const [clearing, setClearing] = useState("");
-  const run = async (method: TerminalCommand, params?: Record<string, unknown>) => {
+  const run = async (...args: CommandCall) => {
     setError("");
     try {
-      await trade(method, params);
+      await trade(...args);
       return true;
     } catch (reason) {
       setError(asDisplayError(reason));

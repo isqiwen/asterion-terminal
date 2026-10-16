@@ -30,7 +30,7 @@ test("language switches every workspace, preserves preferences and survives relo
   expect((await denied.json()).error).toBeTruthy();
 
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(page.getByText("Registered · Loaded on Demand", { exact: true })).toHaveCount(6);
+  await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(6);
   page = await closeSettingsWindow(page);
   for (const workspace of ["Watchlist", "Contract", "Market", "Data", "Research", "Trading"]) {
     await page

@@ -9,7 +9,6 @@ import type { TerminalPlugin } from "../contract";
 const LivePanel = lazy(() => import("./LivePanel").then(module => ({ default: module.LivePanel })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.trading",
-  apiVersion: 1,
   commands: [
     "market.catalog",
     "live.create",

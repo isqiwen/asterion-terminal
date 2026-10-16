@@ -122,7 +122,7 @@ int main(int argc, char** argv)
             asterion::trading::LiveSession* session = nullptr;
             std::shared_future<void> initialization;
             std::future<void> action;
-            std::future<asterion::Json> snapshot;
+            std::future<wire::LiveSnapshot> snapshot;
             bool needs_snapshot = false;
 
             void fail(const std::exception& error)
@@ -202,7 +202,7 @@ int main(int argc, char** argv)
                         work->action = work->session->execute(
                             request.account_id(),
                             request.policy_revision(),
-                            asterion::protocol::decode_command(request.command()));
+                            asterion::trading::AccountRequest::from_wire(request.command()));
 
                     } else if (!request.has_snapshot() && !request.has_attach()) {
                         throw std::invalid_argument("missing live session operation");
@@ -236,8 +236,7 @@ int main(int argc, char** argv)
                             work->snapshot = work->session->snapshot();
                         if (work->snapshot.wait_for(0ms) != std::future_status::ready)
                             return {};
-                        *response.mutable_live() =
-                            asterion::protocol::encode_live_snapshot(work->snapshot.get());
+                        *response.mutable_live() = work->snapshot.get();
                     }
                 } catch (const std::exception& error) {
                     work->fail(error);
