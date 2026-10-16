@@ -2,13 +2,9 @@ import { captureComparison } from "./ComparisonExport";
 import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { registerTerminalPlugins } from "../../src/host/plugin-registry";
+import { setLocale } from "../../src/i18n";
 import { readySnapshot } from "../../src/testing/core";
-import {
-  FactorComparison,
-  factorComparisonReasons,
-  factorComparisonValueState,
-  type FactorEvidence,
-} from "./FactorComparison";
+import { FactorComparison, factorComparisonReasons, type FactorEvidence } from "./FactorComparison";
 import { plugin } from "./plugin";
 registerTerminalPlugins([plugin]);
 function evidence(id: string): FactorEvidence {
@@ -63,7 +59,7 @@ function evidence(id: string): FactorEvidence {
       horizon: 1,
       input_count: 40,
       purged_count: 0,
-      evaluation_warmup: 0,
+      evaluation_warmup: 2,
       selection_rule: "fixed",
       folds: [],
       candidates: [],
@@ -86,6 +82,198 @@ function evidence(id: string): FactorEvidence {
     },
   };
 }
+function validationEvidence(id: string, mode: "holdout" | "walk_forward"): FactorEvidence {
+  const value = evidence(id);
+  const partition = value.result.partitions[0];
+  const sample = (event_index: number) => ({
+    event_index,
+    observed: new Date(Date.UTC(2026, 0, event_index + 1)).toISOString().slice(0, 10),
+    label: new Date(Date.UTC(2026, 0, event_index + 2)).toISOString().slice(0, 10),
+    value: 0,
+    forward_return: 0,
+  });
+  if (mode === "holdout") {
+    value.experiment.evaluation = { mode, split_index: 20 };
+    value.result.partitions = [
+      { ...partition, name: "development", end_index: 20, sample_count: 17 },
+      { ...partition, name: "holdout", begin_index: 20, sample_count: 19, pearson: null },
+    ];
+    value.result.samples = [
+      ...Array.from({ length: 17 }, (_, i) => sample(i + 2)),
+      ...Array.from({ length: 19 }, (_, i) => sample(i + 20)),
+    ];
+    value.result.purged_count = 1;
+  } else {
+    value.experiment.evaluation = { mode, training_events: 20, validation_events: 10 };
+    value.result.selection_rule = "rolling_fixed";
+    value.result.lookback = 0;
+    value.result.partitions = [];
+    value.result.folds = [0, 10].map(training_begin => ({
+      training_begin,
+      training_end: training_begin + 20,
+      validation_end: training_begin + 30,
+      lookback: 2,
+      candidates: [],
+      development: {
+        ...partition,
+        name: "development",
+        begin_index: training_begin,
+        end_index: training_begin + 20,
+        sample_count: 17,
+      },
+      holdout: {
+        ...partition,
+        name: "holdout",
+        begin_index: training_begin + 20,
+        end_index: training_begin + 30,
+        sample_count: 9,
+      },
+    }));
+    value.result.samples = value.result.folds.flatMap(f =>
+      Array.from({ length: 9 }, (_, i) => sample(f.training_end + i)),
+    );
+    value.result.purged_count = 2;
+  }
+  return value;
+}
+
+async function compareEvidence(values: FactorEvidence[], english = false) {
+  const snapshot = readySnapshot();
+  snapshot.task_service!.tasks = values.map(v => v.task);
+  const query = vi.fn(async (_method: string, params?: Record<string, unknown>) => ({
+    ...snapshot,
+    task_result: values.find(v => v.id === params?.id)!,
+  }));
+  render(<FactorComparison snapshot={snapshot} busy={false} query={query} />);
+  screen.getAllByRole("checkbox").forEach(box => fireEvent.click(box));
+  fireEvent.click(
+    screen.getByRole("button", { name: english ? "Read and Compare" : "读取并比较" }),
+  );
+  const table = await screen.findByRole("table", {
+    name: english ? "Factor Experiment Comparison" : "因子实验对照",
+  });
+  return {
+    table,
+    query,
+    matrix: captureComparison(
+      table as HTMLTableElement,
+      values,
+      values.map(v => factorComparisonReasons(values[0], v)),
+    ),
+  };
+}
+
+test("holdout comparison and export keep development and holdout metrics separate", async () => {
+  const a = validationEvidence("a", "holdout"),
+    b = validationEvidence("b", "holdout");
+  b.result.partitions[1].pearson = 0;
+  const original = JSON.stringify([a, b]);
+  const { matrix, query } = await compareEvidence([a, b]);
+  expect(matrix.columns.map(v => v.methodology)).toEqual(["comparable", "comparable"]);
+  const development = matrix.rows.find(row => row.label === "前段")!.cells[0];
+  const holdout = matrix.rows.find(row => row.label === "留出段")!.cells;
+  expect(development.metrics).toContainEqual({
+    label: "有效样本 / 截面",
+    text: "17",
+    state: "defined",
+  });
+  expect(holdout[0].metrics).toContainEqual({
+    label: "Pearson / IC 均值",
+    text: "未定义",
+    state: "undefined",
+  });
+  expect(holdout[1].metrics).toContainEqual({
+    label: "Pearson / IC 均值",
+    text: "0.0000",
+    state: "defined",
+  });
+  expect(holdout[0].metrics).toContainEqual({
+    label: "实际评价日期（观测至标签）",
+    text: "2026-01-21 – 2026-02-09",
+    state: "display_only",
+  });
+  expect(matrix.rows.some(row => row.label === "全样本")).toBe(false);
+  expect(query.mock.calls.map(call => call[0])).toEqual(["task.result.read", "task.result.read"]);
+  expect(JSON.stringify([a, b])).toBe(original);
+});
+
+test("walk-forward comparison uses each validation fold and its selected window, without pooling", async () => {
+  const a = validationEvidence("a", "walk_forward"),
+    b = validationEvidence("b", "walk_forward");
+  b.experiment.lookbacks = [1, 2];
+  b.result.selection_rule = "rolling_development_abs_spearman";
+  b.result.folds[1].lookback = 1;
+  b.result.folds[1].holdout.pearson = -0.25;
+  const { matrix } = await compareEvidence([a, b]);
+  expect(matrix.columns[1].methodology).toBe("comparable");
+  const first = matrix.rows.find(row => row.label === "第 1 轮验证")!.cells[0].metrics;
+  const second = matrix.rows.find(row => row.label === "第 2 轮验证")!.cells[1].metrics;
+  expect(first).toContainEqual({ label: "训练观测区间", text: "1–20", state: "display_only" });
+  expect(first).toContainEqual({ label: "评价观测区间", text: "21–30", state: "display_only" });
+  expect(second).toContainEqual({ label: "实际窗口", text: "1", state: "display_only" });
+  expect(second).toContainEqual({ label: "Pearson / IC 均值", text: "-0.2500", state: "defined" });
+  expect(second).toContainEqual({
+    label: "实际评价日期（观测至标签）",
+    text: "2026-01-31 – 2026-02-09",
+    state: "display_only",
+  });
+  expect(matrix.rows.some(row => ["全样本", "前段", "留出段"].includes(row.label))).toBe(false);
+  expect(matrix.rows.find(row => row.label === "实际窗口")!.cells[0].text).toBe("按轮次列示");
+});
+
+test("validation methodology requires fixed and actual boundaries, warm-up and observation evidence", () => {
+  const a = validationEvidence("a", "holdout"),
+    b = structuredClone(a);
+  b.experiment.evaluation = { mode: "holdout", split_index: 21 };
+  expect(factorComparisonReasons(a, b)).toContain("训练或验证边界不同");
+  const rolling = validationEvidence("r", "walk_forward"),
+    changed = structuredClone(rolling);
+  changed.result.folds[1].training_begin++;
+  expect(factorComparisonReasons(rolling, changed)).toContain("训练或验证边界不同");
+  changed.result.folds[1].training_begin--;
+  changed.result.evaluation_warmup++;
+  expect(factorComparisonReasons(rolling, changed)).toEqual(["评价预热不同"]);
+  changed.result.evaluation_warmup--;
+  changed.result.samples.pop();
+  expect(factorComparisonReasons(rolling, changed)).toEqual(["实际评价观测不同"]);
+});
+
+test("mixed evaluation modes expose inapplicable segments and empty cross sections in English exports", async () => {
+  setLocale("en-US");
+  const full = evidence("full"),
+    holdout = validationEvidence("holdout", "holdout"),
+    rolling = validationEvidence("rolling", "walk_forward");
+  holdout.experiment.series.push(
+    structuredClone(holdout.experiment.series[0]),
+    structuredClone(holdout.experiment.series[0]),
+  );
+  holdout.result.cross_sections = holdout.result.samples.map(row => ({
+    event_index: row.event_index,
+    observed: row.observed,
+    label: row.label,
+    pearson: null,
+    spearman: null,
+    series: 0,
+    members: [],
+  }));
+  holdout.result.samples = [];
+  for (const p of holdout.result.partitions) {
+    p.pearson = p.spearman = null;
+    p.spreads = [{ highest: 0, lowest: 0, observations: 0 }];
+  }
+  const { matrix } = await compareEvidence([full, holdout, rolling], true);
+  expect(matrix.columns[1].reasons).toContain("Evaluation modes differ");
+  const validation = matrix.rows.find(row => row.label === "Validation Fold 1")!;
+  expect(validation.cells.map(cell => cell.state)).toEqual([
+    "not_applicable",
+    "not_applicable",
+    "metric_group",
+  ]);
+  const holdoutMetrics = matrix.rows.find(row => row.label === "Holdout")!.cells[1].metrics;
+  expect(holdoutMetrics.find(m => m.label === "Long minus short, one per side")?.state).toBe(
+    "no_observations",
+  );
+});
 test("comparison labels parameter differences, preserves zero and undefined, and only reads original results", async () => {
   const a = evidence("original"),
     b = evidence("second");
@@ -120,9 +308,8 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   const row = (label: string) =>
     within(table).getByRole("rowheader", { name: label }).closest("tr")!;
   expect(row("实际窗口").textContent).toContain("3 · 不同");
-  expect(row("Pearson / IC 均值").textContent).toContain("未定义");
-  expect(row("Spearman / 秩 IC 均值").textContent).toContain("0.0000");
-  expect(row("每侧 1 个的多空差").textContent).toContain("—");
+  expect(row("全样本").textContent).toContain("未定义");
+  expect(row("全样本").textContent).toContain("0.0000");
   expect(row("固定快照").textContent).toContain("b".repeat(64));
   expect(row("比较口径").textContent).toContain("同口径对照");
   expect(row("比较口径").textContent).toContain("仅独立列示: 实际评价观测不同");
@@ -135,24 +322,12 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   );
   const metric = (label: string) => matrix.rows.find(row => row.label === label)!;
   expect(metric("比较口径").cells[1].text).toContain("实际评价观测不同");
-  expect(metric("Pearson / IC 均值").cells.map(cell => cell.state)).toEqual([
-    "defined",
-    "undefined",
-  ]);
-  expect(metric("Spearman / 秩 IC 均值").cells[0]).toMatchObject({
-    text: "0.0000",
-    state: "defined",
-  });
-  expect(metric("秩 IC 信息比率").cells[0].state).toBe("not_applicable");
-  const missing = evidence("missing");
-  missing.result.partitions = [];
-  expect(factorComparisonValueState("Pearson / IC 均值", missing)).toBe("missing");
-  const noObservations = evidence("no-observations");
-  noObservations.experiment.series.push(
-    ...noObservations.experiment.series,
-    ...noObservations.experiment.series,
-  );
-  expect(factorComparisonValueState("每侧 1 个的多空差", noObservations)).toBe("no_observations");
+  const metrics = metric("全样本").cells.map(cell => cell.metrics);
+  const field = (column: number, label: string) => metrics[column].find(v => v.label === label)!;
+  expect(field(0, "Pearson / IC 均值").state).toBe("defined");
+  expect(field(1, "Pearson / IC 均值").state).toBe("undefined");
+  expect(field(0, "Spearman / 秩 IC 均值")).toMatchObject({ text: "0.0000", state: "defined" });
+  expect(field(0, "秩 IC 信息比率").state).toBe("not_applicable");
 });
 test("data, eligibility, horizon differences cannot appear as comparable methodology", () => {
   const a = evidence("a"),
@@ -171,7 +346,7 @@ test("data, eligibility, horizon differences cannot appear as comparable methodo
     ]),
   );
   a.experiment.evaluation = { mode: "holdout", split_index: 20 };
-  expect(factorComparisonReasons(a, b)).toContain("仅支持全样本评价");
+  expect(factorComparisonReasons(a, b)).toContain("评价模式不同");
 });
 test("comparability requires the same evaluated observations and member identities, not the same ranking", () => {
   const a = evidence("a"),

@@ -99,7 +99,7 @@ test(
     await result.getByRole("button", { name: "生成 QuantStats 报告", exact: true }).click();
     await expect(
       result.getByRole("region", { name: "QuantStats 绩效分析", exact: true }),
-    ).toContainText("QuantStats 至少需要 20 个且不超过 200000 个结算记录");
+    ).toContainText("分析至少需要 20 个且不超过 200000 个结算记录");
     const performance = result.getByRole("region", { name: "绩效", exact: true });
     await expect(performance).toBeVisible();
     const figure = (label: string) =>
@@ -414,7 +414,7 @@ test("several strategies are compared before a holdout and one is replayed", asy
   const analytics = result.getByRole("region", { name: "QuantStats 绩效分析", exact: true });
   await analytics.getByRole("button", { name: "生成 QuantStats 报告", exact: true }).click();
   await expect(analytics.getByRole("img", { name: "日收益率" })).toBeVisible();
-  await expect(analytics).toContainText("QuantStats 0.0.86 · 交易日数: 30");
+  await expect(analytics).toContainText("QuantStats 0.0.86 · Polars 2.0.0 · 交易日数: 30");
   await expect(analytics.locator(".research-metrics > div")).toHaveCount(6);
   const stale = await page.request.post("/__asterion/api", {
     data: {

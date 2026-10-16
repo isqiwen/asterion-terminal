@@ -681,7 +681,27 @@ export type PortfolioExposure = {
     final_lot_headroom: string;
   };
 };
+export type PortfolioAnalysis = {
+  polars_version: string;
+  skfolio_version: string;
+  training_end: string;
+  training_begin: string;
+  training_last: string;
+  training_observations: number;
+  weights: {
+    task_id: string;
+    result_sha256: string;
+    weight: number;
+    source_observations: number;
+  }[];
+  validation: { trading_day: string; optimized_return: number; equal_weight_return: number }[];
+  optimized_total_return: number;
+  equal_weight_total_return: number;
+  optimized_annual_volatility: number;
+  equal_weight_annual_volatility: number;
+};
 export type QuantStatsAnalysis = {
+  polars_version: string;
   task_id: string;
   result_sha256: string;
   library_version: string;
@@ -1515,6 +1535,7 @@ export type Snapshot = {
     error: string;
     sources: NativeHistorySource[];
   };
+  portfolio_report?: PortfolioAnalysis;
   quantstats_report?: QuantStatsAnalysis;
   portfolio_budget_review?: PortfolioBudgetReview;
   research_export?: {

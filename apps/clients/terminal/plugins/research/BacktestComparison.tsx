@@ -1,5 +1,6 @@
 import { SettlementMarginDetails } from "./SettlementMargins";
 import { ComparisonExport } from "./ComparisonExport";
+import { PortfolioReport } from "./PortfolioReport";
 import { useEffect, useRef, useState } from "react";
 import type { PerformanceFigures, TaskResult } from "../../src/bridge/client";
 import {
@@ -490,6 +491,14 @@ export function BacktestComparison({
             </table>
           </div>
         </>
+      )}
+      {loaded.length >= 2 && failures.length === 0 && (
+        <PortfolioReport
+          key={loaded.map(value => `${value.id}:${value.task.result_digest}`).join("|")}
+          sources={loaded.map(value => ({ id: value.id, result_digest: value.task.result_digest }))}
+          busy={busy || loading}
+          query={query}
+        />
       )}
     </section>
   );

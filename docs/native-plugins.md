@@ -6,7 +6,7 @@
 
 统一装载器接受 data、strategy、risk、execution、storage、tool 六类能力。当前正式开放并已接入生产调用链的能力包括 `asterion.history.v3`（分钟来源发现与分钟线）、`asterion.history.tables.v1`（全市场数据表）、`asterion.history.connection.v1`（连接配置与访问验证）及 `asterion.risk.pre-trade.v1`（交易前风控）。Tushare 与 SHFE 数据获取通过这一 ABI，由数据服务和下载工作进程动态加载。Data 和注册层仍静态链接供应商格式的证据校验代码，用于独立复核允许的原始响应；这些校验不承担联网获取。
 
-订单限额风控已由 CTP 交易和回测动态装载。现有 CTP、策略、执行、文件存储和分析工具的业务接口仍使用仓库内 C++ 接口与静态目标，尚未全部迁移到动态 ABI。六类标签不代表已发布六套业务 SDK。实时订阅、交易执行、风险状态恢复等能力应结合现有用例分别定义类型化协议和契约测试后再迁移；不能把尚未实现的能力声明为可用。Terminal 的 TypeScript 工作区采用构建期 UI 契约；QuantStats 是随桌面分发的独立 Protobuf 分析助手，不是原生动态插件。
+订单限额风控已由 CTP 交易和回测动态装载。现有 CTP、策略、执行、文件存储和分析工具的业务接口仍使用仓库内 C++ 接口与静态目标，尚未全部迁移到动态 ABI。六类标签不代表已发布六套业务 SDK。实时订阅、交易执行、风险状态恢复等能力应结合现有用例分别定义类型化协议和契约测试后再迁移；不能把尚未实现的能力声明为可用。Terminal 的 TypeScript 工作区采用构建期 UI 契约；Polars、QuantStats 与 skfolio 共用随桌面分发的 Protobuf 分析助手，不是原生动态插件。
 
 ## 插件结构和构建
 

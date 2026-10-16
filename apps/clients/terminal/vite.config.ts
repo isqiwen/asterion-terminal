@@ -38,9 +38,9 @@ function localCore(): Plugin {
         const child = spawn(resolve(cppBuild, executable), [], {
           env: {
             ...process.env,
-            ASTERION_QUANTSTATS_EXECUTABLE: resolve(
+            ASTERION_ANALYTICS_EXECUTABLE: resolve(
               root,
-              "build/electron-resources/quantstats/asterion-quantstats",
+              "build/electron-resources/analytics/asterion-analytics",
             ),
             ASTERION_ENVIRONMENT: "development",
             ASTERION_REMOTE_RESOURCES:

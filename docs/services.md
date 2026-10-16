@@ -1,6 +1,6 @@
 # 服务与部署
 
-部署单元按[架构](architecture.md)中的长期状态与故障边界划分。插件不是独立服务：数据与风控动态库由消费它们的服务/worker 加载，UI 模块随 Terminal 构建，QuantStats 随桌面交付。
+部署单元按[架构](architecture.md)中的长期状态与故障边界划分。插件不是独立服务：数据与风控动态库由消费它们的服务/worker 加载，UI 模块随 Terminal 构建，Polars、QuantStats 与 skfolio 共用 analytics 助手随桌面交付。
 
 Agent 管程序、进程和资源准入，不选择策略、裁决订单或验算任务。Task 管执行尝试与结果确认，Data 管版本发布与来源预算，Trading 管账户执行权。升级程序、配置插件和恢复业务状态是不同操作；已有任务绑定的插件摘要不随目录或程序升级改变。
 

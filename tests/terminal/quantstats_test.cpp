@@ -1,4 +1,4 @@
-#include "../apps/clients/terminal/native/quantstats.hpp"
+#include "../apps/clients/terminal/native/analytics.hpp"
 #include <asterion/foundation/error.hpp>
 #include <gtest/gtest.h>
 #include <cmath>
@@ -31,7 +31,7 @@ nlohmann::json evidence()
 
 TEST(QuantStats, FrozenRuntimeAnalyzesActualSettlementsAndInitialCapital)
 {
-    const auto report = quantstats_report(evidence(), ASTERION_QUANTSTATS_PATH);
+    const auto report = quantstats_report(evidence(), ASTERION_ANALYTICS_PATH);
     EXPECT_EQ(report.at("task_id"), "settlement-analysis");
     EXPECT_EQ(report.at("library_version"), "0.0.86");
     ASSERT_EQ(report.at("returns").size(), 20);
@@ -55,7 +55,7 @@ TEST(QuantStats, DecimalDifferencePrecedesFloatingConversionAndUndefinedMetricsS
     source["experiment"]["paper"]["deposit"] = "9007199254740993";
     for (auto& day : source["result"]["settlements"])
         day["equity"] = "9007199254740993.00000001";
-    const auto report = quantstats_report(source, ASTERION_QUANTSTATS_PATH);
+    const auto report = quantstats_report(source, ASTERION_ANALYTICS_PATH);
     EXPECT_GT(report.at("returns")[0].at("value").get<double>(), 0);
     EXPECT_TRUE(report.at("metrics").at("sortino").is_null());
     EXPECT_TRUE(report.at("metrics").at("omega").is_null());
@@ -67,11 +67,11 @@ TEST(QuantStats, RejectsInsufficientObservationsAndNonpositiveEquity)
     auto source = evidence();
     source["result"]["settlements"][5]["equity"] = "0";
     try {
-        quantstats_report(source, ASTERION_QUANTSTATS_PATH);
+        quantstats_report(source, ASTERION_ANALYTICS_PATH);
         FAIL() << "nonpositive equity was accepted";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::invalid_request);
     }
     source["result"]["settlements"] = nlohmann::json::array();
-    EXPECT_THROW(quantstats_report(source, ASTERION_QUANTSTATS_PATH), Error);
+    EXPECT_THROW(quantstats_report(source, ASTERION_ANALYTICS_PATH), Error);
 }

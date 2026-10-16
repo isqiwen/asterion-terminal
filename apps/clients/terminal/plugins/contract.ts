@@ -6,6 +6,7 @@ export type QueryCommand =
   | "task.evidence.export"
   | "task.comparison.export"
   | "task.quantstats.analyze"
+  | "task.portfolio.analyze"
   | "data.minutes.page"
   | "data.minutes.range"
   | "data.minutes.evidence"

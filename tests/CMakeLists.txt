@@ -300,4 +300,7 @@ add_executable(asterion_shfe_margin_probe EXCLUDE_FROM_ALL acceptance/shfe_margi
 target_link_libraries(asterion_shfe_margin_probe PRIVATE asterion_data_queries asterion_history_providers asterion_shfe CLI11::CLI11)
 
 asterion_unit_tests(asterion_quantstats_tests terminal/quantstats_test.cpp asterion_terminal_api 90)
-target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_QUANTSTATS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/quantstats/asterion-quantstats")
+target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_ANALYTICS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/analytics/asterion-analytics")
+
+asterion_unit_tests(asterion_portfolio_tests terminal/portfolio_test.cpp asterion_terminal_api 90)
+target_compile_definitions(asterion_portfolio_tests PRIVATE ASTERION_ANALYTICS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/analytics/asterion-analytics")

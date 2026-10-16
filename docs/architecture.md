@@ -117,7 +117,7 @@ Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结�
 | 存储 | `storage/sqlite`（交易记录与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录、全市场数据表的分区登记）、`storage/parquet`（K 线与数据表分区文件） |
 | 策略 | `strategy/cta`（均线交叉、通道突破、时序动量、布林回归） |
 | 风控 | `risk/order-limits`（交易前限额） |
-| 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/performance`；QuantStats 为独立桌面分析助手 |
+| 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/performance`；`tools/analytics`（Polars、QuantStats、skfolio）为独立桌面分析助手 |
 
 Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPort`，内置订单限额与原生风控）和历史分钟线读取（`HistoricalBarPort`，Tushare 与原生历史适配器）。全市场数据表通过插件注册层的 `history_providers::TableReader` 读取；日线与合约目录统一来自这些表，没有单独的日线端口。只有一个实现的能力不设端口，宿主直接使用具体类型：CTP 行情 `ctp::Feed`、CTP 交易 `ctp::Trader`、回测撮合 `PaperExecution`、`SqliteJournal` 与历史仓库 `Archive`。交易策略是例外：四条规则共用插件内的 `Strategy` 接口（`plugins/strategy/cta`），由 `make_strategy` 按策略定义创建，回测引擎和实盘策略运行都通过它使用。Kernel 不再有统一的插件生命周期基类；需要启停的插件自行提供 `start`/`stop`，原生历史适配器由自身持有的 `NativeInstance` 完成启停。
 
@@ -128,7 +128,7 @@ Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPo
 | 构建期 UI 贡献 | 工作区、工具栏、任务入口、多语言 | TypeScript 契约，宿主限制声明命令；React 管理挂载和清理，无独立运行时 API 版本 |
 | 原生动态库 | 历史数据、连接与原文观测、交易前风控 | C ABI 与能力函数表，明确版本/大小/平台检查；NativeInstance 持有库生命周期 |
 | 仓库内静态模块 | 策略、CTP/执行、存储及内部分析 | 具体类型或已有多实现接口，由所属服务装配，不预建通用插件框架 |
-| 独立桌面分析助手 | QuantStats | Native 按需通过 Protobuf 调用冻结程序，不属于原生插件 ABI，也不拥有 Task 结果 |
+| 独立桌面分析助手 | Polars、QuantStats、skfolio | Native 按需通过 Protobuf 调用冻结程序，不属于原生插件 ABI，也不拥有 Task 结果 |
 
 原生动态库与内置 UI 模块都是可信代码；插件不等于独立进程或沙箱。只在实际需要独立交付时定义新的动态 ABI，不设全模块迁移计划。能力范围见 [原生插件 SDK](native-plugins.md)。
 

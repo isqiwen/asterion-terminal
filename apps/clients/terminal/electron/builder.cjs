@@ -33,7 +33,7 @@ module.exports = {
   },
   files: ["main.cjs", "preload.cjs", "package.json", { from: "../dist", to: "dist" }],
   extraResources: [
-    { from: "build/electron-resources/quantstats", to: "quantstats", filter: ["**/*"] },
+    { from: "build/electron-resources/analytics", to: "analytics", filter: ["**/*"] },
     { from: "build/electron-resources/native", to: "native", filter: nativeFiles },
     { from: "build/electron-resources/remote-linux", to: "remote-linux", filter: ["**/*"] },
   ],
@@ -54,7 +54,7 @@ module.exports = {
     notarize: distribution,
     binaries: [
       ...nativeFiles.map(name => "Contents/Resources/native/" + name),
-      "Contents/Resources/quantstats/asterion-quantstats",
+      "Contents/Resources/analytics/asterion-analytics",
     ],
     hardenedRuntime: true,
     entitlements: path.join(__dirname, "entitlements.mac.plist"),

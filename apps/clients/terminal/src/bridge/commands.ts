@@ -249,6 +249,10 @@ export type CommandParams = {
     matrix: ComparisonMatrix;
     path: string;
   };
+  "task.portfolio.analyze": {
+    expected: { id: string; result_digest: string }[];
+    training_end: string;
+  };
   "task.quantstats.analyze": { id: string; result_digest: string };
   "market.local": Record<string, never>;
   "market.attach": { id: string; service: string };

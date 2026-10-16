@@ -12,13 +12,14 @@ import tempfile
 from generated_resources import publish_tree
 
 ROOT = Path(__file__).resolve().parents[2]
-PROJECT = ROOT / "plugins/tools/quantstats"
-ENVIRONMENT = ROOT / "build/quantstats-venv"
-DESTINATION = ROOT / "build/electron-resources/quantstats"
+PROJECT = ROOT / "plugins/tools/analytics"
+ENVIRONMENT = ROOT / "build/analytics-venv"
+DESTINATION = ROOT / "build/electron-resources/analytics"
 PYTHON = "3.12.12"
-SOURCES = ("plugins/tools/quantstats/report.py", "plugins/tools/quantstats/pyproject.toml",
-           "plugins/tools/quantstats/uv.lock", "protocol/proto/asterion/v1/analytics.proto",
-           "scripts/desktop/quantstats_runtime.py", "plugins/tools/quantstats/PYTHON-LICENSE.txt")
+SOURCES = ("plugins/tools/analytics/report.py", "plugins/tools/analytics/pyproject.toml",
+           "plugins/tools/analytics/uv.lock", "protocol/proto/asterion/v1/analytics.proto",
+           "scripts/desktop/analytics_runtime.py", "scripts/desktop/pyinstaller/hook-cvxpy.py",
+           "plugins/tools/analytics/PYTHON-LICENSE.txt")
 
 
 def digest(path):
@@ -32,22 +33,22 @@ def source_identity():
 
 def verify(directory=DESTINATION, signed=False):
     if not (directory / "manifest.json").is_file():
-        raise ValueError("QuantStats runtime missing; run pnpm prepare:quantstats")
+        raise ValueError("Analytics runtime missing; run pnpm prepare:analytics")
     manifest = json.loads((directory / "manifest.json").read_text())
     if manifest["platform"] != [sys.platform, platform.machine()] or manifest["sources"] != source_identity():
-        raise ValueError("QuantStats runtime is stale or built for another platform; run pnpm prepare:quantstats")
+        raise ValueError("Analytics runtime is stale or built for another platform; run pnpm prepare:analytics")
     entries = [path for path in directory.rglob("*") if path.is_file() and path.name != "manifest.json"]
     if {path.relative_to(directory).as_posix() for path in entries} != manifest["files"].keys():
-        raise ValueError("QuantStats runtime differs from its distribution manifest")
+        raise ValueError("Analytics runtime differs from its distribution manifest")
     if not signed and any(digest(path) != manifest["files"][path.relative_to(directory).as_posix()] for path in entries):
-        raise ValueError("QuantStats runtime content digest differs")
-    if not os.access(directory / "asterion-quantstats", os.X_OK):
-        raise ValueError("QuantStats helper is not executable")
+        raise ValueError("Analytics runtime content digest differs")
+    if not os.access(directory / "asterion-analytics", os.X_OK):
+        raise ValueError("Analytics helper is not executable")
 
 
 def prepare(build=None):
     if (sys.platform, platform.machine()) not in (("linux", "x86_64"), ("darwin", "arm64")):
-        raise SystemExit("QuantStats runtime supports Linux x86_64 and macOS Apple Silicon")
+        raise SystemExit("Analytics runtime supports Linux x86_64 and macOS Apple Silicon")
     build = build or Path(os.environ.get("ASTERION_CPP_BUILD", ROOT / "build/Debug"))
     environment = dict(os.environ, UV_PROJECT_ENVIRONMENT=str(ENVIRONMENT), MACOSX_DEPLOYMENT_TARGET="13.0")
     def run(args):
@@ -57,19 +58,23 @@ def prepare(build=None):
     run(["uv", "sync", "--project", PROJECT, "--frozen", "--group", "build", "--python", PYTHON, "--no-python-downloads", "--no-build",
          "--python-platform", "aarch64-apple-darwin" if sys.platform == "darwin" else "x86_64-manylinux_2_28"])
     run(["cmake", "--build", build, "--target", "asterion_analytics_python"])
-    staging = ROOT / "build/quantstats"
+    staging = ROOT / "build/analytics"
     staging.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="prepare-", dir=staging) as temporary:
         temporary = Path(temporary)
         run([ENVIRONMENT / "bin/python", "-m", "PyInstaller", "--noconfirm", "--clean",
-             "--onedir", "--name", "asterion-quantstats", "--paths", build / "generated-python",
+             "--onedir", "--name", "asterion-analytics", "--paths", build / "generated-python",
              "--copy-metadata", "quantstats", "--collect-data", "quantstats",
+             "--copy-metadata", "skfolio", "--copy-metadata", "polars",
+             "--additional-hooks-dir", ROOT / "scripts/desktop/pyinstaller",
+             "--collect-all", "_polars_runtime_compat", "--exclude-module", "_polars_runtime_32",
+             "--hidden-import", "cvxpy.reductions.solvers.conic_solvers.clarabel_conif",
              "--exclude-module", "tkinter", "--exclude-module", "IPython",
              "--distpath", temporary / "dist", "--workpath", temporary / "work",
              "--specpath", temporary, PROJECT / "report.py"])
         # Dereference PyInstaller's internal symlinks so packaging owns one regular tree.
-        prepared = temporary / "quantstats"
-        shutil.copytree(temporary / "dist/asterion-quantstats", prepared)
+        prepared = temporary / "analytics"
+        shutil.copytree(temporary / "dist/asterion-analytics", prepared)
         licenses = prepared / "licenses"
         licenses.mkdir()
         shutil.copy2(PROJECT / "PYTHON-LICENSE.txt", licenses / "PYTHON-LICENSE.txt")
@@ -86,7 +91,7 @@ def prepare(build=None):
         verify(prepared)
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)
-    print(f"Prepared offline QuantStats runtime: {DESTINATION}")
+    print(f"Prepared offline Analytics runtime: {DESTINATION}")
 
 
 if __name__ == "__main__":

@@ -1,18 +1,36 @@
 import { ComparisonExport } from "./ComparisonExport";
 import { useEffect, useRef, useState } from "react";
-import type { TaskResult } from "../../src/bridge/client";
+import type { FactorResult, TaskResult } from "../../src/bridge/client";
 import { ErrorNotice, asDisplayError, type DisplayError, type TerminalContext } from "../contract";
 import { factorNames, namespace, t } from "./shared";
 export type FactorEvidence = Extract<TaskResult, { kind: "factor" }>;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const daily = (value: FactorEvidence) => value.experiment.series.every(s => s.kind === "table");
+type Partition = FactorResult["partitions"][number];
+const boundaries = (p: Partition) => [p.name, p.begin_index, p.end_index];
+const observations = (value: FactorEvidence) =>
+  value.experiment.series.length > 1 ? value.result.cross_sections : value.result.samples;
 export function factorComparisonReasons(base: FactorEvidence, value: FactorEvidence): string[] {
   const a = base.experiment,
     b = value.experiment;
   const reasons: string[] = [];
   if (!daily(base) || !daily(value)) reasons.push("仅支持日线表因子");
-  if (a.evaluation.mode !== "full_sample" || b.evaluation.mode !== "full_sample")
-    reasons.push("仅支持全样本评价");
+  if (a.evaluation.mode !== b.evaluation.mode) reasons.push("评价模式不同");
+  const evaluation = (v: FactorEvidence) => [
+    v.experiment.evaluation,
+    v.result.input_count,
+    v.result.partitions.map(boundaries),
+    v.result.folds.map(f => [
+      f.training_begin,
+      f.training_end,
+      f.validation_end,
+      boundaries(f.development),
+      boundaries(f.holdout),
+    ]),
+  ];
+  if (!same(evaluation(base), evaluation(value))) reasons.push("训练或验证边界不同");
+  if (base.result.evaluation_warmup !== value.result.evaluation_warmup)
+    reasons.push("评价预热不同");
   if (a.horizon !== b.horizon) reasons.push("未来收益跨度不同");
   const ranges = (v: FactorEvidence) =>
     v.experiment.series.map(s =>
@@ -32,8 +50,8 @@ export function factorComparisonReasons(base: FactorEvidence, value: FactorEvide
     v.experiment.series.map(s => (s.kind === "table" ? s.data.snapshot : ""));
   if (!same(snapshots(base), snapshots(value))) reasons.push("固定快照不同");
   if (!same(a.liquidity, b.liquidity)) reasons.push("资格筛选规则不同");
-  const left = a.series.length > 1 ? base.result.cross_sections : base.result.samples;
-  const right = b.series.length > 1 ? value.result.cross_sections : value.result.samples;
+  const left = observations(base);
+  const right = observations(value);
   if (
     left.length !== right.length ||
     left.some(
@@ -61,25 +79,37 @@ export function factorComparisonReasons(base: FactorEvidence, value: FactorEvide
   }
   return reasons;
 }
-export function factorComparisonValueState(label: string, value: FactorEvidence) {
-  const p = value.result.partitions.find(p => p.name === "full_sample");
-  const metrics = [
-    "有效样本 / 截面",
-    "Pearson / IC 均值",
-    "Spearman / 秩 IC 均值",
-    "秩 IC 信息比率",
-    "每侧 1 个的多空差",
-  ];
-  if (!metrics.includes(label)) return "display_only";
-  if (!p) return value.experiment.evaluation.mode === "full_sample" ? "missing" : "not_applicable";
-  if (label === "有效样本 / 截面") return "defined";
-  if (label === "Pearson / IC 均值") return p.pearson === null ? "undefined" : "defined";
-  if (label === "Spearman / 秩 IC 均值") return p.spearman === null ? "undefined" : "defined";
-  if (value.experiment.series.length === 1) return "not_applicable";
-  if (label === "秩 IC 信息比率") return p.spearman_ratio === null ? "undefined" : "defined";
-  return p.spreads[0]?.observations ? "defined" : "no_observations";
-}
 const decimal = (value: number | null) => (value === null ? t("未定义") : value.toFixed(4));
+function partitionMetrics(value: FactorEvidence, p: Partition) {
+  const cross = value.experiment.series.length > 1;
+  const spread = p.spreads[0];
+  const rows = observations(value).filter(
+    row => row.event_index >= p.begin_index && row.event_index < p.end_index,
+  );
+  return [
+    ["评价观测区间", `${p.begin_index + 1}–${p.end_index}`, "display_only"],
+    [
+      "实际评价日期（观测至标签）",
+      rows.length ? `${rows[0].observed} – ${rows.at(-1)!.label}` : "—",
+      rows.length ? "display_only" : "no_observations",
+    ],
+    ["有效样本 / 截面", String(p.sample_count), "defined"],
+    ["Pearson / IC 均值", decimal(p.pearson), p.pearson === null ? "undefined" : "defined"],
+    ["Spearman / 秩 IC 均值", decimal(p.spearman), p.spearman === null ? "undefined" : "defined"],
+    [
+      "秩 IC 信息比率",
+      cross ? decimal(p.spearman_ratio) : "—",
+      !cross ? "not_applicable" : p.spearman_ratio === null ? "undefined" : "defined",
+    ],
+    [
+      "每侧 1 个的多空差",
+      cross && spread?.observations
+        ? `${((spread.highest - spread.lowest) * 100).toFixed(4)}% (${spread.observations})`
+        : "—",
+      !cross ? "not_applicable" : spread?.observations ? "defined" : "no_observations",
+    ],
+  ];
+}
 export function FactorComparison({
   snapshot,
   busy,
@@ -108,6 +138,7 @@ export function FactorComparison({
     ) ?? [];
   const table = useRef<HTMLTableElement>(null);
   const base = loaded[0];
+  const reasons = loaded.map(value => factorComparisonReasons(base, value));
   async function compare() {
     const current = generation.current.value;
     setLoading(true);
@@ -136,11 +167,47 @@ export function FactorComparison({
     <tr key={label}>
       <th scope="row">{t(label)}</th>
       {values.map((value, i) => (
-        <td key={loaded[i].id} data-value-state={factorComparisonValueState(label, loaded[i])}>
+        <td key={loaded[i].id} data-value-state="display_only">
           {value}
           {i > 0 && value !== values[0] && <strong> · {t("不同")}</strong>}
         </td>
       ))}
+    </tr>
+  );
+  const statistics = (
+    label: string,
+    select: (value: FactorEvidence) => Partition | undefined,
+    foldIndex?: number,
+  ) => (
+    <tr key={label}>
+      <th scope="row">{label}</th>
+      {loaded.map(value => {
+        const p = select(value);
+        const fold = foldIndex === undefined ? undefined : value.result.folds[foldIndex];
+        const metrics = p ? partitionMetrics(value, p) : [];
+        if (fold) {
+          metrics.unshift(
+            ["训练观测区间", `${fold.training_begin + 1}–${fold.training_end}`, "display_only"],
+            ["实际窗口", String(fold.lookback), "display_only"],
+          );
+        }
+        return (
+          <td key={value.id} data-value-state={p ? "metric_group" : "not_applicable"}>
+            {p ? (
+              <dl>
+                {metrics.map(([name, text, state]) => (
+                  <div key={name}>
+                    <dt>{t(name)}</dt>
+                    <dd data-value-state={state}>{text}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              t("不适用")
+            )}
+          </td>
+        );
+      })}
     </tr>
   );
   return (
@@ -208,16 +275,19 @@ export function FactorComparison({
               key={loaded.map(v => v.id).join(":")}
               table={table}
               evidence={loaded}
-              reasons={loaded.map(v => [
-                ...new Set([...factorComparisonReasons(v, v), ...factorComparisonReasons(base, v)]),
-              ])}
+              reasons={reasons}
               busy={busy || loading}
               query={query}
             />
           )}
           <p>
             {t(
-              "仅支持日线全样本因子。同口径要求实际评价观测和参与成员相同；未重算共同样本。分组收益是因子标签差，不是扣费回测收益。因子无交易费用、保证金或账户风险口径。",
+              "日线因子按全样本、前段与留出段或逐轮验证分别列示。同口径要求评价边界、预热、实际观测和参与成员相同；不重算共同样本。滚动仅比较各轮验证统计，不合并相关系数，训练得分仍属各自选参证据。",
+            )}
+          </p>
+          <p className="subtle">
+            {t(
+              "分组收益是因子标签差，不是扣费回测收益。反复查看留出或验证结果后调参不能证明样本外有效。",
             )}
           </p>
           <div className="research-table">
@@ -243,15 +313,9 @@ export function FactorComparison({
                 )}
                 {row(
                   "比较口径",
-                  loaded.map(value => {
-                    const reasons = [
-                      ...new Set([
-                        ...factorComparisonReasons(value, value),
-                        ...factorComparisonReasons(base, value),
-                      ]),
-                    ];
-                    return reasons.length
-                      ? t("仅独立列示") + ": " + reasons.map(reason => t(reason)).join("；")
+                  reasons.map(values => {
+                    return values.length
+                      ? t("仅独立列示") + ": " + values.map(reason => t(reason)).join("；")
                       : t("同口径对照");
                   }),
                 )}
@@ -265,7 +329,23 @@ export function FactorComparison({
                 )}
                 {row(
                   "实际窗口",
-                  loaded.map(v => String(v.result.lookback)),
+                  loaded.map(v =>
+                    v.result.folds.length ? t("按轮次列示") : String(v.result.lookback),
+                  ),
+                )}
+                {row(
+                  "评价预热",
+                  loaded.map(v => String(v.result.evaluation_warmup)),
+                )}
+                {row(
+                  "选参规则",
+                  loaded.map(v =>
+                    t(
+                      v.result.selection_rule.includes("development_abs_spearman")
+                        ? "按前段秩相关绝对值选参"
+                        : "固定窗口",
+                    ),
+                  ),
                 )}
                 {row(
                   "未来收益跨度",
@@ -335,44 +415,28 @@ export function FactorComparison({
                   "统计口径",
                   loaded.map(v => t(v.experiment.series.length > 1 ? "截面相关" : "时间序列相关")),
                 )}
-                {row(
-                  "有效样本 / 截面",
-                  loaded.map(v =>
-                    String(
-                      v.result.partitions.find(p => p.name === "full_sample")?.sample_count ?? "—",
+                {(["full_sample", "development", "holdout"] as const).map(
+                  name =>
+                    loaded.some(v => v.result.partitions.some(p => p.name === name)) &&
+                    statistics(
+                      t(
+                        name === "full_sample"
+                          ? "全样本"
+                          : name === "development"
+                            ? "前段"
+                            : "留出段",
+                      ),
+                      v => v.result.partitions.find(p => p.name === name),
                     ),
-                  ),
                 )}
-                {row(
-                  "Pearson / IC 均值",
-                  loaded.map(v => {
-                    const p = v.result.partitions.find(p => p.name === "full_sample");
-                    return p ? decimal(p.pearson) : "—";
-                  }),
-                )}
-                {row(
-                  "Spearman / 秩 IC 均值",
-                  loaded.map(v => {
-                    const p = v.result.partitions.find(p => p.name === "full_sample");
-                    return p ? decimal(p.spearman) : "—";
-                  }),
-                )}
-                {row(
-                  "秩 IC 信息比率",
-                  loaded.map(v => {
-                    const p = v.result.partitions.find(p => p.name === "full_sample");
-                    return v.experiment.series.length > 1 && p ? decimal(p.spearman_ratio) : "—";
-                  }),
-                )}
-                {row(
-                  "每侧 1 个的多空差",
-                  loaded.map(v => {
-                    const p = v.result.partitions.find(p => p.name === "full_sample");
-                    const spread = p?.spreads[0];
-                    return v.experiment.series.length > 1 && spread && spread.observations > 0
-                      ? `${((spread.highest - spread.lowest) * 100).toFixed(4)}% (${spread.observations})`
-                      : "—";
-                  }),
+                {Array.from(
+                  { length: Math.max(0, ...loaded.map(v => v.result.folds.length)) },
+                  (_, index) =>
+                    statistics(
+                      t("第 {count} 轮验证", { count: index + 1 }),
+                      v => v.result.folds[index]?.holdout,
+                      index,
+                    ),
                 )}
               </tbody>
             </table>

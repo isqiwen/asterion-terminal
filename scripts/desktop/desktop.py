@@ -13,7 +13,7 @@ import tempfile
 import signal
 from generated_resources import publish_tree
 import macos_release
-import quantstats_runtime
+import analytics_runtime
 
 ROOT = Path(__file__).resolve().parents[2]
 env = os.environ.copy()
@@ -168,12 +168,12 @@ def verify_linux_package(distribution=True):
         app = applications[0]
         native = app / "resources/native"
         verify_native_resources(native)
-        quantstats_runtime.verify(app / "resources/quantstats")
+        analytics_runtime.verify(app / "resources/analytics")
         run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify",
              "--directory", str(app / "resources/remote-linux")])
         # The bundled remote services run on other machines, not from this package.
         local = [path for path in elf_files(app) if app / "resources/remote-linux" not in path.parents]
-        missing = set(debian_dependencies(local, [app, app / "resources/quantstats/_internal"])) - set(field("Depends").split(", "))
+        missing = set(debian_dependencies(local, [app, app / "resources/analytics/_internal"])) - set(field("Depends").split(", "))
         if missing:
             raise SystemExit("Debian package does not declare what its programs need: " + ", ".join(sorted(missing)))
         for name in SERVICE_PROGRAMS:
@@ -218,11 +218,11 @@ def verify_macos_bundle(distribution=True):
                 raise SystemExit("Expected exactly one application in DMG")
             app = apps[0]
             verify_native_resources(app / "Contents/Resources/native")
-            quantstats_runtime.verify(app / "Contents/Resources/quantstats", signed=True)
+            analytics_runtime.verify(app / "Contents/Resources/analytics", signed=True)
             if distribution:
                 macos_release.verify_application(app, NATIVE_FILES)
             minimum = "13.0"
-            for program in (app / "Contents/Resources/quantstats").rglob("*"):
+            for program in (app / "Contents/Resources/analytics").rglob("*"):
                 if program.is_file():
                     with program.open("rb") as stream:
                         magic = stream.read(4)
@@ -260,7 +260,7 @@ def verify_macos_bundle(distribution=True):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", nargs="?", default="dev", choices=("dev", "build", "package-test", "check", "verify", "verify-test"))
-    parser.add_argument("--prepare-quantstats", action="store_true", help="Explicitly download locked analytics dependencies and freeze the desktop helper")
+    parser.add_argument("--prepare-analytics", action="store_true", help="Explicitly download locked analytics dependencies and freeze the desktop helper")
     arguments = parser.parse_args()
     mode = arguments.mode
     if sys.platform not in {"darwin", "linux"}:
@@ -350,9 +350,9 @@ def main():
     env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
     native = ROOT / "build/electron-resources/native"
     stage_native_resources(ROOT / "build" / configuration, native)
-    if arguments.prepare_quantstats:
-        quantstats_runtime.prepare(ROOT / "build" / configuration)
-    quantstats_runtime.verify()
+    if arguments.prepare_analytics:
+        analytics_runtime.prepare(ROOT / "build" / configuration)
+    analytics_runtime.verify()
     run(["pnpm", "build"])
     # Loading and calling the compiled addon is part of desktop:check.
     run([sys.executable, str(ROOT / "tests/support/isolated_node.py"), "node",
@@ -377,8 +377,8 @@ def main():
             ["node", "-p", "JSON.stringify(require('./scripts/desktop/electron-path.cjs')())"],
             cwd=ROOT, env=env, text=True))).parent
         env["ASTERION_DEB_DEPENDS"] = json.dumps(
-            debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(quantstats_runtime.DESTINATION),
-                                [runtime, quantstats_runtime.DESTINATION / "_internal"]))
+            debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(analytics_runtime.DESTINATION),
+                                [runtime, analytics_runtime.DESTINATION / "_internal"]))
     output = ROOT / "build" / ("desktop" if mode == "build" else "desktop-test")
     if output.exists():
         if output.is_symlink() or not output.is_dir():

@@ -6,7 +6,7 @@ message SettlementEquity {
   string trading_day = 1;
   string equity = 2; // Exact Decimal text; floating point is used only for statistics.
 }
-message QuantStatsRequest {
+message BacktestEquity {
   string task_id = 1;
   string result_sha256 = 2;
   string deposit = 3;
@@ -28,14 +28,51 @@ message QuantStatsReport {
   optional double ulcer_index = 9;
   optional double value_at_risk = 10;
   optional double conditional_value_at_risk = 11;
+  string polars_version = 12;
+}
+message PortfolioRequest {
+  repeated BacktestEquity backtests = 1;
+  string training_end = 2;
+}
+message PortfolioWeight {
+  string task_id = 1;
+  string result_sha256 = 2;
+  double weight = 3;
+  uint32 source_observations = 4;
+}
+message PortfolioObservation {
+  string trading_day = 1;
+  double optimized_return = 2;
+  double equal_weight_return = 3;
+}
+message PortfolioReport {
+  string polars_version = 1;
+  string skfolio_version = 2;
+  string training_end = 3; // Requested inclusive boundary.
+  string training_begin = 4;
+  string training_last = 5;
+  uint32 training_observations = 6;
+  repeated PortfolioWeight weights = 7;
+  repeated PortfolioObservation validation = 8;
+  double optimized_total_return = 9;
+  double equal_weight_total_return = 10;
+  double optimized_annual_volatility = 11;
+  double equal_weight_annual_volatility = 12;
+}
+message AnalyticsRequest {
+  oneof analysis {
+    BacktestEquity quantstats = 1;
+    PortfolioRequest portfolio = 2;
+  }
 }
 message AnalyticsError {
   string code = 1; // foundation ErrorCode name
   string message = 2;
 }
-message QuantStatsReply {
+message AnalyticsReply {
   oneof outcome {
-    QuantStatsReport report = 1;
-    AnalyticsError error = 2;
+    QuantStatsReport quantstats = 1;
+    PortfolioReport portfolio = 2;
+    AnalyticsError error = 3;
   }
 }

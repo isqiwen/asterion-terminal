@@ -1,9 +1,9 @@
 [project]
-name = "asterion-quantstats"
+name = "asterion-analytics"
 version = "0.1.0"
 requires-python = "==3.12.*"
 # These numerical releases still ship wheels for macOS 13 (Apple Silicon).
-dependencies = ["quantstats==0.0.86", "protobuf==5.29.3", "numpy==2.3.5", "scipy==1.17.1"]
+dependencies = ["quantstats==0.0.86", "protobuf==5.29.3", "numpy==2.3.5", "scipy==1.17.1", "polars[rtcompat]==2.0.0", "skfolio==1.9.0"]
 
 [dependency-groups]
 build = ["pyinstaller==6.22.3"]

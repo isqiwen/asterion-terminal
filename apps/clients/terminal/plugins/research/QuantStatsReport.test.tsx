@@ -17,6 +17,7 @@ test("requests the verified result identity and presents absent statistics and m
       task_id: "test",
       result_sha256: "a".repeat(64),
       library_version: "0.0.86",
+      polars_version: "2.0.0",
       periods_per_year: 252,
       returns: [{ trading_day: "2026-09-01", value: -0.02 }],
       metrics: {

@@ -36,6 +36,7 @@ export const plugin: TerminalPlugin = {
     "task.evidence.export",
     "task.comparison.export",
     "task.quantstats.analyze",
+    "task.portfolio.analyze",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>

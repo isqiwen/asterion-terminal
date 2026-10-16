@@ -3850,3 +3850,14 @@ JSON 保留于日志内容和外部编解码边界，不再反解析以获得入
 增加实际 CMake 目标图的架构拒绝测试，以及显式运行的多账户快照测量；普通测试不运行
 性能探针。当前数据不支持增加缓存或分页，后续实际延迟问题应先检查 Native UI 投影。
 设计取舍、当前回归和交付证据见[命令边界记录](command-boundaries-2026-10-16.md)。
+
+
+## 2026-10-16：Polars 与 skfolio 共用桌面分析助手
+
+将 QuantStats 专用运行时收敛为 `plugins/tools/analytics`，同一份锁定、冻结的解释器支持
+QuantStats 统计与 skfolio 组合配置研究。Native 读取 Task 核验结果、校验源摘要并拥有短期
+子进程；Protobuf oneof 明确分析类型。Polars 统一 Decimal 求差与区间对齐，skfolio 只拟合
+配置训练段；UI 展示实际边界、配比、验证绩效和源证据。没有新服务、任务状态、交易执行
+路径或旧入口兼容。打包、开发、CI 与平台校验同步改用 `prepare:analytics`。
+
+设计与验证边界见[专项记录](polars-skfolio-2026-10-16.md)。

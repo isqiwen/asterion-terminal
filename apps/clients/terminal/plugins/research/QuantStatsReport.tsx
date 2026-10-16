@@ -59,7 +59,8 @@ export function QuantStatsReport({
       {report && (
         <>
           <p className="subtle">
-            QuantStats {report.library_version} · {t("交易日数")}: {report.returns.length}
+            QuantStats {report.library_version} · Polars {report.polars_version} · {t("交易日数")}:{" "}
+            {report.returns.length}
           </p>
           <div className="research-metrics">
             {(

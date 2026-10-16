@@ -1,5 +1,6 @@
 #include <set>
-#include "quantstats.hpp"
+#include "analytics.hpp"
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/kernel/environment.hpp>
 #include "research_export.hpp"
 #include "application_impl.hpp"
@@ -160,6 +161,55 @@ void Application::Impl::register_task_commands()
                 "data/task service selection changed during operation; " "inspect the original services before retrying");
         co_return snapshot();
     });
+    command("task.portfolio.analyze", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"expected", "training_end"});
+        const auto& expected = p.at("expected");
+        if (!expected.is_array() || expected.size() < 2 || expected.size() > 3)
+            throw Error(
+                ErrorCode::invalid_request,
+                "Portfolio analysis requires 2 or 3 distinct backtests");
+        const auto training_end = text(p, "training_end");
+        parse_trading_date(training_end);
+        if (!task_client)
+            throw std::invalid_argument("task service is not connected");
+        const auto client = task_client;
+        const auto generation = data_task_generation;
+        std::set<std::string> ids;
+        std::vector<json> sources;
+        for (const auto& reference : expected) {
+            fields(reference, {"id", "result_digest"});
+            const auto id = text(reference, "id");
+            validate_id(id);
+            if (!ids.insert(id).second)
+                throw Error(
+                    ErrorCode::invalid_request,
+                    "Portfolio analysis requires 2 or 3 distinct backtests");
+            auto source = co_await PollFuture{client->result(id)};
+            if (generation != data_task_generation)
+                throw Error(
+                    ErrorCode::conflict,
+                    "data/task service selection changed during operation; inspect the original services before retrying");
+            if (source.at("task").at("result_digest") != text(reference, "result_digest"))
+                throw Error(
+                    ErrorCode::conflict,
+                    "backtest result changed; reopen the result before analysis");
+            sources.push_back(std::move(source));
+        }
+        auto report = co_await service_io.admin<json>([sources = std::move(sources), training_end] {
+            return portfolio_report(
+                sources,
+                training_end,
+                environment_path("ASTERION_ANALYTICS_EXECUTABLE")
+                    .value_or(std::filesystem::path{}));
+        });
+        if (generation != data_task_generation)
+            throw Error(
+                ErrorCode::conflict,
+                "data/task service selection changed during operation; inspect the original services before retrying");
+        auto reply = snapshot();
+        reply.values["portfolio_report"] = std::move(report);
+        co_return reply;
+    });
     command("task.quantstats.analyze", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "result_digest"});
         if (!task_client)
@@ -175,7 +225,7 @@ void Application::Impl::register_task_commands()
         auto report = co_await service_io.admin<json>([source = std::move(source)] {
             return quantstats_report(
                 source,
-                environment_path("ASTERION_QUANTSTATS_EXECUTABLE")
+                environment_path("ASTERION_ANALYTICS_EXECUTABLE")
                     .value_or(std::filesystem::path{}));
         });
         if (generation != data_task_generation)

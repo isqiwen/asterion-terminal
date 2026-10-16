@@ -23,7 +23,7 @@ conan profile detect --exist-ok     # 生成本机 Conan profile；已有时不�
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
 pnpm install --frozen-lockfile
 pnpm exec install-electron          # 下载锁定版本的 Electron 运行时
-pnpm desktop --prepare-quantstats    # 首次显式准备分析助手、构建并启动；之后用 pnpm desktop
+pnpm desktop --prepare-analytics    # 首次显式准备分析助手、构建并启动；之后用 pnpm desktop
 ```
 
 | 命令 | 用途 |
