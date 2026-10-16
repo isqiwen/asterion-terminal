@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       # Dependencies build optimized: embedded DuckDB with debug information
@@ -45,6 +45,7 @@ jobs:
       - run: cmake --preset conan-debug
       # -k 0 reports every failing translation unit in one run, not only the first.
       - run: cmake --build --preset conan-debug -- -k 0
+      - run: python scripts/desktop/quantstats_runtime.py
       - run: ctest --preset conan-debug --output-on-failure
       - name: Prepare Linux user service manager
         if: runner.os == 'Linux'
@@ -126,7 +127,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: "10.32.1"
-      - run: python -m pip install conan==2.32.0 ninja
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
@@ -137,7 +138,7 @@ jobs:
           merge-multiple: true
           path: build/linux-bundles
       - name: Build and link native desktop
-        run: python scripts/desktop/desktop.py check
+        run: python scripts/desktop/desktop.py check --prepare-quantstats
       - run: ctest --preset conan-debug --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
@@ -183,7 +184,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: "10.32.1"
-      - run: python -m pip install conan==2.32.0 ninja
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
@@ -201,7 +202,7 @@ jobs:
           sudo apt-get install -y xvfb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build and link native desktop
-        run: python scripts/desktop/desktop.py check
+        run: python scripts/desktop/desktop.py check --prepare-quantstats
       - run: ctest --preset conan-debug --output-on-failure
       - name: Exercise native Electron host
         run: xvfb-run -a pnpm test:desktop
@@ -239,7 +240,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
@@ -248,6 +249,7 @@ jobs:
       # The full-budget and large-dataset tests measure capacity, not thread
       # safety; instrumented, they exceed the services' own request timeouts and
       # starve the rest of the run. The uninstrumented jobs run them.
+      - run: python scripts/desktop/quantstats_runtime.py
       - run: ctest --preset conan-debug --output-on-failure -E "^(Backtest\.FullBarBudgetRunsThroughFinalSettlement|TerminalApi\.LargeNamedDatasetsBacktest)$"
         env:
           ASTERION_TIMING_SCALE: "20"

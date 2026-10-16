@@ -1049,5 +1049,16 @@
   "historical margins require one contract and no manual settlement events": "历史保证金只支持单合约，且不能同时使用手工结算保证金调整。",
   "historical margins require a percentage cost schedule covering every day": "历史保证金要求费用日程覆盖每个交易日，且每手保证金为零。",
   "historical margin selection changed; preview again": "历史保证金选择已改变，请重新预览。",
-  "Historical margin preview is missing": "缺少历史保证金预览。"
+  "Historical margin preview is missing": "缺少历史保证金预览。",
+  "QuantStats requires at least 20 settlement observations": "QuantStats 至少需要 20 个且不超过 200000 个结算记录",
+  "QuantStats requires positive finite equity": "QuantStats 要求初始资金与结算权益均为正且有限",
+  "QuantStats settlement dates must ascend": "QuantStats 结算日期必须严格递增",
+  "QuantStats requires finite daily returns": "QuantStats 日收益与净值必须为有限数值",
+  "QuantStats requires a completed backtest result": "QuantStats 需要已完成的回测结果",
+  "QuantStats runtime unavailable; prepare or reinstall Terminal": "QuantStats 运行环境不可用，请准备开发依赖或重新安装终端",
+  "QuantStats temporary directory unavailable": "QuantStats 临时目录不可用",
+  "QuantStats analysis timed out": "QuantStats 分析超时",
+  "QuantStats analysis process failed": "QuantStats 分析进程失败",
+  "QuantStats returned an invalid report": "QuantStats 返回的报告无效",
+  "backtest result changed; reopen the result before analysis": "回测结果已改变，请重新打开结果后再分析"
 }

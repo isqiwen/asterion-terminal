@@ -1,4 +1,6 @@
 #include <set>
+#include "quantstats.hpp"
+#include <asterion/kernel/environment.hpp>
 #include "research_export.hpp"
 #include "application_impl.hpp"
 #include <asterion/protocol/factor.hpp>
@@ -157,6 +159,32 @@ void Application::Impl::register_task_commands()
                 ErrorCode::conflict,
                 "data/task service selection changed during operation; " "inspect the original services before retrying");
         co_return snapshot();
+    });
+    command("task.quantstats.analyze", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"id", "result_digest"});
+        if (!task_client)
+            throw std::invalid_argument("task service is not connected");
+        validate_id(text(p, "id"));
+        const auto client = task_client;
+        const auto generation = data_task_generation;
+        auto source = co_await PollFuture{client->result(text(p, "id"))};
+        if (source.at("task").at("result_digest") != text(p, "result_digest"))
+            throw Error(
+                ErrorCode::conflict,
+                "backtest result changed; reopen the result before analysis");
+        auto report = co_await service_io.admin<json>([source = std::move(source)] {
+            return quantstats_report(
+                source,
+                environment_path("ASTERION_QUANTSTATS_EXECUTABLE")
+                    .value_or(std::filesystem::path{}));
+        });
+        if (generation != data_task_generation)
+            throw Error(
+                ErrorCode::conflict,
+                "data/task service selection changed during operation; inspect the original services before retrying");
+        auto reply = snapshot();
+        reply.values["quantstats_report"] = std::move(report);
+        co_return reply;
     });
     command("task.result.read", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id"});

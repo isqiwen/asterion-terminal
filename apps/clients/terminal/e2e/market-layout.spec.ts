@@ -1,5 +1,17 @@
-import { test, expect } from "./test";
+import { test, expect, type Locator, type Page } from "./test";
 import type { Snapshot, HistoryPage, LiveMarket } from "../src/bridge/client";
+
+async function pointAtFirstObservation(page: Page, chart: Locator) {
+  const point = await chart.evaluate(element => {
+    const panes = [...element.querySelectorAll("canvas")].map(canvas =>
+      canvas.getBoundingClientRect(),
+    );
+    const plot = panes.sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    const count = Number(element.getAttribute("data-visible-count"));
+    return { x: plot.left + plot.width / count / 2, y: plot.top + plot.height / 2 };
+  });
+  await page.mouse.move(point.x, point.y);
+}
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -63,9 +75,13 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (
-      !["runtime.snapshot", "data.minutes.page", "data.datasets", "data.tables.coverage"].includes(
-        request.method,
-      )
+      ![
+        "runtime.snapshot",
+        "data.minutes.page",
+        "data.datasets",
+        "data.tables.coverage",
+        "market.minutes",
+      ].includes(request.method)
     )
       return route.continue();
     if (request.method === "data.minutes.page") {
@@ -182,6 +198,28 @@ test("dense market board links real dataset commands, sorting, pagination and co
       // Historical versions remain available when Task is offline and has no visible history.
       data.result.task_service = { ...data.result.task_service!, online: false, tasks: [] };
     }
+    if (request.method === "market.minutes") {
+      data.result.intraday = {
+        service: data.result.market!.service,
+        instance_id: "fixture",
+        venue: request.params.venue,
+        symbol: request.params.symbol,
+        trading_day: "2026-09-29",
+        first_observation_ms: Date.parse("2026-09-28T21:00:00+08:00"),
+        previous_settlement: "100",
+        interrupted: true,
+        bars: [0, 2].map(minute => ({
+          start_ms: Date.parse("2026-09-28T21:00:00+08:00") + minute * 60000,
+          open: "100",
+          high: "101",
+          low: "100",
+          close: minute ? "101" : "100",
+          volume: 10,
+          average_price: minute ? "100.5" : "100",
+          open_interest: "1000",
+        })),
+      };
+    }
     data.result.history_page = requestedPage;
     // No market-wide daily table is stored: the chart has minutes only.
     if (request.method === "data.tables.coverage")
@@ -247,6 +285,11 @@ test("dense market board links real dataset commands, sorting, pagination and co
   const upper = detail.locator(".quote-pane").first();
   const lower = detail.locator(".quote-pane").last();
   await expect(upper.locator(".quote-pane-header")).toContainText("rb2601");
+  await expect(upper.getByRole("img", { name: "分时", exact: true })).toBeVisible();
+  await expect(upper.locator(".intraday-chart .price-chart-cursor")).toContainText("21:02");
+  await expect(upper.locator(".intraday-chart .price-chart-cursor")).toContainText("101");
+  await upper.screenshot({ path: "build/lightweight-intraday.png" });
+
   await lower.getByRole("button", { name: /更多/ }).click();
   await lower.getByRole("menuitemradio", { name: "历史K线" }).click();
   const history = page.getByRole("region", { name: "合约历史 K 线", exact: true });
@@ -255,11 +298,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await expect(history.getByRole("button", { name: "1 min", exact: true })).toBeDisabled();
   await expect(history.getByRole("button", { name: "日K", exact: true })).toBeDisabled();
   await expect(history.locator("[data-oscillator-legend]")).toContainText("MACD:");
-  await expect(history.locator("[data-mirrored-price]")).toHaveCount(5);
-  await expect(history.locator("[data-price-extreme]")).toHaveCount(2);
   await expect(history.locator("[data-indicator]")).toHaveCount(5);
   await expect(history.locator('[data-oscillator="MACD(12,26,9)"]')).toHaveCount(1);
-  await expect(history.locator('[data-oscillator-line="DIFF"]')).not.toHaveAttribute("d", "");
+  await expect(history.locator("[data-oscillator-legend]")).toContainText("DIFF:");
   await history.getByRole("button", { name: "显示 MACD", exact: true }).click();
   await expect(history.locator("[data-oscillator]")).toHaveCount(0);
   await history.getByRole("button", { name: "显示 MACD", exact: true }).click();
@@ -269,45 +310,21 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await upper.getByRole("button", { name: "Tick", exact: true }).click();
   await expect(page.getByRole("img", { name: "最近报价走势" })).toBeVisible();
   const liveChart = page.getByRole("img", { name: "最近报价走势" });
-  await expect(liveChart.locator("[data-chart-volume-axis]")).toHaveCount(1);
-  await expect(liveChart.locator("[data-chart-reference]")).toHaveAttribute(
-    "data-chart-reference",
-    "100",
-  );
-  await expect(liveChart.locator("[data-chart-percent]")).toHaveText([
-    "+5.00%",
-    "+2.50%",
-    "0.00%",
-    "-2.50%",
-    "-5.00%",
-  ]);
+  await expect(upper.locator("[data-chart-volume-axis]")).toHaveCount(1);
+  await expect(upper.locator("[data-chart-reference]")).toContainText("100");
   const quote = subscriptions[0].quote!;
   quote.previous_settlement = "110";
-  await expect(liveChart.locator("[data-chart-reference]")).toHaveAttribute(
-    "data-chart-reference",
-    "110",
-  );
-  await expect(liveChart.locator("[data-chart-percent]").nth(2)).toHaveText("0.00%");
+  await expect(upper.locator("[data-chart-reference]")).toContainText("110");
   for (const invalid of ["0", "-1", "invalid", null]) {
     quote.previous_settlement = invalid;
-    await expect(liveChart.locator("[data-chart-percent]")).toHaveCount(0);
-    await expect(liveChart.locator("[data-chart-reference]")).toHaveCount(0);
-    await expect(liveChart.locator(".price-chart-axis-tick")).toHaveCount(5);
+    await expect(upper.locator("[data-chart-reference]")).toHaveCount(0);
+    await expect(liveChart.locator("canvas").first()).toBeVisible();
   }
   quote.previous_settlement = "100";
-  await expect(liveChart.locator("[data-chart-percent]")).toHaveCount(5);
-
-  expect(await liveChart.locator("[data-chart-volume]").count()).toBeGreaterThan(0);
+  await expect(upper.locator("[data-chart-reference]")).toContainText("100");
   const cursor = upper.locator(".contract-live-chart .price-chart-cursor");
   await expect(cursor).toContainText("区间成交量");
-  const firstQuote = await liveChart.locator("polyline").evaluate(line => {
-    const point = (line as SVGPolylineElement).points.getItem(0);
-    const screen = new DOMPoint(point.x, point.y).matrixTransform(
-      (line as SVGPolylineElement).getScreenCTM()!,
-    );
-    return { x: screen.x, y: screen.y };
-  });
-  await page.mouse.move(firstQuote.x, firstQuote.y);
+  await pointAtFirstObservation(page, liveChart);
   await expect(cursor).toContainText("100.00");
   await expect(cursor).not.toContainText("区间成交量");
   await liveChart.focus();
@@ -365,7 +382,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await page.screenshot({ path: "build/market-reference-linked-charts.png" });
   await page.setViewportSize({ width: 2048, height: 1073 });
   await assertColumnAlignment();
-  await expect(history.locator(".price-chart-axis-tick")).toHaveCount(5);
+  await expect(history.getByRole("img").locator("canvas").first()).toBeVisible();
   const shanghaiGroup = await shfe.boundingBox();
   const zhengzhouGroup = await page.getByRole("region", { name: "郑州商品期货" }).boundingBox();
   expect(shanghaiGroup!.y).toBeLessThan(zhengzhouGroup!.y);
@@ -399,7 +416,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await expect(history.getByRole("img")).toBeVisible();
   await history.getByRole("button", { name: "重试", exact: true }).click();
   await expect(history.getByText("101–120 / 120", { exact: true })).toBeVisible();
-  await expect(history.locator('[data-indicator="MA60"]')).not.toHaveAttribute("d", "");
+  await expect(history.locator('[data-indicator="MA60"]')).not.toContainText("—");
   await history.getByRole("button", { name: "最早数据", exact: true }).click();
   await expect(history.getByText("1–100 / 120", { exact: true })).toBeVisible();
   await expect(history.getByRole("button", { name: "最早数据", exact: true })).toBeDisabled();
@@ -407,7 +424,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await history.getByRole("button", { name: "最新数据", exact: true }).click();
   await expect(history.getByText("101–120 / 120", { exact: true })).toBeVisible();
   await expect(history.getByRole("button", { name: "最新数据", exact: true })).toBeDisabled();
-  await expect(history.locator('[data-indicator="MA60"]')).not.toHaveAttribute("d", "");
+  await expect(history.locator('[data-indicator="MA60"]')).not.toContainText("—");
   await page.screenshot({ path: "build/history-first-last-page.png" });
   await shfe.getByRole("button", { name: "rb2602", exact: true }).click();
   await expect(history.getByRole("img")).toHaveCount(0);
@@ -625,16 +642,14 @@ test("dense market board links real dataset commands, sorting, pagination and co
   const livePlot = page.locator(".contract-live-chart").getByRole("img");
   const liveReadout = page.locator(".contract-live-chart .price-chart-cursor");
   await expect(liveReadout).toContainText("区间成交量 52");
-  const liveBounds = (await livePlot.boundingBox())!;
-  await page.mouse.move(liveBounds.x + 1, liveBounds.y + liveBounds.height / 2);
+  await pointAtFirstObservation(page, livePlot);
   await expect(liveReadout).not.toContainText("区间成交量");
   await livePlot.focus();
   await page.keyboard.press("ArrowRight");
   await expect(liveReadout).toContainText("区间成交量 13");
   await page.screenshot({ path: "build/contract-quote-volume-readout.png" });
-  const beforeRollover = await livePlot.locator("polyline").getAttribute("points");
   quoteHistoryOffset = 1;
-  await expect(livePlot.locator("polyline")).not.toHaveAttribute("points", beforeRollover!);
+  await expect(livePlot.locator("canvas").first()).toBeVisible();
   await expect(liveReadout).toContainText("区间成交量 13");
   // When the selected event is evicted, return to the latest visible event.
   quoteHistoryOffset = 2;

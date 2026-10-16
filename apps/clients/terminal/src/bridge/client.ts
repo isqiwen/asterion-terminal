@@ -341,6 +341,7 @@ export type TerminalCommand =
   | "task.metadata.edit"
   | "task.evidence.export"
   | "task.comparison.export"
+  | "task.quantstats.analyze"
   | "market.local"
   | "market.attach"
   | "market.connect"
@@ -768,6 +769,22 @@ export type PortfolioExposure = {
     max_working_orders: number;
     final_lot_headroom: string;
   };
+};
+export type QuantStatsAnalysis = {
+  task_id: string;
+  result_sha256: string;
+  library_version: string;
+  periods_per_year: number;
+  returns: { trading_day: string; value: number }[];
+  metrics: Record<
+    | "sortino"
+    | "omega"
+    | "tail_ratio"
+    | "ulcer_index"
+    | "value_at_risk"
+    | "conditional_value_at_risk",
+    number | null
+  >;
 };
 export type PortfolioBudgetReview = {
   scope: "saved_account_and_settlement_points_review_only";
@@ -1586,6 +1603,7 @@ export type Snapshot = {
     error: string;
     sources: NativeHistorySource[];
   };
+  quantstats_report?: QuantStatsAnalysis;
   portfolio_budget_review?: PortfolioBudgetReview;
   research_export?: {
     name: string;

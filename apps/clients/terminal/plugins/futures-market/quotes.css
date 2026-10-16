@@ -237,7 +237,7 @@
   line-height: 16px;
   margin: 0 0 4px;
 }
-.market-contract .price-chart svg {
+.market-contract .price-chart .price-chart-canvas {
   height: auto;
   min-height: 0;
   max-height: none;
@@ -515,10 +515,10 @@
     flex: 1;
     min-height: 0;
   }
-  .market-contract .price-chart[data-fit-height] > :not(svg) {
+  .market-contract .price-chart[data-fit-height] > :not(.price-chart-canvas) {
     flex-shrink: 0;
   }
-  .market-contract .price-chart[data-fit-height] svg {
+  .market-contract .price-chart[data-fit-height] .price-chart-canvas {
     flex: 1;
     height: 0;
     min-height: 190px;
@@ -630,10 +630,10 @@
   flex: 1;
   min-height: 0;
 }
-.history-market-detail .price-chart[data-fit-height] > :not(svg) {
+.history-market-detail .price-chart[data-fit-height] > :not(.price-chart-canvas) {
   flex-shrink: 0;
 }
-.history-market-detail .price-chart[data-fit-height] svg {
+.history-market-detail .price-chart[data-fit-height] .price-chart-canvas {
   flex: 1;
   height: 0;
   min-height: 240px;

@@ -133,6 +133,9 @@ function IntradayPanel({
     <>
       <IntradayChart
         slots={slots}
+        volumeLabel={t("成交量")}
+        averageLabel={t("均价")}
+        referenceLabel={t("昨结价")}
         ticks={ticks}
         reference={reference}
         label={t("分时")}

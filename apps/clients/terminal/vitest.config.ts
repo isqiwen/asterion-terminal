@@ -8,7 +8,11 @@ export default defineConfig({
   root: terminal.root,
   resolve: terminal.resolve,
   test: {
-    include: ["src/**/*.test.{ts,tsx}", "plugins/**/*.test.{ts,tsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "plugins/**/*.test.{ts,tsx}",
+      "../../../packages/client-ui/src/**/*.test.{ts,tsx}",
+    ],
     environment: "jsdom",
     setupFiles: ["src/testing/setup.ts"],
   },

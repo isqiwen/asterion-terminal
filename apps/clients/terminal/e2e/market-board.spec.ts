@@ -134,7 +134,7 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(chart).toBeVisible();
   await expect(chart).toHaveAttribute("data-visible-count", "24");
   await expect(detail.locator(".price-chart-cursor")).toContainText("100.00000001");
-  await expect(chart.locator("rect")).toHaveCount(0);
+  await expect(chart.locator("canvas").first()).toBeVisible();
   await detail.getByRole("button", { name: "放大", exact: true }).click();
   await expect(chart).toHaveAttribute("data-visible-count", "19");
   quoteCount = 30;
@@ -162,10 +162,10 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(chart).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
   expect(
-    await chart.evaluate(svg => {
-      const right = svg.getBoundingClientRect().right;
-      return [...svg.querySelectorAll("text")].every(
-        text => text.getBoundingClientRect().right <= right + 1,
+    await chart.evaluate(element => {
+      const right = element.getBoundingClientRect().right;
+      return [...element.querySelectorAll("canvas")].every(
+        canvas => canvas.getBoundingClientRect().right <= right + 1,
       );
     }),
   ).toBe(true);

@@ -4,16 +4,26 @@
   padding: 12px 0;
   min-width: 0;
 }
-.price-chart svg {
+.price-chart-canvas {
   display: block;
   width: 100%;
-  min-height: 180px;
-  max-height: 360px;
-  touch-action: pan-y;
+  min-height: 190px;
 }
-.price-chart svg text {
-  fill: var(--muted);
-  font-size: 11px;
+/* Lightweight Charts owns its layout table; application data-table rules
+   must not impose row heights, borders or hover fills on canvas panes. */
+.price-chart-canvas td {
+  height: auto;
+  padding: 0;
+  border: 0;
+}
+.price-chart-canvas tbody tr:hover {
+  background: transparent;
+}
+.chart-attribution {
+  align-self: flex-end;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 4px;
 }
 .price-chart-cursor {
   font-size: 12px;
@@ -21,13 +31,6 @@
   font-variant-numeric: tabular-nums;
   min-height: 32px;
 }
-.price-chart-crosshair {
-  stroke: var(--muted);
-  stroke-dasharray: 3 4;
-  opacity: 0.6;
-  pointer-events: none;
-}
-
 .price-chart-controls {
   display: flex;
   flex-wrap: wrap;
@@ -52,17 +55,16 @@
   min-height: 18px;
   font-size: 12px;
 }
-.intraday-chart-frame {
+.intraday-chart .price-chart {
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  min-height: 180px;
-  overflow: hidden;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
-.intraday-chart-frame svg {
-  display: block;
-  touch-action: pan-y;
-}
-.intraday-chart-frame svg text {
-  fill: var(--muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
+.price-chart[data-fit-height] .price-chart-canvas {
+  flex: 1 0 190px;
+  height: 190px;
 }

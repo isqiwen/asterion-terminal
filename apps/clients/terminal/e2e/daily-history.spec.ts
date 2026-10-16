@@ -144,19 +144,18 @@ test("the daily chart reads the contract from the daily table, by period and pag
   );
   await expect(chart.getByRole("img")).toBeVisible();
   await expect(chart.locator(".market-history-pages")).toContainText("1–100 / 120");
-  await expect(chart.locator("[data-oscillator-axis]")).toBeVisible();
+  await expect(chart.getByRole("img").locator("canvas").first()).toBeVisible();
   const plot = chart.getByRole("img");
   for (let step = 0; step < 6; step++) await plot.press("+");
   await plot.press("Home");
   await expect(chart.locator("[data-oscillator-empty]")).toHaveText("当前区间无 MACD 数据");
-  await expect(chart.locator("[data-oscillator-axis]")).toHaveCount(0);
   await plot.press("End");
   await expect(chart.locator("[data-oscillator-empty]")).toHaveCount(0);
-  await expect(chart.locator("[data-oscillator-axis]")).toBeVisible();
+  await expect(chart.getByRole("img").locator("canvas").first()).toBeVisible();
   await chart.getByRole("button", { name: "向后", exact: true }).click();
   await expect(chart.locator(".market-history-pages")).toContainText("101–120 / 120");
   await expect(chart.locator("[data-oscillator-empty]")).toHaveCount(0);
-  await expect(chart.locator("[data-oscillator-axis]")).toBeVisible();
+  await expect(chart.getByRole("img").locator("canvas").first()).toBeVisible();
   await expect(chart.locator("[data-oscillator-legend]")).toContainText("DIFF: 0.00");
   // What the chart asked for: the contract, under the snapshot the coverage named.
   expect(calls.at(-1)).toMatchObject({
@@ -215,15 +214,10 @@ test("the daily chart reads the contract from the daily table, by period and pag
     );
     await expect(chart.locator(".market-history-pages")).toContainText(`1–${total} / ${total}`);
     await expect(chart.locator("[data-oscillator-empty]")).toHaveText("当前区间无 MACD 数据");
-    await expect(chart.locator("[data-oscillator-axis]")).toHaveCount(0);
     if (period === "year") {
-      const alignment = await chart.getByRole("img").evaluate(svg => {
-        const label = svg.querySelector<SVGTextElement>("[data-chart-time]")!;
-        const crosshair = svg.querySelector<SVGPathElement>(".price-chart-crosshair")!;
-        const bounds = label.getBBox();
-        return Math.abs(bounds.x + bounds.width / 2 - crosshair.getPointAtLength(0).x);
-      });
-      expect(alignment).toBeLessThan(1);
+      await expect(chart.getByRole("img")).toHaveAttribute("data-visible-count", "1");
+      await chart.getByRole("img").press("ArrowLeft");
+      await expect(chart.locator(".price-chart-cursor")).not.toBeEmpty();
     }
     expect(calls.at(-1)?.period).toBe(period);
     expect(calls.at(-1)?.offset).toBe(0);

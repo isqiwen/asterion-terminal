@@ -96,6 +96,10 @@ test(
     );
     const result = workspace.getByRole("region", { name: "回测结果", exact: true });
     // One trading day has a return and a drawdown, and too little for yearly figures.
+    await result.getByRole("button", { name: "生成 QuantStats 报告", exact: true }).click();
+    await expect(
+      result.getByRole("region", { name: "QuantStats 绩效分析", exact: true }),
+    ).toContainText("QuantStats 至少需要 20 个且不超过 200000 个结算记录");
     const performance = result.getByRole("region", { name: "绩效", exact: true });
     await expect(performance).toBeVisible();
     const figure = (label: string) =>
@@ -176,13 +180,13 @@ test(
     });
     await row.getByRole("button", { name: "查看结果", exact: true }).click();
     await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
-    await expect
-      .poll(async () =>
-        result
-          .locator("polyline")
-          .evaluate(element => element.getAttribute("points")?.trim().split(/\s+/).length),
-      )
-      .toBe(200001);
+    await expect(result.getByRole("img", { name: "权益曲线" })).toHaveAttribute(
+      "data-visible-count",
+      "200001",
+    );
+    await expect(
+      result.getByRole("img", { name: "权益曲线" }).locator("canvas").first(),
+    ).toBeVisible();
     // A polling response may still be expanding the large chart fixture. Drain
     // those handlers before navigation removes their routes or closes the page.
     await page.unrouteAll({ behavior: "wait" });
@@ -407,6 +411,25 @@ test("several strategies are compared before a holdout and one is replayed", asy
       .locator("strong");
   // Twenty-five days before 2026-09-21 and five from it; the whole run has both.
   await expect(figure("绩效", "交易日数")).toHaveText("30");
+  const analytics = result.getByRole("region", { name: "QuantStats 绩效分析", exact: true });
+  await analytics.getByRole("button", { name: "生成 QuantStats 报告", exact: true }).click();
+  await expect(analytics.getByRole("img", { name: "日收益率" })).toBeVisible();
+  await expect(analytics).toContainText("QuantStats 0.0.86 · 交易日数: 30");
+  await expect(analytics.locator(".research-metrics > div")).toHaveCount(6);
+  const stale = await page.request.post("/__asterion/api", {
+    data: {
+      version: 1,
+      method: "task.quantstats.analyze",
+      params: {
+        id: await analytics.locator("details > p").textContent(),
+        result_digest: "0".repeat(64),
+      },
+    },
+  });
+  expect((await stale.json()).error.code).toBe("conflict");
+  await expect(analytics.getByRole("alert")).toHaveCount(0);
+  await analytics.screenshot({ path: join(__dirname, "../test-results/quantstats-report.png") });
+
   await expect(figure("前段", "交易日数")).toHaveText("25");
   await expect(figure("留出段", "交易日数")).toHaveText("5");
   // The development figures are the selected candidate's scores.
@@ -855,6 +878,7 @@ test("strategies are compared by rolling and the account follows each round's be
       .locator("strong");
   // The account trades from the first validation day: ten days out of sample.
   await expect(figure("绩效", "交易日数")).toHaveText("30");
+
   await expect(figure("样本外", "交易日数")).toHaveText("10");
   const body = await page.request.post("/__asterion/api", {
     data: { version: 1, method: "runtime.snapshot", params: {} },

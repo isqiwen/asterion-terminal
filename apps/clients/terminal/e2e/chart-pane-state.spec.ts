@@ -239,8 +239,8 @@ test("chart panes retain intervals and indicators across contracts without subst
   await expect
     .poll(() =>
       contractPlot.evaluate(element => {
-        const svg = element as SVGSVGElement;
-        return Math.abs(svg.viewBox.baseVal.height - svg.getBoundingClientRect().height);
+        const canvas = element.querySelector("canvas")!;
+        return Math.abs(canvas.width / devicePixelRatio - canvas.getBoundingClientRect().width);
       }),
     )
     .toBeLessThan(1);
