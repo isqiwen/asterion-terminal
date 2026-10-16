@@ -4,6 +4,15 @@ import "asterion/v1/domain.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/data.proto";
 
+// Explicit model parameters for the single ordinary daily contract. The source
+// is a user-supplied explanation, not a claim of verified provider provenance.
+// A rate is a fraction, applied symmetrically after that day's P&L settlement.
+message SettlementMargin {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal rate = 2;
+  string source = 3;
+}
+
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
@@ -20,6 +29,7 @@ message BacktestInput {
   string holdout_day = 6;
   // A rolling comparison; absent with one strategy or a holdout.
   BacktestWalkForward walk_forward = 7;
+  repeated SettlementMargin settlement_margins = 8;
 }
 // A comparison that rolls forward by trading days. Each round scores the
 // strategies over `training_days` and the account follows the best of them
@@ -77,6 +87,7 @@ message BacktestRequest {
   // Empty with one strategy or a rolling comparison.
   string holdout_from = 6;
   BacktestWalkForward walk_forward = 7;
+  repeated SettlementMargin settlement_margins = 8;
 }
 
 enum EquityEvent {
@@ -105,6 +116,14 @@ message SettlementOccupancy {
   asterion.protocol.v1.Decimal available = 2;
   asterion.protocol.v1.Decimal frozen = 3;
 }
+// Before/after refer to the same settled prices and positions. Final occupancy
+// is in DaySettlement. No cash, fees or positions change during revaluation.
+message MarginRevaluation {
+  asterion.protocol.v1.Decimal previous_rate = 1;
+  asterion.protocol.v1.Decimal rate = 2;
+  asterion.protocol.v1.Decimal margin_before = 3;
+  asterion.protocol.v1.Decimal available_before = 4;
+}
 message DaySettlement {
   string trading_day = 1;
   int64 timestamp_ns = 2;
@@ -114,6 +133,7 @@ message DaySettlement {
   asterion.protocol.v1.Decimal fees = 6;
   repeated ContractSettlement contracts = 7;
   SettlementOccupancy occupancy = 8; // optional observed model funds, not intraday peaks
+  MarginRevaluation margin_revaluation = 9;
 }
 // What the days before the holdout showed of one compared strategy. Nothing
 // from the holdout is recorded for a strategy that was not chosen.

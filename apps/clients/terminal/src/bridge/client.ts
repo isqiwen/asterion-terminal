@@ -830,6 +830,7 @@ export type BacktestReconciliation = {
     checks: AccountCheck[];
   }[];
 };
+export type SettlementMargin = { trading_day: string; rate: string; source: string };
 export type BacktestResult = {
   fill_days?: { fill_id: string; trading_day: string }[];
   dataset_revision: string;
@@ -863,6 +864,12 @@ export type BacktestResult = {
       margin?: string;
     }[];
     occupancy?: { margin: string; available: string; frozen: string };
+    margin_revaluation?: {
+      previous_rate: string;
+      rate: string;
+      margin_before: string;
+      available_before: string;
+    };
   }[];
 };
 export type ExperimentData = {
@@ -876,6 +883,7 @@ export type ExperimentData = {
   source_dataset_ids: string[];
 };
 export type BacktestExperiment = {
+  settlement_margins?: SettlementMargin[];
   dataset_revision: string;
   // One strategy, or the several that were compared before `holdout_day`.
   strategies: StrategyDefinition[];

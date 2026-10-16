@@ -2,6 +2,7 @@
 #include "tasks/paper_input.hpp"
 #include "performance.hpp"
 #include "portfolio_budget.hpp"
+#include "account_reconciliation.hpp"
 #include "support/local_listener.hpp"
 #include <asterion/protocol/factor.hpp>
 #include "history_update.hpp"
@@ -5114,4 +5115,117 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         EXPECT_THROW(tasks::verified_result(recovered, "refresh"), std::invalid_argument);
         EXPECT_EQ(sha256_file(directory.path / "refresh/results/1.pb"), sha256_bytes(raw));
     }
+}
+
+namespace {
+
+backtest::v1::BacktestInput settlement_margin_input()
+{
+    std::vector<MarketBar> bars;
+    for (int i = 0; i < 4; ++i) {
+        const auto day = "2026-09-" + std::to_string(25 + i);
+        const auto open = std::to_string(99 + i), close = std::to_string(100 + i);
+        bars.push_back(
+            test::bar(
+                day,
+                trading_day_close_ns(day),
+                open.c_str(),
+                close.c_str(),
+                open.c_str(),
+                close.c_str(),
+                "100"));
+    }
+    auto input = input_of(test::dataset(bars, {}, test::contract(), 0));
+    *input.mutable_strategies(0) = testing_support::moving_average(1, 2);
+    auto* costs = input.mutable_paper()->mutable_contracts(0)->mutable_cost_schedule();
+    costs->mutable_versions(0)->mutable_values()->mutable_margin_per_lot()->set_units(0);
+    costs->mutable_versions(0)->mutable_values()->mutable_margin_rate()->set_units(d("0.14").raw());
+    const auto next = costs->versions(0);
+    *costs->add_versions() = next;
+    costs->mutable_versions(1)->set_effective_from("2026-09-28");
+    costs->mutable_versions(1)->mutable_values()->mutable_margin_rate()->set_units(d("0.17").raw());
+    for (const auto& [day, rate] : std::vector<std::pair<std::string, const char*>>{
+             {"2026-09-27", "0.16"},
+             {"2026-09-28", "0.18"}
+         }) {
+        auto* event = input.add_settlement_margins();
+        event->set_trading_day(day);
+        event->mutable_rate()->set_units(d(rate).raw());
+        event->set_source("Test-only explicit model assumption");
+    }
+    return input;
+}
+
+} // namespace
+
+TEST(Backtest, SettlementMarginRevaluesAfterPnlAndSurvivesTaskRestart)
+{
+    const auto input = settlement_margin_input();
+    const auto result = backtest::run(input);
+    ASSERT_NO_THROW(protocol::validate_backtest_result(input, result));
+    const auto json = protocol::decode_backtest_result(result);
+    const auto& third = json.at("settlements").at(2);
+    EXPECT_EQ(third.at("balance"), "10008");
+    EXPECT_EQ(third.at("fees"), "2");
+    EXPECT_EQ(third.at("margin_revaluation").at("previous_rate"), "0.14");
+    EXPECT_EQ(third.at("margin_revaluation").at("margin_before"), "142.8");
+    EXPECT_EQ(third.at("occupancy").at("margin"), "163.2");
+    EXPECT_EQ(third.at("occupancy").at("available"), "9844.8");
+    const auto& last = json.at("settlements").at(3);
+    EXPECT_EQ(last.at("margin_revaluation").at("previous_rate"), "0.17");
+    EXPECT_EQ(last.at("margin_revaluation").at("margin_before"), "175.1");
+    EXPECT_EQ(last.at("occupancy").at("margin"), "185.4");
+    EXPECT_EQ(last.at("balance"), "10018");
+    EXPECT_EQ(last.at("fees"), "2");
+    EXPECT_EQ(last.at("contracts").at(0).at("position_quantity"), "1");
+    const auto exposure = portfolio_exposure(input, result);
+    EXPECT_EQ(exposure.margin, d("185.4"));
+    EXPECT_EQ(exposure.margin, exposure.recorded_margin);
+    const auto audit = reconcile_backtest(input, result);
+    ASSERT_EQ(audit.state, AccountReconciliation::State::available);
+    for (const auto& check : audit.final_checks)
+        EXPECT_EQ(check.expected, check.recorded) << check.metric;
+
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "margin", input);
+        const auto token = store.commit(store.claim("margin")).token();
+        store.commit(tasks::finish(store, "margin", token, result));
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto fixed = restored.get("margin");
+    EXPECT_EQ(fixed.input().SerializeAsString(), input.SerializeAsString());
+    EXPECT_EQ(tasks::result(restored, "margin").SerializeAsString(), result.SerializeAsString());
+    const auto execution = protocol::task_execution(fixed, std::string(64, 'a'));
+    ASSERT_EQ(execution.backtest().settlement_margins_size(), 2);
+    EXPECT_EQ(
+        execution.backtest().settlement_margins(1).SerializeAsString(),
+        input.settlement_margins(1).SerializeAsString());
+}
+
+TEST(Backtest, SettlementMarginRejectsAmbiguousScheduleAndMismatchedEvidence)
+{
+    auto input = settlement_margin_input();
+    input.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_cost_schedule()
+        ->mutable_versions()
+        ->RemoveLast();
+    EXPECT_THROW(protocol::decode_backtest(input), std::invalid_argument);
+    input = settlement_margin_input();
+    input.mutable_settlement_margins(0)->set_trading_day("2026-09-24");
+    EXPECT_THROW(protocol::decode_backtest(input), std::invalid_argument);
+    input = settlement_margin_input();
+    *input.add_strategies() = testing_support::moving_average(1, 3);
+    EXPECT_THROW(protocol::decode_backtest(input), std::invalid_argument);
+    input = settlement_margin_input();
+    const auto result = backtest::run(input);
+    auto changed = result;
+    changed.mutable_settlements(2)->clear_margin_revaluation();
+    EXPECT_THROW(protocol::validate_backtest_result(input, changed), std::invalid_argument);
+    changed = result;
+    changed.mutable_settlements(2)->mutable_margin_revaluation()->mutable_rate()->set_units(
+        d("0.19").raw());
+    EXPECT_THROW(protocol::validate_backtest_result(input, changed), std::invalid_argument);
 }

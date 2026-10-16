@@ -53,7 +53,9 @@ struct FactorObservations
 FactorObservations factor_observations(const factor::v1::FactorInput& input);
 // Raw daily timeline, independent of factor type and forward labels.
 FactorObservations factor_daily_observations(const factor::v1::FactorInput& input);
-void validate_factor_input(const factor::v1::FactorInput& input);
+// Validation also produces the aligned observations, owned by the caller. Workers
+// use this result directly instead of preparing the same input again.
+FactorObservations validate_factor_input(const factor::v1::FactorInput& input);
 // Input is validated before admission. Progress units are part of the task contract.
 std::size_t factor_work_units(const factor::v1::FactorInput& input);
 // Validate identity, sample indices and evaluation boundaries without executing the model.

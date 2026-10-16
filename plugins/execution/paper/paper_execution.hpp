@@ -82,15 +82,24 @@ public:
     };
 
     void advance(const std::optional<Target>& target = {});
+
     // One price per contract, ordered as account().contracts(); a contract
     // that has no settlement price that day has none and must hold no position.
     // Days are settled in order, each once: after every bar of the day and of
     // the days before it, and before any bar of a later day. A day need have no
     // bars at all: costs that change with it change all the same. No
     // outstanding orders.
-    void settle_scheduled(
+    struct MarginRevaluation
+    {
+        Decimal previous_rate, rate, margin_before, available_before;
+    };
+
+    // An explicit single-contract percentage model may revalue margin in the
+    // same transaction, after settling P&L. The next day still uses its schedule.
+    std::optional<MarginRevaluation> settle_scheduled(
         const std::string& trading_day,
-        const std::vector<std::optional<Decimal>>& prices);
+        const std::vector<std::optional<Decimal>>& prices,
+        std::optional<Decimal> settlement_margin = {});
     void cancel_open_orders();
     // Working orders of one contract only.
     void cancel_open_orders(const InstrumentId& instrument);

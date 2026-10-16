@@ -377,7 +377,14 @@ backtest::v1::BacktestResult replay(
             step();
         }
         execution.cancel_open_orders();
-        execution.settle_scheduled(day.trading_day, day.prices);
+        const auto event = std::ranges::find_if(input.settlement_margins(), [&](const auto& fixed) {
+            return fixed.trading_day() == day.trading_day;
+        });
+        const auto revaluation = execution.settle_scheduled(
+            day.trading_day,
+            day.prices,
+            event == input.settlement_margins().end() ? std::nullopt
+                                                      : std::optional{decimal(event->rate())});
         add_equity(settled_at, backtest::v1::DAILY_SETTLEMENT, account);
         auto* settled = result.add_settlements();
         settled->set_trading_day(day.trading_day);
@@ -386,6 +393,13 @@ backtest::v1::BacktestResult replay(
         settled->mutable_equity()->set_units((account.balance() + account.unrealized()).raw());
         settled->mutable_realized()->set_units(account.realized().raw());
         settled->mutable_fees()->set_units(account.fees().raw());
+        if (revaluation) {
+            auto* change = settled->mutable_margin_revaluation();
+            change->mutable_previous_rate()->set_units(revaluation->previous_rate.raw());
+            change->mutable_rate()->set_units(revaluation->rate.raw());
+            change->mutable_margin_before()->set_units(revaluation->margin_before.raw());
+            change->mutable_available_before()->set_units(revaluation->available_before.raw());
+        }
         auto* occupancy = settled->mutable_occupancy();
         occupancy->mutable_margin()->set_units(account.margin().raw());
         occupancy->mutable_available()->set_units(account.available().raw());

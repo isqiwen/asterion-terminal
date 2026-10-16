@@ -96,8 +96,7 @@ AccountReconciliation reconcile_backtest(
     }
     if (cursor != static_cast<std::size_t>(account.fills_size()))
         throw std::invalid_argument("invalid backtest fill-day evidence");
-    const auto schedule = protocol::cost_schedule(fixed.cost_schedule());
-    const auto& version = costs_on(schedule, audit.days.back().day);
+    const auto version = protocol::backtest_settlement_costs(input, 0, audit.days.back().day);
     audit.costs = version.values;
     audit.cost_source = version.source;
     audit.cost_effective_from = version.effective_from;

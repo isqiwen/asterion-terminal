@@ -11,6 +11,12 @@ backtest::v1::BacktestInput
 backtest_slippage_variant(const backtest::v1::BacktestInput&, unsigned ticks);
 // Every trading day of the input's contracts, ascending.
 std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput& input);
+// The fixed model in force after this day's settlement, including an explicit
+// margin event when present. Input validation owns event/schedule constraints.
+FuturesCostVersion backtest_settlement_costs(
+    const backtest::v1::BacktestInput&,
+    std::size_t contract,
+    const std::string& day);
 // Takes the strategies of a request into an input that already has its
 // contracts, with how they are compared: a holdout that begins on the first
 // trading day on or after the request's date, or a rolling comparison. One

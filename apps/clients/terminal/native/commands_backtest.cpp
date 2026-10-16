@@ -81,8 +81,10 @@ void Application::Impl::register_backtest_commands()
         co_return snapshot();
     });
     command("backtest.submit", [this](const json& p) -> PolledTask<Response> {
+        auto required = p;
+        required.erase("settlement_margins");
         fields_with_risk(
-            p,
+            required,
             {"id", "strategies", "holdout_from", "walk_forward", "deposit", "contracts"});
         if (!task_client)
             throw std::invalid_argument("task service is not connected");
@@ -140,6 +142,7 @@ void Application::Impl::register_backtest_commands()
                 {"strategies", p.at("strategies")},
                 {"holdout_from", p.at("holdout_from")},
                 {"walk_forward", p.at("walk_forward")},
+                {"settlement_margins", p.value("settlement_margins", json::array())},
                 {"series", std::move(series)}});
         (co_await PollFuture{task_client->submit(text(p, "id"), request)});
         if (generation != data_task_generation)

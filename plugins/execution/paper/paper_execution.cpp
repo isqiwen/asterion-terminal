@@ -253,9 +253,10 @@ void PaperExecution::enter_day(const std::string& trading_day)
     account_.update_price_increments(increments);
 }
 
-void PaperExecution::settle_scheduled(
+std::optional<PaperExecution::MarginRevaluation> PaperExecution::settle_scheduled(
     const std::string& trading_day,
-    const std::vector<std::optional<Decimal>>& prices)
+    const std::vector<std::optional<Decimal>>& prices,
+    std::optional<Decimal> settlement_margin)
 {
     require_running();
     if (trading_day <= last_settled_day_
@@ -272,9 +273,27 @@ void PaperExecution::settle_scheduled(
     if (idle)
         enter_day(trading_day);
     account_.settle_traded(prices);
+    std::optional<MarginRevaluation> revaluation;
+    if (settlement_margin) {
+        if (account_.contracts().size() != 1
+            || account_.contracts()[0].costs.margin_per_lot != Decimal{}
+            || *settlement_margin <= Decimal{} || *settlement_margin >= Decimal::parse("1"))
+            throw std::invalid_argument(
+                "settlement margin requires a single-contract percentage model");
+        auto costs = account_.contracts()[0].costs;
+        revaluation = MarginRevaluation{
+            costs.margin_rate,
+            *settlement_margin,
+            account_.margin(),
+            account_.available()
+        };
+        costs.margin_rate = *settlement_margin;
+        account_.update_costs({costs});
+    }
     batch.commit();
     last_settled_day_ = trading_day;
     ++revision_;
+    return revaluation;
 }
 
 void PaperExecution::cancel_open_orders()

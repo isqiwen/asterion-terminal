@@ -479,6 +479,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call)
     }
     for (auto& schedule : schedules)
         *input.add_series() = std::move(schedule);
+    *input.mutable_settlement_margins() = b.settlement_margins();
     protocol::set_backtest_strategies(input, b);
     co_await ready(call);
     call.input_in_time();

@@ -596,7 +596,7 @@ FactorObservations factor_daily_observations(const factor::v1::FactorInput& inpu
 
 namespace {
 
-Json factor_definition(const factor::v1::FactorInput& input)
+Json factor_definition(const factor::v1::FactorInput& input, unsigned count)
 {
     validate_message(input);
     if (input.has_liquidity()) {
@@ -607,7 +607,6 @@ Json factor_definition(const factor::v1::FactorInput& input)
             throw std::invalid_argument("liquidity filtering requires a daily cross-section");
     }
     const std::string factor = factor_name(input.factor());
-    const auto count = observation_count(input);
     if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1
         || input.lookbacks_size() > 32)
         throw std::invalid_argument("invalid factor windows");
@@ -777,9 +776,11 @@ Json result_structure(const factor::v1::FactorResult& result)
 
 } // namespace
 
-void validate_factor_input(const factor::v1::FactorInput& input)
+FactorObservations validate_factor_input(const factor::v1::FactorInput& input)
 {
-    static_cast<void>(factor_definition(input));
+    auto observations = factor_observations(input);
+    const auto count = static_cast<unsigned>(observations.order.size());
+    static_cast<void>(factor_definition(input, count));
     std::size_t bars = 0;
     std::set<std::string> contracts;
     for (const auto& data : input.series()) {
@@ -796,9 +797,6 @@ void validate_factor_input(const factor::v1::FactorInput& input)
             contracts.insert(data.table().instrument());
         }
         bars += held_bars(data);
-        for (const auto close : observed(data, input.factor()).closes)
-            if (close <= Decimal{})
-                throw std::invalid_argument("factor analysis requires positive closes");
     }
     if (bars > max_dataset_bars)
         throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
@@ -806,7 +804,10 @@ void validate_factor_input(const factor::v1::FactorInput& input)
         throw std::invalid_argument("factor series must be different contracts");
     if (input.dataset_revision() != factor_revision(input.series()))
         throw std::invalid_argument("factor dataset revision mismatch");
-    const auto count = observation_count(input);
+    for (const auto& series : observations.closes)
+        for (const auto close : series)
+            if (close && *close <= Decimal{})
+                throw std::invalid_argument("factor analysis requires positive closes");
     const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
     if (count < warmup + input.horizon() + 30)
         throw std::invalid_argument(
@@ -829,6 +830,7 @@ void validate_factor_input(const factor::v1::FactorInput& input)
         if (folds < 2 || folds > 16)
             throw std::invalid_argument("walk-forward requires 2..16 validation folds");
     }
+    return observations;
 }
 
 std::size_t factor_work_units(const factor::v1::FactorInput& input)
@@ -847,7 +849,10 @@ void validate_factor_result(
     const factor::v1::FactorInput& input,
     const factor::v1::FactorResult& result)
 {
-    static_cast<void>(factor_definition(input));
+    const auto observations = factor_observations(input);
+    const auto& order = observations.order;
+    const auto count = static_cast<unsigned>(order.size());
+    static_cast<void>(factor_definition(input, count));
     (void)result_structure(result);
     const auto reject = [] {
         throw std::invalid_argument("factor result evidence does not match its input");
@@ -872,7 +877,6 @@ void validate_factor_result(
     }
     if (membership != result.memberships_size())
         reject();
-    const auto order = factor_observations(input).order;
     for (const auto& row : result.cross_sections()) {
         if (row.event_index() >= order.size()
             || row.series() > static_cast<unsigned>(input.series_size()))
@@ -882,7 +886,6 @@ void validate_factor_result(
                    std::chrono::sys_days{std::chrono::days{order[row.event_index()]}})])
             reject();
     }
-    const auto count = observation_count(input);
     const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
     const auto horizon = input.horizon();
     const bool search = input.lookbacks_size() > 1;
@@ -968,7 +971,7 @@ void validate_factor_result(
 
 Json decode_factor(const factor::v1::FactorInput& input, DatasetView view)
 {
-    auto result = factor_definition(input);
+    auto result = factor_definition(input, observation_count(input));
     result["series"] = Json::array();
     for (const auto& data : input.series()) {
         if (data.has_bars()) {

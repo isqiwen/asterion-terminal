@@ -429,3 +429,26 @@ test("explicit slippage variants review and cancel without tasks, then create in
   await screen.findByRole("table", { name: "滑点敏感性结果" });
   expect(screen.getByText(/成本假设敏感性：仅滑点变化/)).toBeTruthy();
 });
+
+test("different fixed settlement margin assumptions change comparison eligibility and slippage identity", () => {
+  const a = evidence("before");
+  a.experiment.series = [];
+  const b = structuredClone(a);
+  b.id = b.task.id = "after";
+  b.task.metadata = {
+    revision: 1,
+    name: "",
+    note: "",
+    source_id: a.id,
+    source_instance: "task",
+    source_result_digest: a.task.result_digest,
+    data_choice: "fixed",
+    snapshot: "",
+  };
+  expect(matchesSlippageBaseline(a, b, 0)).toBe(true);
+  b.experiment.settlement_margins = [
+    { trading_day: "2026-09-28", rate: "0.16", source: "explicit test assumption" },
+  ];
+  expect(backtestComparisonReasons(a, b)).toContain("费用或保证金日程不同");
+  expect(matchesSlippageBaseline(a, b, 0)).toBe(false);
+});

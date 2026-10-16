@@ -1,3 +1,4 @@
+import { SettlementMarginDetails } from "./SettlementMargins";
 import { HistoryAvailability } from "./HistoryAvailability";
 import {
   CostScheduleDetails,
@@ -306,6 +307,9 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           </dl>
         )}
         <Fields rows={rows} />
+        {evidence.kind === "backtest" && (
+          <SettlementMarginDetails events={evidence.experiment.settlement_margins} />
+        )}
         {contracts.map(contract => (
           <section key={contract.name} aria-label={contract.name}>
             <h4>{contract.name}</h4>

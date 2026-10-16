@@ -1,3 +1,8 @@
+import {
+  SettlementMarginEditor,
+  SettlementMarginDetails,
+  SettlementMarginResults,
+} from "./SettlementMargins";
 import { ResearchExport } from "./ResearchExport";
 import { BacktestComparison } from "./BacktestComparison";
 import { SlippageSensitivity } from "./SlippageSensitivity";
@@ -26,7 +31,7 @@ import {
   strategySize,
   type TerminalContext,
 } from "../contract";
-import { timestamp, type PerformanceFigures } from "../../src/bridge/client";
+import { timestamp, type PerformanceFigures, type SettlementMargin } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { namespace, ResearchPage, states, t, TaskRecords, useRun, selectedSeries } from "./shared";
 
@@ -145,6 +150,16 @@ export function Backtest({
     max_working_orders: "",
   });
   const [costs, setCosts] = useWorkspaceDraft<ContractCostDrafts>("contract-costs", {});
+  const [settlementMargins, setSettlementMargins] = useWorkspaceDraft<SettlementMargin[]>(
+    "backtest-settlement-margins",
+    [],
+  );
+  const supportsSettlementMargins =
+    datasets.length === 1 &&
+    datasets[0].interval_minutes === 0 &&
+    !selection.dominant.length &&
+    candidates.length === 1;
+  const invalidSettlementScope = settlementMargins.length > 0 && !supportsSettlementMargins;
   const [submitted, setSubmitted] = useWorkspaceDraft(`submitted:${destination}:backtest`, "");
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     "backtest-submission",
@@ -156,6 +171,7 @@ export function Backtest({
       rolling,
       parameters,
       costs,
+      settlementMargins,
       datasets.map(item => item.revision),
     ]),
   );
@@ -176,6 +192,7 @@ export function Backtest({
         id,
         ...parameters,
         strategies: candidates,
+        settlement_margins: settlementMargins,
         holdout_from: candidates.length > 1 && comparison === "holdout" ? holdoutFrom : "",
         walk_forward:
           candidates.length > 1 && comparison === "rolling"
@@ -419,6 +436,11 @@ export function Backtest({
                   drafts={costs}
                   onChange={setCosts}
                 />
+                <SettlementMarginEditor
+                  events={settlementMargins}
+                  supported={supportsSettlementMargins}
+                  onChange={setSettlementMargins}
+                />
                 <div className="workflow-actions">
                   <button type="button" onClick={() => setStep(0)}>
                     {t("上一步")}
@@ -433,7 +455,8 @@ export function Backtest({
                       candidates.length < 1 ||
                       candidates.length > 32 ||
                       ranked < 2 * held ||
-                      !!unranked
+                      !!unranked ||
+                      invalidSettlementScope
                     }
                   >
                     {t("下一步")}
@@ -481,6 +504,7 @@ export function Backtest({
                       : t("本机")}
                   </dd>
                 </dl>
+                <SettlementMarginDetails events={settlementMargins} />
                 <p className="subtle">
                   {t("回测只使用历史数据，不向柜台发送委托。提交后可离开此页面。")}
                 </p>
@@ -490,7 +514,13 @@ export function Backtest({
                   </button>
                   <button
                     className="primary"
-                    disabled={busy || !taskService?.online || !snapshot?.data?.online || !dataReady}
+                    disabled={
+                      busy ||
+                      !taskService?.online ||
+                      !snapshot?.data?.online ||
+                      !dataReady ||
+                      invalidSettlementScope
+                    }
                   >
                     {t(pendingId ? "确认提交状态" : "开始回测")}
                   </button>
@@ -804,6 +834,7 @@ export function Backtest({
                     {t("手续费为累计值，权益曲线包含每根 K 线的估值和日终结算。")}
                   </p>
                 </details>
+                <SettlementMarginResults settlements={result.result.settlements} />
                 <ExperimentDetails evidence={result} />
                 <ResearchExport
                   key={`export-${result.id}`}

@@ -43,7 +43,10 @@ void validate_backtest_result(
                 == paper.contracts(c).dataset().contract().SerializeAsString()
             && result.account().contracts(c).costs().SerializeAsString()
                 == protocol::encode_costs(
-                    costs_on(protocol::cost_schedule(paper.contracts(c).cost_schedule()), last_day)
+                    protocol::backtest_settlement_costs(
+                        input,
+                        static_cast<std::size_t>(c),
+                        last_day)
                         .values)
                        .SerializeAsString()
             && result.account().contracts(c).cost_schedule().SerializeAsString()
@@ -115,6 +118,20 @@ void validate_backtest_result(
         const auto& settlement = result.settlements(day_index++);
         if (settlement.trading_day() != day)
             throw std::invalid_argument("settlement result does not match input days");
+        const auto event = std::ranges::find_if(input.settlement_margins(), [&](const auto& fixed) {
+            return fixed.trading_day() == day;
+        });
+        if (settlement.has_margin_revaluation() != (event != input.settlement_margins().end()))
+            throw std::invalid_argument("settlement margin result does not match fixed events");
+        if (settlement.has_margin_revaluation()) {
+            const auto before =
+                costs_on(cost_schedule(paper.contracts(0).cost_schedule()), day).values;
+            const auto& change = settlement.margin_revaluation();
+            if (change.previous_rate().units() != before.margin_rate.raw()
+                || change.rate().units() != event->rate().units()
+                || settlement.occupancy().frozen().units() != 0)
+                throw std::invalid_argument("settlement margin result does not match fixed events");
+        }
         int contract_index = 0;
         for (const auto& contract : paper.contracts()) {
             const auto found =

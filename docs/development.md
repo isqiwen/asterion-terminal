@@ -199,3 +199,10 @@ Terminal 原生日志默认位于 Electron 的 `app.getPath("logs")`，可在启
 原生 C ABI 的 `asterion_terminal_create(char** error)` 在失败时返回空句柄，并通过可选输出返回含 `code` / `message` 的 JSON 错误；成功时清空输出。错误字符串只能由 `asterion_terminal_free` 释放，分配失败时错误指针也可能为空。Node-API 保留错误码，开发桥把同一结构写入 stderr；不存在旧的无参数创建入口。
 
 钥匙串访问由 Terminal 的 `native/keychain_store.cpp` 管理助手进程 `asterion-keychain`：macOS 助手使用登录钥匙串，Linux 助手在运行时加载桌面的 `libsecret-1.so.0`，把凭据存入 Secret Service 的登录密钥环。助手不继承 Terminal 的环境变量，Linux 上只得到会话总线地址。Linux 会话没有可用的 Secret Service 时，Terminal 启动时的一次探测（查询一个从不保存的账户，不弹出解锁提示，最多等待 3 秒）判定凭据存储不可用，此后凭据只能保存在本次运行的内存中，勾选保存会明确失败。Secret Service 不按应用隔离，同一登录会话中的其它程序可以读取这些条目。输入、输出及退出等待共享 30 秒期限，管道使用非阻塞读写；超过 4,096 字节的响应明确拒绝。超时、断管或异常输出会终止并回收本次助手进程，后续显式操作仍可使用该接口。凭据通过匿名管道传递，不放进命令行、环境变量、临时文件或错误消息。设置或删除操作超时可能发生在钥匙串已经提交之后；本机配置不因此自动重写，也不会自动重试，应显式确认当前凭据状态再继续。
+
+### 因子离线容量探针
+
+`cmake --build build/Release --target asterion_factor_capacity_probe` 显式构建
+`tests/tasks/factor_capacity.cpp`。它只生成与读取独立测试输入，分开报告读取/解析、校验、
+对齐、算法、完整引擎和结果校验的耗时及进程峰值内存，不访问供应商或生产目录。
+[测量记录](reviews/factor-capacity-2026-10-15.md)包含完整命令、环境、输入范围和解释限制。

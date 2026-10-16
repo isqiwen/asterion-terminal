@@ -1031,5 +1031,13 @@
   "task request admission timed out": "task request admission timed out",
   "table update result does not match its fixed task": "table update result does not match its fixed task",
   "task input does not match admitted work": "task input does not match admitted work",
-  "unsupported task event type": "unsupported task event type"
+  "unsupported task event type": "unsupported task event type",
+  "settlement margin requires a single-contract full-sample daily backtest": "settlement margin requires a single-contract full-sample daily backtest",
+  "settlement margin dates must be ascending unique input trading days": "settlement margin dates must be ascending unique input trading days",
+  "settlement margin requires a single-contract percentage model": "settlement margin requires a single-contract percentage model",
+  "settlement margin requires an explanation of at most 256 bytes": "settlement margin requires an explanation of at most 256 bytes",
+  "settlement margin requires explicit costs for the next trading day": "settlement margin requires explicit costs for the next trading day",
+  "settlement margin events must be a list": "settlement margin events must be a list",
+  "invalid settlement margin revaluation evidence": "invalid settlement margin revaluation evidence",
+  "settlement margin result does not match fixed events": "settlement margin result does not match fixed events"
 }

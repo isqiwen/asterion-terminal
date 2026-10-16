@@ -20,7 +20,8 @@ PortfolioExposure portfolio_exposure(
     if (result.settlements().empty())
         throw std::invalid_argument("portfolio exposure requires saved settlements");
     const auto& last_day = result.settlements(result.settlements_size() - 1).trading_day();
-    for (const auto& fixed : input.paper().contracts()) {
+    for (int index = 0; index < input.paper().contracts_size(); ++index) {
+        const auto& fixed = input.paper().contracts(index);
         const auto& terms = fixed.dataset().contract();
         const auto same = [&](const auto& item) {
             return item.venue() == terms.venue() && item.symbol() == terms.symbol();
@@ -30,8 +31,8 @@ PortfolioExposure portfolio_exposure(
         });
         if (saved == account.contracts().end())
             throw std::invalid_argument("fixed portfolio contract is missing from saved account");
-        const auto schedule = protocol::cost_schedule(fixed.cost_schedule());
-        const auto& cost = costs_on(schedule, last_day);
+        const auto cost =
+            protocol::backtest_settlement_costs(input, static_cast<std::size_t>(index), last_day);
         ContractExposure row;
         row.venue = terms.venue();
         row.symbol = terms.symbol();

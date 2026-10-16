@@ -53,10 +53,9 @@ factor::v1::FactorResult run(
     std::stop_token stop,
     const std::function<void(std::size_t, std::size_t)>& progress)
 {
-    protocol::validate_factor_input(input);
     // From here on the factor sees ordered closes; what the series is made of
     // no longer matters.
-    const auto observations = protocol::factor_observations(input);
+    const auto observations = protocol::validate_factor_input(input);
     using Series = std::span<const std::optional<Decimal>>;
     std::vector<Series> closes(observations.closes.begin(), observations.closes.end());
     // Price momentum and volatility read the closes; the term structure the

@@ -1379,3 +1379,39 @@ TEST(PaperExecution, FrequentFillsWithRetainedHistoryWorkSample)
     EXPECT_TRUE(execution.account().working_orders().empty());
     EXPECT_EQ(execution.account().balance(), d("95000"));
 }
+
+TEST(PaperExecution, SettlementMarginFailureRollsBackPnlAndSuccessfulChangeDoesNotLiquidate)
+{
+    auto before_costs = costs();
+    before_costs.margin_per_lot = {};
+    before_costs.margin_rate = d("0.14");
+    auto next_costs = before_costs;
+    next_costs.margin_rate = d("0.15");
+    PaperExecution engine(
+        d("150"),
+        {{{instrument(), before_costs},
+            settlement_bars(),
+            {{"2026-09-25", "test fixture", before_costs},
+                {"2026-09-28", "test fixture", next_costs}}}},
+        risk());
+    engine.start();
+    engine.advance();
+    engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
+    engine.advance();
+    const auto filled = engine.snapshot();
+    EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("100")}, d("1")), std::invalid_argument);
+    EXPECT_EQ(engine.snapshot(), filled);
+    const auto changed = engine.settle_scheduled("2026-09-25", {d("100")}, d("0.18"));
+    ASSERT_TRUE(changed);
+    EXPECT_EQ(changed->margin_before, d("140"));
+    EXPECT_EQ(changed->available_before, d("18"));
+    const auto settled = engine.snapshot();
+    EXPECT_EQ(settled.at("balance"), "158");
+    EXPECT_EQ(settled.at("fees"), "2");
+    EXPECT_EQ(settled.at("margin"), "180");
+    EXPECT_EQ(settled.at("available"), "-22");
+    EXPECT_EQ(settled.at("positions").size(), 1U);
+    EXPECT_EQ(settled.at("orders").size(), filled.at("orders").size());
+    engine.advance();
+    EXPECT_EQ(engine.account().contracts()[0].costs.margin_rate, d("0.15"));
+}

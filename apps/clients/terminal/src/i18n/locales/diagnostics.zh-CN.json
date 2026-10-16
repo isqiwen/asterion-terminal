@@ -1031,5 +1031,13 @@
   "task request admission timed out": "任务请求接纳超时",
   "table update result does not match its fixed task": "数据表更新结果与固定任务不匹配",
   "task input does not match admitted work": "任务输入与已接纳的工作量不一致。",
-  "unsupported task event type": "不支持的任务事件类型。"
+  "unsupported task event type": "不支持的任务事件类型。",
+  "settlement margin requires a single-contract full-sample daily backtest": "结算保证金调整仅支持单合约日线、单策略全样本回测",
+  "settlement margin dates must be ascending unique input trading days": "结算保证金调整日期须为输入中的交易日，且按日期升序排列、不得重复",
+  "settlement margin requires a single-contract percentage model": "结算保证金调整须使用单合约比例模型：每手保证金为零，比例大于 0 且小于 1",
+  "settlement margin requires an explanation of at most 256 bytes": "结算保证金调整须填写不超过 256 字节的依据说明",
+  "settlement margin requires explicit costs for the next trading day": "结算保证金调整后的次一交易日必须显式配置费用日程",
+  "settlement margin events must be a list": "结算保证金调整须为列表",
+  "invalid settlement margin revaluation evidence": "结算保证金调整记录无效",
+  "settlement margin result does not match fixed events": "结算保证金结果与任务固定参数不一致"
 }

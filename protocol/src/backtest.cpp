@@ -48,12 +48,54 @@ void validate_series(const backtest::v1::BacktestInput& input)
         throw std::invalid_argument("a portfolio holds at most 20 contracts and dominant series");
 }
 
+void validate_settlement_margins(const backtest::v1::BacktestInput& input)
+{
+    if (input.settlement_margins().empty())
+        return;
+    if (input.paper().contracts_size() != 1 || !input.series().empty()
+        || input.paper().contracts(0).dataset().interval_minutes() != 0
+        || input.strategies_size() != 1 || !input.holdout_day().empty() || input.has_walk_forward())
+        throw std::invalid_argument(
+            "settlement margin requires a single-contract full-sample daily backtest");
+    const auto& contract = input.paper().contracts(0);
+    const auto costs = cost_schedule(contract.cost_schedule());
+    const auto& days = contract.dataset().days();
+    std::string previous;
+    for (const auto& event : input.settlement_margins()) {
+        (void)parse_trading_date(event.trading_day());
+        const auto day = std::ranges::find_if(days, [&](const auto& candidate) {
+            return candidate.trading_day() == event.trading_day();
+        });
+        if (event.trading_day() <= previous || day == days.end())
+            throw std::invalid_argument(
+                "settlement margin dates must be ascending unique input trading days");
+        if (!event.has_rate() || event.rate().units() <= 0
+            || event.rate().units() >= Decimal::parse("1").raw()
+            || costs_on(costs, event.trading_day()).values.margin_per_lot != Decimal{})
+            throw std::invalid_argument(
+                "settlement margin requires a single-contract percentage model");
+        if (event.source().empty() || event.source().size() > 256
+            || event.source().find_first_not_of(" \t\r\n") == std::string::npos)
+            throw std::invalid_argument(
+                "settlement margin requires an explanation of at most 256 bytes");
+        const auto next = std::next(day);
+        if (next != days.end() && std::ranges::none_of(costs, [&](const auto& version) {
+                return version.effective_from == next->trading_day();
+            }))
+            throw std::invalid_argument(
+                "settlement margin requires explicit costs for the next trading day");
+        previous = event.trading_day();
+    }
+}
+
 } // namespace
 
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
 {
+    auto required = input;
+    required.erase("settlement_margins");
     require_fields(
-        input,
+        required,
         {"contracts", "deposit", "risk", "strategies", "series", "holdout_from", "walk_forward"});
     if (!input.at("strategies").is_array() || input.at("strategies").empty()
         || input.at("strategies").size() > 32 || !input.at("holdout_from").is_string())
@@ -74,6 +116,19 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
         return traded.at("slippage_ticks").get<unsigned>();
     };
     backtest::v1::BacktestRequest result;
+    if (input.contains("settlement_margins")) {
+        const auto& events = input.at("settlement_margins");
+        if (!events.is_array())
+            throw std::invalid_argument("settlement margin events must be a list");
+        for (const auto& event : events) {
+            require_fields(event, {"trading_day", "rate", "source"});
+            auto* fixed = result.add_settlement_margins();
+            fixed->set_trading_day(event.at("trading_day").get<std::string>());
+            fixed->mutable_rate()->set_units(
+                Decimal::parse(event.at("rate").get<std::string>()).raw());
+            fixed->set_source(event.at("source").get<std::string>());
+        }
+    }
     for (const auto& contract : input.at("contracts")) {
         require_fields(contract, {"data", "cost_schedule", "slippage_ticks"});
         auto* item = result.add_contracts();
@@ -131,6 +186,24 @@ std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput
         for (const auto& day : contract.dataset().days())
             days.insert(day.trading_day());
     return {days.begin(), days.end()};
+}
+
+FuturesCostVersion backtest_settlement_costs(
+    const backtest::v1::BacktestInput& input,
+    std::size_t contract,
+    const std::string& day)
+{
+    auto cost = costs_on(
+        cost_schedule(input.paper().contracts(static_cast<int>(contract)).cost_schedule()),
+        day);
+    for (const auto& event : input.settlement_margins())
+        if (event.trading_day() == day) {
+            cost.values.margin_rate = Decimal::from_raw(event.rate().units());
+            cost.source += " / " + event.source();
+            cost.effective_from = day;
+            break;
+        }
+    return cost;
 }
 
 void set_backtest_strategies(
@@ -220,6 +293,7 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
         throw std::invalid_argument(
             "comparing strategies requires a holdout that begins on a trading day after at least 20 " "others; one strategy takes none");
     validate_series(input);
+    validate_settlement_margins(input);
     Json result{{"dataset_revision", input.dataset_revision()},
         {"paper", std::move(paper)},
         {"strategies", std::move(strategies)},
@@ -234,6 +308,15 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
         for (const auto& series : input.series())
             all.push_back(decode_dominant_schedule(series));
         result["series"] = std::move(all);
+    }
+    if (!input.settlement_margins().empty()) {
+        auto events = Json::array();
+        for (const auto& event : input.settlement_margins())
+            events.push_back(
+                {{"trading_day", event.trading_day()},
+                    {"rate", Decimal::from_raw(event.rate().units()).str()},
+                    {"source", event.source()}});
+        result["settlement_margins"] = std::move(events);
     }
     return result;
 }
@@ -328,6 +411,28 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result)
                 {"available", Decimal::from_raw(day.occupancy().available().units()).str()},
                 {"frozen", Decimal::from_raw(day.occupancy().frozen().units()).str()}
             };
+        if (day.has_margin_revaluation()) {
+            const auto& change = day.margin_revaluation();
+            if (!day.has_occupancy() || !change.has_previous_rate() || !change.has_rate()
+                || !change.has_margin_before() || !change.has_available_before()
+                || change.previous_rate().units() <= 0 || change.rate().units() <= 0
+                || change.previous_rate().units() >= Decimal::parse("1").raw()
+                || change.rate().units() >= Decimal::parse("1").raw()
+                || change.margin_before().units() < 0
+                || Decimal::from_raw(change.available_before().units())
+                    != std::min(
+                           Decimal::from_raw(day.balance().units()),
+                           Decimal::from_raw(day.equity().units()))
+                        - Decimal::from_raw(change.margin_before().units())
+                        - Decimal::from_raw(day.occupancy().frozen().units()))
+                throw std::invalid_argument("invalid settlement margin revaluation evidence");
+            settlements.back()["margin_revaluation"] = {
+                {"previous_rate", Decimal::from_raw(change.previous_rate().units()).str()},
+                {"rate", Decimal::from_raw(change.rate().units()).str()},
+                {"margin_before", Decimal::from_raw(change.margin_before().units()).str()},
+                {"available_before", Decimal::from_raw(change.available_before().units()).str()}
+            };
+        }
     }
     auto account = protocol::decode_snapshot(result.account());
     account["mode"] = "backtest";
