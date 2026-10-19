@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" role="img" aria-label="UI-COM-UX-01 偏好设置目标布局">
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#c5ccd6;font-size:18px}.muted{fill:#7c8796;font-size:15px}.accent{fill:#38d6f2}.title{fill:#eef4fb;font-size:26px;font-weight:600}</style>
+<rect width="960" height="640" fill="#06080b" />
+<text x="24" y="32" class="accent">UI-COM-UX-01 · 目标布局草案 · 非实际截图</text>
+<text x="24" y="72" class="title">偏好设置</text>
+<rect x="24" y="100" width="200" height="470" rx="2" fill="#0b0e13" stroke="#2a3543" />
+<text x="46" y="145" class="accent">偏好设置</text><rect x="244" y="100" width="692" height="470" rx="2" fill="#0b0e13" stroke="#2a3543" />
+<text x="272" y="146">语言</text><rect x="490" y="120" width="410" height="36" rx="2" fill="#0a0d12" stroke="#2a3543" /><text x="504" y="145">简体中文</text><text x="871" y="145">⌄</text>
+<path d="M272 186 H908" stroke="#1a212b" />
+<text x="272" y="236">显示密度</text><rect x="490" y="210" width="410" height="36" rx="2" fill="#0a0d12" stroke="#2a3543" /><text x="504" y="235">紧凑</text><text x="871" y="235">⌄</text>
+<path d="M272 276 H908" stroke="#1a212b" />
+<text x="272" y="326">涨跌配色</text><rect x="490" y="300" width="410" height="36" rx="2" fill="#0a0d12" stroke="#2a3543" /><text x="504" y="325">红涨绿跌</text><text x="871" y="325">⌄</text>
+<text x="272" y="410" class="muted">选择后即保存；无需额外点击保存或确认。</text>
+<text x="272" y="444" class="muted">失败反馈在对应设置旁显示，不改变其他已生效项。</text>
+<text x="24" y="609" class="muted">示例选择用于说明布局，不代表当前保存值。保留现有独立设置窗口和即时保存交互。</text>
+<text x="46" y="195" class="muted">返回安装与配置</text><text x="230" y="72" class="muted">系统管理 / 安装与配置</text></svg>

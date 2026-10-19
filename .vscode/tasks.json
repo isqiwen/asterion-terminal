@@ -1,5 +1,5 @@
 {
-  // The same commands on macOS and Linux; see docs/development.md.
+  // Setup and daily development on macOS and Linux. Release commands: docs/development.md.
   "version": "2.0.0",
   "tasks": [
     {
@@ -11,6 +11,7 @@
     },
     {
       "label": "Desktop: run",
+      "detail": "Build and run the local desktop; Linux service bundle is optional",
       "type": "shell",
       "command": "pnpm desktop",
       "problemMatcher": ["$gcc"],
@@ -18,23 +19,17 @@
     },
     {
       "label": "Desktop: check",
+      "detail": "Check the local build, native bridge and analytics resources without opening a window; no Linux service bundle required",
       "type": "shell",
       "command": "pnpm desktop:check",
-      "problemMatcher": ["$gcc"]
-    },
-    {
-      "label": "Desktop: build installer",
-      "type": "shell",
-      "command": "pnpm desktop:build",
-      "problemMatcher": ["$gcc"]
-    },
-    {
-      "label": "C++: build",
-      "detail": "Incremental; Desktop: run or Desktop: check configures build/Debug first",
-      "type": "shell",
-      "command": "cmake --build --preset conan-debug",
       "problemMatcher": ["$gcc"],
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Check: types, lint, format",
+      "type": "shell",
+      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check",
+      "problemMatcher": ["$tsc"]
     },
     {
       "label": "C++: test",
@@ -52,61 +47,10 @@
       "group": "test"
     },
     {
-      // The complete paths a user depends on; the everyday end-to-end run.
-      "label": "E2E: key journeys",
-      "type": "shell",
-      "command": "pnpm run test:e2e:journeys",
-      "problemMatcher": []
-    },
-    {
-      // Every end-to-end test. Both run only this way: an isolated Agent and the test CTP SDK.
-      "label": "E2E: all",
-      "type": "shell",
-      "command": "pnpm run test:e2e ${input:e2eSpecs}",
-      "problemMatcher": []
-    },
-    {
-      "label": "Electron host tests",
-      "type": "shell",
-      "command": "pnpm test:desktop",
-      "options": { "env": { "ASTERION_CPP_BUILD": "${workspaceFolder}/build/Debug" } },
-      "problemMatcher": []
-    },
-    {
-      // Browser entry on http://127.0.0.1:1423; uses the development environment.
-      "label": "UI: dev server",
-      "type": "shell",
-      "command": "pnpm dev",
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": { "panel": "dedicated" }
-    },
-    {
-      "label": "Check: types, lint, format",
-      "type": "shell",
-      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check",
-      "problemMatcher": ["$tsc"]
-    },
-    {
       "label": "Format",
       "type": "shell",
       "command": "pnpm run format",
       "problemMatcher": []
-    },
-    {
-      // Needs Docker or OrbStack; required after service sources change.
-      "label": "Linux service bundle",
-      "type": "shell",
-      "command": "scripts/services/build_linux_services.sh",
-      "problemMatcher": []
-    }
-  ],
-  "inputs": [
-    {
-      "id": "e2eSpecs",
-      "type": "promptString",
-      "description": "Spec files to run, separated by spaces; empty runs all",
-      "default": ""
     }
   ]
 }

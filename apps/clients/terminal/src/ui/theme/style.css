@@ -94,26 +94,82 @@ textarea::placeholder {
   color: var(--subtle);
   opacity: 1;
 }
-/* One chevron for every select; the platform arrow differs per system. */
+/* Electron's customizable select keeps native interaction while drawing the
+   control and its top-layer picker with the same theme on both platforms. */
+select,
+select::picker(select) {
+  appearance: base-select;
+}
 select {
-  appearance: none;
-  padding-right: 28px;
+  align-items: center;
+  gap: 10px;
+  text-overflow: ellipsis;
+}
+select::picker-icon {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 6px;
+  margin-left: auto;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c8796' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
-  text-overflow: ellipsis;
+}
+select:open::picker-icon {
+  rotate: 180deg;
+}
+select::picker(select) {
+  /* Prefer below; use the browser's alternate positions only on overflow. */
+  position-try-order: normal;
+  min-width: anchor-size(width);
+  max-width: calc(100vw - 16px);
+  max-height: min(320px, calc(100dvh - 16px));
+  margin-block: 4px;
+  padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--raised);
+  color: var(--text-strong);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 28%);
+  font: inherit;
 }
 select:enabled,
 summary {
   cursor: pointer;
 }
-select option,
-select optgroup {
-  background: var(--panel);
+select option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-height);
+  padding: 5px 8px;
+  border-radius: var(--control-radius);
+  background: var(--raised);
   color: var(--text-strong);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+select option::checkmark {
+  flex: none;
+  width: 12px;
+  color: var(--accent);
+}
+select option:checked {
+  color: var(--accent);
+}
+select option:enabled:hover,
+select option:focus-visible {
+  background: var(--hover);
+}
+select option:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: -1px;
 }
 select option:disabled {
   color: var(--muted);
+  cursor: default;
 }
 /* Clamped, so a container that stretches its inputs cannot stretch these. */
 input[type="checkbox"],
@@ -1503,6 +1559,7 @@ summary:focus-visible,
 }
 input:focus-visible,
 select:focus-visible,
+select:open,
 textarea:focus-visible {
   outline: none;
   border-color: var(--accent-line);

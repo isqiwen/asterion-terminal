@@ -85,7 +85,9 @@ monthly_contributions(Decimal deposit, std::span<const SettlementDay> days)
         const std::chrono::year_month_day date{day.day};
         const auto current = date.year() / date.month();
         if (result.empty() || current != month) {
-            result.push_back({day.day, day.day, 0, previous_equity});
+            auto& value = result.emplace_back(MonthlyContribution{});
+            value.first_day = day.day;
+            value.opening_equity = previous_equity;
             month = current;
             opening_fees = previous_fees;
         }

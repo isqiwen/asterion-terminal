@@ -22,7 +22,9 @@ pnpm install --frozen-lockfile
 pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进制
 ```
 
-随后用 `pnpm desktop --prepare-analytics` 显式准备冻结分析助手并完成第一次构建与启动。后续使用 `pnpm desktop`；已有 CMake 构建目录时，也可单独运行 `pnpm prepare:analytics`。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。`pnpm desktop:check` 还要求下文的远程 Linux 服务包，新机器上先用 `pnpm desktop --prepare-analytics`。
+随后用 `pnpm desktop --prepare-analytics` 显式准备冻结分析助手并完成第一次构建与启动；不打开窗口时使用 `pnpm desktop:check --prepare-analytics`，两者均不要求远程 Linux 服务包。后续使用 `pnpm desktop` 或 `pnpm desktop:check`；已有 CMake 构建目录时，也可单独运行 `pnpm prepare:analytics`。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。
+
+拉取更新后，若 Conan 报锁定的 `ctp/6.7.7#…` 不在缓存或远端，重新运行 `python3 scripts/prepare_ctp.py`，注册当前仓库的 CTP 和 DuckDB 本地配方；它们不由 ConanCenter 提供。前端依赖变化后运行 `pnpm install --frozen-lockfile`，分析助手源码或锁定依赖变化后重新执行显式准备命令。
 
 `build/local-profile` 存在时，桌面脚本会使用它。macOS 强制系统 Apple Clang；Linux 使用 Conan profile 中的编译器，依赖按 Release 构建（带调试信息的内嵌 DuckDB 会超过 Agent 的程序大小上限），项目自身在开发模式下按 Debug 构建。
 
@@ -31,6 +33,8 @@ pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进�
 `pnpm prepare:analytics` 使用 `plugins/tools/analytics/uv.lock` 显式准备 CPython 3.12.12、QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 及冻结构建工具，再使用 Conan 锁定的 protoc 生成 Python IPC 类型。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。虚拟环境和冻结中间文件只写 `build/`，不会进入服务源码指纹。
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。最终 `build/electron-resources/analytics/` 包含解释器、库、许可证及产物清单；安装版无需系统 Python，也不在启动或分析时下载依赖。Linux 分析资源约 650 MiB，压缩前大小；Polars 使用兼容 CPU runtime，冻结产物排除默认 AVX2 runtime。CVXPY 通过 PyInstaller hook 保留其启动时读取的包目录。
+
+准备阶段同时生成仅含 Matplotlib 自带字体的相对路径缓存。冻结助手将它复制到 PyInstaller 为本次进程建立的临时目录，避免每次分析都扫描系统字体；不携带构建机的用户字体或绝对路径。macOS 首次加载冻结动态库的启动期限为 120 秒，连接建立后的分析期限仍为 30 秒。
 
 `desktop`、`desktop:check`、`desktop:build` 验证该目录的源码摘要、平台与文件摘要；缺失或过期时重新执行显式准备命令。Electron 与开发桥接都指向同一资源目录中的 `asterion-analytics`。打包时作为独立桌面资源携带，远程 Linux 服务包不携带 Python 助手。macOS 签名会改变二进制字节，安装包验证结合资源集合、源码身份与应用完整签名；本地未签名资源仍逐文件核对摘要。
 
@@ -49,7 +53,7 @@ UI 贡献与宿主同步修改并编译。原生插件目录可选资格由 Nati
 | 命令 | 说明 |
 | --- | --- |
 | `pnpm desktop` | Conan → CMake Debug → Node-API → Vite，启动 Electron（Vite 端口 1422） |
-| `pnpm desktop:check` | 同上但不打开窗口，验证原生模块与桥接 |
+| `pnpm desktop:check` | 本机 Debug 构建，验证原生模块、桥接、分析资源和 Electron 脚本语法；不打开窗口、不处理远程 Linux 服务包 |
 | `pnpm desktop:build` | Release 构建并验证发行安装包：macOS 为签名、公证的 `.dmg`，Linux 为 `.deb` |
 | `pnpm dev` | 仅界面开发：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build build/Debug` | 只重建 C++ |
@@ -66,10 +70,11 @@ Conan 与 CTP SDK 只接受 macOS armv8 和 Linux x86_64；CMake 拒绝其它系
 
 - **扩展**：打开仓库时会推荐 clangd、C/C++（只用作调试器）、CMake Tools、Prettier、ESLint 和 EditorConfig。Playwright 扩展被列为不推荐：它直接调用 `playwright test`，会操作本机正在使用的服务。
 - **C++**：clangd 读取 `build/Debug/compile_commands.json`，这个文件由 `pnpm desktop` 或 `pnpm desktop:check` 的配置步骤生成，所以要先跑一次其中之一。C++ 不在保存时自动格式化（编辑器自带的 clang-format 版本可能与 CI 固定的版本不同），以 `pnpm run format` 为准；TypeScript、JavaScript 和 CSS 在保存时用仓库锁定的 Prettier 格式化。
-- **任务**（“运行任务”）：准备依赖、运行或检查桌面、打安装包、构建 C++（默认构建任务）、C++ 测试（默认测试任务）、界面单元测试、E2E（关键链路或全部）、Electron 宿主测试、界面开发服务、类型/Lint/格式检查、格式化、重建 Linux 服务包。命令在两个系统上相同。新机器上先运行“Prepare dependencies”（即上面首次准备的四条命令），再运行“Desktop: run”。
-- **调试**：C++ 调试在 Linux 用 gdb、在 macOS 用 lldb。在 CMake Tools 状态栏选择启动目标后，“C++: debug test” 会询问 GoogleTest 过滤条件并带上测试节点容量；还可以附加到运行中的服务，或附加到 `pnpm desktop` 的 Electron 主进程调试原生模块。Linux 上附加到不是调试器启动的进程需要 `kernel.yama.ptrace_scope=0`。“UI: debug in Chrome” 用于在浏览器入口调试界面，先启动“UI: dev server”任务。
+- **任务**（“运行任务”）：保留一个准备入口和六个日常入口——准备依赖（`Prepare dependencies`）、运行桌面（`Desktop: run`）、检查桌面（`Desktop: check`，默认构建任务）、检查代码（`Check: types, lint, format`）、C++ 测试（`C++: test`，默认测试任务）、UI 测试（`UI: unit tests`）和格式化（`Format`）。命令在两个系统上相同。新机器先运行 `Prepare dependencies`（等同上文“首次准备”的四条命令），再用 `--prepare-analytics` 完成首次桌面运行或检查。
+- **专项命令**：浏览器开发、E2E、Electron 宿主测试、发行打包和 Linux 服务包构建从仓库根目录终端运行；具体命令见本指南的构建、测试及远程 Linux 服务包章节，不在任务列表重复提供入口。
+- **调试**：C++ 调试在 Linux 用 gdb、在 macOS 用 lldb。在 CMake Tools 状态栏选择启动目标后，“C++: debug test” 会询问 GoogleTest 过滤条件并带上测试节点容量；还可以附加到运行中的服务，或附加到 `pnpm desktop` 的 Electron 主进程调试原生模块。Linux 上附加到不是调试器启动的进程需要 `kernel.yama.ptrace_scope=0`。“UI: debug in Chrome” 用于在浏览器入口调试界面，先在仓库根目录终端运行 `pnpm dev`。
 
-CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm desktop` 或 `pnpm desktop:check`。
+CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm desktop` 或 `pnpm desktop:check`。只需增量编译 C++ 时，通过 CMake Tools 选择 `conan-debug` 构建 preset 后执行构建，或在终端运行 `cmake --build --preset conan-debug`。
 
 ## 代码排版
 
@@ -94,6 +99,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 | --- | --- |
 | `ctest --test-dir build/Debug -j 8` | C++ 单元测试与进程集成测试 |
 | `pnpm test:unit` | 界面的单元测试与组件测试（Vitest），几秒钟，不需要构建和服务 |
+| `ASTERION_CPP_BUILD="$PWD/build/Debug" pnpm test:desktop` | Electron 宿主与行情深度专项测试，使用本 checkout 的 Debug 程序 |
 | `pnpm run test:e2e:journeys` | 端到端的关键链路，日常改动后跑这一档 |
 | `pnpm run test:e2e [spec...]` | 全部端到端测试，发布前和 CI 跑 |
 | `pnpm run lint` | ESLint |
@@ -139,8 +145,12 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 
 桌面安装包内置 Linux x86_64 服务程序，用于远程部署。包的清单记录服务源码指纹（`scripts/services/service_fingerprint.py`，覆盖 `core`、`protocol`、`plugins`、`bindings`、`apps/services`、`conan`、`scripts/node` 和构建脚本）。
 
-- `desktop:check` 和 `desktop:build` 要求 `build/linux-bundles/asterion-services-linux-x86_64.zip` 与当前源码指纹一致。
+- `desktop:check` 仅检查本机桌面，不读取或更新远程 Linux 服务包及其 staging 目录。
+- `desktop:build` 和隔离验收打包 `package-test` 要求 `build/linux-bundles/asterion-services-linux-x86_64.zip` 与当前源码指纹一致。
+- macOS 与 Linux 桌面 CI 下载当前构建的服务包后，显式执行 `python scripts/desktop/remote_resources.py stage` 校验并准备远程资源；失败即停止该作业。
 - `pnpm desktop` 在不一致时只警告，本次开发会话中远程 Linux 部署不可用。
+
+本机检查通过不代表远程部署或发行验收通过。服务包通过下方独立任务显式重建，日常检查不自动触发 Linux 编译。
 
 重建（Docker 或 OrbStack，首次需编译全部依赖）：
 

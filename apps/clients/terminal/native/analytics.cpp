@@ -57,7 +57,9 @@ analyze(const analytics::v1::AnalyticsRequest& request, const std::filesystem::p
             "Analytics runtime unavailable; prepare or reinstall Terminal");
     TemporaryExchange exchange;
     const auto endpoint = (exchange.directory / "analysis.sock").string();
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    // macOS's first load of the frozen analytics libraries can exceed 60 seconds.
+    // Startup has its own budget; analysis keeps the 30-second IPC deadline.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
     const auto remaining = [&] {
         const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
@@ -72,6 +74,7 @@ analyze(const analytics::v1::AnalyticsRequest& request, const std::filesystem::p
         if (process.wait(std::min(remaining(), std::chrono::milliseconds(10))))
             throw Error(ErrorCode::operation_failed, "Analytics process failed");
     }
+    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     auto channel = ipc::Channel::connect(endpoint, remaining());
     channel.send(request.SerializeAsString(), remaining());
     const auto payload = channel.receive(remaining());

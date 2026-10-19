@@ -50,7 +50,7 @@
       }
     },
     {
-      // Start the "UI: dev server" task first.
+      // Run `pnpm dev` in the repository root first.
       "name": "UI: debug in Chrome",
       "type": "chrome",
       "request": "launch",

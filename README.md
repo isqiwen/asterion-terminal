@@ -29,7 +29,7 @@ pnpm desktop --prepare-analytics    # 首次显式准备分析助手、构建并
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm desktop` | 构建 Debug C++、Node-API、界面，启动 Electron |
-| `pnpm desktop:check` | 构建并验证桌面链路，不打开窗口 |
+| `pnpm desktop:check` | 构建并验证本机桌面链路，不打开窗口，不要求 Linux 服务包 |
 | `pnpm desktop:build` | 生成 Release 安装包到 `build/desktop/`：macOS 为 `.dmg`，Linux 为 `.deb` |
 | `ctest --test-dir build/Debug` | C++ 测试 |
 | `pnpm test:unit` | 界面的单元测试与组件测试 |
@@ -53,6 +53,7 @@ pnpm desktop --prepare-analytics    # 首次显式准备分析助手、构建并
 
 ## 文档
 
+- [产品需求：个人期货研究与实盘交易](docs/requirements/README.md)
 - [架构](docs/architecture.md)
 - [开发指南](docs/development.md)
 - [终端界面](docs/terminal.md)

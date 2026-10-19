@@ -171,12 +171,6 @@
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.quote-sheet-note {
-  margin-top: auto;
-  padding: 5px 9px;
-  font-size: 12px;
-  color: var(--subtle);
-}
 .watchlist-charts {
   display: grid;
   grid-template-rows: 1fr 1fr;

@@ -18,11 +18,6 @@
 }
 .first-setup .setup-language {
   width: 112px;
-  color: var(--muted);
-}
-.setup-language option {
-  background: var(--panel);
-  color: var(--text);
 }
 .setup-content {
   width: min(480px, calc(100% - 48px));

@@ -137,6 +137,8 @@ jobs:
           pattern: remote-linux-*
           merge-multiple: true
           path: build/linux-bundles
+      - name: Validate and stage remote Linux services
+        run: python scripts/desktop/remote_resources.py stage
       - name: Build and link native desktop
         run: python scripts/desktop/desktop.py check --prepare-analytics
       - run: ctest --preset conan-debug --output-on-failure
@@ -194,6 +196,8 @@ jobs:
           pattern: remote-linux-*
           merge-multiple: true
           path: build/linux-bundles
+      - name: Validate and stage remote Linux services
+        run: python scripts/desktop/remote_resources.py stage
       - name: Prepare a display and the Electron sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces that the
         # Chromium sandbox uses; the Terminal never runs with --no-sandbox.

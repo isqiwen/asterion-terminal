@@ -6,11 +6,12 @@
 #include <asterion/domain/trading_days.hpp>
 #include <algorithm>
 #include <cmath>
-#include <format>
 #include <iterator>
+#include <locale>
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace asterion::data {
@@ -132,9 +133,11 @@ void settle(
     if (static_cast<std::size_t>(agree) * 2 < implied.size()) {
         const auto median = implied.begin() + static_cast<std::ptrdiff_t>(implied.size() / 2);
         std::ranges::nth_element(implied, median);
-        throw std::invalid_argument(
-            "the contract multiplier does not match the turnover of " + contract
-            + ": its days imply about " + std::format("{:.6g}", static_cast<double>(*median)));
+        std::ostringstream message;
+        message.imbue(std::locale::classic());
+        message << "the contract multiplier does not match the turnover of " << contract
+                << ": its days imply about " << static_cast<double>(*median);
+        throw std::invalid_argument(message.str());
     }
 }
 

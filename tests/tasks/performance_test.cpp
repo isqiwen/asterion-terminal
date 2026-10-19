@@ -102,16 +102,17 @@ TEST(MonthlyContributions, PartialMonthsAndYearBoundariesReconcileExactEquityAnd
     };
     const auto months = monthly_contributions(deposit, days);
     ASSERT_EQ(months.size(), 3U);
-    EXPECT_EQ(months[0].first_day, days[0].day);
-    EXPECT_EQ(months[0].last_day, days[1].day);
+    // Compare day offsets: libc++'s chrono printer requires macOS 13.3.
+    EXPECT_EQ((months[0].first_day - days[0].day).count(), 0);
+    EXPECT_EQ((months[0].last_day - days[1].day).count(), 0);
     EXPECT_EQ(months[0].trading_days, 2U);
     EXPECT_EQ(months[0].opening_equity, deposit);
     EXPECT_EQ(months[0].closing_equity, d("90000080"));
     EXPECT_EQ(months[0].net, d("80"));
     EXPECT_EQ(months[0].fees, d("3.00000001"));
     EXPECT_EQ(months[0].gross, d("83.00000001"));
-    EXPECT_EQ(months[1].first_day, days[2].day);
-    EXPECT_EQ(months[1].last_day, days[2].day);
+    EXPECT_EQ((months[1].first_day - days[2].day).count(), 0);
+    EXPECT_EQ((months[1].last_day - days[2].day).count(), 0);
     EXPECT_EQ(months[1].trading_days, 1U);
     EXPECT_EQ(months[1].opening_equity, months[0].closing_equity);
     EXPECT_EQ(months[1].net, d("-80.00000001"));

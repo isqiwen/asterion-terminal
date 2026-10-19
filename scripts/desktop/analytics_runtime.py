@@ -62,6 +62,23 @@ def prepare(build=None):
     staging.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="prepare-", dir=staging) as temporary:
         temporary = Path(temporary)
+        # PyInstaller gives Matplotlib a fresh config directory on every launch.
+        # Prepare a relocatable cache of bundled fonts so statistics never scan
+        # the user's system fonts before binding the IPC endpoint.
+        font_cache = temporary / "matplotlib-cache"
+        font_cache.mkdir()
+        environment["MPLCONFIGDIR"] = str(temporary / "matplotlib-build-cache")
+        run([ENVIRONMENT / "bin/python", "-c", """
+from pathlib import Path
+import sys
+import matplotlib
+from matplotlib import font_manager
+manager = font_manager.fontManager
+fonts = Path(matplotlib.get_data_path())
+manager.ttflist = [font for font in manager.ttflist if Path(font.fname).is_relative_to(fonts)]
+manager.afmlist = [font for font in manager.afmlist if Path(font.fname).is_relative_to(fonts)]
+font_manager.json_dump(manager, Path(sys.argv[1]) / f"fontlist-v{manager.__version__}.json")
+""", font_cache])
         run([ENVIRONMENT / "bin/python", "-m", "PyInstaller", "--noconfirm", "--clean",
              "--onedir", "--name", "asterion-analytics", "--paths", build / "generated-python",
              "--copy-metadata", "quantstats", "--collect-data", "quantstats",
@@ -69,6 +86,7 @@ def prepare(build=None):
              "--additional-hooks-dir", ROOT / "scripts/desktop/pyinstaller",
              "--collect-all", "_polars_runtime_compat", "--exclude-module", "_polars_runtime_32",
              "--hidden-import", "cvxpy.reductions.solvers.conic_solvers.clarabel_conif",
+             "--add-data", str(font_cache) + ":matplotlib-cache",
              "--exclude-module", "tkinter", "--exclude-module", "IPython",
              "--distpath", temporary / "dist", "--workpath", temporary / "work",
              "--specpath", temporary, PROJECT / "report.py"])

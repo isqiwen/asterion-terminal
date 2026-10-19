@@ -307,9 +307,6 @@ export function WatchlistWorkspace(context: TerminalContext) {
             )}
           </div>
         )}
-        <div className="quote-sheet-note">
-          {t("未提供的字段显示 —；名称取自已加载目录，缺失时显示代码。双击合约查看详情。")}
-        </div>
       </div>
       <aside className="watchlist-charts" aria-label={t("自选合约图表")}>
         {active && market ? (
