@@ -1,1 +1,128 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 850" role="img" aria-label="UI-EVA-PER-01 绩效与收益归因目标布局"><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:16px;fill:#c5ccd6}.strong{fill:#eef4fb;font-weight:600}.muted{fill:#7c8796;font-size:14px}.accent{fill:#38d6f2}.title{fill:#eef4fb;font-size:24px;font-weight:600}</style><rect width="1280" height="850" fill="#06080b" /><text x="24" y="30" class="accent">UI-EVA-PER-01 · 目标布局草案 · 非实际截图</text><text x="24" y="66" class="title">绩效与收益归因</text><text x="24" y="834" class="muted">布局与字段示意；不连接服务，不代表已实现或已通过运行验收。</text><rect x="138" y="204" width="256" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="234" class="strong">评价条件</text><path d="M138 249 H394" stroke="#1a212b" /><text x="154" y="284" class="">方法</text><path d="M152 309 H380" stroke="#1a212b" /><text x="154" y="348" class="">基准</text><path d="M152 373 H380" stroke="#1a212b" /><text x="154" y="412" class="">期间</text><path d="M152 437 H380" stroke="#1a212b" /><rect x="410" y="204" width="566" height="300" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="426" y="234" class="strong">图表结果</text><path d="M410 249 H976" stroke="#1a212b" /><path d="M434 274 H952" stroke="#121821" /><path d="M434 310 H952" stroke="#121821" /><path d="M434 346 H952" stroke="#121821" /><path d="M434 382 H952" stroke="#121821" /><path d="M434 418 H952" stroke="#121821" /><path d="M434 454 H952" stroke="#121821" /><text x="434" y="284" class="muted">权益与收益 / 贡献拆分</text><text x="434" y="474" class="muted">选择有依据的结果后呈现图表</text><rect x="992" y="204" width="264" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="1008" y="234" class="strong">证据与限制</text><path d="M992 249 H1256" stroke="#1a212b" /><text x="1008" y="284" class="">现金流</text><path d="M1006 309 H1242" stroke="#1a212b" /><text x="1008" y="348" class="">费用</text><path d="M1006 373 H1242" stroke="#1a212b" /><text x="1008" y="412" class="">明细</text><path d="M1006 437 H1242" stroke="#1a212b" /><rect x="410" y="520" width="566" height="194" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="426" y="550" class="strong">明细表</text><path d="M410 565 H976" stroke="#1a212b" /><text x="426.0" y="600" class="muted">期间</text><text x="604.0" y="600" class="muted">数值与单位</text><text x="782.0" y="600" class="muted">输入依据</text><path d="M424 625 H962" stroke="#1a212b" /><rect x="426" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="438" y="766" class="accent">生成评价</text><rect x="560" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="572" y="766" class="accent">下钻证据</text><rect x="24" y="88" width="92" height="710" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="54" y="132" class="">数据</text><text x="54" y="176" class="">情报</text><text x="54" y="220" class="">分析</text><text x="54" y="264" class="">策略</text><text x="54" y="308" class="">回测</text><rect x="30" y="327" width="80" height="36" rx="2" fill="#0b171f" stroke="#246373" /><text x="54" y="352" class="accent">评估</text><text x="54" y="396" class="">实盘</text><text x="37" y="743" class="muted">系统管理</text><text x="138" y="111" class="muted">评估 → 绩效与归因 → 绩效与收益归因</text><rect x="138" y="133" width="1118" height="53" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154.0" y="155" class="accent">绩效与归因</text><path d="M154.0 160 H234.0" stroke="#38d6f2" stroke-width="2" /><text x="526.6666666666667" y="155" class="">风险与压力</text><text x="899.3333333333334" y="155" class="">稳健性与综合评价</text><text x="154" y="179" class="muted">固定结果 / 评价口径</text><rect x="138" y="799" width="1118" height="24" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="150" y="816" class="muted">任务  ·  通知  ·  连接状态</text><text x="835" y="816" class="muted" style="font-size:13px">状态以实际结果显示；点击返回所属对象</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title desc">
+<title id="title">UI-EVA-PER-01 绩效与收益归因</title><desc id="desc">核对固定账户或实验切片的收益、外部资金流、成本和成员贡献，保留不能计算的理由。。字段、可用条件与状态见对应需求正文。</desc>
+<g font-family="Noto Sans SC, Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif">
+<rect x="0" y="0" width="1440" height="1120" rx="0" fill="#0b111a"/>
+<rect x="0" y="0" width="1440" height="58" rx="0" fill="#111b28"/>
+<text x="24" y="36" fill="#eff6fa" font-size="20" font-weight="700">ASTERION</text>
+<text x="168" y="35" fill="#7e95a9" font-size="13" font-weight="400">TERMINAL</text>
+<text x="1100" y="35" fill="#63d9cd" font-size="14" font-weight="400">UI-EVA-PER-01 · 交互设计</text>
+<rect x="16" y="85" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="111" fill="#91a8ba" font-size="16" font-weight="400">数据</text>
+<rect x="16" y="137" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="163" fill="#91a8ba" font-size="16" font-weight="400">情报</text>
+<rect x="16" y="189" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="215" fill="#91a8ba" font-size="16" font-weight="400">分析</text>
+<rect x="16" y="241" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="267" fill="#91a8ba" font-size="16" font-weight="400">策略</text>
+<rect x="16" y="293" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="319" fill="#91a8ba" font-size="16" font-weight="400">回测</text>
+<rect x="16" y="345" width="88" height="40" rx="8" fill="#193632"/>
+<text x="44" y="371" fill="#77e8d6" font-size="16" font-weight="400">评估</text>
+<rect x="16" y="397" width="88" height="40" rx="8" fill="#101a26"/>
+<text x="44" y="423" fill="#91a8ba" font-size="16" font-weight="400">实盘</text>
+<text x="132" y="93" fill="#94acbc" font-size="14" font-weight="400">评估 → 绩效与归因 → 绩效与收益归因</text>
+<text x="132" y="132" fill="#f1f6fa" font-size="26" font-weight="700">绩效与收益归因</text>
+<text x="132" y="160" fill="#9fb4c4" font-size="14" font-weight="400">核对固定账户或实验切片的收益、外部资金流、成本和成员贡献，保留不能计算的理由。</text>
+<rect x="132" y="182" width="1278" height="52" rx="8" fill="#12232e" stroke="#25404a"/>
+<text x="150" y="204" fill="#72d8cd" font-size="12" font-weight="400">上下文</text>
+<text x="150" y="224" fill="#b8cbd7" font-size="12" font-weight="400">固定对象 · 范围 · 来源</text>
+<text x="383" y="215" fill="#d9e5ed" font-size="15" font-weight="400">对象：待选择</text>
+<text x="639" y="215" fill="#d9e5ed" font-size="15" font-weight="400">观察范围：待确认</text>
+<text x="935" y="215" fill="#90aebd" font-size="14" font-weight="400">数据与方法：随结果固定</text>
+<rect x="132" y="252" width="890" height="614" rx="8" fill="#111d2a" stroke="#24384b"/>
+<text x="150" y="282" fill="#e7f2f6" font-size="17" font-weight="600">字段与输入</text>
+<text x="737" y="282" fill="#93a8ba" font-size="12" font-weight="400">* 必填条件见右侧说明</text>
+<rect x="144" y="300" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="327" fill="#d8e6ef" font-size="14" font-weight="400">来源环境</text>
+<rect x="384" y="305" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="326" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="324" fill="#8fb5c9" font-size="12" font-weight="400">单选</text>
+<text x="158" y="372" fill="#d8e6ef" font-size="14" font-weight="400">评价对象</text>
+<rect x="384" y="350" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="371" fill="#8ea7bc" font-size="13" font-weight="400">选择 / 查看固定范围</text>
+<text x="692" y="369" fill="#8fb5c9" font-size="12" font-weight="400">固定对象选择</text>
+<rect x="144" y="390" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="417" fill="#d8e6ef" font-size="14" font-weight="400">观察区间与截止</text>
+<rect x="384" y="395" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="416" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="414" fill="#8fb5c9" font-size="12" font-weight="400">时间范围</text>
+<text x="158" y="462" fill="#d8e6ef" font-size="14" font-weight="400">收益率方法</text>
+<rect x="384" y="440" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="461" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="459" fill="#8fb5c9" font-size="12" font-weight="400">单选</text>
+<rect x="144" y="480" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="507" fill="#d8e6ef" font-size="14" font-weight="400">净外部资金流</text>
+<rect x="384" y="485" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="506" fill="#8ea7bc" font-size="13" font-weight="400">—  按来源显示</text>
+<text x="692" y="504" fill="#8fb5c9" font-size="12" font-weight="400">只读明细</text>
+<text x="158" y="552" fill="#d8e6ef" font-size="14" font-weight="400">估值与费用口径</text>
+<rect x="384" y="530" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="551" fill="#8ea7bc" font-size="13" font-weight="400">—  按来源显示</text>
+<text x="692" y="549" fill="#8fb5c9" font-size="12" font-weight="400">只读引用</text>
+<rect x="144" y="570" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="597" fill="#d8e6ef" font-size="14" font-weight="400">采样频率与年化基数A</text>
+<rect x="384" y="575" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="596" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="594" fill="#8fb5c9" font-size="12" font-weight="400">频率及正数</text>
+<text x="158" y="642" fill="#d8e6ef" font-size="14" font-weight="400">无风险收益假设</text>
+<rect x="384" y="620" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="641" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="639" fill="#8fb5c9" font-size="12" font-weight="400">年率及转换规则</text>
+<rect x="144" y="660" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="687" fill="#d8e6ef" font-size="14" font-weight="400">比较基准</text>
+<rect x="384" y="665" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="686" fill="#8ea7bc" font-size="13" font-weight="400">选择 / 查看固定范围</text>
+<text x="692" y="684" fill="#8fb5c9" font-size="12" font-weight="400">对象或无基准</text>
+<text x="158" y="732" fill="#d8e6ef" font-size="14" font-weight="400">归因维度</text>
+<rect x="384" y="710" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="731" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="729" fill="#8fb5c9" font-size="12" font-weight="400">枚举</text>
+<rect x="144" y="750" width="866" height="43" rx="3" fill="#142333"/>
+<text x="158" y="777" fill="#d8e6ef" font-size="14" font-weight="400">指标及证据</text>
+<rect x="384" y="755" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="776" fill="#8ea7bc" font-size="13" font-weight="400">—  按来源显示</text>
+<text x="692" y="774" fill="#8fb5c9" font-size="12" font-weight="400">只读表</text>
+<text x="158" y="822" fill="#d8e6ef" font-size="14" font-weight="400">解释记录</text>
+<rect x="384" y="800" width="292" height="32" rx="4" fill="#0d1722" stroke="#2b4356"/>
+<text x="396" y="821" fill="#8ea7bc" font-size="13" font-weight="400">填写 / 选择</text>
+<text x="692" y="819" fill="#8fb5c9" font-size="12" font-weight="400">多行文本</text>
+<rect x="1040" y="252" width="370" height="614" rx="8" fill="#111d2a" stroke="#24384b"/>
+<text x="1058" y="282" fill="#e7f2f6" font-size="17" font-weight="600">可用条件与状态</text>
+<text x="1058" y="312" fill="#73d7cc" font-size="14" font-weight="600">无成交</text>
+<text x="1058" y="334" fill="#adbdcb" font-size="12" font-weight="400">显示零成交与权益事实</text>
+<text x="1058" y="354" fill="#c4a982" font-size="12" font-weight="400">胜率和平均单笔收益不可计算，不能填100%。</text>
+<text x="1058" y="395" fill="#73d7cc" font-size="14" font-weight="600">估值不足</text>
+<text x="1058" y="417" fill="#adbdcb" font-size="12" font-weight="400">列出资金流时点所缺估值</text>
+<text x="1058" y="437" fill="#c4a982" font-size="12" font-weight="400">禁用精确TWR，保留金额核对并提示补充边界估值。</text>
+<text x="1058" y="478" fill="#73d7cc" font-size="14" font-weight="600">权益非正或常数收益</text>
+<text x="1058" y="500" fill="#adbdcb" font-size="12" font-weight="400">保留金额指标及原因</text>
+<text x="1058" y="520" fill="#c4a982" font-size="12" font-weight="400">无定义的年化、Sharpe或比例不得填0。</text>
+<text x="1058" y="561" fill="#73d7cc" font-size="14" font-weight="600">部分覆盖或计算失败</text>
+<text x="1058" y="583" fill="#adbdcb" font-size="12" font-weight="400">标明终态和实际截止，保留已核对事实</text>
+<text x="1058" y="603" fill="#c4a982" font-size="12" font-weight="400">不外推完整区间绩效。</text>
+<text x="1058" y="644" fill="#73d7cc" font-size="14" font-weight="600">归因不完整</text>
+<text x="1058" y="666" fill="#adbdcb" font-size="12" font-weight="400">残差保留来源和金额</text>
+<text x="1058" y="686" fill="#c4a982" font-size="12" font-weight="400">不按权重强行分摊后称实际贡献。</text>
+<rect x="132" y="884" width="1278" height="116" rx="8" fill="#111d2a" stroke="#24384b"/>
+<text x="150" y="910" fill="#e2eef5" font-size="16" font-weight="600">证据与结果下钻</text>
+<text x="151" y="940" fill="#8fb3c7" font-size="13" font-weight="400">指标/贡献项</text>
+<text x="151" y="975" fill="#8298aa" font-size="13" font-weight="400">—  选择对象后查看</text>
+<text x="464" y="940" fill="#8fb3c7" font-size="13" font-weight="400">数值与单位</text>
+<text x="464" y="975" fill="#8298aa" font-size="13" font-weight="400">—  选择对象后查看</text>
+<text x="777" y="940" fill="#8fb3c7" font-size="13" font-weight="400">有效范围</text>
+<text x="777" y="975" fill="#8298aa" font-size="13" font-weight="400">—  选择对象后查看</text>
+<text x="1090" y="940" fill="#8fb3c7" font-size="13" font-weight="400">口径/残差</text>
+<text x="1090" y="975" fill="#8298aa" font-size="13" font-weight="400">—  选择对象后查看</text>
+<rect x="132" y="1018" width="138" height="38" rx="5" fill="#224c46" stroke="#3c8073"/>
+<text x="144" y="1043" fill="#cbf4ec" font-size="14" font-weight="400">计算绩效</text>
+<rect x="282" y="1018" width="151" height="38" rx="5" fill="#172837" stroke="#335064"/>
+<text x="294" y="1043" fill="#b9cbd7" font-size="14" font-weight="400">下钻成交 / 资金流</text>
+<rect x="445" y="1018" width="138" height="38" rx="5" fill="#172837" stroke="#335064"/>
+<text x="457" y="1043" fill="#b9cbd7" font-size="14" font-weight="400">核对归因</text>
+<rect x="595" y="1018" width="138" height="38" rx="5" fill="#172837" stroke="#335064"/>
+<text x="607" y="1043" fill="#b9cbd7" font-size="14" font-weight="400">保存解释</text>
+<rect x="745" y="1018" width="138" height="38" rx="5" fill="#172837" stroke="#335064"/>
+<text x="757" y="1043" fill="#b9cbd7" font-size="14" font-weight="400">返回来源</text>
+<text x="132" y="1082" fill="#8ca7ba" font-size="13" font-weight="400">返回保留对象与筛选 · 离页不取消任务 · 未保存编辑：保存 / 放弃 / 留在本页</text>
+<text x="1058" y="1082" fill="#637f94" font-size="12" font-weight="400">详情与验收条件见需求正文</text>
+</g></svg>

@@ -1,1 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 850" role="img" aria-label="UI-LIV-RUN-05 运行核对、处置与恢复审查目标布局"><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:16px;fill:#c5ccd6}.strong{fill:#eef4fb;font-weight:600}.muted{fill:#7c8796;font-size:14px}.accent{fill:#38d6f2}.title{fill:#eef4fb;font-size:24px;font-weight:600}</style><rect width="1280" height="850" fill="#06080b" /><text x="24" y="30" class="accent">UI-LIV-RUN-05 · 目标布局草案 · 非实际截图</text><text x="24" y="66" class="title">运行核对、处置与恢复审查</text><text x="24" y="834" class="muted">布局与字段示意；不连接服务，不代表已实现或已通过运行验收。</text><rect x="138" y="204" width="431" height="330" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="234" class="strong">左侧依据</text><path d="M138 249 H569" stroke="#1a212b" /><text x="154" y="284" class="">原运行</text><path d="M152 309 H555" stroke="#1a212b" /><text x="154" y="348" class="">意图</text><path d="M152 373 H555" stroke="#1a212b" /><text x="154" y="412" class="">在途</text><path d="M152 437 H555" stroke="#1a212b" /><rect x="585" y="204" width="431" height="330" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="601" y="234" class="strong">右侧对照</text><path d="M585 249 H1016" stroke="#1a212b" /><text x="601" y="284" class="">当前账户事实</text><path d="M599 309 H1002" stroke="#1a212b" /><text x="601" y="348" class="">待核对差异</text><path d="M599 373 H1002" stroke="#1a212b" /><rect x="1032" y="204" width="224" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="1048" y="234" class="strong">核对详情</text><path d="M1032 249 H1256" stroke="#1a212b" /><text x="1048" y="284" class="">恢复条件</text><path d="M1046 309 H1242" stroke="#1a212b" /><text x="1048" y="348" class="">处置后果</text><path d="M1046 373 H1242" stroke="#1a212b" /><rect x="138" y="550" width="878" height="164" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="580" class="strong">差异明细与结论</text><path d="M138 595 H1016" stroke="#1a212b" /><text x="154.0" y="630" class="muted">字段</text><text x="436.0" y="630" class="muted">原始依据</text><text x="718.0" y="630" class="muted">确认结果</text><path d="M152 655 H1002" stroke="#1a212b" /><rect x="154" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="166" y="766" class="accent">核对事实</text><rect x="288" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="300" y="766" class="accent">明确处置</text><rect x="24" y="88" width="92" height="710" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="54" y="132" class="">数据</text><text x="54" y="176" class="">情报</text><text x="54" y="220" class="">分析</text><text x="54" y="264" class="">策略</text><text x="54" y="308" class="">回测</text><text x="54" y="352" class="">评估</text><rect x="30" y="371" width="80" height="36" rx="2" fill="#0b171f" stroke="#246373" /><text x="54" y="396" class="accent">实盘</text><text x="37" y="743" class="muted">系统管理</text><text x="138" y="111" class="muted">实盘 → 准备与运行 → 运行核对、处置与恢复审查</text><rect x="138" y="133" width="1118" height="53" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154.0" y="155" class="accent">准备与运行</text><path d="M154.0 160 H234.0" stroke="#38d6f2" stroke-width="2" /><text x="526.6666666666667" y="155" class="">订单与成交</text><text x="899.3333333333334" y="155" class="">账户与核对</text><text x="154" y="179" class="muted">实例 / 限制 / 最后核对时点</text><rect x="138" y="799" width="1118" height="24" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="150" y="816" class="muted">任务  ·  通知  ·  连接状态</text><text x="835" y="816" class="muted" style="font-size:13px">状态以实际结果显示；点击返回所属对象</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000">
+<title>UI-LIV-RUN-05 运行核对、处置与恢复审查</title>
+<desc>开发前目标界面设计，字段提示代表业务类型；案例数值单独标识且不作为默认值。</desc>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif">
+<rect x="0" y="0" width="1440" height="1000" rx="0" fill="#06080b" stroke="#06080b"/>
+<rect x="0" y="0" width="166" height="1000" rx="0" fill="#0b0e13" stroke="#2a3543"/>
+<text x="23" y="39" fill="#38d6f2" font-size="20" font-weight="700">ASTERION</text>
+<text x="23" y="65" fill="#7c8796" font-size="12" font-weight="400">交易研究工作台</text>
+<text x="32" y="118" fill="#7c8796" font-size="17" font-weight="400">数据</text>
+<text x="32" y="171" fill="#7c8796" font-size="17" font-weight="400">情报</text>
+<text x="32" y="224" fill="#7c8796" font-size="17" font-weight="400">分析</text>
+<text x="32" y="277" fill="#7c8796" font-size="17" font-weight="400">策略</text>
+<text x="32" y="330" fill="#7c8796" font-size="17" font-weight="400">回测</text>
+<rect x="13" y="409" width="140" height="42" rx="6" fill="#12354b" stroke="#25708b"/>
+<text x="32" y="383" fill="#7c8796" font-size="17" font-weight="400">评估</text>
+<text x="32" y="436" fill="#38d6f2" font-size="17" font-weight="400">实盘</text>
+<text x="31" y="961" fill="#7c8796" font-size="16" font-weight="400">系统管理</text>
+<text x="194" y="39" fill="#eef4fb" font-size="24" font-weight="700">运行核对、处置与恢复审查</text>
+<text x="194" y="66" fill="#7c8796" font-size="13" font-weight="400">UI-LIV-RUN-05 · 目标界面设计</text>
+<rect x="190" y="87" width="1226" height="57" rx="8" fill="#0f2533" stroke="#275269"/>
+<text x="210" y="112" fill="#bae6fd" font-size="16" font-weight="600">账户 / 环境 / 实例 / 决策区间 / 原控制请求</text>
+<text x="210" y="134" fill="#7c8796" font-size="12" font-weight="400">账户、环境与来源时间持续可见；页面切换不产生交易动作</text>
+<rect x="190" y="161" width="824" height="366" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="208" y="192" fill="#eef4fb" font-size="17" font-weight="600">决策与执行调查</text>
+<rect x="208" y="223" width="788" height="240" rx="4" fill="#0b1626" stroke="#2a3543"/>
+<rect x="208" y="223" width="788" height="39" rx="4" fill="#192c42" stroke="#2a3543"/>
+<text x="218" y="248" fill="#7c8796" font-size="13" font-weight="600">决策边界</text>
+<text x="371" y="248" fill="#7c8796" font-size="13" font-weight="600">输出/无动作</text>
+<text x="526" y="248" fill="#7c8796" font-size="13" font-weight="600">风险结果</text>
+<text x="681" y="248" fill="#7c8796" font-size="13" font-weight="600">委托/成交</text>
+<text x="836" y="248" fill="#7c8796" font-size="13" font-weight="600">证据完整性</text>
+<text x="218" y="291" fill="#c5ccd6" font-size="13" font-weight="400">带时区时点</text>
+<text x="371" y="291" fill="#c5ccd6" font-size="13" font-weight="400">保持原目标</text>
+<text x="526" y="291" fill="#c5ccd6" font-size="13" font-weight="400">可复核依据</text>
+<text x="681" y="291" fill="#c5ccd6" font-size="13" font-weight="400">无订单</text>
+<text x="836" y="291" fill="#c5ccd6" font-size="13" font-weight="400">输入与状态</text>
+<rect x="209" y="329" width="786" height="67" rx="0" fill="#101f32" stroke="#101f32"/>
+<text x="218" y="358" fill="#c5ccd6" font-size="13" font-weight="400">带时区时点</text>
+<text x="371" y="358" fill="#c5ccd6" font-size="13" font-weight="400">目标数量</text>
+<text x="526" y="358" fill="#c5ccd6" font-size="13" font-weight="400">拒绝原因</text>
+<text x="681" y="358" fill="#c5ccd6" font-size="13" font-weight="400">不产生订单</text>
+<text x="836" y="358" fill="#c5ccd6" font-size="13" font-weight="400">规则与拒绝</text>
+<text x="218" y="425" fill="#c5ccd6" font-size="13" font-weight="400">带时区时点</text>
+<text x="371" y="425" fill="#c5ccd6" font-size="13" font-weight="400">目标数量</text>
+<text x="526" y="425" fill="#c5ccd6" font-size="13" font-weight="400">获准数量</text>
+<text x="681" y="425" fill="#c5ccd6" font-size="13" font-weight="400">原意图关联</text>
+<text x="836" y="425" fill="#c5ccd6" font-size="13" font-weight="400">成交只计一次</text>
+<rect x="190" y="543" width="824" height="315" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="208" y="574" fill="#eef4fb" font-size="17" font-weight="600">选中决策的证据与处置</text>
+<rect x="208" y="602" width="788" height="210" rx="4" fill="#0b1626" stroke="#2a3543"/>
+<rect x="208" y="602" width="788" height="39" rx="4" fill="#192c42" stroke="#2a3543"/>
+<text x="218" y="627" fill="#7c8796" font-size="13" font-weight="600">证据类别</text>
+<text x="396" y="627" fill="#7c8796" font-size="13" font-weight="600">只读内容</text>
+<text x="218" y="670" fill="#c5ccd6" font-size="13" font-weight="400">输入与次序</text>
+<text x="396" y="670" fill="#c5ccd6" font-size="13" font-weight="400">输入值或不可变引用 / 可得时间 / 来源流 / 变化身份</text>
+<rect x="209" y="698" width="786" height="57" rx="0" fill="#101f32" stroke="#101f32"/>
+<text x="218" y="727" fill="#c5ccd6" font-size="13" font-weight="400">前后状态与定义</text>
+<text x="396" y="727" fill="#c5ccd6" font-size="13" font-weight="400">策略、模型、参数、账户风险内容与状态转移</text>
+<text x="218" y="784" fill="#c5ccd6" font-size="13" font-weight="400">控制与外部活动</text>
+<text x="396" y="784" fill="#c5ccd6" font-size="13" font-weight="400">原暂停/停止请求、官方处置记录、未决订单与核对</text>
+<rect x="1030" y="161" width="386" height="697" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="1048" y="192" fill="#eef4fb" font-size="17" font-weight="600">限制、恢复与执行归属</text>
+<rect x="1048" y="221" width="350" height="86" rx="5" fill="#182435" stroke="#344155"/>
+<text x="1061" y="246" fill="#edb966" font-size="14" font-weight="600">风险限制</text>
+<text x="1061" y="270" fill="#c5ccd6" font-size="13" font-weight="400">显示指标、基准、阈值与时点</text>
+<text x="1061" y="291" fill="#c5ccd6" font-size="13" font-weight="400">已读不解除；指标回落不自动恢复</text>
+<rect x="1048" y="353" width="350" height="86" rx="5" fill="#182435" stroke="#344155"/>
+<text x="1061" y="378" fill="#edb966" font-size="14" font-weight="600">恢复前检查</text>
+<text x="1061" y="402" fill="#c5ccd6" font-size="13" font-weight="400">数据与账户一致性、未知订单</text>
+<text x="1061" y="423" fill="#c5ccd6" font-size="13" font-weight="400">规则、权限与执行归属全部有效</text>
+<rect x="1048" y="485" width="350" height="86" rx="5" fill="#182435" stroke="#344155"/>
+<text x="1061" y="510" fill="#edb966" font-size="14" font-weight="600">旧执行方隔离证明</text>
+<text x="1061" y="534" fill="#c5ccd6" font-size="13" font-weight="400">绑定账户、节点、动作、时间及来源</text>
+<text x="1061" y="555" fill="#c5ccd6" font-size="13" font-weight="400">超时/关窗/勾选不能证明已失效</text>
+<rect x="1048" y="617" width="350" height="86" rx="5" fill="#182435" stroke="#344155"/>
+<text x="1061" y="642" fill="#edb966" font-size="14" font-weight="600">产品不可控制时</text>
+<text x="1061" y="666" fill="#c5ccd6" font-size="13" font-weight="400">使用预登记官方渠道独立处置</text>
+<text x="1061" y="687" fill="#c5ccd6" font-size="13" font-weight="400">恢复先核对外部活动，不追旧目标</text>
+<rect x="190" y="876" width="1226" height="99" rx="8" fill="#102538" stroke="#275269"/>
+<text x="208" y="905" fill="#c5ccd6" font-size="16" font-weight="600">只读调查不自动暂停或恢复</text>
+<text x="208" y="935" fill="#7c8796" font-size="13" font-weight="400">返回原运行上下文；处置与恢复必须分别确认。</text>
+<rect x="1290" y="920" width="106" height="39" rx="5" fill="#17283c" stroke="#40516a"/>
+<text x="1303" y="945" fill="#e0f2fe" font-size="14" font-weight="400">审查恢复</text>
+<rect x="1162" y="920" width="116" height="39" rx="5" fill="#17283c" stroke="#40516a"/>
+<text x="1175" y="945" fill="#e0f2fe" font-size="14" font-weight="400">保存外部依据</text>
+<rect x="1044" y="920" width="106" height="39" rx="5" fill="#0e7490" stroke="#28829a"/>
+<text x="1057" y="945" fill="#e0f2fe" font-size="14" font-weight="400">暂停新增</text>
+</g>
+</svg>

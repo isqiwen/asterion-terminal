@@ -1,1 +1,97 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 850" role="img" aria-label="UI-BKT-EXP-02 实验批次与运行记录目标布局"><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:16px;fill:#c5ccd6}.strong{fill:#eef4fb;font-weight:600}.muted{fill:#7c8796;font-size:14px}.accent{fill:#38d6f2}.title{fill:#eef4fb;font-size:24px;font-weight:600}</style><rect width="1280" height="850" fill="#06080b" /><text x="24" y="30" class="accent">UI-BKT-EXP-02 · 目标布局草案 · 非实际截图</text><text x="24" y="66" class="title">实验批次与运行记录</text><text x="24" y="834" class="muted">布局与字段示意；不连接服务，不代表已实现或已通过运行验收。</text><rect x="138" y="204" width="250" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="234" class="strong">列表 / 对象</text><path d="M138 249 H388" stroke="#1a212b" /><text x="154" y="284" class="">批次</text><path d="M152 309 H374" stroke="#1a212b" /><text x="154" y="348" class="">全部尝试</text><path d="M152 373 H374" stroke="#1a212b" /><rect x="404" y="204" width="564" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="420" y="234" class="strong">主要内容</text><path d="M404 249 H968" stroke="#1a212b" /><text x="420" y="284" class="">实验条件</text><path d="M418 309 H954" stroke="#1a212b" /><text x="420" y="348" class="">状态</text><path d="M418 373 H954" stroke="#1a212b" /><text x="420" y="412" class="">结果</text><path d="M418 437 H954" stroke="#1a212b" /><rect x="984" y="204" width="272" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="1000" y="234" class="strong">选中项详情</text><path d="M984 249 H1256" stroke="#1a212b" /><text x="1000" y="284" class="">差异</text><path d="M998 309 H1242" stroke="#1a212b" /><text x="1000" y="348" class="">失败</text><path d="M998 373 H1242" stroke="#1a212b" /><text x="1000" y="412" class="">复核入口</text><path d="M998 437 H1242" stroke="#1a212b" /><rect x="420" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="432" y="766" class="accent">查看结果</text><rect x="554" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="566" y="766" class="accent">创建复核</text><rect x="24" y="88" width="92" height="710" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="54" y="132" class="">数据</text><text x="54" y="176" class="">情报</text><text x="54" y="220" class="">分析</text><text x="54" y="264" class="">策略</text><rect x="30" y="283" width="80" height="36" rx="2" fill="#0b171f" stroke="#246373" /><text x="54" y="308" class="accent">回测</text><text x="54" y="352" class="">评估</text><text x="54" y="396" class="">实盘</text><text x="37" y="743" class="muted">系统管理</text><text x="138" y="111" class="muted">回测 → 实验管理 → 实验批次与运行记录</text><rect x="138" y="133" width="1118" height="53" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154.0" y="155" class="accent">实验管理</text><path d="M154.0 160 H218.0" stroke="#38d6f2" stroke-width="2" /><text x="713.0" y="155" class="">交易与账户模拟</text><text x="154" y="179" class="muted">问题 / 批次 / 状态筛选</text><rect x="138" y="799" width="1118" height="24" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="150" y="816" class="muted">任务  ·  通知  ·  连接状态</text><text x="835" y="816" class="muted" style="font-size:13px">状态以实际结果显示；点击返回所属对象</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 980" role="img" aria-label="UI-BKT-EXP-02 实验批次与运行记录 交互规格">
+<style>text{font-family:"Noto Sans SC","PingFang SC",sans-serif}.body{font-size:16px;fill:#d6e0e8}.muted{font-size:14px;fill:#a8b5c1}.small{font-size:13px;fill:#a8b5c1}.title{font-size:26px;font-weight:600;fill:#f2f7fb}.head{font-size:18px;font-weight:600;fill:#f2f7fb}.accent{font-size:16px;fill:#6ee0ec}.warn{font-size:16px;fill:#f7ce82}.disabled{font-size:16px;fill:#80909f}</style>
+<rect x="0" y="0" width="1440" height="980" rx="0" fill="#081017" stroke="#081017"/>
+<text x="28" y="34" class="accent">UI-BKT-EXP-02 · 开发前界面规格</text>
+<text x="28" y="73" class="title">实验批次与运行记录</text>
+<text x="28" y="953" class="small">交互规格图 · 图中数值为说明规则的示例；字段与动作以页面需求为准。</text>
+<rect x="24" y="100" width="92" height="817" rx="8" fill="#101820" stroke="#31414e"/>
+<text x="50" y="152" class="body">数据</text>
+<text x="50" y="208" class="body">情报</text>
+<text x="50" y="264" class="body">分析</text>
+<text x="50" y="320" class="body">策略</text>
+<rect x="30" y="348" width="80" height="42" rx="4" fill="#153039" stroke="#377884"/>
+<text x="50" y="376" class="accent">回测</text>
+<text x="50" y="432" class="body">评估</text>
+<text x="50" y="488" class="body">实盘</text>
+<text x="34" y="879" class="small">系统管理</text>
+<text x="142" y="125" class="muted">回测  /  实验管理  /  实验批次与运行记录</text>
+<rect x="138" y="145" width="1278" height="60" rx="8" fill="#101820" stroke="#31414e"/>
+<text x="158" y="170" class="accent">实验管理</text>
+<text x="158" y="193" class="small">对象身份与来源固定显示 · 保存、检查、提交分别操作</text>
+<rect x="138" y="222" width="180" height="558" rx="8" fill="#101820" stroke="#31414e"/>
+<text x="156" y="254" class="head">页面导航</text>
+<rect x="150" y="276" width="156" height="43" rx="4" fill="#153039" stroke="#377884"/>
+<text x="162" y="303" class="accent">批次列表</text>
+<text x="162" y="369" class="body">参数空间</text>
+<text x="162" y="435" class="body">展开候选</text>
+<text x="162" y="501" class="body">全部尝试</text>
+<text x="162" y="567" class="body">失败与复核</text>
+<rect x="334" y="222" width="742" height="558" rx="8" fill="#101820" stroke="#31414e"/>
+<text x="353" y="254" class="head">有限批次 · 预算阻断示例</text>
+<text x="354" y="286" class="muted">字段</text>
+<text x="548" y="286" class="muted">值 / 选择</text>
+<text x="828" y="286" class="muted">约束 / 解释</text>
+<path d="M350 346 H1060" stroke="#24333f"/>
+<text x="354" y="328" class="body">基础方案</text>
+<text x="548" y="328" class="accent">方案 E / 固定身份</text>
+<text x="828" y="328" class="small">条件和验证范围固定</text>
+<path d="M350 395 H1060" stroke="#24333f"/>
+<text x="354" y="377" class="body">窗口候选</text>
+<text x="548" y="377" class="accent">10、20、30 bar</text>
+<text x="828" y="377" class="small">有类型有限值</text>
+<path d="M350 444 H1060" stroke="#24333f"/>
+<text x="354" y="426" class="body">阈值候选</text>
+<text x="548" y="426" class="accent">0.1、0.2</text>
+<text x="828" y="426" class="small">合法范围内</text>
+<path d="M350 493 H1060" stroke="#24333f"/>
+<text x="354" y="475" class="body">成本情景</text>
+<text x="548" y="475" class="accent">基准、压力</text>
+<text x="828" y="475" class="small">逐情景条件固定</text>
+<path d="M350 542 H1060" stroke="#24333f"/>
+<text x="354" y="524" class="body">重复次数</text>
+<text x="548" y="524" class="accent">1</text>
+<text x="828" y="524" class="small">用途必须明确</text>
+<path d="M350 591 H1060" stroke="#24333f"/>
+<text x="354" y="573" class="body">预计运行数</text>
+<text x="548" y="573" class="accent">3 × 2 × 2 = 12 次</text>
+<text x="828" y="573" class="small">完整清单不截断</text>
+<path d="M350 640 H1060" stroke="#24333f"/>
+<text x="354" y="622" class="body">次数上限</text>
+<text x="548" y="622" class="accent">8 次</text>
+<text x="828" y="622" class="small">示例：预算不足4次</text>
+<path d="M350 689 H1060" stroke="#24333f"/>
+<text x="354" y="671" class="body">并发上限</text>
+<text x="548" y="671" class="accent">1</text>
+<text x="828" y="671" class="small">可选1～2</text>
+<path d="M350 738 H1060" stroke="#24333f"/>
+<text x="354" y="720" class="body">状态筛选</text>
+<text x="548" y="720" class="accent">全部</text>
+<text x="828" y="720" class="small">失败、取消、未开始均保留</text>
+<rect x="1092" y="222" width="324" height="558" rx="8" fill="#101820" stroke="#31414e"/>
+<text x="1110" y="254" class="head">运行后应能核对</text>
+<text x="1112" y="306" class="body">每次尝试独立身份</text>
+<path d="M1109 323 H1399" stroke="#24333f"/>
+<text x="1112" y="362" class="body">固定参数 / 折次 / 场景</text>
+<path d="M1109 379 H1399" stroke="#24333f"/>
+<text x="1112" y="418" class="body">阶段与最后可靠时间</text>
+<path d="M1109 435 H1399" stroke="#24333f"/>
+<text x="1112" y="474" class="body">部分结果显示覆盖</text>
+<path d="M1109 491 H1399" stroke="#24333f"/>
+<text x="1112" y="530" class="body">取消需等待终态</text>
+<path d="M1109 547 H1399" stroke="#24333f"/>
+<text x="1112" y="586" class="body">重跑另建并关联原记录</text>
+<path d="M1109 603 H1399" stroke="#24333f"/>
+<text x="1112" y="718" class="small">只读事实与可编辑草稿分区</text>
+<text x="1112" y="746" class="small">离开后按对象身份恢复上下文</text>
+<rect x="138" y="797" width="1278" height="53" rx="8" fill="#29251b" stroke="#665b3c"/>
+<text x="155" y="828" class="warn">超过次数预算  ·  预计12次 &gt; 上限8次，禁止提交</text>
+<rect x="334" y="870" width="174" height="44" rx="5" fill="#153039" stroke="#377884"/>
+<text x="352" y="899" class="accent">展开候选</text>
+<rect x="522" y="870" width="174" height="44" rx="5" fill="#153039" stroke="#377884"/>
+<text x="540" y="899" class="accent">保存草稿</text>
+<rect x="710" y="870" width="174" height="44" rx="5" fill="#153039" stroke="#377884"/>
+<text x="728" y="899" class="accent">查看记录</text>
+<rect x="898" y="870" width="174" height="44" rx="5" fill="#17212a" stroke="#3c4854"/>
+<text x="916" y="899" class="disabled">提交批次</text>
+<text x="138" y="899" class="muted">任务与通知</text>
+</svg>

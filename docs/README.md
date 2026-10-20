@@ -9,7 +9,7 @@
 | 数据模块职责、采集加工、存储查询与案例    | [数据模块详细设计](requirements/modules/data/README.md)                                                                                           |
 | 公告与资讯结构化、LLM处理、核验及事件时点 | [情报](requirements/modules/intelligence/README.md)                                                                                               |
 | 配置、定时调度、日志诊断与通知分工        | [系统管理](requirements/modules/system/README.md)、[公共通知规范](requirements/common/interaction.md#req-com-ux-02)                               |
-| 实际界面、字段按钮、需求差距与操作流程    | [实际界面浏览](requirements/prototype.html)、[交互规格](requirements/common/screens.md)、[操作旅程](requirements/workflows/README.md)             |
+| 目标界面、字段按钮、交互行为与操作流程    | [目标界面浏览](requirements/prototype.html)、[交互规格](requirements/common/screens.md)、[操作旅程](requirements/workflows/README.md)             |
 | 项目范围、首次启动                        | [项目首页](../README.md)、[开发指南](development.md)                                                                                              |
 | 层次、进程、状态归属、插件方式            | [架构](architecture.md)                                                                                                                           |
 | 已实现能力、限制与下一步                  | [现状](status.md)                                                                                                                                 |
@@ -25,3 +25,4 @@
 
 模块 README 只解释该模块职责，并链接这里的完整契约；不复制状态页或阶段日志。
 更新实现时同步生产者、消费者、测试和对应主题文档。历史失败及复验记录保留，不把新结果覆盖到旧基线。
+

@@ -1,1 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 850" role="img" aria-label="UI-LIV-EXE-03 断线与未知结果核对目标布局"><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:16px;fill:#c5ccd6}.strong{fill:#eef4fb;font-weight:600}.muted{fill:#7c8796;font-size:14px}.accent{fill:#38d6f2}.title{fill:#eef4fb;font-size:24px;font-weight:600}</style><rect width="1280" height="850" fill="#06080b" /><text x="24" y="30" class="accent">UI-LIV-EXE-03 · 目标布局草案 · 非实际截图</text><text x="24" y="66" class="title">断线与未知结果核对</text><text x="24" y="834" class="muted">布局与字段示意；不连接服务，不代表已实现或已通过运行验收。</text><rect x="138" y="204" width="431" height="330" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="234" class="strong">左侧依据</text><path d="M138 249 H569" stroke="#1a212b" /><text x="154" y="284" class="">可靠意图</text><path d="M152 309 H555" stroke="#1a212b" /><text x="154" y="348" class="">最后明确状态</text><path d="M152 373 H555" stroke="#1a212b" /><rect x="585" y="204" width="431" height="330" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="601" y="234" class="strong">右侧对照</text><path d="M585 249 H1016" stroke="#1a212b" /><text x="601" y="284" class="">外部查询</text><path d="M599 309 H1002" stroke="#1a212b" /><text x="601" y="348" class="">关联订单与成交</text><path d="M599 373 H1002" stroke="#1a212b" /><rect x="1032" y="204" width="224" height="510" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="1048" y="234" class="strong">核对详情</text><path d="M1032 249 H1256" stroke="#1a212b" /><text x="1048" y="284" class="">未决占用</text><path d="M1046 309 H1242" stroke="#1a212b" /><text x="1048" y="348" class="">恢复前提</text><path d="M1046 373 H1242" stroke="#1a212b" /><rect x="138" y="550" width="878" height="164" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154" y="580" class="strong">差异明细与结论</text><path d="M138 595 H1016" stroke="#1a212b" /><text x="154.0" y="630" class="muted">字段</text><text x="436.0" y="630" class="muted">原始依据</text><text x="718.0" y="630" class="muted">确认结果</text><path d="M152 655 H1002" stroke="#1a212b" /><rect x="154" y="743" width="120" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="166" y="766" class="accent">查询原请求</text><rect x="288" y="743" width="126" height="34" rx="2" fill="#0b171f" stroke="#246373" /><text x="300" y="766" class="accent">查看恢复条件</text><rect x="24" y="88" width="92" height="710" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="54" y="132" class="">数据</text><text x="54" y="176" class="">情报</text><text x="54" y="220" class="">分析</text><text x="54" y="264" class="">策略</text><text x="54" y="308" class="">回测</text><text x="54" y="352" class="">评估</text><rect x="30" y="371" width="80" height="36" rx="2" fill="#0b171f" stroke="#246373" /><text x="54" y="396" class="accent">实盘</text><text x="37" y="743" class="muted">系统管理</text><text x="138" y="111" class="muted">实盘 → 订单与成交 → 断线与未知结果核对</text><rect x="138" y="133" width="1118" height="53" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="154.0" y="155" class="">准备与运行</text><text x="526.6666666666667" y="155" class="accent">订单与成交</text><path d="M526.6666666666667 160 H606.6666666666667" stroke="#38d6f2" stroke-width="2" /><text x="899.3333333333334" y="155" class="">账户与核对</text><text x="154" y="179" class="muted">原请求 / 账户 / 受限状态</text><rect x="138" y="799" width="1118" height="24" rx="2" fill="#0b0e13" stroke="#2a3543" /><text x="150" y="816" class="muted">任务  ·  通知  ·  连接状态</text><text x="835" y="816" class="muted" style="font-size:13px">状态以实际结果显示；点击返回所属对象</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000">
+<title>UI-LIV-EXE-03 断线与未知结果核对</title>
+<desc>开发前目标界面设计，字段提示代表业务类型；案例数值单独标识且不作为默认值。</desc>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif">
+<rect x="0" y="0" width="1440" height="1000" rx="0" fill="#06080b" stroke="#06080b"/>
+<rect x="0" y="0" width="166" height="1000" rx="0" fill="#0b0e13" stroke="#2a3543"/>
+<text x="23" y="39" fill="#38d6f2" font-size="20" font-weight="700">ASTERION</text>
+<text x="23" y="65" fill="#7c8796" font-size="12" font-weight="400">交易研究工作台</text>
+<text x="32" y="118" fill="#7c8796" font-size="17" font-weight="400">数据</text>
+<text x="32" y="171" fill="#7c8796" font-size="17" font-weight="400">情报</text>
+<text x="32" y="224" fill="#7c8796" font-size="17" font-weight="400">分析</text>
+<text x="32" y="277" fill="#7c8796" font-size="17" font-weight="400">策略</text>
+<text x="32" y="330" fill="#7c8796" font-size="17" font-weight="400">回测</text>
+<rect x="13" y="409" width="140" height="42" rx="6" fill="#12354b" stroke="#25708b"/>
+<text x="32" y="383" fill="#7c8796" font-size="17" font-weight="400">评估</text>
+<text x="32" y="436" fill="#38d6f2" font-size="17" font-weight="400">实盘</text>
+<text x="31" y="961" fill="#7c8796" font-size="16" font-weight="400">系统管理</text>
+<text x="194" y="39" fill="#eef4fb" font-size="24" font-weight="700">断线与未知结果核对</text>
+<text x="194" y="66" fill="#7c8796" font-size="13" font-weight="400">UI-LIV-EXE-03 · 目标界面设计</text>
+<rect x="190" y="87" width="1226" height="57" rx="8" fill="#0f2533" stroke="#275269"/>
+<text x="210" y="112" fill="#bae6fd" font-size="16" font-weight="600">原账户 / 环境 / 原交易意图 / 原发送与撤单请求</text>
+<text x="210" y="134" fill="#7c8796" font-size="12" font-weight="400">账户、环境与来源时间持续可见；页面切换不产生交易动作</text>
+<rect x="190" y="161" width="352" height="697" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="208" y="192" fill="#eef4fb" font-size="17" font-weight="600">原请求与可靠记录</text>
+<rect x="208" y="222" width="316" height="319" rx="4" fill="#0b1626" stroke="#2a3543"/>
+<rect x="208" y="222" width="316" height="39" rx="4" fill="#192c42" stroke="#2a3543"/>
+<text x="218" y="247" fill="#7c8796" font-size="13" font-weight="600">事实</text>
+<text x="366" y="247" fill="#7c8796" font-size="13" font-weight="600">只读证据</text>
+<text x="218" y="290" fill="#c5ccd6" font-size="13" font-weight="400">意图身份</text>
+<text x="366" y="290" fill="#c5ccd6" font-size="13" font-weight="400">不创建替代单</text>
+<rect x="209" y="317" width="314" height="56" rx="0" fill="#101f32" stroke="#101f32"/>
+<text x="218" y="346" fill="#c5ccd6" font-size="13" font-weight="400">已持久接纳</text>
+<text x="366" y="346" fill="#c5ccd6" font-size="13" font-weight="400">可靠记录阶段</text>
+<text x="218" y="402" fill="#c5ccd6" font-size="13" font-weight="400">越过发送边界</text>
+<text x="366" y="402" fill="#c5ccd6" font-size="13" font-weight="400">可能已外发</text>
+<rect x="209" y="429" width="314" height="56" rx="0" fill="#101f32" stroke="#101f32"/>
+<text x="218" y="458" fill="#c5ccd6" font-size="13" font-weight="400">最后明确回报</text>
+<text x="366" y="458" fill="#c5ccd6" font-size="13" font-weight="400">受理/成交/未知</text>
+<text x="218" y="514" fill="#c5ccd6" font-size="13" font-weight="400">未决占用</text>
+<text x="366" y="514" fill="#c5ccd6" font-size="13" font-weight="400">不能擅自释放</text>
+<rect x="208" y="570" width="316" height="86" rx="5" fill="#182435" stroke="#344155"/>
+<text x="221" y="595" fill="#edb966" font-size="14" font-weight="600">查询为空不等于未发送</text>
+<text x="221" y="619" fill="#c5ccd6" font-size="13" font-weight="400">先检查时间、账户与查询覆盖</text>
+<text x="221" y="640" fill="#c5ccd6" font-size="13" font-weight="400">没有证据保持结果待核对</text>
+<rect x="558" y="161" width="858" height="384" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="576" y="192" fill="#eef4fb" font-size="17" font-weight="600">外部查询与候选匹配</text>
+<rect x="576" y="222" width="822" height="243" rx="4" fill="#0b1626" stroke="#2a3543"/>
+<rect x="576" y="222" width="822" height="39" rx="4" fill="#192c42" stroke="#2a3543"/>
+<text x="586" y="247" fill="#7c8796" font-size="13" font-weight="600">候选记录</text>
+<text x="754" y="247" fill="#7c8796" font-size="13" font-weight="600">稳定关联</text>
+<text x="949" y="247" fill="#7c8796" font-size="13" font-weight="600">覆盖范围</text>
+<text x="1144" y="247" fill="#7c8796" font-size="13" font-weight="600">匹配结论</text>
+<text x="586" y="290" fill="#c5ccd6" font-size="13" font-weight="400">外部订单</text>
+<text x="754" y="290" fill="#c5ccd6" font-size="13" font-weight="400">柜台支持标识</text>
+<text x="949" y="290" fill="#c5ccd6" font-size="13" font-weight="400">账户 / 交易日</text>
+<text x="1144" y="290" fill="#c5ccd6" font-size="13" font-weight="400">可靠 / 冲突 / 不足</text>
+<rect x="577" y="329" width="820" height="68" rx="0" fill="#101f32" stroke="#101f32"/>
+<text x="586" y="358" fill="#c5ccd6" font-size="13" font-weight="400">成交记录</text>
+<text x="754" y="358" fill="#c5ccd6" font-size="13" font-weight="400">外部成交身份</text>
+<text x="949" y="358" fill="#c5ccd6" font-size="13" font-weight="400">起止与完整性</text>
+<text x="1144" y="358" fill="#c5ccd6" font-size="13" font-weight="400">只计一次 / 可追溯</text>
+<text x="586" y="426" fill="#c5ccd6" font-size="13" font-weight="400">未找到</text>
+<text x="754" y="426" fill="#c5ccd6" font-size="13" font-weight="400">不可猜测关联</text>
+<text x="949" y="426" fill="#c5ccd6" font-size="13" font-weight="400">范围不足说明</text>
+<text x="1144" y="426" fill="#c5ccd6" font-size="13" font-weight="400">仍未知 / 继续限制</text>
+<rect x="558" y="561" width="858" height="297" rx="8" fill="#0b0e13" stroke="#2a3543"/>
+<text x="576" y="592" fill="#eef4fb" font-size="17" font-weight="600">人工依据与恢复审查</text>
+<text x="576" y="626" fill="#c5ccd6" font-size="14" font-weight="400">核实说明与依据引用</text>
+<text x="976" y="626" fill="#38d6f2" font-size="12" font-weight="400">编辑 / 必填</text>
+<rect x="576" y="636" width="500" height="35" rx="4" fill="#11161d" stroke="#2a3543"/>
+<text x="586" y="660" fill="#7c8796" font-size="13" font-weight="400">取得依据后填写</text>
+<text x="576" y="689" fill="#7c8796" font-size="12" font-weight="400">可追加非秘密文字，不改写外部事实</text>
+<rect x="1092" y="615" width="306" height="107" rx="5" fill="#182435" stroke="#344155"/>
+<text x="1105" y="640" fill="#edb966" font-size="14" font-weight="600">恢复前置</text>
+<text x="1105" y="664" fill="#c5ccd6" font-size="13" font-weight="400">关联明确、占用已核对</text>
+<text x="1105" y="685" fill="#c5ccd6" font-size="13" font-weight="400">账户与政策有效</text>
+<text x="1105" y="706" fill="#c5ccd6" font-size="13" font-weight="400">恢复单独确认</text>
+<text x="576" y="766" fill="#7c8796" font-size="14" font-weight="400">原意图、外部依据和追加说明始终可查看</text>
+<rect x="190" y="876" width="1226" height="99" rx="8" fill="#102538" stroke="#275269"/>
+<text x="208" y="905" fill="#c5ccd6" font-size="16" font-weight="600">未知结果查询原意图，禁止自动重发</text>
+<text x="208" y="935" fill="#7c8796" font-size="13" font-weight="400">返回原订单或运行；离开页面不表示取消原交易。</text>
+<rect x="1290" y="920" width="106" height="39" rx="5" fill="#17283c" stroke="#40516a"/>
+<text x="1303" y="945" fill="#e0f2fe" font-size="14" font-weight="400">转恢复审查</text>
+<rect x="1162" y="920" width="116" height="39" rx="5" fill="#17283c" stroke="#40516a"/>
+<text x="1175" y="945" fill="#e0f2fe" font-size="14" font-weight="400">追加核实依据</text>
+<rect x="1044" y="920" width="106" height="39" rx="5" fill="#0e7490" stroke="#28829a"/>
+<text x="1057" y="945" fill="#e0f2fe" font-size="14" font-weight="400">查询原请求</text>
+</g>
+</svg>
