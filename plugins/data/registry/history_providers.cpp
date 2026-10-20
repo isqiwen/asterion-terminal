@@ -22,11 +22,11 @@ std::string text(const char* s)
     return s;
 }
 
-const AstHistoryV3& table(const NativeInstance& instance)
+const AstHistory& table(const NativeInstance& instance)
 {
     const auto* t =
-        static_cast<const AstHistoryV3*>(instance.query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
-    if (t->size != sizeof(AstHistoryV3) || t->version != 3 || !t->sources || !t->minutes)
+        static_cast<const AstHistory*>(instance.query(AST_HISTORY, 3, sizeof(AstHistory)));
+    if (t->size != sizeof(AstHistory) || t->version != 3 || !t->sources || !t->minutes)
         throw std::invalid_argument("invalid native history capability");
     return *t;
 }
@@ -65,11 +65,11 @@ struct Output
     }
 };
 
-const AstHistoryConnectionV1& connection_table(const NativeInstance& instance)
+const AstHistoryConnection& connection_table(const NativeInstance& instance)
 {
-    const auto* result = static_cast<const AstHistoryConnectionV1*>(
-        instance.query(AST_HISTORY_CONNECTION_V1, 1, sizeof(AstHistoryConnectionV1)));
-    if (result->size != sizeof(AstHistoryConnectionV1) || result->version != 1 || !result->describe
+    const auto* result = static_cast<const AstHistoryConnection*>(
+        instance.query(AST_HISTORY_CONNECTION, 1, sizeof(AstHistoryConnection)));
+    if (result->size != sizeof(AstHistoryConnection) || result->version != 1 || !result->describe
         || !result->verify)
         throw std::invalid_argument("invalid history connection capability");
     return *result;
@@ -77,7 +77,7 @@ const AstHistoryConnectionV1& connection_table(const NativeInstance& instance)
 
 ConnectionSchema connection_schema(NativeLibrary& library, const std::string& source)
 {
-    auto instance = library.create(AST_HISTORY_CONNECTION_V1, {});
+    auto instance = library.create(AST_HISTORY_CONNECTION, {});
     Output<ConnectionSchema> output;
     const auto status = connection_table(*instance).describe(
         instance->handle(),
@@ -121,10 +121,10 @@ const std::vector<Installed>& registry()
         for (auto& library : discover_native_plugins(native_plugin_directory())) {
             const auto& descriptor = library.descriptor();
             if (std::ranges::none_of(descriptor.capabilities, [](const auto& c) {
-                    return c.id == AST_HISTORY_V3 && c.version == 3;
+                    return c.id == AST_HISTORY && c.version == 3;
                 }))
                 continue;
-            auto instance = library.create(AST_HISTORY_V3, {});
+            auto instance = library.create(AST_HISTORY, {});
             Output<Source> out;
             const auto status = table(*instance).sources(
                 instance->handle(),
@@ -177,8 +177,7 @@ const std::vector<Installed>& registry()
             for (auto& source : declared) {
                 source.plugin_id = descriptor.id;
                 if (std::ranges::any_of(descriptor.capabilities, [](const auto& capability) {
-                        return capability.id == AST_HISTORY_CONNECTION_V1
-                            && capability.version == 1;
+                        return capability.id == AST_HISTORY_CONNECTION && capability.version == 1;
                     })) {
                     source.connection = connection_schema(library, source.id);
                     if (source.connection->credential_required != source.credential_required
@@ -210,7 +209,7 @@ struct Provider
                         throw std::invalid_argument("invalid native plugin credential");
                     source = item;
                     instance = installed.library.create(
-                        AST_HISTORY_V3,
+                        AST_HISTORY,
                         {{"source", id.c_str()}, {"credential", credential.c_str()}});
                     return;
                 }
@@ -360,7 +359,7 @@ verify_connection(const std::string& source, const std::string& credential, std:
             if (credential.size() > schema.credential_max_length
                 || (schema.credential_required && credential.empty()))
                 throw std::invalid_argument("invalid native plugin credential");
-            auto instance = installed.library.create(AST_HISTORY_CONNECTION_V1, {});
+            auto instance = installed.library.create(AST_HISTORY_CONNECTION, {});
             instance->start();
             Output<ConnectionCheck> output;
             const auto status = connection_table(*instance).verify(
@@ -429,11 +428,11 @@ minutes(const std::string& source, const std::string& credential, RequestBudget 
 
 namespace {
 
-const AstHistoryTablesV1& tables_table(const NativeInstance& instance)
+const AstHistoryTables& tables_table(const NativeInstance& instance)
 {
-    const auto* result = static_cast<const AstHistoryTablesV1*>(
-        instance.query(AST_HISTORY_TABLES_V1, 1, sizeof(AstHistoryTablesV1)));
-    if (result->size != sizeof(AstHistoryTablesV1) || result->version != 1 || !result->tables
+    const auto* result = static_cast<const AstHistoryTables*>(
+        instance.query(AST_HISTORY_TABLES, 1, sizeof(AstHistoryTables)));
+    if (result->size != sizeof(AstHistoryTables) || result->version != 1 || !result->tables
         || !result->read)
         throw std::invalid_argument("invalid native history table capability");
     return *result;
@@ -453,10 +452,10 @@ const std::vector<InstalledTables>& table_registry()
         for (auto& library : discover_native_plugins(native_plugin_directory())) {
             const auto& descriptor = library.descriptor();
             if (std::ranges::none_of(descriptor.capabilities, [](const auto& c) {
-                    return c.id == AST_HISTORY_TABLES_V1 && c.version == 1;
+                    return c.id == AST_HISTORY_TABLES && c.version == 1;
                 }))
                 continue;
-            auto instance = library.create(AST_HISTORY_TABLES_V1, {});
+            auto instance = library.create(AST_HISTORY_TABLES, {});
             Output<TableSource> out;
             const auto status = tables_table(*instance).tables(
                 instance->handle(),
@@ -517,7 +516,7 @@ public:
         if (credential.size() > 256)
             throw std::invalid_argument("invalid native plugin credential");
         instance_ =
-            installed_.library.create(AST_HISTORY_TABLES_V1, {{"credential", credential.c_str()}});
+            installed_.library.create(AST_HISTORY_TABLES, {{"credential", credential.c_str()}});
         instance_->start();
     }
 
@@ -623,11 +622,11 @@ public:
         }
         const auto& caps = installed_.library.descriptor().capabilities;
         if (std::ranges::any_of(caps, [](const auto& cap) {
-                return cap.id == AST_HISTORY_RESPONSE_V1 && cap.version == 1;
+                return cap.id == AST_HISTORY_RESPONSE && cap.version == 1;
             })) {
-            const auto* api = static_cast<const AstHistoryResponseV1*>(
-                instance_->query(AST_HISTORY_RESPONSE_V1, 1, sizeof(AstHistoryResponseV1)));
-            if (!api || api->size != sizeof(AstHistoryResponseV1) || api->version != 1 || !api->get)
+            const auto* api = static_cast<const AstHistoryResponse*>(
+                instance_->query(AST_HISTORY_RESPONSE, 1, sizeof(AstHistoryResponse)));
+            if (!api || api->size != sizeof(AstHistoryResponse) || api->version != 1 || !api->get)
                 throw std::invalid_argument("invalid source response evidence");
 
             struct Observation

@@ -8,28 +8,28 @@
 
 namespace asterion::protocol {
 
-void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop)
+void resolve_task_input(task::proto::TaskAttempt& attempt, std::stop_token stop)
 {
     auto& task = *attempt.mutable_task();
-    if (task.kind() == task::v1::MINUTE_DOWNLOAD || task.kind() == task::v1::TABLE_UPDATE) {
+    if (task.kind() == task::proto::MINUTE_DOWNLOAD || task.kind() == task::proto::TABLE_UPDATE) {
         if (attempt.has_execution())
             throw std::invalid_argument("unexpected calculation definition");
         return;
     }
     const auto& execution = attempt.execution();
-    if (task.definition_case() != task::v1::Task::DEFINITION_NOT_SET
+    if (task.definition_case() != task::proto::Task::DEFINITION_NOT_SET
         || execution.input_sha256().size() != 64
-        || (task.kind() == task::v1::BACKTEST ? !execution.has_backtest()
-                                              : !execution.has_factor()))
+        || (task.kind() == task::proto::BACKTEST ? !execution.has_backtest()
+                                                 : !execution.has_factor()))
         throw std::invalid_argument("invalid calculation execution definition");
     DataClient data(attempt.data_endpoint(), attempt.data_instance());
     const auto check_stop = [&] {
         if (stop.stop_requested())
             throw Error(ErrorCode::cancelled, "task cancelled");
     };
-    const auto bars = [&](const data::v1::BarDatasetRequest& selection) {
+    const auto bars = [&](const data::proto::BarDatasetRequest& selection) {
         check_stop();
-        data::v1::DataRequest request;
+        data::proto::DataRequest request;
         *request.mutable_bar_dataset() = selection;
         auto reply = data.call(std::move(request));
         check_stop();
@@ -73,7 +73,7 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop)
                 // The fixed months under their fixed schedule: nothing is selected again.
                 if (schedule == execution.schedules_size())
                     throw std::invalid_argument("calculation requires fixed dominant schedules");
-                factor::v1::FactorSeries series;
+                factor::proto::FactorSeries series;
                 for (const auto& month : source.dominant().months())
                     *series.mutable_dominant()->add_months() = bars(month);
                 *series.mutable_dominant()->mutable_schedule() = execution.schedules(schedule++);

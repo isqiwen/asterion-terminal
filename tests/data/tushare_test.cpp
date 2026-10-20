@@ -472,7 +472,7 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption)
     provider.start();
     const auto spec = range();
     history_files::download_minutes(provider, spec, folder.path);
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("CU2310.SHF");
     input.set_contract_id("SHFE/cu/2023-10");
@@ -481,7 +481,7 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption)
     input.set_end_ns(spec.end_ns);
     input.set_requests_per_minute(500);
     const auto result = history_files::minute_result(folder.path);
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_task_id("fixture");
     query.set_limit(2);
     auto first = history_files::read_minute_page(input, result, query);
@@ -528,7 +528,7 @@ TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData)
     }));
     provider.start();
     history_files::download_minutes(provider, spec, folder.path);
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("CU2310.SHF");
     input.set_contract_id("SHFE/cu/2023-10");
@@ -537,7 +537,7 @@ TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData)
     input.set_end_ns(spec.end_ns);
     input.set_requests_per_minute(500);
     const auto result = history_files::minute_result(folder.path);
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_task_id("fixture");
     query.set_limit(1);
     ASSERT_EQ(history_files::inspect_minutes(folder.path).at("segments").size(), 3);
@@ -562,7 +562,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
     spec.end_ns = begin + 39 * 60000000000LL;
     {
         data::Store store(root.path, "historical-data", "task");
-        data::v1::MinuteDownload input;
+        data::proto::MinuteDownload input;
         input.set_source("tushare.ft_mins");
         input.set_source_instrument("CU2310.SHF");
         input.set_contract_id("SHFE/cu/2023-10");
@@ -615,13 +615,13 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
             "task",
             "--worker-endpoint",
             endpoint + ".workers"});
-    auto call = [&](data::v1::DataRequest request) {
+    auto call = [&](data::proto::DataRequest request) {
         request.set_version(1);
         request.set_service_id("historical-data");
         request.set_correlation_id(unique_process_id());
         auto channel = ipc::Channel::connect(endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
-        data::v1::DataResponse reply;
+        data::proto::DataResponse reply;
         if (!reply.ParseFromString(channel.receive(2s)))
             throw std::runtime_error("bad response");
         return reply;
@@ -629,7 +629,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
         try {
-            data::v1::DataRequest ping;
+            data::proto::DataRequest ping;
             ping.mutable_heartbeat();
             if (call(ping).health().initialized())
                 break;
@@ -641,7 +641,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
             throw std::runtime_error("data service did not become ready");
         std::this_thread::sleep_for(20ms);
     }
-    data::v1::DataRequest request;
+    data::proto::DataRequest request;
     request.mutable_minute_page()->set_dataset_id(dataset_id);
     request.mutable_minute_page()->set_limit(100);
     request.mutable_minute_page()->set_include_macd(true);
@@ -670,7 +670,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
     request.mutable_minute_page()->set_dataset_id(dataset_id);
     request.mutable_minute_page()->set_limit(201);
     EXPECT_TRUE(call(request).has_error());
-    data::v1::DataRequest list;
+    data::proto::DataRequest list;
     list.mutable_datasets();
     const auto summary = call(list);
     ASSERT_TRUE(summary.has_datasets());
@@ -718,7 +718,7 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters)
     spec.begin_ns = start;
     spec.end_ns = start + 119 * 60000000000LL;
     history_files::download_minutes(provider, spec, folder.path);
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("CU2310.SHF");
     input.set_contract_id("SHFE/cu/2023-10");
@@ -727,7 +727,7 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters)
     input.set_end_ns(spec.end_ns);
     input.set_requests_per_minute(500);
     const auto result = history_files::minute_result(folder.path);
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_task_id("macd");
     query.set_limit(120);
     query.set_include_macd(true);
@@ -773,7 +773,7 @@ TEST(Tushare, DatasetReadersCoexistAndExcludeDownloadWrites)
     provider.start();
     const auto spec = range();
     history_files::download_minutes(provider, spec, folder.path);
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("CU2310.SHF");
     input.set_contract_id("SHFE/cu/2023-10");
@@ -782,7 +782,7 @@ TEST(Tushare, DatasetReadersCoexistAndExcludeDownloadWrites)
     input.set_end_ns(spec.end_ns);
     input.set_requests_per_minute(500);
     const auto result = history_files::minute_result(folder.path);
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_task_id("concurrent-read");
     query.set_limit(10);
     query.set_include_macd(true);
@@ -861,7 +861,7 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments)
     auto spec = range();
     spec.end_ns = begin + 69 * day + 19 * 60000000000LL;
     history_files::download_minutes(provider, spec, folder.path);
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("CU2310.SHF");
     input.set_contract_id("SHFE/cu/2023-10");
@@ -870,7 +870,7 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments)
     input.set_end_ns(spec.end_ns);
     input.set_requests_per_minute(500);
     const auto result = history_files::minute_result(folder.path);
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_task_id("cache-eviction");
     query.set_offset(1375);
     query.set_limit(25);

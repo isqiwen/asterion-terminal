@@ -1,6 +1,5 @@
 #include "../apps/clients/terminal/native/research_export.hpp"
 #include "../apps/clients/terminal/native/portfolio_budget_review.hpp"
-#include <asterion/kernel/process/artifact.hpp>
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "support/timing.hpp"
 #include "data/history_fixture.hpp"
@@ -214,12 +213,16 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     EXPECT_FALSE(document.contains("nodes"));
     EXPECT_EQ(content.find("not-exported"), std::string::npos);
     const auto path = fixture.directory / "evidence.json";
+    const auto saved_content = [&] {
+        std::ifstream input(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
     asterion::terminal::save_research_evidence(path, content);
-    EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+    EXPECT_EQ(saved_content(), content);
     EXPECT_THROW(
         asterion::terminal::save_research_evidence(path, "replacement"),
         std::invalid_argument);
-    EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+    EXPECT_EQ(saved_content(), content);
     auto unsupported = source;
     unsupported["kind"] = "minute_download";
     EXPECT_THROW(
@@ -556,7 +559,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations)
 TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects)
 {
     asterion::terminal::MarketHistory history;
-    asterion::market::v1::EventBatch batch;
+    asterion::market::proto::EventBatch batch;
     batch.set_stream_id("fixture-stream");
     batch.set_latest_sequence(520);
     for (std::uint64_t i = 1; i <= 520; ++i) {
@@ -579,7 +582,7 @@ TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects)
     batch.set_gap(true);
     auto* event = batch.add_events();
     event->set_sequence(530);
-    *event->mutable_quote()->mutable_quote() = asterion::market::v1::Quote{};
+    *event->mutable_quote()->mutable_quote() = asterion::market::proto::Quote{};
     history.append(batch);
     EXPECT_TRUE(history.snapshot().at("points").empty());
     EXPECT_TRUE(history.snapshot().at("interrupted"));
@@ -603,7 +606,7 @@ TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects)
 TEST(MarketHistory, RejectsBrokenOrderAndSkipsOutOfOrderQuotes)
 {
     asterion::terminal::MarketHistory history;
-    asterion::market::v1::EventBatch batch;
+    asterion::market::proto::EventBatch batch;
     batch.set_stream_id("fixture-stream");
     batch.set_latest_sequence(2);
     batch.add_events()->set_sequence(2);
@@ -629,7 +632,7 @@ TEST(MarketHistory, VolumeUsesPerContractDayBaselineAndResetsOnDiscontinuity)
                             std::int64_t volume,
                             bool gap = false,
                             bool out_of_order = false) {
-        asterion::market::v1::EventBatch batch;
+        asterion::market::proto::EventBatch batch;
         batch.set_stream_id("volume-fixture");
         batch.set_latest_sequence(++sequence);
         batch.set_gap(gap);

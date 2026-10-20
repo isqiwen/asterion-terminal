@@ -1,6 +1,6 @@
 syntax = "proto3";
-package asterion.data.v1;
-import "asterion/v1/domain.proto";
+package asterion.data.proto;
+import "asterion/domain.proto";
 
 // Current providers do not prove historical publication/knowable times.
 // Unspecified is invalid: absence must not imply historical availability.
@@ -27,7 +27,7 @@ message DailyTable {
 // From trading_day on, a contract's prices are whole multiples of value.
 message PriceIncrement {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal value = 2;
+  asterion.protocol.proto.Decimal value = 2;
 }
 // Bars resolved by the data service: minute bars from immutable archive
 // versions, or daily bars from the market-wide daily table (no source
@@ -42,12 +42,12 @@ message BarDataset {
   string revision = 2;
   // Its units are the data's: the multiplier of the contract table, and the
   // price increment of its first bar's day.
-  asterion.protocol.v1.Contract contract = 3;
+  asterion.protocol.proto.Contract contract = 3;
   uint32 interval_minutes = 4; // 0 for daily bars
-  repeated asterion.protocol.v1.Bar bars = 5;
+  repeated asterion.protocol.proto.Bar bars = 5;
   // Every trading day of the range the contract has a settlement price on,
   // whether it has bars that day or not: a position is settled on each.
-  repeated asterion.protocol.v1.TradingDay days = 6;
+  repeated asterion.protocol.proto.TradingDay days = 6;
   string source = 7;
   repeated string source_dataset_ids = 8;
   // The source versions, sorted, exactly once per identity.
@@ -96,7 +96,7 @@ message BarDatasetRequest {
 message DominantRoll {
   string trading_day = 1;
   uint32 contract = 2;
-  asterion.protocol.v1.Decimal factor = 3;
+  asterion.protocol.proto.Decimal factor = 3;
 }
 // How a series' dominant month stood against a later month of the product at
 // the settlement before trading_day, so that both prices are known before
@@ -104,8 +104,8 @@ message DominantRoll {
 // on that earlier day; far_month is its delivery month.
 message TermPoint {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal near = 2;
-  asterion.protocol.v1.Decimal far = 3;
+  asterion.protocol.proto.Decimal near = 2;
+  asterion.protocol.proto.Decimal far = 3;
   string far_month = 4;
 }
 // The resolved schedule of one series; rolls ascend by trading day and by
@@ -178,13 +178,13 @@ message ChartMacd {
 }
 message MinuteBar {
   int64 timestamp_ns = 1;
-  asterion.protocol.v1.Decimal open = 2;
-  asterion.protocol.v1.Decimal high = 3;
-  asterion.protocol.v1.Decimal low = 4;
-  asterion.protocol.v1.Decimal close = 5;
-  asterion.protocol.v1.Decimal volume = 6;
-  asterion.protocol.v1.Decimal amount = 7;
-  asterion.protocol.v1.Decimal open_interest = 8;
+  asterion.protocol.proto.Decimal open = 2;
+  asterion.protocol.proto.Decimal high = 3;
+  asterion.protocol.proto.Decimal low = 4;
+  asterion.protocol.proto.Decimal close = 5;
+  asterion.protocol.proto.Decimal volume = 6;
+  asterion.protocol.proto.Decimal amount = 7;
+  asterion.protocol.proto.Decimal open_interest = 8;
   ChartMacd macd = 9; // absent during the first 33 records or when not requested
 }
 message MinutePage {
@@ -404,7 +404,7 @@ message TableSeriesRequest {
 }
 message TableClose {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal close = 2;
+  asterion.protocol.proto.Decimal close = 2;
   // Raw lots of the actual month, never adjusted by a dominant price factor.
   // Absent means the source did not supply the fact; zero is an observed zero.
   optional int64 volume_contracts = 3;
@@ -493,11 +493,11 @@ message TableDailyQuery {
 // it groups. Display data: no order, ledger or task reads it.
 message TableCandle {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal open = 2;
-  asterion.protocol.v1.Decimal high = 3;
-  asterion.protocol.v1.Decimal low = 4;
-  asterion.protocol.v1.Decimal close = 5;
-  asterion.protocol.v1.Decimal volume = 6;
+  asterion.protocol.proto.Decimal open = 2;
+  asterion.protocol.proto.Decimal high = 3;
+  asterion.protocol.proto.Decimal low = 4;
+  asterion.protocol.proto.Decimal close = 5;
+  asterion.protocol.proto.Decimal volume = 6;
   ChartMacd macd = 7; // absent while the first 33 candles warm it up
 }
 message TableDailyPage {
@@ -515,8 +515,8 @@ message HistoryListing {
   string name = 3;
   string list_date = 4;
   string delist_date = 5;
-  asterion.protocol.v1.Decimal multiplier = 6;
-  asterion.protocol.v1.Decimal per_unit = 7;
+  asterion.protocol.proto.Decimal multiplier = 6;
+  asterion.protocol.proto.Decimal per_unit = 7;
   optional string trade_unit = 8;
   optional string quote_unit = 9;
 }
@@ -775,8 +775,8 @@ message HistoricalMarginQuery {
 }
 message HistoricalMarginDay {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal day_start_rate = 2;
-  asterion.protocol.v1.Decimal settlement_rate = 3;
+  asterion.protocol.proto.Decimal day_start_rate = 2;
+  asterion.protocol.proto.Decimal settlement_rate = 3;
   string revision_snapshot = 4;
   string content = 5;
   string object = 6;

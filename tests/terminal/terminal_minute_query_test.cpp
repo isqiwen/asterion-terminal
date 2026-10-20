@@ -176,10 +176,10 @@ struct MinuteService
     unsigned entered = 0;
     bool released = false;
     std::atomic<bool> wrong_identity{false}, reference{false};
-    task::v1::TaskSubmit submitted;
+    task::proto::TaskSubmit submitted;
     unsigned requested_before_sequence = 0;
-    data::v1::DownloadAuthorizationRequest captured_authorization;
-    data::v1::DownloadBudgetConfiguration configured_budget;
+    data::proto::DownloadAuthorizationRequest captured_authorization;
+    data::proto::DownloadBudgetConfiguration configured_budget;
     std::unique_ptr<testing_support::BlockingService> host;
     std::future<bool> running;
     std::unique_ptr<testing_support::BlockingService> data_host;
@@ -194,10 +194,10 @@ struct MinuteService
         host = std::make_unique<testing_support::BlockingService>(
             service::Transport{endpoint, {}, 0, {}},
             [this](testing_support::Connection& connection, std::stop_token) {
-                task::v1::TaskRequest request;
+                task::proto::TaskRequest request;
                 if (!request.ParseFromString(connection.receive(2s)))
                     throw std::runtime_error("bad request");
-                task::v1::TaskResponse response;
+                task::proto::TaskResponse response;
                 response.set_version(1);
                 response.set_service_id(request.service_id());
                 response.set_correlation_id(request.correlation_id());
@@ -219,9 +219,9 @@ struct MinuteService
                         wrong_identity ? std::string(64, 'b') : request.history_usage().id());
                     if (reference) {
                         auto* row = response.mutable_history_usage()->add_references();
-                        row->set_kind(data::v1::HISTORY_BACKTEST);
+                        row->set_kind(data::proto::HISTORY_BACKTEST);
                         row->set_id("external-task");
-                        row->add_roles(data::v1::HISTORY_MARKET);
+                        row->add_roles(data::proto::HISTORY_MARKET);
                     }
                 } else if (request.has_result()) {
                     {
@@ -237,7 +237,7 @@ struct MinuteService
                     response.mutable_error()->set_message("task has no confirmed result");
                 } else if (request.has_cancel()) {
                     response.mutable_task()->set_id(request.cancel().id());
-                    response.mutable_task()->set_state(task::v1::CANCEL_REQUESTED);
+                    response.mutable_task()->set_state(task::proto::CANCEL_REQUESTED);
                 } else if (request.has_submit()) {
                     std::unique_lock lock(mutex);
                     if (request.submit().has_factor_request()) {
@@ -260,10 +260,10 @@ struct MinuteService
         data_host = std::make_unique<testing_support::BlockingService>(
             service::Transport{endpoint + ".data", {}, 0, {}},
             [this](testing_support::Connection& connection, std::stop_token) {
-                data::v1::DataRequest request;
+                data::proto::DataRequest request;
                 if (!request.ParseFromString(connection.receive(2s)))
                     throw std::runtime_error("bad data request");
-                data::v1::DataResponse response;
+                data::proto::DataResponse response;
                 response.set_version(1);
                 response.set_service_id(request.service_id());
                 response.set_correlation_id(request.correlation_id());
@@ -574,7 +574,7 @@ TEST(TerminalServiceClients, ReadPoolBackpressureLeavesTaskAndDataControlsAvaila
         ASSERT_EQ(cancel.wait_for(testing_support::bound(500ms)), std::future_status::ready);
         EXPECT_NO_THROW(cancel.get());
         EXPECT_TRUE(client->status().get().at("online"));
-        data::v1::DownloadBudgetConfiguration budget;
+        data::proto::DownloadBudgetConfiguration budget;
         budget.set_source("tushare.ft_mins");
         budget.set_requests_per_minute(60);
         auto configure = data->configure_download_budget(budget);
@@ -987,15 +987,15 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     testing_support::BlockingService host(
         {socket, {}, 0, {}},
         [&](testing_support::Connection& connection, std::stop_token) {
-            node::v1::Request request;
+            node::proto::Request request;
             if (!request.ParseFromString(connection.receive(2s)))
                 throw std::runtime_error("invalid fixture request");
-            node::v1::Response response;
+            node::proto::Response response;
             response.set_version(1);
             response.set_correlation_id(request.correlation_id());
             if (request.has_status()) {
                 auto* status = response.mutable_status();
-                status->set_phase(asterion::node::v1::Status::READY);
+                status->set_phase(asterion::node::proto::Status::READY);
                 status->mutable_resource_budget()->set_file_workers(1);
                 status->set_instance_id(actions.load() ? "restarted-fixture" : "fixture");
                 status->set_os("macos");
@@ -1093,16 +1093,16 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
     testing_support::BlockingService host(
         {socket, {}, 0, {}},
         [&](testing_support::Connection& connection, std::stop_token) {
-            node::v1::Request request;
+            node::proto::Request request;
             if (!request.ParseFromString(connection.receive(2s)) || !request.has_status()) {
                 ++mutations;
                 return;
             }
-            node::v1::Response response;
+            node::proto::Response response;
             response.set_version(1);
             response.set_correlation_id(request.correlation_id());
             auto* status = response.mutable_status();
-            status->set_phase(asterion::node::v1::Status::READY);
+            status->set_phase(asterion::node::proto::Status::READY);
             status->mutable_resource_budget()->set_file_workers(1);
             status->set_instance_id("fixture");
             status->set_os("macos");
@@ -1118,7 +1118,7 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
                 entry->set_id(name);
                 entry->set_endpoint(endpoint);
                 entry->set_state(state);
-                entry->set_kind(node::v1::TASK_SERVICE);
+                entry->set_kind(node::proto::TASK_SERVICE);
             }
             connection.send(response.SerializeAsString(), 2s);
         });
@@ -1226,7 +1226,7 @@ struct LiveService
             service::Transport{endpoint, {}, 0, {}},
             [this](testing_support::Connection& connection, std::stop_token stop) {
                 while (!stop.stop_requested()) {
-                    protocol::v1::Request message;
+                    protocol::proto::Request message;
                     std::string frame;
                     try {
                         // Terminal polls idle live accounts every two seconds. The
@@ -1238,7 +1238,7 @@ struct LiveService
                     }
                     if (!message.ParseFromString(frame))
                         throw std::runtime_error("invalid fixture request");
-                    protocol::v1::Response response;
+                    protocol::proto::Response response;
                     response.set_version(1);
                     response.set_session_id(message.session_id());
                     response.set_correlation_id(message.correlation_id());
@@ -1801,10 +1801,10 @@ struct QuoteService
 private:
     service::RpcHost::Reply serve(const std::string& bytes)
     {
-        market::v1::Request request;
+        market::proto::Request request;
         if (!request.ParseFromString(bytes))
             throw std::runtime_error("invalid fixture market request");
-        market::v1::Response response;
+        market::proto::Response response;
         response.set_version(1);
         response.set_service_id(request.service_id());
         response.set_correlation_id(request.correlation_id());
@@ -1886,10 +1886,10 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
     service::RpcHost host(
         address,
         [&](const auto&, std::string bytes) -> service::RpcHost::Reply {
-            market::v1::Request request;
+            market::proto::Request request;
             if (!request.ParseFromString(bytes))
                 throw std::runtime_error("invalid fixture market request");
-            market::v1::Response response;
+            market::proto::Response response;
             response.set_version(1);
             response.set_service_id(request.service_id());
             response.set_correlation_id(request.correlation_id());

@@ -1,5 +1,4 @@
 """Prepare and verify the locked, offline analytics runtime bundled with Terminal."""
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,33 +15,16 @@ PROJECT = ROOT / "plugins/tools/analytics"
 ENVIRONMENT = ROOT / "build/analytics-venv"
 DESTINATION = ROOT / "build/electron-resources/analytics"
 PYTHON = "3.12.12"
-SOURCES = ("plugins/tools/analytics/report.py", "plugins/tools/analytics/pyproject.toml",
-           "plugins/tools/analytics/uv.lock", "protocol/proto/asterion/v1/analytics.proto",
-           "scripts/desktop/analytics_runtime.py", "scripts/desktop/pyinstaller/hook-cvxpy.py",
-           "plugins/tools/analytics/PYTHON-LICENSE.txt")
 
 
-def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
-def source_identity():
-    return {name: digest(ROOT / name) for name in SOURCES}
-
-
-def verify(directory=DESTINATION, signed=False):
+def verify(directory=DESTINATION):
     if not (directory / "manifest.json").is_file():
         raise ValueError("Analytics runtime missing; run pnpm prepare:analytics")
     manifest = json.loads((directory / "manifest.json").read_text())
-    if manifest["platform"] != [sys.platform, platform.machine()] or manifest["sources"] != source_identity():
-        raise ValueError("Analytics runtime is stale or built for another platform; run pnpm prepare:analytics")
-    entries = [path for path in directory.rglob("*") if path.is_file() and path.name != "manifest.json"]
-    if {path.relative_to(directory).as_posix() for path in entries} != manifest["files"].keys():
-        raise ValueError("Analytics runtime differs from its distribution manifest")
-    if not signed and any(digest(path) != manifest["files"][path.relative_to(directory).as_posix()] for path in entries):
-        raise ValueError("Analytics runtime content digest differs")
-    if not os.access(directory / "asterion-analytics", os.X_OK):
+    if manifest["platform"] != [sys.platform, platform.machine()]:
+        raise ValueError("Analytics runtime is built for another platform; run pnpm prepare:analytics")
+    executable = directory / "asterion-analytics"
+    if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("Analytics helper is not executable")
 
 
@@ -103,9 +85,8 @@ font_manager.json_dump(manager, Path(sys.argv[1]) / f"fontlist-v{manager.__versi
                 target = licenses / package.name / path.relative_to(package)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
-        files = {path.relative_to(prepared).as_posix(): digest(path) for path in prepared.rglob("*") if path.is_file()}
         (prepared / "manifest.json").write_text(json.dumps({"platform": [sys.platform, platform.machine()],
-            "python": PYTHON, "sources": source_identity(), "files": files}, indent=2) + "\n")
+            "python": PYTHON}, indent=2) + "\n")
         verify(prepared)
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)

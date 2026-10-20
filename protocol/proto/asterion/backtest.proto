@@ -1,15 +1,15 @@
 syntax = "proto3";
-package asterion.backtest.v1;
-import "asterion/v1/domain.proto";
-import "asterion/v1/trading.proto";
-import "asterion/v1/data.proto";
+package asterion.backtest.proto;
+import "asterion/domain.proto";
+import "asterion/trading.proto";
+import "asterion/data.proto";
 
 // Explicit model parameters for the single ordinary daily contract. The source
 // is a user-supplied explanation, not a claim of verified provider provenance.
 // A rate is a fraction, applied symmetrically after that day's P&L settlement.
 message SettlementMargin {
   string trading_day = 1;
-  asterion.protocol.v1.Decimal rate = 2;
+  asterion.protocol.proto.Decimal rate = 2;
   string source = 3;
 }
 
@@ -18,19 +18,19 @@ message SettlementMargin {
 message BacktestInput {
   reserved 1;
   string dataset_revision = 2;
-  asterion.protocol.v1.PaperInput paper = 3;
+  asterion.protocol.proto.PaperInput paper = 3;
   // One strategy is replayed as it is. Several, up to 32 and all different,
   // are compared on the trading days before `holdout_day` alone, and the one
   // those days favour is replayed over every day.
-  repeated asterion.protocol.v1.Strategy strategies = 4;
-  repeated asterion.data.v1.DominantSchedule series = 5;
+  repeated asterion.protocol.proto.Strategy strategies = 4;
+  repeated asterion.data.proto.DominantSchedule series = 5;
   // Several strategies are compared in one of two ways. The first trading day
   // kept out of the comparison; empty with one strategy or a rolling one.
   string holdout_day = 6;
   // A rolling comparison; absent with one strategy or a holdout.
   BacktestWalkForward walk_forward = 7;
   repeated SettlementMargin settlement_margins = 8;
-  asterion.data.v1.HistoricalMargins historical_margins = 9;
+  asterion.data.proto.HistoricalMargins historical_margins = 9;
 }
 // A comparison that rolls forward by trading days. Each round scores the
 // strategies over `training_days` and the account follows the best of them
@@ -52,14 +52,14 @@ message DominantSeries {
 // A product's daily bars in the market-wide daily table, traded as its
 // dominant series. The months that trade become contracts with these costs.
 message ProductSeries {
-  asterion.data.v1.ProductBarsRequest data = 1;
-  asterion.protocol.v1.CostSchedule cost_schedule = 2;
+  asterion.data.proto.ProductBarsRequest data = 1;
+  asterion.protocol.proto.CostSchedule cost_schedule = 2;
   uint32 slippage_ticks = 3;
 }
 // One contract of a backtest submission: Data resolves its bars before Task captures the input.
 message BacktestContract {
-  asterion.data.v1.BarDatasetRequest data = 1;
-  asterion.protocol.v1.CostSchedule cost_schedule = 2;
+  asterion.data.proto.BarDatasetRequest data = 1;
+  asterion.protocol.proto.CostSchedule cost_schedule = 2;
   // Price increments every fill of the contract gives up.
   uint32 slippage_ticks = 3;
 }
@@ -80,9 +80,9 @@ message BacktestReuse {
 }
 message BacktestRequest {
   repeated BacktestContract contracts = 1;
-  asterion.protocol.v1.Decimal deposit = 2;
-  asterion.protocol.v1.RiskLimits risk = 3;
-  repeated asterion.protocol.v1.Strategy strategies = 4;
+  asterion.protocol.proto.Decimal deposit = 2;
+  asterion.protocol.proto.RiskLimits risk = 3;
+  repeated asterion.protocol.proto.Strategy strategies = 4;
   repeated DominantSeries series = 5;
   // A date; the holdout begins on the first trading day on or after it.
   // Empty with one strategy or a rolling comparison.
@@ -100,39 +100,39 @@ enum EquityEvent {
 
 message EquityPoint {
   int64 timestamp_ns = 1;
-  asterion.protocol.v1.Decimal equity = 2;
+  asterion.protocol.proto.Decimal equity = 2;
   EquityEvent event = 3;
 }
 message ContractSettlement {
   string venue = 1;
   string symbol = 2;
-  asterion.protocol.v1.Decimal price = 3;
-  asterion.protocol.v1.Decimal position_quantity = 4; // Net lots: long positive, short negative.
+  asterion.protocol.proto.Decimal price = 3;
+  asterion.protocol.proto.Decimal position_quantity = 4; // Net lots: long positive, short negative.
   // Optional gross lots and per-position-lot margin observed after settlement.
   // Absent on earlier results; net lots alone cannot reconstruct these.
-  asterion.protocol.v1.Decimal gross_quantity = 5;
-  asterion.protocol.v1.Decimal margin = 6;
+  asterion.protocol.proto.Decimal gross_quantity = 5;
+  asterion.protocol.proto.Decimal margin = 6;
 }
 message SettlementOccupancy {
-  asterion.protocol.v1.Decimal margin = 1;
-  asterion.protocol.v1.Decimal available = 2;
-  asterion.protocol.v1.Decimal frozen = 3;
+  asterion.protocol.proto.Decimal margin = 1;
+  asterion.protocol.proto.Decimal available = 2;
+  asterion.protocol.proto.Decimal frozen = 3;
 }
 // Before/after refer to the same settled prices and positions. Final occupancy
 // is in DaySettlement. No cash, fees or positions change during revaluation.
 message MarginRevaluation {
-  asterion.protocol.v1.Decimal previous_rate = 1;
-  asterion.protocol.v1.Decimal rate = 2;
-  asterion.protocol.v1.Decimal margin_before = 3;
-  asterion.protocol.v1.Decimal available_before = 4;
+  asterion.protocol.proto.Decimal previous_rate = 1;
+  asterion.protocol.proto.Decimal rate = 2;
+  asterion.protocol.proto.Decimal margin_before = 3;
+  asterion.protocol.proto.Decimal available_before = 4;
 }
 message DaySettlement {
   string trading_day = 1;
   int64 timestamp_ns = 2;
-  asterion.protocol.v1.Decimal balance = 3;
-  asterion.protocol.v1.Decimal equity = 4;
-  asterion.protocol.v1.Decimal realized = 5;
-  asterion.protocol.v1.Decimal fees = 6;
+  asterion.protocol.proto.Decimal balance = 3;
+  asterion.protocol.proto.Decimal equity = 4;
+  asterion.protocol.proto.Decimal realized = 5;
+  asterion.protocol.proto.Decimal fees = 6;
   repeated ContractSettlement contracts = 7;
   SettlementOccupancy occupancy = 8; // optional observed model funds, not intraday peaks
   MarginRevaluation margin_revaluation = 9;
@@ -162,9 +162,9 @@ message BacktestResult {
   reserved 1;
   string dataset_revision = 2;
   reserved 3;
-  asterion.protocol.v1.Snapshot account = 4;
+  asterion.protocol.proto.Snapshot account = 4;
   repeated EquityPoint equity = 5;
-  asterion.protocol.v1.Decimal max_drawdown = 6;
+  asterion.protocol.proto.Decimal max_drawdown = 6;
   repeated DaySettlement settlements = 7;
   // With several strategies: one entry per strategy in input order, and the
   // index of the one with the highest development Sharpe ratio, whose replay

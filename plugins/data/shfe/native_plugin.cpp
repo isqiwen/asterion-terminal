@@ -137,8 +137,8 @@ AstStatus response(
     });
 }
 
-const AstHistoryTablesV1 table_api{sizeof(AstHistoryTablesV1), 1, tables, read};
-const AstHistoryResponseV1 response_api{sizeof(AstHistoryResponseV1), 1, response};
+const AstHistoryTables table_api{sizeof(AstHistoryTables), 1, tables, read};
+const AstHistoryResponse response_api{sizeof(AstHistoryResponse), 1, response};
 
 AstStatus
 create(const char* capability, const AstSetting* settings, uint32_t count, void** out) noexcept
@@ -147,7 +147,7 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
         return AST_INVALID;
     *out = nullptr;
     return sdk::boundary([&] {
-        if (!capability || std::string_view(capability) != AST_HISTORY_TABLES_V1)
+        if (!capability || std::string_view(capability) != AST_HISTORY_TABLES)
             throw AstStatus(AST_UNSUPPORTED);
         if (count > 1
             || (count
@@ -184,19 +184,19 @@ AstStatus query(void*, const char* id, uint32_t version, uint32_t size, const vo
     *out = nullptr;
     if (!id || version != 1)
         return AST_UNSUPPORTED;
-    if (std::string_view(id) == AST_HISTORY_TABLES_V1 && size == sizeof(table_api))
+    if (std::string_view(id) == AST_HISTORY_TABLES && size == sizeof(table_api))
         *out = &table_api;
-    else if (std::string_view(id) == AST_HISTORY_RESPONSE_V1 && size == sizeof(response_api))
+    else if (std::string_view(id) == AST_HISTORY_RESPONSE && size == sizeof(response_api))
         *out = &response_api;
     return *out ? AST_OK : AST_UNSUPPORTED;
 }
 
 const AstCapability capabilities[]{
-    {AST_HISTORY_TABLES_V1, 1, "data"},
-    {AST_HISTORY_RESPONSE_V1, 1, "data"}
+    {AST_HISTORY_TABLES, 1, "data"},
+    {AST_HISTORY_RESPONSE, 1, "data"}
 };
-const AstPluginV1 plugin{
-    sizeof(AstPluginV1),
+const AstPlugin plugin{
+    sizeof(AstPlugin),
     ASTERION_PLUGIN_ABI_VERSION,
     shfe::provider,
     "1.0.0",
@@ -212,8 +212,8 @@ const AstPluginV1 plugin{
 
 } // namespace
 
-extern "C" ASTERION_PLUGIN_EXPORT const AstPluginV1*
-asterion_plugin_entry_v1(uint32_t abi, uint32_t size) noexcept
+extern "C" ASTERION_PLUGIN_EXPORT const AstPlugin*
+asterion_plugin_entry(uint32_t abi, uint32_t size) noexcept
 {
-    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPluginV1) ? &plugin : nullptr;
+    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPlugin) ? &plugin : nullptr;
 }

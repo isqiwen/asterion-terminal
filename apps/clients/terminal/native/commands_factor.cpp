@@ -40,7 +40,7 @@ void Application::Impl::register_factor_commands()
             source.at("experiment"),
             selected,
             p.value("lookbacks", json(nullptr)));
-        task::v1::TaskDerivation derivation;
+        task::proto::TaskDerivation derivation;
         derivation.set_source_id(text(p, "source_id"));
         derivation.set_source_result_digest(text(p, "source_result_digest"));
         derivation.set_data_choice(mode);

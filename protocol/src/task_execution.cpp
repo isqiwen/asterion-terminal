@@ -4,9 +4,9 @@
 
 namespace asterion::protocol {
 
-data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& dataset)
+data::proto::BarDatasetRequest bar_dataset_selection(const data::proto::BarDataset& dataset)
 {
-    data::v1::BarDatasetRequest result;
+    data::proto::BarDatasetRequest result;
     result.set_contract(history_identity(dataset.contract()).key());
     *result.mutable_source_dataset_ids() = dataset.source_dataset_ids();
     *result.mutable_daily() = dataset.daily();
@@ -16,9 +16,10 @@ data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& da
     return result;
 }
 
-task::v1::TaskExecution task_execution(const task::v1::Task& task, const std::string& input_sha256)
+task::proto::TaskExecution
+task_execution(const task::proto::Task& task, const std::string& input_sha256)
 {
-    task::v1::TaskExecution result;
+    task::proto::TaskExecution result;
     result.set_input_sha256(input_sha256);
     if (task.has_input()) {
         const auto& input = task.input();
@@ -50,7 +51,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task, const std::st
                 const auto& table = series.table();
                 const bool same = parameters->series_size()
                     && parameters->series(parameters->series_size() - 1).has_tables() &&
-                    [&](const data::v1::TableSeriesRequest& last) {
+                    [&](const data::proto::TableSeriesRequest& last) {
                         return last.snapshot() == table.snapshot()
                             && last.daily_source() == table.daily_source()
                             && last.calendar_source() == table.calendar_source()

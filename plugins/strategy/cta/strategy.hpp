@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/domain/market.hpp>
 #include <asterion/domain/position_target.hpp>
-#include <asterion/v1/trading.pb.h>
+#include <asterion/trading.pb.h>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -42,7 +42,7 @@ private:
 // The definition is valid for the contract or this throws. A rule over
 // several contracts is not a strategy for one.
 std::unique_ptr<Strategy>
-make_strategy(const protocol::v1::Strategy& definition, const Instrument& instrument);
+make_strategy(const protocol::proto::Strategy& definition, const Instrument& instrument);
 
 // A rule over several units at once, each a contract or a product's dominant
 // series: it ranks them on the bars they all have and says which to hold long
@@ -53,9 +53,9 @@ class CrossSection
 {
 public:
     // Whether the definition's rule ranks several units.
-    static bool defines(const protocol::v1::Strategy& definition);
+    static bool defines(const protocol::proto::Strategy& definition);
     // The definition ranks `units` units or this throws.
-    CrossSection(const protocol::v1::Strategy& definition, std::size_t units);
+    CrossSection(const protocol::proto::Strategy& definition, std::size_t units);
     // One completed bar of one unit: its close, and for a ranking by the term
     // structure the carry its day began with. Timestamps never go back; a unit
     // has one bar at a timestamp.
@@ -78,7 +78,7 @@ private:
 
     // What the units are ranked by, computed as a factor evaluation computes
     // it. `need_` bars every unit had are kept: those the first ranking needs.
-    protocol::v1::Factor factor_;
+    protocol::proto::Factor factor_;
     bool reversed_;
     std::size_t lookback_, volatility_, need_, rebalance_, count_;
     PositionSides sides_;

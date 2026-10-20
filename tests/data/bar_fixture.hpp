@@ -39,7 +39,7 @@ inline MarketBar bar(
     return {std::move(day), ns, dec(open), dec(high), dec(low), dec(close), dec(volume)};
 }
 
-inline protocol::v1::Contract contract(
+inline protocol::proto::Contract contract(
     const char* venue = "SHFE",
     const char* symbol = "rb2610",
     const char* product = "rb",
@@ -57,13 +57,13 @@ inline protocol::v1::Contract contract(
 }
 
 // Every distinct bar day settles at settlement_price unless listed in days.
-inline data::v1::BarDataset dataset(
+inline data::proto::BarDataset dataset(
     const std::vector<MarketBar>& bars,
     std::vector<DaySettlement> days = {},
-    protocol::v1::Contract spec = contract(),
+    protocol::proto::Contract spec = contract(),
     unsigned interval_minutes = 1)
 {
-    data::v1::BarDataset result;
+    data::proto::BarDataset result;
     *result.mutable_contract() = spec;
     result.set_interval_minutes(interval_minutes);
     for (const auto& value : bars)
@@ -82,7 +82,7 @@ inline data::v1::BarDataset dataset(
     auto* evidence = result.add_history_evidence();
     evidence->set_dataset_id(std::string(64, 'a'));
     evidence->set_acquired_at_ns(1790000000000000000);
-    evidence->set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
+    evidence->set_source_availability(data::proto::SOURCE_AVAILABILITY_UNKNOWN);
     result.mutable_daily()->set_snapshot(std::string(64, 'b'));
     result.mutable_daily()->set_daily_source("fixture.daily.v1");
     result.mutable_daily()->set_calendar_source("fixture.calendar.v1");

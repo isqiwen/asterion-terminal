@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
 
@@ -77,7 +78,7 @@ test("F06 daily holding spans preserve precision and keep open positions separat
   expect(original.trades.open[0].holding.calendar_days).toBe(0);
   const ids = (await tasks()).map((t: { id: string }) => t.id);
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace
     .getByRole("region", { name: "研究任务", exact: true })

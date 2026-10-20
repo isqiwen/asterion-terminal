@@ -16,7 +16,6 @@ test("development download reports exact receipt and explains summary-only input
     ...readySnapshot(),
     research_export: {
       name: "task.evidence.json",
-      sha256: "a".repeat(64),
       bytes: 40,
       content: '{"format":"asterion.research.evidence"}',
     },
@@ -25,7 +24,7 @@ test("development download reports exact receipt and explains summary-only input
   fireEvent.click(screen.getByRole("button", { name: "导出研究证据" }));
   const status = await screen.findByRole("status");
   expect(status.textContent).toContain("研究证据下载已发起");
-  expect(status.textContent).toContain("a".repeat(64));
+  expect(status.textContent).toContain("40 bytes");
   expect(query).toHaveBeenCalledWith("task.evidence.export", { id: "task", path: "" });
   expect(screen.getByText(/因子原始输入摘要未由结果接口提供/)).toBeTruthy();
   expect(click).toHaveBeenCalledTimes(1);

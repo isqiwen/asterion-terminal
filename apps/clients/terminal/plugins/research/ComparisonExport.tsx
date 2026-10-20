@@ -53,7 +53,7 @@ export function ComparisonExport({
   "busy" | "query"
 >) {
   const [pending, setPending] = useState(false),
-    [receipt, setReceipt] = useState<{ sha256: string; bytes: number } | null>(null);
+    [receipt, setReceipt] = useState<{ bytes: number } | null>(null);
   const [error, setError] = useState<DisplayError>("");
   async function exportFile() {
     if (!table.current) return;
@@ -92,8 +92,7 @@ export function ComparisonExport({
       </button>
       {receipt && (
         <p role="status">
-          {t(nativeDesktop ? "研究证据已保存" : "研究证据下载已发起")} · {receipt.bytes} bytes ·
-          SHA-256 <code>{receipt.sha256}</code>
+          {t(nativeDesktop ? "研究证据已保存" : "研究证据下载已发起")} · {receipt.bytes} bytes
         </p>
       )}
       <ErrorNotice error={error} namespace={namespace} />

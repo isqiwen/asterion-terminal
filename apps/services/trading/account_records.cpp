@@ -13,16 +13,16 @@ std::string text(const Json& value, const char* key)
     return result;
 }
 
-Offset offset_of(protocol::v1::Offset value)
+Offset offset_of(protocol::proto::Offset value)
 {
     switch (value) {
-        case protocol::v1::OPEN:
+        case protocol::proto::OPEN:
             return Offset::open;
-        case protocol::v1::CLOSE_TODAY:
+        case protocol::proto::CLOSE_TODAY:
             return Offset::close_today;
-        case protocol::v1::CLOSE_YESTERDAY:
+        case protocol::proto::CLOSE_YESTERDAY:
             return Offset::close_yesterday;
-        case protocol::v1::CLOSE:
+        case protocol::proto::CLOSE:
             return Offset::close;
         default:
             throw std::invalid_argument("invalid open/close offset");
@@ -110,7 +110,7 @@ std::string_view status_name(BrokerOrderStatus status) noexcept
     return "submitted";
 }
 
-AccountRequest AccountRequest::from_wire(const protocol::v1::Command& command)
+AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command)
 {
     AccountRequest result;
     result.id = command.request_id();
@@ -119,38 +119,38 @@ AccountRequest AccountRequest::from_wire(const protocol::v1::Command& command)
     // It is never parsed to obtain the typed operation below.
     result.command = protocol::decode_command(command);
     switch (command.operation_case()) {
-        case protocol::v1::Command::kSubmit: {
+        case protocol::proto::Command::kSubmit: {
             const auto& order = command.submit();
             validate_id(order.order_id());
             result.operation = SubmitOrder{
                 {order.order_id(),
                     {order.venue(), order.symbol()},
-                    order.side() == protocol::v1::BUY ? Side::buy : Side::sell,
+                    order.side() == protocol::proto::BUY ? Side::buy : Side::sell,
                     Decimal::from_raw(order.quantity().units()),
                     Decimal::from_raw(order.price().units())},
                 offset_of(order.offset())
             };
             break;
         }
-        case protocol::v1::Command::kCancel:
+        case protocol::proto::Command::kCancel:
             result.operation = CancelOrder{required_text(command.cancel().order_id())};
             break;
-        case protocol::v1::Command::kLiveAuthorize:
+        case protocol::proto::Command::kLiveAuthorize:
             result.operation = Authorize{command.live_authorize().user_id()};
             break;
-        case protocol::v1::Command::kLiveRevoke:
+        case protocol::proto::Command::kLiveRevoke:
             result.operation = Revoke{};
             break;
-        case protocol::v1::Command::kLiveResolve:
+        case protocol::proto::Command::kLiveResolve:
             result.operation = ResolveOrder{required_text(command.live_resolve().order_id())};
             break;
-        case protocol::v1::Command::kLivePolicy:
+        case protocol::proto::Command::kLivePolicy:
             result.operation = ChangePolicy{
                 PolicyDefinition::from_wire(command.live_policy().policy()),
                 required_text(command.live_policy().risk_artifact())
             };
             break;
-        case protocol::v1::Command::kStrategyStart: {
+        case protocol::proto::Command::kStrategyStart: {
             const auto& start = command.strategy_start();
             if (result.id.size() > 64)
                 throw std::invalid_argument("strategy run identity is too long");
@@ -163,7 +163,7 @@ AccountRequest AccountRequest::from_wire(const protocol::v1::Command& command)
             };
             break;
         }
-        case protocol::v1::Command::kStrategyStop:
+        case protocol::proto::Command::kStrategyStop:
             result.operation = StopStrategy{};
             break;
         default:

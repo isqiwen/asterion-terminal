@@ -10,14 +10,14 @@
 namespace asterion::protocol {
 namespace {
 
-void validate_liquidity(const factor::v1::LiquidityRule& rule)
+void validate_liquidity(const factor::proto::LiquidityRule& rule)
 {
     if (!rule.minimum_history() || rule.minimum_history() > 10000 || rule.minimum_volume() < 0
         || rule.minimum_open_interest() < 0)
         throw std::invalid_argument("invalid liquidity eligibility rule");
 }
 
-Json liquidity_definition(const factor::v1::LiquidityRule& rule)
+Json liquidity_definition(const factor::proto::LiquidityRule& rule)
 {
     validate_liquidity(rule);
     return {
@@ -33,7 +33,7 @@ bool digest(const std::string& value)
 }
 
 // The bars one series holds in an input.
-std::size_t held_bars(const factor::v1::FactorSeries& data)
+std::size_t held_bars(const factor::proto::FactorSeries& data)
 {
     if (data.has_bars())
         return static_cast<std::size_t>(data.bars().bars_size());
@@ -46,7 +46,7 @@ std::size_t held_bars(const factor::v1::FactorSeries& data)
 }
 
 // Minutes of one bar of a series; zero for provider trading dates.
-unsigned period(const factor::v1::FactorSeries& data)
+unsigned period(const factor::proto::FactorSeries& data)
 {
     if (data.has_bars())
         return data.bars().interval_minutes();
@@ -59,13 +59,13 @@ unsigned period(const factor::v1::FactorSeries& data)
 
 // Series are compared only with series observed the same way: bars with bars
 // (a dominant series is bars), and the market-wide table with itself.
-factor::v1::FactorSeries::SourceCase observed_as(const factor::v1::FactorSeries& data)
+factor::proto::FactorSeries::SourceCase observed_as(const factor::proto::FactorSeries& data)
 {
-    return data.has_dominant() ? factor::v1::FactorSeries::kBars : data.source_case();
+    return data.has_dominant() ? factor::proto::FactorSeries::kBars : data.source_case();
 }
 
 // Whether a series of the market-wide table is a product's dominant series.
-bool table_product(const factor::v1::FactorSeries& data)
+bool table_product(const factor::proto::FactorSeries& data)
 {
     return data.has_table() && data.table().has_schedule();
 }
@@ -73,7 +73,7 @@ bool table_product(const factor::v1::FactorSeries& data)
 // One series, or a cross-section of contracts observed the same way. Nothing
 // reads a dominant series before its schedule is known to fit its months:
 // Data resolves a series into the months it reads, in roll order.
-void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series)
+void validate_series(const google::protobuf::RepeatedPtrField<factor::proto::FactorSeries>& series)
 {
     if (series.size() != 1 && (series.size() < 3 || series.size() > max_factor_series))
         throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
@@ -86,7 +86,7 @@ void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::Factor
         if (!data.has_dominant())
             continue;
         const auto& dominant = data.dominant();
-        std::vector<const v1::Contract*> months;
+        std::vector<const proto::Contract*> months;
         for (const auto& month : dominant.months()) {
             if (month.interval_minutes() != dominant.months(0).interval_minutes())
                 throw std::invalid_argument("invalid dominant series schedule");
@@ -113,14 +113,14 @@ struct Observed
     std::vector<Decimal> closes, terms;
 };
 
-Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
+Observed observed(const factor::proto::FactorSeries& data, proto::Factor factor)
 {
     Observed result;
     const auto add = [&](std::int64_t when, Decimal close) {
         result.order.push_back(when);
         result.closes.push_back(close);
     };
-    if (factor == v1::TERM_STRUCTURE && !data.has_dominant() && !table_product(data))
+    if (factor == proto::TERM_STRUCTURE && !data.has_dominant() && !table_product(data))
         throw std::invalid_argument("the term structure is read of dominant series");
     if (data.has_table()) {
         // Closes by provider trading date. A product's months are read while they
@@ -129,8 +129,8 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
         const auto& table = data.table();
         const auto months = table_series_months(table);
         std::map<std::string, Decimal> carry;
-        if (factor == v1::TERM_STRUCTURE) {
-            std::vector<const v1::Contract*> contracts;
+        if (factor == proto::TERM_STRUCTURE) {
+            std::vector<const proto::Contract*> contracts;
             for (const auto& month : months)
                 contracts.push_back(&month);
             carry = term_carries(table.schedule(), contracts);
@@ -140,7 +140,7 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
                 ? Decimal::from_raw(table.schedule().rolls(m).factor().units())
                 : Decimal::parse("1");
             for (const auto& close : table.months(m).closes()) {
-                if (factor == v1::TERM_STRUCTURE) {
+                if (factor == proto::TERM_STRUCTURE) {
                     const auto term = carry.find(close.trading_day());
                     if (term == carry.end())
                         continue;
@@ -160,8 +160,8 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
         const auto& rolls = schedule.rolls();
         // The carry each trading day begins with, where it has a term point.
         std::map<std::string, Decimal> carry;
-        if (factor == v1::TERM_STRUCTURE) {
-            std::vector<const v1::Contract*> months;
+        if (factor == proto::TERM_STRUCTURE) {
+            std::vector<const proto::Contract*> months;
             for (const auto& month : data.dominant().months())
                 months.push_back(&month.contract());
             carry = term_carries(schedule, months);
@@ -180,7 +180,7 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
                 if (bar.trading_day() < rolls[i].trading_day()
                     || (i + 1 < rolls.size() && bar.trading_day() >= rolls[i + 1].trading_day()))
                     continue;
-                if (factor == v1::TERM_STRUCTURE) {
+                if (factor == proto::TERM_STRUCTURE) {
                     const auto term = carry.find(bar.trading_day());
                     if (term == carry.end())
                         continue;
@@ -194,19 +194,19 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor)
     return result;
 }
 
-unsigned observation_count(const factor::v1::FactorInput& input)
+unsigned observation_count(const factor::proto::FactorInput& input)
 {
     return static_cast<unsigned>(factor_observations(input).order.size());
 }
 
 } // namespace
 
-factor::v1::FactorRequest encode_factor_request(const Json& input)
+factor::proto::FactorRequest encode_factor_request(const Json& input)
 {
     auto required = input;
     required.erase("liquidity");
     require_fields(required, {"series", "factor", "lookbacks", "horizon", "evaluation"});
-    factor::v1::FactorRequest result;
+    factor::proto::FactorRequest result;
     const auto& series = input.at("series");
     if (!series.is_array() || series.empty()
         || series.size() > static_cast<std::size_t>(max_factor_series))
@@ -305,9 +305,9 @@ factor::v1::FactorRequest encode_factor_request(const Json& input)
     return result;
 }
 
-data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest& source)
+data::proto::DataRequest factor_series_query(const factor::proto::FactorSeriesRequest& source)
 {
-    data::v1::DataRequest query;
+    data::proto::DataRequest query;
     if (source.has_bars())
         *query.mutable_bar_dataset() = source.bars();
     else if (source.has_dominant())
@@ -319,10 +319,10 @@ data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest&
     return query;
 }
 
-std::vector<factor::v1::FactorSeries>
-factor_series(const factor::v1::FactorSeriesRequest& source, data::v1::DataResponse reply)
+std::vector<factor::proto::FactorSeries>
+factor_series(const factor::proto::FactorSeriesRequest& source, data::proto::DataResponse reply)
 {
-    std::vector<factor::v1::FactorSeries> result;
+    std::vector<factor::proto::FactorSeries> result;
     if (source.has_tables() && reply.has_table_series()) {
         // One series for each instrument asked for, in that order.
         auto& group = *reply.mutable_table_series();
@@ -349,8 +349,8 @@ factor_series(const factor::v1::FactorSeriesRequest& source, data::v1::DataRespo
     return result;
 }
 
-factor::v1::FactorRequest reuse_daily_factor(
-    factor::v1::FactorRequest parameters,
+factor::proto::FactorRequest reuse_daily_factor(
+    factor::proto::FactorRequest parameters,
     const std::string& dataset_revision,
     const std::string& snapshot,
     const std::optional<std::vector<unsigned>>& lookbacks)
@@ -361,7 +361,7 @@ factor::v1::FactorRequest reuse_daily_factor(
         if (lookbacks->empty() || lookbacks->size() > 32)
             throw std::invalid_argument("factor requires 1..32 explicit lookback windows");
         if (!std::ranges::equal(*lookbacks, parameters.lookbacks())
-            && (parameters.factor() != v1::PRICE_MOMENTUM || !parameters.has_full_sample()
+            && (parameters.factor() != proto::PRICE_MOMENTUM || !parameters.has_full_sample()
                 || !parameters.full_sample() || parameters.lookbacks_size() != 1
                 || lookbacks->size() != 1))
             throw std::invalid_argument(
@@ -403,7 +403,7 @@ factor::v1::FactorRequest reuse_daily_factor(
     return parameters;
 }
 
-factor::v1::FactorRequest
+factor::proto::FactorRequest
 reuse_daily_factor(const Json& experiment, const std::string& snapshot, const Json& lookbacks)
 {
     Json sources = Json::array();
@@ -449,7 +449,7 @@ reuse_daily_factor(const Json& experiment, const std::string& snapshot, const Js
         windows);
 }
 
-factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request)
+factor::proto::FactorInput factor_input(const factor::proto::FactorRequest& request)
 {
     if (!request.expected_dataset_revision().empty()
         && !digest(request.expected_dataset_revision()))
@@ -460,7 +460,7 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request)
         count += source.has_tables() ? source.tables().instruments_size() : 1;
     if (count != 1 && (count < 3 || count > max_factor_series))
         throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
-    factor::v1::FactorInput input;
+    factor::proto::FactorInput input;
     if (request.has_liquidity()) {
         validate_liquidity(request.liquidity());
         if (count < 3
@@ -484,7 +484,7 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request)
     return input;
 }
 
-void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries series)
+void add_factor_series(factor::proto::FactorInput& input, factor::proto::FactorSeries series)
 {
     std::size_t bars = 0;
     *input.add_series() = std::move(series);
@@ -495,7 +495,7 @@ void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries 
 }
 
 std::string factor_revision(
-    const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series)
+    const google::protobuf::RepeatedPtrField<factor::proto::FactorSeries>& series)
 {
     validate_series(series);
     Json revisions = Json::array();
@@ -521,7 +521,7 @@ std::string factor_revision(
 
 namespace {
 
-FactorObservations read_observations(const factor::v1::FactorInput& input, v1::Factor kind)
+FactorObservations read_observations(const factor::proto::FactorInput& input, proto::Factor kind)
 {
     validate_series(input.series());
     std::vector<Observed> all;
@@ -533,7 +533,7 @@ FactorObservations read_observations(const factor::v1::FactorInput& input, v1::F
             throw std::invalid_argument("factor observations must be in ascending order");
         times.insert(order.begin(), order.end());
     }
-    const bool terms = kind == v1::TERM_STRUCTURE;
+    const bool terms = kind == proto::TERM_STRUCTURE;
     FactorObservations result;
     result.order.assign(times.begin(), times.end());
     result.closes.resize(all.size());
@@ -580,23 +580,23 @@ FactorObservations read_observations(const factor::v1::FactorInput& input, v1::F
 
 } // namespace
 
-FactorObservations factor_observations(const factor::v1::FactorInput& input)
+FactorObservations factor_observations(const factor::proto::FactorInput& input)
 {
     return read_observations(input, input.factor());
 }
 
-FactorObservations factor_daily_observations(const factor::v1::FactorInput& input)
+FactorObservations factor_daily_observations(const factor::proto::FactorInput& input)
 {
     if (std::ranges::any_of(input.series(), [](const auto& series) {
             return !series.has_table();
         }))
         throw std::invalid_argument("liquidity filtering requires a daily cross-section");
-    return read_observations(input, v1::PRICE_MOMENTUM);
+    return read_observations(input, proto::PRICE_MOMENTUM);
 }
 
 namespace {
 
-Json factor_definition(const factor::v1::FactorInput& input, unsigned count)
+Json factor_definition(const factor::proto::FactorInput& input, unsigned count)
 {
     validate_message(input);
     if (input.has_liquidity()) {
@@ -620,7 +620,7 @@ Json factor_definition(const factor::v1::FactorInput& input, unsigned count)
         windows.push_back(window);
     }
     // A standard deviation needs two returns.
-    if (input.factor() == v1::VOLATILITY && input.lookbacks(0) < 2)
+    if (input.factor() == proto::VOLATILITY && input.lookbacks(0) < 2)
         throw std::invalid_argument("volatility lookback must be 2..10000 observations");
     if (input.lookbacks_size() > 1 && !input.has_holdout_start() && !input.has_walk_forward())
         throw std::invalid_argument("factor parameter comparison requires a holdout");
@@ -651,7 +651,7 @@ Json factor_definition(const factor::v1::FactorInput& input, unsigned count)
 }
 
 // The structure of a result, without reference to the input it belongs to.
-Json result_structure(const factor::v1::FactorResult& result)
+Json result_structure(const factor::proto::FactorResult& result)
 {
     validate_message(result);
     for (const auto& row : result.samples())
@@ -753,7 +753,7 @@ Json result_structure(const factor::v1::FactorResult& result)
                 || fold.development().name() != "development" || fold.holdout().name() != "holdout"
                 || !fold.lookback())
                 throw std::invalid_argument("invalid walk-forward fold");
-            factor::v1::FactorResult metadata;
+            factor::proto::FactorResult metadata;
             metadata.set_input_count(result.input_count());
             metadata.set_selection_rule("fixed");
             *metadata.add_partitions() = fold.development();
@@ -790,7 +790,7 @@ Json result_structure(const factor::v1::FactorResult& result)
 
 } // namespace
 
-FactorObservations validate_factor_input(const factor::v1::FactorInput& input)
+FactorObservations validate_factor_input(const factor::proto::FactorInput& input)
 {
     auto observations = factor_observations(input);
     const auto count = static_cast<unsigned>(observations.order.size());
@@ -847,7 +847,7 @@ FactorObservations validate_factor_input(const factor::v1::FactorInput& input)
     return observations;
 }
 
-std::size_t factor_work_units(const factor::v1::FactorInput& input)
+std::size_t factor_work_units(const factor::proto::FactorInput& input)
 {
     const std::size_t count = observation_count(input);
     const auto candidates = input.lookbacks_size() > 1 ? input.lookbacks_size() : 0;
@@ -860,8 +860,8 @@ std::size_t factor_work_units(const factor::v1::FactorInput& input)
 }
 
 void validate_factor_result(
-    const factor::v1::FactorInput& input,
-    const factor::v1::FactorResult& result)
+    const factor::proto::FactorInput& input,
+    const factor::proto::FactorResult& result)
 {
     const auto observations = factor_observations(input);
     const auto& order = observations.order;
@@ -882,11 +882,11 @@ void validate_factor_result(
                     const auto& row = result.memberships(membership++);
                     if (row.series_index() != static_cast<unsigned>(series)
                         || row.trading_day() != close.trading_day()
-                        || !factor::v1::MembershipReason_IsValid(row.reason())
-                        || row.reason() == factor::v1::MEMBERSHIP_UNSPECIFIED
-                        || row.reason() == factor::v1::MEMBERSHIP_UNOBSERVED)
+                        || !factor::proto::MembershipReason_IsValid(row.reason())
+                        || row.reason() == factor::proto::MEMBERSHIP_UNSPECIFIED
+                        || row.reason() == factor::proto::MEMBERSHIP_UNOBSERVED)
                         reject();
-                    if (row.reason() == factor::v1::MEMBERSHIP_ELIGIBLE)
+                    if (row.reason() == factor::proto::MEMBERSHIP_ELIGIBLE)
                         eligible[row.trading_day()].insert(row.series_index());
                 }
     }
@@ -993,7 +993,7 @@ void validate_factor_result(
         reject();
 }
 
-Json decode_factor(const factor::v1::FactorInput& input, DatasetView view)
+Json decode_factor(const factor::proto::FactorInput& input, DatasetView view)
 {
     auto result = factor_definition(input, observation_count(input));
     result["series"] = Json::array();
@@ -1028,8 +1028,8 @@ Json decode_factor(const factor::v1::FactorInput& input, DatasetView view)
 }
 
 Json decode_factor_result(
-    const factor::v1::FactorInput& input,
-    const factor::v1::FactorResult& result)
+    const factor::proto::FactorInput& input,
+    const factor::proto::FactorResult& result)
 {
     validate_factor_result(input, result);
     auto decoded = result_structure(result);
@@ -1071,7 +1071,7 @@ Json decode_factor_result(
         memberships.push_back(
             {{"series_index", row.series_index()},
                 {"trading_day", row.trading_day()},
-                {"reason", factor::v1::MembershipReason_Name(row.reason())}});
+                {"reason", factor::proto::MembershipReason_Name(row.reason())}});
     decoded["memberships"] = std::move(memberships);
     decoded["samples"] = std::move(samples);
     decoded["cross_sections"] = std::move(sections);

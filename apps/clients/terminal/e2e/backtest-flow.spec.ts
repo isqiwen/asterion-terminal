@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
@@ -17,7 +18,7 @@ test(
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    await openView(page, "records");
     await page
       .locator(`[data-dataset-id="${selected.source_dataset_ids[0]}"]`)
       .getByRole("button", { name: "用于回测" })
@@ -39,10 +40,7 @@ test(
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue(
       selected.source_dataset_ids[0],
     );
@@ -76,6 +74,19 @@ test(
     await page.screenshot({
       path: "apps/clients/terminal/test-results/download-backtest-result.png",
     });
+    await result.getByRole("button", { name: "查看绩效与归因", exact: true }).click();
+    const evaluation = page.getByRole("region", { name: "绩效与归因", exact: true });
+    const id = await evaluation.getByLabel("评估来源").inputValue();
+    expect(id).toBeTruthy();
+    await evaluation.getByRole("button", { name: "读取评估来源" }).click();
+    await expect(evaluation.getByRole("region", { name: "绩效", exact: true })).toBeVisible();
+    await expect(evaluation).toContainText("无风险利率取 0");
+    const evidence = (await rpc(page.request, "task.result.read", { id })).task_result;
+    await expect(evaluation.getByText(evidence.task.result_digest, { exact: true })).toBeVisible();
+    await evaluation.getByRole("button", { name: "查看原始实验" }).click();
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: "回测", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
   },
 );
 
@@ -100,7 +111,7 @@ test("data handoff stays bound to its service and never reuses another contract'
   });
   await page.reload();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   await page
     .locator(`[data-dataset-id="${one.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "用于回测" })
@@ -126,7 +137,7 @@ test("data/task access prepares a stopped local service once and does not replac
   page,
 }) => {
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await openView(page, "trading");
   await rpc(page.request, "node.data_tasks.local.open");
   await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
   let offline = true,
@@ -151,14 +162,14 @@ test("data/task access prepares a stopped local service once and does not replac
     await route.fulfill({ response, json: body });
   });
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await expect.poll(() => starts).toBe(1);
   await expect(page.getByRole("button", { name: "新建回测", exact: true })).toBeEnabled();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await openView(page, "trading");
   remote = true;
   offline = true;
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await expect(
     page.getByText("远程数据或任务连接已断开，当前运行位置保持不变。", { exact: true }),
   ).toBeVisible();
@@ -170,7 +181,7 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
   page,
 }) => {
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await openView(page, "trading");
   let offline = true,
     attempts = 0,
     reads = 0;
@@ -205,7 +216,7 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
     await route.fulfill({ response, json: body });
   });
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await expect(page.getByRole("button", { name: "重试准备", exact: true })).toBeVisible();
   const afterFailure = reads;
   await expect.poll(() => reads).toBeGreaterThan(afterFailure + 1);
@@ -232,7 +243,7 @@ test("archive versions remain selectable without any download tasks", async ({ p
   });
   await page.reload();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   await page
     .locator(`[data-dataset-id="${selected.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "用于回测" })

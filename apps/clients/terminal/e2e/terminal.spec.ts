@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await expect(page.locator(".activity-rail")).not.toHaveClass(/collapsed/);
   await expect(page.locator(".workspace-tabs .nav-label").first()).toBeVisible();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "插件", exact: true }).click();
@@ -26,9 +27,9 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
       .getByText("asterion.risk.order-limits", { exact: true }),
   ).toBeVisible();
   page = await closeSettingsWindow(page);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+    page.locator(".module-views").getByRole("button", { name: "自选", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await page.screenshot({ path: join(__dirname, "../test-results/workbench.png") });
 });

@@ -18,7 +18,8 @@ def inputs(root=ROOT):
     paths = {root / name for name in FILES}
     for tree in TREES:
         paths.update(path for path in (root / tree).rglob("*")
-                     if path.is_file() and (path.suffix in SUFFIXES or path.name == "CMakeLists.txt"))
+                     if path.is_file() and (path.suffix in SUFFIXES or path.name == "CMakeLists.txt")
+                     and not path.is_relative_to(root / "plugins/tools/analytics"))
     for path in paths:
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"Missing or symbolic service input: {path}")

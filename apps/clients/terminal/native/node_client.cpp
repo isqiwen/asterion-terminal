@@ -6,7 +6,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -15,7 +15,7 @@
 #include <stdexcept>
 
 namespace asterion::terminal {
-namespace wire = asterion::node::v1;
+namespace wire = asterion::node::proto;
 using namespace std::chrono_literals;
 
 struct NodeClient::Impl : std::enable_shared_from_this<Impl>
@@ -267,7 +267,8 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl>
         const std::filesystem::path& path,
         const std::string& os,
         const std::string& arch,
-        std::stop_token stop)
+        std::stop_token stop,
+        const std::string& expected_digest = {})
     {
         struct Artifact
         {
@@ -281,8 +282,11 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl>
             if (actual.os != os || actual.arch != arch)
                 throw std::invalid_argument(
                     "program binary platform does not match selected target");
+            const auto digest = sha256_file(path);
+            if (!expected_digest.empty() && digest != expected_digest)
+                throw std::invalid_argument("native plugin catalog changed; inspect again");
             return Artifact{
-                sha256_file(path),
+                digest,
                 std::filesystem::file_size(path),
                 std::make_unique<std::ifstream>(path, std::ios::binary)
             };
@@ -496,10 +500,8 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl>
         if ((kind == wire::TASK_SERVICE || kind == wire::DATA_SERVICE || risk)
             && deployment.plugins) {
             for (const auto& artifact : *deployment.plugins) {
-                const auto uploaded = (co_await upload_artifact(artifact.path, os, arch, stop));
-                if (uploaded != artifact.sha256)
-                    throw std::invalid_argument("native plugin catalog changed; inspect again");
-                d->add_plugin_artifacts(uploaded);
+                d->add_plugin_artifacts(
+                    co_await upload_artifact(artifact.path, os, arch, stop, artifact.sha256));
             }
         } else if (kind == wire::TASK_SERVICE || kind == wire::DATA_SERVICE || risk) {
             const auto paths = co_await io.admin<std::vector<std::filesystem::path>>([&] {
@@ -611,9 +613,12 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl>
         });
         const auto platform = current_platform();
         for (const auto& artifact : selection.uploads)
-            if ((co_await upload_artifact(artifact.path, platform.os, platform.arch, stop))
-                != artifact.sha256)
-                throw std::invalid_argument("native plugin catalog changed; inspect again");
+            co_await upload_artifact(
+                artifact.path,
+                platform.os,
+                platform.arch,
+                stop,
+                artifact.sha256);
         wire::Request request;
         auto* configuration = request.mutable_configure_plugins();
         configuration->set_service_id(service);
@@ -744,12 +749,7 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl>
         std::optional<std::vector<PluginArtifact>> selection;
         if (selected_plugins) {
             selection = co_await io.admin<std::vector<PluginArtifact>>([&] {
-                auto chosen =
-                    local_plugin_catalog().select_data_task_plugins(*selected_plugins).uploads;
-                for (const auto& artifact : chosen)
-                    if (sha256_file(artifact.path) != artifact.sha256)
-                        throw std::invalid_argument("native plugin catalog changed; inspect again");
-                return chosen;
+                return local_plugin_catalog().select_data_task_plugins(*selected_plugins).uploads;
             });
         }
         if (!data_exists)

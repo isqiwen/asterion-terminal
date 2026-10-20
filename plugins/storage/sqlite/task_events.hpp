@@ -2,7 +2,7 @@
 #include "sqlite_database.hpp"
 #include <filesystem>
 #include <functional>
-#include <asterion/v1/task.pb.h>
+#include <asterion/task.pb.h>
 
 namespace asterion::sqlite {
 
@@ -24,9 +24,9 @@ private:
     bool read_only_;
     // One immutable segment, shared by adjacent per-task restore reads.
     mutable std::uint64_t cached_id_ = 0;
-    mutable task::v1::StoredTaskEventSegment cached_segment_;
-    const task::v1::StoredTaskEventSegment& segment(std::uint64_t id) const;
-    task::v1::StoredTaskEventSegment live() const;
+    mutable task::proto::StoredTaskEventSegment cached_segment_;
+    const task::proto::StoredTaskEventSegment& segment(std::uint64_t id) const;
+    task::proto::StoredTaskEventSegment live() const;
     std::filesystem::path path(std::uint64_t) const;
 };
 

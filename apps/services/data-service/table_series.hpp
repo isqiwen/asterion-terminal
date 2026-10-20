@@ -2,7 +2,7 @@
 #include "history_tables.hpp"
 #include "historical_margin.hpp"
 #include <asterion/foundation/decimal.hpp>
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 #include <map>
 #include <string>
 #include <vector>
@@ -47,7 +47,7 @@ struct DailyFacts
 // as table_series does.
 DailyFacts daily_facts(
     const history_files::TableStore&,
-    const v1::DailyTable&,
+    const proto::DailyTable&,
     const std::string& venue,
     const std::string& begin_day,
     const std::string& end_day,
@@ -71,7 +71,7 @@ DailyFacts daily_facts(
 inline constexpr std::size_t increment_days = 20;
 std::map<std::string, Decimal> price_increments(
     const history_files::TableStore&,
-    const v1::DailyTable&,
+    const proto::DailyTable&,
     const std::string& venue,
     const std::string& product,
     const std::string& begin_day,
@@ -82,7 +82,7 @@ std::map<std::string, Decimal> price_increments(
 // Fails for a contract the table lacks, and for units it cannot read.
 std::map<std::string, Decimal> contract_multipliers(
     const history_files::TableStore&,
-    const v1::DailyTable&,
+    const proto::DailyTable&,
     const std::string& venue,
     const std::vector<std::string>& contracts);
 // The series of a request's instruments, read from the market-wide daily table
@@ -99,16 +99,18 @@ std::map<std::string, Decimal> contract_multipliers(
 // that cannot be read over a whole range (no closes, or a product whose months
 // leave a day without a dominant one) are refused together, each named with
 // why, so that a long list is corrected once.
-v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
+proto::TableSeriesGroup
+table_series(const history_files::TableStore&, const proto::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
-v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
-v1::TableListedContracts
-table_listed_contracts(const history_files::TableStore&, const v1::TableListedContractsQuery&);
+proto::TableProducts
+table_products(const history_files::TableStore&, const proto::TableProductsQuery&);
+proto::TableListedContracts
+table_listed_contracts(const history_files::TableStore&, const proto::TableListedContractsQuery&);
 // The contracts of one product of one exchange in a snapshot's contract list
 // that have a listing day, a delisting day and the source's code for them,
 // ascending; what a download of one of them asks for. `source` names the
 // reply; the list read is `contracts_source`.
-v1::HistoryCatalog table_contracts(
+proto::HistoryCatalog table_contracts(
     const history_files::TableStore&,
     const std::string& snapshot,
     const std::string& source,
@@ -129,12 +131,12 @@ struct TradedDays
 
 std::string previous_trading_day(
     const history_files::TableStore&,
-    const v1::DailyTable&,
+    const proto::DailyTable&,
     const std::string& venue,
     const std::string& first_day);
 TradedDays traded_days(
     const history_files::TableStore&,
-    const v1::DailyTable&,
+    const proto::DailyTable&,
     const std::string& contract,
     const std::string& first,
     const std::string& last);
@@ -143,6 +145,6 @@ TradedDays traded_days(
 // of those the stored ones; grouped by the period asked for, with MACD from
 // the first candle. Unlike a series it does not fail on a day the table lacks:
 // that day is not drawn. A contract the contract list lacks is refused.
-v1::TableDailyPage table_daily(const history_files::TableStore&, const v1::TableDailyQuery&);
+proto::TableDailyPage table_daily(const history_files::TableStore&, const proto::TableDailyQuery&);
 
 } // namespace asterion::data

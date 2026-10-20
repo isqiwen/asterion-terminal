@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { readFile, writeFile } from "node:fs/promises";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -103,7 +104,7 @@ test("recorded settlement budgets reveal earlier excess while the final account 
     .sort();
   await page.goto("/");
   await expect(page.locator(".workspace-tabs")).toBeVisible();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "查看结果", exact: true }).click();
   await workspace.getByText("组合敞口与预算复核", { exact: true }).click();

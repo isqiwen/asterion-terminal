@@ -42,12 +42,12 @@ public:
 private:
     struct Work
     {
-        v1::DataRequest request;
-        v1::DataResponse response;
+        proto::DataRequest request;
+        proto::DataResponse response;
         std::function<void()> commit;
         std::future<void> completion;
         std::string frame, publication_dataset;
-        v1::StoredDownloadAuthorization authorization;
+        proto::StoredDownloadAuthorization authorization;
         std::optional<DownloadBudget::Configuration> budget_configuration;
         enum class Phase
         {
@@ -63,8 +63,8 @@ private:
         bool reading_catalog = false, awaiting_catalog_write = false, writing_catalog = false;
     };
 
-    v1::DataRequest parse(const std::string& frame) const;
-    v1::DataResponse health_response(const v1::DataRequest& request) const;
+    proto::DataRequest parse(const std::string& frame) const;
+    proto::DataResponse health_response(const proto::DataRequest& request) const;
     void require_ready() const;
     // The objects whose order this request keeps, and whether it may run here.
     void admit(Work& work, bool worker);
@@ -73,8 +73,8 @@ private:
     // Reader pool. Preparation owns large reads and provider calls; a returned
     // commit is handed to the serial writer after preparation releases its slot.
     std::function<void()> prepare(
-        const v1::DataRequest& request,
-        v1::DataResponse& response,
+        const proto::DataRequest& request,
+        proto::DataResponse& response,
         std::stop_token stop,
         bool& creates_dataset,
         std::string& publication_dataset);

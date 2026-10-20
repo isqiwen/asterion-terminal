@@ -12,7 +12,7 @@ namespace {
 bool supported(const NativeLibrary& library)
 {
     return std::ranges::any_of(library.descriptor().capabilities, [](const auto& item) {
-        return item.id == AST_RISK_V1 && item.version == 1 && item.kind == "risk";
+        return item.id == AST_RISK && item.version == 1 && item.kind == "risk";
     });
 }
 
@@ -47,10 +47,10 @@ Module Module::pinned(const std::filesystem::path& directory, const std::string&
     const auto file = filename(directory);
     if (!directory.is_absolute() || std::filesystem::is_symlink(directory)
         || !std::filesystem::is_directory(directory) || std::filesystem::is_symlink(file)
-        || !std::filesystem::is_regular_file(file) || sha256_file(file) != artifact)
+        || !std::filesystem::is_regular_file(file))
         throw std::invalid_argument("risk plugin artifact does not match its owner");
-    NativeLibrary library(file);
-    if (library.sha256() != artifact || !supported(library))
+    NativeLibrary library(file, artifact);
+    if (!supported(library))
         throw std::invalid_argument("risk plugin artifact does not match its owner");
     return Module(std::move(library));
 }

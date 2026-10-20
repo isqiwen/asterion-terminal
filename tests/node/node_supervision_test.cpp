@@ -5,8 +5,8 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/owner.hpp>
-#include <asterion/v1/market.pb.h>
-#include <asterion/v1/task.pb.h>
+#include <asterion/market.pb.h>
+#include <asterion/task.pb.h>
 #include <asterion/protocol/data_client.hpp>
 #include <gtest/gtest.h>
 #include <csignal>
@@ -103,7 +103,7 @@ protected:
 
     void deploy_fixture(bool task, const std::string& name)
     {
-        const auto kind = task ? node::v1::TASK_SERVICE : node::v1::MARKET_DATA;
+        const auto kind = task ? node::proto::TASK_SERVICE : node::proto::MARKET_DATA;
         client
             ->deploy(
                 {.service = name,
@@ -111,7 +111,7 @@ protected:
                     .platform = current_platform(),
                     .programs = local_service_programs(kind),
                     .plugins = std::vector<PluginArtifact>{},
-                    .data_service = kind == node::v1::TASK_SERVICE ? name + "-data" : ""})
+                    .data_service = kind == node::proto::TASK_SERVICE ? name + "-data" : ""})
             .get();
     }
 
@@ -210,13 +210,13 @@ TEST_F(NodeSupervision, SlowHealthLeavesAdministrationAvailableAndOldReplyCannot
 {
     auto listener = intercept(false);
     auto held = listener->accept(8s);
-    market::v1::Request request;
+    market::proto::Request request;
     ASSERT_TRUE(request.ParseFromString(held.receive(1s)));
     const auto received = std::chrono::steady_clock::now();
     ASSERT_TRUE(request.has_heartbeat());
     expect_status_while_held();
     restart_held_process();
-    market::v1::Response reply;
+    market::proto::Response reply;
     reply.set_version(1);
     reply.set_service_id(request.service_id());
     reply.set_correlation_id(request.correlation_id());
@@ -241,7 +241,7 @@ TEST_F(NodeSupervision, SlowTaskDispatchLeavesAdministrationAvailableAndOldLaunc
 {
     auto listener = intercept(true);
     auto held = listener->accept(5s);
-    task::v1::TaskRequest request;
+    task::proto::TaskRequest request;
     ASSERT_TRUE(request.ParseFromString(held.receive(1s)));
     const auto received = std::chrono::steady_clock::now();
     ASSERT_TRUE(request.has_dispatch());
@@ -249,7 +249,7 @@ TEST_F(NodeSupervision, SlowTaskDispatchLeavesAdministrationAvailableAndOldLaunc
     expect_capacity(Json{{"limit", 2}, {"owned", 0}, {"reserved", 2}});
     expect_status_while_held();
     restart_held_process();
-    task::v1::TaskResponse reply;
+    task::proto::TaskResponse reply;
     reply.set_version(1);
     reply.set_service_id(request.service_id());
     reply.set_correlation_id(request.correlation_id());
@@ -290,25 +290,25 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
     fs::remove(workers_of_other);
     auto first = intercept(true);
     auto dispatch = first->accept(5s);
-    task::v1::TaskRequest request;
+    task::proto::TaskRequest request;
     ASSERT_TRUE(request.ParseFromString(dispatch.receive(1s)));
     ASSERT_TRUE(request.has_dispatch());
     ASSERT_EQ(request.dispatch().launch_slots(), 2);
-    task::v1::TaskResponse response;
+    task::proto::TaskResponse response;
     response.set_version(1);
     response.set_service_id(request.service_id());
     response.set_correlation_id(request.correlation_id());
     for (const auto* id : {"held-one", "held-two"}) {
         auto* launch = response.mutable_launches()->add_launches();
         launch->set_task_id(id);
-        launch->set_program(task::v1::FACTOR_PROGRAM);
+        launch->set_program(task::proto::FACTOR_PROGRAM);
     }
     dispatch.send(response.SerializeAsString(), 1s);
     // Real worker processes are held before claim; no fabricated market input runs.
     std::vector<testing_support::LocalPeer> workers;
     for (int i = 0; i < 2; ++i) {
         auto worker = first->accept(5s);
-        task::v1::TaskRequest claim;
+        task::proto::TaskRequest claim;
         ASSERT_TRUE(claim.ParseFromString(worker.receive(1s)));
         ASSERT_TRUE(claim.has_claim()) << claim.DebugString() << state().dump();
         workers.push_back(std::move(worker));
@@ -325,7 +325,7 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
     // freed slot before the earlier name in Agent's observation map can refill.
     workers.pop_back();
     auto next = second->accept(5s);
-    task::v1::TaskRequest offered;
+    task::proto::TaskRequest offered;
     ASSERT_TRUE(offered.ParseFromString(next.receive(1s)));
     ASSERT_TRUE(offered.has_dispatch());
     ASSERT_EQ(offered.dispatch().launch_slots(), 1);
@@ -336,11 +336,11 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
     response.mutable_launches()->clear_launches();
     auto* launch = response.mutable_launches()->add_launches();
     launch->set_task_id("held-three");
-    launch->set_program(task::v1::FACTOR_PROGRAM);
+    launch->set_program(task::proto::FACTOR_PROGRAM);
     next.send(response.SerializeAsString(), 1s);
     {
         auto worker = second->accept(5s);
-        task::v1::TaskRequest claim;
+        task::proto::TaskRequest claim;
         ASSERT_TRUE(claim.ParseFromString(worker.receive(1s)));
         ASSERT_TRUE(claim.has_claim()) << claim.DebugString() << state("other").dump();
         workers.push_back(std::move(worker));
@@ -370,10 +370,10 @@ TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWith
     unsigned initializing = 0;
     while (std::chrono::steady_clock::now() < deadline) {
         auto held = listener->accept(6s);
-        task::v1::TaskRequest request;
+        task::proto::TaskRequest request;
         ASSERT_TRUE(request.ParseFromString(held.receive(1s)));
         ASSERT_TRUE(request.has_heartbeat());
-        task::v1::TaskResponse reply;
+        task::proto::TaskResponse reply;
         reply.set_version(1);
         reply.set_service_id(request.service_id());
         reply.set_correlation_id(request.correlation_id());
@@ -475,7 +475,7 @@ TEST_F(NodeSupervision, OtherServicesLeaveATaskServiceTheWorkerItNeeds)
     // And the Agent goes on offering it to the task service.
     auto listener = attach(true, false, "observed");
     auto offer = listener->accept(5s);
-    task::v1::TaskRequest request;
+    task::proto::TaskRequest request;
     ASSERT_TRUE(request.ParseFromString(offer.receive(1s)));
     ASSERT_TRUE(request.has_dispatch());
     EXPECT_GE(request.dispatch().launch_slots(), 1U);
@@ -490,9 +490,9 @@ TEST_F(NodeSupervision, ADataServiceWaitsUntilItsPairHasRoom)
         client
             ->deploy(
                 {.service = name,
-                    .kind = node::v1::DATA_SERVICE,
+                    .kind = node::proto::DATA_SERVICE,
                     .platform = current_platform(),
-                    .programs = local_service_programs(node::v1::DATA_SERVICE),
+                    .programs = local_service_programs(node::proto::DATA_SERVICE),
                     .plugins = std::vector<PluginArtifact>{},
                     .task_service = task})
             .get();
@@ -515,7 +515,7 @@ TEST_F(NodeSupervision, ADataServiceWaitsUntilItsPairHasRoom)
     {
         auto listener = attach(true, false, "observed");
         auto offer = listener->accept(5s);
-        task::v1::TaskRequest request;
+        task::proto::TaskRequest request;
         ASSERT_TRUE(request.ParseFromString(offer.receive(1s)));
         ASSERT_TRUE(request.has_dispatch());
         EXPECT_EQ(request.dispatch().launch_slots(), capacity().at("limit"));
@@ -543,9 +543,9 @@ TEST_F(NodeSupervision, NeitherHalfOfAPairStartsWithoutRoomForBoth)
     client
         ->deploy(
             {.service = "observed-data",
-                .kind = node::v1::DATA_SERVICE,
+                .kind = node::proto::DATA_SERVICE,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::DATA_SERVICE),
+                .programs = local_service_programs(node::proto::DATA_SERVICE),
                 .plugins = std::vector<PluginArtifact>{},
                 .task_service = "observed"})
         .get();
@@ -637,9 +637,9 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart
     client
         ->deploy(
             {.service = "data-one",
-                .kind = node::v1::DATA_SERVICE,
+                .kind = node::proto::DATA_SERVICE,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::DATA_SERVICE),
+                .programs = local_service_programs(node::proto::DATA_SERVICE),
                 .plugins = std::vector<PluginArtifact>{},
                 .task_service = "tasks-one"})
         .get();
@@ -658,7 +658,7 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart
     EXPECT_EQ(first.at("kind"), "data");
     EXPECT_EQ(first.at("task_service"), "tasks-one");
     protocol::DataClient data(first.at("endpoint").get<std::string>(), "data-one");
-    data::v1::DataRequest heartbeat;
+    data::proto::DataRequest heartbeat;
     heartbeat.mutable_heartbeat();
     const auto before = data.call(heartbeat).health();
     EXPECT_EQ(before.instance_id(), "data-one");
@@ -675,9 +675,9 @@ TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
     client
         ->deploy(
             {.service = "tasks-one",
-                .kind = node::v1::TASK_SERVICE,
+                .kind = node::proto::TASK_SERVICE,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::TASK_SERVICE),
+                .programs = local_service_programs(node::proto::TASK_SERVICE),
                 .plugins = std::vector<PluginArtifact>{},
                 .data_service = "data-one"})
         .get();
@@ -693,23 +693,23 @@ TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
         }
     };
     const auto endpoint = ready().at("endpoint").get<std::string>();
-    auto call = [&](task::v1::TaskRequest request) {
+    auto call = [&](task::proto::TaskRequest request) {
         request.set_version(1);
         request.set_service_id("tasks-one");
         request.set_correlation_id(unique_process_id());
         auto channel = ipc::Channel::connect(endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
-        task::v1::TaskResponse reply;
+        task::proto::TaskResponse reply;
         if (!reply.ParseFromString(channel.receive(2s)) || reply.has_error())
             throw std::runtime_error("task fixture request failed");
         return reply;
     };
-    task::v1::TaskRequest heartbeat;
+    task::proto::TaskRequest heartbeat;
     heartbeat.mutable_heartbeat();
     const auto before = call(heartbeat).health();
     EXPECT_EQ(before.instance_id(), "tasks-one");
     EXPECT_EQ(before.data_instance(), "data-one");
-    task::v1::TaskRequest list;
+    task::proto::TaskRequest list;
     list.mutable_list()->set_limit(200);
     EXPECT_EQ(call(list).tasks().tasks_size(), 0);
     client->action("tasks-one", "restart").get();
@@ -722,9 +722,9 @@ TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
         client
             ->deploy(
                 {.service = "data-one",
-                    .kind = node::v1::DATA_SERVICE,
+                    .kind = node::proto::DATA_SERVICE,
                     .platform = current_platform(),
-                    .programs = local_service_programs(node::v1::DATA_SERVICE),
+                    .programs = local_service_programs(node::proto::DATA_SERVICE),
                     .plugins = std::vector<PluginArtifact>{},
                     .task_service = "another-task"})
             .get(),
@@ -732,9 +732,9 @@ TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
     client
         ->deploy(
             {.service = "data-one",
-                .kind = node::v1::DATA_SERVICE,
+                .kind = node::proto::DATA_SERVICE,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::DATA_SERVICE),
+                .programs = local_service_programs(node::proto::DATA_SERVICE),
                 .plugins = std::vector<PluginArtifact>{},
                 .task_service = "tasks-one"})
         .get();
@@ -754,9 +754,9 @@ TEST_F(NodeSupervision, SlowProcessReleaseKeepsStatusAndConfirmedStopIntentVisib
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::v1::MARKET_DATA,
+                .kind = node::proto::MARKET_DATA,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET_DATA),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     // Inject the fault into an initialized service, after it has installed its
@@ -804,9 +804,9 @@ TEST_F(NodeSupervision, FailedCommitFreezesMutationsAndPreservesConfirmedConfigu
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::v1::MARKET_DATA,
+                .kind = node::proto::MARKET_DATA,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET_DATA),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     const auto before = state();
@@ -843,9 +843,9 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::v1::MARKET_DATA,
+                .kind = node::proto::MARKET_DATA,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::v1::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET_DATA),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     client.reset();

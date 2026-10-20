@@ -15,7 +15,7 @@ struct MarketCursor
 // Carries the UI payload and the wire evidence needed by its single owner.
 struct MarketUpdate
 {
-    explicit MarketUpdate(const market::v1::Snapshot& state);
+    explicit MarketUpdate(const market::proto::Snapshot& state);
     Json value;
     std::vector<std::string> keys;
     std::uint64_t base_sequence, catalog_revision;

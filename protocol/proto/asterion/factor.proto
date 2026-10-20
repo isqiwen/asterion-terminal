@@ -1,16 +1,16 @@
 syntax = "proto3";
-import "asterion/v1/domain.proto";
-import "asterion/v1/data.proto";
-package asterion.factor.v1;
-import "asterion/v1/trading.proto";
+import "asterion/domain.proto";
+import "asterion/data.proto";
+package asterion.factor.proto;
+import "asterion/trading.proto";
 
 // Months of one product read as its dominant series. On each trading day the
 // observations are the bars of the month the schedule names, each close
 // multiplied by that roll's factor; the bars a month keeps past its last
 // dominant day are not read.
 message DominantBars {
-  repeated asterion.data.v1.BarDataset months = 1;
-  asterion.data.v1.DominantSchedule schedule = 2;
+  repeated asterion.data.proto.BarDataset months = 1;
+  asterion.data.proto.DominantSchedule schedule = 2;
 }
 // One instrument's ordered closes, fixed by the data service. Bars keep their
 // label timestamps; the closes of the market-wide daily table keep provider
@@ -18,9 +18,9 @@ message DominantBars {
 message FactorSeries {
   reserved 2;
   oneof source {
-    asterion.data.v1.BarDataset bars = 1;
+    asterion.data.proto.BarDataset bars = 1;
     DominantBars dominant = 3;
-    asterion.data.v1.TableSeries table = 4;
+    asterion.data.proto.TableSeries table = 4;
   }
 }
 message LiquidityRule {
@@ -59,7 +59,7 @@ message FactorInput {
   LiquidityRule liquidity = 10; // Optional; market-wide daily cross-sections only.
   // The feature. The term structure is read of dominant series alone, on the
   // trading days that have a term point.
-  asterion.protocol.v1.Factor factor = 4;
+  asterion.protocol.proto.Factor factor = 4;
   repeated uint32 lookbacks = 5; // Strictly ascending, unique; 1..32 candidates.
   uint32 horizon = 6;
   // Required explicit evaluation; full_sample must be true.
@@ -76,9 +76,9 @@ message FactorInput {
 message FactorSeriesRequest {
   reserved 2;
   oneof source {
-    asterion.data.v1.BarDatasetRequest bars = 1;
-    asterion.data.v1.DominantSeriesRequest dominant = 3;
-    asterion.data.v1.TableSeriesRequest tables = 4;
+    asterion.data.proto.BarDatasetRequest bars = 1;
+    asterion.data.proto.DominantSeriesRequest dominant = 3;
+    asterion.data.proto.TableSeriesRequest tables = 4;
   }
 }
 // Client submission: Task obtains the fixed series from Data before persisting input.
@@ -87,7 +87,7 @@ message FactorRequest {
   // Admission-only guard for explicit reuse of fixed data; not a new input identity.
   string expected_dataset_revision = 9;
   repeated FactorSeriesRequest series = 1;
-  asterion.protocol.v1.Factor factor = 2;
+  asterion.protocol.proto.Factor factor = 2;
   repeated uint32 lookbacks = 3;
   uint32 horizon = 4;
   oneof evaluation {

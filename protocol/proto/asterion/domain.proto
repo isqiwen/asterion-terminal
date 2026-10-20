@@ -1,5 +1,5 @@
 syntax = "proto3";
-package asterion.protocol.v1;
+package asterion.protocol.proto;
 
 // All authoritative decimal values use exactly eight fractional decimal places.
 message Decimal {

@@ -1540,7 +1540,6 @@ export type Snapshot = {
   portfolio_budget_review?: PortfolioBudgetReview;
   research_export?: {
     name: string;
-    sha256: string;
     bytes: number;
     path?: string;
     content?: string;

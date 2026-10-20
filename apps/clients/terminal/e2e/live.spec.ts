@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { ctpConnection, rpc, seedDataset } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./test";
@@ -32,10 +33,7 @@ test(
       await page.goto("/");
       await rpc(page.request, "market.local");
       await page.reload();
-      await page
-        .locator(".workspace-tabs")
-        .getByRole("button", { name: "交易", exact: true })
-        .click();
+      await openView(page, "trading");
       const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
       // Both accounts are listed; each has its own state and panel.
       const list = panel.getByRole("navigation", { name: "CTP 账户" });
@@ -165,10 +163,7 @@ test(
       await expect(
         page.getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true }),
       ).toBeVisible();
-      await page
-        .locator(".workspace-tabs")
-        .getByRole("button", { name: "研究", exact: true })
-        .click();
+      await openView(page, "backtest");
       await page
         .getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true })
         .click();
@@ -205,11 +200,8 @@ test(
 
       // Current broker rates must not silently apply to earlier history.
       await seedDataset(page.request, [3500, 3501], "live-rates");
-      await page
-        .locator(".workspace-tabs")
-        .getByRole("button", { name: "研究", exact: true })
-        .click();
-      await page.getByRole("button", { name: "回测", exact: true }).click();
+      await openView(page, "backtest");
+      await openView(page, "backtest");
       const openCosts = async () => {
         await page.getByRole("button", { name: "新建回测", exact: true }).click();
         await page.getByRole("button", { name: "下一步", exact: true }).click();
@@ -222,7 +214,7 @@ test(
       await seedDataset(page.request, [3500, 3501], "live-rates-covered", { day: "2026-09-28" });
       // Seeding restarts the task service, which closes the open form.
       await page.reload();
-      await page.getByRole("button", { name: "回测", exact: true }).click();
+      await openView(page, "backtest");
       await openCosts();
       await costs.getByRole("button", { name: "填入模板", exact: true }).click();
       await expect(costs.getByLabel("保证金率", { exact: true })).toHaveValue("0.12");

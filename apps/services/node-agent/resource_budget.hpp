@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/process/capacity.hpp>
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
@@ -58,15 +58,15 @@ public:
         file_workers = host.cpu_threads >= 10 ? 2 : 1;
     }
 
-    Resources service(node::v1::ServiceKind kind) const
+    Resources service(node::proto::ServiceKind kind) const
     {
         switch (kind) {
-            case node::v1::DATA_SERVICE:
+            case node::proto::DATA_SERVICE:
                 return {file_workers, 1024, file_workers + 1};
-            case node::v1::TASK_SERVICE:
+            case node::proto::TASK_SERVICE:
                 return {file_workers, 2048, file_workers + 1};
-            case node::v1::MARKET_DATA:
-            case node::v1::LIVE_TRADING:
+            case node::proto::MARKET_DATA:
+            case node::proto::LIVE_TRADING:
                 return {1, 512, 1};
             default:
                 throw std::invalid_argument("unsupported service resource profile");

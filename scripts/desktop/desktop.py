@@ -218,7 +218,7 @@ def verify_macos_bundle(distribution=True):
                 raise SystemExit("Expected exactly one application in DMG")
             app = apps[0]
             verify_native_resources(app / "Contents/Resources/native")
-            analytics_runtime.verify(app / "Contents/Resources/analytics", signed=True)
+            analytics_runtime.verify(app / "Contents/Resources/analytics")
             if distribution:
                 macos_release.verify_application(app, NATIVE_FILES)
             minimum = "13.0"
@@ -294,7 +294,9 @@ def main():
                 resources.mkdir(parents=True, exist_ok=True)
                 print("WARNING: Linux service bundle does not match this source; "
                       "remote Linux deployment is unavailable in this dev session. "
-                      "Rebuild it before packaging or remote deployment.", file=sys.stderr)
+                      "Local development will continue. Rebuild with "
+                      "scripts/services/build_linux_services.sh before packaging or remote deployment.",
+                      file=sys.stderr)
         elif mode != "dev" or archives.is_dir():
             run(stage)
         else:

@@ -498,7 +498,7 @@ const std::vector<DatasetSelection>& Application::Impl::selected() const
 }
 
 std::optional<std::size_t> Application::Impl::series_of(
-    const protocol::v1::Contract& contract) const
+    const protocol::proto::Contract& contract) const
 {
     for (std::size_t i = 0; i < dataset_series.size(); ++i)
         if (dataset_series[i].summary.at("venue") == contract.venue()

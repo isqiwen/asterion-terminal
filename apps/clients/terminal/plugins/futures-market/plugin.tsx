@@ -1,5 +1,4 @@
 import { HeaderSearch } from "./HeaderSearch";
-import { Icon } from "../contract";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
@@ -8,6 +7,13 @@ import en from "./locales/en-US.json";
 import { lazy } from "react";
 import type { TerminalPlugin } from "../contract";
 const Panel = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
+const Watchlist = lazy(() =>
+  import("./QuoteWorkspaces").then(module => ({ default: module.WatchlistWorkspace })),
+);
+const Contract = lazy(() =>
+  import("./QuoteWorkspaces").then(module => ({ default: module.ContractWorkspace })),
+);
+
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.futures-market",
   commands: [
@@ -27,49 +33,36 @@ export const plugin: TerminalPlugin = {
     "data.tables.listed_contracts",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
-  workspace: {
-    id: "workspace.market",
-    hideToolbar: true,
-    get title() {
-      return t("市场");
-    },
-    icon: <Icon name="market" />,
-    component: context => <Panel {...context} />,
-    headerTools: HeaderSearch,
-  },
-};
+  workspaces: [
+    {
+      id: "workspace.market",
+      hideToolbar: true,
+      get title() {
+        return t("市场");
+      },
 
-const Watchlist = lazy(() =>
-  import("./QuoteWorkspaces").then(module => ({ default: module.WatchlistWorkspace })),
-);
-const Contract = lazy(() =>
-  import("./QuoteWorkspaces").then(module => ({ default: module.ContractWorkspace })),
-);
-export const watchlistPlugin: TerminalPlugin = {
-  id: "asterion.terminal.watchlist",
-  commands: plugin.commands,
-  workspace: {
-    id: "workspace.watchlist",
-    hideToolbar: true,
-    get title() {
-      return t("自选");
+      component: context => <Panel {...context} />,
+      headerTools: HeaderSearch,
     },
-    icon: <Icon name="star" />,
-    component: context => <Watchlist {...context} />,
-    headerTools: context => <HeaderSearch {...context} target="workspace.watchlist" />,
-  },
-};
-export const contractPlugin: TerminalPlugin = {
-  id: "asterion.terminal.contract",
-  commands: plugin.commands,
-  workspace: {
-    id: "workspace.contract",
-    hideToolbar: true,
-    get title() {
-      return t("合约");
+    {
+      id: "workspace.watchlist",
+      hideToolbar: true,
+      get title() {
+        return t("自选");
+      },
+
+      component: context => <Watchlist {...context} />,
+      headerTools: context => <HeaderSearch {...context} target="workspace.watchlist" />,
     },
-    icon: <Icon name="contract" />,
-    component: context => <Contract {...context} />,
-    headerTools: context => <HeaderSearch {...context} target="workspace.contract" />,
-  },
+    {
+      id: "workspace.contract",
+      hideToolbar: true,
+      get title() {
+        return t("合约");
+      },
+
+      component: context => <Contract {...context} />,
+      headerTools: context => <HeaderSearch {...context} target="workspace.contract" />,
+    },
+  ],
 };

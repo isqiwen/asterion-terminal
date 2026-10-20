@@ -17,7 +17,7 @@ struct PaperPortfolio
     std::vector<std::vector<DaySettlement>> days;
 };
 
-PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input);
+PaperPortfolio paper_portfolio(const protocol::proto::PaperInput& input);
 // Day-end schedule of a portfolio in replay order.
 // sparse: empty, or one flag per contract for months of a dominant series.
 PaperReplaySchedule

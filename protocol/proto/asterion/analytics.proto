@@ -1,5 +1,5 @@
 syntax = "proto3";
-package asterion.analytics.v1;
+package asterion.analytics.proto;
 
 // Local Terminal analysis helper. Input comes from Task-verified backtest evidence.
 message SettlementEquity {

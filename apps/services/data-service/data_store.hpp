@@ -3,7 +3,7 @@
 #include "history_archive.hpp"
 #include "table_update.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include <optional>
 #include <variant>
 
@@ -17,8 +17,8 @@ class Store
 {
 public:
     Store(std::filesystem::path root, std::string instance, std::string task_instance);
-    v1::DownloadBudgetPolicy verify_budget(const v1::DownloadBudgetConfiguration&) const;
-    v1::StoredDownloadAuthorization download_authorization(const v1::DownloadIdentity&) const;
+    proto::DownloadBudgetPolicy verify_budget(const proto::DownloadBudgetConfiguration&) const;
+    proto::StoredDownloadAuthorization download_authorization(const proto::DownloadIdentity&) const;
 
     const std::string& instance() const noexcept
     {
@@ -30,34 +30,34 @@ public:
         return archive_;
     }
 
-    v1::HistoryUsage history_usage(const std::string& dataset) const;
-    BarDatasetSources sources(const v1::BarDatasetRequest&) const;
+    proto::HistoryUsage history_usage(const std::string& dataset) const;
+    BarDatasetSources sources(const proto::BarDatasetRequest&) const;
 
     class VerifiedAuthorization
     {
         friend class Store;
 
-        explicit VerifiedAuthorization(v1::StoredDownloadAuthorization value)
+        explicit VerifiedAuthorization(proto::StoredDownloadAuthorization value)
             : value_(std::move(value))
         {}
 
-        v1::StoredDownloadAuthorization value_;
+        proto::StoredDownloadAuthorization value_;
     };
 
-    VerifiedAuthorization verify_authorization(const v1::DownloadAuthorizationRequest&) const;
-    v1::DownloadAuthorization authorize(const VerifiedAuthorization&);
-    v1::DownloadAuthorization authorization(const std::string& id) const;
+    VerifiedAuthorization verify_authorization(const proto::DownloadAuthorizationRequest&) const;
+    proto::DownloadAuthorization authorize(const VerifiedAuthorization&);
+    proto::DownloadAuthorization authorization(const std::string& id) const;
 
     class VerifiedDataset
     {
         friend class Store;
 
-        VerifiedDataset(v1::NamedDataset value, bool creates_entry)
+        VerifiedDataset(proto::NamedDataset value, bool creates_entry)
             : value_(std::move(value)),
               creates_entry_(creates_entry)
         {}
 
-        v1::NamedDataset value_;
+        proto::NamedDataset value_;
         bool creates_entry_;
 
     public:
@@ -67,9 +67,9 @@ public:
         }
     };
 
-    VerifiedDataset verify_dataset(const v1::NamedDataset&) const;
+    VerifiedDataset verify_dataset(const proto::NamedDataset&) const;
     void save(const VerifiedDataset&);
-    v1::DownloadCredentials credentials(const v1::DownloadIdentity&) const;
+    proto::DownloadCredentials credentials(const proto::DownloadIdentity&) const;
 
     class VerifiedAllocation
     {
@@ -77,7 +77,7 @@ public:
 
         // A table update writes no files of its own: it has no contract and no directory.
         VerifiedAllocation(
-            v1::DownloadAllocation value,
+            proto::DownloadAllocation value,
             std::optional<HistoryIdentity> contract,
             std::string source,
             unsigned interval,
@@ -89,41 +89,41 @@ public:
               directory_(std::move(directory))
         {}
 
-        v1::DownloadAllocation value_;
+        proto::DownloadAllocation value_;
         std::optional<HistoryIdentity> contract_;
         std::string source_;
         unsigned interval_;
         std::optional<std::string> directory_;
     };
 
-    VerifiedAllocation verify_allocation(const v1::DownloadAllocation&) const;
-    v1::DownloadDirectory allocate(const VerifiedAllocation&);
+    VerifiedAllocation verify_allocation(const proto::DownloadAllocation&) const;
+    proto::DownloadDirectory allocate(const VerifiedAllocation&);
 
     class VerifiedDownload
     {
         friend class Store;
 
-        explicit VerifiedDownload(v1::DownloadPreparation value)
+        explicit VerifiedDownload(proto::DownloadPreparation value)
             : value_(std::move(value))
         {}
 
-        v1::DownloadPreparation value_;
+        proto::DownloadPreparation value_;
     };
 
-    VerifiedDownload verify_download(const v1::DownloadPreparation&) const;
-    v1::PreparedDownload prepare(const VerifiedDownload&);
+    VerifiedDownload verify_download(const proto::DownloadPreparation&) const;
+    proto::PreparedDownload prepare(const VerifiedDownload&);
 
     class VerifiedPublication
     {
         friend class Store;
 
-        VerifiedPublication(v1::DownloadPublication decision, v1::HistoryRecord record)
+        VerifiedPublication(proto::DownloadPublication decision, proto::HistoryRecord record)
             : decision_(std::move(decision)),
               record_(std::move(record))
         {}
 
-        v1::DownloadPublication decision_;
-        v1::HistoryRecord record_;
+        proto::DownloadPublication decision_;
+        proto::HistoryRecord record_;
 
     public:
         const std::string& dataset_id() const
@@ -132,9 +132,9 @@ public:
         }
     };
 
-    VerifiedPublication verify_publication(const v1::DownloadPublication&) const;
-    v1::PublishedDownload publish(const VerifiedPublication&);
-    v1::PublishedDownload published(const v1::DownloadIdentity&) const;
+    VerifiedPublication verify_publication(const proto::DownloadPublication&) const;
+    proto::PublishedDownload publish(const VerifiedPublication&);
+    proto::PublishedDownload published(const proto::DownloadIdentity&) const;
 
     // Market-wide tables. A partition is published when it has been validated and
     // recorded; the task that delivered it only drives the reading.
@@ -144,7 +144,7 @@ public:
     }
 
     std::vector<TableOffer> table_offers() const;
-    v1::TableUpdatePlan table_plan(const v1::TablePlanQuery&, const std::string& today) const;
+    proto::TableUpdatePlan table_plan(const proto::TablePlanQuery&, const std::string& today) const;
 
     class VerifiedPartition
     {
@@ -163,9 +163,9 @@ public:
     // Types the delivered rows and writes their file. The receipt is final when
     // the rows are rejected or the partition already holds them; otherwise the
     // sealed partition still has to be recorded.
-    std::variant<v1::TablePartitionReceipt, VerifiedPartition> verify_partition(
-        const v1::TablePartitionRows&) const;
-    v1::TablePartitionReceipt record_partition(const VerifiedPartition&, std::int64_t now_ns);
+    std::variant<proto::TablePartitionReceipt, VerifiedPartition> verify_partition(
+        const proto::TablePartitionRows&) const;
+    proto::TablePartitionReceipt record_partition(const VerifiedPartition&, std::int64_t now_ns);
 
 private:
     std::filesystem::path root_;
@@ -174,11 +174,11 @@ private:
     history_files::Archive archive_;
     history_files::TableStore tables_;
     // The update a table attempt was authorized for, and what its plugin provides.
-    std::pair<v1::TableUpdate, std::vector<TableOffer>> table_attempt(
-        const v1::DownloadIdentity&) const;
-    v1::StoredDownloadAuthorization read_authorization(const std::string& id) const;
+    std::pair<proto::TableUpdate, std::vector<TableOffer>> table_attempt(
+        const proto::DownloadIdentity&) const;
+    proto::StoredDownloadAuthorization read_authorization(const std::string& id) const;
     std::filesystem::path authorization_path(const std::string& id) const;
-    std::filesystem::path operation(const v1::DownloadIdentity&) const;
+    std::filesystem::path operation(const proto::DownloadIdentity&) const;
 };
 
 } // namespace asterion::data

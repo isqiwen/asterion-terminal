@@ -81,13 +81,13 @@ fs::path bundled_agent()
 
 void prepare_development(const fs::path& root, const fs::path& agent)
 {
-    node::v1::DevelopmentPrograms manifest;
+    node::proto::DevelopmentPrograms manifest;
     manifest.set_version(1);
     for (const auto kind :
-        {node::v1::MARKET_DATA,
-            node::v1::DATA_SERVICE,
-            node::v1::TASK_SERVICE,
-            node::v1::LIVE_TRADING}) {
+        {node::proto::MARKET_DATA,
+            node::proto::DATA_SERVICE,
+            node::proto::TASK_SERVICE,
+            node::proto::LIVE_TRADING}) {
         const auto programs = local_service_programs(kind);
         auto& source = *manifest.add_services();
         source.set_kind(kind);

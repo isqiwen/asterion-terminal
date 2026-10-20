@@ -13,7 +13,7 @@
 namespace asterion::protocol {
 namespace {
 
-Json closure_evidence(const data::v1::SessionClosureEvidence& item, const std::string& date)
+Json closure_evidence(const data::proto::SessionClosureEvidence& item, const std::string& date)
 {
     if (item.rule_id().empty() || item.version() != 1 || item.exchange().empty()
         || item.source_url().empty())
@@ -36,12 +36,12 @@ Json closure_evidence(const data::v1::SessionClosureEvidence& item, const std::s
 
 } // namespace
 
-void validate_minute_range_query(const data::v1::MinuteRangeQuery& query)
+void validate_minute_range_query(const data::proto::MinuteRangeQuery& query)
 {
     validate_message(query);
     if (query.session_rules_version() != 1)
         throw std::invalid_argument("unsupported historical session rules version");
-    data::v1::MinuteEvidenceQuery identity;
+    data::proto::MinuteEvidenceQuery identity;
     identity.set_dataset_id(query.dataset_id());
     identity.set_limit(1);
     validate_minute_evidence_query(identity);
@@ -53,10 +53,10 @@ void validate_minute_range_query(const data::v1::MinuteRangeQuery& query)
             "minute range audit requires at most 366 calendar days in ascending order");
 }
 
-data::v1::MinuteRangeQuery encode_minute_range_query(const Json& value)
+data::proto::MinuteRangeQuery encode_minute_range_query(const Json& value)
 {
     require_fields(value, {"dataset_id", "daily", "begin_day", "end_day", "session_rules_version"});
-    data::v1::MinuteRangeQuery query;
+    data::proto::MinuteRangeQuery query;
     query.set_dataset_id(value.at("dataset_id").get<std::string>());
     *query.mutable_daily() = encode_daily_table(value.at("daily"));
     query.set_begin_day(value.at("begin_day").get<std::string>());
@@ -69,7 +69,7 @@ data::v1::MinuteRangeQuery encode_minute_range_query(const Json& value)
     return query;
 }
 
-Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence& value)
+Json decode_minute_range_evidence(const data::proto::MinuteRangeEvidence& value)
 {
     validate_message(value);
     validate_minute_range_query(value.query());
@@ -80,8 +80,8 @@ Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence& value)
     Json rows = Json::array();
     for (const auto& row : value.days()) {
         if (day > last || row.trading_day() != format_trading_date(std::chrono::year_month_day(day))
-            || !data::v1::MinuteRangeState_IsValid(row.state())
-            || row.state() == data::v1::MINUTE_RANGE_UNSPECIFIED)
+            || !data::proto::MinuteRangeState_IsValid(row.state())
+            || row.state() == data::proto::MINUTE_RANGE_UNSPECIFIED)
             throw std::invalid_argument("invalid minute range evidence");
         Json observed = nullptr;
         if (row.has_observed()) {
@@ -98,7 +98,7 @@ Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence& value)
         }
         rows.push_back(
             {{"trading_day", row.trading_day()},
-                {"state", data::v1::MinuteRangeState_Name(row.state())},
+                {"state", data::proto::MinuteRangeState_Name(row.state())},
                 {"observed", std::move(observed)},
                 {"official_closure",
                     row.has_official_closure()
@@ -129,7 +129,7 @@ Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence& value)
     };
 }
 
-void validate_minute_evidence_query(const data::v1::MinuteEvidenceQuery& query)
+void validate_minute_evidence_query(const data::proto::MinuteEvidenceQuery& query)
 {
     validate_message(query);
     if (query.dataset_id().size() != 64
@@ -138,14 +138,14 @@ void validate_minute_evidence_query(const data::v1::MinuteEvidenceQuery& query)
         throw std::invalid_argument("invalid minute evidence query");
 }
 
-data::v1::MinuteEvidenceQuery encode_minute_evidence_query(const Json& value)
+data::proto::MinuteEvidenceQuery encode_minute_evidence_query(const Json& value)
 {
     require_fields(value, {"dataset_id", "offset", "limit"});
     for (const auto* field : {"offset", "limit"})
         if (!value.at(field).is_number_integer() || value.at(field) < 0
             || value.at(field) > std::numeric_limits<std::uint32_t>::max())
             throw std::invalid_argument("invalid minute evidence query");
-    data::v1::MinuteEvidenceQuery query;
+    data::proto::MinuteEvidenceQuery query;
     query.set_dataset_id(value.at("dataset_id").get<std::string>());
     query.set_offset(value.at("offset").get<std::uint32_t>());
     query.set_limit(value.at("limit").get<std::uint32_t>());
@@ -153,10 +153,10 @@ data::v1::MinuteEvidenceQuery encode_minute_evidence_query(const Json& value)
     return query;
 }
 
-Json decode_minute_evidence(const data::v1::MinuteEvidence& value)
+Json decode_minute_evidence(const data::proto::MinuteEvidence& value)
 {
     validate_message(value);
-    data::v1::MinuteEvidenceQuery query;
+    data::proto::MinuteEvidenceQuery query;
     query.set_dataset_id(value.dataset_id());
     query.set_limit(value.limit());
     validate_minute_evidence_query(query);
@@ -198,7 +198,7 @@ Json decode_minute_evidence(const data::v1::MinuteEvidence& value)
     };
 }
 
-Json decode_minute_page(const data::v1::MinutePage& page)
+Json decode_minute_page(const data::proto::MinutePage& page)
 {
     validate_message(page);
     validate_history_source(page.source());
@@ -271,10 +271,10 @@ Json decode_minute_page(const data::v1::MinutePage& page)
     };
 }
 
-data::v1::HistoryUpdateQuery encode_history_update_query(const Json& value)
+data::proto::HistoryUpdateQuery encode_history_update_query(const Json& value)
 {
     require_fields(value, {"dataset_id", "daily", "mode", "end_day", "requests_per_minute"});
-    data::v1::HistoryUpdateQuery result;
+    data::proto::HistoryUpdateQuery result;
     result.set_dataset_id(value.at("dataset_id").get<std::string>());
     if (!value.at("daily").is_null())
         *result.mutable_daily() = encode_daily_table(value.at("daily"));
@@ -282,7 +282,7 @@ data::v1::HistoryUpdateQuery encode_history_update_query(const Json& value)
     const auto mode = value.at("mode").get<std::string>();
     if (mode != "extend" && mode != "repair")
         throw std::invalid_argument("invalid history update request");
-    result.set_mode(mode == "extend" ? data::v1::EXTEND : data::v1::REPAIR);
+    result.set_mode(mode == "extend" ? data::proto::EXTEND : data::proto::REPAIR);
     if (!value.at("requests_per_minute").is_number_integer() || value.at("requests_per_minute") < 1
         || value.at("requests_per_minute") > 500)
         throw std::invalid_argument("invalid history update request");
@@ -291,7 +291,7 @@ data::v1::HistoryUpdateQuery encode_history_update_query(const Json& value)
     return result;
 }
 
-Json decode_history_update_query(const data::v1::HistoryUpdateQuery& value)
+Json decode_history_update_query(const data::proto::HistoryUpdateQuery& value)
 {
     validate_message(value);
     const auto digest = [](const std::string& id) {
@@ -299,9 +299,9 @@ Json decode_history_update_query(const data::v1::HistoryUpdateQuery& value)
     };
     if (!digest(value.dataset_id()) || value.requests_per_minute() < 1
         || value.requests_per_minute() > 500
-        || (value.mode() != data::v1::EXTEND && value.mode() != data::v1::REPAIR))
+        || (value.mode() != data::proto::EXTEND && value.mode() != data::proto::REPAIR))
         throw std::invalid_argument("invalid history update request");
-    if (value.mode() == data::v1::EXTEND) {
+    if (value.mode() == data::proto::EXTEND) {
         if (value.has_daily())
             throw std::invalid_argument("invalid history update request");
         (void)parse_trading_date(value.end_day());
@@ -310,13 +310,13 @@ Json decode_history_update_query(const data::v1::HistoryUpdateQuery& value)
     return {
         {"dataset_id", value.dataset_id()},
         {"daily", value.has_daily() ? decode_daily_table(value.daily()) : Json(nullptr)},
-        {"mode", value.mode() == data::v1::EXTEND ? "extend" : "repair"},
+        {"mode", value.mode() == data::proto::EXTEND ? "extend" : "repair"},
         {"end_day", value.end_day()},
         {"requests_per_minute", value.requests_per_minute()}
     };
 }
 
-Json decode_history_update_plan(const data::v1::HistoryUpdatePlan& value)
+Json decode_history_update_plan(const data::proto::HistoryUpdatePlan& value)
 {
     validate_message(value);
     auto canonical = value;
@@ -332,8 +332,8 @@ Json decode_history_update_plan(const data::v1::HistoryUpdatePlan& value)
         days.push_back(day);
     }
     Json conflicts = Json::array();
-    if ((value.query().mode() == data::v1::REPAIR && value.session_rules_version() != 1)
-        || (value.query().mode() == data::v1::EXTEND
+    if ((value.query().mode() == data::proto::REPAIR && value.session_rules_version() != 1)
+        || (value.query().mode() == data::proto::EXTEND
             && (value.session_rules_version() || !value.conflicts().empty())))
         throw std::invalid_argument("invalid history repair conflict evidence");
     std::string previous_conflict;
@@ -372,7 +372,7 @@ Json decode_history_update_plan(const data::v1::HistoryUpdatePlan& value)
     };
 }
 
-Json decode_table_refresh_query(const data::v1::TableRefreshQuery& query)
+Json decode_table_refresh_query(const data::proto::TableRefreshQuery& query)
 {
     validate_message(query);
     validate_id(query.provider());
@@ -396,7 +396,7 @@ Json decode_table_refresh_query(const data::v1::TableRefreshQuery& query)
     };
 }
 
-data::v1::TableRefreshQuery encode_table_refresh_query(const Json& value)
+data::proto::TableRefreshQuery encode_table_refresh_query(const Json& value)
 {
     require_fields(
         value,
@@ -410,7 +410,7 @@ data::v1::TableRefreshQuery encode_table_refresh_query(const Json& value)
     if (!value.at("requests_per_minute").is_number_integer() || value.at("requests_per_minute") < 1
         || value.at("requests_per_minute") > 500)
         throw std::invalid_argument("invalid table refresh selection");
-    data::v1::TableRefreshQuery query;
+    data::proto::TableRefreshQuery query;
     query.set_provider(value.at("provider").get<std::string>());
     query.set_source(value.at("source").get<std::string>());
     query.set_previous_snapshot(value.at("previous_snapshot").get<std::string>());
@@ -423,7 +423,7 @@ data::v1::TableRefreshQuery encode_table_refresh_query(const Json& value)
     return query;
 }
 
-void validate_table_update(const data::v1::TableUpdate& update)
+void validate_table_update(const data::proto::TableUpdate& update)
 {
     validate_message(update);
     validate_id(update.provider());
@@ -444,7 +444,7 @@ void validate_table_update(const data::v1::TableUpdate& update)
         throw std::invalid_argument("invalid table update definition");
     if (update.has_refresh()) {
         const auto& refresh = update.refresh();
-        data::v1::TableRefreshQuery query;
+        data::proto::TableRefreshQuery query;
         query.set_provider(update.provider());
         query.set_source(refresh.source());
         *query.mutable_partition() = refresh.partition();
@@ -463,7 +463,7 @@ void validate_table_update(const data::v1::TableUpdate& update)
     }
 }
 
-data::v1::TableUpdate encode_table_update(const Json& value)
+data::proto::TableUpdate encode_table_update(const Json& value)
 {
     if (value.contains("refresh"))
         require_fields(
@@ -476,7 +476,7 @@ data::v1::TableUpdate encode_table_update(const Json& value)
     const auto& rate = value.at("requests_per_minute");
     if (!value.at("tables").is_array() || !rate.is_number_integer() || rate < 1 || rate > 500)
         throw std::invalid_argument("invalid table update definition");
-    data::v1::TableUpdate update;
+    data::proto::TableUpdate update;
     update.set_provider(value.at("provider").get<std::string>());
     for (const auto& table : value.at("tables"))
         update.add_tables(table.get<std::string>());
@@ -503,7 +503,7 @@ data::v1::TableUpdate encode_table_update(const Json& value)
     return update;
 }
 
-Json decode_table_update(const data::v1::TableUpdate& update)
+Json decode_table_update(const data::proto::TableUpdate& update)
 {
     validate_table_update(update);
     Json result = {
@@ -531,12 +531,12 @@ Json decode_table_update(const data::v1::TableUpdate& update)
 
 namespace {
 
-Json partition_key(const data::v1::TablePartitionKey& key)
+Json partition_key(const data::proto::TablePartitionKey& key)
 {
     return {{"table", key.table()}, {"exchange", key.exchange()}, {"period", key.period()}};
 }
 
-void validate_table_revision(const data::v1::TableRevision& revision)
+void validate_table_revision(const data::proto::TableRevision& revision)
 {
     for (const auto* digest : {&revision.content(), &revision.object(), &revision.snapshot()})
         if (digest->size() != 64
@@ -546,7 +546,7 @@ void validate_table_revision(const data::v1::TableRevision& revision)
         throw std::invalid_argument("invalid history table revision");
 }
 
-Json table_revision(const data::v1::TableRevision& revision)
+Json table_revision(const data::proto::TableRevision& revision)
 {
     validate_table_revision(revision);
     return {
@@ -565,7 +565,7 @@ Json table_revision(const data::v1::TableRevision& revision)
     };
 }
 
-void validate_refresh_observation(const data::v1::TableRefreshObservation& o)
+void validate_refresh_observation(const data::proto::TableRefreshObservation& o)
 {
     if (o.id().size() != 64 || o.operation().size() != 64 || !o.attempt() || !o.has_revision()
         || !o.has_response() || o.response().format() != "tushare.fut_daily.raw.v1"
@@ -577,7 +577,7 @@ void validate_refresh_observation(const data::v1::TableRefreshObservation& o)
     validate_table_revision(o.revision());
 }
 
-Json refresh_observation(const data::v1::TableRefreshObservation& o)
+Json refresh_observation(const data::proto::TableRefreshObservation& o)
 {
     validate_refresh_observation(o);
     return {
@@ -607,7 +607,7 @@ Json refresh_observation(const data::v1::TableRefreshObservation& o)
 
 } // namespace
 
-Json decode_table_refresh_plan(const data::v1::TableRefreshPlan& value)
+Json decode_table_refresh_plan(const data::proto::TableRefreshPlan& value)
 {
     validate_message(value);
     auto canonical = value;
@@ -640,7 +640,7 @@ Json decode_table_refresh_plan(const data::v1::TableRefreshPlan& value)
 
 namespace {
 
-void validate_table_update_result_shape(const data::v1::TableUpdateResult& result)
+void validate_table_update_result_shape(const data::proto::TableUpdateResult& result)
 {
     validate_message(result);
     if (static_cast<unsigned>(result.unpublished_examples_size()) > result.unpublished())
@@ -654,9 +654,9 @@ void validate_table_update_result_shape(const data::v1::TableUpdateResult& resul
 } // namespace
 
 void validate_table_update_result(
-    const data::v1::TableUpdate& update,
-    const data::v1::DownloadIdentity& identity,
-    const data::v1::TableUpdateResult& result)
+    const data::proto::TableUpdate& update,
+    const data::proto::DownloadIdentity& identity,
+    const data::proto::TableUpdateResult& result)
 {
     validate_table_update_result_shape(result);
     const auto mismatch = [] {
@@ -668,7 +668,7 @@ void validate_table_update_result(
         return;
     }
     const auto& target = update.refresh();
-    const auto matches = [&](const data::v1::TablePartitionKey& key) {
+    const auto matches = [&](const data::proto::TablePartitionKey& key) {
         return key.table() == target.partition().table()
             && key.exchange() == target.partition().exchange()
             && key.period() == target.partition().period();
@@ -713,7 +713,7 @@ void validate_table_update_result(
     }
 }
 
-Json decode_table_update_result(const data::v1::TableUpdateResult& result)
+Json decode_table_update_result(const data::proto::TableUpdateResult& result)
 {
     validate_table_update_result_shape(result);
     Json rejected = Json::array(), unpublished = Json::array();
@@ -740,7 +740,7 @@ Json decode_table_update_result(const data::v1::TableUpdateResult& result)
     return result_json;
 }
 
-Json decode_table_coverage(const data::v1::TableCoverage& coverage)
+Json decode_table_coverage(const data::proto::TableCoverage& coverage)
 {
     validate_message(coverage);
     Json sources = Json::array(), rows = Json::array();
@@ -774,14 +774,14 @@ Json decode_table_coverage(const data::v1::TableCoverage& coverage)
     };
 }
 
-data::v1::TablePageQuery encode_table_page_query(const Json& value)
+data::proto::TablePageQuery encode_table_page_query(const Json& value)
 {
     require_fields(value, {"table", "source", "exchange", "period", "offset", "limit"});
     if (!value.at("offset").is_number_integer() || value.at("offset") < 0
         || !value.at("limit").is_number_integer() || value.at("limit") < 1
         || value.at("limit") > 500)
         throw std::invalid_argument("invalid history table page query");
-    data::v1::TablePageQuery query;
+    data::proto::TablePageQuery query;
     query.mutable_partition()->set_table(value.at("table").get<std::string>());
     query.mutable_partition()->set_exchange(value.at("exchange").get<std::string>());
     query.mutable_partition()->set_period(value.at("period").get<std::string>());
@@ -794,7 +794,7 @@ data::v1::TablePageQuery encode_table_page_query(const Json& value)
     return query;
 }
 
-Json decode_table_page(const data::v1::TablePage& page)
+Json decode_table_page(const data::proto::TablePage& page)
 {
     validate_message(page);
     Json rows = Json::array();
@@ -877,7 +877,7 @@ Json decode_table_page(const data::v1::TablePage& page)
     };
 }
 
-Json decode_history_usage(const data::v1::HistoryUsage& value)
+Json decode_history_usage(const data::proto::HistoryUsage& value)
 {
     validate_message(value);
     if (value.dataset_id().size() != 64
@@ -889,16 +889,16 @@ Json decode_history_usage(const data::v1::HistoryUsage& value)
     for (const auto& row : value.references()) {
         std::string kind;
         switch (row.kind()) {
-            case data::v1::HISTORY_DOWNLOAD:
+            case data::proto::HISTORY_DOWNLOAD:
                 kind = "download";
                 break;
-            case data::v1::HISTORY_BACKTEST:
+            case data::proto::HISTORY_BACKTEST:
                 kind = "backtest";
                 break;
-            case data::v1::HISTORY_FACTOR:
+            case data::proto::HISTORY_FACTOR:
                 kind = "factor";
                 break;
-            case data::v1::HISTORY_SAVED_DATASET:
+            case data::proto::HISTORY_SAVED_DATASET:
                 kind = "saved_dataset";
                 break;
             default:
@@ -911,19 +911,19 @@ Json decode_history_usage(const data::v1::HistoryUsage& value)
         int previous = 0;
         for (const auto role : row.roles()) {
             if (role <= previous
-                || (role != data::v1::HISTORY_MARKET && role != data::v1::HISTORY_OUTPUT)
-                || ((row.kind() == data::v1::HISTORY_DOWNLOAD)
-                    != (role == data::v1::HISTORY_OUTPUT)))
+                || (role != data::proto::HISTORY_MARKET && role != data::proto::HISTORY_OUTPUT)
+                || ((row.kind() == data::proto::HISTORY_DOWNLOAD)
+                    != (role == data::proto::HISTORY_OUTPUT)))
                 throw std::invalid_argument("invalid historical usage response");
             previous = role;
-            roles.push_back(role == data::v1::HISTORY_MARKET ? "market" : "output");
+            roles.push_back(role == data::proto::HISTORY_MARKET ? "market" : "output");
         }
         rows.push_back({{"kind", kind}, {"id", row.id()}, {"name", row.name()}, {"roles", roles}});
     }
     return {{"dataset_id", value.dataset_id()}, {"references", rows}};
 }
 
-Json decode_historical_margins(const data::v1::HistoricalMargins& input)
+Json decode_historical_margins(const data::proto::HistoricalMargins& input)
 {
     validate_message(input);
     const auto hash = [](const std::string& value) {

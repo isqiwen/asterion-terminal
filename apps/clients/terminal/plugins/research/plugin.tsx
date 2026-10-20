@@ -1,12 +1,23 @@
-import { Icon } from "../contract";
+import { DataTaskAccess } from "../contract";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { lazy } from "react";
+import "./research.css";
 import type { TerminalPlugin } from "../contract";
-const Workspace = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
+const Backtest = lazy(() => import("./Backtest").then(module => ({ default: module.Backtest })));
+const Factor = lazy(() => import("./Factor").then(module => ({ default: module.Factor })));
+const FactorComparison = lazy(() =>
+  import("./FactorComparison").then(module => ({ default: module.FactorComparison })),
+);
+const BacktestComparison = lazy(() =>
+  import("./BacktestComparison").then(module => ({ default: module.BacktestComparison })),
+);
+const Evaluation = lazy(() =>
+  import("./Evaluation").then(module => ({ default: module.Evaluation })),
+);
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
   commands: [
@@ -60,17 +71,65 @@ export const plugin: TerminalPlugin = {
         completed: task.completed,
         total: task.total,
         open: () =>
-          context.navigate("workspace.research", {
+          context.navigate(task.kind === "backtest" ? "workspace.backtest" : "workspace.factor", {
             page: "task",
             params: { id: task.id, kind: task.kind },
           }),
       })),
-  workspace: {
-    id: "workspace.research",
-    get title() {
-      return t("研究");
+  workspaces: [
+    {
+      id: "workspace.backtest",
+      get title() {
+        return t("回测");
+      },
+
+      component: context => (
+        <DataTaskAccess context={context}>{ready => <Backtest {...ready} />}</DataTaskAccess>
+      ),
     },
-    icon: <Icon name="backtest" />,
-    component: context => <Workspace {...context} />,
-  },
+    {
+      id: "workspace.factor",
+      get title() {
+        return t("因子");
+      },
+
+      component: context => (
+        <DataTaskAccess context={context}>{ready => <Factor {...ready} />}</DataTaskAccess>
+      ),
+    },
+    {
+      id: "workspace.factor-comparison",
+      get title() {
+        return t("因子实验比较");
+      },
+
+      component: context => (
+        <DataTaskAccess context={context}>
+          {ready => <FactorComparison {...ready} />}
+        </DataTaskAccess>
+      ),
+    },
+    {
+      id: "workspace.backtest-comparison",
+      get title() {
+        return t("回测实验比较");
+      },
+
+      component: context => (
+        <DataTaskAccess context={context}>
+          {ready => <BacktestComparison {...ready} />}
+        </DataTaskAccess>
+      ),
+    },
+    {
+      id: "workspace.performance",
+      get title() {
+        return t("绩效");
+      },
+
+      component: context => (
+        <DataTaskAccess context={context}>{ready => <Evaluation {...ready} />}</DataTaskAccess>
+      ),
+    },
+  ],
 };

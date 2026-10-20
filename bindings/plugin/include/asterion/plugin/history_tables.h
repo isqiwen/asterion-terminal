@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_HISTORY_TABLES_V1 "asterion.history.tables.v1"
+#define AST_HISTORY_TABLES "asterion.history.tables"
 
 /* Market-wide tables, read one partition at a time: one venue and one period
  * ("all", a year "YYYY" or a trading day "YYYY-MM-DD", as the table defines).
@@ -48,7 +48,7 @@ typedef struct
      * each key once. A partition the vendor has not published is zero rows and
      * AST_OK. AST_INVALID means the vendor answered but the partition cannot be
      * used; any other failure means the request did not complete. The budget is
-     * acquired before EACH external request, as for AstHistoryV3. */
+     * acquired before EACH external request, as for AstHistory. */
     AstStatus (*read)(
         void* instance,
         const char* table,
@@ -61,7 +61,7 @@ typedef struct
         AstDiagnostics,
         void* context,
         AstStatus (*emit)(void*, const char* const* cells, uint32_t count));
-} AstHistoryTablesV1;
+} AstHistoryTables;
 #ifdef __cplusplus
 }
 #endif

@@ -16,7 +16,7 @@
 namespace asterion::data {
 
 using namespace std::chrono_literals;
-namespace wire = v1;
+namespace wire = proto;
 
 namespace {
 
@@ -440,7 +440,7 @@ void DataHost::admit(Work& admitted, bool worker)
     if (mutation && quiescing_)
         throw Error(ErrorCode::unavailable, "data service is preparing for upgrade");
     const auto attempt = [&](const wire::DownloadIdentity& identity) {
-        work->objects.push_back("download/" + sha256_bytes(identity.SerializeAsString()));
+        work->objects.push_back("download/" + identity.SerializeAsString());
     };
     if (request.has_authorize_download())
         work->objects.push_back(
@@ -469,7 +469,7 @@ void DataHost::admit(Work& admitted, bool worker)
         // One writer at a time for a partition, whichever attempt delivers it.
         const auto& partition = request.store_table_partition().partition();
         attempt(request.store_table_partition().identity());
-        work->objects.push_back("table/" + sha256_bytes(partition.SerializeAsString()));
+        work->objects.push_back("table/" + partition.SerializeAsString());
     } else if (request.has_save_dataset())
         work->objects.push_back("dataset/" + request.save_dataset().id());
     else if (request.has_configure_download_budget())

@@ -3,7 +3,7 @@
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/v1/analytics.pb.h>
+#include <asterion/analytics.pb.h>
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -32,11 +32,11 @@ public:
     }
 };
 
-analytics::v1::BacktestEquity equity_input(const nlohmann::json& source)
+analytics::proto::BacktestEquity equity_input(const nlohmann::json& source)
 {
     if (source.at("kind") != "backtest")
         throw Error(ErrorCode::invalid_request, "Analytics requires a completed backtest result");
-    analytics::v1::BacktestEquity request;
+    analytics::proto::BacktestEquity request;
     request.set_task_id(source.at("id").get<std::string>());
     request.set_result_sha256(source.at("task").at("result_digest").get<std::string>());
     request.set_deposit(source.at("experiment").at("paper").at("deposit").get<std::string>());
@@ -48,8 +48,8 @@ analytics::v1::BacktestEquity equity_input(const nlohmann::json& source)
     return request;
 }
 
-analytics::v1::AnalyticsReply
-analyze(const analytics::v1::AnalyticsRequest& request, const std::filesystem::path& executable)
+analytics::proto::AnalyticsReply
+analyze(const analytics::proto::AnalyticsRequest& request, const std::filesystem::path& executable)
 {
     if (executable.empty() || !std::filesystem::is_regular_file(executable))
         throw Error(
@@ -83,7 +83,7 @@ analyze(const analytics::v1::AnalyticsRequest& request, const std::filesystem::p
         throw Error(ErrorCode::operation_failed, "Analytics timed out");
     if (process.exit_code() != 0)
         throw Error(ErrorCode::operation_failed, "Analytics process failed");
-    analytics::v1::AnalyticsReply reply;
+    analytics::proto::AnalyticsReply reply;
     if (payload.size() > 16 * 1024 * 1024 || !reply.ParseFromString(payload))
         throw Error(ErrorCode::operation_failed, "Analytics returned an invalid report");
     protocol::validate_message(reply);
@@ -97,7 +97,7 @@ analyze(const analytics::v1::AnalyticsRequest& request, const std::filesystem::p
 nlohmann::json
 quantstats_report(const nlohmann::json& source, const std::filesystem::path& executable)
 {
-    analytics::v1::AnalyticsRequest message;
+    analytics::proto::AnalyticsRequest message;
     *message.mutable_quantstats() = equity_input(source);
     const auto& request = message.quantstats();
     const auto reply = analyze(message, executable);
@@ -150,7 +150,7 @@ nlohmann::json portfolio_report(
             ErrorCode::invalid_request,
             "Portfolio analysis requires 2 or 3 distinct backtests");
     parse_trading_date(training_end);
-    analytics::v1::AnalyticsRequest message;
+    analytics::proto::AnalyticsRequest message;
     auto& request = *message.mutable_portfolio();
     request.set_training_end(training_end);
     std::set<std::string> ids;

@@ -32,9 +32,9 @@ int main(int argc, char** argv)
             tls,
             service,
             task,
-            asterion::task::v1::FACTOR,
+            asterion::task::proto::FACTOR,
             [](const auto& input, auto stop, const auto& progress) {
-                asterion::task::v1::TaskFinish result;
+                asterion::task::proto::TaskFinish result;
                 *result.mutable_factor() =
                     asterion::factor::run(input.task().factor(), stop, progress);
                 return result;

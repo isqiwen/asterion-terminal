@@ -15,8 +15,17 @@ import { Workbench } from "@asterion/workbench/workspace/Workbench";
 import { usePreferences } from "./ui/preferences";
 import { request, pollSnapshot, type Snapshot } from "@asterion/desktop-bridge/client";
 import { Settings } from "./settings/Settings";
-import { terminalPlugins, workspaces, workspaceShortcuts } from "./plugins";
+import { terminalPlugins, workspaces } from "./plugins";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
+import {
+  modules,
+  initialNavigation,
+  currentRoute,
+  navigationLocation,
+  selectModule,
+  selectSection,
+  selectView,
+} from "./host/navigation";
 import { scopedContext } from "./host/plugin-registry";
 import type { TerminalContext } from "../plugins/contract";
 import "./ui/theme/style.css";
@@ -59,28 +68,30 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [drafts] = useState(createWorkspaceDrafts);
   const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setHeaderTarget(document.getElementById("terminal-header-tools")), []);
-  const [view, setView] = useState(() => {
+  const [navigation, setNavigation] = useState(() => {
     try {
-      const saved = localStorage.getItem("asterion.workspace");
-      if (workspaces.some(workspace => workspace.id === saved)) return saved!;
+      return initialNavigation(JSON.parse(localStorage.getItem("asterion.navigation") ?? "null"));
     } catch {
-      /* Storage may be unavailable; navigation still works. */
+      return initialNavigation();
     }
-    return "workspace.watchlist";
   });
+  const route = currentRoute(navigation);
+  const view = route.view;
+  const sectionsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    sectionsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [navigation.module, route.section.id]);
   useEffect(() => {
     if (settingsWindow) return;
     try {
-      localStorage.setItem("asterion.workspace", view);
+      localStorage.setItem("asterion.navigation", JSON.stringify(navigationLocation(navigation)));
     } catch {
-      /* Keep the current window usable. */
+      /* Navigation remains available without UI storage. */
     }
-  }, [view, settingsWindow]);
-  const [workspacePages, setWorkspacePages] = useState<Record<string, string>>({});
-  const [workspaceParams, setWorkspaceParams] = useState<
-    Record<string, Record<string, string> | undefined>
-  >({});
-  const [marketMode, setMarketMode] = useState<"live" | "history">("live");
+  }, [navigation, settingsWindow]);
   function showSettings(page?: SettingsPage) {
     void openSettings(page).catch(reason => setError(asDisplayError(reason)));
   }
@@ -137,13 +148,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         event.preventDefault();
         if (!settingsWindow) showSettings();
       }
-      const workspace = workspaces.find(
-        item => item.id === workspaceShortcuts[Number(event.key) - 1],
-      );
-      if (workspace) {
+      const module = modules.slice(0, 7)[Number(event.key) - 1];
+      if (module) {
         event.preventDefault();
-        if (settingsWindow) return;
-        setView(workspace.id);
+        if (!settingsWindow) setNavigation(previous => selectModule(previous, module.id));
       }
     };
     window.addEventListener("keydown", key);
@@ -221,27 +229,24 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     snapshot,
     busy,
     error,
-    marketMode,
-    workspacePage: workspacePages[view],
-    workspaceParams: workspaceParams[view],
+    marketMode: route.options.marketMode ?? "live",
+    workspacePage: route.options.page,
+    workspaceParams: route.options.params,
     query: (...args) => request(...args),
-    navigate: (id, options) => {
-      if (options?.marketMode) setMarketMode(options.marketMode);
-      if (options?.page) setWorkspacePages(previous => ({ ...previous, [id]: options.page! }));
-      setWorkspaceParams(previous => ({ ...previous, [id]: options?.params }));
-      setView(id);
-    },
+    navigate: (id, options) => setNavigation(previous => selectView(previous, id, options)),
     openSettings: showSettings,
     trade,
   };
   // Each plugin sees the shared context with trade scoped to its
   // declared commands.
-  const currentPlugin = terminalPlugins.find(plugin => plugin.workspace.id === view)!;
-  const current = currentPlugin.workspace;
-  const Panel = current.component;
-  const HeaderTools = current.headerTools;
-  const WorkspaceToolbar = current.toolbar;
-  const panelContext = scopedContext(currentPlugin, context);
+  const currentPlugin = terminalPlugins.find(plugin =>
+    plugin.workspaces.some(item => item.id === view),
+  );
+  const current = currentPlugin?.workspaces.find(item => item.id === view);
+  const Panel = current?.component;
+  const HeaderTools = current?.headerTools;
+  const WorkspaceToolbar = current?.toolbar;
+  const panelContext = currentPlugin ? scopedContext(currentPlugin, context) : context;
   const backgroundTasks = terminalPlugins.flatMap(
     plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
   );
@@ -255,7 +260,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         headerTarget &&
         HeaderTools &&
         createPortal(
-          <WorkspaceDraftScope store={drafts} namespace={currentPlugin.id}>
+          <WorkspaceDraftScope store={drafts} namespace={current!.id}>
             <HeaderTools {...panelContext} />
           </WorkspaceDraftScope>,
           headerTarget,
@@ -272,23 +277,35 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         />
       ) : (
         <Workbench
-          title={current.title}
-          showToolbar={!current.hideToolbar && !!WorkspaceToolbar}
-          navigation={workspaces.map(item => ({
-            ...item,
-            active: item.id === view,
-            shortcut: `⌘${workspaceShortcuts.indexOf(item.id) + 1} / Ctrl+${workspaceShortcuts.indexOf(item.id) + 1}`,
-            select: () => context.navigate(item.id),
-          }))}
+          title={t(route.module.title)}
+          showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
+          navigation={modules
+            .filter(item => item.id !== "system")
+            .map((item, index) => ({
+              id: item.id,
+              title: t(item.title),
+              icon: <Icon name={item.icon} />,
+              active: item.id === navigation.module,
+              shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
+              select: () => setNavigation(previous => selectModule(previous, item.id)),
+            }))}
           rail={
             <>
               <button
                 aria-label={t("任务中心")}
                 title={t("任务中心")}
-                aria-pressed={tasks}
+                aria-expanded={tasks}
                 onClick={() => setTasks(!tasks)}
               >
                 <Icon name="tasks" />
+              </button>
+              <button
+                aria-label={t("系统管理")}
+                title={t("系统管理")}
+                aria-current={navigation.module === "system" ? "page" : undefined}
+                onClick={() => setNavigation(previous => selectModule(previous, "system"))}
+              >
+                <Icon name="connections" />
               </button>
               <button
                 aria-label={t("设置")}
@@ -316,14 +333,84 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
             ) : null
           }
           body={
-            <main className="terminal-business">
-              <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                <WorkspaceDraftScope store={drafts} namespace={currentPlugin.id}>
-                  <Panel {...panelContext} />
-                </WorkspaceDraftScope>
-              </Suspense>
-            </main>
+            <div className="module-workspace">
+              <nav ref={sectionsRef} className="module-sections" aria-label={t("业务子模块")}>
+                {route.module.sections.map(section => (
+                  <button
+                    key={section.id}
+                    aria-current={section.id === route.section.id ? "page" : undefined}
+                    onClick={() => setNavigation(previous => selectSection(previous, section.id))}
+                  >
+                    {t(section.title)}
+                  </button>
+                ))}
+              </nav>
+              {route.section.views.length > 1 && (
+                <nav className="module-views" aria-label={t("子模块视图")}>
+                  {route.section.views.map(id => (
+                    <button
+                      key={id}
+                      aria-current={view === id ? "page" : undefined}
+                      onClick={() => context.navigate(id)}
+                    >
+                      {workspaces.find(item => item.id === id)!.title}
+                    </button>
+                  ))}
+                </nav>
+              )}
+              <main className="terminal-business">
+                <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
+                  {Panel && currentPlugin ? (
+                    <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                      <Panel {...panelContext} />
+                    </WorkspaceDraftScope>
+                  ) : (
+                    <section className="module-empty" aria-label={t(route.section.title)}>
+                      <h2>{t(route.section.title)}</h2>
+                      {navigation.module === "system" ? (
+                        <>
+                          <p>{t("管理本机配置，查看任务与服务状态。")}</p>
+                          {route.section.id === "setup" && (
+                            <>
+                              <button onClick={() => showSettings("preferences")}>
+                                {t("偏好设置")}
+                              </button>
+                              <button onClick={() => showSettings("sources")}>{t("数据源")}</button>
+                              <button onClick={() => showSettings("ctp")}>{t("CTP 账户")}</button>
+                              <button onClick={() => showSettings("plugins")}>{t("插件")}</button>
+                            </>
+                          )}
+                          {route.section.id === "tasks" && (
+                            <>
+                              <button onClick={() => setTasks(true)}>{t("任务中心")}</button>
+                              <button onClick={() => showSettings("connections")}>
+                                {t("连接与部署")}
+                              </button>
+                            </>
+                          )}
+                          {route.section.id === "records" && (
+                            <p>{t("资料备份、恢复和诊断导出尚未实现。")}</p>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <p role="status">{t("此子模块的完整功能尚未实现。")}</p>
+                          {route.module.sections
+                            .flatMap(section => section.views)
+                            .map(id => (
+                              <button key={id} onClick={() => context.navigate(id)}>
+                                {workspaces.find(item => item.id === id)!.title}
+                              </button>
+                            ))}
+                        </>
+                      )}
+                    </section>
+                  )}
+                </Suspense>
+              </main>
+            </div>
           }
+
           dock={
             tasks && (
               <section className="task-dock terminal-tasks" aria-label={t("任务中心")}>

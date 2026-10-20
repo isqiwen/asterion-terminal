@@ -72,7 +72,7 @@ void Application::Impl::register_connection_commands()
         const auto& rate = params.at("requests_per_minute");
         if (!rate.is_number_integer() || rate < 1 || rate > 500)
             throw std::invalid_argument("invalid download request budget");
-        data::v1::DownloadBudgetConfiguration policy;
+        data::proto::DownloadBudgetConfiguration policy;
         policy.set_source(text(params, "source"));
         if (params.contains("provider"))
             policy.set_credential(

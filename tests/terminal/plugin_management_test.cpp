@@ -57,7 +57,7 @@ TEST_F(PluginManagement, TableOnlyEligibilityMatchesSelectionAndRejectsUnsupport
     terminal::PluginCatalog catalog{.directory = root};
     catalog.entries.push_back(
         {.artifact = {root / "tables.so", std::string(64, 'a')},
-            .descriptor = {"tables", "1.0.0", {{"asterion.history.tables.v1", "data", 1}}},
+            .descriptor = {"tables", "1.0.0", {{"asterion.history.tables", "data", 1}}},
             .availability = terminal::PluginAvailability::available,
             .error = {}});
     const std::vector<std::string> hashes{catalog.entries.front().artifact.sha256};
@@ -103,6 +103,7 @@ TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifie
     const auto hash = sha256_file(PLUGIN_GOOD);
     fs::copy_file(PLUGIN_GOOD, root / "artifacts" / (hash + ".bin"));
     const agent::PluginArtifacts artifacts(root, NODE_AGENT);
+    EXPECT_EQ(artifacts.verify({hash}).at(hash), "test.independent.c");
     const auto installed = artifacts.materialize("task", {hash});
     const auto library = installed / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
     EXPECT_EQ(sha256_file(library), hash);
@@ -128,7 +129,7 @@ TEST_F(PluginManagement, ConfigurationKeepsRevisionAndStoppedState)
 {
     fs::create_directory(root / "ledger");
     const Json document{
-        {"kind", static_cast<int>(node::v1::TASK_SERVICE)},
+        {"kind", static_cast<int>(node::proto::TASK_SERVICE)},
         {"artifact", std::string(64, 'a')},
         {"provider_artifact", ""},
         {"data_service", "data-one"},

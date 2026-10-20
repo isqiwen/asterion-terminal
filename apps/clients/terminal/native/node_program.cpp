@@ -29,6 +29,19 @@ void plain(const fs::path& p)
         throw std::runtime_error("Agent update path cannot be a symlink");
 }
 
+bool pending_publication(const fs::path& root)
+{
+    for (const auto& path :
+        {root / "agent-service-upgrade.json",
+            root / "agent-service-upgrade.pending",
+            root / "agent-upgrade.json",
+            root / "agent-upgrade.pending",
+            root / "bin" / "agent-upgrade.staged"})
+        if (fs::exists(path) || fs::is_symlink(path))
+            return true;
+    return false;
+}
+
 } // namespace
 
 void install_node_program(const fs::path& source, const fs::path& installed, const fs::path& root)
@@ -98,14 +111,7 @@ Json inspect_node_program(const fs::path& source, const fs::path& installed, con
             throw std::runtime_error("installed Agent is not a regular file");
         installed_digest = sha256_file(installed);
     }
-    bool pending = false;
-    for (const auto& path :
-        {root / "agent-service-upgrade.json",
-            root / "agent-service-upgrade.pending",
-            root / "agent-upgrade.json",
-            root / "agent-upgrade.pending",
-            root / "bin" / "agent-upgrade.staged"})
-        pending = pending || fs::exists(path) || fs::is_symlink(path);
+    const bool pending = pending_publication(root);
     std::string expected = pending ? std::string{} : installed_digest;
     if (pending) {
         const auto record = root / "agent-service-upgrade.json";
@@ -161,6 +167,7 @@ void replace_node_program(
     if (platform.os != host.os || platform.arch != host.arch)
         throw std::invalid_argument("Agent update platform mismatch");
     const auto target = sha256_file(source);
+    const auto observed = sha256_file(installed);
     const auto journal = root / "agent-upgrade.json";
     const auto pending = root / "agent-upgrade.pending";
     const auto candidate = root / "bin" / "agent-upgrade.staged";
@@ -180,7 +187,7 @@ void replace_node_program(
         if (saved != transaction)
             throw std::runtime_error("Agent update transaction differs");
     } else {
-        if (sha256_file(installed) != expected_digest)
+        if (observed != expected_digest)
             throw std::runtime_error("installed Agent changed; inspect before updating");
         if (fs::exists(candidate))
             throw std::runtime_error("unrecorded staged Agent requires inspection");
@@ -189,7 +196,6 @@ void replace_node_program(
         write_file_durably(pending, transaction.dump());
         publish_file_durably(pending, journal);
     }
-    const auto observed = sha256_file(installed);
     if (observed != expected_digest && observed != target)
         throw std::runtime_error("Agent program does not match recorded update");
     if (observed == expected_digest) {
@@ -208,8 +214,6 @@ void replace_node_program(
     } else if (fs::exists(candidate)) {
         throw std::runtime_error("unexpected staged Agent after publication");
     }
-    if (sha256_file(installed) != target)
-        throw std::runtime_error("published Agent integrity check failed");
     // A failed rename-directory sync leaves the new executable visible. Retry
     // that barrier even when recovery did not need another rename.
     sync_directory(installed.parent_path());
@@ -254,7 +258,7 @@ void upgrade_node_service(
     // the original before digest. Retained publication artifacts still require
     // recovery and must never be mistaken for a completed update.
     if (observed == target && !fs::exists(record_path)) {
-        if (inspect_node_program(source, installed, root).at("state") != "current")
+        if (pending_publication(root))
             throw std::runtime_error("unfinished Agent publication requires inspection");
         return;
     }
@@ -325,7 +329,7 @@ void upgrade_node_service(
                         control
                             ->service_endpoint(
                                 service.at("id").get<std::string>(),
-                                asterion::node::v1::MARKET_DATA)
+                                asterion::node::proto::MARKET_DATA)
                             .get())
                         .get());
         }
@@ -393,8 +397,6 @@ void upgrade_node_service(
     for (;;) {
         try {
             auto probe = NodeClient::open(io, config).get();
-            if (sha256_file(installed) != target)
-                throw std::runtime_error("Agent program changed after restart");
             if (offline) {
                 fs::remove(record_path);
                 sync_directory(root);

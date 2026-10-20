@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect, type Locator, type Page } from "./test";
 import type { Snapshot, HistoryPage, LiveMarket } from "../src/bridge/client";
 
@@ -242,7 +243,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   const assets = page.getByRole("navigation", { name: "资产类别" });
   const categories = page.getByRole("navigation", { name: "期货分类" });
   await expect(assets.getByRole("button")).toHaveCount(7);
@@ -371,8 +372,20 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await assertColumnAlignment();
   await expect(upper.locator(".quote-pane-header")).toContainText("rb2601");
   await page.locator(".market-exchange-groups").evaluate(element => element.scrollTo(0, 0));
+  const tickChart = await upper.locator(".price-chart").boundingBox();
+  const tickNote = await upper.locator(".quote-data-note").boundingBox();
+  expect(tickNote!.y).toBeGreaterThanOrEqual(tickChart!.y + tickChart!.height);
+  // Navigation consumes vertical space. Keep the plot readable and use the
+  // existing pane scroll area to reach both the chart and its paging controls.
+  const latest = history.getByRole("button", { name: "最新数据", exact: true });
+  await latest.scrollIntoViewIfNeeded();
+  await expect(latest).toBeInViewport();
+  await history.getByRole("img").scrollIntoViewIfNeeded();
   const footer = await page.locator(".status-bar").boundingBox();
   const candle = await history.getByRole("img").boundingBox();
+  expect(candle!.height).toBeGreaterThanOrEqual(190);
+  const paging = await history.locator(".market-history-pages").boundingBox();
+  expect(paging!.y).toBeGreaterThanOrEqual(candle!.y + candle!.height);
   expect(candle!.y + candle!.height).toBeLessThanOrEqual(footer!.y);
   const rowHeight = await shfe
     .locator("tbody tr")
@@ -380,7 +393,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
     .evaluate(element => element.getBoundingClientRect().height);
   expect(rowHeight).toBeLessThanOrEqual(26);
   await page.screenshot({ path: "build/market-reference-linked-charts.png" });
-  await page.setViewportSize({ width: 2048, height: 1073 });
+  // A roomy window grows the plot above its minimum; the later 1073px and
+  // 700px cases also exercise bounded panes with local scrolling.
+  await page.setViewportSize({ width: 2048, height: 1440 });
   await assertColumnAlignment();
   await expect(history.getByRole("img").locator("canvas").first()).toBeVisible();
   const shanghaiGroup = await shfe.boundingBox();
@@ -436,10 +451,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "build/market-reference-linked-compact.png" });
   await page.setViewportSize({ width: 2048, height: 1073 });
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "自选", exact: true })
-    .click();
+  await openView(page, "watchlist");
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(44);
   await page.setViewportSize({ width: 1440, height: 700 });
   await expect(page.locator(".watchlist-charts").getByRole("img")).toHaveCount(2);
@@ -754,10 +766,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   expect(centerPane!.x).toBeGreaterThan(leftPane!.x + leftPane!.width);
   expect(rightPane!.x).toBeGreaterThan(centerPane!.x + centerPane!.width);
   await page.screenshot({ path: "build/contract-reference-2048.png" });
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "市场", exact: true })
-    .click();
+  await openView(page, "market");
   historicalOnly = true;
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await expect(page.getByRole("button", { name: "SHFE · rb/2026-01", exact: false })).toBeVisible();
@@ -777,10 +786,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   // Six-row visual fixture matches the reference density without shipping sample data.
   historicalOnly = false;
   subscriptions.splice(6);
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "自选", exact: true })
-    .click();
+  await openView(page, "watchlist");
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(6);
   await page.setViewportSize({ width: 2048, height: 1073 });
   await expect(page.locator(".watchlist-charts").getByRole("img")).toHaveCount(2);
@@ -791,10 +797,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
     .dblclick();
   await page.locator(".contract-list-row").filter({ hasText: "rb2602" }).click();
   await expect(page.locator(".contract-summary")).toContainText("rb2602");
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "自选", exact: true })
-    .click();
+  await openView(page, "watchlist");
   await page.getByRole("button", { name: "最近浏览", exact: true }).click();
   await expect(priceHeading).not.toHaveAttribute("aria-sort");
   await expect(page.locator(".watchlist-table tbody tr").first()).toContainText("rb2602");
@@ -835,10 +838,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   expect(nameOverflow).toEqual({ clipped: true, overflow: "ellipsis" });
   await page.screenshot({ path: "build/contract-long-name.png" });
   catalogLabel = "螺纹钢2601";
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "自选", exact: true })
-    .click();
+  await openView(page, "watchlist");
   await expect(
     page.locator(".watchlist-table tbody tr").filter({ hasText: "rb2601" }),
   ).toContainText("螺纹钢2601");
@@ -882,10 +882,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await page.getByRole("button", { name: "清除搜索", exact: true }).click();
   await expect(page.locator('.watchlist-table tr[data-selected="true"]')).toContainText("rb2601");
   await expect(page.locator(".watchlist-charts").getByRole("img")).toHaveCount(2);
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "合约", exact: true })
-    .click();
+  await openView(page, "contract");
   await page.getByRole("searchbox", { name: "搜索自选合约" }).fill("no-such-contract");
   await expect(page.getByText("没有匹配的自选合约", { exact: true })).toBeVisible();
   await expect(
@@ -895,9 +892,12 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await page.getByRole("button", { name: "清除搜索", exact: true }).click();
   await expect(page.locator(".contract-summary")).toContainText("螺纹钢2601");
   await page.getByRole("searchbox", { name: "搜索自选合约" }).fill("");
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "市场", exact: true })
-    .click();
+  await openView(page, "market");
+  // Searching another view must not change the market view's data source.
+  await expect(page.getByRole("tab", { name: "历史行情", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   await expect(page.locator(".quote-select").filter({ hasText: "螺纹钢2601" })).toHaveCount(1);
 });

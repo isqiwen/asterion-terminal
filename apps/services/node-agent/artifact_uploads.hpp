@@ -1,6 +1,6 @@
 #pragma once
 #include "agent_work.hpp"
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -14,9 +14,9 @@ class ArtifactUploads
 {
 public:
     ArtifactUploads(std::filesystem::path root, BlockingWork blocking);
-    PolledTask<void> begin(const node::v1::Upload& upload);
-    PolledTask<void> append(const node::v1::Chunk& chunk);
-    PolledTask<void> finish(const node::v1::Finish& finished);
+    PolledTask<void> begin(const node::proto::Upload& upload);
+    PolledTask<void> append(const node::proto::Chunk& chunk);
+    PolledTask<void> finish(const node::proto::Finish& finished);
 
 private:
     struct Upload

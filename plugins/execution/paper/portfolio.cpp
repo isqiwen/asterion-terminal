@@ -20,7 +20,7 @@ std::vector<PaperExecution::Event> replay_order(
     return events;
 }
 
-PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input)
+PaperPortfolio paper_portfolio(const protocol::proto::PaperInput& input)
 {
     PaperPortfolio result;
     for (const auto& contract : input.contracts()) {

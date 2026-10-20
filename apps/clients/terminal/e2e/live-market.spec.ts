@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { ctpConnection, rpc } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect, type Page } from "./test";
@@ -26,7 +27,7 @@ test("full market loads automatically and watchlist membership stays independent
   // pointer-down and click and correctly prevent the subscription command.
   await account(page, "steady");
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-account");
@@ -35,13 +36,13 @@ test("full market loads automatically and watchlist membership stays independent
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   await expect((await marketMenu(page)).getByRole("button", { name: "全部月份" })).toBeVisible();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await panel.getByRole("button", { name: "加入自选", exact: true }).click();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(1);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await panel.getByRole("button", { name: "移出自选", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
@@ -57,10 +58,7 @@ test(
   async ({ page }) => {
     await account(page);
     await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "市场", exact: true })
-      .click();
+    await openView(page, "market");
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     const panel = page.getByRole("region", { name: "实时期货行情" });
     await panel.getByText("按代码添加自选", { exact: true }).click();
@@ -131,7 +129,7 @@ test("remembered market login is reused with blank fields and can be cleared", a
   await rpc(page.request, "market.disconnect");
   await account(page, "steady");
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("密码", { exact: true }).fill("remember-fixture");
   await panel.getByLabel("授权码", { exact: true }).fill("fixture-auth");

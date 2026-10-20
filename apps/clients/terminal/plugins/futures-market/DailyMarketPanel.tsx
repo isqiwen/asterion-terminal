@@ -162,9 +162,7 @@ export function DailyMarketPanel({ context }: { context: TerminalContext }) {
             </p>
           )
         )}
-        <button onClick={() => context.navigate("workspace.data", { page: "tables" })}>
-          {t("更新全市场数据")}
-        </button>
+        <button onClick={() => context.navigate("workspace.tables")}>{t("更新全市场数据")}</button>
       </div>
       <div className="history-market-detail">
         {contract && held && (

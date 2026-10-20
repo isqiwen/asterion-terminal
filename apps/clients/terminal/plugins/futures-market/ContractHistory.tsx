@@ -271,9 +271,7 @@ export function ContractHistory({
       {catalogError ? null : !online && !page ? (
         <div className="market-chart-empty" role="status">
           <p>{t("历史数据服务未连接")}</p>
-          <button onClick={() => navigate("workspace.data", { page: "history" })}>
-            {t("管理历史数据")}
-          </button>
+          <button onClick={() => navigate("workspace.history")}>{t("管理历史数据")}</button>
         </div>
       ) : minutes.length || held || period !== null || fixedPeriod !== undefined ? (
         <>
@@ -412,7 +410,7 @@ export function ContractHistory({
               <div className="market-chart-empty" role="status">
                 <p>{t(table.loading ? "读取中" : "全市场日线表还没有入库")}</p>
                 {!table.loading && (
-                  <button onClick={() => navigate("workspace.data", { page: "tables" })}>
+                  <button onClick={() => navigate("workspace.tables")}>
                     {t("更新全市场数据")}
                   </button>
                 )}
@@ -422,9 +420,7 @@ export function ContractHistory({
                 <p>
                   {t(minutes.length ? "该合约尚无所选周期的数据" : "该月份合约尚无已下载历史数据")}
                 </p>
-                <button onClick={() => navigate("workspace.data", { page: "history" })}>
-                  {t("下载历史数据")}
-                </button>
+                <button onClick={() => navigate("workspace.history")}>{t("下载历史数据")}</button>
               </div>
             )
           ) : page?.bars.length ? (
@@ -508,9 +504,7 @@ export function ContractHistory({
                 {t(daily ? "全市场日线表里没有这个合约在集合竞价中成交的交易日" : "暂无历史记录")}
               </p>
               {daily && (
-                <button onClick={() => navigate("workspace.data", { page: "tables" })}>
-                  {t("更新全市场数据")}
-                </button>
+                <button onClick={() => navigate("workspace.tables")}>{t("更新全市场数据")}</button>
               )}
             </div>
           ) : (
@@ -520,9 +514,7 @@ export function ContractHistory({
       ) : (
         <div className="market-chart-empty">
           <p>{t("该月份合约尚无已下载历史数据")}</p>
-          <button onClick={() => navigate("workspace.data", { page: "history" })}>
-            {t("下载历史数据")}
-          </button>
+          <button onClick={() => navigate("workspace.history")}>{t("下载历史数据")}</button>
         </div>
       )}
     </section>

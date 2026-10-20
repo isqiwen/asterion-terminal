@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 namespace asterion::terminal {
-namespace wire = node::v1;
+namespace wire = node::proto;
 
 const char* service_kind_name(wire::ServiceKind kind)
 {

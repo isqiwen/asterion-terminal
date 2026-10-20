@@ -18,17 +18,17 @@
 namespace asterion::trading {
 namespace {
 
-protocol::v1::Offset wire_offset(Offset offset)
+protocol::proto::Offset wire_offset(Offset offset)
 {
     switch (offset) {
         case Offset::open:
-            return protocol::v1::OPEN;
+            return protocol::proto::OPEN;
         case Offset::close_today:
-            return protocol::v1::CLOSE_TODAY;
+            return protocol::proto::CLOSE_TODAY;
         case Offset::close_yesterday:
-            return protocol::v1::CLOSE_YESTERDAY;
+            return protocol::proto::CLOSE_YESTERDAY;
         case Offset::close:
-            return protocol::v1::CLOSE;
+            return protocol::proto::CLOSE;
     }
     throw std::logic_error("invalid open/close offset");
 }
@@ -105,14 +105,15 @@ LiveAccountState::LiveAccountState(
     trade_front_ = broker.at("front");
     app_id_ = broker.at("app_id");
     create_directories_durably(ownership_directory);
+    const auto owner_key = sha256_bytes(account_id);
     try {
-        account_owner_ = std::make_unique<FileLock>(ownership_directory, sha256_bytes(account_id));
+        account_owner_ = std::make_unique<FileLock>(ownership_directory, owner_key);
     } catch (const std::runtime_error&) {
         throw Error(
             ErrorCode::conflict,
             "account execution owner is already active or ownership storage is unavailable");
     }
-    const auto binding_file = ownership_directory / (sha256_bytes(account_id) + ".json");
+    const auto binding_file = ownership_directory / (owner_key + ".json");
     Json binding{
         {"directory", std::filesystem::canonical(directory).string()},
         {"initialized", false}
@@ -731,7 +732,7 @@ AccountCommand LiveAccountState::cancel_run_orders()
         }
     std::exception_ptr failure;
     for (const auto& id : due) {
-        protocol::v1::Command command;
+        protocol::proto::Command command;
         command.set_request_id("cancel." + id);
         command.mutable_cancel()->set_order_id(id);
         const auto request = AccountRequest::from_wire(command);
@@ -774,13 +775,13 @@ AccountCommand LiveAccountState::place_target(std::uint64_t control)
     for (const auto& order : target_orders(*bar.target, *held, close_policy(id.venue))) {
         const auto order_id =
             run.id + "." + std::to_string(bar.start_ms) + std::string(order.suffix);
-        protocol::v1::Command command;
+        protocol::proto::Command command;
         command.set_request_id(order_id);
         auto* value = command.mutable_submit();
         value->set_order_id(order_id);
         value->set_venue(id.venue);
         value->set_symbol(id.symbol);
-        value->set_side(order.side == Side::buy ? protocol::v1::BUY : protocol::v1::SELL);
+        value->set_side(order.side == Side::buy ? protocol::proto::BUY : protocol::proto::SELL);
         value->set_offset(wire_offset(order.offset));
         value->mutable_quantity()->set_units(order.quantity.raw());
         value->mutable_price()->set_units(bar.close.raw());
@@ -1095,11 +1096,11 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         && identities_ready(state);
 }
 
-protocol::v1::LiveSnapshot LiveAccountState::snapshot() const
+protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
 {
     const auto state = trader_->snapshot();
     log_broker_observations(state);
-    protocol::v1::LiveSnapshot result;
+    protocol::proto::LiveSnapshot result;
     auto* broker = result.mutable_broker();
     broker->set_broker_id(broker_id_);
     broker->set_user_id(investor_id_);
@@ -1182,7 +1183,7 @@ protocol::v1::LiveSnapshot LiveAccountState::snapshot() const
         funds->mutable_position_profit()->set_units(state.funds->position_profit.raw());
     }
     const auto wire_side = [](Side side) {
-        return side == Side::buy ? protocol::v1::BUY : protocol::v1::SELL;
+        return side == Side::buy ? protocol::proto::BUY : protocol::proto::SELL;
     };
     for (const auto& position : state.positions) {
         auto* item = result.add_positions();

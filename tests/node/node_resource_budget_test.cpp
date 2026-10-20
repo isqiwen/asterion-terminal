@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 using namespace asterion;
 using namespace asterion::agent;
-namespace wire = asterion::node::v1;
+namespace wire = asterion::node::proto;
 
 TEST(NodeResources, TerminalReservesHeadroomAndBoundsItsPoolsAndWorkerAllowance)
 {

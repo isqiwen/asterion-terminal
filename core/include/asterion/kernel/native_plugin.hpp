@@ -25,7 +25,7 @@ class NativeInstance;
 class NativeLibrary
 {
 public:
-    explicit NativeLibrary(const std::filesystem::path&);
+    explicit NativeLibrary(const std::filesystem::path&, const std::string& expected_digest = {});
     const NativeDescriptor& descriptor() const;
     const std::string& sha256() const;
     const std::filesystem::path& path() const;

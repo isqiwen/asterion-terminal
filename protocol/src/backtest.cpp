@@ -25,9 +25,9 @@ void distinct_contracts(const Lists& lists, std::size_t contracts, Indexes index
         }
 }
 
-void validate_series(const backtest::v1::BacktestInput& input)
+void validate_series(const backtest::proto::BacktestInput& input)
 {
-    std::vector<const v1::Contract*> contracts;
+    std::vector<const proto::Contract*> contracts;
     for (const auto& contract : input.paper().contracts())
         contracts.push_back(&contract.dataset().contract());
     // No month belongs to two series.
@@ -48,7 +48,7 @@ void validate_series(const backtest::v1::BacktestInput& input)
         throw std::invalid_argument("a portfolio holds at most 20 contracts and dominant series");
 }
 
-void validate_settlement_margins(const backtest::v1::BacktestInput& input)
+void validate_settlement_margins(const backtest::proto::BacktestInput& input)
 {
     if (input.settlement_margins().empty())
         return;
@@ -88,7 +88,7 @@ void validate_settlement_margins(const backtest::v1::BacktestInput& input)
     }
 }
 
-void validate_historical_margin_input(const backtest::v1::BacktestInput& input)
+void validate_historical_margin_input(const backtest::proto::BacktestInput& input)
 {
     if (!input.has_historical_margins())
         return;
@@ -123,8 +123,8 @@ void validate_historical_margin_input(const backtest::v1::BacktestInput& input)
 } // namespace
 
 void apply_historical_margins(
-    backtest::v1::BacktestInput& input,
-    const data::v1::HistoricalMargins& fixed)
+    backtest::proto::BacktestInput& input,
+    const data::proto::HistoricalMargins& fixed)
 {
     (void)decode_historical_margins(fixed);
     if (input.paper().contracts_size() != 1 || !input.settlement_margins().empty())
@@ -135,7 +135,7 @@ void apply_historical_margins(
     (void)cost_schedule(original);
     contract->clear_cost_schedule();
     for (const auto& day : fixed.days()) {
-        const v1::CostVersion* selected = nullptr;
+        const proto::CostVersion* selected = nullptr;
         for (const auto& version : original.versions())
             if (version.effective_from() <= day.trading_day())
                 selected = &version;
@@ -155,7 +155,7 @@ void apply_historical_margins(
     validate_historical_margin_input(input);
 }
 
-backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
+backtest::proto::BacktestRequest encode_backtest_request(const Json& input)
 {
     auto required = input;
     required.erase("settlement_margins");
@@ -181,7 +181,7 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
             throw std::invalid_argument("slippage is 0 to 100 price increments");
         return traded.at("slippage_ticks").get<unsigned>();
     };
-    backtest::v1::BacktestRequest result;
+    backtest::proto::BacktestRequest result;
     if (input.contains("margin_snapshot")) {
         const auto snapshot = input.at("margin_snapshot").get<std::string>();
         if (snapshot.size() != 64
@@ -252,7 +252,7 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
     return result;
 }
 
-std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput& input)
+std::vector<std::string> backtest_trading_days(const backtest::proto::BacktestInput& input)
 {
     std::set<std::string> days;
     for (const auto& contract : input.paper().contracts())
@@ -262,7 +262,7 @@ std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput
 }
 
 FuturesCostVersion backtest_settlement_costs(
-    const backtest::v1::BacktestInput& input,
+    const backtest::proto::BacktestInput& input,
     std::size_t contract,
     const std::string& day)
 {
@@ -280,8 +280,8 @@ FuturesCostVersion backtest_settlement_costs(
 }
 
 void set_backtest_strategies(
-    backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestRequest& request)
+    backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestRequest& request)
 {
     *input.mutable_strategies() = request.strategies();
     const auto& from = request.holdout_from();
@@ -304,7 +304,7 @@ void set_backtest_strategies(
     input.set_holdout_day(*first);
 }
 
-std::vector<BacktestRound> backtest_folds(const backtest::v1::BacktestInput& input)
+std::vector<BacktestRound> backtest_folds(const backtest::proto::BacktestInput& input)
 {
     const auto days = backtest_trading_days(input).size();
     const std::size_t training = input.walk_forward().training_days();
@@ -315,7 +315,7 @@ std::vector<BacktestRound> backtest_folds(const backtest::v1::BacktestInput& inp
     return result;
 }
 
-std::size_t backtest_work_units(const backtest::v1::BacktestInput& input)
+std::size_t backtest_work_units(const backtest::proto::BacktestInput& input)
 {
     std::size_t bars = 0, development = 0;
     for (const auto& contract : input.paper().contracts())
@@ -329,7 +329,7 @@ std::size_t backtest_work_units(const backtest::v1::BacktestInput& input)
     return bars + compared * (input.has_walk_forward() ? bars : development);
 }
 
-Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
+Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView view)
 {
     validate_message(input);
     if (!input.has_paper() || input.strategies().empty() || input.strategies_size() > 32)
@@ -397,7 +397,7 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
     return result;
 }
 
-Json decode_backtest_result(const backtest::v1::BacktestResult& result)
+Json decode_backtest_result(const backtest::proto::BacktestResult& result)
 {
     validate_message(result);
     if (!result.has_account() || !result.has_max_drawdown() || result.equity().empty()
@@ -421,13 +421,13 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result)
     Json curve = Json::array(), settlements = Json::array();
     for (const auto& point : result.equity()) {
         if (!point.has_equity() || point.timestamp_ns() < 0
-            || (point.event() != backtest::v1::TRADE_MARK
-                && point.event() != backtest::v1::DAILY_SETTLEMENT))
+            || (point.event() != backtest::proto::TRADE_MARK
+                && point.event() != backtest::proto::DAILY_SETTLEMENT))
             throw std::invalid_argument("invalid backtest equity event");
         curve.push_back(
             {{"timestamp_ns", std::to_string(point.timestamp_ns())},
                 {"equity", Decimal::from_raw(point.equity().units()).str()},
-                {"event", point.event() == backtest::v1::TRADE_MARK ? "trade" : "settlement"}});
+                {"event", point.event() == backtest::proto::TRADE_MARK ? "trade" : "settlement"}});
     }
     for (const auto& day : result.settlements()) {
         if (!day.has_balance() || !day.has_equity() || !day.has_realized() || !day.has_fees()
@@ -568,8 +568,8 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result)
     return shown;
 }
 
-backtest::v1::BacktestInput
-backtest_slippage_variant(const backtest::v1::BacktestInput& original, unsigned ticks)
+backtest::proto::BacktestInput
+backtest_slippage_variant(const backtest::proto::BacktestInput& original, unsigned ticks)
 {
     (void)decode_backtest(original);
     if (ticks > max_slippage_ticks)

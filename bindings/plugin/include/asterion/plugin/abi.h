@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 #define ASTERION_PLUGIN_ABI_VERSION 1u
-#define ASTERION_PLUGIN_ENTRY "asterion_plugin_entry_v1"
+#define ASTERION_PLUGIN_ENTRY "asterion_plugin_entry"
 /* All strings are bounded, NUL-terminated UTF-8. Never transfer owning C++ objects.
  * Borrowed inputs live through the call. Descriptors live until library unload.
  * Output row pointers live only during the callback. Copy them before returning.
@@ -76,9 +76,9 @@ typedef struct
         uint32_t version,
         uint32_t table_size,
         const void** table);
-} AstPluginV1;
+} AstPlugin;
 
-typedef const AstPluginV1* (*AstPluginEntryV1)(uint32_t host_abi, uint32_t host_struct_size);
+typedef const AstPlugin* (*AstPluginEntry)(uint32_t host_abi, uint32_t host_struct_size);
 #ifdef __cplusplus
 }
 #endif

@@ -1099,7 +1099,7 @@ TEST(BarDataset, FixedAvailabilityEvidenceIsRequiredButSeparateFromContentIdenti
     EXPECT_EQ(protocol::bar_dataset_revision(dataset), revision);
     EXPECT_NE(dataset.SerializeAsString(), original);
     dataset.mutable_history_evidence(0)->set_source_availability(
-        data::v1::SOURCE_AVAILABILITY_UNSPECIFIED);
+        data::proto::SOURCE_AVAILABILITY_UNSPECIFIED);
     EXPECT_THROW(protocol::validate_bar_dataset(dataset), std::invalid_argument);
     dataset = protocol::encode_bar_dataset(decoded);
     dataset.mutable_history_evidence(0)->set_dataset_id(std::string(64, 'c'));

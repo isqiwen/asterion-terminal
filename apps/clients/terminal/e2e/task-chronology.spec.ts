@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { rpc, seedDataset } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
@@ -29,11 +30,7 @@ test("durable task order and dates survive reload independently of task IDs", as
   expect(metadata.submitted_at_ms).toBeGreaterThan(0);
   for (let reload = 0; reload < 2; reload++) {
     await page.reload();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await openView(page, "factor");
     const tasks = page.getByRole("region", { name: "研究任务", exact: true });
     const ids = tasks.locator("tbody tr code");
     await expect(ids.first()).toHaveText(newer);
@@ -57,15 +54,12 @@ test("durable task order and dates survive reload independently of task IDs", as
   await expect(records.locator("tbody tr code").first()).toHaveText(older);
   await records.getByRole("button", { name: "最新记录", exact: true }).click();
   await expect(records.locator("tbody tr code").first()).toHaveText(newer);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "factor");
   await page.screenshot({ path: join(__dirname, "../test-results/task-chronology.png") });
   page = await openSettingsWindow(page);
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   page = await closeSettingsWindow(page);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "Research", exact: true })
-    .click();
+  await openView(page, "factor");
   await expect(page.getByRole("columnheader", { name: "Submitted", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 800, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

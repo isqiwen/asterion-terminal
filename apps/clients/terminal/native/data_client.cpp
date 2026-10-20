@@ -10,7 +10,7 @@
 namespace asterion::terminal {
 
 using namespace std::chrono_literals;
-namespace wire = data::v1;
+namespace wire = data::proto;
 
 struct DataClient::Impl : std::enable_shared_from_this<Impl>
 {
@@ -25,7 +25,7 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
     std::array<std::unique_ptr<ipc::RpcClient>, 2> transports;
     std::stop_source lifetime;
     Json sources = Json::array();
-    std::vector<data::v1::HistorySource> typed_sources;
+    std::vector<data::proto::HistorySource> typed_sources;
     bool online = false;
     std::string error;
 
@@ -302,10 +302,10 @@ std::future<Json> DataClient::status() const
     });
 }
 
-std::future<data::v1::HistorySource> DataClient::source(const std::string& id) const
+std::future<data::proto::HistorySource> DataClient::source(const std::string& id) const
 {
-    return impl_->io.submit<data::v1::HistorySource>(
-        [state = impl_, id](std::stop_token) -> PolledTask<data::v1::HistorySource> {
+    return impl_->io.submit<data::proto::HistorySource>(
+        [state = impl_, id](std::stop_token) -> PolledTask<data::proto::HistorySource> {
             for (const auto& source : state->typed_sources)
                 if (source.id() == id)
                     co_return source;
@@ -313,13 +313,13 @@ std::future<data::v1::HistorySource> DataClient::source(const std::string& id) c
         });
 }
 
-std::future<std::vector<data::v1::HistorySource>> DataClient::provider_sources(
+std::future<std::vector<data::proto::HistorySource>> DataClient::provider_sources(
     const std::string& plugin_id) const
 {
-    return impl_->io.submit<std::vector<data::v1::HistorySource>>(
+    return impl_->io.submit<std::vector<data::proto::HistorySource>>(
         [state = impl_, plugin_id](
-            std::stop_token) -> PolledTask<std::vector<data::v1::HistorySource>> {
-            std::vector<data::v1::HistorySource> result;
+            std::stop_token) -> PolledTask<std::vector<data::proto::HistorySource>> {
+            std::vector<data::proto::HistorySource> result;
             for (const auto& source : state->typed_sources)
                 if (source.plugin_id() == plugin_id && source.has_connection())
                     result.push_back(source);
@@ -327,32 +327,32 @@ std::future<std::vector<data::v1::HistorySource>> DataClient::provider_sources(
         });
 }
 
-std::future<data::v1::HistoryConnectionVerification>
+std::future<data::proto::HistoryConnectionVerification>
 DataClient::verify_connection(const std::string& source, const std::string& credential)
 {
     wire::DataRequest request;
     request.mutable_verify_connection()->set_source(source);
     request.mutable_verify_connection()->set_credential(credential);
-    return impl_->invoke<data::v1::HistoryConnectionVerification>(
+    return impl_->invoke<data::proto::HistoryConnectionVerification>(
         std::move(request),
         [](const wire::DataRequest&,
-            wire::DataResponse& response) -> data::v1::HistoryConnectionVerification {
+            wire::DataResponse& response) -> data::proto::HistoryConnectionVerification {
             return std::move(*response.mutable_connection_verification());
         },
         true,
         90s);
 }
 
-std::future<data::v1::DominantSeriesPreview> DataClient::dominant_series(
-    const std::vector<data::v1::BarDatasetRequest>& months)
+std::future<data::proto::DominantSeriesPreview> DataClient::dominant_series(
+    const std::vector<data::proto::BarDatasetRequest>& months)
 {
     wire::DataRequest request;
     for (const auto& month : months)
         *request.mutable_dominant_series()->add_months() = month;
-    return impl_->invoke<data::v1::DominantSeriesPreview>(
+    return impl_->invoke<data::proto::DominantSeriesPreview>(
         std::move(request),
         [](const wire::DataRequest& request,
-            wire::DataResponse& response) -> data::v1::DominantSeriesPreview {
+            wire::DataResponse& response) -> data::proto::DominantSeriesPreview {
             const auto& months = request.dominant_series().months();
             auto& preview = *response.mutable_dominant_series();
             if (preview.months().empty() || preview.months_size() != preview.datasets_size()
@@ -370,15 +370,15 @@ std::future<data::v1::DominantSeriesPreview> DataClient::dominant_series(
         });
 }
 
-std::future<data::v1::DominantSeriesPreview> DataClient::dominant_series(
-    const data::v1::ProductBarsRequest& product)
+std::future<data::proto::DominantSeriesPreview> DataClient::dominant_series(
+    const data::proto::ProductBarsRequest& product)
 {
     wire::DataRequest request;
     *request.mutable_dominant_series()->mutable_product() = product;
-    return impl_->invoke<data::v1::DominantSeriesPreview>(
+    return impl_->invoke<data::proto::DominantSeriesPreview>(
         std::move(request),
         [](const wire::DataRequest& request,
-            wire::DataResponse& response) -> data::v1::DominantSeriesPreview {
+            wire::DataResponse& response) -> data::proto::DominantSeriesPreview {
             const auto& product = request.dominant_series().product();
             auto& preview = *response.mutable_dominant_series();
             if (preview.months().empty() || preview.months_size() != preview.datasets_size()
@@ -399,13 +399,15 @@ std::future<data::v1::DominantSeriesPreview> DataClient::dominant_series(
         });
 }
 
-std::future<data::v1::BarDataset> DataClient::bar_dataset(const data::v1::BarDatasetRequest& query)
+std::future<data::proto::BarDataset> DataClient::bar_dataset(
+    const data::proto::BarDatasetRequest& query)
 {
     wire::DataRequest request;
     *request.mutable_bar_dataset() = query;
-    return impl_->invoke<data::v1::BarDataset>(
+    return impl_->invoke<data::proto::BarDataset>(
         std::move(request),
-        [](const wire::DataRequest& request, wire::DataResponse& response) -> data::v1::BarDataset {
+        [](const wire::DataRequest& request,
+            wire::DataResponse& response) -> data::proto::BarDataset {
             const auto& query = request.bar_dataset();
             auto& dataset = *response.mutable_bar_dataset();
             protocol::validate_bar_dataset(dataset);
@@ -417,15 +419,15 @@ std::future<data::v1::BarDataset> DataClient::bar_dataset(const data::v1::BarDat
         });
 }
 
-std::future<data::v1::HistoryUpdatePlan> DataClient::history_update_plan(
-    const data::v1::HistoryUpdateQuery& query)
+std::future<data::proto::HistoryUpdatePlan> DataClient::history_update_plan(
+    const data::proto::HistoryUpdateQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_update_plan() = query;
-    return impl_->invoke<data::v1::HistoryUpdatePlan>(
+    return impl_->invoke<data::proto::HistoryUpdatePlan>(
         std::move(request),
         [](const wire::DataRequest& request,
-            wire::DataResponse& response) -> data::v1::HistoryUpdatePlan {
+            wire::DataResponse& response) -> data::proto::HistoryUpdatePlan {
             const auto& query = request.update_plan();
             auto& plan = *response.mutable_update_plan();
             (void)protocol::decode_history_update_plan(plan);
@@ -435,7 +437,7 @@ std::future<data::v1::HistoryUpdatePlan> DataClient::history_update_plan(
         });
 }
 
-std::future<Json> DataClient::datasets(const data::v1::HistoryFilter& filter)
+std::future<Json> DataClient::datasets(const data::proto::HistoryFilter& filter)
 {
     wire::DataRequest request;
     *request.mutable_datasets() = filter;
@@ -458,7 +460,7 @@ std::future<Json> DataClient::datasets(const data::v1::HistoryFilter& filter)
         });
 }
 
-std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& query)
+std::future<Json> DataClient::coverage(const data::proto::HistoryCoverageQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_coverage() = query;
@@ -490,7 +492,7 @@ std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& que
 }
 
 std::future<std::vector<HistoryListing>> DataClient::table_contracts(
-    const data::v1::TableContractsQuery& query)
+    const data::proto::TableContractsQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_contracts() = query;
@@ -529,7 +531,7 @@ std::future<std::vector<HistoryListing>> DataClient::table_contracts(
         });
 }
 
-std::future<Json> DataClient::minute_range(const data::v1::MinuteRangeQuery& query)
+std::future<Json> DataClient::minute_range(const data::proto::MinuteRangeQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_minute_range() = query;
@@ -543,7 +545,7 @@ std::future<Json> DataClient::minute_range(const data::v1::MinuteRangeQuery& que
         });
 }
 
-std::future<Json> DataClient::minute_evidence(const data::v1::MinuteEvidenceQuery& query)
+std::future<Json> DataClient::minute_evidence(const data::proto::MinuteEvidenceQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_minute_evidence() = query;
@@ -559,7 +561,7 @@ std::future<Json> DataClient::minute_evidence(const data::v1::MinuteEvidenceQuer
         });
 }
 
-std::future<Json> DataClient::minute_page(const data::v1::MinutePageQuery& query)
+std::future<Json> DataClient::minute_page(const data::proto::MinutePageQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_minute_page() = query;
@@ -577,12 +579,12 @@ std::future<Json> DataClient::minute_page(const data::v1::MinutePageQuery& query
         });
 }
 
-std::future<data::v1::TableRefreshPlan> DataClient::table_refresh_plan(
-    const data::v1::TableRefreshQuery& query)
+std::future<data::proto::TableRefreshPlan> DataClient::table_refresh_plan(
+    const data::proto::TableRefreshQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_refresh_plan() = query;
-    return impl_->invoke<data::v1::TableRefreshPlan>(
+    return impl_->invoke<data::proto::TableRefreshPlan>(
         std::move(request),
         [](const wire::DataRequest& request, wire::DataResponse& response) {
             auto& plan = *response.mutable_table_refresh_plan();
@@ -594,7 +596,7 @@ std::future<data::v1::TableRefreshPlan> DataClient::table_refresh_plan(
         });
 }
 
-std::future<Json> DataClient::historical_margins(const data::v1::HistoricalMarginQuery& query)
+std::future<Json> DataClient::historical_margins(const data::proto::HistoricalMarginQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_historical_margins() = query;
@@ -616,7 +618,7 @@ std::future<Json> DataClient::table_coverage()
         });
 }
 
-std::future<Json> DataClient::table_page(const data::v1::TablePageQuery& query)
+std::future<Json> DataClient::table_page(const data::proto::TablePageQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_page() = query;
@@ -636,7 +638,7 @@ std::future<Json> DataClient::table_page(const data::v1::TablePageQuery& query)
         });
 }
 
-std::future<Json> DataClient::table_products(const data::v1::TableProductsQuery& query)
+std::future<Json> DataClient::table_products(const data::proto::TableProductsQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_products() = query;
@@ -648,7 +650,7 @@ std::future<Json> DataClient::table_products(const data::v1::TableProductsQuery&
 }
 
 std::future<Json> DataClient::table_listed_contracts(
-    const data::v1::TableListedContractsQuery& query)
+    const data::proto::TableListedContractsQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_listed_contracts() = query;
@@ -663,7 +665,7 @@ std::future<Json> DataClient::table_listed_contracts(
         });
 }
 
-std::future<Json> DataClient::table_daily(const data::v1::TableDailyQuery& query)
+std::future<Json> DataClient::table_daily(const data::proto::TableDailyQuery& query)
 {
     wire::DataRequest request;
     *request.mutable_table_daily() = query;
@@ -733,14 +735,14 @@ std::future<Json> DataClient::saved_datasets()
         });
 }
 
-std::future<data::v1::NamedDataset> DataClient::saved_dataset(const std::string& id)
+std::future<data::proto::NamedDataset> DataClient::saved_dataset(const std::string& id)
 {
     wire::DataRequest request;
     request.mutable_saved_dataset()->set_id(id);
-    return impl_->invoke<data::v1::NamedDataset>(
+    return impl_->invoke<data::proto::NamedDataset>(
         std::move(request),
         [](const wire::DataRequest& request,
-            wire::DataResponse& response) -> data::v1::NamedDataset {
+            wire::DataResponse& response) -> data::proto::NamedDataset {
             auto& value = *response.mutable_saved_dataset();
             protocol::validate_named_dataset(value);
             if (value.id() != request.saved_dataset().id())
@@ -749,7 +751,7 @@ std::future<data::v1::NamedDataset> DataClient::saved_dataset(const std::string&
         });
 }
 
-std::future<void> DataClient::save_dataset(const data::v1::NamedDataset& value)
+std::future<void> DataClient::save_dataset(const data::proto::NamedDataset& value)
 {
     wire::DataRequest request;
     *request.mutable_save_dataset() = value;

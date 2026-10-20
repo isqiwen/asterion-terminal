@@ -3,43 +3,43 @@
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/v1/data.pb.h>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data.pb.h>
+#include <asterion/data_service.pb.h>
 #include <map>
 #include <span>
 
 namespace asterion::protocol {
 
-Json decode_historical_margins(const data::v1::HistoricalMargins&);
+Json decode_historical_margins(const data::proto::HistoricalMargins&);
 
-data::v1::HistoryUpdateQuery encode_history_update_query(const Json&);
-Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
-Json decode_history_usage(const data::v1::HistoryUsage&);
-Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
-Json decode_minute_page(const data::v1::MinutePage&);
-void validate_minute_range_query(const data::v1::MinuteRangeQuery&);
-data::v1::MinuteRangeQuery encode_minute_range_query(const Json&);
-Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence&);
-void validate_minute_evidence_query(const data::v1::MinuteEvidenceQuery&);
-data::v1::MinuteEvidenceQuery encode_minute_evidence_query(const Json&);
-Json decode_minute_evidence(const data::v1::MinuteEvidence&);
+data::proto::HistoryUpdateQuery encode_history_update_query(const Json&);
+Json decode_history_update_query(const data::proto::HistoryUpdateQuery&);
+Json decode_history_usage(const data::proto::HistoryUsage&);
+Json decode_history_update_plan(const data::proto::HistoryUpdatePlan&);
+Json decode_minute_page(const data::proto::MinutePage&);
+void validate_minute_range_query(const data::proto::MinuteRangeQuery&);
+data::proto::MinuteRangeQuery encode_minute_range_query(const Json&);
+Json decode_minute_range_evidence(const data::proto::MinuteRangeEvidence&);
+void validate_minute_evidence_query(const data::proto::MinuteEvidenceQuery&);
+data::proto::MinuteEvidenceQuery encode_minute_evidence_query(const Json&);
+Json decode_minute_evidence(const data::proto::MinuteEvidence&);
 // Market-wide table updates: the definition both services keep, and what the
 // Terminal shows of the store.
-data::v1::TableRefreshQuery encode_table_refresh_query(const Json&);
-Json decode_table_refresh_query(const data::v1::TableRefreshQuery&);
-Json decode_table_refresh_plan(const data::v1::TableRefreshPlan&);
-void validate_table_update(const data::v1::TableUpdate&);
-data::v1::TableUpdate encode_table_update(const Json&);
-Json decode_table_update(const data::v1::TableUpdate&);
+data::proto::TableRefreshQuery encode_table_refresh_query(const Json&);
+Json decode_table_refresh_query(const data::proto::TableRefreshQuery&);
+Json decode_table_refresh_plan(const data::proto::TableRefreshPlan&);
+void validate_table_update(const data::proto::TableUpdate&);
+data::proto::TableUpdate encode_table_update(const Json&);
+Json decode_table_update(const data::proto::TableUpdate&);
 // Verify completion evidence against the fixed target and execution identity, offline.
 void validate_table_update_result(
-    const data::v1::TableUpdate&,
-    const data::v1::DownloadIdentity&,
-    const data::v1::TableUpdateResult&);
-Json decode_table_update_result(const data::v1::TableUpdateResult&);
-Json decode_table_coverage(const data::v1::TableCoverage&);
-data::v1::TablePageQuery encode_table_page_query(const Json&);
-Json decode_table_page(const data::v1::TablePage&);
+    const data::proto::TableUpdate&,
+    const data::proto::DownloadIdentity&,
+    const data::proto::TableUpdateResult&);
+Json decode_table_update_result(const data::proto::TableUpdateResult&);
+Json decode_table_coverage(const data::proto::TableCoverage&);
+data::proto::TablePageQuery encode_table_page_query(const Json&);
+Json decode_table_page(const data::proto::TablePage&);
 
 // Series of the market-wide daily table. An instrument is a contract
 // (SHFE/rb/2026-10) or a product (SHFE/rb): its delivery month is then empty.
@@ -53,91 +53,91 @@ inline constexpr int max_table_instruments = 100;
 TableInstrument table_instrument(std::string_view text);
 // Where daily facts and contract units are read: a snapshot of the table
 // store and the sources of its daily table, calendar and contract list.
-void validate_daily_table(const data::v1::DailyTable&);
-data::v1::DailyTable encode_daily_table(const Json&);
-Json decode_daily_table(const data::v1::DailyTable&);
-void validate_table_series_request(const data::v1::TableSeriesRequest&);
-data::v1::TableSeriesRequest encode_table_series_request(const Json&);
+void validate_daily_table(const data::proto::DailyTable&);
+data::proto::DailyTable encode_daily_table(const Json&);
+Json decode_daily_table(const data::proto::DailyTable&);
+void validate_table_series_request(const data::proto::TableSeriesRequest&);
+data::proto::TableSeriesRequest encode_table_series_request(const Json&);
 // Identity, ascending positive closes inside the range, and for a product a
 // schedule that fits its months, each read only while it is dominant.
-void validate_table_series(const data::v1::TableSeries&);
+void validate_table_series(const data::proto::TableSeries&);
 // The months of a series as contracts: exchange, product and delivery month.
-std::vector<v1::Contract> table_series_months(const data::v1::TableSeries&);
+std::vector<proto::Contract> table_series_months(const data::proto::TableSeries&);
 // Content identity: SHA-256 of the instrument, its months' closes and schedule.
-std::string table_series_revision(const data::v1::TableSeries&);
-Json decode_table_series(const data::v1::TableSeries&);
-data::v1::TableProductsQuery encode_table_products_query(const Json&);
-Json decode_table_products(const data::v1::TableProducts&);
-void validate_table_listed_contracts_query(const data::v1::TableListedContractsQuery&);
-data::v1::TableListedContractsQuery encode_table_listed_contracts_query(const Json&);
-Json decode_table_listed_contracts(const data::v1::TableListedContracts&);
+std::string table_series_revision(const data::proto::TableSeries&);
+Json decode_table_series(const data::proto::TableSeries&);
+data::proto::TableProductsQuery encode_table_products_query(const Json&);
+Json decode_table_products(const data::proto::TableProducts&);
+void validate_table_listed_contracts_query(const data::proto::TableListedContractsQuery&);
+data::proto::TableListedContractsQuery encode_table_listed_contracts_query(const Json&);
+Json decode_table_listed_contracts(const data::proto::TableListedContracts&);
 // A chart of one contract of the daily table: its candles of a period, a page
 // of them at a time.
-void validate_table_daily_query(const data::v1::TableDailyQuery&);
-data::v1::TableDailyQuery encode_table_daily_query(const Json&);
-Json decode_table_daily(const data::v1::TableDailyPage&);
+void validate_table_daily_query(const data::proto::TableDailyQuery&);
+data::proto::TableDailyQuery encode_table_daily_query(const Json&);
+Json decode_table_daily(const data::proto::TableDailyPage&);
 
 // Evidence is fixed with task inputs, independently of bar content identity.
-void validate_history_evidence(const data::v1::HistoryVersionEvidence&);
-Json decode_history_evidence(const data::v1::HistoryVersionEvidence&);
-data::v1::HistoryVersionEvidence encode_history_evidence(const Json&);
+void validate_history_evidence(const data::proto::HistoryVersionEvidence&);
+Json decode_history_evidence(const data::proto::HistoryVersionEvidence&);
+data::proto::HistoryVersionEvidence encode_history_evidence(const Json&);
 
 // Task datasets run in memory inside one task.
 inline constexpr int max_dataset_sources = 32;
 inline constexpr std::size_t max_dataset_bars = 200000;
-Instrument instrument(const v1::Contract&);
+Instrument instrument(const proto::Contract&);
 // The contract as history names it: SHFE/rb/2026-10.
-HistoryIdentity history_identity(const v1::Contract&);
-v1::Bar encode_bar(const MarketBar&);
-MarketBar market_bar(const v1::Bar&);
+HistoryIdentity history_identity(const proto::Contract&);
+proto::Bar encode_bar(const MarketBar&);
+MarketBar market_bar(const proto::Bar&);
 // Content identity: SHA-256 of contract, interval, bars, days and price
 // increment changes.
-std::string bar_dataset_revision(const data::v1::BarDataset&);
+std::string bar_dataset_revision(const data::proto::BarDataset&);
 // Validates structure, order, contract units, that every bar is on the price
 // increment of its day and falls on one of the days, and the revision.
-void validate_bar_dataset(const data::v1::BarDataset&);
-std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
+void validate_bar_dataset(const data::proto::BarDataset&);
+std::vector<MarketBar> dataset_bars(const data::proto::BarDataset&);
 // The days its price increment changes after the first bar's, ascending.
-std::vector<PriceIncrementChange> dataset_price_increment_changes(const data::v1::BarDataset&);
-std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
+std::vector<PriceIncrementChange> dataset_price_increment_changes(const data::proto::BarDataset&);
+std::vector<DaySettlement> dataset_days(const data::proto::BarDataset&);
 // Both views validate the entire dataset; metadata omits bars and settlements.
-Json decode_bar_dataset(const data::v1::BarDataset&, DatasetView view = DatasetView::full);
+Json decode_bar_dataset(const data::proto::BarDataset&, DatasetView view = DatasetView::full);
 // What a dataset covers, instead of its bars: count, first and last bar, interval and sources.
-Json decode_bar_dataset_range(const data::v1::BarDataset&);
-data::v1::BarDataset encode_bar_dataset(const Json&);
-data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
-Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
+Json decode_bar_dataset_range(const data::proto::BarDataset&);
+data::proto::BarDataset encode_bar_dataset(const Json&);
+data::proto::BarDatasetRequest encode_bar_dataset_request(const Json&);
+Json decode_bar_dataset_request(const data::proto::BarDatasetRequest&);
 // A product whose month contracts the daily table names: exchange and product
 // as history writes them, and a range with both days.
-void validate_product_bars_request(const data::v1::ProductBarsRequest&);
-data::v1::ProductBarsRequest encode_product_bars_request(const Json&);
-Json decode_product_bars_request(const data::v1::ProductBarsRequest&);
+void validate_product_bars_request(const data::proto::ProductBarsRequest&);
+data::proto::ProductBarsRequest encode_product_bars_request(const Json&);
+Json decode_product_bars_request(const data::proto::ProductBarsRequest&);
 // A dominant series over `contracts`, which its rolls name by index: later
 // months of one product, each from a later trading day, with positive
 // factors that end in 1. Its term points, at most one a day
 // from its first, compare positive settlements with a later delivery month.
 void validate_dominant_schedule(
-    const data::v1::DominantSchedule& schedule,
-    std::span<const v1::Contract* const> contracts);
+    const data::proto::DominantSchedule& schedule,
+    std::span<const proto::Contract* const> contracts);
 // The roll in force on a trading day; the first roll before the series begins.
-const data::v1::DominantRoll&
-dominant_roll(const data::v1::DominantSchedule& schedule, const std::string& trading_day);
+const data::proto::DominantRoll&
+dominant_roll(const data::proto::DominantSchedule& schedule, const std::string& trading_day);
 // A month's raw price at the level of the series' latest month, back on the
 // price grid. Signals and factors read it; orders and fills never do.
 Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
-Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule);
+Json decode_dominant_schedule(const data::proto::DominantSchedule& schedule);
 // How far `near_month` settled above the later month of a term point, as a
 // year's worth: near over far less one, times twelve over the delivery
 // months between them. Positive when the nearer month is the dearer.
-Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month);
+Decimal term_carry(const data::proto::TermPoint& point, const std::string& near_month);
 // The carry each trading day of a valid schedule begins with, where it has a
 // term point; `contracts` are those its rolls name by index.
 std::map<std::string, Decimal> term_carries(
-    const data::v1::DominantSchedule& schedule,
-    std::span<const v1::Contract* const> contracts);
-Json decode_term_points(const data::v1::DominantSchedule& schedule);
-std::string named_dataset_revision(const data::v1::NamedDataset&);
-void validate_named_dataset(const data::v1::NamedDataset&);
-Json decode_named_dataset(const data::v1::NamedDataset&);
+    const data::proto::DominantSchedule& schedule,
+    std::span<const proto::Contract* const> contracts);
+Json decode_term_points(const data::proto::DominantSchedule& schedule);
+std::string named_dataset_revision(const data::proto::NamedDataset&);
+void validate_named_dataset(const data::proto::NamedDataset&);
+Json decode_named_dataset(const data::proto::NamedDataset&);
 
 } // namespace asterion::protocol

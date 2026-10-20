@@ -1,7 +1,7 @@
 #pragma once
 #include "agent_work.hpp"
 #include <asterion/foundation/serialization.hpp>
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <chrono>
 #include <filesystem>
 #include <optional>
@@ -31,10 +31,10 @@ class FirewallControl
 public:
     FirewallControl(std::filesystem::path root, BlockingWork blocking);
     PolledTask<void> manage(
-        const node::v1::Firewall& operation,
+        const node::proto::Firewall& operation,
         const std::string& peer,
         unsigned short port,
-        node::v1::FirewallPlan& report);
+        node::proto::FirewallPlan& report);
 
 private:
     std::filesystem::path root_;

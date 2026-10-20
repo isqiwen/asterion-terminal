@@ -1,7 +1,7 @@
 #pragma once
 #include "account_policy.hpp"
 #include <asterion/domain/broker_execution.hpp>
-#include <asterion/v1/trading.pb.h>
+#include <asterion/trading.pb.h>
 #include <asterion/foundation/serialization.hpp>
 #include <optional>
 #include <string>
@@ -50,7 +50,7 @@ struct ChangePolicy
 struct StartStrategy
 {
     InstrumentId instrument;
-    protocol::v1::Strategy strategy;
+    protocol::proto::Strategy strategy;
     // The market service on this machine whose minute bars the run reads.
     std::string market_endpoint, market_service;
 };
@@ -73,7 +73,7 @@ struct AccountRequest
     Operation operation;
     // Durable form. A request ID seen again must carry exactly this content.
     Json command;
-    static AccountRequest from_wire(const protocol::v1::Command& command);
+    static AccountRequest from_wire(const protocol::proto::Command& command);
     static AccountRequest from_record(const Json& command);
 
     template <class T>

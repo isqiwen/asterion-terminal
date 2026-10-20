@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
 test("compact footer exposes services, tasks and navigation", async ({ page }) => {
@@ -25,7 +26,7 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
   await expect(panel).toHaveCount(0);
   await expect(service).toBeFocused();
   await service.click();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(panel).toHaveCount(0);
   await page
     .locator(".rail-actions")

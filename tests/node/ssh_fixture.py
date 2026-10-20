@@ -51,7 +51,7 @@ if command.startswith("sh -c "):
     sys.exit(0)
 if command.startswith('test "$(uname -s)"'):
     assert 'id -u' in command
-    assert 'test "$(sudo -n /usr/local/sbin/asterion-host --manage check)" = asterion-host-v2' in command
+    assert 'test "$(sudo -n /usr/local/sbin/asterion-host --manage check)" = asterion-host' in command
     if (root/'old-helper').exists():
         sys.exit(1)
 elif command.startswith('umask 077; mkdir '):

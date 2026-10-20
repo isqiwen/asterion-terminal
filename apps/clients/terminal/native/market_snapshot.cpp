@@ -20,7 +20,7 @@ std::string key(const Json& row)
 
 } // namespace
 
-MarketUpdate::MarketUpdate(const market::v1::Snapshot& state)
+MarketUpdate::MarketUpdate(const market::proto::Snapshot& state)
     : value(protocol::decode_market(state)),
       base_sequence(state.base_sequence()),
       catalog_revision(state.catalog_revision()),

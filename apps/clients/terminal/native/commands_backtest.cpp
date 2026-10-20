@@ -13,7 +13,7 @@ void Application::Impl::register_backtest_commands()
                 "settlement margin requires a single-contract full-sample daily backtest");
         const auto generation = data_task_generation;
         const auto dataset = selected()[0].dataset;
-        data::v1::HistoricalMarginQuery query;
+        data::proto::HistoricalMarginQuery query;
         query.set_contract(protocol::history_identity(dataset.contract()).key());
         for (const auto& day : dataset.days())
             query.add_trading_days(day.trading_day());
@@ -79,13 +79,13 @@ void Application::Impl::register_backtest_commands()
             || source.at("input_sha256") != p.at("source_input_sha256"))
             throw std::invalid_argument(
                 "experiment evidence changed; reopen its result before reuse");
-        backtest::v1::BacktestReuse reuse;
+        backtest::proto::BacktestReuse reuse;
         reuse.set_source_id(text(p, "source_id"));
         reuse.set_source_result_digest(text(p, "source_result_digest"));
         reuse.set_source_input_sha256(text(p, "source_input_sha256"));
         reuse.set_choice(
-            mode == "fixed" ? backtest::v1::BacktestReuse::FIXED
-                            : backtest::v1::BacktestReuse::NEW_SNAPSHOT);
+            mode == "fixed" ? backtest::proto::BacktestReuse::FIXED
+                            : backtest::proto::BacktestReuse::NEW_SNAPSHOT);
         reuse.set_snapshot(selected);
         if (p.contains("slippage_ticks")) {
             const auto& ticks = p.at("slippage_ticks");
@@ -113,7 +113,7 @@ void Application::Impl::register_backtest_commands()
         // What each selected contract trades at: its cost schedule and slippage.
         const auto costs = selection_costs(p.at("contracts"));
         json contracts = json::array(), series = json::array();
-        const auto traded = [](const data::v1::BarDatasetRequest& data, json cost) {
+        const auto traded = [](const data::proto::BarDatasetRequest& data, json cost) {
             cost["data"] = protocol::decode_bar_dataset_request(data);
             return cost;
         };

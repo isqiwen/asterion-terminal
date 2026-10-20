@@ -13,7 +13,7 @@ test("table-only bundled plugins are enabled and required while installed ones r
     file: "shfe.so",
     version: "1.0.0",
     sha256: "a".repeat(64),
-    capabilities: [{ id: "asterion.history.tables.v1", version: 1, kind: "data" }],
+    capabilities: [{ id: "asterion.history.tables", version: 1, kind: "data" }],
     selectable: true,
     state: "available",
     error: "",

@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { test, expect } from "./test";
@@ -99,11 +100,8 @@ test("settlement margin stays fixed through worker execution, reuse and result e
   expect(copy.experiment).toEqual(original.experiment);
   expect(copy.result).toEqual(original.result);
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "研究页面", exact: true })
-    .getByRole("button", { name: "回测", exact: true })
-    .click();
+  await openView(page, "backtest");
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace
     .getByRole("region", { name: "研究任务", exact: true })

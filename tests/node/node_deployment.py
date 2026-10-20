@@ -135,6 +135,19 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         while task_port in {management, trade_port}:
             task_port = port()
         call(terminal, "node.deploy", {"id": "task", "kind": "task", "service": "task", "port": str(task_port)})
+        # Task startup does not read unused workers. Each dispatch validates its program.
+        call(terminal, "node.action", {"id": "task", "service": "task", "action": "stop"})
+        task_config=json.loads((state/"services/task/service.json").read_text())
+        factor_binary=state/"artifacts"/(task_config["factor_artifact"]+".bin")
+        with factor_binary.open("ab") as file: file.write(b"corrupt fixture")
+        try:
+            call(terminal, "node.action", {"id": "task", "service": "task", "action": "start"})
+            wait(lambda: any(s["id"]=="task" and s["state"]=="running"
+                 for n in call(terminal,"runtime.snapshot")["nodes"]
+                 for s in n["health"]["services"]))
+        finally:
+            with factor_binary.open("r+b") as file:
+                file.truncate(factor_binary.stat().st_size-len(b"corrupt fixture"))
         history = str(Path(bridge).resolve().parent / "asterion_test_history")
         def seed(prices, identity):
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "stop"})
@@ -168,7 +181,16 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert retained["state"]=="stopped" and retained["port"]==stopped["port"]
         time.sleep(6)
         assert account_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
-        call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "start"})
+        # A verified CTP runtime copy does not depend on its unused source artifact.
+        account_config=json.loads((state/"services/account-test/service.json").read_text())
+        catalog_source=state/"artifacts"/(account_config["catalog_artifact"]+".bin")
+        source_size=catalog_source.stat().st_size
+        with catalog_source.open("ab") as file: file.write(b"unused source corruption")
+        try:
+            call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "start"})
+            wait(trading_listening)
+        finally:
+            with catalog_source.open("r+b") as file: file.truncate(source_size)
         # Agent crash makes status unknown, its owned child exits; restart loads desired state.
         stop(agent)
         wait(lambda: call(terminal, "runtime.snapshot")["nodes"][0]["state"] == "unreachable", 25)

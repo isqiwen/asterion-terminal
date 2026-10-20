@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import type { Snapshot } from "../src/bridge/client";
 
@@ -57,10 +58,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
     await route.fulfill({ response, json: body });
   });
   await page.goto("/");
-  const market = page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "市场", exact: true });
-  await market.click();
+  await openView(page, "market");
   const board = page.locator(".futures-market-board");
   const menu = page.getByRole("dialog", { name: "行情设置" });
   const openMenu = async () => {
@@ -116,7 +114,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
   await expect(board.locator("tbody tr").first()).toContainText("rb2610");
   await row.locator("td").nth(1).dblclick();
   await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
-  await market.click();
+  await openView(page, "market");
   await expect(heads).toHaveText(["名称", "现价", "涨跌幅(结)", "涨跌"]);
   await openColumns();
   for (const checkbox of await dialog.getByRole("checkbox").all()) await checkbox.uncheck();

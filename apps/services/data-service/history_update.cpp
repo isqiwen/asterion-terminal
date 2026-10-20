@@ -19,24 +19,24 @@ std::filesystem::path directory(const std::string& text)
 
 } // namespace
 
-data::v1::HistoryUpdatePlan history_update_plan(
+data::proto::HistoryUpdatePlan history_update_plan(
     const history_files::Archive& archive,
     const history_files::TableStore& tables,
-    const data::v1::HistoryUpdateQuery& query,
+    const data::proto::HistoryUpdateQuery& query,
     std::int64_t now_ns)
 {
     (void)protocol::decode_history_update_query(query);
-    if (query.mode() == data::v1::EXTEND
+    if (query.mode() == data::proto::EXTEND
         && query.end_day() >= format_shanghai_time(now_ns).substr(0, 10))
         throw std::invalid_argument("incremental downloads require a completed calendar day");
     const auto record = archive.get(query.dataset_id());
-    data::v1::HistoryUpdatePlan plan;
+    data::proto::HistoryUpdatePlan plan;
     *plan.mutable_query() = query;
     history_files::verify_minute_result(record.minutes(), record.minute_result());
     if (record.minute_result().manifest_sha256() != query.dataset_id())
         throw std::invalid_argument("dataset archive changed during resolution");
     auto input = record.minutes();
-    if (query.mode() == data::v1::EXTEND) {
+    if (query.mode() == data::proto::EXTEND) {
         // The existing download and source timestamp contract use whole seconds.
         // Re-request a fractional boundary second instead of skipping any labels.
         const auto begin = input.end_ns() % 1000000000 ? input.end_ns() / 1000000000 * 1000000000

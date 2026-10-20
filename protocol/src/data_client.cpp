@@ -31,8 +31,8 @@ DataClient::DataClient(
     service::Transport{{}, host_, port_, tls_}.validate();
 }
 
-data::v1::DataResponse
-DataClient::call(data::v1::DataRequest request, std::chrono::milliseconds timeout) const
+data::proto::DataResponse
+DataClient::call(data::proto::DataRequest request, std::chrono::milliseconds timeout) const
 {
     request.set_version(1);
     request.set_service_id(instance_);
@@ -55,10 +55,10 @@ DataClient::call(data::v1::DataRequest request, std::chrono::milliseconds timeou
     return decode_data_response(request, bytes);
 }
 
-data::v1::DataResponse
-decode_data_response(const data::v1::DataRequest& request, const std::string& bytes)
+data::proto::DataResponse
+decode_data_response(const data::proto::DataRequest& request, const std::string& bytes)
 {
-    data::v1::DataResponse response;
+    data::proto::DataResponse response;
     if (!response.ParseFromString(bytes))
         throw std::runtime_error("invalid data service response");
     validate_message(response);
@@ -73,8 +73,8 @@ decode_data_response(const data::v1::DataRequest& request, const std::string& by
         {{"service_id", request.service_id()}});
     if (response.has_error())
         throw_remote_error(response.error().code(), response.error().message());
-    using Request = data::v1::DataRequest;
-    using Response = data::v1::DataResponse;
+    using Request = data::proto::DataRequest;
+    using Response = data::proto::DataResponse;
     const auto expected = [&] {
         switch (request.operation_case()) {
             case Request::kHistoryUsage:

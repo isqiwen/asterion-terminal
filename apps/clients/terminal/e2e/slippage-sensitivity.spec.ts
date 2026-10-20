@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
 
@@ -64,7 +65,7 @@ test("F10 explicit fixed-data slippage variants preserve baseline and show sensi
   expect(original.result.account.fills.length).toBeGreaterThan(0);
   const before = (await tasks()).map((t: { id: string }) => t.id);
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace
     .getByRole("region", { name: "研究任务", exact: true })

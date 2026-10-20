@@ -1,3 +1,4 @@
+const { openView } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
@@ -124,7 +125,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       .getByRole("navigation", { name: "业务工作区" })
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    await openView(page, "records");
     const panel = page.getByRole("region", { name: "历史数据仓库", exact: true });
     await expect(panel.locator(".publication-row")).toHaveCount(2);
     await panel.getByLabel("合约身份", { exact: true }).fill("SHFE/cu/2023-10");

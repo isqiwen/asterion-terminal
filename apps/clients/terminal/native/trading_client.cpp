@@ -7,7 +7,7 @@
 namespace asterion::terminal {
 
 using namespace std::chrono_literals;
-namespace wire = protocol::v1;
+namespace wire = protocol::proto;
 
 struct TradingClient::Impl
 {

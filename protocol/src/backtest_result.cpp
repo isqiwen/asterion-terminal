@@ -7,8 +7,8 @@
 namespace asterion::protocol {
 
 void validate_backtest_result(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     protocol::validate_message(result);
     // Validate fixed input before comparing its result evidence.
@@ -74,10 +74,10 @@ void validate_backtest_result(
         || result.account().frozen().units() != 0)
         throw std::invalid_argument("inconsistent result summary");
     for (const auto& order : result.account().orders())
-        if (order.state() == protocol::v1::ACCEPTED
-            || order.state() == protocol::v1::PARTIALLY_FILLED)
+        if (order.state() == protocol::proto::ACCEPTED
+            || order.state() == protocol::proto::PARTIALLY_FILLED)
             throw std::invalid_argument("result retains active orders");
-    std::vector<const protocol::v1::Bar*> timeline;
+    std::vector<const protocol::proto::Bar*> timeline;
     for (const auto& contract : paper.contracts())
         for (const auto& bar : contract.dataset().bars())
             timeline.push_back(&bar);
@@ -90,8 +90,8 @@ void validate_backtest_result(
     std::size_t next = 0;
     for (const auto& trading_day : trading_days) {
         const auto check_point =
-            [&](asterion::backtest::v1::EquityEvent event,
-                std::int64_t at) -> const asterion::backtest::v1::EquityPoint& {
+            [&](asterion::backtest::proto::EquityEvent event,
+                std::int64_t at) -> const asterion::backtest::proto::EquityPoint& {
             if (point_index >= result.equity_size())
                 throw std::invalid_argument("result curve does not match input timeline");
             const auto& point = result.equity(point_index++);
@@ -102,9 +102,9 @@ void validate_backtest_result(
         auto settled_at = trading_day_close_ns(trading_day);
         for (; next < timeline.size() && timeline[next]->trading_day() == trading_day; ++next) {
             settled_at = timeline[next]->timestamp_ns();
-            check_point(asterion::backtest::v1::TRADE_MARK, settled_at);
+            check_point(asterion::backtest::proto::TRADE_MARK, settled_at);
         }
-        const auto& point = check_point(asterion::backtest::v1::DAILY_SETTLEMENT, settled_at);
+        const auto& point = check_point(asterion::backtest::proto::DAILY_SETTLEMENT, settled_at);
         const auto& day = result.settlements(settlement_index++);
         if (day.timestamp_ns() != point.timestamp_ns()
             || day.equity().units() != point.equity().units())

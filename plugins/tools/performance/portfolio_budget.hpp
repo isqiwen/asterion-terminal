@@ -23,7 +23,7 @@ struct PortfolioExposure
 
 // Fixed final account evidence, not desired weights or peak intraday usage.
 PortfolioExposure
-portfolio_exposure(const backtest::v1::BacktestInput&, const backtest::v1::BacktestResult&);
+portfolio_exposure(const backtest::proto::BacktestInput&, const backtest::proto::BacktestResult&);
 
 struct SettlementExposure
 {
@@ -35,7 +35,7 @@ struct SettlementExposure
 // Net exposure comes from fixed settlement prices and quantities. Gross and
 // margin require the optional saved occupancy; never reconstruct missing lots.
 std::vector<SettlementExposure>
-settlement_exposure(const backtest::v1::BacktestInput&, const backtest::v1::BacktestResult&);
+settlement_exposure(const backtest::proto::BacktestInput&, const backtest::proto::BacktestResult&);
 
 struct BudgetCheck
 {

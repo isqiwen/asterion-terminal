@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./test";
@@ -8,7 +9,7 @@ import { test, expect } from "./test";
 test("the market tables page lists what the data source offers", async ({ page }) => {
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "全市场数据", exact: true }).click();
+  await openView(page, "tables");
   const tables = page.getByRole("region", { name: "全市场数据", exact: true });
   const coverage = tables.getByRole("table", { name: "全市场数据覆盖" });
   // Six tables of six exchanges under one heading row; CFFEX has no warehouse
@@ -44,8 +45,8 @@ for (const locale of ["zh-CN", "en-US"]) {
     const en = locale === "en-US";
     await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
     await page.goto("/");
-    await page.getByRole("button", { name: en ? "Research" : "研究", exact: true }).click();
-    await page.getByRole("button", { name: en ? "Factors" : "因子", exact: true }).click();
+    await openView(page, "backtest");
+    await openView(page, "factor");
     const tables = page.getByRole("button", {
       name: en ? "Market-wide table" : "全市场数据表",
       exact: true,
@@ -56,7 +57,9 @@ for (const locale of ["zh-CN", "en-US"]) {
     ).toBeDisabled();
     const lookback = page.getByLabel(en ? "Lookback daily bars" : "回看日线数", { exact: true });
     await lookback.fill("17");
-    await page.getByLabel(en ? "Evaluation" : "评价方式", { exact: true }).selectOption("holdout");
+    await page
+      .getByRole("combobox", { name: en ? "Evaluation" : "评价方式", exact: true })
+      .selectOption("holdout");
     await page.getByLabel(en ? "Leading daily bars" : "前段日线数", { exact: true }).fill("60");
     await page.getByRole("button", { name: en ? "Bars" : "K 线", exact: true }).click();
     await tables.click();

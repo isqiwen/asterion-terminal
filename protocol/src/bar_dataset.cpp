@@ -13,12 +13,12 @@
 namespace asterion::protocol {
 namespace {
 
-Decimal value(const v1::Decimal& decimal)
+Decimal value(const proto::Decimal& decimal)
 {
     return Decimal::from_raw(decimal.units());
 }
 
-void set(v1::Decimal* target, Decimal decimal)
+void set(proto::Decimal* target, Decimal decimal)
 {
     target->set_units(decimal.raw());
 }
@@ -83,7 +83,7 @@ Json bar_json(const MarketBar& bar)
     };
 }
 
-Json increment_changes(const data::v1::BarDataset& dataset)
+Json increment_changes(const data::proto::BarDataset& dataset)
 {
     auto changes = Json::array();
     for (const auto& change : dataset.price_increment_changes())
@@ -93,7 +93,7 @@ Json increment_changes(const data::v1::BarDataset& dataset)
 }
 
 // Canonical content: the fields that define what the bars are, not where they came from.
-Json contents(const data::v1::BarDataset& dataset, DatasetView view)
+Json contents(const data::proto::BarDataset& dataset, DatasetView view)
 {
     auto contract = decode_contract(dataset.contract());
     Json result{
@@ -118,15 +118,15 @@ Json contents(const data::v1::BarDataset& dataset, DatasetView view)
 
 } // namespace
 
-void validate_history_evidence(const data::v1::HistoryVersionEvidence& evidence)
+void validate_history_evidence(const data::proto::HistoryVersionEvidence& evidence)
 {
     validate_message(evidence);
     if (!digest(evidence.dataset_id()) || evidence.acquired_at_ns() <= 0
-        || evidence.source_availability() != data::v1::SOURCE_AVAILABILITY_UNKNOWN)
+        || evidence.source_availability() != data::proto::SOURCE_AVAILABILITY_UNKNOWN)
         throw std::invalid_argument("invalid historical availability evidence");
 }
 
-Json decode_history_evidence(const data::v1::HistoryVersionEvidence& evidence)
+Json decode_history_evidence(const data::proto::HistoryVersionEvidence& evidence)
 {
     validate_history_evidence(evidence);
     return {
@@ -136,20 +136,20 @@ Json decode_history_evidence(const data::v1::HistoryVersionEvidence& evidence)
     };
 }
 
-data::v1::HistoryVersionEvidence encode_history_evidence(const Json& json)
+data::proto::HistoryVersionEvidence encode_history_evidence(const Json& json)
 {
     require_fields(json, {"dataset_id", "acquired_at_ns", "source_availability"});
     if (json.at("source_availability") != "unknown")
         throw std::invalid_argument("invalid historical availability evidence");
-    data::v1::HistoryVersionEvidence result;
+    data::proto::HistoryVersionEvidence result;
     result.set_dataset_id(json.at("dataset_id").get<std::string>());
     result.set_acquired_at_ns(nanoseconds(json.at("acquired_at_ns")));
-    result.set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
+    result.set_source_availability(data::proto::SOURCE_AVAILABILITY_UNKNOWN);
     validate_history_evidence(result);
     return result;
 }
 
-HistoryIdentity history_identity(const v1::Contract& contract)
+HistoryIdentity history_identity(const proto::Contract& contract)
 {
     auto product = contract.product();
     std::ranges::transform(product, product.begin(), [](unsigned char c) {
@@ -160,7 +160,7 @@ HistoryIdentity history_identity(const v1::Contract& contract)
     return identity;
 }
 
-Instrument instrument(const v1::Contract& c)
+Instrument instrument(const proto::Contract& c)
 {
     if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
         throw std::invalid_argument("incomplete contract specification");
@@ -175,9 +175,9 @@ Instrument instrument(const v1::Contract& c)
     return result;
 }
 
-v1::Bar encode_bar(const MarketBar& bar)
+proto::Bar encode_bar(const MarketBar& bar)
 {
-    v1::Bar result;
+    proto::Bar result;
     result.set_trading_day(bar.trading_day);
     result.set_timestamp_ns(bar.timestamp_ns);
     set(result.mutable_open(), bar.open);
@@ -188,7 +188,7 @@ v1::Bar encode_bar(const MarketBar& bar)
     return result;
 }
 
-MarketBar market_bar(const v1::Bar& bar)
+MarketBar market_bar(const proto::Bar& bar)
 {
     if (!bar.has_open() || !bar.has_high() || !bar.has_low() || !bar.has_close()
         || !bar.has_volume())
@@ -204,7 +204,7 @@ MarketBar market_bar(const v1::Bar& bar)
     };
 }
 
-std::string bar_dataset_revision(const data::v1::BarDataset& dataset)
+std::string bar_dataset_revision(const data::proto::BarDataset& dataset)
 {
     // Preserve the exact sorted-key JSON digest without constructing a JSON
     // object for every bar. Only the canonical byte buffer grows with the input.
@@ -258,7 +258,7 @@ std::string bar_dataset_revision(const data::v1::BarDataset& dataset)
     return sha256_bytes(canonical);
 }
 
-void validate_bar_dataset(const data::v1::BarDataset& dataset)
+void validate_bar_dataset(const data::proto::BarDataset& dataset)
 {
     validate_message(dataset);
     if (!dataset.has_contract() || dataset.bars_size() < 1
@@ -338,7 +338,7 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset)
         throw std::invalid_argument("bar dataset revision mismatch");
 }
 
-std::vector<MarketBar> dataset_bars(const data::v1::BarDataset& dataset)
+std::vector<MarketBar> dataset_bars(const data::proto::BarDataset& dataset)
 {
     validate_bar_dataset(dataset);
     std::vector<MarketBar> result;
@@ -349,7 +349,7 @@ std::vector<MarketBar> dataset_bars(const data::v1::BarDataset& dataset)
 }
 
 std::vector<PriceIncrementChange> dataset_price_increment_changes(
-    const data::v1::BarDataset& dataset)
+    const data::proto::BarDataset& dataset)
 {
     validate_bar_dataset(dataset);
     std::vector<PriceIncrementChange> result;
@@ -358,7 +358,7 @@ std::vector<PriceIncrementChange> dataset_price_increment_changes(
     return result;
 }
 
-std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset)
+std::vector<DaySettlement> dataset_days(const data::proto::BarDataset& dataset)
 {
     validate_bar_dataset(dataset);
     std::vector<DaySettlement> result;
@@ -367,7 +367,7 @@ std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset)
     return result;
 }
 
-Json decode_bar_dataset_range(const data::v1::BarDataset& dataset)
+Json decode_bar_dataset_range(const data::proto::BarDataset& dataset)
 {
     if (dataset.bars().empty())
         throw std::invalid_argument("bar dataset requires 1..200000 bars and their trading days");
@@ -388,7 +388,7 @@ Json decode_bar_dataset_range(const data::v1::BarDataset& dataset)
     };
 }
 
-Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view)
+Json decode_bar_dataset(const data::proto::BarDataset& dataset, DatasetView view)
 {
     validate_bar_dataset(dataset);
     auto result = contents(dataset, view);
@@ -404,7 +404,7 @@ Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view)
     return result;
 }
 
-data::v1::BarDataset encode_bar_dataset(const Json& json)
+data::proto::BarDataset encode_bar_dataset(const Json& json)
 {
     require_fields(
         json,
@@ -424,7 +424,7 @@ data::v1::BarDataset encode_bar_dataset(const Json& json)
         || !json.at("price_increment_changes").is_array()
         || json.at("price_increment_changes").size() > max_dataset_bars)
         throw std::invalid_argument("unsupported bar dataset format");
-    data::v1::BarDataset result;
+    data::proto::BarDataset result;
     result.set_revision(json.at("revision").get<std::string>());
     *result.mutable_contract() = encode_contract(json.at("contract"));
     for (const auto& row : json.at("price_increment_changes")) {
@@ -466,10 +466,10 @@ data::v1::BarDataset encode_bar_dataset(const Json& json)
     return result;
 }
 
-data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json)
+data::proto::BarDatasetRequest encode_bar_dataset_request(const Json& json)
 {
     require_fields(json, {"source_dataset_ids", "daily", "begin_day", "end_day", "contract"});
-    data::v1::BarDatasetRequest result;
+    data::proto::BarDatasetRequest result;
     encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
     *result.mutable_daily() = encode_daily_table(json.at("daily"));
     result.set_begin_day(json.at("begin_day").get<std::string>());
@@ -479,7 +479,7 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json)
     return result;
 }
 
-void validate_product_bars_request(const data::v1::ProductBarsRequest& request)
+void validate_product_bars_request(const data::proto::ProductBarsRequest& request)
 {
     validate_message(request);
     validate_daily_table(request.daily());
@@ -489,10 +489,10 @@ void validate_product_bars_request(const data::v1::ProductBarsRequest& request)
         throw std::invalid_argument("invalid product bars request");
 }
 
-data::v1::ProductBarsRequest encode_product_bars_request(const Json& json)
+data::proto::ProductBarsRequest encode_product_bars_request(const Json& json)
 {
     require_fields(json, {"venue", "product", "begin_day", "end_day", "daily"});
-    data::v1::ProductBarsRequest result;
+    data::proto::ProductBarsRequest result;
     result.set_venue(json.at("venue").get<std::string>());
     result.set_product(json.at("product").get<std::string>());
     result.set_begin_day(json.at("begin_day").get<std::string>());
@@ -502,7 +502,7 @@ data::v1::ProductBarsRequest encode_product_bars_request(const Json& json)
     return result;
 }
 
-Json decode_product_bars_request(const data::v1::ProductBarsRequest& request)
+Json decode_product_bars_request(const data::proto::ProductBarsRequest& request)
 {
     validate_product_bars_request(request);
     return {
@@ -514,7 +514,7 @@ Json decode_product_bars_request(const data::v1::ProductBarsRequest& request)
     };
 }
 
-Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request)
+Json decode_bar_dataset_request(const data::proto::BarDatasetRequest& request)
 {
     validate_message(request);
     validate_versions(request.source_dataset_ids());
@@ -542,12 +542,12 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request)
 }
 
 void validate_dominant_schedule(
-    const data::v1::DominantSchedule& schedule,
-    std::span<const v1::Contract* const> contracts)
+    const data::proto::DominantSchedule& schedule,
+    std::span<const proto::Contract* const> contracts)
 {
     if (schedule.rolls().empty())
         throw std::invalid_argument("invalid dominant series schedule");
-    const data::v1::DominantRoll* previous = nullptr;
+    const data::proto::DominantRoll* previous = nullptr;
     for (const auto& roll : schedule.rolls()) {
         (void)parse_trading_date(roll.trading_day());
         if (roll.contract() >= contracts.size() || !roll.has_factor() || roll.factor().units() <= 0)
@@ -565,7 +565,7 @@ void validate_dominant_schedule(
     }
     if (previous->factor().units() != Decimal::parse("1").raw())
         throw std::invalid_argument("invalid dominant series schedule");
-    const data::v1::TermPoint* before = nullptr;
+    const data::proto::TermPoint* before = nullptr;
     for (const auto& term : schedule.terms()) {
         (void)parse_trading_date(term.trading_day());
         const auto& month =
@@ -580,8 +580,8 @@ void validate_dominant_schedule(
     }
 }
 
-const data::v1::DominantRoll&
-dominant_roll(const data::v1::DominantSchedule& schedule, const std::string& trading_day)
+const data::proto::DominantRoll&
+dominant_roll(const data::proto::DominantSchedule& schedule, const std::string& trading_day)
 {
     const auto* current = &schedule.rolls(0);
     for (const auto& roll : schedule.rolls())
@@ -595,7 +595,7 @@ Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment)
     return quantize(multiply(raw, factor, Rounding::half_up), increment, Rounding::half_up);
 }
 
-Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month)
+Decimal term_carry(const data::proto::TermPoint& point, const std::string& near_month)
 {
     // Delivery months are YYYY-MM.
     const auto months = [](const std::string& text) {
@@ -619,8 +619,8 @@ Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_mon
 }
 
 std::map<std::string, Decimal> term_carries(
-    const data::v1::DominantSchedule& schedule,
-    std::span<const v1::Contract* const> contracts)
+    const data::proto::DominantSchedule& schedule,
+    std::span<const proto::Contract* const> contracts)
 {
     std::map<std::string, Decimal> result;
     for (const auto& term : schedule.terms())
@@ -633,7 +633,7 @@ std::map<std::string, Decimal> term_carries(
     return result;
 }
 
-Json decode_term_points(const data::v1::DominantSchedule& schedule)
+Json decode_term_points(const data::proto::DominantSchedule& schedule)
 {
     Json terms = Json::array();
     for (const auto& term : schedule.terms())
@@ -645,7 +645,7 @@ Json decode_term_points(const data::v1::DominantSchedule& schedule)
     return terms;
 }
 
-Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule)
+Json decode_dominant_schedule(const data::proto::DominantSchedule& schedule)
 {
     Json rolls = Json::array();
     for (const auto& roll : schedule.rolls())
@@ -656,14 +656,14 @@ Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule)
     return rolls;
 }
 
-std::string named_dataset_revision(const data::v1::NamedDataset& value)
+std::string named_dataset_revision(const data::proto::NamedDataset& value)
 {
     auto canonical = value;
     canonical.clear_id();
     return sha256_bytes(canonical.SerializeAsString());
 }
 
-void validate_named_dataset(const data::v1::NamedDataset& value)
+void validate_named_dataset(const data::proto::NamedDataset& value)
 {
     validate_message(value);
     if (value.name().empty() || value.name().size() > 120 || value.name().front() == ' '
@@ -688,7 +688,7 @@ void validate_named_dataset(const data::v1::NamedDataset& value)
         throw std::invalid_argument("saved dataset revision mismatch");
 }
 
-Json decode_named_dataset(const data::v1::NamedDataset& value)
+Json decode_named_dataset(const data::proto::NamedDataset& value)
 {
     validate_named_dataset(value);
     Json inputs = Json::array();

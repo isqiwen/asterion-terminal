@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/foundation/serialization.hpp>
-#include <asterion/v1/market.pb.h>
+#include <asterion/market.pb.h>
 #include <deque>
 #include <algorithm>
 #include <quote_volume.hpp>
@@ -25,7 +25,7 @@ public:
         clear();
     }
 
-    void append(const market::v1::EventBatch& batch)
+    void append(const market::proto::EventBatch& batch)
     {
         if (batch.stream_id().empty() || batch.latest_sequence() < cursor)
             throw std::invalid_argument("invalid market history batch");

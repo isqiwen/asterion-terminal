@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/kernel/rpc_host.hpp>
-#include <asterion/v1/market.pb.h>
+#include <asterion/market.pb.h>
 #include <filesystem>
 #include <future>
 
@@ -25,7 +25,7 @@ public:
     explicit Session(Configuration config);
     ~Session();
     std::future<service::RpcHost::Message> request(
-        market::v1::Request request,
+        market::proto::Request request,
         std::shared_ptr<WatchCursor> cursor = {},
         bool control = false);
     void stop();

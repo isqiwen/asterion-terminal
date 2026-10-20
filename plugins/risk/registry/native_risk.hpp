@@ -25,7 +25,7 @@ public:
 private:
     NativeLibrary library_;
     std::unique_ptr<NativeInstance> instance_;
-    const AstRiskV1* table_ = nullptr;
+    const AstRisk* table_ = nullptr;
     bool running_ = false;
 };
 

@@ -4,8 +4,9 @@
 
 namespace asterion::data {
 
-v1::HistoricalMargins
-historical_margins(const history_files::TableStore& store, const v1::HistoricalMarginQuery& query)
+proto::HistoricalMargins historical_margins(
+    const history_files::TableStore& store,
+    const proto::HistoricalMarginQuery& query)
 {
     protocol::validate_message(query);
     if (query.contract() != shfe::contract || query.trading_days().empty()
@@ -17,7 +18,7 @@ historical_margins(const history_files::TableStore& store, const v1::HistoricalM
     const auto until = store.sequence(snapshot);
     if (!until)
         throw std::invalid_argument("historical margin snapshot is unavailable");
-    v1::HistoricalMargins result;
+    proto::HistoricalMargins result;
     result.set_snapshot(snapshot);
     result.set_contract(query.contract());
     result.set_source(shfe::source);

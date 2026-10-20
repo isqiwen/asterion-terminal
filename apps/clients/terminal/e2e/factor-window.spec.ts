@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
 
@@ -43,8 +44,7 @@ test("F05 derives a reviewed daily momentum window and cancellation leaves no ta
     );
   const before = await ids();
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
-  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace
     .getByRole("region", { name: "研究任务", exact: true })

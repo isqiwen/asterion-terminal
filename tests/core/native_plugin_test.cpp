@@ -65,6 +65,9 @@ TEST(NativePlugin, FailedStartStopsPartialStateAndPreservesErrorCode)
 
 TEST(NativePlugin, RejectsBrokenModulesAndDuplicateIdentity)
 {
+    const NativeLibrary selected(PLUGIN_GOOD);
+    EXPECT_NO_THROW(NativeLibrary(PLUGIN_GOOD, selected.sha256()));
+    EXPECT_THROW(NativeLibrary(PLUGIN_GOOD, std::string(64, '0')), std::invalid_argument);
     EXPECT_THROW(NativeLibrary(PLUGIN_BAD_ABI), std::invalid_argument);
     EXPECT_THROW(NativeLibrary(PLUGIN_MISSING_ENTRY), std::invalid_argument);
     EXPECT_THROW(NativeLibrary("relative.dylib"), std::invalid_argument);
@@ -116,9 +119,8 @@ TEST(NativePlugin, SdkContainsExceptionsWithoutLeakingProviderText)
 TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork)
 {
     NativeLibrary library(PLUGIN_TUSHARE);
-    auto instance = library.create(AST_HISTORY_V3, {});
-    auto* api =
-        static_cast<const AstHistoryV3*>(instance->query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
+    auto instance = library.create(AST_HISTORY, {});
+    auto* api = static_cast<const AstHistory*>(instance->query(AST_HISTORY, 3, sizeof(AstHistory)));
     std::vector<std::string> sources;
     EXPECT_EQ(
         api->sources(
@@ -132,7 +134,7 @@ TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork)
         AST_OK);
     EXPECT_EQ(sources, (std::vector<std::string>{"tushare.ft_mins"}));
     EXPECT_EQ(api->sources(instance->handle(), nullptr, nullptr), AST_INVALID);
-    EXPECT_THROW(library.create(AST_HISTORY_V3, {{"unknown", "x"}}), Error);
+    EXPECT_THROW(library.create(AST_HISTORY, {{"unknown", "x"}}), Error);
     instance->start();
     EXPECT_EQ(api->minutes(instance->handle(), nullptr, {}, {}, nullptr, nullptr), AST_INVALID);
 }
@@ -141,10 +143,10 @@ TEST(NativePlugin, TushareRequiresAdmissionBeforeSendingDownloadRequests)
 {
     NativeLibrary library(PLUGIN_TUSHARE);
     auto instance =
-        library.create(AST_HISTORY_V3, {{"source", "tushare.ft_mins"}, {"credential", "fixture"}});
+        library.create(AST_HISTORY, {{"source", "tushare.ft_mins"}, {"credential", "fixture"}});
     instance->start();
     const auto* api =
-        static_cast<const AstHistoryV3*>(instance->query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
+        static_cast<const AstHistory*>(instance->query(AST_HISTORY, 3, sizeof(AstHistory)));
     const auto begin = 1709254800000000000LL; // 2024-03-01 09:00 Asia/Shanghai
     const AstHistoryQuery
         query{{"SHFE", "cu", "2024-03"}, "CU2403.SHF", 1, begin, begin + 60000000000LL};

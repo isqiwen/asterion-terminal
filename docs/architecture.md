@@ -70,7 +70,7 @@ CMake 配置检查核心链接依赖方向和 Task/Agent 不执行算法的边�
 | `asterion-task-service` | 任务定义、排队与执行尝试、取消与完成裁决、固定输入及结果保管；协调下载发布，不执行算法或拥有历史目录 |
 | `asterion-backtest` / `asterion-factor` / `asterion-data-pipeline` | 按任务启动的工作程序 |
 
-本机通信使用 Unix Socket，远程使用 TCP + 双向 TLS，消息都是 `protocol/proto/asterion/v1/` 中的 Protobuf。
+本机通信使用 Unix Socket，远程使用 TCP + 双向 TLS，消息都是 `protocol/proto/asterion/` 中的 Protobuf。
 
 消息的字段和枚举值按声明顺序连续编号，没有 `reserved`：项目处于初始开发阶段，删除字段后直接重新编号，不为以前的构建保留编号。各服务的请求与响应例外地分成两段：头部字段从 1 开始，`oneof` 里的操作或结果从 10 开始，各自连续。
 
@@ -129,6 +129,8 @@ Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPo
 | 原生动态库 | 历史数据、连接与原文观测、交易前风控 | C ABI 与能力函数表，明确版本/大小/平台检查；NativeInstance 持有库生命周期 |
 | 仓库内静态模块 | 策略、CTP/执行、存储及内部分析 | 具体类型或已有多实现接口，由所属服务装配，不预建通用插件框架 |
 | 独立桌面分析助手 | Polars、QuantStats、skfolio | Native 按需通过 Protobuf 调用冻结程序，不属于原生插件 ABI，也不拥有 Task 结果 |
+
+UI 插件可贡献多个业务视图，由产品导航目录统一映射到模块和子模块；插件唯一持有其语言资源与声明命令，窗口按视图身份隔离草稿。一级菜单不再由插件数量决定。
 
 原生动态库与内置 UI 模块都是可信代码；插件不等于独立进程或沙箱。只在实际需要独立交付时定义新的动态 ABI，不设全模块迁移计划。能力范围见 [原生插件 SDK](native-plugins.md)。
 

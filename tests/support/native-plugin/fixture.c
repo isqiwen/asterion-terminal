@@ -91,7 +91,7 @@ static AstStatus minutes(
     return emit(ctx, &row);
 }
 
-static const AstHistoryV3 history = {sizeof(AstHistoryV3), 3, sources, minutes};
+static const AstHistory history = {sizeof(AstHistory), 3, sources, minutes};
 
 static AstStatus describe_connection(
     void* self,
@@ -133,8 +133,8 @@ static AstStatus verify_connection(
     return result == AST_OK ? emit(ctx, &history) : result;
 }
 
-static const AstHistoryConnectionV1 connection =
-    {sizeof(AstHistoryConnectionV1), 1, describe_connection, verify_connection};
+static const AstHistoryConnection connection =
+    {sizeof(AstHistoryConnection), 1, describe_connection, verify_connection};
 
 /* Market-wide tables of one exchange with one contract. The first week of March 2024 holds every
  * outcome a reader meets: 03-01 and 03-04 are ordinary days, 03-05 carries a volume no table can
@@ -368,10 +368,8 @@ static AstStatus response_get(
                           : AST_OK;
 }
 
-static const AstHistoryResponseV1 response_evidence =
-    {sizeof(AstHistoryResponseV1), 1, response_get};
-static const AstHistoryTablesV1 history_tables =
-    {sizeof(AstHistoryTablesV1), 1, tables, read_table};
+static const AstHistoryResponse response_evidence = {sizeof(AstHistoryResponse), 1, response_get};
+static const AstHistoryTables history_tables = {sizeof(AstHistoryTables), 1, tables, read_table};
 
 static AstStatus
 create(const char* capability, const AstSetting* settings, uint32_t count, void** out)
@@ -380,9 +378,9 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
         return AST_INVALID;
     *out = NULL;
     if (!capability
-        || (strcmp(capability, AST_TEST_LIFETIME) && strcmp(capability, AST_HISTORY_V3)
-            && strcmp(capability, AST_HISTORY_CONNECTION_V1)
-            && strcmp(capability, AST_HISTORY_TABLES_V1)))
+        || (strcmp(capability, AST_TEST_LIFETIME) && strcmp(capability, AST_HISTORY)
+            && strcmp(capability, AST_HISTORY_CONNECTION)
+            && strcmp(capability, AST_HISTORY_TABLES)))
         return AST_UNSUPPORTED;
     if (count > 64 || (count && !settings))
         return AST_INVALID;
@@ -443,8 +441,7 @@ query(void* self, const char* id, uint32_t version, uint32_t size, const void** 
 #ifdef EMPTY_TABLE
     return AST_OK;
 #endif
-    if (!strcmp(id, AST_HISTORY_RESPONSE_V1) && version == 1
-        && size == sizeof(AstHistoryResponseV1)) {
+    if (!strcmp(id, AST_HISTORY_RESPONSE) && version == 1 && size == sizeof(AstHistoryResponse)) {
         *out = &response_evidence;
         return AST_OK;
     }
@@ -452,16 +449,16 @@ query(void* self, const char* id, uint32_t version, uint32_t size, const void** 
         *out = &lifetime;
         return AST_OK;
     }
-    if (!strcmp(id, AST_HISTORY_V3) && version == 3 && size == sizeof(AstHistoryV3)) {
+    if (!strcmp(id, AST_HISTORY) && version == 3 && size == sizeof(AstHistory)) {
         *out = &history;
         return AST_OK;
     }
-    if (!strcmp(id, AST_HISTORY_CONNECTION_V1) && version == 1
-        && size == sizeof(AstHistoryConnectionV1)) {
+    if (!strcmp(id, AST_HISTORY_CONNECTION) && version == 1
+        && size == sizeof(AstHistoryConnection)) {
         *out = &connection;
         return AST_OK;
     }
-    if (!strcmp(id, AST_HISTORY_TABLES_V1) && version == 1 && size == sizeof(AstHistoryTablesV1)) {
+    if (!strcmp(id, AST_HISTORY_TABLES) && version == 1 && size == sizeof(AstHistoryTables)) {
         *out = &history_tables;
         return AST_OK;
     }
@@ -470,10 +467,10 @@ query(void* self, const char* id, uint32_t version, uint32_t size, const void** 
 
 static const AstCapability capabilities[] = {
     {AST_TEST_LIFETIME, 1, "tool"},
-    {AST_HISTORY_V3, 3, "data"},
-    {AST_HISTORY_CONNECTION_V1, 1, "data"},
-    {AST_HISTORY_TABLES_V1, 1, "data"},
-    {AST_HISTORY_RESPONSE_V1, 1, "data"}
+    {AST_HISTORY, 3, "data"},
+    {AST_HISTORY_CONNECTION, 1, "data"},
+    {AST_HISTORY_TABLES, 1, "data"},
+    {AST_HISTORY_RESPONSE, 1, "data"}
 };
 #ifndef BAD_ABI
 #define BAD_ABI ASTERION_PLUGIN_ABI_VERSION
@@ -481,8 +478,8 @@ static const AstCapability capabilities[] = {
 #ifndef FIXTURE_VERSION
 #define FIXTURE_VERSION "1.0.0"
 #endif
-static const AstPluginV1 plugin = {
-    sizeof(AstPluginV1),
+static const AstPlugin plugin = {
+    sizeof(AstPlugin),
     BAD_ABI,
     "test.independent.c",
     FIXTURE_VERSION,
@@ -501,8 +498,8 @@ ASTERION_PLUGIN_EXPORT int unrelated_entry(void)
     return 1;
 }
 #else
-ASTERION_PLUGIN_EXPORT const AstPluginV1* asterion_plugin_entry_v1(uint32_t abi, uint32_t size)
+ASTERION_PLUGIN_EXPORT const AstPlugin* asterion_plugin_entry(uint32_t abi, uint32_t size)
 {
-    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPluginV1) ? &plugin : NULL;
+    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPlugin) ? &plugin : NULL;
 }
 #endif

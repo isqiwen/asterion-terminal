@@ -16,10 +16,10 @@ using namespace asterion;
 // Reads what a table update still lacks and hands each partition to the data
 // service, which validates and publishes it. Nothing delivered is taken back:
 // whatever ends this run, the partitions before it stay.
-data::v1::TableUpdateResult update_tables(
+data::proto::TableUpdateResult update_tables(
     protocol::DataClient& data,
-    const data::v1::DownloadIdentity& identity,
-    const data::v1::TableUpdate& update,
+    const data::proto::DownloadIdentity& identity,
+    const data::proto::TableUpdate& update,
     history_providers::TableReader& reader,
     std::stop_token stop,
     const std::function<void(unsigned)>& percent)
@@ -32,19 +32,19 @@ data::v1::TableUpdateResult update_tables(
         rejected,
         unpublished
     };
-    data::v1::TableUpdateResult result;
+    data::proto::TableUpdateResult result;
     std::uint64_t latest = 0;
     std::string reason;
-    const auto plan = [&](data::v1::TablePlanStep step) {
-        data::v1::DataRequest request;
+    const auto plan = [&](data::proto::TablePlanStep step) {
+        data::proto::DataRequest request;
         *request.mutable_table_plan()->mutable_identity() = identity;
         request.mutable_table_plan()->set_step(step);
         return data.call(request).table_plan();
     };
-    const auto deliver = [&](const data::v1::TablePartitionKey& key) {
+    const auto deliver = [&](const data::proto::TablePartitionKey& key) {
         if (stop.stop_requested())
             throw Error(ErrorCode::cancelled, "Historical download cancelled");
-        data::v1::DataRequest request;
+        data::proto::DataRequest request;
         auto* delivery = request.mutable_store_table_partition();
         *delivery->mutable_identity() = identity;
         *delivery->mutable_partition() = key;
@@ -90,14 +90,14 @@ data::v1::TableUpdateResult update_tables(
         }
         return Outcome::stored;
     };
-    const auto name = [](const data::v1::TablePartitionKey& key) {
+    const auto name = [](const data::proto::TablePartitionKey& key) {
         return key.table() + " " + key.exchange() + " " + key.period();
     };
     // The contract lists say when an exchange began, and its calendar from then
     // on which days exist: each is planned once the one before is stored.
     // Without one of them the days of that exchange cannot be planned, so the
     // run ends.
-    for (const auto step : {data::v1::TABLE_PLAN_CONTRACTS, data::v1::TABLE_PLAN_CALENDAR}) {
+    for (const auto step : {data::proto::TABLE_PLAN_CONTRACTS, data::proto::TABLE_PLAN_CALENDAR}) {
         const auto references = plan(step);
         for (const auto& key : references.partitions())
             switch (deliver(key)) {
@@ -113,7 +113,7 @@ data::v1::TableUpdateResult update_tables(
                         "the source returned no reference data: " + name(key));
             }
     }
-    const auto days = plan(data::v1::TABLE_PLAN_DAYS);
+    const auto days = plan(data::proto::TABLE_PLAN_DAYS);
     for (const auto& waiting : days.waiting())
         result.add_waiting(waiting);
     for (int done = 0; done < days.partitions_size(); ++done) {
@@ -185,8 +185,8 @@ int main(int argc, char** argv)
                 tls,
                 service,
                 task,
-                table_worker ? asterion::task::v1::TABLE_UPDATE
-                             : asterion::task::v1::MINUTE_DOWNLOAD,
+                table_worker ? asterion::task::proto::TABLE_UPDATE
+                             : asterion::task::proto::MINUTE_DOWNLOAD,
                 [table_worker, &service](const auto& attempt, auto stop, const auto& progress) {
                     const auto& input = attempt.task();
                     if (input.provider_artifact()
@@ -199,7 +199,7 @@ int main(int argc, char** argv)
                     asterion::protocol::DataClient data(
                         attempt.data_endpoint(),
                         attempt.data_instance());
-                    asterion::data::v1::DataRequest query;
+                    asterion::data::proto::DataRequest query;
                     auto* identity = query.mutable_download_credentials();
                     identity->set_data_instance(attempt.data_instance());
                     identity->set_task_instance(service);
@@ -210,7 +210,7 @@ int main(int argc, char** argv)
                     if (credentials.identity().SerializeAsString() != identity->SerializeAsString()
                         || credentials.authorization_id() != input.download_authorization())
                         throw std::invalid_argument("download credentials do not match attempt");
-                    asterion::data::v1::DataRequest permit_request;
+                    asterion::data::proto::DataRequest permit_request;
                     *permit_request.mutable_acquire_download_permit() = *identity;
                     const auto rpm = table_worker ? input.table_update().requests_per_minute()
                                                   : input.minutes().requests_per_minute();
@@ -244,7 +244,7 @@ int main(int argc, char** argv)
                             asterion::ErrorCode::cancelled,
                             "Historical download cancelled");
                     };
-                    asterion::task::v1::TaskFinish result;
+                    asterion::task::proto::TaskFinish result;
                     if (table_worker) {
                         auto reader = asterion::history_providers::tables(
                             input.table_update().provider(),

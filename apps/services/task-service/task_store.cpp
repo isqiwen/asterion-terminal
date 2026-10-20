@@ -22,14 +22,14 @@
 #include <google/protobuf/util/json_util.h>
 
 namespace asterion::tasks {
-namespace wire = task::v1;
+namespace wire = task::proto;
 namespace fs = std::filesystem;
 
 namespace {
 
-data::v1::DownloadIdentity download_identity(const Identity& owner, const wire::Task& task)
+data::proto::DownloadIdentity download_identity(const Identity& owner, const wire::Task& task)
 {
-    data::v1::DownloadIdentity result;
+    data::proto::DownloadIdentity result;
     result.set_data_instance(owner.data_instance);
     result.set_task_instance(owner.instance);
     result.set_task_id(task.id());
@@ -45,7 +45,7 @@ void safe(const fs::path& path)
 
 // How a list names a dominant series: the product by the first and last month
 // it is read from.
-std::string series_name(const data::v1::BarDataset& first, const data::v1::BarDataset& last)
+std::string series_name(const data::proto::BarDataset& first, const data::proto::BarDataset& last)
 {
     const auto& contract = first.contract();
     const auto months = contract.symbol() == last.contract().symbol()
@@ -57,7 +57,7 @@ std::string series_name(const data::v1::BarDataset& first, const data::v1::BarDa
 // What a list says a dataset was read from: its own revision, or for daily
 // bars of the daily table the snapshot, which datasets read together name
 // once.
-void name_source(std::string& sources, const data::v1::BarDataset& dataset)
+void name_source(std::string& sources, const data::proto::BarDataset& dataset)
 {
     const auto& name =
         dataset.source_dataset_ids().empty() ? dataset.daily().snapshot() : dataset.revision();
@@ -124,11 +124,11 @@ void prepare(wire::Task& task)
         (void)protocol::decode_backtest(task.input(), protocol::DatasetView::metadata);
         task.set_kind(wire::BACKTEST);
         const auto& paper = task.input().paper();
-        const auto dataset = [&](unsigned contract) -> const data::v1::BarDataset& {
+        const auto dataset = [&](unsigned contract) -> const data::proto::BarDataset& {
             return paper.contracts(static_cast<int>(contract)).dataset();
         };
         // The series each contract is a month of, if any.
-        std::vector<const data::v1::DominantSchedule*> series(
+        std::vector<const data::proto::DominantSchedule*> series(
             static_cast<std::size_t>(paper.contracts_size()));
         for (const auto& schedule : task.input().series())
             for (const auto& roll : schedule.rolls())
@@ -449,23 +449,16 @@ struct Store::Impl
         Identity binding,
         std::shared_ptr<const Clock> source,
         bool inspect,
-        bool bounded_inspection = true)
+        bool bounded_inspection = true,
+        std::unique_ptr<FileLock> ownership = {})
         : root(std::move(directory)),
           identity(std::move(binding)),
+          owner(std::move(ownership)),
           read_only(inspect),
           clock(std::move(source))
     {
         if (!clock)
             throw std::invalid_argument("task store requires a clock");
-        std::uint64_t inspection_bytes = 0, inspection_records = 0;
-        const auto inspect_size = [&](std::int64_t bytes, std::int64_t maximum) {
-            if (bytes <= 0 || bytes > maximum)
-                throw std::invalid_argument("invalid task record size");
-            if (read_only && bounded_inspection
-                && ((inspection_bytes += bytes) > 256 * 1024 * 1024
-                    || ++inspection_records > 100000))
-                throw std::invalid_argument("task reference inspection limit exceeded");
-        };
         if (!root.is_absolute() || !fs::is_directory(root))
             throw std::invalid_argument("task store requires an existing absolute directory");
         safe(root);
@@ -504,27 +497,22 @@ struct Store::Impl
         if (!check_identity())
             require_new_directory();
         const bool existing = fs::exists(root / "tasks.sqlite");
-        const auto image = [&] {
-            const auto wal = root / "tasks.sqlite-wal";
-            safe(wal);
-            return std::pair{
-                sha256_file(root / "tasks.sqlite"),
-                fs::exists(wal) && fs::file_size(wal) ? sha256_file(wal) : std::string{}
-            };
-        };
-        std::optional<std::pair<std::string, std::string>> validated_image;
+        if (!owner)
+            owner = std::make_unique<FileLock>(
+                root,
+                "manager.lock",
+                read_only      ? FileLock::Access::shared_existing
+                    : existing ? FileLock::Access::exclusive_existing
+                               : FileLock::Access::exclusive);
         if (!read_only && existing) {
-            // Validate every manifest and transition under a shared ownership lock,
-            // with a read-only database. Unsupported stores
-            // must be rejected before creating directories or writer journal state.
-            // Every file digest is checked again after taking exclusive ownership.
-            Impl inspected(root, identity, clock, true, false);
-            validated_image = image();
+            // Keep exclusive ownership across read-only validation and writer open.
+            // Invalid stores are rejected before enabling writer journal state.
+            Impl inspected(root, identity, clock, true, false, std::move(owner));
+            owner = std::move(inspected.owner);
+            current = std::move(inspected.current);
+            uncommitted = inspected.uncommitted;
+            last_sequence = inspected.last_sequence;
         }
-        owner = std::make_unique<FileLock>(
-            root,
-            "manager.lock",
-            read_only ? FileLock::Access::shared_existing : FileLock::Access::exclusive);
         // Recheck after acquiring ownership: another process may have initialized
         // this new directory before we acquired its lock.
         if (!check_identity()) {
@@ -533,18 +521,12 @@ struct Store::Impl
         } else if (!read_only) {
             sync_directory(root);
         }
-        if (validated_image && image() != *validated_image)
-            throw std::invalid_argument("task store changed after read-only validation");
         safe(root / "tasks.sqlite");
         safe(root / "tasks.sqlite-wal");
         safe(root / "tasks.sqlite-shm");
         database = std::make_unique<sqlite::Database>(
             root / "tasks.sqlite",
-            read_only ? sqlite::Database::Access::read_only : sqlite::Database::Access::writer,
-            [&](sqlite::Database&) {
-                if (validated_image && image() != *validated_image)
-                    throw std::invalid_argument("task store changed after read-only validation");
-            });
+            read_only ? sqlite::Database::Access::read_only : sqlite::Database::Access::writer);
         if (read_only)
             database->execute("BEGIN");
         else {
@@ -558,6 +540,35 @@ struct Store::Impl
         }
         event_log =
             std::make_unique<sqlite::TaskEvents>(*database, root / "event-segments", read_only);
+        if (read_only || !existing)
+            load(bounded_inspection);
+        // Recovery retains bounded active metadata, one input and one event segment.
+        // Terminal history is validated and then released, never copied into current.
+        if (read_only)
+            return;
+        for (const auto& task : active_tasks()) {
+            if (active(task.state())) {
+                auto entry = find(task.id());
+                auto next = summary(entry.task);
+                next.set_state(wire::INTERRUPTED);
+                next.set_error(
+                    "task service restarted before confirmed completion; " "explicit retry required");
+                commit(entry, next, "");
+            }
+        }
+    }
+
+    void load(bool bounded_inspection)
+    {
+        std::uint64_t inspection_bytes = 0, inspection_records = 0;
+        const auto inspect_size = [&](std::int64_t bytes, std::int64_t maximum) {
+            if (bytes <= 0 || bytes > maximum)
+                throw std::invalid_argument("invalid task record size");
+            if (read_only && bounded_inspection
+                && ((inspection_bytes += bytes) > 256 * 1024 * 1024
+                    || ++inspection_records > 100000))
+                throw std::invalid_argument("task reference inspection limit exceeded");
+        };
         for (const auto& item : fs::directory_iterator(root)) {
             safe(item.path());
             const auto name = item.path().filename().string();
@@ -760,20 +771,6 @@ struct Store::Impl
                 if (current.size() == 1000)
                     throw std::invalid_argument("task active capacity exceeded");
                 current.emplace(id, std::move(entry));
-            }
-        }
-        // Recovery retains bounded active metadata, one input and one event segment.
-        // Terminal history is validated and then released, never copied into current.
-        if (read_only)
-            return;
-        for (const auto& task : active_tasks()) {
-            if (active(task.state())) {
-                auto entry = find(task.id());
-                auto next = summary(entry.task);
-                next.set_state(wire::INTERRUPTED);
-                next.set_error(
-                    "task service restarted before confirmed completion; " "explicit retry required");
-                commit(entry, next, "");
             }
         }
     }
@@ -1227,7 +1224,8 @@ Store::Submission::Submission(Impl* owner, fs::path root, wire::Task task)
     prepare(task_);
 }
 
-Store::Submission Store::submission(const std::string& id, backtest::v1::BacktestInput input) const
+Store::Submission
+Store::submission(const std::string& id, backtest::proto::BacktestInput input) const
 {
     wire::Task task;
     task.set_id(id);
@@ -1236,7 +1234,7 @@ Store::Submission Store::submission(const std::string& id, backtest::v1::Backtes
     return Submission(impl_.get(), impl_->root, std::move(task));
 }
 
-Store::Submission Store::submission(const std::string& id, factor::v1::FactorInput input) const
+Store::Submission Store::submission(const std::string& id, factor::proto::FactorInput input) const
 {
     wire::Task task;
     task.set_id(id);
@@ -1244,7 +1242,7 @@ Store::Submission Store::submission(const std::string& id, factor::v1::FactorInp
     return Submission(impl_.get(), impl_->root, std::move(task));
 }
 
-Store::Submission Store::submission(const data::v1::DownloadAuthorization& authorization) const
+Store::Submission Store::submission(const data::proto::DownloadAuthorization& authorization) const
 {
     protocol::validate_message(authorization);
     validate_id(authorization.task_id());
@@ -1531,13 +1529,13 @@ wire::Task Store::describe(const std::string& id) const
 
 Store::HistoryRead Store::prepare_history_usage(const std::string& dataset_id) const
 {
-    data::v1::HistoryUsage check;
+    data::proto::HistoryUsage check;
     check.set_dataset_id(dataset_id);
     (void)protocol::decode_history_usage(check);
     return HistoryRead(impl_->root, dataset_id, impl_->last_sequence);
 }
 
-data::v1::HistoryUsage Store::history_usage(const std::string& dataset_id) const
+data::proto::HistoryUsage Store::history_usage(const std::string& dataset_id) const
 {
     auto read = prepare_history_usage(dataset_id);
     while (next_history_page(read))
@@ -1576,17 +1574,17 @@ void Store::HistoryRead::load_page()
             entry.input_digest(),
             entry.input_bytes());
         bool market = false;
-        const auto inspect = [&](const data::v1::BarDataset& data) {
+        const auto inspect = [&](const data::proto::BarDataset& data) {
             market |= std::ranges::find(data.source_dataset_ids(), dataset_id)
                 != data.source_dataset_ids().end();
         };
-        auto kind = data::v1::HISTORY_REFERENCE_UNSPECIFIED;
+        auto kind = data::proto::HISTORY_REFERENCE_UNSPECIFIED;
         if (task.has_input()) {
-            kind = data::v1::HISTORY_BACKTEST;
+            kind = data::proto::HISTORY_BACKTEST;
             for (const auto& contract : task.input().paper().contracts())
                 inspect(contract.dataset());
         } else if (task.has_factor()) {
-            kind = data::v1::HISTORY_FACTOR;
+            kind = data::proto::HISTORY_FACTOR;
             for (const auto& series : task.factor().series()) {
                 if (series.has_bars())
                     inspect(series.bars());
@@ -1599,11 +1597,11 @@ void Store::HistoryRead::load_page()
             continue;
         auto* row = result.add_references();
         row->set_id(id);
-        row->set_kind(output ? data::v1::HISTORY_DOWNLOAD : kind);
+        row->set_kind(output ? data::proto::HISTORY_DOWNLOAD : kind);
         if (market)
-            row->add_roles(data::v1::HISTORY_MARKET);
+            row->add_roles(data::proto::HISTORY_MARKET);
         if (output)
-            row->add_roles(data::v1::HISTORY_OUTPUT);
+            row->add_roles(data::proto::HISTORY_OUTPUT);
         if (result.references_size() > 10000)
             throw std::invalid_argument("historical usage exceeds reference limit");
     }
@@ -1865,11 +1863,11 @@ Store::Change Store::finish(Completion completion)
     return impl_->change(entry, std::move(next), entry.token);
 }
 
-data::v1::DownloadPreparation Store::Completion::download_preparation() const
+data::proto::DownloadPreparation Store::Completion::download_preparation() const
 {
     if (!prepared_ || !result_.has_minutes())
         throw std::invalid_argument("download result has not been verified");
-    data::v1::DownloadPreparation preparation;
+    data::proto::DownloadPreparation preparation;
     auto* identity = preparation.mutable_identity();
     identity->set_data_instance(identity_.data_instance);
     identity->set_task_instance(identity_.instance);
@@ -1882,7 +1880,7 @@ data::v1::DownloadPreparation Store::Completion::download_preparation() const
 }
 
 Store::Change
-Store::prepare_publication(Completion completion, const data::v1::PreparedDownload& prepared)
+Store::prepare_publication(Completion completion, const data::proto::PreparedDownload& prepared)
 {
     const auto& result = completion.result_;
     auto entry = impl_->fenced(result.id(), result.token());
@@ -1910,16 +1908,16 @@ Store::prepare_publication(Completion completion, const data::v1::PreparedDownlo
     return impl_->change(entry, std::move(next), "");
 }
 
-std::vector<data::v1::DownloadPublication> Store::pending_publications() const
+std::vector<data::proto::DownloadPublication> Store::pending_publications() const
 {
-    std::vector<data::v1::DownloadPublication> result;
+    std::vector<data::proto::DownloadPublication> result;
     for (const auto& task : active_tasks())
         if (task.state() == wire::PUBLISHING && task.kind() == wire::MINUTE_DOWNLOAD)
             result.push_back(task.publication());
     return result;
 }
 
-Store::Change Store::confirm_publication(const data::v1::PublishedDownload& published)
+Store::Change Store::confirm_publication(const data::proto::PublishedDownload& published)
 {
     protocol::validate_message(published);
     auto entry = impl_->find(published.decision().identity().task_id());
@@ -1927,7 +1925,7 @@ Store::Change Store::confirm_publication(const data::v1::PublishedDownload& publ
         || !entry.task.has_publication()
         || entry.task.publication().SerializeAsString() != published.decision().SerializeAsString())
         throw std::invalid_argument("published download does not match task decision");
-    data::v1::DownloadPreparation preparation;
+    data::proto::DownloadPreparation preparation;
     *preparation.mutable_identity() = published.decision().identity();
     *preparation.mutable_record() = published.record();
     if (sha256_bytes(preparation.SerializeAsString()) != published.decision().candidate_digest())
@@ -1983,7 +1981,7 @@ Store::Change Store::acknowledge_cancel(const std::string& id, const std::string
 
 namespace asterion::tasks {
 
-data::v1::HistoryUsage
+data::proto::HistoryUsage
 Store::inspect_history_usage(const fs::path& directory, Identity identity, const std::string& id)
 {
     Store store(directory, std::move(identity), std::make_shared<SystemClock>(), true);

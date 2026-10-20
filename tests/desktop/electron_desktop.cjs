@@ -1,3 +1,4 @@
+const { openView } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
@@ -128,24 +129,20 @@ async function closeDesktop(application) {
     await enterWorkbench(page);
     await capture(page, "native-startup");
     for (const [name, selector] of [
-      ["自选", ".watchlist-workspace"],
-      ["合约", ".contract-workspace"],
-      ["市场", ".market-workspace"],
+      ["watchlist", ".watchlist-workspace"],
+      ["contract", ".contract-workspace"],
+      ["market", ".market-workspace"],
     ]) {
-      await page
-        .getByRole("navigation", { name: "业务工作区" })
-        .getByRole("button", { name, exact: true })
-        .click();
+      await openView(page, name);
       await expect(page.locator(selector)).toBeVisible();
     }
 
-    const workspaceNavigation = page.getByRole("navigation", { name: "业务工作区" });
-    await workspaceNavigation.getByRole("button", { name: "自选", exact: true }).click();
+    await openView(page, "watchlist");
     const priceHeading = page.locator(".watchlist-table th").filter({ hasText: /^现价$/ });
     await priceHeading.getByRole("button").click();
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
-    await workspaceNavigation.getByRole("button", { name: "合约", exact: true }).click();
-    await workspaceNavigation.getByRole("button", { name: "自选", exact: true }).click();
+    await openView(page, "contract");
+    await openView(page, "watchlist");
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
     await page.getByRole("button", { name: "最近浏览", exact: true }).click();
     await expect(priceHeading).not.toHaveAttribute("aria-sort");
@@ -156,7 +153,7 @@ async function closeDesktop(application) {
       .click();
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
     await capture(page, "native-watchlist-sort");
-    await workspaceNavigation.getByRole("button", { name: "市场", exact: true }).click();
+    await openView(page, "market");
 
     const columnButton = page.getByRole("button", { name: "行情表头设置", exact: true });
     if (!(await page.getByRole("dialog", { name: "行情设置", exact: true }).count()))
@@ -167,14 +164,8 @@ async function closeDesktop(application) {
     await columnDialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
     await columnDialog.getByRole("button", { name: "应用列设置", exact: true }).click();
     await expect(columnButton).toBeFocused();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
-    await page
-      .getByRole("navigation", { name: "业务工作区" })
-      .getByRole("button", { name: "市场", exact: true })
-      .click();
+    await openView(page, "backtest");
+    await openView(page, "market");
     if (!(await page.getByRole("dialog", { name: "行情设置", exact: true }).count()))
       await page.getByRole("button", { name: "行情设置", exact: true }).click();
     await columnButton.click();
@@ -258,17 +249,14 @@ async function closeDesktop(application) {
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史数据", exact: true }).click();
+    await openView(page, "history");
     const minuteDownloads = page.getByRole("region", { name: "历史数据", exact: true });
     await minuteDownloads.getByLabel("品种", { exact: true }).selectOption("cu");
     await minuteDownloads
       .getByLabel("Tushare Token", { exact: true })
       .fill("electron-fixture-secret");
 
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await page.getByRole("button", { name: "回测", exact: true }).click();
     await page.getByRole("button", { name: "新建回测", exact: true }).click();
     const backtestData = page.getByRole("region", { name: "历史数据集", exact: true });
@@ -294,14 +282,11 @@ async function closeDesktop(application) {
       .getByRole("button", { name: "数据", exact: true })
       .click();
     await expect(page.getByLabel("CSV 文件路径", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "历史数据", exact: true }).click();
+    await openView(page, "history");
     await expect(minuteDownloads.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
     await expect(minuteDownloads.getByLabel("品种", { exact: true })).toHaveValue("cu");
 
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("25000");
     for (const [label, value] of [
       ["快均线", "1"],
@@ -334,7 +319,7 @@ async function closeDesktop(application) {
       .getByRole("button", { name: "数据", exact: true })
       .click();
 
-    await page.getByRole("button", { name: "历史数据", exact: true }).click();
+    await openView(page, "history");
     await expect(page.getByLabel("品种", { exact: true })).toHaveValue("cu");
 
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -487,10 +472,7 @@ async function closeDesktop(application) {
 
     await page.reload();
     await enterWorkbench(page);
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     const ownedPid = Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8"));
     await closeDesktop(application);
     application = undefined;
@@ -500,14 +482,11 @@ async function closeDesktop(application) {
     await enterWorkbench(restored);
     await expect(
       restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
-    ).toHaveCount(6);
+    ).toHaveCount(7);
     await expect(
-      restored.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }),
+      restored.locator(".workspace-tabs").getByRole("button", { name: "回测", exact: true }),
     ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
-    await restored
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "自选", exact: true })
-      .click();
+    await openView(restored, "watchlist");
     await expect(restored.locator(".watchlist-workspace")).toBeVisible();
     await capture(restored, "native-watchlist");
     console.log(

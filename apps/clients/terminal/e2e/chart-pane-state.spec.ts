@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import type { HistoryPage, Snapshot } from "../src/bridge/client";
 
@@ -138,8 +139,7 @@ test("chart panes retain intervals and indicators across contracts without subst
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  const nav = page.getByRole("navigation", { name: "业务工作区" });
-  await nav.getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   const upper = page.locator(".watchlist-chart-pane").nth(0);
   const lower = page.locator(".watchlist-chart-pane").nth(1);
   await expect(upper.getByRole("img")).toBeVisible();
@@ -231,7 +231,7 @@ test("chart panes retain intervals and indicators across contracts without subst
     "aria-pressed",
     "true",
   );
-  await nav.getByRole("button", { name: "合约", exact: true }).click();
+  await openView(page, "contract");
   await page.getByRole("button", { name: "历史 K 线", exact: true }).click();
   const contract = page.locator(".contract-chart-panel");
   const contractPlot = contract.getByRole("img", { name: "合约历史 K 线", exact: true });
@@ -261,8 +261,8 @@ test("chart panes retain intervals and indicators across contracts without subst
     "true",
   );
   await expect(contract.locator("[data-indicator]")).toHaveCount(0);
-  await nav.getByRole("button", { name: "市场", exact: true }).click();
-  await nav.getByRole("button", { name: "合约", exact: true }).click();
+  await openView(page, "market");
+  await openView(page, "contract");
   await expect(contract.getByRole("button", { name: "5 min", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -290,7 +290,7 @@ test("chart panes retain intervals and indicators across contracts without subst
   expect(requests.length).toBe(count);
   await contract.getByRole("button", { name: "1 min", exact: true }).click();
   await expect(contract.getByRole("img")).toBeVisible();
-  await nav.getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   const historyBoard = page.locator(".history-market-board");
   const historySearch = page.getByRole("searchbox", { name: "搜索历史合约" });
@@ -301,8 +301,8 @@ test("chart panes retain intervals and indicators across contracts without subst
   });
   await selectedHistory.click();
   await expect(selectedHistory).toHaveAttribute("aria-pressed", "true");
-  await nav.getByRole("button", { name: "自选", exact: true }).click();
-  await nav.getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "watchlist");
+  await openView(page, "market");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await expect(historySearch).toHaveValue("rb27");
   await expect(selectedHistory).toHaveAttribute("aria-pressed", "true");

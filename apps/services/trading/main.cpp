@@ -77,7 +77,7 @@ int main(int argc, char** argv)
                 std::filesystem::path(
                     std::u8string(plugin_directory.begin(), plugin_directory.end())));
         asterion::validate_id(session_id);
-        namespace wire = asterion::protocol::v1;
+        namespace wire = asterion::protocol::proto;
         const std::filesystem::path sdk(std::u8string(ctp_library.begin(), ctp_library.end()));
         transport.validate();
         asterion::service::install_stop_signals();

@@ -41,7 +41,7 @@ Decimal d(const char* text)
 
 // One contract's bars on an account of 10000 with fixed costs, traded by a
 // long-only moving average of 1 and 3.
-backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset)
+backtest::proto::BacktestInput input_of(const data::proto::BarDataset& dataset)
 {
     const auto manifest = Json{
         {"type", "historical_paper"},
@@ -63,7 +63,7 @@ backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset)
                             {"close_today_fee_rate", "0"},
                             {"close_yesterday_fee_rate", "0"}})}}}}
     };
-    backtest::v1::BacktestInput result;
+    backtest::proto::BacktestInput result;
     *result.mutable_paper() = testing_support::paper_input(manifest);
     *result.add_strategies() = testing_support::moving_average(1, 3);
     result.set_dataset_revision(protocol::dataset_revision(result.paper()));
@@ -73,12 +73,12 @@ backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset)
 // Compares the input's strategies as a request for them would: before a
 // holdout from `from`, or by rolling when training days are given.
 void compare(
-    backtest::v1::BacktestInput& input,
+    backtest::proto::BacktestInput& input,
     const std::string& from,
     unsigned training = 0,
     unsigned validation = 0)
 {
-    backtest::v1::BacktestRequest request;
+    backtest::proto::BacktestRequest request;
     *request.mutable_strategies() = input.strategies();
     request.set_holdout_from(from);
     if (training) {
@@ -88,7 +88,7 @@ void compare(
     protocol::set_backtest_strategies(input, request);
 }
 
-backtest::v1::BacktestInput input(
+backtest::proto::BacktestInput input(
     const std::vector<int>& prices = {100, 101, 102, 101, 100, 101, 103},
     const char* settlement = "103")
 {
@@ -105,7 +105,7 @@ backtest::v1::BacktestInput input(
 // third. A bar opens at the close before it and trades one below, so a limit
 // at that close fills. Two moving averages of 1 and 2 are compared on the 25
 // days before 2026-10-20: one may only be short, the other only long.
-backtest::v1::BacktestInput comparison()
+backtest::proto::BacktestInput comparison()
 {
     using namespace std::chrono;
     std::vector<MarketBar> bars;
@@ -141,7 +141,7 @@ backtest::v1::BacktestInput comparison()
 // day with a bump every third. The same two averages are compared by rolling,
 // twenty days of training and ten of validation: four rounds, the
 // last of which trains on falling days alone.
-backtest::v1::BacktestInput rolling_comparison()
+backtest::proto::BacktestInput rolling_comparison()
 {
     using namespace std::chrono;
     std::vector<MarketBar> bars;
@@ -175,17 +175,17 @@ backtest::v1::BacktestInput rolling_comparison()
 }
 
 // The bars of a factor input's one series, which is added when there is none yet.
-data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input)
+data::proto::BarDataset* factor_bars(factor::proto::FactorInput& input)
 {
     if (input.series().empty())
         input.add_series();
     return input.mutable_series(0)->mutable_bars();
 }
 
-factor::v1::FactorInput maximum_factor_input()
+factor::proto::FactorInput maximum_factor_input()
 {
-    factor::v1::FactorInput spec;
-    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor::proto::FactorInput spec;
+    spec.set_factor(protocol::proto::PRICE_MOMENTUM);
     spec.set_full_sample(true);
     spec.add_lookbacks(2);
     spec.set_horizon(1);
@@ -331,7 +331,7 @@ TEST(Backtest, DailySignalsTradeNextDayWithNewCostsAndYesterdayPositions)
     EXPECT_THROW(protocol::decode_backtest_result(partial_dates), std::invalid_argument);
     EXPECT_EQ(result.account().fills(0).price().units(), d("100").raw());
     EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
-    EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
+    EXPECT_EQ(result.account().orders(1).offset(), protocol::proto::CLOSE_YESTERDAY);
     EXPECT_EQ(result.settlements(2).contracts(0).position_quantity().units(), 0);
     EXPECT_EQ(result.settlements(3).contracts(0).position_quantity().units(), d("1").raw());
     EXPECT_EQ(result.account().fees().units(), d("16").raw());
@@ -382,22 +382,22 @@ TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions)
 {
     // The close falls below its average at the third bar; the fourth lets the sell fill.
     auto spec = input({103, 102, 101, 101, 99}, "99");
-    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
+    spec.mutable_strategies(0)->set_sides(protocol::proto::LONG_AND_SHORT);
     const auto result = backtest::run(spec);
     ASSERT_EQ(result.account().fills_size(), 1);
     EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
     // At its target the run sends nothing more.
     ASSERT_EQ(result.account().orders_size(), 1);
-    EXPECT_EQ(result.account().orders(0).side(), protocol::v1::SELL);
-    EXPECT_EQ(result.account().orders(0).offset(), protocol::v1::OPEN);
+    EXPECT_EQ(result.account().orders(0).side(), protocol::proto::SELL);
+    EXPECT_EQ(result.account().orders(0).offset(), protocol::proto::OPEN);
     ASSERT_EQ(result.account().positions_size(), 1);
-    EXPECT_EQ(result.account().positions(0).side(), protocol::v1::SELL);
+    EXPECT_EQ(result.account().positions(0).side(), protocol::proto::SELL);
     ASSERT_EQ(result.settlements_size(), 1);
     EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
     // One lot sold at 101 and settled at 99, ten per point, less the opening fee.
     EXPECT_EQ(result.account().equity().units(), d("10018").raw());
     // The same bars with long positions only: nothing to hold.
-    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_ONLY);
+    spec.mutable_strategies(0)->set_sides(protocol::proto::LONG_ONLY);
     const auto flat = backtest::run(spec);
     EXPECT_EQ(flat.account().fills_size(), 0);
     EXPECT_EQ(flat.account().equity().units(), d("10000").raw());
@@ -410,22 +410,22 @@ TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen)
 {
     // Short from the fourth bar; the close rises above its average at the seventh.
     auto spec = input({103, 102, 101, 101, 99, 98, 100, 100, 100}, "100");
-    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
+    spec.mutable_strategies(0)->set_sides(protocol::proto::LONG_AND_SHORT);
     const auto result = backtest::run(spec);
-    std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>> filled;
+    std::vector<std::pair<protocol::proto::Side, protocol::proto::Offset>> filled;
     for (const auto& order : result.account().orders())
-        if (order.state() == protocol::v1::FILLED)
+        if (order.state() == protocol::proto::FILLED)
             filled.emplace_back(order.side(), order.offset());
-    using Filled = std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>>;
+    using Filled = std::vector<std::pair<protocol::proto::Side, protocol::proto::Offset>>;
     EXPECT_EQ(
         filled,
         (Filled{
-            {protocol::v1::SELL, protocol::v1::OPEN},
-            {protocol::v1::BUY, protocol::v1::CLOSE_TODAY},
-            {protocol::v1::BUY, protocol::v1::OPEN}
+            {protocol::proto::SELL, protocol::proto::OPEN},
+            {protocol::proto::BUY, protocol::proto::CLOSE_TODAY},
+            {protocol::proto::BUY, protocol::proto::OPEN}
         }));
     ASSERT_EQ(result.account().positions_size(), 1);
-    EXPECT_EQ(result.account().positions(0).side(), protocol::v1::BUY);
+    EXPECT_EQ(result.account().positions(0).side(), protocol::proto::BUY);
     EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
     // Sold at 101 and bought back at 100, less an open, a close and another open.
     EXPECT_EQ(result.account().equity().units(), d("10003").raw());
@@ -469,7 +469,7 @@ TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine)
             .at("slippage_ticks"),
         1);
     // What a worker is told to give up is what the input fixed.
-    task::v1::Task task;
+    task::proto::Task task;
     *task.mutable_input() = slipped;
     EXPECT_EQ(
         protocol::task_execution(task, std::string(64, '0'))
@@ -530,13 +530,13 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts)
     // when both are at 99 and three lots each: closed at the fifth bar and
     // opened the other way at the sixth. hc and al never trade.
     ASSERT_EQ(result.account().fills_size(), 6);
-    const auto fill_of = [](const backtest::v1::BacktestResult& run, int index) {
+    const auto fill_of = [](const backtest::proto::BacktestResult& run, int index) {
         const auto& value = run.account().fills(index);
         const auto order =
             std::ranges::find(run.account().orders(), value.order_id(), [](const auto& item) {
                 return item.id();
             });
-        return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ")
+        return value.symbol() + (order->side() == protocol::proto::BUY ? " buy " : " sell ")
             + Decimal::from_raw(value.quantity().units()).str() + " at "
             + Decimal::from_raw(value.price().units()).str();
     };
@@ -723,7 +723,7 @@ TEST(Backtest, ARollingComparisonFollowsEachRoundsBestStrategyOverTheDaysAfterIt
     ASSERT_EQ(result.folds_size(), 4);
     EXPECT_EQ(result.candidates_size(), 0);
     // Each strategy as it trades alone, to compare the rounds with.
-    std::vector<backtest::v1::BacktestResult> alone;
+    std::vector<backtest::proto::BacktestResult> alone;
     for (const auto& strategy : spec.strategies()) {
         auto single = spec;
         single.clear_walk_forward();
@@ -731,7 +731,7 @@ TEST(Backtest, ARollingComparisonFollowsEachRoundsBestStrategyOverTheDaysAfterIt
         *single.add_strategies() = strategy;
         alone.push_back(backtest::run(single));
     }
-    const auto position = [](const backtest::v1::BacktestResult& run, int day) {
+    const auto position = [](const backtest::proto::BacktestResult& run, int day) {
         return run.settlements(day).contracts(0).position_quantity().units();
     };
     // Nothing is held before the first round has anything to follow.
@@ -837,7 +837,7 @@ TEST(Backtest, ARollingComparisonNeedsTwentyTrainingDaysAndDaysAfterThem)
     requested.clear_walk_forward();
     EXPECT_THROW(compare(requested, "2026-10-20", 20, 10), std::invalid_argument);
     // What a worker is told, and what a client reads back.
-    task::v1::Task task;
+    task::proto::Task task;
     *task.mutable_input() = spec;
     EXPECT_EQ(
         protocol::task_execution(task, std::string(64, '0'))
@@ -952,7 +952,7 @@ TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculat
         result_hash = sha256_file(directory.path / "original/results/1.pb");
         digest = store.describe("original").result_digest();
         auto submission = store.submission("derived", spec);
-        task::v1::TaskDerivation source;
+        task::proto::TaskDerivation source;
         source.set_source_id("original");
         source.set_source_result_digest(digest);
         source.set_data_choice("fixed");
@@ -960,7 +960,7 @@ TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculat
         store.admit_submission(submission);
         submission.prepare_files();
         store.commit(store.register_submission(submission));
-        task::v1::TaskMetadataEdit edit;
+        task::proto::TaskMetadataEdit edit;
         edit.set_id("original");
         edit.set_name("baseline");
         edit.set_note("first line\nsecond line");
@@ -1076,7 +1076,7 @@ TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery)
         for (unsigned completed = 1; completed <= 1001; ++completed)
             store.commit(store.progress("long-run", token, completed));
         store.commit(tasks::finish(store, "long-run", token, expected));
-        EXPECT_EQ(store.describe("long-run").state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(store.describe("long-run").state(), task::proto::SUCCEEDED);
         result_hash = sha256_file(directory.path / "long-run/results/1.pb");
         segment_hash = sha256_file(directory.path / "event-segments/1.pb");
     }
@@ -1132,7 +1132,7 @@ TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions
     EXPECT_EQ(earlier.next_before_sequence(), 0);
     EXPECT_EQ(earlier.failed_count(), 1);
     EXPECT_EQ(earlier.active_tasks_size(), 2);
-    task::v1::TaskDispatch allowance;
+    task::proto::TaskDispatch allowance;
     allowance.set_launch_slots(2);
     const auto launches = store.dispatch(allowance);
     ASSERT_EQ(launches.launches_size(), 2);
@@ -1154,9 +1154,9 @@ TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
     const auto old = store.commit(store.claim("job1")).token();
     store.commit(store.progress("job1", old, 2));
     EXPECT_THROW(store.commit(store.progress("job1", old, 1)), std::invalid_argument);
-    EXPECT_EQ(store.commit(store.cancel("job1")).task().state(), task::v1::CANCEL_REQUESTED);
+    EXPECT_EQ(store.commit(store.cancel("job1")).task().state(), task::proto::CANCEL_REQUESTED);
     store.commit(tasks::finish(store, "job1", old, backtest::run(input())));
-    EXPECT_EQ(store.get("job1").state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.get("job1").state(), task::proto::CANCELLED);
     EXPECT_THROW(tasks::result(store, "job1"), std::invalid_argument);
     store.commit(store.retry("job1")).task();
     const auto next = store.commit(store.claim("job1")).token();
@@ -1166,7 +1166,7 @@ TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
         std::invalid_argument);
     store.commit(tasks::finish(store, "job1", next, backtest::run(input())));
     EXPECT_EQ(store.get("job1").attempt(), 2U);
-    EXPECT_EQ(store.get("job1").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(store.get("job1").state(), task::proto::SUCCEEDED);
     EXPECT_EQ(
         tasks::result(store, "job1").SerializeAsString(),
         backtest::run(input()).SerializeAsString());
@@ -1179,7 +1179,7 @@ TEST(TaskStore, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch)
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     for (const auto* id : {"z-first", "a-second", "m-third"})
         tasks::submit(store, id, input());
-    task::v1::TaskDispatch processes;
+    task::proto::TaskDispatch processes;
     EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
     processes.set_launch_slots(0);
     EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
@@ -1191,10 +1191,10 @@ TEST(TaskStore, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch)
     ASSERT_EQ(launches.launches_size(), 2);
     EXPECT_EQ(launches.launches(0).task_id(), "z-first");
     EXPECT_EQ(launches.launches(1).task_id(), "a-second");
-    EXPECT_EQ(launches.launches(0).program(), task::v1::BACKTEST_PROGRAM);
+    EXPECT_EQ(launches.launches(0).program(), task::proto::BACKTEST_PROGRAM);
 
     EXPECT_EQ(store.dispatch(processes, false).launches_size(), 0);
-    EXPECT_EQ(store.get("z-first").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.get("z-first").state(), task::proto::QUEUED);
     EXPECT_EQ(store.get("z-first").attempt(), 0U);
     // An OS process may be running before it claims its attempt.
     processes.add_running("z-first");
@@ -1241,18 +1241,18 @@ TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
     }
     {
         tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-        EXPECT_EQ(restored.get("queued").state(), task::v1::QUEUED);
-        EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
+        EXPECT_EQ(restored.get("queued").state(), task::proto::QUEUED);
+        EXPECT_EQ(restored.get("working").state(), task::proto::INTERRUPTED);
         EXPECT_EQ(restored.get("working").completed(), 2U);
-        EXPECT_EQ(restored.get("done").state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(restored.get("done").state(), task::proto::SUCCEEDED);
         EXPECT_EQ(
             tasks::result(restored, "done").SerializeAsString(),
             backtest::run(input()).SerializeAsString());
         restored.commit(restored.retry("working")).task();
-        EXPECT_EQ(restored.get("working").state(), task::v1::QUEUED);
+        EXPECT_EQ(restored.get("working").state(), task::proto::QUEUED);
     }
     tasks::Store again(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(again.get("working").state(), task::v1::QUEUED);
+    EXPECT_EQ(again.get("working").state(), task::proto::QUEUED);
 }
 
 TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery)
@@ -1278,7 +1278,7 @@ TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery)
         EXPECT_EQ(sha256_file(seal), seal_hash);
     }
     tasks::Store restored(directory.path, identity);
-    EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(restored.get("working").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(sha256_file(seal), seal_hash);
 }
 
@@ -1369,11 +1369,11 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
         fail_next_directory_syncs_for_testing(1);
         EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::runtime_error);
         fail_next_directory_syncs_for_testing(0);
-        EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+        EXPECT_EQ(store.get("job").state(), task::proto::RUNNING);
         EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.get("job").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(restored.get("job").state(), task::proto::INTERRUPTED);
     EXPECT_TRUE(std::filesystem::is_regular_file(directory.path / "job/results/1.pb"));
     restored.commit(restored.retry("job")).task();
     restored.commit(
@@ -1382,7 +1382,7 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
             "job",
             restored.commit(restored.claim("job")).token(),
             backtest::run(input())));
-    EXPECT_EQ(restored.get("job").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(restored.get("job").state(), task::proto::SUCCEEDED);
 }
 
 TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
@@ -1427,7 +1427,7 @@ TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
     verified.get();
     EXPECT_EQ(
         store.commit(store.register_submission(duplicate)).task().state(),
-        task::v1::CANCELLED);
+        task::proto::CANCELLED);
     EXPECT_TRUE(store.active_tasks().empty());
 }
 
@@ -1456,17 +1456,17 @@ TEST(TaskStore, JournalWaitKeepsActiveStateAvailableAndRequiresOwnerConfirmation
     while (!sqlite::commit_waiting_for_testing() && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(1ms);
     ASSERT_TRUE(sqlite::commit_waiting_for_testing());
-    EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.describe("job").state(), task::proto::QUEUED);
     EXPECT_EQ(store.active_tasks().size(), 2U);
     // Another task can be decided while the writer is held at its durable barrier.
     auto cancelled = store.cancel("other");
-    EXPECT_EQ(cancelled.task().state(), task::v1::CANCELLED);
-    EXPECT_EQ(store.describe("other").state(), task::v1::QUEUED);
+    EXPECT_EQ(cancelled.task().state(), task::proto::CANCELLED);
+    EXPECT_EQ(store.describe("other").state(), task::proto::QUEUED);
     sqlite::hold_commits_for_testing(false);
     persisted.get();
-    EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.describe("job").state(), task::proto::QUEUED);
     store.confirm(claimed);
-    EXPECT_EQ(store.describe("job").state(), task::v1::RUNNING);
+    EXPECT_EQ(store.describe("job").state(), task::proto::RUNNING);
     store.commit(std::move(cancelled));
     ASSERT_EQ(store.active_tasks().size(), 1U);
     EXPECT_EQ(store.active_tasks().front().id(), "job");
@@ -1492,7 +1492,7 @@ TEST(TaskStore, FailedStateCommitKeepsTheLastConfirmedActiveState)
         EXPECT_THROW(store.commit(store.progress("job", token, 2)), std::runtime_error);
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.describe("job").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(restored.describe("job").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(restored.describe("job").completed(), 1U);
     EXPECT_TRUE(restored.active_tasks().empty());
     restored.commit(restored.retry("job")).task();
@@ -1506,7 +1506,7 @@ TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt)
         TaskDirectory directory;
         tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
         tasks::submit(store, "job", input());
-        task::v1::TaskFinish request;
+        task::proto::TaskFinish request;
         request.set_id("job");
         request.set_token(store.commit(store.claim("job")).token());
         *request.mutable_result() = backtest::run(input());
@@ -1528,11 +1528,11 @@ TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt)
         EXPECT_TRUE(store.describe("job").result_digest().empty());
         if (retry) {
             EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
-            EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+            EXPECT_EQ(store.get("job").state(), task::proto::RUNNING);
             EXPECT_EQ(store.get("job").attempt(), 2U);
         } else {
             store.commit(store.finish(std::move(pending)));
-            EXPECT_EQ(store.get("job").state(), task::v1::CANCELLED);
+            EXPECT_EQ(store.get("job").state(), task::proto::CANCELLED);
         }
         EXPECT_TRUE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
         EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
@@ -1544,7 +1544,7 @@ TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit)
     TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     tasks::submit(store, "job", input());
-    task::v1::TaskFinish request;
+    task::proto::TaskFinish request;
     request.set_id("job");
     request.set_token(store.commit(store.claim("job")).token());
     *request.mutable_result() = backtest::run(input());
@@ -1553,7 +1553,7 @@ TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit)
     EXPECT_NO_THROW(pending.prepare_payload());
     store.commit(store.interrupt("job", request.token(), "test lease expired"));
     EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
-    EXPECT_EQ(store.get("job").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(store.get("job").state(), task::proto::INTERRUPTED);
     EXPECT_TRUE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
     EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
 }
@@ -1578,7 +1578,7 @@ TEST(TaskStore, InputReadPreservesConcurrentCancellationAndRejectsForeignOrChang
     EXPECT_THROW((void)foreign.claim(read), std::invalid_argument);
     EXPECT_THROW((void)store.claim(read), std::invalid_argument);
     const auto value = store.confirm_input(std::move(read));
-    EXPECT_EQ(value.state(), task::v1::CANCELLED);
+    EXPECT_EQ(value.state(), task::proto::CANCELLED);
     EXPECT_EQ(value.input().SerializeAsString(), input().SerializeAsString());
     EXPECT_THROW(store.commit(store.claim("job")).token(), std::invalid_argument);
     auto changed = store.prepare_input("job");
@@ -1672,7 +1672,7 @@ TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything)
     EXPECT_FALSE(std::filesystem::exists(directory.path / "invalid"));
     EXPECT_THROW(tasks::submit(store, "../outside", input()), std::exception);
     tasks::submit(store, "queued", input());
-    EXPECT_EQ(store.commit(store.cancel("queued")).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.commit(store.cancel("queued")).task().state(), task::proto::CANCELLED);
     EXPECT_THROW(store.commit(store.claim("queued")).token(), std::invalid_argument);
     EXPECT_EQ(store.get("queued").attempt(), 0U);
 }
@@ -1683,7 +1683,7 @@ TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything)
 namespace {
 
 using namespace std::chrono_literals;
-namespace task_wire = task::v1;
+namespace task_wire = task::proto;
 
 struct TaskProcess : testing::Test
 {
@@ -1758,7 +1758,7 @@ struct TaskProcess : testing::Test
             if (std::chrono::steady_clock::now() >= until)
                 throw std::runtime_error("data fixture did not initialize");
             try {
-                data::v1::DataRequest request;
+                data::proto::DataRequest request;
                 request.mutable_heartbeat();
                 if (client.call(request, 1s).health().initialized())
                     return;
@@ -1820,9 +1820,9 @@ struct TaskProcess : testing::Test
         }
     }
 
-    std::optional<backtest::v1::BacktestInput> fixed_input;
+    std::optional<backtest::proto::BacktestInput> fixed_input;
 
-    data::v1::BarDataset published_dataset(const std::vector<int>& prices, const std::string& id)
+    data::proto::BarDataset published_dataset(const std::vector<int>& prices, const std::string& id)
     {
         data_service.reset();
         std::vector<std::string> days;
@@ -1831,12 +1831,12 @@ struct TaskProcess : testing::Test
             days.push_back(
                 format_trading_date(std::chrono::year_month_day(first + std::chrono::days(day))));
         const auto selection = test::seed_history(warehouse.path, prices, id, days);
-        data::v1::BarDatasetRequest request;
+        data::proto::BarDatasetRequest request;
         for (const auto& version : selection.at("source_dataset_ids"))
             request.add_source_dataset_ids(version.get<std::string>());
         *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
         request.set_contract("SHFE/rb/2026-10");
-        data::v1::BarDataset dataset;
+        data::proto::BarDataset dataset;
         {
             data::Store store(warehouse.path, "historical-data", "task");
             dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
@@ -1845,7 +1845,7 @@ struct TaskProcess : testing::Test
         return dataset;
     }
 
-    const backtest::v1::BacktestInput& process_input()
+    const backtest::proto::BacktestInput& process_input()
     {
         if (!fixed_input) {
             fixed_input = input();
@@ -1995,7 +1995,8 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
         ref->set_source_result_digest(task.result_digest());
         ref->set_source_input_sha256(digest);
         ref->set_choice(
-            fresh ? backtest::v1::BacktestReuse::NEW_SNAPSHOT : backtest::v1::BacktestReuse::FIXED);
+            fresh ? backtest::proto::BacktestReuse::NEW_SNAPSHOT
+                  : backtest::proto::BacktestReuse::FIXED);
         ref->set_snapshot(snapshot);
         return call(request);
     };
@@ -2096,7 +2097,7 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
         replace_file_durably(path, raw);
         sqlite::Database db(directory.path / "tasks.sqlite");
         Json manifest;
-        task::v1::StoredTaskRecord record;
+        task::proto::StoredTaskRecord record;
         {
             sqlite::Database::Statement read(
                 db,
@@ -2118,7 +2119,7 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
     unsigned admitted = 0;
     {
         sqlite::Database db(directory.path / "tasks.sqlite");
-        task::v1::StoredTaskRecord record;
+        task::proto::StoredTaskRecord record;
         {
             sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='other-rules'");
             ASSERT_TRUE(read.step());
@@ -2181,7 +2182,7 @@ TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled)
 {
     submit("interrupted");
     task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_kind(task::v1::BACKTEST);
+    claim.mutable_claim()->set_kind(task::proto::BACKTEST);
     claim.mutable_claim()->set_id("interrupted");
     const auto attempt = call(claim, endpoint + ".worker").attempt();
     EXPECT_FALSE(attempt.task().has_input());
@@ -2225,7 +2226,7 @@ TEST_F(TaskProcess, WorkerLeaseExpiryInterruptsWithoutAutomaticRetry)
 {
     submit("lost");
     task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_kind(task::v1::BACKTEST);
+    claim.mutable_claim()->set_kind(task::proto::BACKTEST);
     claim.mutable_claim()->set_id("lost");
     const auto token = call(claim, endpoint + ".worker").attempt().token();
     task_wire::TaskRequest get;
@@ -2258,7 +2259,7 @@ TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation
                 {},
                 "task",
                 id,
-                task::v1::BACKTEST,
+                task::proto::BACKTEST,
                 [&](const auto& attempt, std::stop_token stop, const auto&) {
                     entered.set_value();
                     // No engine progress for longer than this service's two-second lease.
@@ -2267,7 +2268,7 @@ TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation
                         std::this_thread::sleep_for(10ms);
                     if (stop.stop_requested())
                         throw std::runtime_error("initialization cancelled");
-                    task::v1::TaskFinish result;
+                    task::proto::TaskFinish result;
                     *result.mutable_result() = backtest::run(attempt.task().input());
                     return result;
                 },
@@ -2277,15 +2278,17 @@ TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation
         std::this_thread::sleep_for(2500ms);
         task_wire::TaskRequest get;
         get.mutable_get()->set_id(id);
-        ASSERT_EQ(call(get).task().state(), task::v1::RUNNING);
+        ASSERT_EQ(call(get).task().state(), task::proto::RUNNING);
         if (cancel) {
             task_wire::TaskRequest request;
             request.mutable_cancel()->set_id(id);
-            EXPECT_EQ(call(request).task().state(), task::v1::CANCEL_REQUESTED);
+            EXPECT_EQ(call(request).task().state(), task::proto::CANCEL_REQUESTED);
         }
         ASSERT_EQ(worker.wait_for(5s), std::future_status::ready);
         EXPECT_EQ(worker.get(), cancel ? 2 : 0);
-        EXPECT_EQ(call(get).task().state(), cancel ? task::v1::CANCELLED : task::v1::SUCCEEDED);
+        EXPECT_EQ(
+            call(get).task().state(),
+            cancel ? task::proto::CANCELLED : task::proto::SUCCEEDED);
     }
 }
 
@@ -2302,8 +2305,8 @@ TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation)
             {},
             "task",
             "lost-service",
-            task::v1::BACKTEST,
-            [&](const auto&, std::stop_token stop, const auto&) -> task::v1::TaskFinish {
+            task::proto::BACKTEST,
+            [&](const auto&, std::stop_token stop, const auto&) -> task::proto::TaskFinish {
                 entered.set_value();
                 const auto deadline = std::chrono::steady_clock::now() + 10s;
                 while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
@@ -2321,7 +2324,7 @@ TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation)
     EXPECT_THROW(static_cast<void>(worker.get()), std::exception);
     task_wire::TaskRequest get;
     get.mutable_get()->set_id("lost-service");
-    EXPECT_EQ(call(get).task().state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(call(get).task().state(), task::proto::INTERRUPTED);
 }
 
 TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable)
@@ -2403,7 +2406,7 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
         protocol::decode_factor_result(spec, response.factor()).dump().size());
     task_wire::TaskRequest cancel;
     cancel.mutable_cancel()->set_id("other");
-    EXPECT_EQ(call(cancel).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(call(cancel).task().state(), task::proto::CANCELLED);
     RecordProperty("concurrent_status_observations", observations);
     RecordProperty(
         "longest_status_ms",
@@ -2422,7 +2425,7 @@ TEST(TaskStore, RejectsMismatchedResultContractAndMetrics)
     result = backtest::run(input());
     result.mutable_max_drawdown()->set_units(0);
     EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::invalid_argument);
-    EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+    EXPECT_EQ(store.get("job").state(), task::proto::RUNNING);
     EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
     store.commit(tasks::finish(store, "job", token, backtest::run(input())));
 }
@@ -2439,7 +2442,7 @@ TEST(TaskStore, RejectsResultWithDifferentRiskConfiguration)
     EXPECT_THROW(
         store.commit(tasks::finish(store, "risk-result", token, result)),
         std::invalid_argument);
-    EXPECT_EQ(store.get("risk-result").state(), task::v1::RUNNING);
+    EXPECT_EQ(store.get("risk-result").state(), task::proto::RUNNING);
     store.commit(tasks::finish(store, "risk-result", token, backtest::run(spec)));
     EXPECT_EQ(
         tasks::result(store, "risk-result").account().risk().SerializeAsString(),
@@ -2469,7 +2472,7 @@ TEST(TaskStore, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart)
 {
     TaskDirectory directory;
     auto clock = std::make_shared<TaskClock>();
-    task::v1::Task first, latest;
+    task::proto::Task first, latest;
     {
         tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
         first = tasks::submit(store, "z-first", input());
@@ -2521,7 +2524,7 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
             const auto list = store.list();
             ASSERT_EQ(list.tasks_size(), 1);
             EXPECT_EQ(list.tasks(0).SerializeAsString(), expected.SerializeAsString());
-            task::v1::TaskDispatch allowance;
+            task::proto::TaskDispatch allowance;
             allowance.set_launch_slots(1);
             EXPECT_EQ(store.dispatch(allowance).launches_size(), 1);
         }
@@ -2536,10 +2539,12 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
         for (unsigned completed = 1; completed <= 50; ++completed)
             store.commit(store.progress("large", token, completed));
         EXPECT_EQ(store.list().tasks(0).completed(), 50U);
-        task::v1::TaskDispatch allowance;
+        task::proto::TaskDispatch allowance;
         allowance.set_launch_slots(1);
         EXPECT_EQ(store.dispatch(allowance).launches_size(), 0);
-        EXPECT_EQ(store.commit(store.cancel("large")).task().state(), task::v1::CANCEL_REQUESTED);
+        EXPECT_EQ(
+            store.commit(store.cancel("large")).task().state(),
+            task::proto::CANCEL_REQUESTED);
         store.commit(store.acknowledge_cancel("large", token));
         store.commit(store.retry("large")).task();
         token = store.commit(store.claim("large")).token();
@@ -2553,21 +2558,21 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
     const auto recovered = restored.get("large");
-    EXPECT_EQ(recovered.state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(recovered.state(), task::proto::INTERRUPTED);
     EXPECT_EQ(recovered.attempt(), 3U);
     EXPECT_EQ(recovered.completed(), 55U);
     EXPECT_EQ(recovered.input().SerializeAsString(), original);
     EXPECT_EQ(
         restored.commit(restored.retry("large")).task().definition_case(),
-        task::v1::Task::DEFINITION_NOT_SET);
+        task::proto::Task::DEFINITION_NOT_SET);
     EXPECT_EQ(restored.get("large").input().SerializeAsString(), original);
     const auto queued = restored.list().tasks(0);
     EXPECT_EQ(restored.list().capacity().retained_tasks(), 1U);
-    EXPECT_EQ(queued.state(), task::v1::QUEUED);
+    EXPECT_EQ(queued.state(), task::proto::QUEUED);
     EXPECT_EQ(queued.total(), 10000U);
     EXPECT_EQ(queued.completed(), 0U);
     EXPECT_TRUE(queued.error().empty());
-    EXPECT_EQ(queued.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+    EXPECT_EQ(queued.definition_case(), task::proto::Task::DEFINITION_NOT_SET);
 }
 
 TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
@@ -2597,13 +2602,13 @@ TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
     // and worker claims must still reject missing or changed owned bytes.
     std::filesystem::remove(path);
     EXPECT_EQ(store.list().tasks(0).total(), 7U);
-    EXPECT_EQ(store.commit(store.cancel("binary")).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.commit(store.cancel("binary")).task().state(), task::proto::CANCELLED);
     EXPECT_EQ(
         store.commit(store.retry("binary")).task().definition_case(),
-        task::v1::Task::DEFINITION_NOT_SET);
+        task::proto::Task::DEFINITION_NOT_SET);
     EXPECT_THROW(store.get("binary"), std::invalid_argument);
     EXPECT_THROW(store.commit(store.claim("binary")).token(), std::invalid_argument);
-    EXPECT_EQ(store.describe("binary").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.describe("binary").state(), task::proto::QUEUED);
     write_file_durably(path, original);
     EXPECT_EQ(store.get("binary").input().SerializeAsString(), original);
     const auto expected = backtest::run(spec);
@@ -2786,10 +2791,10 @@ TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions)
     const auto tasks = call(list).tasks();
     ASSERT_EQ(tasks.tasks_size(), count);
     for (int i = 0; i < count; ++i) {
-        EXPECT_EQ(tasks.tasks(i).state(), task::v1::QUEUED);
+        EXPECT_EQ(tasks.tasks(i).state(), task::proto::QUEUED);
         EXPECT_EQ(tasks.tasks(i).attempt(), 0U);
         EXPECT_EQ(tasks.tasks(i).source_name(), expected[static_cast<std::size_t>(i)]);
-        EXPECT_EQ(tasks.tasks(i).definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+        EXPECT_EQ(tasks.tasks(i).definition_case(), task::proto::Task::DEFINITION_NOT_SET);
     }
     RecordProperty("distinct_maximum_input_count", count);
     RecordProperty("recovery_heartbeats", recovering);
@@ -2824,7 +2829,7 @@ TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
     {
         sqlite::Database db(directory.path / "tasks.sqlite");
         Json base;
-        task::v1::StoredTaskRecord base_record;
+        task::proto::StoredTaskRecord base_record;
         {
             sqlite::Database::Statement read(
                 db,
@@ -2874,9 +2879,9 @@ TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
         const auto list = restored.list();
         EXPECT_EQ(list.tasks_size(), count);
         for (const auto& task : list.tasks()) {
-            EXPECT_EQ(task.state(), task::v1::SUCCEEDED);
+            EXPECT_EQ(task.state(), task::proto::SUCCEEDED);
             EXPECT_EQ(task.total(), static_cast<unsigned>(protocol::max_dataset_bars));
-            EXPECT_EQ(task.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+            EXPECT_EQ(task.definition_case(), task::proto::Task::DEFINITION_NOT_SET);
         }
         EXPECT_EQ(restored.get("batch-23").factor().SerializeAsString(), spec.SerializeAsString());
         EXPECT_EQ(
@@ -2906,7 +2911,7 @@ TEST(TaskStore, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries)
 {
     TaskDirectory directory;
     auto clock = std::make_shared<TaskClock>();
-    task::v1::Task retried;
+    task::proto::Task retried;
     {
         tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
         const auto original = tasks::submit(store, "first", input());
@@ -3040,7 +3045,7 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
                 backtest::run(input())));
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    task::v1::TaskResponse response;
+    task::proto::TaskResponse response;
     *response.mutable_backtest() = tasks::result(restored, "evidence");
     *response.mutable_result_task() = restored.get("evidence");
     const auto value = protocol::decode_task_result(response, "evidence");
@@ -3068,7 +3073,7 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
     bad.clear_result_task();
     EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
     bad = response;
-    bad.mutable_result_task()->set_state(task::v1::RUNNING);
+    bad.mutable_result_task()->set_state(task::proto::RUNNING);
     EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
     bad = response;
     bad.mutable_backtest()->set_dataset_revision(std::string(64, '0'));
@@ -3077,7 +3082,7 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
     bad.mutable_result_task()->clear_definition();
     EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
     bad = response;
-    bad.mutable_result_task()->set_kind(task::v1::FACTOR);
+    bad.mutable_result_task()->set_kind(task::proto::FACTOR);
     EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
 }
 
@@ -3095,7 +3100,7 @@ TEST(Backtest, ExplicitTradingDaysDoNotInferFromWallClock)
 
 namespace {
 
-backtest::v1::BacktestInput multiday_input()
+backtest::proto::BacktestInput multiday_input()
 {
     auto spec = input();
     spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->clear_bars();
@@ -3149,13 +3154,13 @@ TEST(Backtest, MultidaySettlementCarriesSmaAndChargesYesterdayClose)
     EXPECT_EQ(result.account().realized().units(), d("30").raw());
     EXPECT_EQ(result.max_drawdown().units(), d("26").raw());
     ASSERT_EQ(result.account().orders_size(), 4);
-    EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
+    EXPECT_EQ(result.account().orders(1).offset(), protocol::proto::CLOSE_YESTERDAY);
     ASSERT_EQ(result.equity_size(), 10);
-    EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
+    EXPECT_EQ(result.equity(4).event(), backtest::proto::DAILY_SETTLEMENT);
     EXPECT_EQ(
         result.equity(4).timestamp_ns(),
         spec.paper().contracts(0).dataset().bars(3).timestamp_ns());
-    EXPECT_EQ(result.equity(5).event(), backtest::v1::TRADE_MARK);
+    EXPECT_EQ(result.equity(5).event(), backtest::proto::TRADE_MARK);
     EXPECT_EQ(result.equity(9).equity().units(), result.account().equity().units());
     EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
 }
@@ -3186,7 +3191,7 @@ TEST(Backtest, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown)
     ASSERT_EQ(result.account().positions_size(), 1);
     EXPECT_EQ(result.account().positions(0).basis().units(), d("90").raw());
     EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
-    EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
+    EXPECT_EQ(result.equity(4).event(), backtest::proto::DAILY_SETTLEMENT);
 }
 
 TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence)
@@ -3253,7 +3258,7 @@ TEST(Backtest, ADayWithoutBarsIsSettled)
     EXPECT_EQ(result.account().equity().units(), d("10088").raw());
     // A mark at each of the four bars and a settlement for each of the two days.
     ASSERT_EQ(result.equity_size(), 6);
-    EXPECT_EQ(result.equity(5).event(), backtest::v1::DAILY_SETTLEMENT);
+    EXPECT_EQ(result.equity(5).event(), backtest::proto::DAILY_SETTLEMENT);
     EXPECT_EQ(result.equity(5).timestamp_ns(), result.settlements(1).timestamp_ns());
     // The Task service takes this result as that of the input.
     TaskDirectory root;
@@ -3261,7 +3266,7 @@ TEST(Backtest, ADayWithoutBarsIsSettled)
     tasks::submit(store, "idle-day", spec);
     const auto token = store.commit(store.claim("idle-day")).token();
     store.commit(tasks::finish(store, "idle-day", token, result));
-    EXPECT_EQ(store.get("idle-day").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(store.get("idle-day").state(), task::proto::SUCCEEDED);
 }
 
 TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
@@ -3383,7 +3388,7 @@ namespace {
 
 // The days a dataset settles on without bars: the contract did not trade on
 // them, or their bars are missing.
-std::vector<std::string> days_without_bars(const data::v1::BarDataset& dataset)
+std::vector<std::string> days_without_bars(const data::proto::BarDataset& dataset)
 {
     std::set<std::string> traded;
     for (const auto& bar : dataset.bars())
@@ -3446,7 +3451,7 @@ TEST(NamedDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive)
         "hc");
     history_files::Archive archive(directory.path / "history");
     history_files::TableStore tables(directory.path / "tables");
-    data::v1::HistoryCoverageQuery query;
+    data::proto::HistoryCoverageQuery query;
     query.mutable_filter()->set_venue("SHFE");
     query.mutable_filter()->set_product("rb");
     *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({rebar, coil}));
@@ -3488,7 +3493,7 @@ TEST(Backtest, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect)
     const auto one = backtest::run(single);
     const auto two = backtest::run(pair);
     EXPECT_EQ(two.SerializeAsString(), backtest::run(pair).SerializeAsString());
-    const auto doubled = [](const protocol::v1::Decimal& value) {
+    const auto doubled = [](const protocol::proto::Decimal& value) {
         return value.units() * 2;
     };
     EXPECT_EQ(two.account().fees().units(), doubled(one.account().fees()));
@@ -3609,7 +3614,7 @@ TEST(NamedDatasets, CoverageDoesNotMergeIntervalsOrRevisions)
         5);
     history_files::Archive archive(directory.path / "history");
     history_files::TableStore tables(directory.path / "tables");
-    data::v1::HistoryCoverageQuery query;
+    data::proto::HistoryCoverageQuery query;
     *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({sparse, filled}));
     const auto result = data::history_coverage(archive, tables, query);
     // One row for each minute version.
@@ -3642,7 +3647,7 @@ TEST(NamedDatasets, CoverageRejectsChangedManifestEvenWhenChunksAreValid)
     stream.close();
     replace_file_durably(manifest_path, original + "\n");
     history_files::TableStore tables(directory.path / "tables");
-    data::v1::HistoryCoverageQuery query;
+    data::proto::HistoryCoverageQuery query;
     *query.mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
     EXPECT_THROW(data::history_coverage(archive, tables, query), std::invalid_argument);
 }
@@ -3657,7 +3662,7 @@ TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement)
         {"2026-09-23", "2026-09-25"},
         {"2026-09-25"});
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
     *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
     request.set_contract("SHFE/rb/2026-10");
@@ -3702,7 +3707,7 @@ TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItR
                     .revision.snapshot;
     }
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
     *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
     request.set_contract("SHFE/rb/2026-10");
@@ -3740,7 +3745,7 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
             {"2026-09-24", 3012, 500},
             {"2026-09-25", 3030, 520, test::DailyTrade{3015, 3040, 3010, 3035, 800}}});
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
     request.set_contract("SHFE/rb/2026-10");
     // The table does not bound the days as an archive version does.
@@ -3804,7 +3809,7 @@ TEST(NamedDatasets, AMultiplierTheTurnoverContradictsIsRefused)
             {},
             lot);
         data::Store store(directory.path, "historical-data", "task");
-        data::v1::BarDatasetRequest request;
+        data::proto::BarDatasetRequest request;
         *request.mutable_daily() = protocol::encode_daily_table(table);
         request.set_contract("SHFE/cu/2026-10");
         request.set_begin_day("2026-09-23");
@@ -3853,14 +3858,14 @@ TEST(NamedDatasets, EachDayTakesThePriceIncrementItsPricesShow)
     const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
     data::Store store(directory.path, "historical-data", "task");
     const auto read = [&](std::size_t first, std::size_t last) {
-        data::v1::BarDatasetRequest request;
+        data::proto::BarDatasetRequest request;
         *request.mutable_daily() = protocol::encode_daily_table(table);
         request.set_contract("SHFE/rb/2026-10");
         request.set_begin_day(days[first]);
         request.set_end_day(days[last]);
         return data::resolve_bar_dataset(store.tables(), store.sources(request));
     };
-    const auto changes = [](const data::v1::BarDataset& dataset) {
+    const auto changes = [](const data::proto::BarDataset& dataset) {
         std::vector<std::pair<std::string, std::string>> result;
         for (const auto& change : dataset.price_increment_changes())
             result.emplace_back(
@@ -3891,7 +3896,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays)
         {"2026-09-24"},
         {"2026-09-23", "2026-09-24", "2026-09-25"});
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
     *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
     request.set_begin_day("2026-09-23");
@@ -3899,9 +3904,9 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays)
     request.set_contract("SHFE/rb/2026-10");
     const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
     EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
-    task::v1::Task calculation;
+    task::proto::Task calculation;
     *factor_bars(*calculation.mutable_factor()) = dataset;
-    calculation.mutable_factor()->set_factor(protocol::v1::PRICE_MOMENTUM);
+    calculation.mutable_factor()->set_factor(protocol::proto::PRICE_MOMENTUM);
     calculation.mutable_factor()->set_dataset_revision(dataset.revision());
     calculation.mutable_factor()->add_lookbacks(1);
     calculation.mutable_factor()->set_horizon(1);
@@ -3921,7 +3926,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays)
 
 namespace {
 
-data::v1::BarDatasetRequest composed_request(const std::vector<Json>& selections)
+data::proto::BarDatasetRequest composed_request(const std::vector<Json>& selections)
 {
     std::set<std::string> ids;
     for (const auto& selected : selections)
@@ -3971,7 +3976,7 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions)
         protocol::encode_bar_dataset_request(json).SerializeAsString(),
         request.SerializeAsString());
     history_files::Archive archive(directory.path / "history");
-    data::v1::NamedDataset saved;
+    data::proto::NamedDataset saved;
     saved.set_name("composed");
     *saved.add_selections() = request;
     saved.add_content_revisions(result.revision());
@@ -4177,7 +4182,7 @@ TEST_F(TaskProcess, AuthorizedDownloadPersistsExactReviewedRange)
     start_data();
     start();
     protocol::DataClient data(endpoint + ".data", "historical-data");
-    data::v1::DataRequest preview;
+    data::proto::DataRequest preview;
     *preview.mutable_update_plan() = protocol::encode_history_update_query(
         {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
             {"daily", nullptr},
@@ -4187,7 +4192,7 @@ TEST_F(TaskProcess, AuthorizedDownloadPersistsExactReviewedRange)
     const auto plan = data.call(preview).update_plan();
     task_wire::TaskRequest submit;
     submit.mutable_submit()->set_id("incremental");
-    data::v1::DataRequest capture;
+    data::proto::DataRequest capture;
     auto* authorization = capture.mutable_authorize_download();
     authorization->set_task_instance("task");
     authorization->set_task_id("incremental");
@@ -4230,8 +4235,8 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart)
         backtest.set_dataset_revision(protocol::dataset_revision(backtest.paper()));
         tasks::submit(store, "usage-backtest", backtest);
         store.commit(store.cancel("usage-backtest")).task();
-        factor::v1::FactorInput factor;
-        factor.set_factor(protocol::v1::PRICE_MOMENTUM);
+        factor::proto::FactorInput factor;
+        factor.set_factor(protocol::proto::PRICE_MOMENTUM);
         *factor_bars(factor) = data;
         factor.set_dataset_revision(data.revision());
         factor.add_lookbacks(1);
@@ -4249,9 +4254,9 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart)
     for (const auto& row : first.references()) {
         kinds.insert(row.kind());
         ASSERT_EQ(row.roles_size(), 1);
-        EXPECT_EQ(row.roles(0), data::v1::HISTORY_MARKET);
+        EXPECT_EQ(row.roles(0), data::proto::HISTORY_MARKET);
     }
-    EXPECT_EQ(kinds, (std::set<int>{data::v1::HISTORY_BACKTEST, data::v1::HISTORY_FACTOR}));
+    EXPECT_EQ(kinds, (std::set<int>{data::proto::HISTORY_BACKTEST, data::proto::HISTORY_FACTOR}));
     EXPECT_EQ(protocol::decode_history_usage(first).at("references").size(), 2);
     service.reset();
     start();
@@ -4284,8 +4289,8 @@ TEST_F(TaskProcess, HistoryUsageFindsImportedTaskWithoutLocalArchiveCopy)
     const auto result = call(query).history_usage();
     ASSERT_EQ(result.references_size(), 1);
     EXPECT_EQ(result.references(0).id(), "external-origin");
-    EXPECT_EQ(result.references(0).kind(), data::v1::HISTORY_BACKTEST);
-    EXPECT_EQ(result.references(0).roles(0), data::v1::HISTORY_MARKET);
+    EXPECT_EQ(result.references(0).kind(), data::proto::HISTORY_BACKTEST);
+    EXPECT_EQ(result.references(0).roles(0), data::proto::HISTORY_MARKET);
     service.reset();
     start();
     EXPECT_EQ(call(query).history_usage().SerializeAsString(), result.SerializeAsString());
@@ -4293,22 +4298,22 @@ TEST_F(TaskProcess, HistoryUsageFindsImportedTaskWithoutLocalArchiveCopy)
 
 TEST(HistoryUsage, RejectsUnknownKindsDuplicateReferencesAndInvalidRoles)
 {
-    data::v1::HistoryUsage usage;
+    data::proto::HistoryUsage usage;
     usage.set_dataset_id(std::string(64, 'a'));
     EXPECT_TRUE(protocol::decode_history_usage(usage).at("references").empty());
     auto* row = usage.add_references();
     row->set_id("consumer");
-    row->set_kind(data::v1::HISTORY_BACKTEST);
-    row->add_roles(data::v1::HISTORY_MARKET);
+    row->set_kind(data::proto::HISTORY_BACKTEST);
+    row->add_roles(data::proto::HISTORY_MARKET);
     EXPECT_EQ(protocol::decode_history_usage(usage).at("references").at(0).at("roles").size(), 1);
     const auto valid = usage;
     *usage.add_references() = usage.references(0);
     EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
     usage = valid;
-    usage.mutable_references(0)->set_kind(data::v1::HISTORY_REFERENCE_UNSPECIFIED);
+    usage.mutable_references(0)->set_kind(data::proto::HISTORY_REFERENCE_UNSPECIFIED);
     EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
     usage = valid;
-    usage.mutable_references(0)->add_roles(data::v1::HISTORY_OUTPUT);
+    usage.mutable_references(0)->add_roles(data::proto::HISTORY_OUTPUT);
     EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
 }
 
@@ -4362,7 +4367,7 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
         sqlite::Database db(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
         sqlite::Database::Statement state(db, "SELECT state FROM tasks WHERE id='running'");
         ASSERT_TRUE(state.step());
-        EXPECT_EQ(state.integer(0), task::v1::RUNNING);
+        EXPECT_EQ(state.integer(0), task::proto::RUNNING);
     }
     const auto lock = directory.path / "manager.lock";
     std::filesystem::remove(lock);
@@ -4372,6 +4377,10 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
             tasks::Identity{"task", "historical-data"},
             seeded.at("source_dataset_ids")[0]),
         std::exception);
+    EXPECT_FALSE(std::filesystem::exists(lock));
+    EXPECT_THROW(
+        tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
+        std::runtime_error);
     EXPECT_FALSE(std::filesystem::exists(lock));
     EXPECT_THROW(
         tasks::Store::inspect_history_usage(
@@ -4521,8 +4530,8 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
     const auto source = data::resolve_bar_dataset(
         data_store.tables(),
         data_store.sources(composed_request({selection})));
-    factor::v1::FactorInput spec;
-    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor::proto::FactorInput spec;
+    spec.set_factor(protocol::proto::PRICE_MOMENTUM);
     *factor_bars(spec) = source;
     spec.set_dataset_revision(source.revision());
     spec.add_lookbacks(1);
@@ -4547,7 +4556,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
         EXPECT_NO_THROW(protocol::decode_task(page.tasks(199)));
         original_hash = sha256_file(directory.path / "experiment-0/results/1.pb");
         auto usage = store.prepare_history_usage(dataset_id);
-        EXPECT_EQ(tasks::submit(store, "experiment-0", spec).state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(tasks::submit(store, "experiment-0", spec).state(), task::proto::SUCCEEDED);
         tasks::submit(store, "retry-original", spec);
         store.commit(store.fail(
             "retry-original",
@@ -4559,7 +4568,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
             auto reading = std::async(std::launch::async, [&] {
                 usage.load_page();
             });
-            EXPECT_EQ(store.describe("retry-original").state(), task::v1::FAILED);
+            EXPECT_EQ(store.describe("retry-original").state(), task::proto::FAILED);
             reading.get();
         }
         EXPECT_EQ(pages, 6U);
@@ -4609,8 +4618,8 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
 TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
 {
     TaskDirectory directory;
-    factor::v1::FactorInput spec;
-    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor::proto::FactorInput spec;
+    spec.set_factor(protocol::proto::PRICE_MOMENTUM);
     *factor_bars(spec) = input().paper().contracts(0).dataset();
     auto* data = factor_bars(spec);
     const auto first = data->bars(0);
@@ -4631,7 +4640,7 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
     EXPECT_EQ(store.list().capacity().active_used(), 1000);
     EXPECT_THROW(tasks::submit(store, "next", spec), std::invalid_argument);
     EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
-    EXPECT_EQ(store.commit(store.cancel("queued-0")).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.commit(store.cancel("queued-0")).task().state(), task::proto::CANCELLED);
     EXPECT_EQ(store.list().capacity().active_used(), 999);
     auto pending = store.submission("next", spec);
     store.admit_submission(pending);
@@ -4642,7 +4651,7 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
     EXPECT_EQ(store.commit(store.register_submission(pending)).task().submission_sequence(), 1001);
     EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
     EXPECT_THROW(store.commit(store.retry("queued-0")).task(), std::invalid_argument);
-    EXPECT_EQ(store.describe("queued-0").state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.describe("queued-0").state(), task::proto::CANCELLED);
     store.commit(store.cancel("next")).task();
     EXPECT_EQ(store.commit(store.retry("queued-0")).task().submission_sequence(), 1);
     EXPECT_EQ(store.list().capacity().retained_tasks(), 1001);
@@ -4675,7 +4684,7 @@ TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores)
         store.commit(tasks::finish(store, "compared", token, result));
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.get("compared").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(restored.get("compared").state(), task::proto::SUCCEEDED);
 }
 
 TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers)
@@ -4714,7 +4723,7 @@ TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers)
         store.commit(tasks::finish(store, "rolled", token, result));
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.get("rolled").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(restored.get("rolled").state(), task::proto::SUCCEEDED);
 }
 
 TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitRetry)
@@ -4740,14 +4749,14 @@ TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitR
         EXPECT_TRUE(store.get("unknown-failure").error_code().empty());
         EXPECT_EQ(store.list().tasks(0).error_code(), "unavailable");
         const auto queued = store.commit(store.retry("typed-failure")).task();
-        EXPECT_EQ(queued.state(), task::v1::QUEUED);
+        EXPECT_EQ(queued.state(), task::proto::QUEUED);
         EXPECT_TRUE(queued.error_code().empty());
         EXPECT_EQ(store.get("typed-failure").input().SerializeAsString(), original);
     }
     {
         tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
         EXPECT_TRUE(store.get("typed-failure").error_code().empty());
-        EXPECT_EQ(store.get("typed-failure").state(), task::v1::QUEUED);
+        EXPECT_EQ(store.get("typed-failure").state(), task::proto::QUEUED);
     }
 }
 
@@ -4782,9 +4791,9 @@ TEST(SlippageSensitivity, AVariantPreservesEveryOtherFixedInputByte)
 
 namespace {
 
-data::v1::DownloadAuthorization refresh_authorization(const std::string& id)
+data::proto::DownloadAuthorization refresh_authorization(const std::string& id)
 {
-    data::v1::DownloadAuthorization authorization;
+    data::proto::DownloadAuthorization authorization;
     authorization.set_id(std::string(64, 'a'));
     authorization.set_provider_artifact(std::string(64, 'b'));
     authorization.set_data_instance("historical-data");
@@ -4817,7 +4826,7 @@ TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
         tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
         tasks::submit(store, authorization);
         const auto token = store.commit(store.claim("completed-refresh")).token();
-        task::v1::TaskFinish finish;
+        task::proto::TaskFinish finish;
         finish.set_id("completed-refresh");
         finish.set_token(token);
         finish.mutable_table_update()->set_unpublished(1);
@@ -4843,7 +4852,7 @@ TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
             authorization.table_update().refresh().SerializeAsString());
         const auto retried = store.commit(store.retry("failed-refresh")).task();
         EXPECT_TRUE(retried.has_table_refresh());
-        EXPECT_EQ(retried.state(), task::v1::QUEUED);
+        EXPECT_EQ(retried.state(), task::proto::QUEUED);
     }
 }
 
@@ -4857,7 +4866,7 @@ TEST_F(TaskProcess, PublicClientsCannotClaimOrReportWorkerExecution)
     }
     lease_seconds = 30;
     start(); // No Agent or Data is running.
-    const auto refused = [&](const task::v1::TaskRequest& request) {
+    const auto refused = [&](const task::proto::TaskRequest& request) {
         try {
             call(request);
             ADD_FAILURE() << "public execution was accepted";
@@ -4865,10 +4874,10 @@ TEST_F(TaskProcess, PublicClientsCannotClaimOrReportWorkerExecution)
             EXPECT_STREQ(error.what(), "task execution requires the private worker channel");
         }
     };
-    task::v1::TaskRequest request;
+    task::proto::TaskRequest request;
     for (const auto* id : {"outside-a", "outside-b", "outside-c"}) {
         request.mutable_claim()->set_id(id);
-        request.mutable_claim()->set_kind(task::v1::BACKTEST);
+        request.mutable_claim()->set_kind(task::proto::BACKTEST);
         refused(request);
     }
     const auto attempt = call(request, endpoint + ".worker").attempt();
@@ -4892,18 +4901,18 @@ TEST_F(TaskProcess, PublicClientsCannotClaimOrReportWorkerExecution)
     failure->set_error_code("operation_failed");
     refused(request);
     request.mutable_cancel()->set_id(id);
-    EXPECT_EQ(call(request).task().state(), task::v1::CANCEL_REQUESTED);
+    EXPECT_EQ(call(request).task().state(), task::proto::CANCEL_REQUESTED);
     auto* ack = request.mutable_cancel_ack();
     ack->set_id(id);
     ack->set_token(attempt.token());
     refused(request);
-    EXPECT_EQ(call(request, endpoint + ".worker").task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(call(request, endpoint + ".worker").task().state(), task::proto::CANCELLED);
     request.mutable_list()->set_limit(200);
     const auto listed = call(request).tasks();
     ASSERT_EQ(listed.tasks_size(), 3);
     for (const auto& task : listed.tasks())
         if (task.id() != id) {
-            EXPECT_EQ(task.state(), task::v1::QUEUED);
+            EXPECT_EQ(task.state(), task::proto::QUEUED);
             EXPECT_EQ(task.attempt(), 0U);
         }
 }
@@ -4920,7 +4929,7 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
         tasks::TaskHost host(
             {directory.path, "task", "historical-data", "/unused-review-data.sock"});
         host.open();
-        const auto operation = [&](task::v1::TaskRequest request) {
+        const auto operation = [&](task::proto::TaskRequest request) {
             request.set_version(1);
             request.set_service_id("task");
             request.set_correlation_id(unique_process_id());
@@ -4933,12 +4942,12 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
         const auto initial_deadline = std::chrono::steady_clock::now() + 5s;
         bool initialized = false;
         while (!initialized && std::chrono::steady_clock::now() < initial_deadline) {
-            task::v1::TaskRequest request;
+            task::proto::TaskRequest request;
             request.mutable_heartbeat();
             auto health = operation(request);
             auto answer = poll(health);
             if (answer) {
-                task::v1::TaskResponse response;
+                task::proto::TaskResponse response;
                 response.ParseFromString(answer->payload);
                 initialized = response.health().initialized();
             }
@@ -4955,7 +4964,7 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
         } release;
 
         sqlite::hold_commits_for_testing(true);
-        task::v1::TaskRequest cancel_request;
+        task::proto::TaskRequest cancel_request;
         cancel_request.mutable_cancel()->set_id("queued");
         auto cancel = operation(cancel_request);
         const auto hold_deadline = std::chrono::steady_clock::now() + 3s;
@@ -4965,7 +4974,7 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
             std::this_thread::sleep_for(5ms);
         }
         const bool held = sqlite::commit_waiting_for_testing();
-        task::v1::TaskRequest list_request;
+        task::proto::TaskRequest list_request;
         list_request.mutable_list()->set_limit(200);
         auto list = operation(list_request);
         std::optional<service::RpcHost::Message> answer;
@@ -4989,17 +4998,17 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
         EXPECT_TRUE(held);
         EXPECT_TRUE(timed_out_without_journal);
         ASSERT_TRUE(answer.has_value());
-        task::v1::TaskResponse response;
+        task::proto::TaskResponse response;
         ASSERT_TRUE(response.ParseFromString(answer->payload));
         EXPECT_EQ(response.error().code(), "unavailable");
         EXPECT_EQ(response.error().message(), "task request admission timed out");
         ASSERT_TRUE(cancel_answer);
         ASSERT_TRUE(response.ParseFromString(cancel_answer->payload));
         EXPECT_FALSE(response.has_error());
-        EXPECT_EQ(response.task().state(), task::v1::CANCELLED);
+        EXPECT_EQ(response.task().state(), task::proto::CANCELLED);
     }
     tasks::Store recovered(directory.path, {"task", "historical-data"});
-    EXPECT_EQ(recovered.describe("queued").state(), task::v1::CANCELLED);
+    EXPECT_EQ(recovered.describe("queued").state(), task::proto::CANCELLED);
     EXPECT_EQ(recovered.describe("queued").attempt(), 0U);
     EXPECT_EQ(recovered.list().tasks_size(), 1);
 }
@@ -5016,7 +5025,7 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         auto& store = *owned_store;
         tasks::submit(store, authorization);
         const auto token = store.commit(store.claim("refresh")).token();
-        task::v1::TaskFinish finish;
+        task::proto::TaskFinish finish;
         finish.set_id("refresh");
         finish.set_token(token);
         auto& result = *finish.mutable_table_update();
@@ -5073,7 +5082,7 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         wrong.mutable_table_update()->clear_refreshed_revision();
         wrong.mutable_table_update()->clear_refresh_observation();
         EXPECT_THROW(tasks::finish(store, wrong), std::invalid_argument);
-        EXPECT_EQ(store.describe("refresh").state(), task::v1::RUNNING);
+        EXPECT_EQ(store.describe("refresh").state(), task::proto::RUNNING);
         EXPECT_FALSE(std::filesystem::exists(directory.path / "refresh/results/1.pb"));
         store.commit(tasks::finish(store, finish));
         EXPECT_EQ(
@@ -5089,7 +5098,7 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         replace_file_durably(directory.path / "refresh/results/1.pb", raw);
         {
             sqlite::Database db(directory.path / "tasks.sqlite");
-            task::v1::StoredTaskRecord record;
+            task::proto::StoredTaskRecord record;
             Json event;
             {
                 sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='refresh'");
@@ -5113,7 +5122,7 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
                 .step();
         }
         tasks::Store recovered(directory.path, {"task", "historical-data"});
-        EXPECT_EQ(recovered.describe("refresh").state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(recovered.describe("refresh").state(), task::proto::SUCCEEDED);
         EXPECT_THROW(tasks::verified_result(recovered, "refresh"), std::invalid_argument);
         EXPECT_EQ(sha256_file(directory.path / "refresh/results/1.pb"), sha256_bytes(raw));
     }
@@ -5121,7 +5130,7 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
 
 namespace {
 
-backtest::v1::BacktestInput settlement_margin_input()
+backtest::proto::BacktestInput settlement_margin_input()
 {
     std::vector<MarketBar> bars;
     for (int i = 0; i < 4; ++i) {
@@ -5237,7 +5246,7 @@ TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndWorkerProjection)
     TaskDirectory directory;
     const auto snapshot = test::seed_shfe_margins(directory.path);
     history_files::TableStore tables(directory.path / "tables");
-    data::v1::HistoricalMarginQuery query;
+    data::proto::HistoricalMarginQuery query;
     query.set_snapshot(snapshot);
     query.set_contract(shfe::contract);
     std::vector<MarketBar> bars;

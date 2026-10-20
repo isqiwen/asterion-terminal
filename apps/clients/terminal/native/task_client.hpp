@@ -21,13 +21,13 @@ public:
     [[nodiscard]] std::future<void> page(unsigned before_sequence);
     ServiceEndpoint endpoint() const;
     [[nodiscard]] std::future<void>
-    submit(const std::string&, const backtest::v1::BacktestRequest&);
+    submit(const std::string&, const backtest::proto::BacktestRequest&);
     [[nodiscard]] std::future<void> submit(
         const std::string&,
-        const factor::v1::FactorRequest&,
-        const task::v1::TaskDerivation& = {});
+        const factor::proto::FactorRequest&,
+        const task::proto::TaskDerivation& = {});
     [[nodiscard]] std::future<void>
-    reuse_backtest(const std::string&, const backtest::v1::BacktestReuse&);
+    reuse_backtest(const std::string&, const backtest::proto::BacktestReuse&);
     [[nodiscard]] std::future<void>
     submit_download(const std::string& id, const std::string& authorization);
     [[nodiscard]] std::future<Json> history_usage(const std::string&);
@@ -37,7 +37,7 @@ public:
         const std::string&,
         std::chrono::steady_clock::time_point deadline);
     [[nodiscard]] std::future<nlohmann::json> metadata(const std::string&);
-    [[nodiscard]] std::future<void> edit_metadata(const task::v1::TaskMetadataEdit&);
+    [[nodiscard]] std::future<void> edit_metadata(const task::proto::TaskMetadataEdit&);
     [[nodiscard]] std::future<void> action(const std::string& id, const std::string& action);
     [[nodiscard]] std::future<Json> result(const std::string& id);
 

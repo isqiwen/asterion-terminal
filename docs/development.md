@@ -32,11 +32,11 @@ pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进�
 
 `pnpm prepare:analytics` 使用 `plugins/tools/analytics/uv.lock` 显式准备 CPython 3.12.12、QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 及冻结构建工具，再使用 Conan 锁定的 protoc 生成 Python IPC 类型。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。虚拟环境和冻结中间文件只写 `build/`，不会进入服务源码指纹。
 
-NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。最终 `build/electron-resources/analytics/` 包含解释器、库、许可证及产物清单；安装版无需系统 Python，也不在启动或分析时下载依赖。Linux 分析资源约 650 MiB，压缩前大小；Polars 使用兼容 CPU runtime，冻结产物排除默认 AVX2 runtime。CVXPY 通过 PyInstaller hook 保留其启动时读取的包目录。
+NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。最终 `build/electron-resources/analytics/` 包含解释器、库、许可证及平台/解释器信息；安装版无需系统 Python，也不在启动或分析时下载依赖。Linux 分析资源约 650 MiB，压缩前大小；Polars 使用兼容 CPU runtime，冻结产物排除默认 AVX2 runtime。CVXPY 通过 PyInstaller hook 保留其启动时读取的包目录。
 
 准备阶段同时生成仅含 Matplotlib 自带字体的相对路径缓存。冻结助手将它复制到 PyInstaller 为本次进程建立的临时目录，避免每次分析都扫描系统字体；不携带构建机的用户字体或绝对路径。macOS 首次加载冻结动态库的启动期限为 120 秒，连接建立后的分析期限仍为 30 秒。
 
-`desktop`、`desktop:check`、`desktop:build` 验证该目录的源码摘要、平台与文件摘要；缺失或过期时重新执行显式准备命令。Electron 与开发桥接都指向同一资源目录中的 `asterion-analytics`。打包时作为独立桌面资源携带，远程 Linux 服务包不携带 Python 助手。macOS 签名会改变二进制字节，安装包验证结合资源集合、源码身份与应用完整签名；本地未签名资源仍逐文件核对摘要。
+`desktop`、`desktop:check`、`desktop:build` 只检查分析运行时的平台与可执行入口，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python依赖、analytics Protobuf或冻结打包逻辑后，显式运行 `pnpm prepare:analytics` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都指向同一资源目录中的 `asterion-analytics`。打包时作为独立桌面资源携带，CI显式准备；远程 Linux 服务包不携带 Python 助手，也不把其Python源码纳入服务源码指纹。macOS安装包继续核验应用完整签名。
 
 `ctest --test-dir build/Debug -R '^(QuantStats|Portfolio)\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 
@@ -149,6 +149,9 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 - `desktop:build` 和隔离验收打包 `package-test` 要求 `build/linux-bundles/asterion-services-linux-x86_64.zip` 与当前源码指纹一致。
 - macOS 与 Linux 桌面 CI 下载当前构建的服务包后，显式执行 `python scripts/desktop/remote_resources.py stage` 校验并准备远程资源；失败即停止该作业。
 - `pnpm desktop` 在不一致时只警告，本次开发会话中远程 Linux 部署不可用。
+
+远程资源暂存和发行验证检查整套文件；运行时获取远程程序或导出初始化脚本，只校验所选
+文件以及清单的版本、源码、平台和成员集合，避免每获取一个程序就重复读取整套服务包。
 
 本机检查通过不代表远程部署或发行验收通过。服务包通过下方独立任务显式重建，日常检查不自动触发 Linux 编译。
 

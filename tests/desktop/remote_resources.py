@@ -25,6 +25,8 @@ with tempfile.TemporaryDirectory() as folder:
  copy=Path(folder)/'copy';shutil.copytree(root,copy);assert fingerprint(copy)==before
  ui=root/'apps/clients/terminal/src/view.tsx';ui.parent.mkdir(parents=True);ui.write_text('client UI')
  assert fingerprint(root)==before
+ analytics=root/'plugins/tools/analytics/report.py';analytics.parent.mkdir(parents=True);analytics.write_text('desktop analysis')
+ assert fingerprint(root)==before
  protocol.write_text('schema 2');assert fingerprint(root)!=before
  protocol.write_text('schema 1');assert fingerprint(root)==before
  extra=root/'protocol/extra.proto';extra.write_text('new schema');assert fingerprint(root)!=before
@@ -61,6 +63,17 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   try: resources.validate(old,payload,arch)
   except ValueError: pass
   else: raise AssertionError('same-version stale source accepted')
+  with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip','w') as archive:
+   archive.writestr('manifest.json',json.dumps(old))
+   for name,data in payload.items(): archive.writestr(name,data)
+  rejected=subprocess.run(
+   [sys.executable,str(source/'scripts/desktop/remote_resources.py'),'stage',
+    '--archives',str(archives),'--directory',str(target)],
+   capture_output=True,text=True)
+  assert rejected.returncode==1
+  assert 'source differs from this desktop source' in rejected.stderr
+  assert 'Traceback' not in rejected.stderr
+  resources.verify(target)
   old=dict(manifest);old.pop('source_sha256')
   try: resources.validate(old,payload,arch)
   except ValueError: pass
@@ -85,19 +98,21 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   manifest=target/'x86_64/manifest.json';original=manifest.read_text(encoding="utf-8");data=json.loads(original)
   data['product_version']='wrong';manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
   data=json.loads(original);data['source_sha256']='0'*64;manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
-  binary=target/'x86_64/asterion-node-agent'; data=binary.read_bytes();binary.write_bytes(data+b'corruption');assert 'error' in call('')
+  # Exporting the initializer does not scan unrelated service programs.
+  binary=target/'x86_64/asterion-node-agent'; data=binary.read_bytes();binary.write_bytes(data+b'corruption')
+  assert call('')['result']['initializer']['content']==expected
   try: resources.verify(target)
   except ValueError: pass
   else: raise AssertionError('checksum mismatch accepted')
   binary.write_bytes(data)
-  # Data and task executables are mandatory and independently integrity checked.
-  for name in ('asterion-data-service', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'plugins/asterion-tushare.so', 'plugins/asterion-shfe.so', 'plugins/asterion-order-limits.so'):
-   payload=target/'x86_64'/name; original_payload=payload.read_bytes()
-   payload.unlink()
-   assert 'error' in call(''), name
-   payload.write_bytes(original_payload+b'corrupt')
-   assert 'error' in call(''), name
-   payload.write_bytes(original_payload)
+  # The selected resource must still exist and match its manifest.
+  initializer=target/'x86_64/initialize-linux.py';original_initializer=initializer.read_bytes()
+  initializer.unlink();assert 'error' in call('')
+  initializer.write_bytes(original_initializer+b'corrupt');assert 'error' in call('')
+  refused_export=root/'refused.py'
+  assert 'error' in call(refused_export)
+  assert not refused_export.exists()
+  initializer.write_bytes(original_initializer)
   assert 'result' in call('')
   # ZIP path traversal is rejected before extraction.
   with zipfile.ZipFile(archives/'evil.zip','w') as archive: archive.writestr('../escape','test')

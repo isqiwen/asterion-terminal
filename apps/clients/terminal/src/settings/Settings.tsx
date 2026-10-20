@@ -191,7 +191,7 @@ export function Settings({
                     ))}
                     {plugins.map(plugin => (
                       <tr key={plugin.id}>
-                        <td>{plugin.workspace.title}</td>
+                        <td>{plugin.workspaces.map(view => view.title).join(" / ")}</td>
                         <td>{t("用户界面")}</td>
                         <td>{t("内置 · 随应用发布")}</td>
                       </tr>

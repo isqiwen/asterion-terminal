@@ -74,9 +74,9 @@ std::vector<std::string> every_day(const char* first, const char* last)
     return days;
 }
 
-data::v1::DownloadAllocation allocation()
+data::proto::DownloadAllocation allocation()
 {
-    data::v1::DownloadAllocation request;
+    data::proto::DownloadAllocation request;
     auto* identity = request.mutable_identity();
     identity->set_data_instance("data-one");
     identity->set_task_instance("tasks-one");
@@ -93,15 +93,15 @@ data::v1::DownloadAllocation allocation()
     return request;
 }
 
-data::v1::DownloadPreparation
-download(const data::v1::DownloadAllocation& request, const std::string& directory)
+data::proto::DownloadPreparation
+download(const data::proto::DownloadAllocation& request, const std::string& directory)
 {
     Minutes provider;
     history_files::download_minutes(
         provider,
         history_files::minute_range(request.minutes()),
         directory);
-    data::v1::DownloadPreparation prepared;
+    data::proto::DownloadPreparation prepared;
     *prepared.mutable_identity() = request.identity();
     auto* record = prepared.mutable_record();
     *record->mutable_minutes() = request.minutes();
@@ -112,7 +112,7 @@ download(const data::v1::DownloadAllocation& request, const std::string& directo
 void await_ready(protocol::DataClient& client)
 {
     using namespace std::chrono_literals;
-    data::v1::DataRequest health;
+    data::proto::DataRequest health;
     health.mutable_heartbeat();
     const auto until = std::chrono::steady_clock::now() + 10s;
     while (!client.call(health).health().initialized()) {
@@ -196,12 +196,12 @@ TEST(DownloadBudget, UncertainPolicyCommitStopsAdmissionsUntilRestart)
 TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement)
 {
     Folder root;
-    data::v1::DownloadAuthorizationRequest request;
+    data::proto::DownloadAuthorizationRequest request;
     request.set_task_instance("tasks-one");
     request.set_task_id("download-one");
     request.set_credential("fixture-private-token");
     *request.mutable_minutes() = allocation().minutes();
-    data::v1::DownloadAuthorization authorization;
+    data::proto::DownloadAuthorization authorization;
     {
         data::Store store(root.path, "data-one", "tasks-one");
         authorization = store.authorize(store.verify_authorization(request));
@@ -239,7 +239,7 @@ TEST(DataAuthorization, FailedDurableCaptureCannotBeAcknowledgedUntilItsBarrierC
 {
     Folder root;
     data::Store store(root.path, "data-one", "tasks-one");
-    data::v1::DownloadAuthorizationRequest request;
+    data::proto::DownloadAuthorizationRequest request;
     request.set_task_instance("tasks-one");
     request.set_task_id("download-one");
     request.set_credential("fixture-private-token");
@@ -279,7 +279,7 @@ TEST(DataService, AllocationAndPublicationSurviveAParentPathAliasWithoutRewritin
     EXPECT_EQ(sha256_file(receipt), digest);
     const auto prepared = download(request, directory);
     const auto accepted = reopened.prepare(reopened.verify_download(prepared));
-    data::v1::DownloadPublication decision;
+    data::proto::DownloadPublication decision;
     *decision.mutable_identity() = request.identity();
     decision.set_candidate_digest(accepted.candidate_digest());
     decision.set_publication_id("publish-one");
@@ -300,8 +300,8 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
 {
     Folder root;
     auto request = allocation();
-    data::v1::DownloadPreparation prepared;
-    data::v1::PreparedDownload accepted;
+    data::proto::DownloadPreparation prepared;
+    data::proto::PreparedDownload accepted;
     {
         data::Store store(root.path, "data-one", "tasks-one");
         const auto directory = test::allocate_download(store, request).directory();
@@ -316,7 +316,7 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
             accepted.SerializeAsString());
         EXPECT_TRUE(store.archive().datasets({}).empty());
     }
-    data::v1::DownloadPublication decision;
+    data::proto::DownloadPublication decision;
     *decision.mutable_identity() = request.identity();
     decision.set_candidate_digest(accepted.candidate_digest());
     decision.set_publication_id("publish-one");
@@ -349,7 +349,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
     using namespace std::chrono_literals;
     Folder root, sockets;
     auto request = allocation();
-    data::v1::PreparedDownload accepted;
+    data::proto::PreparedDownload accepted;
     {
         data::Store store(root.path, "data-one", "tasks-one");
         accepted = store.prepare(store.verify_download(
@@ -390,15 +390,15 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
         silent.push_back(ipc::Channel::connect(endpoint, 1s));
     for (unsigned i = 0; i < 2; ++i)
         silent.push_back(ipc::Channel::connect(worker, 1s));
-    data::v1::DataRequest capture;
+    data::proto::DataRequest capture;
     auto* authorization_request = capture.mutable_authorize_download();
     authorization_request->set_task_instance("tasks-one");
     authorization_request->set_task_id("authorized-download");
     authorization_request->set_credential("fixture-rpc-private-token");
     *authorization_request->mutable_minutes() = request.minutes();
-    data::v1::DataResponse captured;
+    data::proto::DataResponse captured;
     {
-        std::array<data::v1::DataRequest, 2> requests{capture, capture};
+        std::array<data::proto::DataRequest, 2> requests{capture, capture};
         requests[1].mutable_authorize_download()->set_credential("different-fixture-token");
         std::array<ipc::Channel, 2> channels{
             ipc::Channel::connect(endpoint, 1s),
@@ -410,7 +410,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
             requests[i].set_correlation_id(unique_process_id());
             channels[i].send(requests[i].SerializeAsString(), 1s);
         }
-        std::array<data::v1::DataResponse, 2> replies;
+        std::array<data::proto::DataResponse, 2> replies;
         for (unsigned i = 0; i < replies.size(); ++i)
             ASSERT_TRUE(replies[i].ParseFromString(channels[i].receive(5s)));
         ASSERT_NE(replies[0].has_download_authorization(), replies[1].has_download_authorization());
@@ -424,42 +424,42 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
     EXPECT_EQ(
         captured.SerializeAsString().find(authorization_request->credential()),
         std::string::npos);
-    data::v1::DataRequest admission;
+    data::proto::DataRequest admission;
     admission.mutable_download_authorization()->set_id(captured.download_authorization().id());
     EXPECT_THROW(public_client.call(admission), Error);
     EXPECT_EQ(
         coordinator.call(admission).download_authorization().SerializeAsString(),
         captured.download_authorization().SerializeAsString());
-    data::v1::DataRequest credential_request;
+    data::proto::DataRequest credential_request;
     *credential_request.mutable_download_credentials() = request.identity();
     EXPECT_THROW(public_client.call(credential_request), Error);
     EXPECT_EQ(coordinator.call(credential_request).download_credentials().credential(), "fixture");
-    data::v1::DataRequest permit;
+    data::proto::DataRequest permit;
     *permit.mutable_acquire_download_permit() = request.identity();
     EXPECT_THROW(public_client.call(permit), Error);
     EXPECT_THROW(coordinator.call(permit), Error);
-    data::v1::DataRequest budget;
+    data::proto::DataRequest budget;
     budget.mutable_configure_download_budget()->set_source("tushare.ft_mins");
     budget.mutable_configure_download_budget()->set_credential("fixture");
     budget.mutable_configure_download_budget()->set_requests_per_minute(1);
     EXPECT_EQ(public_client.call(budget).download_budget().requests_per_minute(), 1);
     EXPECT_TRUE(coordinator.call(permit).download_permit().granted());
     EXPECT_GT(coordinator.call(permit).download_permit().retry_after_ms(), 0);
-    data::v1::DataRequest publish;
+    data::proto::DataRequest publish;
     auto* decision = publish.mutable_publish_download();
     *decision->mutable_identity() = request.identity();
     decision->set_candidate_digest(accepted.candidate_digest());
     decision->set_publication_id("publish-one");
     EXPECT_THROW(public_client.call(publish), Error);
     EXPECT_TRUE(coordinator.call(publish).has_published_download());
-    data::v1::DataRequest query;
+    data::proto::DataRequest query;
     query.mutable_minute_page()->set_dataset_id(accepted.dataset_id());
     query.mutable_minute_page()->set_limit(10);
     const auto page = public_client.call(query);
     ASSERT_TRUE(page.has_minute_page());
     ASSERT_EQ(page.minute_page().bars_size(), 1);
     EXPECT_EQ(page.minute_page().bars(0).timestamp_ns(), minute);
-    data::v1::DataRequest heartbeat;
+    data::proto::DataRequest heartbeat;
     heartbeat.mutable_heartbeat();
     const auto health = public_client.call(heartbeat).health();
     EXPECT_EQ(health.instance_id(), "data-one");
@@ -507,7 +507,7 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
     auto request = allocation();
     const auto id = request.identity().task_id();
     tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
-    task::v1::TaskFinish finish;
+    task::proto::TaskFinish finish;
     finish.set_id(id);
     finish.set_token(store.commit(store.claim(id)).token());
     const auto candidate = download(request, test::allocate_download(data, request).directory());
@@ -525,11 +525,11 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
     auto completion = store.prepare_finish(finish);
     completion.prepare_payload();
     const auto prepared = data.prepare(data.verify_download(candidate));
-    EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::v1::CANCEL_REQUESTED);
+    EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::proto::CANCEL_REQUESTED);
     EXPECT_FALSE(
         (store.commit(store.prepare_publication(std::move(completion), prepared)).task().state()
-            == asterion::task::v1::PUBLISHING));
-    EXPECT_EQ(store.describe(id).state(), task::v1::CANCELLED);
+            == asterion::task::proto::PUBLISHING));
+    EXPECT_EQ(store.describe(id).state(), task::proto::CANCELLED);
     EXPECT_TRUE(store.pending_publications().empty());
     EXPECT_TRUE(data.archive().datasets({}).empty());
 }
@@ -541,7 +541,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     auto request = allocation();
     const auto id = request.identity().task_id();
     std::string token, dataset_id;
-    data::v1::DownloadPublication decision;
+    data::proto::DownloadPublication decision;
     {
         data::Store data(warehouse.path, "data-one", "tasks-one");
         tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
@@ -554,7 +554,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
             download(request, test::allocate_download(data, request).directory());
         const auto prepared = data.prepare(data.verify_download(candidate));
         dataset_id = prepared.dataset_id();
-        task::v1::TaskFinish finish;
+        task::proto::TaskFinish finish;
         finish.set_id(id);
         finish.set_token(token);
         *finish.mutable_minutes() = candidate.record().minute_result();
@@ -562,9 +562,9 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
         completion.prepare_payload();
         ASSERT_TRUE(
             (store.commit(store.prepare_publication(std::move(completion), prepared)).task().state()
-                == asterion::task::v1::PUBLISHING));
-        EXPECT_EQ(store.describe(id).state(), task::v1::PUBLISHING);
-        EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::v1::PUBLISHING);
+                == asterion::task::proto::PUBLISHING));
+        EXPECT_EQ(store.describe(id).state(), task::proto::PUBLISHING);
+        EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::proto::PUBLISHING);
         EXPECT_THROW(
             store.commit(store.interrupt(id, token, "worker exited")),
             std::invalid_argument);
@@ -602,18 +602,18 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
             throw std::runtime_error("fixture service did not initialize");
     };
     wait_endpoint(task_endpoint, coordinator);
-    auto call = [&](task::v1::TaskRequest request, bool worker = false) {
+    auto call = [&](task::proto::TaskRequest request, bool worker = false) {
         request.set_version(1);
         request.set_service_id("tasks-one");
         request.set_correlation_id(unique_process_id());
         auto channel = ipc::Channel::connect(worker ? task_workers : task_endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
-        task::v1::TaskResponse response;
+        task::proto::TaskResponse response;
         if (!response.ParseFromString(channel.receive(2s)) || response.has_error())
             throw std::runtime_error("task publication fixture request failed");
         return response;
     };
-    task::v1::TaskRequest heartbeat;
+    task::proto::TaskRequest heartbeat;
     heartbeat.mutable_heartbeat();
     const auto ready_deadline = std::chrono::steady_clock::now() + 10s;
     while (!call(heartbeat).health().initialized()) {
@@ -621,14 +621,14 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
         ASSERT_LT(std::chrono::steady_clock::now(), ready_deadline);
         std::this_thread::sleep_for(10ms);
     }
-    task::v1::TaskRequest get;
+    task::proto::TaskRequest get;
     get.mutable_get()->set_id(id);
-    EXPECT_EQ(call(get).task().state(), task::v1::PUBLISHING);
+    EXPECT_EQ(call(get).task().state(), task::proto::PUBLISHING);
     EXPECT_EQ(call(get).task().publication().SerializeAsString(), decision.SerializeAsString());
-    task::v1::TaskRequest cancel;
+    task::proto::TaskRequest cancel;
     cancel.mutable_cancel()->set_id(id);
-    EXPECT_EQ(call(cancel).task().state(), task::v1::PUBLISHING);
-    task::v1::TaskRequest dispatch;
+    EXPECT_EQ(call(cancel).task().state(), task::proto::PUBLISHING);
+    task::proto::TaskRequest dispatch;
     dispatch.mutable_dispatch()->set_launch_slots(2);
     EXPECT_EQ(call(dispatch, true).launches().launches_size(), 0);
     // Data can start later. No claim, heartbeat, redownload, or new decision is sent.
@@ -651,14 +651,14 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
         true);
     wait_endpoint(data_endpoint, *data_process);
     const auto deadline = std::chrono::steady_clock::now() + 10s;
-    while (call(get).task().state() == task::v1::PUBLISHING
+    while (call(get).task().state() == task::proto::PUBLISHING
         && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(20ms);
-    ASSERT_EQ(call(get).task().state(), task::v1::SUCCEEDED);
+    ASSERT_EQ(call(get).task().state(), task::proto::SUCCEEDED);
     ASSERT_EQ(call(dispatch, true).launches().launches_size(), 1);
     ASSERT_EQ(call(get).task().publication().SerializeAsString(), decision.SerializeAsString());
     protocol::DataClient data(data_workers, "data-one");
-    data::v1::DataRequest published;
+    data::proto::DataRequest published;
     *published.mutable_published_download() = decision.identity();
     const auto receipt = data.call(published).published_download();
     EXPECT_EQ(receipt.decision().SerializeAsString(), decision.SerializeAsString());
@@ -667,7 +667,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     // Historical file access belongs to Data. Task still serves its confirmed
     // result evidence while the warehouse process and its files are unavailable.
     fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
-    task::v1::TaskRequest result;
+    task::proto::TaskRequest result;
     result.mutable_result()->set_id(id);
     EXPECT_EQ(call(result).minutes().manifest_sha256(), dataset_id);
 }
@@ -724,31 +724,31 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
         std::this_thread::sleep_for(10ms);
     ASSERT_TRUE(fs::exists(data_endpoint));
     ASSERT_TRUE(fs::exists(task_endpoint));
-    auto call = [&](task::v1::TaskRequest request) {
+    auto call = [&](task::proto::TaskRequest request) {
         request.set_version(1);
         request.set_service_id("tasks-one");
         request.set_correlation_id(unique_process_id());
         auto channel = ipc::Channel::connect(task_endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
-        task::v1::TaskResponse reply;
+        task::proto::TaskResponse reply;
         if (!reply.ParseFromString(channel.receive(5s)) || reply.has_error())
             throw std::runtime_error(reply.DebugString());
         return reply;
     };
     // Daily bars are the table's: the selection names no archive version.
-    data::v1::BarDatasetRequest selection;
+    data::proto::BarDatasetRequest selection;
     selection.set_begin_day("2026-09-01");
     selection.set_end_day("2026-10-10");
     *selection.mutable_daily() = daily;
     selection.set_contract("SHFE/rb/2026-10");
     protocol::DataClient data(data_endpoint, "data-one");
     await_ready(data);
-    data::v1::DataRequest query;
+    data::proto::DataRequest query;
     *query.mutable_bar_dataset() = selection;
     const auto expected = data.call(query).bar_dataset();
     ASSERT_EQ(expected.bars_size(), 40);
 
-    data::v1::NamedDataset saved;
+    data::proto::NamedDataset saved;
     saved.set_name("fixed-inputs");
     *saved.add_selections() = selection;
     saved.add_content_revisions(expected.revision());
@@ -757,7 +757,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
     *query.mutable_save_dataset() = saved;
     ASSERT_EQ(data.call(query).saved_dataset().id(), saved.id());
 
-    task::v1::TaskRequest submit;
+    task::proto::TaskRequest submit;
     submit.mutable_submit()->set_id("backtest");
     auto* backtest = submit.mutable_submit()->mutable_backtest();
     auto* contract = backtest->add_contracts();
@@ -785,15 +785,15 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
         {{"quantity", "1"},
             {"sides", "long"},
             {"rule", {{"kind", "moving_average"}, {"fast", 1}, {"slow", 3}}}});
-    ASSERT_EQ(call(submit).task().kind(), task::v1::BACKTEST);
+    ASSERT_EQ(call(submit).task().kind(), task::proto::BACKTEST);
     submit.mutable_submit()->set_id("factor");
     auto* factor = submit.mutable_submit()->mutable_factor_request();
     *factor->add_series()->mutable_bars() = selection;
-    factor->set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor->set_factor(protocol::proto::PRICE_MOMENTUM);
     factor->add_lookbacks(1);
     factor->set_horizon(1);
     factor->set_full_sample(true);
-    ASSERT_EQ(call(submit).task().kind(), task::v1::FACTOR);
+    ASSERT_EQ(call(submit).task().kind(), task::proto::FACTOR);
 
     // A mismatched executable must not consume the queued factor attempt.
     {
@@ -807,9 +807,9 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
                 "factor"});
         ASSERT_TRUE(wrong.wait(10s));
         EXPECT_NE(wrong.exit_code(), 0);
-        task::v1::TaskRequest get;
+        task::proto::TaskRequest get;
         get.mutable_get()->set_id("factor");
-        EXPECT_EQ(call(get).task().state(), task::v1::QUEUED);
+        EXPECT_EQ(call(get).task().state(), task::proto::QUEUED);
         EXPECT_EQ(call(get).task().attempt(), 0U);
     }
     for (const auto& [program, id] :
@@ -823,7 +823,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
     }
     data_process.reset();
     fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
-    task::v1::TaskRequest get;
+    task::proto::TaskRequest get;
     get.mutable_get()->set_id("backtest");
     EXPECT_EQ(
         call(get).task().input().paper().contracts(0).dataset().SerializeAsString(),
@@ -832,10 +832,10 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
     EXPECT_EQ(
         call(get).task().factor().series(0).bars().SerializeAsString(),
         expected.SerializeAsString());
-    task::v1::TaskRequest result;
+    task::proto::TaskRequest result;
     for (const auto* id : {"backtest", "factor"}) {
         result.mutable_result()->set_id(id);
-        EXPECT_EQ(call(result).result_task().state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(call(result).result_task().state(), task::proto::SUCCEEDED);
     }
 }
 
@@ -848,12 +848,12 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput)
         duration_cast<nanoseconds>(sys_days(year(2026) / January / 1).time_since_epoch()).count();
     Minutes minutes;
     Folder warehouse, sockets;
-    data::v1::DataRequest query;
+    data::proto::DataRequest query;
     auto* selection = query.mutable_bar_dataset();
     selection->set_contract("SHFE/rb/2026-10");
     {
         data::Store store(warehouse.path, "historical-data", "task");
-        data::v1::MinuteDownload request;
+        data::proto::MinuteDownload request;
         request.set_contract_id("SHFE/rb/2026-10");
         request.set_source("tushare.ft_mins");
         request.set_source_instrument("RB2610.SHF");

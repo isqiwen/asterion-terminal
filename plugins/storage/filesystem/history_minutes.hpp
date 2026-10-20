@@ -2,14 +2,16 @@
 #include <asterion/domain/historical_bars.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <filesystem>
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 #include <functional>
 
 namespace asterion::history_files {
 
-HistoricalBarRange minute_range(const data::v1::MinuteDownload&);
-data::v1::MinuteDownloadResult minute_result(const std::filesystem::path&);
-void verify_minute_result(const data::v1::MinuteDownload&, const data::v1::MinuteDownloadResult&);
+HistoricalBarRange minute_range(const data::proto::MinuteDownload&);
+data::proto::MinuteDownloadResult minute_result(const std::filesystem::path&);
+void verify_minute_result(
+    const data::proto::MinuteDownload&,
+    const data::proto::MinuteDownloadResult&);
 
 struct MinutePageWork
 {
@@ -17,10 +19,10 @@ struct MinutePageWork
     unsigned checkpoint_page = 0;
 };
 
-data::v1::MinutePage read_minute_page(
-    const data::v1::MinuteDownload&,
-    const data::v1::MinuteDownloadResult&,
-    const data::v1::MinutePageQuery&,
+data::proto::MinutePage read_minute_page(
+    const data::proto::MinuteDownload&,
+    const data::proto::MinuteDownloadResult&,
+    const data::proto::MinutePageQuery&,
     MinutePageWork* = nullptr);
 using DownloadProgress =
     std::function<void(unsigned completed, unsigned total, std::uint64_t rows)>;
@@ -34,7 +36,7 @@ Json download_minutes(
     DownloadProgress = {});
 // All observed days of a completed download; every segment digest is checked.
 // The service slices this result for presentation; no session dates are inferred.
-data::v1::MinuteEvidence
+data::proto::MinuteEvidence
 minute_evidence(const std::filesystem::path&, const std::string& expected_revision);
 Json inspect_minutes(const std::filesystem::path&);
 // Validates every page/hash, only complete datasets are consumable by task.

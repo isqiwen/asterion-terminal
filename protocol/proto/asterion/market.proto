@@ -1,6 +1,6 @@
 syntax = "proto3";
-import "asterion/v1/node.proto";
-package asterion.market.v1;
+import "asterion/node.proto";
+package asterion.market.proto;
 message Empty {}
 message Instrument {
   string venue = 1;
@@ -63,7 +63,7 @@ message Request {
     ReadEvents events = 16;
     CatalogRequest catalog = 17;
     MinuteRequest minutes = 18;
-    asterion.node.v1.Quiesce quiesce = 19;
+    asterion.node.proto.Quiesce quiesce = 19;
   }
 }
 message DepthLevel {

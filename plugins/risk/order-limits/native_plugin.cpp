@@ -23,7 +23,7 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
         return AST_INVALID;
     *out = nullptr;
     return sdk::boundary([&] {
-        if (!capability || std::string_view(capability) != AST_RISK_V1)
+        if (!capability || std::string_view(capability) != AST_RISK)
             throw AstStatus(AST_UNSUPPORTED);
         if (count != 3)
             throw AstStatus(AST_INVALID);
@@ -133,7 +133,7 @@ AstStatus evaluate(void* self, const AstRiskContext* input, uint32_t* decision) 
     });
 }
 
-const AstRiskV1 risk{sizeof(AstRiskV1), 1, evaluate};
+const AstRisk risk{sizeof(AstRisk), 1, evaluate};
 
 AstStatus query(
     void* self,
@@ -147,15 +147,15 @@ AstStatus query(
     *out = nullptr;
     if (!self || !capability)
         return AST_INVALID;
-    if (std::string_view(capability) != AST_RISK_V1 || version != 1 || size != sizeof(AstRiskV1))
+    if (std::string_view(capability) != AST_RISK || version != 1 || size != sizeof(AstRisk))
         return AST_UNSUPPORTED;
     *out = &risk;
     return AST_OK;
 }
 
-const AstCapability capabilities[] = {{AST_RISK_V1, 1, "risk"}};
-const AstPluginV1 descriptor{
-    sizeof(AstPluginV1),
+const AstCapability capabilities[] = {{AST_RISK, 1, "risk"}};
+const AstPlugin descriptor{
+    sizeof(AstPlugin),
     ASTERION_PLUGIN_ABI_VERSION,
     "asterion.risk.order-limits",
     "1.0.0",
@@ -171,9 +171,8 @@ const AstPluginV1 descriptor{
 
 } // namespace
 
-extern "C" ASTERION_PLUGIN_EXPORT const AstPluginV1*
-asterion_plugin_entry_v1(uint32_t abi, uint32_t size) noexcept
+extern "C" ASTERION_PLUGIN_EXPORT const AstPlugin*
+asterion_plugin_entry(uint32_t abi, uint32_t size) noexcept
 {
-    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPluginV1) ? &descriptor
-                                                                             : nullptr;
+    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPlugin) ? &descriptor : nullptr;
 }

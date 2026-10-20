@@ -1,7 +1,7 @@
 #pragma once
 #include "history_archive.hpp"
 #include "history_tables.hpp"
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 
 namespace asterion::data {
 
@@ -9,10 +9,10 @@ namespace asterion::data {
 // explicit for deterministic validation of completed calendar-day boundaries.
 // A repair's missing days are those the market-wide daily table shows the
 // contract traded on, within the version's days, that the version lacks.
-data::v1::HistoryUpdatePlan history_update_plan(
+data::proto::HistoryUpdatePlan history_update_plan(
     const history_files::Archive&,
     const history_files::TableStore&,
-    const data::v1::HistoryUpdateQuery&,
+    const data::proto::HistoryUpdateQuery&,
     std::int64_t now_ns);
 
 } // namespace asterion::data

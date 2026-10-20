@@ -1,7 +1,7 @@
 #pragma once
 #include "history_tables.hpp"
 #include <asterion/protocol/data.hpp>
-#include <asterion/v1/backtest.pb.h>
+#include <asterion/backtest.pb.h>
 #include <vector>
 
 namespace asterion::data {
@@ -10,8 +10,8 @@ namespace asterion::data {
 // runs outside it; task history is not needed to resolve these versions.
 struct BarDatasetSources
 {
-    data::v1::BarDatasetRequest request;
-    std::vector<data::v1::HistoryRecord> sources;
+    data::proto::BarDatasetRequest request;
+    std::vector<data::proto::HistoryRecord> sources;
 };
 
 // Minute bars come from archive versions: they carry their exchange trading
@@ -34,7 +34,7 @@ struct BarDatasetSources
 // table has today's lot of a contract that has since changed it). Its price
 // increment is that of each bar's day, as price_increments finds it from the
 // product's prices.
-data::v1::BarDataset
+data::proto::BarDataset
 resolve_bar_dataset(const history_files::TableStore&, const BarDatasetSources&);
 
 // Month contracts of one product as its dominant series. The dominant month
@@ -51,11 +51,11 @@ struct DominantSeries
     // and, once it is left, the days to its first bar from the roll day on, at
     // whose open what it holds is closed, and to its next after that, for what
     // that bar's volume did not take.
-    std::vector<data::v1::BarDataset> datasets;
+    std::vector<data::proto::BarDataset> datasets;
     // contract indexes refer to `months`. Its term points compare each day's
     // dominant month with the later month that had the most open interest on
     // the trading day before, at that day's settlements.
-    data::v1::DominantSchedule schedule;
+    data::proto::DominantSchedule schedule;
 };
 
 // Which month is dominant is the daily table's to say: by each month's
@@ -77,6 +77,6 @@ DominantSeries resolve_dominant_series(
 // index them in delivery order. Each dataset is what resolve_bar_dataset
 // reads of that month over the same days.
 DominantSeries
-resolve_product_series(const history_files::TableStore&, const data::v1::ProductBarsRequest&);
+resolve_product_series(const history_files::TableStore&, const data::proto::ProductBarsRequest&);
 
 } // namespace asterion::data

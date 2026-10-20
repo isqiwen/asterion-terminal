@@ -14,7 +14,7 @@ namespace asterion::market_data {
 // share its single SDK executor; only one step per operation can be outstanding.
 class CatalogJob
 {
-    using State = market::v1::CatalogState;
+    using State = market::proto::CatalogState;
 
     struct Operation
     {

@@ -23,7 +23,7 @@ struct Folder
     }
 };
 
-data::v1::HistoryUpdateQuery repair(const Json& seed)
+data::proto::HistoryUpdateQuery repair(const Json& seed)
 {
     return protocol::encode_history_update_query(
         {{"dataset_id", seed.at("source_dataset_ids").at(0)},

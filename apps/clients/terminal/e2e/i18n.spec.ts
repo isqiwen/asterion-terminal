@@ -30,9 +30,17 @@ test("language switches every workspace, preserves preferences and survives relo
   expect((await denied.json()).error).toBeTruthy();
 
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(6);
+  await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(4);
   page = await closeSettingsWindow(page);
-  for (const workspace of ["Watchlist", "Contract", "Market", "Data", "Research", "Trading"]) {
+  for (const workspace of [
+    "Data",
+    "Intelligence",
+    "Analysis",
+    "Strategy",
+    "Backtest",
+    "Evaluation",
+    "Live",
+  ]) {
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: workspace, exact: true })
@@ -54,7 +62,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-workbench.png" });
   await page.reload();
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+    page.locator(".workspace-tabs").getByRole("button", { name: "Data", exact: true }),
   ).toBeVisible();
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
@@ -66,7 +74,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+    page.locator(".module-views").getByRole("button", { name: "自选", exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -91,11 +99,11 @@ test.describe("startup language", () => {
     // With every step passed and nothing to point out, the workbench opens.
     await page.getByRole("button", { name: "RETRY", exact: true }).click();
     await expect(
-      page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+      page.locator(".workspace-tabs").getByRole("button", { name: "Data", exact: true }),
     ).toBeVisible();
     await page.reload();
     await expect(
-      page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+      page.locator(".workspace-tabs").getByRole("button", { name: "Data", exact: true }),
     ).toBeVisible();
   });
 });

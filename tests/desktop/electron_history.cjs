@@ -1,3 +1,4 @@
+const { openView } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { expect } = require("@playwright/test");
@@ -139,7 +140,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
 
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   await nav.getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await openView(page, "history");
   const openMinutes = page
     .locator('[data-task-id="native-minute-fixture"]')
     .getByRole("button", { name: "查看数据", exact: true });
@@ -169,7 +170,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(viewer.getByLabel("开始时间（北京时间）")).toHaveValue("");
   await capture(page, "native-history-viewer");
 
-  await nav.getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   const board = page.locator(".history-market-board");
   await expect(board.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();

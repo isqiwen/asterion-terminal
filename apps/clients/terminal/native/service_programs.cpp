@@ -10,25 +10,25 @@ namespace {
 
 // The same role-to-program mapping is used for initial deployment and program updates.
 template <typename Resolve>
-ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve)
+ServicePrograms resolve_programs(node::proto::ServiceKind kind, Resolve resolve)
 {
     ServicePrograms programs;
     switch (kind) {
-        case node::v1::LIVE_TRADING:
+        case node::proto::LIVE_TRADING:
             programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion-trading", false);
             programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
             break;
-        case node::v1::MARKET_DATA:
+        case node::proto::MARKET_DATA:
             programs.executable =
                 resolve("ASTERION_MARKET_EXECUTABLE", "asterion-market-data", false);
             programs.provider = resolve("ASTERION_CTP_LIBRARY", "ctp-md", true);
             programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
             break;
-        case node::v1::DATA_SERVICE:
+        case node::proto::DATA_SERVICE:
             programs.executable =
                 resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion-data-service", false);
             break;
-        case node::v1::TASK_SERVICE:
+        case node::proto::TASK_SERVICE:
             programs.executable =
                 resolve("ASTERION_TASK_EXECUTABLE", "asterion-task-service", false);
             programs.worker = resolve("ASTERION_BACKTEST_EXECUTABLE", "asterion-backtest", false);
@@ -44,7 +44,7 @@ ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve)
 
 } // namespace
 
-ServicePrograms local_service_programs(node::v1::ServiceKind kind)
+ServicePrograms local_service_programs(node::proto::ServiceKind kind)
 {
     const auto platform = current_platform();
     const auto root = current_executable().parent_path();
@@ -56,7 +56,7 @@ ServicePrograms local_service_programs(node::v1::ServiceKind kind)
     });
 }
 
-ServicePrograms bundled_service_programs(const std::string& arch, node::v1::ServiceKind kind)
+ServicePrograms bundled_service_programs(const std::string& arch, node::proto::ServiceKind kind)
 {
     return resolve_programs(kind, [&](const char*, const char* name, bool library) {
         return bundled_linux_program(arch, std::string(name) + (library ? ".so" : ""));

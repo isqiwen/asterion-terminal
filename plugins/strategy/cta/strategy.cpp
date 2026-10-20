@@ -275,47 +275,47 @@ private:
 } // namespace
 
 std::unique_ptr<Strategy>
-make_strategy(const protocol::v1::Strategy& definition, const Instrument& instrument)
+make_strategy(const protocol::proto::Strategy& definition, const Instrument& instrument)
 {
     instrument.validate();
     protocol::validate_strategy(definition, instrument.quantity_increment);
     const auto quantity = Decimal::from_raw(definition.quantity().units());
     const auto sides = protocol::position_sides(definition.sides());
     switch (definition.rule_case()) {
-        case protocol::v1::Strategy::kMovingAverage:
+        case protocol::proto::Strategy::kMovingAverage:
             return std::make_unique<MovingAverageCross>(
                 quantity,
                 sides,
                 definition.moving_average().fast(),
                 definition.moving_average().slow());
-        case protocol::v1::Strategy::kBreakout:
+        case protocol::proto::Strategy::kBreakout:
             return std::make_unique<ChannelBreakout>(
                 quantity,
                 sides,
                 definition.breakout().entry(),
                 definition.breakout().exit());
-        case protocol::v1::Strategy::kMomentum:
+        case protocol::proto::Strategy::kMomentum:
             return std::make_unique<Momentum>(quantity, sides, definition.momentum().lookback());
-        case protocol::v1::Strategy::kReversion:
+        case protocol::proto::Strategy::kReversion:
             return std::make_unique<BandReversion>(
                 quantity,
                 sides,
                 definition.reversion().window(),
                 Decimal::from_raw(definition.reversion().width().units()));
-        case protocol::v1::Strategy::kCross:
+        case protocol::proto::Strategy::kCross:
             throw std::invalid_argument("a rule over several contracts runs in backtests only");
-        case protocol::v1::Strategy::RULE_NOT_SET:
+        case protocol::proto::Strategy::RULE_NOT_SET:
             break;
     }
     throw std::invalid_argument("unknown strategy rule");
 }
 
-bool CrossSection::defines(const protocol::v1::Strategy& definition)
+bool CrossSection::defines(const protocol::proto::Strategy& definition)
 {
     return definition.has_cross();
 }
 
-CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
+CrossSection::CrossSection(const protocol::proto::Strategy& definition, std::size_t units)
     : factor_(definition.cross().factor()),
       reversed_(definition.cross().reversed()),
       lookback_(definition.cross().lookback()),
@@ -382,13 +382,13 @@ std::optional<std::vector<double>> CrossSection::rank()
     std::vector<double> score;
     for (const auto& bars : bars_)
         switch (factor_) {
-            case protocol::v1::PRICE_MOMENTUM:
+            case protocol::proto::PRICE_MOMENTUM:
                 score.push_back(latest(momentum, bars, &Bar::close, lookback_, lookback_ + 1));
                 break;
-            case protocol::v1::TERM_STRUCTURE:
+            case protocol::proto::TERM_STRUCTURE:
                 score.push_back(latest(average, bars, &Bar::term, lookback_, lookback_));
                 break;
-            case protocol::v1::VOLATILITY:
+            case protocol::proto::VOLATILITY:
                 score.push_back(latest(volatility, bars, &Bar::close, lookback_, lookback_ + 1));
                 break;
             default:

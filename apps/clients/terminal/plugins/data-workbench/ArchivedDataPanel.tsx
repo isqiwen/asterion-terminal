@@ -282,7 +282,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 <button
                   disabled={!online || context.busy}
                   onClick={() =>
-                    context.navigate("workspace.research", {
+                    context.navigate("workspace.backtest", {
                       page: "backtest",
                       params: {
                         source_dataset_id: item.id,

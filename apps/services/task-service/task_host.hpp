@@ -5,7 +5,7 @@
 #include <asterion/kernel/polled_task.hpp>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/thread_pool.hpp>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -84,8 +84,8 @@ private:
         })};
     }
 
-    PolledTask<data::v1::DataResponse> data_call(
-        data::v1::DataRequest request,
+    PolledTask<data::proto::DataResponse> data_call(
+        data::proto::DataRequest request,
         std::chrono::milliseconds timeout,
         std::string parent = {});
     // The I/O owner observes lease expiry even while file, RPC or journal work waits.
@@ -94,13 +94,14 @@ private:
     PolledTask<> publish();
 
     PolledTask<std::string> serve(std::string frame, Lane lane);
-    PolledTask<task::v1::TaskResponse>
+    PolledTask<task::proto::TaskResponse>
     respond(std::string frame, Lane lane, Clock::time_point deadline);
     PolledTask<> handle(Call& call, std::string frame);
     // The task's own pending change has settled and a worker report still holds its lease.
     PolledTask<Clock::time_point>
     ready(const Call& call, Clock::time_point deadline = Clock::time_point::max());
-    PolledTask<data::v1::DataResponse> data_input(const Call& call, data::v1::DataRequest query);
+    PolledTask<data::proto::DataResponse>
+    data_input(const Call& call, data::proto::DataRequest query);
     template <class F>
     PolledTask<Store::Change> submit(const Call& call, F make_input);
     void quiesce(Call& call);

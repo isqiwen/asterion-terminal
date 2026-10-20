@@ -1,7 +1,7 @@
 #include "strategy_host.hpp"
 #include "strategy.hpp"
 #include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/v1/market.pb.h>
+#include <asterion/market.pb.h>
 #include <condition_variable>
 #include <mutex>
 #include <stdexcept>
@@ -19,13 +19,13 @@ constexpr auto silence_limit = 10s;
 struct Stopped
 {};
 
-market::v1::MinuteSeries read(
+market::proto::MinuteSeries read(
     ipc::RpcClient& client,
     const StrategyHost::Definition& definition,
     std::uint64_t sequence,
     const std::stop_token& stop)
 {
-    market::v1::Request request;
+    market::proto::Request request;
     request.set_version(1);
     request.set_service_id(definition.market_service);
     request.set_correlation_id("strategy." + std::to_string(sequence));
@@ -39,7 +39,7 @@ market::v1::MinuteSeries read(
         client.poll(50ms);
     }
     const auto payload = pending.get();
-    market::v1::Response response;
+    market::proto::Response response;
     if (!response.ParseFromString(*payload) || response.version() != 1
         || response.service_id() != definition.market_service
         || response.correlation_id() != request.correlation_id() || !response.has_minutes())
@@ -59,7 +59,7 @@ void run(
     std::int64_t fed = 0, first = 0;
     auto heard = Clock::now();
     for (std::uint64_t sequence = 1; !stop.stop_requested(); ++sequence) {
-        std::optional<market::v1::MinuteSeries> series;
+        std::optional<market::proto::MinuteSeries> series;
         try {
             series = read(client, definition, sequence, stop);
         } catch (const Stopped&) {

@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import type { Snapshot, IntradaySeries } from "../src/bridge/client";
 
@@ -165,10 +166,7 @@ test("isolated one-minute replay keeps archive and observed segments explicit", 
   });
   try {
     await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "市场", exact: true })
-      .click();
+    await openView(page, "market");
     await page.getByRole("button", { name: "rb2610", exact: true }).click();
     const pane = page.locator(".quote-pane").first();
     await pane.getByRole("button", { name: "1分", exact: true }).click();
@@ -187,14 +185,8 @@ test("isolated one-minute replay keeps archive and observed segments explicit", 
     await segments.getByLabel("对照的1分档案").selectOption(versions[1].id);
     await expect(segments).toContainText("标签间隔 2 分钟");
     await expect(segments).toContainText("固定分钟档案版本");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "市场", exact: true })
-      .click();
+    await openView(page, "backtest");
+    await openView(page, "market");
     await expect(segments.getByRole("button", { name: "已存1分档案（固定）" })).toHaveAttribute(
       "aria-pressed",
       "true",

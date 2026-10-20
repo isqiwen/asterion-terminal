@@ -13,7 +13,7 @@
 namespace asterion::market_data {
 
 using namespace std::chrono_literals;
-namespace wire = market::v1;
+namespace wire = market::proto;
 
 namespace {
 

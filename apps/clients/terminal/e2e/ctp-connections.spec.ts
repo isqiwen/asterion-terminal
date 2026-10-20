@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
 
@@ -30,13 +31,13 @@ test("several CTP accounts trade side by side while one supplies market data", a
   const marketBadge = ".settings-badge.accent";
   await expect(first.locator(marketBadge)).toHaveText("用于行情");
 
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const market = page.getByRole("region", { name: "实时期货行情" });
   await expect(market.getByRole("status", { name: "行情来源" })).toContainText(
     "仿真柜台（9999 · 000001）",
   );
-  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await openView(page, "trading");
   const trading = page.getByRole("region", { name: "CTP 交易账户", exact: true });
 
   for (const [name, user] of [

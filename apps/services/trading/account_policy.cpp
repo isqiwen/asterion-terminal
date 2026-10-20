@@ -6,7 +6,7 @@
 
 namespace asterion::trading {
 
-PolicyDefinition PolicyDefinition::from_wire(const protocol::v1::LivePolicy& policy)
+PolicyDefinition PolicyDefinition::from_wire(const protocol::proto::LivePolicy& policy)
 {
     protocol::validate_live_policy(policy);
     PolicyDefinition result;

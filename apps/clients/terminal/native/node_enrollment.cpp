@@ -701,7 +701,7 @@ bool initialized_host(Ssh& ssh)
 {
     return ssh.command(
         "test \"$(uname -s)\" = Linux && test \"$(uname -m)\" = " + quote("x86_64")
-        + " && test \"$(id -un)\" = asterion && test \"$(sudo -n /usr/local/sbin/asterion-host " "--manage check)\" = asterion-host-v2");
+        + " && test \"$(id -un)\" = asterion && test \"$(sudo -n /usr/local/sbin/asterion-host " "--manage check)\" = asterion-host");
 }
 
 } // namespace

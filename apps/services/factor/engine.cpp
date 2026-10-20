@@ -9,7 +9,7 @@ namespace asterion::factor {
 namespace {
 
 void fill(
-    factor::v1::FactorPartition& target,
+    factor::proto::FactorPartition& target,
     const FactorPartition& source,
     const char* name,
     std::size_t offset)
@@ -48,8 +48,8 @@ void fill(Candidates& target, const std::vector<FactorCandidate>& source)
 
 } // namespace
 
-factor::v1::FactorResult run(
-    const factor::v1::FactorInput& input,
+factor::proto::FactorResult run(
+    const factor::proto::FactorInput& input,
     std::stop_token stop,
     const std::function<void(std::size_t, std::size_t)>& progress)
 {
@@ -60,16 +60,16 @@ factor::v1::FactorResult run(
     std::vector<Series> closes(observations.closes.begin(), observations.closes.end());
     // Price momentum and volatility read the closes; the term structure the
     // carry of each observation, averaged over the window.
-    const bool carry = input.factor() == protocol::v1::TERM_STRUCTURE;
+    const bool carry = input.factor() == protocol::proto::TERM_STRUCTURE;
     std::vector<Series> values(observations.terms.begin(), observations.terms.end());
     if (!carry)
         values = closes;
-    const Feature feature = carry                    ? average
-        : input.factor() == protocol::v1::VOLATILITY ? volatility
-                                                     : momentum;
+    const Feature feature = carry                       ? average
+        : input.factor() == protocol::proto::VOLATILITY ? volatility
+                                                        : momentum;
     const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
     const bool search = lookbacks.size() > 1;
-    factor::v1::FactorResult result;
+    factor::proto::FactorResult result;
     result.set_dataset_revision(input.dataset_revision());
     result.set_horizon(input.horizon());
     result.set_input_count(static_cast<unsigned>(observations.order.size()));
@@ -97,7 +97,7 @@ factor::v1::FactorResult run(
                 row->set_trading_day(
                     format_trading_date(std::chrono::sys_days{std::chrono::days{raw.order[i]}}));
                 row->set_reason(
-                    static_cast<factor::v1::MembershipReason>(static_cast<int>(reasons[i]) + 1));
+                    static_cast<factor::proto::MembershipReason>(static_cast<int>(reasons[i]) + 1));
                 const auto found = std::ranges::lower_bound(observations.order, raw.order[i]);
                 if (found != observations.order.end() && *found == raw.order[i])
                     masks[s][static_cast<std::size_t>(found - observations.order.begin())] =

@@ -232,6 +232,7 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive)
 
     using Access = FileLock::Access;
     EXPECT_THROW(FileLock(root, "missing.lock", Access::shared_existing), std::runtime_error);
+    EXPECT_THROW(FileLock(root, "missing.lock", Access::exclusive_existing), std::runtime_error);
     EXPECT_FALSE(std::filesystem::exists(root / "missing.lock"));
     std::filesystem::create_directory(root / "directory.lock");
     EXPECT_THROW(FileLock(root, "directory.lock", Access::shared_existing), std::runtime_error);
@@ -259,9 +260,10 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive)
         EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
         peer(Access::shared, true);
         peer(Access::exclusive, false);
+        peer(Access::exclusive_existing, false);
     }
     {
-        FileLock writer(root, "dataset.lock");
+        FileLock writer(root, "dataset.lock", Access::exclusive_existing);
         EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared_existing), std::runtime_error);
         EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared), std::runtime_error);
         EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);

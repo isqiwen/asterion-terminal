@@ -1,6 +1,6 @@
 #pragma once
 #include "history_tables.hpp"
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 
 namespace asterion::data {
 
@@ -21,28 +21,28 @@ inline constexpr std::string_view calendar_table = "futures.calendar";
 // open. A step needs what the one before stored, and refuses to guess without
 // it: the calendar is planned from the year an exchange listed its first
 // contract, the days from the calendar.
-v1::TableUpdatePlan table_update_plan(
+proto::TableUpdatePlan table_update_plan(
     const history_files::TableStore&,
     const std::vector<TableOffer>& offers,
-    const v1::TableUpdate&,
-    v1::TablePlanStep,
+    const proto::TableUpdate&,
+    proto::TablePlanStep,
     const std::string& today);
-v1::TableRefreshPlan table_refresh_plan(
+proto::TableRefreshPlan table_refresh_plan(
     const history_files::TableStore&,
     const std::vector<TableOffer>&,
-    const v1::TableRefreshQuery&,
+    const proto::TableRefreshQuery&,
     const std::string& artifact,
     const std::string& today);
 // Whether a partition is one this update may deliver.
 bool table_update_covers(
     const std::vector<TableOffer>& offers,
-    const v1::TableUpdate&,
-    const v1::TablePartitionKey&);
-v1::TableCoverage
+    const proto::TableUpdate&,
+    const proto::TablePartitionKey&);
+proto::TableCoverage
 table_coverage(const history_files::TableStore&, const std::vector<TableOffer>& installed);
-v1::TablePage table_page(const history_files::TableStore&, const v1::TablePageQuery&);
-v1::TableRevision encode_table_revision(const history_files::TableRevision&);
-v1::TableRefreshObservation encode_refresh_observation(
+proto::TablePage table_page(const history_files::TableStore&, const proto::TablePageQuery&);
+proto::TableRevision encode_table_revision(const history_files::TableRevision&);
+proto::TableRefreshObservation encode_refresh_observation(
     const history_files::TableRefreshObservation&);
 
 } // namespace asterion::data

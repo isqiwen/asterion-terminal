@@ -16,7 +16,7 @@
 namespace asterion::tasks {
 
 using namespace std::chrono_literals;
-namespace wire = task::v1;
+namespace wire = task::proto;
 
 namespace {
 
@@ -187,8 +187,8 @@ PolledTask<Store::Change> TaskHost::commit(Store::Change change)
     co_return std::move(work->change);
 }
 
-PolledTask<data::v1::DataResponse> TaskHost::data_call(
-    data::v1::DataRequest request,
+PolledTask<data::proto::DataResponse> TaskHost::data_call(
+    data::proto::DataRequest request,
     std::chrono::milliseconds timeout,
     std::string parent)
 {
@@ -199,7 +199,7 @@ PolledTask<data::v1::DataResponse> TaskHost::data_call(
         request.set_correlation_id(next_correlation_id());
     }
     auto bytes = co_await PollFuture{data_.request(request.SerializeAsString(), timeout)};
-    data::v1::DataResponse response;
+    data::proto::DataResponse response;
     co_await file_work([&] {
         response = protocol::decode_data_response(request, *bytes);
     });
@@ -211,7 +211,7 @@ PolledTask<> TaskHost::publish()
     const auto decisions = storage_->pending_publications();
     for (const auto& decision : decisions) {
         try {
-            data::v1::DataRequest request;
+            data::proto::DataRequest request;
             *request.mutable_publish_download() = decision;
             const auto response = co_await data_call(std::move(request), 5s);
             co_await wait_for_store(decision.identity().task_id());
@@ -259,8 +259,8 @@ TaskHost::ready(const Call& call, Clock::time_point deadline)
     co_return observed;
 }
 
-PolledTask<data::v1::DataResponse>
-TaskHost::data_input(const Call& call, data::v1::DataRequest query)
+PolledTask<data::proto::DataResponse>
+TaskHost::data_input(const Call& call, data::proto::DataRequest query)
 {
     call.input_in_time();
     const auto remaining =
@@ -343,7 +343,7 @@ PolledTask<> TaskHost::dispatch(Call& call)
             return task.state() == wire::QUEUED;
         })) {
         try {
-            data::v1::DataRequest heartbeat;
+            data::proto::DataRequest heartbeat;
             heartbeat.mutable_heartbeat();
             const auto reply =
                 co_await data_call(std::move(heartbeat), 1s, call.request.correlation_id());
@@ -366,7 +366,7 @@ PolledTask<> TaskHost::dispatch(Call& call)
 PolledTask<> TaskHost::submit_download(Call& call)
 {
     const auto& p = call.request.submit();
-    data::v1::DataRequest query;
+    data::proto::DataRequest query;
     query.mutable_download_authorization()->set_id(p.download_authorization());
     const auto prepared = co_await data_input(call, std::move(query));
     if (prepared.download_authorization().task_id() != p.id())
@@ -412,36 +412,36 @@ PolledTask<> TaskHost::submit_backtest(Call& call)
     // months of each series, each with what it trades at.
     struct Frozen
     {
-        data::v1::BarDataset dataset;
-        const protocol::v1::CostSchedule* costs;
+        data::proto::BarDataset dataset;
+        const protocol::proto::CostSchedule* costs;
         unsigned slippage;
     };
 
     std::vector<Frozen> datasets;
     std::size_t total_bars = 0;
-    const auto freeze = [&](data::v1::BarDataset dataset,
-                            const protocol::v1::CostSchedule& costs,
+    const auto freeze = [&](data::proto::BarDataset dataset,
+                            const protocol::proto::CostSchedule& costs,
                             unsigned slippage) {
         total_bars += static_cast<std::size_t>(dataset.bars_size());
         if (total_bars > protocol::max_dataset_bars)
             throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
         datasets.push_back({std::move(dataset), &costs, slippage});
     };
-    const auto keep = [&](std::size_t index, data::v1::BarDataset dataset) {
+    const auto keep = [&](std::size_t index, data::proto::BarDataset dataset) {
         const auto& contract = b.contracts(static_cast<int>(index));
         freeze(std::move(dataset), contract.cost_schedule(), contract.slippage_ticks());
     };
     for (std::size_t c = 0; c < in_series.size(); ++c) {
         if (in_series[c])
             continue;
-        data::v1::DataRequest query;
+        data::proto::DataRequest query;
         *query.mutable_bar_dataset() = b.contracts(static_cast<int>(c)).data();
         auto prepared = co_await data_input(call, std::move(query));
         keep(c, std::move(*prepared.mutable_bar_dataset()));
     }
-    std::vector<data::v1::DominantSchedule> schedules;
+    std::vector<data::proto::DominantSchedule> schedules;
     for (const auto& series : b.series()) {
-        data::v1::DataRequest query;
+        data::proto::DataRequest query;
         if (series.has_product())
             *query.mutable_dominant_series()->mutable_product() = series.product().data();
         for (const auto index : series.contracts())
@@ -467,7 +467,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call)
         }
         schedules.push_back(std::move(*resolved.mutable_schedule()));
     }
-    backtest::v1::BacktestInput input;
+    backtest::proto::BacktestInput input;
     auto* paper = input.mutable_paper();
     *paper->mutable_deposit() = b.deposit();
     *paper->mutable_risk() = b.risk();
@@ -485,7 +485,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call)
         if (paper->contracts_size() != 1 || !b.settlement_margins().empty())
             throw std::invalid_argument(
                 "historical margins require one contract and no manual settlement events");
-        data::v1::DataRequest query;
+        data::proto::DataRequest query;
         auto* margins = query.mutable_historical_margins();
         margins->set_snapshot(b.margin_snapshot());
         margins->set_contract(
@@ -511,7 +511,7 @@ PolledTask<> TaskHost::reuse_backtest(Call& call)
 {
     const auto& p = call.request.submit();
     const auto& reuse = p.backtest_reuse();
-    using Choice = backtest::v1::BacktestReuse;
+    using Choice = backtest::proto::BacktestReuse;
     if (p.id() == reuse.source_id())
         throw std::invalid_argument("experiment reuse requires a new task id");
     if ((reuse.choice() != Choice::FIXED && reuse.choice() != Choice::NEW_SNAPSHOT)
@@ -535,7 +535,7 @@ PolledTask<> TaskHost::reuse_backtest(Call& call)
         throw std::invalid_argument("backtest reuse requires a compatible backtest result");
     if (task.result_digest() != reuse.source_result_digest())
         throw std::invalid_argument("experiment evidence changed; reopen its result before reuse");
-    backtest::v1::BacktestInput original, input;
+    backtest::proto::BacktestInput original, input;
     std::string original_bytes;
     co_await file_work([&] {
         if (reuse.has_slippage_ticks()
@@ -558,13 +558,14 @@ PolledTask<> TaskHost::reuse_backtest(Call& call)
     });
     co_await ready(call);
     call.input_in_time();
-    const auto selected = [&](const data::v1::BarDataset& dataset) {
+    const auto selected = [&](const data::proto::BarDataset& dataset) {
         auto selection = protocol::bar_dataset_selection(dataset);
         if (reuse.choice() == Choice::NEW_SNAPSHOT)
             selection.mutable_daily()->set_snapshot(reuse.snapshot());
         return selection;
     };
-    const auto keep = [&](const protocol::v1::PaperContract& source, data::v1::BarDataset dataset) {
+    const auto keep = [&](const protocol::proto::PaperContract& source,
+                          data::proto::BarDataset dataset) {
         if (dataset.contract().SerializeAsString()
             != source.dataset().contract().SerializeAsString())
             throw std::invalid_argument(
@@ -576,7 +577,7 @@ PolledTask<> TaskHost::reuse_backtest(Call& call)
     };
     if (reuse.choice() == Choice::FIXED) {
         for (int c = 0; c < input.paper().contracts_size(); ++c) {
-            data::v1::DataRequest query;
+            data::proto::DataRequest query;
             *query.mutable_bar_dataset() = selected(input.paper().contracts(c).dataset());
             auto reply = co_await data_input(call, std::move(query));
             *input.mutable_paper()->mutable_contracts(c)->mutable_dataset() =
@@ -600,14 +601,14 @@ PolledTask<> TaskHost::reuse_backtest(Call& call)
         for (int c = 0; c < original.paper().contracts_size(); ++c) {
             if (in_series[c])
                 continue;
-            data::v1::DataRequest query;
+            data::proto::DataRequest query;
             *query.mutable_bar_dataset() = selected(original.paper().contracts(c).dataset());
             auto reply = co_await data_input(call, std::move(query));
             keep(original.paper().contracts(c), std::move(*reply.mutable_bar_dataset()));
         }
         for (std::size_t group = 0; group < members.size(); ++group) {
             const auto& indexes = members[group];
-            data::v1::DataRequest query;
+            data::proto::DataRequest query;
             query.mutable_dominant_series()->set_first_day(
                 original.series(static_cast<int>(group)).rolls(0).trading_day());
             for (const auto index : indexes)
@@ -729,7 +730,7 @@ PolledTask<> TaskHost::claim(Call& call)
         attempt->set_data_endpoint(configuration_.data_endpoint);
         attempt->set_data_instance(configuration_.data_instance);
         if (attempt->task().has_minutes() || attempt->task().has_table_update()) {
-            data::v1::DataRequest allocation;
+            data::proto::DataRequest allocation;
             auto* download = allocation.mutable_allocate_download();
             download->set_authorization_id(attempt->task().download_authorization());
             auto* identity = download->mutable_identity();
@@ -778,7 +779,7 @@ PolledTask<> TaskHost::finish(Call& call)
     expire_leases();
     co_await ready(call);
     if (p.has_minutes() && storage_->describe(p.id()).state() != wire::CANCEL_REQUESTED) {
-        data::v1::DataRequest preparation;
+        data::proto::DataRequest preparation;
         *preparation.mutable_prepare_download() = completion.download_preparation();
         const auto prepared = co_await data_call(
             std::move(preparation),

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/v1/trading.pb.h>
+#include <asterion/trading.pb.h>
 #include "ctp_trader.hpp"
 #include "account_policy.hpp"
 #include "account_journal.hpp"
@@ -47,7 +47,7 @@ public:
         std::string policy_revision,
         AccountRequest request,
         std::uint64_t admitted_control);
-    protocol::v1::LiveSnapshot snapshot() const;
+    protocol::proto::LiveSnapshot snapshot() const;
 
     bool waiting_for_sdk() const
     {
@@ -196,7 +196,7 @@ private:
     {
         std::string id;
         Instrument instrument;
-        protocol::v1::Strategy strategy;
+        protocol::proto::Strategy strategy;
         std::int64_t started_ms = 0;
         std::unique_ptr<StrategyHost> host;
         std::uint64_t bars = 0;

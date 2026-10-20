@@ -7,7 +7,7 @@
 
 namespace asterion::agent {
 namespace fs = std::filesystem;
-namespace wire = node::v1;
+namespace wire = node::proto;
 
 namespace {
 

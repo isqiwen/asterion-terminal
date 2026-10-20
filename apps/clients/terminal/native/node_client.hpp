@@ -37,7 +37,7 @@ NodeEndpoint upgrade_local_node(ServiceIo&, const std::string& expected);
 struct ServiceDeployment
 {
     std::string service;
-    node::v1::ServiceKind kind = node::v1::UNSPECIFIED_SERVICE;
+    node::proto::ServiceKind kind = node::proto::UNSPECIFIED_SERVICE;
     HostPlatform platform;
     ServicePrograms programs;
     std::uint16_t port = 0;
@@ -56,7 +56,7 @@ struct ServiceUpdate
 
 struct HistoryService
 {
-    node::v1::ServiceKind kind;
+    node::proto::ServiceKind kind;
     std::string directory, state, data_service;
     ServiceEndpoint address;
 };
@@ -86,7 +86,7 @@ public:
     [[nodiscard]] std::future<void>
     maintenance(bool enter, const std::string& operation, const std::string& instance);
     [[nodiscard]] std::future<ServiceEndpoint>
-    service_endpoint(const std::string& service, node::v1::ServiceKind kind);
+    service_endpoint(const std::string& service, node::proto::ServiceKind kind);
     // Resolves the configured pair even if either process is offline.
     [[nodiscard]] std::future<DataTaskEndpoints> data_task_endpoints(
         const std::string& task_service);

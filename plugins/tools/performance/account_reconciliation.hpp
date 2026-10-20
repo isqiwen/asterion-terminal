@@ -45,7 +45,7 @@ struct AccountReconciliation
 // replay. Daily attribution needs the recorded fill days. Model terms do not
 // establish historical exchange/broker applicability.
 AccountReconciliation reconcile_backtest(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result);
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result);
 
 } // namespace asterion

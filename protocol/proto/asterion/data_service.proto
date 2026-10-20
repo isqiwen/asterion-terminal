@@ -1,8 +1,8 @@
 syntax = "proto3";
-package asterion.data.v1;
-import "asterion/v1/data.proto";
-import "asterion/v1/trading.proto";
-import "asterion/v1/node.proto";
+package asterion.data.proto;
+import "asterion/data.proto";
+import "asterion/trading.proto";
+import "asterion/node.proto";
 
 message DataId {
   string id = 1;
@@ -157,9 +157,9 @@ message DataRequest {
   string service_id = 2;
   string correlation_id = 3;
   oneof operation {
-    asterion.protocol.v1.Empty heartbeat = 10;
-    asterion.node.v1.Quiesce quiesce = 11;
-    asterion.protocol.v1.Empty sources = 12;
+    asterion.protocol.proto.Empty heartbeat = 10;
+    asterion.node.proto.Quiesce quiesce = 11;
+    asterion.protocol.proto.Empty sources = 12;
     HistoryConnectionVerify verify_connection = 14;
     HistoryFilter datasets = 15;
     DataId record = 16;
@@ -167,7 +167,7 @@ message DataRequest {
     BarDatasetRequest bar_dataset = 19;
     NamedDataset save_dataset = 21;
     DataId saved_dataset = 22;
-    asterion.protocol.v1.Empty saved_datasets = 23;
+    asterion.protocol.proto.Empty saved_datasets = 23;
     HistoryUpdateQuery update_plan = 24;
     DominantSeriesRequest dominant_series = 25;
     DataId history_usage = 27;
@@ -180,7 +180,7 @@ message DataRequest {
     DownloadIdentity download_credentials = 34;
     DownloadBudgetConfiguration configure_download_budget = 35;
     DownloadIdentity acquire_download_permit = 36;
-    asterion.protocol.v1.Empty table_coverage = 37;
+    asterion.protocol.proto.Empty table_coverage = 37;
     TablePageQuery table_page = 38;
     TablePlanQuery table_plan = 39;
     TablePartitionRows store_table_partition = 40;
@@ -202,7 +202,7 @@ message DataResponse {
   string service_id = 2;
   string correlation_id = 3;
   oneof result {
-    asterion.protocol.v1.Error error = 10;
+    asterion.protocol.proto.Error error = 10;
     DataHealth health = 11;
     DataSources sources = 12;
     HistoryConnectionVerification connection_verification = 14;

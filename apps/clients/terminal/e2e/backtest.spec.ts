@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { seedDataset, rpc } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
@@ -15,10 +16,7 @@ test(
       "task",
     );
     await page.reload();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     const workspace = page.getByRole("region", { name: "期货研究", exact: true });
     await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
     await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
@@ -46,10 +44,7 @@ test(
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await expect(workspace.getByLabel("快均线", { exact: true })).toHaveValue("1");
     await expect(workspace.getByLabel("初始资金", { exact: true })).toHaveValue("10000");
     const taskIds = () =>
@@ -70,10 +65,7 @@ test(
     await expect.poll(async () => (await taskIds()).filter(id => !before.has(id)).length).toBe(1);
     const taskId = (await taskIds()).find(id => !before.has(id))!;
     await page.reload();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     const row = workspace
       .getByRole("region", { name: "研究任务", exact: true })
       .getByRole("row")
@@ -86,13 +78,13 @@ test(
     await workspace.getByLabel("快均线", { exact: true }).fill("9");
     await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
     // Each mode lists its own tasks; the factor pages do not show this one.
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await openView(page, "factor");
     await expect(row).toHaveCount(0);
-    await page.getByRole("button", { name: "回测", exact: true }).click();
+    await openView(page, "backtest");
     await row.getByRole("button", { name: "查看结果", exact: true }).click();
     await expect(page.getByRole("button", { name: "回测", exact: true })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+      "aria-current",
+      "page",
     );
     const result = workspace.getByRole("region", { name: "回测结果", exact: true });
     // One trading day has a return and a drawdown, and too little for yearly figures.
@@ -193,10 +185,7 @@ test(
     page = await openSettingsWindow(page);
     await page.getByLabel("语言", { exact: true }).selectOption("en-US");
     page = await closeSettingsWindow(page);
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "Research", exact: true })
-      .click();
+    await openView(page, "backtest");
     const english = page.getByRole("region", { name: "Backtest Result", exact: true });
     // The parameters <details> opened in Chinese stays open across the
     // language switch; clicking it again would collapse it.
@@ -214,9 +203,9 @@ test("a portfolio backtest settles every contract on one account", async ({ page
   await seedDataset(page.request, prices, "portfolio-rb");
   await seedDataset(page.request, prices, "portfolio-hc", { product: "hc", keep: true });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await page.getByRole("button", { name: "回测", exact: true }).click();
+  await openView(page, "backtest");
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   const selected = workspace.getByRole("list", { name: "已选合约" });
   await expect(selected.getByRole("listitem")).toHaveCount(2);
@@ -264,7 +253,7 @@ test("a portfolio backtest settles every contract on one account", async ({ page
   await result.getByText("实验参数", { exact: true }).click();
   await expect(result.getByRole("region", { name: "SHFE · hc2610" })).toContainText("100");
   // Two contracts are neither one series nor a cross-section; the factor page says so.
-  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await openView(page, "factor");
   await expect(
     workspace.getByText("比较合约至少需要 3 个；只分析一个合约时请只保留一个数据集。", {
       exact: true,
@@ -279,7 +268,7 @@ test("a backtest trades by the rule chosen in the form", async ({ page }) => {
   await expect(page.locator(".workspace-tabs")).toBeVisible();
   await seedDataset(page.request, [100, 101, 102, 101, 100, 101, 103, 103], "momentum");
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await workspace.getByRole("button", { name: "下一步", exact: true }).click();
@@ -352,7 +341,7 @@ test("several strategies are compared before a holdout and one is replayed", asy
     { minuteDays: days },
   );
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await workspace.getByRole("button", { name: "下一步", exact: true }).click();
@@ -473,7 +462,7 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
       keep: product !== "rb",
     });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await expect(workspace.getByRole("list", { name: "已选合约" }).getByRole("listitem")).toHaveCount(
@@ -718,7 +707,7 @@ test("a ranking by volatility holds the contract that moved the most long", asyn
       keep: product !== "rb",
     });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await expect(workspace.getByRole("list", { name: "已选合约" }).getByRole("listitem")).toHaveCount(
@@ -814,7 +803,7 @@ test("strategies are compared by rolling and the account follows each round's be
     { minuteDays: days },
   );
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await workspace.getByRole("button", { name: "下一步", exact: true }).click();

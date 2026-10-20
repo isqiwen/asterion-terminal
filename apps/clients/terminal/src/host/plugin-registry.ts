@@ -26,10 +26,12 @@ export function registerTerminalPlugins(plugins: readonly TerminalPlugin[]) {
       !plugin.commands.every(command => typeof command === "string" && command.length > 0)
     )
       throw new Error(t("UI 插件命令声明无效: {p0}", { p0: plugin.id }));
-    if (!plugin.workspace.id || workspaces.has(plugin.workspace.id))
-      throw new Error(t("重复或无效的工作区: {p0}", { p0: plugin.workspace.id }));
+    for (const workspace of plugin.workspaces) {
+      if (!workspace.id || workspaces.has(workspace.id))
+        throw new Error(t("重复或无效的工作区: {p0}", { p0: workspace.id }));
+      workspaces.add(workspace.id);
+    }
     ids.add(plugin.id);
-    workspaces.add(plugin.workspace.id);
   }
   for (const plugin of plugins)
     if (plugin.languageResources) registerLanguageResources(plugin.id, plugin.languageResources);
@@ -38,9 +40,14 @@ export function registerTerminalPlugins(plugins: readonly TerminalPlugin[]) {
       Object.freeze({
         ...plugin,
         commands: Object.freeze([...plugin.commands]),
-        workspace: Object.freeze(
-          Object.defineProperties({}, Object.getOwnPropertyDescriptors(plugin.workspace)),
-        ) as TerminalPlugin["workspace"],
+        workspaces: Object.freeze(
+          plugin.workspaces.map(
+            workspace =>
+              Object.freeze(
+                Object.defineProperties({}, Object.getOwnPropertyDescriptors(workspace)),
+              ) as TerminalPlugin["workspaces"][number],
+          ),
+        ),
       }),
     ),
   );

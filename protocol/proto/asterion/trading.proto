@@ -1,9 +1,9 @@
 syntax = "proto3";
-import "asterion/v1/health.proto";
-package asterion.protocol.v1;
+import "asterion/health.proto";
+package asterion.protocol.proto;
 
-import "asterion/v1/domain.proto";
-import "asterion/v1/data.proto";
+import "asterion/domain.proto";
+import "asterion/data.proto";
 
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs {
@@ -35,7 +35,7 @@ message RiskLimits {
 // increments of the fill's day: a buy fills that much above and a sell that
 // much below the price the matching rule finds.
 message PaperContract {
-  asterion.data.v1.BarDataset dataset = 1;
+  asterion.data.proto.BarDataset dataset = 1;
   CostSchedule cost_schedule = 2;
   uint32 slippage_ticks = 3;
 }
@@ -429,7 +429,7 @@ message Health {
   uint64 uptime_ms = 3;
   bool initialized = 4;
   bool recovery_required = 5;
-  asterion.runtime.v1.ExecutionHealth execution = 6;
+  asterion.runtime.proto.ExecutionHealth execution = 6;
 }
 message Response {
   uint32 version = 1;

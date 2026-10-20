@@ -1,10 +1,11 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 
 test("product navigation and header search replace duplicate workspace tabs without losing drafts", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   const search = page.getByRole("searchbox", { name: "搜索市场合约" });
   const modes = page.getByRole("tablist", { name: "行情来源" });
   await expect(search).toBeVisible();
@@ -13,9 +14,9 @@ test("product navigation and header search replace duplicate workspace tabs with
   const modeBox = await modes.boundingBox();
   expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(modeBox!.y);
   await search.fill("rb26");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(search).toHaveCount(0);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await expect(search).toHaveValue("rb26");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await expect(page.getByRole("tab", { name: "历史行情", exact: true })).toHaveAttribute(

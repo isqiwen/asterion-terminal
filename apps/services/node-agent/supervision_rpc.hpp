@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/v1/node.pb.h>
-#include <asterion/v1/task.pb.h>
+#include <asterion/node.pb.h>
+#include <asterion/task.pb.h>
 #include <asterion/protocol/health.hpp>
 #include <asterion/kernel/polled_task.hpp>
 #include <optional>
@@ -14,15 +14,15 @@ namespace asterion::agent {
 struct HealthObservation
 {
     protocol::ServiceHealth status = protocol::ServiceHealth::starting;
-    std::optional<runtime::v1::ExecutionHealth> execution;
+    std::optional<runtime::proto::ExecutionHealth> execution;
 };
 
 PolledTask<HealthObservation> probe_service_health(
-    node::v1::ServiceKind kind,
+    node::proto::ServiceKind kind,
     const std::string& name,
     const std::string& endpoint,
     const std::string& peer);
-PolledTask<task::v1::TaskResponse> request_task_dispatch(
+PolledTask<task::proto::TaskResponse> request_task_dispatch(
     const std::string& name,
     const std::string& endpoint,
     const std::vector<std::string>& running,

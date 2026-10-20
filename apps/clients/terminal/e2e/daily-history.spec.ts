@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect, type Page } from "./test";
 import { writeFile } from "node:fs/promises";
 import type { Snapshot, TableDailyPage } from "../src/bridge/client";
@@ -133,8 +134,7 @@ test("the daily chart reads the contract from the daily table, by period and pag
     } satisfies TableDailyPage;
   });
   await page.goto("/");
-  const nav = page.getByRole("navigation", { name: "业务工作区" });
-  await nav.getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   const chart = page.locator(".watchlist-chart-pane").nth(0);
   await expect(chart.getByRole("button", { name: "日K", exact: true })).toBeEnabled();
   await chart.getByRole("button", { name: "日K", exact: true }).click();
@@ -168,9 +168,9 @@ test("the daily chart reads the contract from the daily table, by period and pag
   // must retain the source-bound data page, including a second round trip.
   for (let i = 0; i < 2; i++) {
     const beforeReturn = calls.length;
-    await nav.getByRole("button", { name: "研究", exact: true }).click();
+    await openView(page, "backtest");
     await expect(page.locator(".watchlist-chart-pane")).toHaveCount(0);
-    await nav.getByRole("button", { name: "自选", exact: true }).click();
+    await openView(page, "watchlist");
     await expect(chart.getByRole("button", { name: "日K", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",

@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
 
@@ -74,7 +75,7 @@ test("verified backtests flow through Polars and skfolio into portfolio research
     sources.push({ id, result_digest: source.task.result_digest });
   }
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const comparison = page.getByRole("region", { name: "回测实验比较", exact: true });
   for (const id of ids) await comparison.getByRole("checkbox", { name: new RegExp(id) }).check();
   await comparison.getByRole("button", { name: "读取并比较", exact: true }).click();

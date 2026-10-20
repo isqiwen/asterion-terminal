@@ -13,7 +13,7 @@
 namespace asterion::terminal {
 
 using namespace std::chrono_literals;
-namespace wire = task::v1;
+namespace wire = task::proto;
 
 namespace {
 
@@ -40,8 +40,8 @@ Json figures(const Performance& value)
 // starts from the equity the day before it ended with. Derived on every read,
 // never stored.
 Json backtest_performance(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     std::vector<EquityDay> days;
     for (const auto& day : result.settlements())
@@ -53,7 +53,7 @@ Json backtest_performance(
     std::vector<std::size_t> day_end;
     for (const auto& point : result.equity()) {
         marks.push_back(Decimal::from_raw(point.equity().units()));
-        if (point.event() == backtest::v1::DAILY_SETTLEMENT)
+        if (point.event() == backtest::proto::DAILY_SETTLEMENT)
             day_end.push_back(marks.size());
     }
     const auto deposit = Decimal::from_raw(input.paper().deposit().units());
@@ -112,8 +112,8 @@ Json backtest_performance(
 // What a backtest's closed positions say, from its fixed fills. Derived on
 // every read like the figures above.
 Json backtest_trades(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     const auto& contracts = input.paper().contracts();
     std::vector<Decimal> multipliers;
@@ -123,7 +123,7 @@ Json backtest_trades(
     // A fill says which order it filled; the order says which way.
     std::map<std::string, bool> buys;
     for (const auto& order : result.account().orders())
-        buys[order.id()] = order.side() == protocol::v1::BUY;
+        buys[order.id()] = order.side() == protocol::proto::BUY;
     std::vector<TradedFill> fills;
     for (const auto& fill : result.account().fills()) {
         const auto contract = std::ranges::find_if(contracts, [&](const auto& item) {
@@ -262,8 +262,8 @@ Json backtest_trades(
 }
 
 Json backtest_portfolio(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     const auto exposure = portfolio_exposure(input, result);
     Json rows = Json::array();
@@ -331,8 +331,8 @@ Json backtest_portfolio(
 }
 
 Json backtest_reconciliation(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     const auto audit = reconcile_backtest(input, result);
     const auto checks = [](const std::vector<AccountCheck>& items) {
@@ -783,7 +783,7 @@ std::future<void> TaskClient::page(unsigned before_sequence)
 }
 
 std::future<void>
-TaskClient::submit(const std::string& id, const asterion::backtest::v1::BacktestRequest& input)
+TaskClient::submit(const std::string& id, const asterion::backtest::proto::BacktestRequest& input)
 {
     wire::TaskRequest request;
     request.mutable_submit()->set_id(id);
@@ -793,7 +793,7 @@ TaskClient::submit(const std::string& id, const asterion::backtest::v1::Backtest
 
 std::future<void> TaskClient::submit(
     const std::string& id,
-    const asterion::factor::v1::FactorRequest& input,
+    const asterion::factor::proto::FactorRequest& input,
     const wire::TaskDerivation& source)
 {
     wire::TaskRequest request;
@@ -823,7 +823,7 @@ std::future<void> TaskClient::edit_metadata(const wire::TaskMetadataEdit& edit)
 }
 
 std::future<void>
-TaskClient::reuse_backtest(const std::string& id, const backtest::v1::BacktestReuse& reuse)
+TaskClient::reuse_backtest(const std::string& id, const backtest::proto::BacktestReuse& reuse)
 {
     wire::TaskRequest request;
     request.mutable_submit()->set_id(id);

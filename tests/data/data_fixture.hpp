@@ -4,13 +4,13 @@
 
 namespace asterion::test {
 
-inline data::v1::DownloadAuthorization authorize_download(
+inline data::proto::DownloadAuthorization authorize_download(
     data::Store& store,
     const std::string& task_instance,
     const std::string& id,
-    const data::v1::MinuteDownload& input)
+    const data::proto::MinuteDownload& input)
 {
-    data::v1::DownloadAuthorizationRequest request;
+    data::proto::DownloadAuthorizationRequest request;
     request.set_task_instance(task_instance);
     request.set_task_id(id);
     request.set_credential("fixture");
@@ -18,8 +18,8 @@ inline data::v1::DownloadAuthorization authorize_download(
     return store.authorize(store.verify_authorization(request));
 }
 
-inline data::v1::DownloadDirectory
-allocate_download(data::Store& store, data::v1::DownloadAllocation& allocation)
+inline data::proto::DownloadDirectory
+allocate_download(data::Store& store, data::proto::DownloadAllocation& allocation)
 {
     const auto authorized = authorize_download(
         store,
@@ -33,13 +33,13 @@ allocate_download(data::Store& store, data::v1::DownloadAllocation& allocation)
 // Fixture providers publish real verified versions into an isolated data store.
 // Task execution and publication ordering are covered by the process tests.
 template <class Provider>
-data::v1::HistoryRecord publish_download(
+data::proto::HistoryRecord publish_download(
     data::Store& store,
     const std::string& id,
-    const data::v1::MinuteDownload& input,
+    const data::proto::MinuteDownload& input,
     Provider& provider)
 {
-    data::v1::DownloadAllocation allocation;
+    data::proto::DownloadAllocation allocation;
     auto* identity = allocation.mutable_identity();
     identity->set_data_instance(store.instance());
     identity->set_task_instance("task");
@@ -47,14 +47,14 @@ data::v1::HistoryRecord publish_download(
     identity->set_attempt(1);
     *allocation.mutable_minutes() = input;
     const auto directory = allocate_download(store, allocation).directory();
-    data::v1::DownloadPreparation preparation;
+    data::proto::DownloadPreparation preparation;
     *preparation.mutable_identity() = allocation.identity();
     auto* record = preparation.mutable_record();
     history_files::download_minutes(provider, history_files::minute_range(input), directory);
     *record->mutable_minutes() = input;
     *record->mutable_minute_result() = history_files::minute_result(directory);
     const auto prepared = store.prepare(store.verify_download(preparation));
-    data::v1::DownloadPublication decision;
+    data::proto::DownloadPublication decision;
     *decision.mutable_identity() = prepared.identity();
     decision.set_candidate_digest(prepared.candidate_digest());
     decision.set_publication_id(id);

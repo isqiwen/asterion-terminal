@@ -10,7 +10,7 @@
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/task.hpp>
-#include <asterion/v1/task.pb.h>
+#include <asterion/task.pb.h>
 #include <gtest/gtest.h>
 #include <fstream>
 #include <thread>
@@ -114,13 +114,13 @@ std::string keep_rebar(TableStore& store, int except = -1)
     return snapshot;
 }
 
-data::v1::TableSeriesRequest request(
+data::proto::TableSeriesRequest request(
     const std::string& snapshot,
     std::vector<std::string> instruments,
     const char* begin = "2026-03-02",
     const char* end = "2026-03-09")
 {
-    data::v1::TableSeriesRequest result;
+    data::proto::TableSeriesRequest result;
     result.set_snapshot(snapshot);
     result.set_daily_source(daily.source);
     result.set_calendar_source(calendar.source);
@@ -131,7 +131,7 @@ data::v1::TableSeriesRequest request(
     return result;
 }
 
-std::vector<std::pair<std::string, std::string>> closes(const data::v1::TableMonth& month)
+std::vector<std::pair<std::string, std::string>> closes(const data::proto::TableMonth& month)
 {
     std::vector<std::pair<std::string, std::string>> result;
     for (const auto& close : month.closes())
@@ -197,14 +197,14 @@ std::string keep_chart(TableStore& store)
     return snapshot;
 }
 
-data::v1::TableDailyQuery chart(
+data::proto::TableDailyQuery chart(
     const std::string& snapshot,
-    data::v1::DailyPeriod period,
+    data::proto::DailyPeriod period,
     std::uint64_t offset = 0,
     std::uint32_t limit = 200,
     const char* contract = "SHFE/rb/2026-10")
 {
-    data::v1::TableDailyQuery query;
+    data::proto::TableDailyQuery query;
     auto& table = *query.mutable_daily();
     table.set_snapshot(snapshot);
     table.set_daily_source(daily.source);
@@ -488,7 +488,7 @@ TEST(TableSeries, ReplayAnchorUsesStoredCalendarAndRefusesUnknownPreviousDay)
     TableStore store(folder.path);
     keep_calendar(store);
     const auto snapshot = keep_rebar(store);
-    const auto table = chart(snapshot, static_cast<data::v1::DailyPeriod>(0)).daily();
+    const auto table = chart(snapshot, static_cast<data::proto::DailyPeriod>(0)).daily();
     EXPECT_EQ(data::previous_trading_day(store, table, "SHFE", "2026-03-09"), "2026-03-06");
     EXPECT_NE(
         refusal([&] {
@@ -574,14 +574,14 @@ TEST(TableSeries, AProductIsReadThroughItsDominantMonthsUnderOneSnapshot)
         (std::pair<std::string, std::string>{"2026-03-05", "3130"}));
 
     // What a factor reads of them: the product at the level of its last month.
-    factor::v1::FactorInput input;
-    input.set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor::proto::FactorInput input;
+    input.set_factor(protocol::proto::PRICE_MOMENTUM);
     *input.add_series()->mutable_table() = product;
     const auto observed = protocol::factor_observations(input);
     ASSERT_EQ(observed.closes.at(0).size(), 5U);
     EXPECT_EQ(observed.closes[0][0]->str(), "3209.6794808") << "3110 x 1.03205128";
     EXPECT_EQ(observed.closes[0][2]->str(), "3230");
-    input.set_factor(protocol::v1::TERM_STRUCTURE);
+    input.set_factor(protocol::proto::TERM_STRUCTURE);
     const auto carried = protocol::factor_observations(input);
     ASSERT_EQ(carried.terms.at(0).size(), 2U) << "only the days that have a term point";
     // (3110 / 3210 - 1) x 12 / 5 months apart.
@@ -638,7 +638,7 @@ TEST(TableSeries, AHoleInTheRangeIsRefusedNotReadAround)
     TableStore store(folder.path / "tables");
     keep_calendar(store);
     const auto snapshot = keep_rebar(store, 2);
-    const auto ask = [&](data::v1::TableSeriesRequest request) {
+    const auto ask = [&](data::proto::TableSeriesRequest request) {
         return refusal([&] {
             (void)data::table_series(store, request);
         });
@@ -721,7 +721,7 @@ TEST(TableSeries, ProductsAreThoseOfTheContractListsOfASnapshot)
             listing("SHFE/rb/2026-05", "2025-05-16", "2026-05-15"),
             listing("SHFE/cu/2026-04", "2025-04-16", "2026-04-15")},
         1000);
-    data::v1::TableProductsQuery query;
+    data::proto::TableProductsQuery query;
     query.set_snapshot(snapshot);
     query.set_contracts_source(contracts.source);
     EXPECT_EQ(
@@ -838,7 +838,7 @@ TEST(TableSeries, AChartDrawsTheDaysAContractTradedFromItsListingOn)
     Folder folder("ast-ts-");
     TableStore store(folder.path / "tables");
     const auto snapshot = keep_chart(store);
-    const auto all = data::table_daily(store, chart(snapshot, data::v1::DAY));
+    const auto all = data::table_daily(store, chart(snapshot, data::proto::DAY));
     // Forty-five days less the one without an auction trade; the Friday before
     // the listing is not read.
     ASSERT_EQ(all.total(), 44U);
@@ -860,12 +860,12 @@ TEST(TableSeries, AChartDrawsTheDaysAContractTradedFromItsListingOn)
     // whole run gives it.
     EXPECT_FALSE(all.candles(32).has_macd());
     EXPECT_TRUE(all.candles(33).has_macd());
-    const auto last = data::table_daily(store, chart(snapshot, data::v1::DAY, 40, 10));
+    const auto last = data::table_daily(store, chart(snapshot, data::proto::DAY, 40, 10));
     ASSERT_EQ(last.candles_size(), 4);
     for (int i = 0; i < 4; ++i)
         EXPECT_EQ(last.candles(i).SerializeAsString(), all.candles(40 + i).SerializeAsString());
     EXPECT_THROW(
-        (void)data::table_daily(store, chart(snapshot, data::v1::DAY, 44)),
+        (void)data::table_daily(store, chart(snapshot, data::proto::DAY, 44)),
         std::invalid_argument);
 }
 
@@ -875,7 +875,7 @@ TEST(TableSeries, AChartGroupsWeeksAndMonthsAndNeedsTheContractList)
     TableStore store(folder.path / "tables");
     const auto snapshot = keep_chart(store);
     const auto weeks =
-        protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::v1::WEEK)));
+        protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::proto::WEEK)));
     EXPECT_EQ(weeks.at("total"), 9);
     // The week of 2026-01-19 opens on the Tuesday: the Monday has no candle.
     EXPECT_EQ(
@@ -889,7 +889,7 @@ TEST(TableSeries, AChartGroupsWeeksAndMonthsAndNeedsTheContractList)
             {"volume", "450"}
         }));
     const auto months =
-        protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::v1::MONTH)));
+        protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::proto::MONTH)));
     ASSERT_EQ(months.at("candles").size(), 3U);
     EXPECT_EQ(months.at("candles")[0].at("trading_day"), "2026-01-30");
     EXPECT_EQ(months.at("candles")[0].at("volume"), "2080");
@@ -899,12 +899,14 @@ TEST(TableSeries, AChartGroupsWeeksAndMonthsAndNeedsTheContractList)
         refusal([&] {
             (void)data::table_daily(
                 store,
-                chart(snapshot, data::v1::DAY, 0, 200, "SHFE/rb/2026-11"));
+                chart(snapshot, data::proto::DAY, 0, 200, "SHFE/rb/2026-11"));
         }),
         "the contract list does not list SHFE/rb/2026-11");
     EXPECT_EQ(
         refusal([&] {
-            (void)data::table_daily(store, chart(snapshot, data::v1::DAY, 0, 200, "DCE/m/2026-09"));
+            (void)data::table_daily(
+                store,
+                chart(snapshot, data::proto::DAY, 0, 200, "DCE/m/2026-09"));
         }),
         "no contract list of DCE is stored");
 }
@@ -983,22 +985,22 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             "table-data",
             "--data-endpoint",
             data_workers});
-    const auto call = [&](task::v1::TaskRequest request) {
+    const auto call = [&](task::proto::TaskRequest request) {
         request.set_version(1);
         request.set_service_id("table-tasks");
         request.set_correlation_id(unique_process_id());
         auto channel = ipc::Channel::connect(task_endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
-        task::v1::TaskResponse reply;
+        task::proto::TaskResponse reply;
         if (!reply.ParseFromString(channel.receive(10s)))
             throw std::runtime_error("bad response");
         return reply;
     };
     for (const auto deadline = std::chrono::steady_clock::now() + 10s;;) {
         try {
-            task::v1::TaskRequest ping;
+            task::proto::TaskRequest ping;
             ping.mutable_heartbeat();
-            data::v1::DataRequest data_ping;
+            data::proto::DataRequest data_ping;
             data_ping.mutable_heartbeat();
             if (call(ping).health().initialized()
                 && protocol::DataClient(data_endpoint, "table-data")
@@ -1011,7 +1013,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         }
         std::this_thread::sleep_for(20ms);
     }
-    task::v1::TaskRequest submit;
+    task::proto::TaskRequest submit;
     submit.mutable_submit()->set_id("across");
     auto* factor = submit.mutable_submit()->mutable_factor_request();
     *factor->add_series()->mutable_tables() = request(
@@ -1019,7 +1021,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         {"SHFE/rb", "SHFE/cu", "SHFE/al"},
         open.front().c_str(),
         open.back().c_str());
-    factor->set_factor(protocol::v1::PRICE_MOMENTUM);
+    factor->set_factor(protocol::proto::PRICE_MOMENTUM);
     factor->add_lookbacks(5);
     factor->set_horizon(1);
     factor->set_full_sample(true);
@@ -1028,7 +1030,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     factor->mutable_liquidity()->set_minimum_open_interest(0);
     const auto submitted = call(submit);
     ASSERT_TRUE(submitted.has_task()) << submitted.DebugString();
-    EXPECT_EQ(submitted.task().kind(), task::v1::FACTOR);
+    EXPECT_EQ(submitted.task().kind(), task::proto::FACTOR);
     EXPECT_EQ(submitted.task().instrument(), "SHFE/rb + SHFE/cu + SHFE/al");
     EXPECT_EQ(submitted.task().source_name(), snapshot) << "one snapshot, named once";
     // Each series begins on the second day: 44 shared observations.
@@ -1039,10 +1041,10 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         {"--endpoint", task_endpoint + ".workers", "--session", "table-tasks", "--task", "across"});
     ASSERT_TRUE(worker.wait(20s));
     ASSERT_EQ(worker.exit_code(), 0);
-    task::v1::TaskRequest read;
+    task::proto::TaskRequest read;
     read.mutable_result()->set_id("across");
     const auto result = call(read);
-    ASSERT_EQ(result.result_task().state(), task::v1::SUCCEEDED) << result.DebugString();
+    ASSERT_EQ(result.result_task().state(), task::proto::SUCCEEDED) << result.DebugString();
     EXPECT_EQ(result.factor().input_count(), 44U);
     EXPECT_EQ(result.factor().cross_sections_size(), 38) << "44 less the window and the label";
     const auto& input = result.result_task().factor();
@@ -1052,7 +1054,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     const auto dropped = std::ranges::find(
         result.factor().cross_sections(),
         8U,
-        &factor::v1::FactorCrossSection::event_index);
+        &factor::proto::FactorCrossSection::event_index);
     ASSERT_NE(dropped, result.factor().cross_sections().end());
     EXPECT_EQ(dropped->members_size(), 2U);
     EXPECT_EQ((dropped + 1)->members_size(), 3U);
@@ -1065,7 +1067,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         << "observations are shown by trading day";
     const auto original_input = sha256_file(tasks.path / "across/input.pb");
     const auto original_result = sha256_file(tasks.path / "across/results/1.pb");
-    task::v1::TaskRequest repeat;
+    task::proto::TaskRequest repeat;
     repeat.mutable_submit()->set_id("bad-reuse");
     *repeat.mutable_submit()->mutable_factor_request() = *factor;
     repeat.mutable_submit()->mutable_factor_request()->set_expected_dataset_revision(
@@ -1090,7 +1092,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     ASSERT_EQ(repeated_worker.exit_code(), 0);
     read.mutable_result()->set_id("fixed-reuse");
     const auto repeated = call(read);
-    ASSERT_EQ(repeated.result_task().state(), task::v1::SUCCEEDED);
+    ASSERT_EQ(repeated.result_task().state(), task::proto::SUCCEEDED);
     EXPECT_EQ(repeated.factor().SerializeAsString(), result.factor().SerializeAsString());
     EXPECT_EQ(sha256_file(tasks.path / "across/input.pb"), original_input);
     EXPECT_EQ(sha256_file(tasks.path / "across/results/1.pb"), original_result);

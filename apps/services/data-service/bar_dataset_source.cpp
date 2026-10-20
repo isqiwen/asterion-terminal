@@ -43,7 +43,7 @@ const Values& of(const std::map<std::string, Values>& all, const std::string& co
 // table's multiplier, and the price increment of each of its bars' days, as
 // that of the first and the changes after it.
 void set_units(
-    data::v1::BarDataset& result,
+    data::proto::BarDataset& result,
     const HistoryIdentity& identity,
     Decimal multiplier,
     const std::map<std::string, Decimal>& increments,
@@ -81,7 +81,7 @@ void set_units(
 // partitions it speaks of were acquired. The contract table's multiplier is
 // checked against what its lots were worth on those days.
 void settle(
-    data::v1::BarDataset& result,
+    data::proto::BarDataset& result,
     const Bars& bars,
     const DailyFacts& facts,
     const std::string& first,
@@ -118,7 +118,7 @@ void settle(
     // day agrees within a twentieth: turnover of a delivery month includes lots
     // that changed hands away from the day's prices. A multiplier that is wrong
     // agrees on no day, so most days must.
-    const auto units = [](const protocol::v1::Decimal& value) {
+    const auto units = [](const protocol::proto::Decimal& value) {
         return static_cast<long double>(value.units()) / Decimal::parse("1").raw();
     };
     const auto& worth = of(facts.lot_value, contract);
@@ -143,11 +143,11 @@ void settle(
 
 // The daily bars of one contract over [begin, end], as `facts` read them from
 // the daily table: a day is a bar where the contract traded.
-data::v1::BarDataset tabled(
+data::proto::BarDataset tabled(
     const HistoryIdentity& identity,
     Decimal multiplier,
     const std::map<std::string, Decimal>& increments,
-    const data::v1::DailyTable& daily,
+    const data::proto::DailyTable& daily,
     const DailyFacts& facts,
     const std::string& begin,
     const std::string& end)
@@ -171,7 +171,7 @@ data::v1::BarDataset tabled(
     }
     if (bars.empty())
         throw std::invalid_argument("no bars fall inside the requested trading days");
-    data::v1::BarDataset result;
+    data::proto::BarDataset result;
     set_units(result, identity, multiplier, increments, bars);
     settle(result, bars, facts, begin, end, contract);
     result.set_interval_minutes(0);
@@ -184,7 +184,7 @@ data::v1::BarDataset tabled(
 
 } // namespace
 
-data::v1::BarDataset
+data::proto::BarDataset
 resolve_bar_dataset(const history_files::TableStore& tables, const BarDatasetSources& in)
 {
     protocol::decode_bar_dataset_request(in.request);
@@ -223,7 +223,7 @@ resolve_bar_dataset(const history_files::TableStore& tables, const BarDatasetSou
         if (bars.size() > protocol::max_dataset_bars)
             throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
     };
-    data::v1::BarDataset result;
+    data::proto::BarDataset result;
     std::optional<unsigned> interval;
     for (std::size_t i = 0; i < in.sources.size(); ++i) {
         const auto& source = in.sources[i];
@@ -282,7 +282,7 @@ resolve_bar_dataset(const history_files::TableStore& tables, const BarDatasetSou
         auto* evidence = result.add_history_evidence();
         evidence->set_dataset_id(id);
         evidence->set_acquired_at_ns(time);
-        evidence->set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
+        evidence->set_source_availability(data::proto::SOURCE_AVAILABILITY_UNKNOWN);
     }
     result.set_revision(protocol::bar_dataset_revision(result));
     protocol::validate_bar_dataset(result);
@@ -294,7 +294,7 @@ namespace {
 struct Month
 {
     std::size_t input;
-    protocol::v1::Contract contract;
+    protocol::proto::Contract contract;
     unsigned interval;
     std::string source;
     // The days it has bars on.
@@ -430,7 +430,7 @@ DominantSeries resolve_dominant_series(
 
 DominantSeries resolve_product_series(
     const history_files::TableStore& tables,
-    const data::v1::ProductBarsRequest& request)
+    const data::proto::ProductBarsRequest& request)
 {
     protocol::validate_product_bars_request(request);
     // Everything the table says of the product over the range is read once.

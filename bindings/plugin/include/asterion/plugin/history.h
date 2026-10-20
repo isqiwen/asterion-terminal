@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_HISTORY_V3 "asterion.history.v3"
+#define AST_HISTORY "asterion.history"
 
 /* Minute bars of one contract. Contracts, their codes and listing days, and
  * daily data come from the market-wide tables (history_tables.h).
@@ -66,7 +66,7 @@ typedef struct
         AstRequestBudget,
         void* context,
         AstStatus (*emit)(void*, const AstMinute*));
-} AstHistoryV3;
+} AstHistory;
 #ifdef __cplusplus
 }
 #endif

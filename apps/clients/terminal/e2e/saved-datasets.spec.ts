@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
@@ -18,10 +19,7 @@ test(
     await rpc(page.request, "data.dataset.select", one);
     const seeded = await rpc(page.request, "data.dataset.select", two);
     await page.reload();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await page.getByRole("button", { name: "新建回测", exact: true }).click();
     await page.getByText("保存当前选择", { exact: true }).click();
     await page.getByLabel("数据集名称", { exact: true }).fill("金属组合");
@@ -46,17 +44,11 @@ test(
       ),
     ).toHaveLength(2);
     await rpc(page.request, "data.dataset.clear");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "自选", exact: true })
-      .click();
+    await openView(page, "watchlist");
     await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
     await rpc(page.request, "node.data_tasks.local.open");
     await page.reload();
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "backtest");
     await page.getByRole("button", { name: "新建回测", exact: true }).click();
     await page.getByRole("button", { name: "已保存数据集", exact: true }).click();
     await page
@@ -132,7 +124,7 @@ test("saving a portfolio with different trading days is rejected without publish
   await rpc(page.request, "data.dataset.select", two);
   const before = (await rpc(page.request, "data.dataset.saved")).saved_datasets;
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
   await page.getByText("保存当前选择", { exact: true }).click();
   await page.getByLabel("数据集名称", { exact: true }).fill("不一致区间");

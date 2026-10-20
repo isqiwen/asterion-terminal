@@ -14,11 +14,12 @@ using namespace asterion;
 
 namespace {
 
-factor::v1::FactorInput
+factor::proto::FactorInput
 fixture(unsigned series, unsigned rows, bool bars, unsigned window, bool volatility_factor)
 {
-    factor::v1::FactorInput input;
-    input.set_factor(volatility_factor ? protocol::v1::VOLATILITY : protocol::v1::PRICE_MOMENTUM);
+    factor::proto::FactorInput input;
+    input.set_factor(
+        volatility_factor ? protocol::proto::VOLATILITY : protocol::proto::PRICE_MOMENTUM);
     input.set_full_sample(true);
     input.add_lookbacks(window);
     input.set_horizon(5);
@@ -115,7 +116,7 @@ int main(int argc, char** argv)
             if (file.bad())
                 throw std::runtime_error("cannot read probe input");
         });
-        factor::v1::FactorInput input;
+        factor::proto::FactorInput input;
         measure("parse_ms", [&] {
             if (!input.ParseFromString(bytes))
                 throw std::invalid_argument("invalid probe input");
@@ -144,7 +145,7 @@ int main(int argc, char** argv)
                     const auto result = evaluate_factor(
                         closes,
                         closes,
-                        input.factor() == protocol::v1::VOLATILITY ? volatility : momentum,
+                        input.factor() == protocol::proto::VOLATILITY ? volatility : momentum,
                         windows,
                         input.horizon(),
                         std::nullopt);
@@ -153,7 +154,7 @@ int main(int argc, char** argv)
             }
         }
         if (phase == "engine" || phase == "result") {
-            factor::v1::FactorResult result;
+            factor::proto::FactorResult result;
             measure("engine_ms", [&] {
                 result = factor::run(input);
             });

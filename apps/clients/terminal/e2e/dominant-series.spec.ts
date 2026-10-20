@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { test, expect } from "./test";
 import { checkSnapshot } from "./snapshot-schema";
@@ -28,7 +29,7 @@ test("a product's months backtest as its dominant series and roll at real prices
     settlement: 220,
   });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();

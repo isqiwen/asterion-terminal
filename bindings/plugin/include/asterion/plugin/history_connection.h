@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_HISTORY_CONNECTION_V1 "asterion.history.connection.v1"
+#define AST_HISTORY_CONNECTION "asterion.history.connection"
 
 /* Real history connection inputs: one provider credential and a request budget.
  * Password-like credentials MUST set remember_allowed=0. Metadata contains no secrets. */
@@ -48,7 +48,7 @@ typedef struct
         AstCancellation,
         void* context,
         AstStatus (*emit)(void*, const AstConnectionCheck*));
-} AstHistoryConnectionV1;
+} AstHistoryConnection;
 #ifdef __cplusplus
 }
 #endif

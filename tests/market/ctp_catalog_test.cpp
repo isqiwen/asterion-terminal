@@ -144,7 +144,7 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
             ASTERION_TEST_CTP,
             "--ctp-catalog-library",
             ASTERION_TEST_CTP_TRADER});
-    namespace wire = asterion::market::v1;
+    namespace wire = asterion::market::proto;
     auto call = [&](wire::Request request) {
         request.set_version(1);
         request.set_service_id("catalog-test");

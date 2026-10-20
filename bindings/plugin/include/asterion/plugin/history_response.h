@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_HISTORY_RESPONSE_V1 "asterion.history.response.v1"
+#define AST_HISTORY_RESPONSE "asterion.history.response"
 
 /* Optional observation of the immediately preceding successful table read.
  * Emits at most one bounded, allowlisted original response; no request/header.
@@ -21,7 +21,7 @@ typedef struct
             const uint8_t* bytes,
             uint32_t count,
             int64_t received_at_ns));
-} AstHistoryResponseV1;
+} AstHistoryResponse;
 #ifdef __cplusplus
 }
 #endif

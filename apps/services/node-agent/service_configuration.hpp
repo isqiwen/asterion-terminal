@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -8,13 +8,15 @@ namespace asterion::agent {
 
 struct ServiceConfiguration
 {
-    node::v1::ServiceKind kind = node::v1::UNSPECIFIED_SERVICE;
+    node::proto::ServiceKind kind = node::proto::UNSPECIFIED_SERVICE;
     std::string artifact, provider_artifact, catalog_artifact, worker_artifact, factor_artifact,
         data_artifact;
     std::vector<std::string> plugin_artifacts;
     std::string directory, task_service, data_service;
     unsigned short port = 0;
     bool desired = true;
+
+    bool operator==(const ServiceConfiguration&) const = default;
 };
 
 std::string service_revision(const ServiceConfiguration& configuration);

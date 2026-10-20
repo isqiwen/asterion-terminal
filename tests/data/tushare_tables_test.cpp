@@ -931,7 +931,7 @@ TEST(ResponseInventory, ProductionTushareReaderPreservesZeroAndMissingThroughTyp
                                   1,
                                   reader.response())
                               .revision;
-        data::v1::TablePageQuery query;
+        data::proto::TablePageQuery query;
         query.mutable_partition()->set_table("futures.daily");
         query.mutable_partition()->set_exchange("SHFE");
         query.mutable_partition()->set_period("2024-03-01");

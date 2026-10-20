@@ -4,23 +4,23 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/health.hpp>
-#include <asterion/v1/market.pb.h>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/market.pb.h>
+#include <asterion/data_service.pb.h>
 
 namespace asterion::agent {
 
 using namespace std::chrono_literals;
 
 PolledTask<HealthObservation> probe_service_health(
-    node::v1::ServiceKind kind,
+    node::proto::ServiceKind kind,
     const std::string& name,
     const std::string& endpoint,
     const std::string& peer)
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
     const auto correlation = "health." + unique_process_id();
-    if (kind == node::v1::MARKET_DATA) {
-        market::v1::Request ping;
+    if (kind == node::proto::MARKET_DATA) {
+        market::proto::Request ping;
         ping.set_version(1);
         ping.set_service_id(name);
         ping.set_correlation_id(correlation);
@@ -30,7 +30,7 @@ PolledTask<HealthObservation> probe_service_health(
             channel.poll();
             return pending.wait_for(0ms) == std::future_status::ready;
         }};
-        market::v1::Response reply;
+        market::proto::Response reply;
         if (!reply.ParseFromString(*pending.get()))
             throw std::runtime_error("invalid market health");
         protocol::validate_message(reply);
@@ -48,8 +48,8 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    if (kind == node::v1::DATA_SERVICE) {
-        data::v1::DataRequest ping;
+    if (kind == node::proto::DATA_SERVICE) {
+        data::proto::DataRequest ping;
         ping.set_version(1);
         ping.set_service_id(name);
         ping.set_correlation_id(correlation);
@@ -59,7 +59,7 @@ PolledTask<HealthObservation> probe_service_health(
             channel.poll();
             return pending.wait_for(0ms) == std::future_status::ready;
         }};
-        data::v1::DataResponse reply;
+        data::proto::DataResponse reply;
         if (!reply.ParseFromString(*pending.get()))
             throw std::runtime_error("invalid data health");
         protocol::validate_message(reply);
@@ -75,8 +75,8 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    if (kind == node::v1::TASK_SERVICE) {
-        task::v1::TaskRequest ping;
+    if (kind == node::proto::TASK_SERVICE) {
+        task::proto::TaskRequest ping;
         ping.set_version(1);
         ping.set_service_id(name);
         ping.set_correlation_id(correlation);
@@ -86,7 +86,7 @@ PolledTask<HealthObservation> probe_service_health(
             channel.poll();
             return pending.wait_for(0ms) == std::future_status::ready;
         }};
-        task::v1::TaskResponse reply;
+        task::proto::TaskResponse reply;
         if (!reply.ParseFromString(*pending.get()))
             throw std::runtime_error("invalid task health");
         protocol::validate_message(reply);
@@ -102,7 +102,7 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    protocol::v1::Request ping;
+    protocol::proto::Request ping;
     ping.set_version(1);
     ping.set_session_id(name);
     ping.set_correlation_id(correlation);
@@ -112,7 +112,7 @@ PolledTask<HealthObservation> probe_service_health(
         channel.poll();
         return pending.wait_for(0ms) == std::future_status::ready;
     }};
-    protocol::v1::Response reply;
+    protocol::proto::Response reply;
     if (!reply.ParseFromString(*pending.get()))
         throw std::runtime_error("invalid health response");
     protocol::validate_message(reply);
@@ -125,13 +125,13 @@ PolledTask<HealthObservation> probe_service_health(
     };
 }
 
-PolledTask<task::v1::TaskResponse> request_task_dispatch(
+PolledTask<task::proto::TaskResponse> request_task_dispatch(
     const std::string& name,
     const std::string& endpoint,
     const std::vector<std::string>& running,
     unsigned launch_slots)
 {
-    task::v1::TaskRequest request;
+    task::proto::TaskRequest request;
     request.set_version(1);
     request.set_service_id(name);
     request.set_correlation_id(next_correlation_id());
@@ -145,7 +145,7 @@ PolledTask<task::v1::TaskResponse> request_task_dispatch(
         channel.poll();
         return pending.wait_for(0ms) == std::future_status::ready;
     }};
-    task::v1::TaskResponse response;
+    task::proto::TaskResponse response;
     if (!response.ParseFromString(*pending.get()))
         throw std::runtime_error("invalid task dispatch response");
     protocol::validate_message(response);

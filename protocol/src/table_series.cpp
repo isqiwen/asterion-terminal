@@ -26,12 +26,12 @@ void validate_selection(const Message& message)
         throw std::invalid_argument("invalid table series request");
 }
 
-constexpr std::pair<data::v1::DailyPeriod, std::string_view> periods[] = {
-    {data::v1::DAY, "day"},
-    {data::v1::WEEK, "week"},
-    {data::v1::MONTH, "month"},
-    {data::v1::QUARTER, "quarter"},
-    {data::v1::YEAR, "year"}
+constexpr std::pair<data::proto::DailyPeriod, std::string_view> periods[] = {
+    {data::proto::DAY, "day"},
+    {data::proto::WEEK, "week"},
+    {data::proto::MONTH, "month"},
+    {data::proto::QUARTER, "quarter"},
+    {data::proto::YEAR, "year"}
 };
 // A contract's days, and so its candles: at most twenty years of them.
 constexpr std::uint64_t max_table_candles = 20 * 366 + 1;
@@ -59,7 +59,7 @@ TableInstrument table_instrument(std::string_view text)
     }
 }
 
-void validate_daily_table(const data::v1::DailyTable& table)
+void validate_daily_table(const data::proto::DailyTable& table)
 {
     validate_message(table);
     validate_history_source(table.daily_source());
@@ -69,10 +69,10 @@ void validate_daily_table(const data::v1::DailyTable& table)
         throw std::invalid_argument("invalid daily table reference");
 }
 
-data::v1::DailyTable encode_daily_table(const Json& value)
+data::proto::DailyTable encode_daily_table(const Json& value)
 {
     require_fields(value, {"snapshot", "daily_source", "calendar_source", "contracts_source"});
-    data::v1::DailyTable table;
+    data::proto::DailyTable table;
     table.set_snapshot(value.at("snapshot").get<std::string>());
     table.set_daily_source(value.at("daily_source").get<std::string>());
     table.set_calendar_source(value.at("calendar_source").get<std::string>());
@@ -81,7 +81,7 @@ data::v1::DailyTable encode_daily_table(const Json& value)
     return table;
 }
 
-Json decode_daily_table(const data::v1::DailyTable& table)
+Json decode_daily_table(const data::proto::DailyTable& table)
 {
     validate_daily_table(table);
     return {
@@ -92,7 +92,7 @@ Json decode_daily_table(const data::v1::DailyTable& table)
     };
 }
 
-void validate_table_series_request(const data::v1::TableSeriesRequest& request)
+void validate_table_series_request(const data::proto::TableSeriesRequest& request)
 {
     validate_message(request);
     validate_selection(request);
@@ -106,14 +106,14 @@ void validate_table_series_request(const data::v1::TableSeriesRequest& request)
     }
 }
 
-data::v1::TableSeriesRequest encode_table_series_request(const Json& value)
+data::proto::TableSeriesRequest encode_table_series_request(const Json& value)
 {
     require_fields(
         value,
         {"snapshot", "daily_source", "calendar_source", "begin_day", "end_day", "instruments"});
     if (!value.at("instruments").is_array())
         throw std::invalid_argument("invalid table series request");
-    data::v1::TableSeriesRequest request;
+    data::proto::TableSeriesRequest request;
     request.set_snapshot(value.at("snapshot").get<std::string>());
     request.set_daily_source(value.at("daily_source").get<std::string>());
     request.set_calendar_source(value.at("calendar_source").get<std::string>());
@@ -125,9 +125,9 @@ data::v1::TableSeriesRequest encode_table_series_request(const Json& value)
     return request;
 }
 
-std::vector<v1::Contract> table_series_months(const data::v1::TableSeries& series)
+std::vector<proto::Contract> table_series_months(const data::proto::TableSeries& series)
 {
-    std::vector<v1::Contract> months;
+    std::vector<proto::Contract> months;
     for (const auto& month : series.months()) {
         const auto identity = HistoryIdentity::parse(month.contract());
         auto& contract = months.emplace_back();
@@ -138,7 +138,7 @@ std::vector<v1::Contract> table_series_months(const data::v1::TableSeries& serie
     return months;
 }
 
-void validate_table_series(const data::v1::TableSeries& series)
+void validate_table_series(const data::proto::TableSeries& series)
 {
     validate_message(series);
     validate_selection(series);
@@ -156,7 +156,7 @@ void validate_table_series(const data::v1::TableSeries& series)
         reject();
     if (product) {
         // The months that are dominant at some point, in roll order.
-        std::vector<const v1::Contract*> contracts;
+        std::vector<const proto::Contract*> contracts;
         for (const auto& month : months) {
             if (month.venue() != instrument.venue || month.product() != instrument.product)
                 reject();
@@ -189,7 +189,7 @@ void validate_table_series(const data::v1::TableSeries& series)
     }
 }
 
-std::string table_series_revision(const data::v1::TableSeries& series)
+std::string table_series_revision(const data::proto::TableSeries& series)
 {
     validate_table_series(series);
     Json months = Json::array();
@@ -215,7 +215,7 @@ std::string table_series_revision(const data::v1::TableSeries& series)
         }.dump());
 }
 
-Json decode_table_series(const data::v1::TableSeries& series)
+Json decode_table_series(const data::proto::TableSeries& series)
 {
     validate_table_series(series);
     Json months = Json::array();
@@ -245,10 +245,10 @@ Json decode_table_series(const data::v1::TableSeries& series)
     };
 }
 
-data::v1::TableProductsQuery encode_table_products_query(const Json& value)
+data::proto::TableProductsQuery encode_table_products_query(const Json& value)
 {
     require_fields(value, {"snapshot", "contracts_source"});
-    data::v1::TableProductsQuery query;
+    data::proto::TableProductsQuery query;
     query.set_snapshot(value.at("snapshot").get<std::string>());
     query.set_contracts_source(value.at("contracts_source").get<std::string>());
     validate_history_source(query.contracts_source());
@@ -257,7 +257,7 @@ data::v1::TableProductsQuery encode_table_products_query(const Json& value)
     return query;
 }
 
-Json decode_table_products(const data::v1::TableProducts& products)
+Json decode_table_products(const data::proto::TableProducts& products)
 {
     validate_message(products);
     Json rows = Json::array();
@@ -277,7 +277,7 @@ Json decode_table_products(const data::v1::TableProducts& products)
     return rows;
 }
 
-void validate_table_listed_contracts_query(const data::v1::TableListedContractsQuery& query)
+void validate_table_listed_contracts_query(const data::proto::TableListedContractsQuery& query)
 {
     validate_message(query);
     validate_history_source(query.contracts_source());
@@ -286,10 +286,10 @@ void validate_table_listed_contracts_query(const data::v1::TableListedContractsQ
         throw std::invalid_argument("invalid listed contract query");
 }
 
-data::v1::TableListedContractsQuery encode_table_listed_contracts_query(const Json& value)
+data::proto::TableListedContractsQuery encode_table_listed_contracts_query(const Json& value)
 {
     require_fields(value, {"snapshot", "contracts_source", "exchange", "product"});
-    data::v1::TableListedContractsQuery query;
+    data::proto::TableListedContractsQuery query;
     query.set_snapshot(value.at("snapshot").get<std::string>());
     query.set_contracts_source(value.at("contracts_source").get<std::string>());
     query.set_exchange(value.at("exchange").get<std::string>());
@@ -298,7 +298,7 @@ data::v1::TableListedContractsQuery encode_table_listed_contracts_query(const Js
     return query;
 }
 
-Json decode_table_listed_contracts(const data::v1::TableListedContracts& catalog)
+Json decode_table_listed_contracts(const data::proto::TableListedContracts& catalog)
 {
     validate_message(catalog);
     const auto& query = catalog.query();
@@ -327,17 +327,17 @@ Json decode_table_listed_contracts(const data::v1::TableListedContracts& catalog
     };
 }
 
-void validate_table_daily_query(const data::v1::TableDailyQuery& query)
+void validate_table_daily_query(const data::proto::TableDailyQuery& query)
 {
     validate_message(query);
     validate_daily_table(query.daily());
     if (table_instrument(query.contract()).delivery_month.empty()
-        || !data::v1::DailyPeriod_IsValid(query.period()) || query.limit() < 1
+        || !data::proto::DailyPeriod_IsValid(query.period()) || query.limit() < 1
         || query.limit() > 200 || query.offset() >= max_table_candles)
         throw std::invalid_argument("invalid daily table chart query");
 }
 
-data::v1::TableDailyQuery encode_table_daily_query(const Json& value)
+data::proto::TableDailyQuery encode_table_daily_query(const Json& value)
 {
     require_fields(value, {"daily", "contract", "period", "offset", "limit"});
     const auto& offset = value.at("offset");
@@ -345,12 +345,12 @@ data::v1::TableDailyQuery encode_table_daily_query(const Json& value)
     const auto period = std::ranges::find(
         periods,
         value.at("period").get<std::string>(),
-        &std::pair<data::v1::DailyPeriod, std::string_view>::second);
+        &std::pair<data::proto::DailyPeriod, std::string_view>::second);
     if (!offset.is_number_integer() || !limit.is_number_integer() || std::end(periods) == period
         || offset < 0 || offset.get<std::int64_t>() >= static_cast<std::int64_t>(max_table_candles)
         || limit < 1 || limit > 200)
         throw std::invalid_argument("invalid daily table chart query");
-    data::v1::TableDailyQuery query;
+    data::proto::TableDailyQuery query;
     *query.mutable_daily() = encode_daily_table(value.at("daily"));
     query.set_contract(value.at("contract").get<std::string>());
     query.set_period(period->first);
@@ -360,7 +360,7 @@ data::v1::TableDailyQuery encode_table_daily_query(const Json& value)
     return query;
 }
 
-Json decode_table_daily(const data::v1::TableDailyPage& page)
+Json decode_table_daily(const data::proto::TableDailyPage& page)
 {
     validate_message(page);
     const auto reject = [] {
@@ -369,7 +369,7 @@ Json decode_table_daily(const data::v1::TableDailyPage& page)
     const auto period = std::ranges::find(
         periods,
         page.period(),
-        &std::pair<data::v1::DailyPeriod, std::string_view>::first);
+        &std::pair<data::proto::DailyPeriod, std::string_view>::first);
     if (table_instrument(page.contract()).delivery_month.empty() || std::end(periods) == period
         || page.limit() < 1 || page.limit() > 200 || page.total() > max_table_candles
         || page.offset() > page.total() || (page.total() && page.offset() == page.total())

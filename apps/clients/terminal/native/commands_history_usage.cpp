@@ -57,7 +57,7 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                         {"references", json::array()}
                     };
                     try {
-                        if (local && service.kind == node::v1::TASK_SERVICE
+                        if (local && service.kind == node::proto::TASK_SERVICE
                             && service.state == "stopped") {
                             const auto stopped = co_await service_io.read<json>([&] {
                                 const auto expected = local_node_directory() / "services"
@@ -96,7 +96,7 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                         const auto until = std::min(
                             deadline,
                             std::chrono::steady_clock::now() + std::chrono::seconds(5));
-                        const auto result = service.kind == node::v1::DATA_SERVICE
+                        const auto result = service.kind == node::proto::DATA_SERVICE
                             ? (co_await PollFuture{DataClient::inspect_history_usage(
                                   service_io,
                                   service.address,

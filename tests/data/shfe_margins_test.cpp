@@ -25,9 +25,9 @@ struct Directory
     }
 };
 
-data::v1::HistoricalMarginQuery query()
+data::proto::HistoricalMarginQuery query()
 {
-    data::v1::HistoricalMarginQuery result;
+    data::proto::HistoricalMarginQuery result;
     result.set_contract(shfe::contract);
     for (const auto* day : shfe::days)
         result.add_trading_days(day);
@@ -63,7 +63,7 @@ TEST(ShfeMargins, PinSurvivesRevisionAndRejectsMissingOrAsymmetricFacts)
     request.set_snapshot(snapshot);
     const auto fixed = data::historical_margins(store, request);
     EXPECT_EQ(fixed.days_size(), 3);
-    data::v1::TablePageQuery page;
+    data::proto::TablePageQuery page;
     page.mutable_partition()->set_table(shfe::table);
     page.mutable_partition()->set_exchange("SHFE");
     page.mutable_partition()->set_period("2025-10-21");
@@ -102,29 +102,34 @@ TEST(ShfeMargins, DownloadPlanUsesOnlyReviewedDatesWithoutInventingCalendar)
     std::vector<data::TableOffer> offers{
         {{shfe::table, 1, shfe::source}, shfe::provider, {"SHFE"}}
     };
-    data::v1::TableUpdate update;
+    data::proto::TableUpdate update;
     update.set_provider(shfe::provider);
     update.add_tables(shfe::table);
     update.set_begin_day(shfe::days.front());
     update.set_end_day(shfe::days.back());
     update.set_requests_per_minute(60);
     EXPECT_EQ(
-        data::table_update_plan(store, offers, update, data::v1::TABLE_PLAN_CALENDAR, "2026-10-15")
+        data::table_update_plan(
+            store,
+            offers,
+            update,
+            data::proto::TABLE_PLAN_CALENDAR,
+            "2026-10-15")
             .partitions_size(),
         0);
     const auto plan =
-        data::table_update_plan(store, offers, update, data::v1::TABLE_PLAN_DAYS, "2026-10-15");
+        data::table_update_plan(store, offers, update, data::proto::TABLE_PLAN_DAYS, "2026-10-15");
     ASSERT_EQ(plan.partitions_size(), 3);
     test::keep_shfe_margin(
         store,
         shfe::days.front(),
         test::shfe_margin_response(shfe::days.front()));
     EXPECT_EQ(
-        data::table_update_plan(store, offers, update, data::v1::TABLE_PLAN_DAYS, "2026-10-15")
+        data::table_update_plan(store, offers, update, data::proto::TABLE_PLAN_DAYS, "2026-10-15")
             .partitions_size(),
         2);
     update.set_end_day("2025-10-23");
     EXPECT_THROW(
-        data::table_update_plan(store, offers, update, data::v1::TABLE_PLAN_DAYS, "2026-10-15"),
+        data::table_update_plan(store, offers, update, data::proto::TABLE_PLAN_DAYS, "2026-10-15"),
         std::invalid_argument);
 }

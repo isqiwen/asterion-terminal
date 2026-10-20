@@ -47,13 +47,13 @@ int main(int argc, char** argv)
                 static_cast<std::uint16_t>(std::stoi(argv[1])),
                 {root + "/ca.crt", root + "/client.crt", root + "/client.key"},
                 std::chrono::seconds(2));
-            asterion::market::v1::Request request;
+            asterion::market::proto::Request request;
             request.set_version(1);
             request.set_service_id("market.test");
             request.set_correlation_id("events.test");
             request.mutable_events()->set_limit(1024);
             channel.send(request.SerializeAsString(), std::chrono::seconds(2));
-            asterion::market::v1::Response response;
+            asterion::market::proto::Response response;
             if (!response.ParseFromString(channel.receive(std::chrono::seconds(2)))
                 || !response.has_events())
                 return 6;

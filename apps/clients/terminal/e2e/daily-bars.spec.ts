@@ -1,5 +1,5 @@
+import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { test, expect } from "./test";
 import { checkSnapshot } from "./snapshot-schema";
@@ -29,7 +29,7 @@ test("a contract's days and a product's months backtest from the daily table", a
     settlement: 220,
   });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   const selected = workspace.getByRole("list", { name: "已选合约" });
@@ -149,7 +149,7 @@ test("a contract's days and a product's months backtest from the daily table", a
   });
   await page.reload();
   await rpc(page.request, "task.result", { id: task.id });
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const originalRow = workspace
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
@@ -244,7 +244,7 @@ test("a contract's days and a product's months backtest from the daily table", a
     },
   );
   await expect(comparisonExport.getByRole("status")).toContainText(
-    createHash("sha256").update(comparisonBytes).digest("hex"),
+    `${comparisonBytes.length} bytes`,
   );
 
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
@@ -274,9 +274,7 @@ test("a contract's days and a product's months backtest from the daily table", a
   expect(document.result).toEqual(evidence.result);
   expect(document.performance).toEqual(evidence.performance);
   expect(document.trades).toEqual(evidence.trades);
-  await expect(exportPanel.getByRole("status")).toContainText(
-    createHash("sha256").update(bytes).digest("hex"),
-  );
+  await expect(exportPanel.getByRole("status")).toContainText(`${bytes.length} bytes`);
   expect((await rpc(page.request, "task.result.read", { id: task.id })).task_result).toEqual(
     evidence,
   );
@@ -341,7 +339,7 @@ test("the market chart draws a contract's days from the daily table", async ({ p
     volume: "50000",
   });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await page.getByRole("button", { name: "日线合约", exact: true }).click();
   const board = page.locator(".history-market-board");

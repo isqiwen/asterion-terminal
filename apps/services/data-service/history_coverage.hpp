@@ -1,7 +1,7 @@
 #pragma once
 #include "history_archive.hpp"
 #include "history_tables.hpp"
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 #include <map>
 #include <optional>
 
@@ -14,14 +14,14 @@ struct MinuteReferenceDays
 
 MinuteReferenceDays minute_reference_days(
     const history_files::TableStore&,
-    const data::v1::DailyTable&,
+    const data::proto::DailyTable&,
     const std::string& contract,
     const std::string& begin,
     const std::string& end);
-data::v1::MinuteRangeEvidence minute_range_evidence(
+data::proto::MinuteRangeEvidence minute_range_evidence(
     const history_files::Archive&,
     const history_files::TableStore&,
-    const data::v1::MinuteRangeQuery&);
+    const data::proto::MinuteRangeQuery&);
 
 // The days of a minute version against the market-wide daily table: what the
 // table holds of them and, of those, the days the contract traded in the
@@ -35,16 +35,16 @@ struct MinuteCoverage
 
 MinuteCoverage minute_coverage(
     const history_files::TableStore&,
-    const data::v1::DailyTable&,
+    const data::proto::DailyTable&,
     const std::string& contract,
-    const data::v1::MinuteEvidence&);
-data::v1::MinuteEvidence
-minute_evidence(const history_files::Archive&, const data::v1::MinuteEvidenceQuery&);
+    const data::proto::MinuteEvidence&);
+data::proto::MinuteEvidence
+minute_evidence(const history_files::Archive&, const data::proto::MinuteEvidenceQuery&);
 // Each minute version of the archive matching the query's filter, against the
 // daily table it names. Every file digest is verified before it is counted.
-data::v1::HistoryCoverages history_coverage(
+data::proto::HistoryCoverages history_coverage(
     const history_files::Archive&,
     const history_files::TableStore&,
-    const data::v1::HistoryCoverageQuery&);
+    const data::proto::HistoryCoverageQuery&);
 
 } // namespace asterion::data

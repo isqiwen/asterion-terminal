@@ -9,7 +9,7 @@
 #include <iostream>
 using namespace asterion;
 using namespace std::chrono_literals;
-namespace wire = asterion::market::v1;
+namespace wire = asterion::market::proto;
 
 int main(int argc, char** argv)
 {

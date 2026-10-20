@@ -59,9 +59,9 @@ public:
     }
 };
 
-data::v1::HistoryRecord publish(const std::filesystem::path& root, Minutes& source)
+data::proto::HistoryRecord publish(const std::filesystem::path& root, Minutes& source)
 {
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_contract_id("SHFE/rb/2026-10");
     input.set_source("tushare.ft_mins");
     input.set_source_instrument("RB2610.SHF");
@@ -74,7 +74,8 @@ data::v1::HistoryRecord publish(const std::filesystem::path& root, Minutes& sour
     return test::publish_download(store, "evidence", input, source);
 }
 
-data::v1::MinuteEvidenceQuery query(const data::v1::HistoryRecord& record, unsigned limit = 50)
+data::proto::MinuteEvidenceQuery
+query(const data::proto::HistoryRecord& record, unsigned limit = 50)
 {
     return protocol::encode_minute_evidence_query(
         {{"dataset_id", record.minute_result().manifest_sha256()},
@@ -121,7 +122,7 @@ TEST(MinuteEvidence, GroupsNightAndDayAcrossSegmentsAndPreservesUnknownLabels)
         100,
         2);
     history_files::TableStore tables(folder.path / "tables");
-    data::v1::HistoryCoverageQuery coverage;
+    data::proto::HistoryCoverageQuery coverage;
     *coverage.mutable_daily() = protocol::encode_daily_table(daily);
     const auto result = data::history_coverage(archive, tables, coverage);
     ASSERT_EQ(result.items_size(), 1);
@@ -199,8 +200,8 @@ Json range_calendar(
     return range_calendar(tables, std::move(daily), year, rows);
 }
 
-data::v1::MinuteRangeQuery range_query(
-    const data::v1::HistoryRecord& record,
+data::proto::MinuteRangeQuery range_query(
+    const data::proto::HistoryRecord& record,
     const Json& daily,
     const char* begin,
     const char* end)
@@ -250,17 +251,17 @@ TEST(MinuteRange, IncludesTargetEdgesAndClosedDaysWithoutInventingZeroRowsAndPin
     const auto before = archive.get(request.dataset_id()).SerializeAsString();
     const auto result = data::minute_range_evidence(archive, *tables, request);
     ASSERT_EQ(result.days_size(), 10);
-    const data::v1::MinuteRangeState expected[] = {
-        data::v1::RANGE_UNCOVERED,
-        data::v1::RANGE_UNCOVERED,
-        data::v1::RANGE_CLOSED,
-        data::v1::RANGE_CLOSED,
-        data::v1::RANGE_OBSERVED,
-        data::v1::RANGE_UNKNOWN_DAILY,
-        data::v1::RANGE_UNCOVERED,
-        data::v1::RANGE_CLOSED,
-        data::v1::RANGE_NO_AUCTION,
-        data::v1::RANGE_UNKNOWN_CALENDAR
+    const data::proto::MinuteRangeState expected[] = {
+        data::proto::RANGE_UNCOVERED,
+        data::proto::RANGE_UNCOVERED,
+        data::proto::RANGE_CLOSED,
+        data::proto::RANGE_CLOSED,
+        data::proto::RANGE_OBSERVED,
+        data::proto::RANGE_UNKNOWN_DAILY,
+        data::proto::RANGE_UNCOVERED,
+        data::proto::RANGE_CLOSED,
+        data::proto::RANGE_NO_AUCTION,
+        data::proto::RANGE_UNKNOWN_CALENDAR
     };
     for (int i = 0; i < result.days_size(); ++i) {
         EXPECT_EQ(result.days(i).state(), expected[i]) << i;
@@ -284,8 +285,8 @@ TEST(MinuteRange, IncludesTargetEdgesAndClosedDaysWithoutInventingZeroRowsAndPin
         archive,
         *tables,
         range_query(record, next, "2026-09-03", "2026-09-12"));
-    EXPECT_EQ(current.days(1).state(), data::v1::RANGE_CLOSED);
-    EXPECT_EQ(current.days(4).state(), data::v1::RANGE_CALENDAR_CONFLICT);
+    EXPECT_EQ(current.days(1).state(), data::proto::RANGE_CLOSED);
+    EXPECT_EQ(current.days(4).state(), data::proto::RANGE_CALENDAR_CONFLICT);
     EXPECT_EQ(archive.get(request.dataset_id()).SerializeAsString(), before);
     tables.reset();
     history_files::TableStore reopened(folder.path / "tables");
@@ -320,10 +321,10 @@ TEST(MinuteRange, UnknownLabelsAndCalendarNeverBecomeProvenGaps)
         tables,
         range_query(record, daily, "2026-09-07", "2026-09-10"));
     EXPECT_EQ(result.unknown_rows(), 1);
-    EXPECT_EQ(result.days(0).state(), data::v1::RANGE_UNKNOWN_LABELS);
-    EXPECT_EQ(result.days(1).state(), data::v1::RANGE_UNKNOWN_CALENDAR);
-    EXPECT_EQ(result.days(2).state(), data::v1::RANGE_UNKNOWN_LABELS);
-    EXPECT_EQ(result.days(3).state(), data::v1::RANGE_UNKNOWN_CALENDAR);
+    EXPECT_EQ(result.days(0).state(), data::proto::RANGE_UNKNOWN_LABELS);
+    EXPECT_EQ(result.days(1).state(), data::proto::RANGE_UNKNOWN_CALENDAR);
+    EXPECT_EQ(result.days(2).state(), data::proto::RANGE_UNKNOWN_LABELS);
+    EXPECT_EQ(result.days(3).state(), data::proto::RANGE_UNKNOWN_CALENDAR);
 }
 
 TEST(MinuteRange, ValidatesInclusiveLeapAndYearBoundariesAndUnavailableSnapshots)
@@ -351,7 +352,7 @@ TEST(MinuteRange, ValidatesInclusiveLeapAndYearBoundariesAndUnavailableSnapshots
         EXPECT_EQ(result.days(0).trading_day(), dates.first);
         EXPECT_EQ(result.days(2).trading_day(), dates.second);
         for (const auto& day : result.days()) {
-            EXPECT_EQ(day.state(), data::v1::RANGE_UNKNOWN_CALENDAR);
+            EXPECT_EQ(day.state(), data::proto::RANGE_UNKNOWN_CALENDAR);
             EXPECT_FALSE(day.has_observed());
         }
         EXPECT_NO_THROW(protocol::decode_minute_range_evidence(result));
@@ -381,21 +382,21 @@ TEST(MinuteRange, OfficialClosuresCarryVersionAndSourcesWithoutGuessingOtherSess
     auto request = range_query(record, daily, "2026-09-24", "2026-10-08");
     const auto result = data::minute_range_evidence(archive, tables, request);
     ASSERT_EQ(result.days_size(), 15);
-    EXPECT_EQ(result.days(0).state(), data::v1::RANGE_UNKNOWN_CALENDAR);
+    EXPECT_EQ(result.days(0).state(), data::proto::RANGE_UNKNOWN_CALENDAR);
     EXPECT_TRUE(result.days(0).has_evening_closure());
     EXPECT_FALSE(result.days(0).has_official_closure());
-    EXPECT_EQ(result.days(1).state(), data::v1::RANGE_RULE_CONFLICT);
-    EXPECT_EQ(result.days(2).state(), data::v1::RANGE_OFFICIAL_CLOSED);
+    EXPECT_EQ(result.days(1).state(), data::proto::RANGE_RULE_CONFLICT);
+    EXPECT_EQ(result.days(2).state(), data::proto::RANGE_OFFICIAL_CLOSED);
     EXPECT_EQ(result.days(2).official_closure().published_day(), "2026-09-21");
     EXPECT_EQ(result.days(2).official_closure().version(), 1);
     EXPECT_NE(result.days(2).official_closure().source_url().find("833503"), std::string::npos);
-    EXPECT_EQ(result.days(4).state(), data::v1::RANGE_UNKNOWN_CALENDAR);
+    EXPECT_EQ(result.days(4).state(), data::proto::RANGE_UNKNOWN_CALENDAR);
     EXPECT_FALSE(result.days(4).has_evening_closure());
     EXPECT_TRUE(result.days(6).has_evening_closure());
     EXPECT_FALSE(result.days(6).has_official_closure());
-    EXPECT_EQ(result.days(7).state(), data::v1::RANGE_OFFICIAL_CLOSED);
-    EXPECT_EQ(result.days(13).state(), data::v1::RANGE_OFFICIAL_CLOSED);
-    EXPECT_EQ(result.days(14).state(), data::v1::RANGE_UNKNOWN_CALENDAR);
+    EXPECT_EQ(result.days(7).state(), data::proto::RANGE_OFFICIAL_CLOSED);
+    EXPECT_EQ(result.days(13).state(), data::proto::RANGE_OFFICIAL_CLOSED);
+    EXPECT_EQ(result.days(14).state(), data::proto::RANGE_UNKNOWN_CALENDAR);
     EXPECT_FALSE(result.days(14).has_evening_closure());
     const auto decoded = protocol::decode_minute_range_evidence(result);
     EXPECT_EQ(decoded.at("session_rules_version"), 1);

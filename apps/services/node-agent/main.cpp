@@ -8,7 +8,7 @@
 #include "upgrade_plan.hpp"
 #include "artifact_uploads.hpp"
 #include "firewall_control.hpp"
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include "managed_paths.hpp"
 #include "firewall.hpp"
 #include <asterion/kernel/environment.hpp>
@@ -28,9 +28,9 @@
 #include <asterion/kernel/process/owner.hpp>
 #include <asterion/kernel/thread_pool.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/v1/market.pb.h>
-#include <asterion/v1/node.pb.h>
-#include <asterion/v1/task.pb.h>
+#include <asterion/market.pb.h>
+#include <asterion/node.pb.h>
+#include <asterion/task.pb.h>
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -38,7 +38,7 @@
 #include <regex>
 #include <stdexcept>
 namespace fs = std::filesystem;
-namespace wire = asterion::node::v1;
+namespace wire = asterion::node::proto;
 using namespace asterion;
 using namespace std::chrono_literals;
 
@@ -67,7 +67,7 @@ struct Service
     std::chrono::steady_clock::time_point dispatch_at{};
     std::string error, health_endpoint;
     protocol::ServiceHealth health = protocol::ServiceHealth::starting;
-    std::optional<runtime::v1::ExecutionHealth> execution;
+    std::optional<runtime::proto::ExecutionHealth> execution;
     std::chrono::steady_clock::time_point execution_observed{};
     std::int64_t last_heartbeat = 0;
     unsigned failures = 0;
@@ -367,12 +367,6 @@ class Agent
                 args.end(),
                 {"--file-workers", std::to_string(resource_budget_->file_workers)});
         if (configuration.kind == wire::TASK_SERVICE) {
-            if (sha256_file(binary(configuration.data_artifact)) != configuration.data_artifact)
-                throw std::runtime_error("data worker integrity check failed");
-            if (sha256_file(binary(configuration.factor_artifact)) != configuration.factor_artifact)
-                throw std::runtime_error("factor worker integrity check failed");
-            if (sha256_file(binary(configuration.worker_artifact)) != configuration.worker_artifact)
-                throw std::runtime_error("backtest worker integrity check failed");
             args.insert(
                 args.end(),
                 {"--worker-endpoint",
@@ -384,30 +378,30 @@ class Agent
         }
         if (configuration.kind == wire::MARKET_DATA && !configuration.provider_artifact.empty()) {
             const auto source = binary(configuration.provider_artifact);
-            if (sha256_file(source) != configuration.provider_artifact)
-                throw std::runtime_error("provider artifact integrity check failed");
             const auto library = root_ / "services" / name
                 / (configuration.provider_artifact
                     + std::string(current_platform().os == "macos" ? ".dylib" : ".so"));
             require_managed_path(library);
-            if (!fs::exists(library))
+            if (!fs::exists(library)) {
+                if (sha256_file(source) != configuration.provider_artifact)
+                    throw std::runtime_error("provider artifact integrity check failed");
                 fs::copy_file(source, library);
-            else if (sha256_file(library) != configuration.provider_artifact)
+            } else if (sha256_file(library) != configuration.provider_artifact)
                 throw std::runtime_error("provider library changed");
             args.insert(args.end(), {"--ctp-library", utf8(library)});
         }
         if ((configuration.kind == wire::MARKET_DATA || configuration.kind == wire::LIVE_TRADING)
             && !configuration.catalog_artifact.empty()) {
             const auto source = binary(configuration.catalog_artifact);
-            if (sha256_file(source) != configuration.catalog_artifact)
-                throw std::runtime_error("catalog artifact integrity check failed");
             const auto library = root_ / "services" / name
                 / (configuration.catalog_artifact
                     + std::string(current_platform().os == "macos" ? ".dylib" : ".so"));
             require_managed_path(library);
-            if (!fs::exists(library))
+            if (!fs::exists(library)) {
+                if (sha256_file(source) != configuration.catalog_artifact)
+                    throw std::runtime_error("catalog artifact integrity check failed");
                 fs::copy_file(source, library);
-            else if (sha256_file(library) != configuration.catalog_artifact)
+            } else if (sha256_file(library) != configuration.catalog_artifact)
                 throw std::runtime_error("catalog library changed");
             args.insert(
                 args.end(),
@@ -567,12 +561,12 @@ class Agent
             ready = false;
             try {
                 if (s.configuration.kind == wire::MARKET_DATA)
-                    co_await quiesce_service<market::v1::Request, market::v1::Response>(
+                    co_await quiesce_service<market::proto::Request, market::proto::Response>(
                         name,
                         s,
                         true);
                 else if (s.configuration.kind == wire::TASK_SERVICE)
-                    co_await quiesce_service<task::v1::TaskRequest, task::v1::TaskResponse>(
+                    co_await quiesce_service<task::proto::TaskRequest, task::proto::TaskResponse>(
                         name,
                         s,
                         s.workers.empty());
@@ -581,10 +575,9 @@ class Agent
                     const bool task_stopped = peer == services_.end()
                         || (!peer->second.process && peer->second.workers.empty());
                     if (task_stopped)
-                        co_await quiesce_service<data::v1::DataRequest, data::v1::DataResponse>(
-                            name,
-                            s,
-                            true);
+                        co_await quiesce_service<
+                            data::proto::DataRequest,
+                            data::proto::DataResponse>(name, s, true);
                 }
             } catch (const std::exception& e) {
                 upgrade_error_ = name + ": " + e.what();
@@ -854,7 +847,7 @@ class Agent
     PolledTask<void> launch_tasks(
         const std::string& name,
         Service& service,
-        const task::v1::TaskResponse& response,
+        const task::proto::TaskResponse& response,
         WorkerReservation& reservation)
     {
         // Dispatch policy lives in Task Service. Agent accepts only installed
@@ -867,18 +860,18 @@ class Agent
                 throw std::runtime_error("dispatch repeated a running task");
             // The data pipeline only runs data-source downloads, one kind at a time.
             const auto downloads = launch.minute_download() + launch.table_update();
-            if ((launch.program() == task::v1::DATA_PIPELINE_PROGRAM) != (downloads == 1)
+            if ((launch.program() == task::proto::DATA_PIPELINE_PROGRAM) != (downloads == 1)
                 || downloads > 1)
                 throw std::invalid_argument("invalid download worker launch");
             std::string artifact;
             switch (launch.program()) {
-                case task::v1::BACKTEST_PROGRAM:
+                case task::proto::BACKTEST_PROGRAM:
                     artifact = service.configuration.worker_artifact;
                     break;
-                case task::v1::FACTOR_PROGRAM:
+                case task::proto::FACTOR_PROGRAM:
                     artifact = service.configuration.factor_artifact;
                     break;
-                case task::v1::DATA_PIPELINE_PROGRAM:
+                case task::proto::DATA_PIPELINE_PROGRAM:
                     artifact = service.configuration.data_artifact;
                     break;
                 default:
@@ -900,12 +893,12 @@ class Agent
                     "--task",
                     launch.task_id()
                 };
-                if (launch.program() == task::v1::DATA_PIPELINE_PROGRAM)
+                if (launch.program() == task::proto::DATA_PIPELINE_PROGRAM)
                     args.insert(
                         args.end(),
                         {"--plugin-directory",
                             utf8(plugins_.materialize(name, {launch.provider_artifact()}))});
-                if (launch.program() == task::v1::BACKTEST_PROGRAM)
+                if (launch.program() == task::proto::BACKTEST_PROGRAM)
                     args.insert(
                         args.end(),
                         {"--plugin-directory",
@@ -923,13 +916,15 @@ class Agent
 
     struct ObservationIdentity
     {
-        std::string name, revision;
+        std::string name;
         std::uint64_t generation, pid;
     };
 
     ObservationIdentity observation_identity(const std::string& name, const Service& service)
     {
-        return {name, revision(service.configuration), service.generation, service.process->id()};
+        // Program/plugin changes require a stopped service. Every stop/start
+        // retires the process and advances generation before awaiting I/O.
+        return {name, service.generation, service.process->id()};
     }
 
     Service* current_observation(const ObservationIdentity& observation, bool task_dispatch)
@@ -945,8 +940,7 @@ class Agent
         auto& service = found->second;
         if (!service.configuration.desired || !service.process || service.process->exited()
             || service.generation != observation.generation
-            || service.process->id() != observation.pid
-            || revision(service.configuration) != observation.revision)
+            || service.process->id() != observation.pid)
             return nullptr;
         return &service;
     }
@@ -1031,7 +1025,7 @@ class Agent
             WorkerReservation reservation(worker_reservations_, slots);
             const auto observation = observation_identity(name, *service);
             const auto endpoint = service->worker_endpoint;
-            task::v1::TaskResponse response;
+            task::proto::TaskResponse response;
             std::string error;
             try {
                 response =
@@ -1725,10 +1719,14 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion Node Agent: trusted remote deployment and supervision"};
     app.set_version_flag("--version", "Asterion Node Agent 0.1.0");
-    std::string directory, inspect, development_manifest;
+    std::string directory, inspect, inspect_artifact, development_manifest;
     service::Transport transport;
     auto* inspect_option =
         app.add_option("--inspect-plugin", inspect, "Print a native plugin's identity and exit");
+    auto* artifact_option =
+        app.add_option("--plugin-artifact", inspect_artifact, "Expected inspected plugin identity");
+    inspect_option->needs(artifact_option);
+    artifact_option->needs(inspect_option);
     app.add_option("--directory", directory)
         ->check(CLI::ExistingDirectory)
         ->excludes(inspect_option);
@@ -1746,7 +1744,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     if (!inspect.empty())
-        return asterion::agent::inspect_plugin(inspect);
+        return asterion::agent::inspect_plugin(inspect, inspect_artifact);
     if (directory.empty()) {
         std::cerr << "--directory is required\n";
         return 2;

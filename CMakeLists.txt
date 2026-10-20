@@ -71,7 +71,7 @@ add_library(asterion_shfe_plugin SHARED plugins/data/shfe/native_plugin.cpp)
 target_link_libraries(asterion_shfe_plugin PRIVATE asterion_shfe httplib::httplib)
 set_target_properties(asterion_shfe_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion-shfe" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 if(APPLE)
-  target_link_options(asterion_shfe_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry_v1")
+  target_link_options(asterion_shfe_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry")
 endif()
 
 add_library(asterion_history_providers STATIC plugins/data/registry/history_providers.cpp)
@@ -81,7 +81,7 @@ add_library(asterion_tushare_plugin SHARED plugins/data/tushare/native_plugin.cp
 target_link_libraries(asterion_tushare_plugin PRIVATE asterion_tushare)
 set_target_properties(asterion_tushare_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion-tushare" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 if(APPLE)
-  target_link_options(asterion_tushare_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry_v1")
+  target_link_options(asterion_tushare_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry")
 endif()
 add_dependencies(asterion_history_providers asterion_tushare_plugin asterion_shfe_plugin)
 
@@ -114,7 +114,7 @@ add_library(asterion_order_limits_plugin SHARED plugins/risk/order-limits/native
 target_link_libraries(asterion_order_limits_plugin PRIVATE asterion_order_limits)
 set_target_properties(asterion_order_limits_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion-order-limits" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 if(APPLE)
-  target_link_options(asterion_order_limits_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry_v1")
+  target_link_options(asterion_order_limits_plugin PRIVATE "-Wl,-exported_symbol,_asterion_plugin_entry")
 endif()
 add_dependencies(asterion_risk_providers asterion_order_limits_plugin)
 add_library(asterion_paper STATIC plugins/execution/paper/paper_execution.cpp plugins/execution/paper/replay_schedule.cpp plugins/execution/paper/portfolio.cpp)
@@ -133,20 +133,20 @@ set(ASTERION_PROTO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protocol/proto)
 set(ASTERION_PROTO_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${ASTERION_PROTO_GEN})
 set(ASTERION_PROTO_SOURCES)
-file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/v1/*.proto)
+file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/*.proto)
 foreach(schema health domain trading node market task backtest factor data data_service analytics)
   add_custom_command(
-    OUTPUT ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.h
-    COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/v1/${schema}.proto
+    OUTPUT ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.h
+    COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto
     DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
-  list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc)
+  list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.cc)
 endforeach()
 # Python IPC bindings use the same locked protoc as the C++ transport.
-add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated-python/asterion/v1/analytics_pb2.py"
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated-python/asterion/analytics_pb2.py"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated-python"
-  COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --python_out=${CMAKE_BINARY_DIR}/generated-python ${ASTERION_PROTO_ROOT}/asterion/v1/analytics.proto
-  DEPENDS ${ASTERION_PROTO_ROOT}/asterion/v1/analytics.proto)
-add_custom_target(asterion_analytics_python DEPENDS "${CMAKE_BINARY_DIR}/generated-python/asterion/v1/analytics_pb2.py")
+  COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --python_out=${CMAKE_BINARY_DIR}/generated-python ${ASTERION_PROTO_ROOT}/asterion/analytics.proto
+  DEPENDS ${ASTERION_PROTO_ROOT}/asterion/analytics.proto)
+add_custom_target(asterion_analytics_python DEPENDS "${CMAKE_BINARY_DIR}/generated-python/asterion/analytics_pb2.py")
 
 add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/backtest_result.cpp protocol/src/factor.cpp protocol/src/data.cpp protocol/src/table_series.cpp)
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})

@@ -11,7 +11,7 @@ namespace asterion::data {
 
 MinuteReferenceDays minute_reference_days(
     const history_files::TableStore& tables,
-    const data::v1::DailyTable& daily_reference,
+    const data::proto::DailyTable& daily_reference,
     const std::string& contract_id,
     const std::string& begin,
     const std::string& end)
@@ -73,10 +73,10 @@ MinuteReferenceDays minute_reference_days(
     return result;
 }
 
-data::v1::MinuteRangeEvidence minute_range_evidence(
+data::proto::MinuteRangeEvidence minute_range_evidence(
     const history_files::Archive& archive,
     const history_files::TableStore& tables,
-    const data::v1::MinuteRangeQuery& query)
+    const data::proto::MinuteRangeQuery& query)
 {
     protocol::validate_minute_range_query(query);
     const auto record = archive.get(query.dataset_id());
@@ -93,10 +93,10 @@ data::v1::MinuteRangeEvidence minute_range_evidence(
         query.end_day());
     const auto& calendar = references.calendar;
     const auto& traded = references.traded;
-    std::map<std::string, data::v1::MinuteDayEvidence> observed;
+    std::map<std::string, data::proto::MinuteDayEvidence> observed;
     for (const auto& day : evidence.days())
         observed.emplace(day.trading_day(), day);
-    data::v1::MinuteRangeEvidence result;
+    data::proto::MinuteRangeEvidence result;
     *result.mutable_query() = query;
     result.set_contract_id(identity.key());
     result.set_minute_source(record.minutes().source());
@@ -115,7 +115,7 @@ data::v1::MinuteRangeEvidence minute_range_evidence(
             *row->mutable_observed() = minutes->second;
         const auto c = calendar.find(date), d = traded.find(date);
         const auto keep = [](const historical_sessions::Source& source,
-                              data::v1::SessionClosureEvidence* target) {
+                              data::proto::SessionClosureEvidence* target) {
             target->set_rule_id(source.id);
             target->set_version(source.version);
             target->set_exchange(source.exchange);
@@ -138,30 +138,31 @@ data::v1::MinuteRangeEvidence minute_range_evidence(
             row->set_state(
                 minutes != observed.end() || (c != calendar.end() && c->second.value_or(false))
                         || (d != traded.end() && d->second.value_or(false))
-                    ? data::v1::RANGE_RULE_CONFLICT
-                    : data::v1::RANGE_OFFICIAL_CLOSED);
+                    ? data::proto::RANGE_RULE_CONFLICT
+                    : data::proto::RANGE_OFFICIAL_CLOSED);
         } else if (c == calendar.end() || !c->second.has_value())
-            row->set_state(data::v1::RANGE_UNKNOWN_CALENDAR);
+            row->set_state(data::proto::RANGE_UNKNOWN_CALENDAR);
         else if (!*c->second)
             row->set_state(
-                minutes == observed.end() ? data::v1::RANGE_CLOSED
-                                          : data::v1::RANGE_CALENDAR_CONFLICT);
+                minutes == observed.end() ? data::proto::RANGE_CLOSED
+                                          : data::proto::RANGE_CALENDAR_CONFLICT);
         else if (d == traded.end() || !d->second.has_value())
-            row->set_state(data::v1::RANGE_UNKNOWN_DAILY);
+            row->set_state(data::proto::RANGE_UNKNOWN_DAILY);
         else if (minutes != observed.end())
-            row->set_state(data::v1::RANGE_OBSERVED);
+            row->set_state(data::proto::RANGE_OBSERVED);
         else if (!*d->second)
-            row->set_state(data::v1::RANGE_NO_AUCTION);
+            row->set_state(data::proto::RANGE_NO_AUCTION);
         else
             row->set_state(
-                evidence.unknown_rows() ? data::v1::RANGE_UNKNOWN_LABELS
-                                        : data::v1::RANGE_UNCOVERED);
+                evidence.unknown_rows() ? data::proto::RANGE_UNKNOWN_LABELS
+                                        : data::proto::RANGE_UNCOVERED);
     }
     return result;
 }
 
-data::v1::MinuteEvidence
-minute_evidence(const history_files::Archive& archive, const data::v1::MinuteEvidenceQuery& query)
+data::proto::MinuteEvidence minute_evidence(
+    const history_files::Archive& archive,
+    const data::proto::MinuteEvidenceQuery& query)
 {
     protocol::validate_minute_evidence_query(query);
     const auto record = archive.get(query.dataset_id());
@@ -178,9 +179,9 @@ minute_evidence(const history_files::Archive& archive, const data::v1::MinuteEvi
 
 MinuteCoverage minute_coverage(
     const history_files::TableStore& tables,
-    const data::v1::DailyTable& daily,
+    const data::proto::DailyTable& daily,
     const std::string& contract,
-    const data::v1::MinuteEvidence& evidence)
+    const data::proto::MinuteEvidence& evidence)
 {
     MinuteCoverage result;
     if (evidence.days().empty() || evidence.unknown_rows())
@@ -199,15 +200,15 @@ MinuteCoverage minute_coverage(
     return result;
 }
 
-data::v1::HistoryCoverages history_coverage(
+data::proto::HistoryCoverages history_coverage(
     const history_files::Archive& archive,
     const history_files::TableStore& tables,
-    const data::v1::HistoryCoverageQuery& query)
+    const data::proto::HistoryCoverageQuery& query)
 {
     protocol::validate_message(query);
     protocol::validate_daily_table(query.daily());
     const auto& filter = query.filter();
-    data::v1::HistoryCoverages result;
+    data::proto::HistoryCoverages result;
     for (const auto& item : archive.datasets(
              {filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
         const auto record = archive.get(item.id);

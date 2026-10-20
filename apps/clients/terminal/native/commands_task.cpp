@@ -71,7 +71,6 @@ void Application::Impl::register_task_commands()
             const auto content = comparison_evidence_document(sources, instance, p.at("matrix"));
             json receipt = {
                 {"name", "research-comparison.evidence.json"},
-                {"sha256", sha256_bytes(content)},
                 {"bytes", content.size()}
             };
             const auto path = p.at("path").get<std::string>();
@@ -107,7 +106,6 @@ void Application::Impl::register_task_commands()
                 const auto content = research_evidence_document(source, instance);
                 json receipt = {
                     {"name", source.at("id").get<std::string>() + ".evidence.json"},
-                    {"sha256", sha256_bytes(content)},
                     {"bytes", content.size()}
                 };
                 if (path.empty())
@@ -147,7 +145,7 @@ void Application::Impl::register_task_commands()
         if (!revision.is_number_integer() || revision < 0 || revision > 4294967295ULL
             || !p.at("name").is_string() || !p.at("note").is_string())
             throw std::invalid_argument("invalid experiment metadata");
-        task::v1::TaskMetadataEdit edit;
+        task::proto::TaskMetadataEdit edit;
         edit.set_id(text(p, "id"));
         edit.set_expected_revision(revision.get<unsigned>());
         edit.set_name(p.at("name").get<std::string>());

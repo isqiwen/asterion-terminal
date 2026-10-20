@@ -20,7 +20,7 @@ class HostInitialization(unittest.TestCase):
         output = io.StringIO()
         with patch.object(host, 'account'), contextlib.redirect_stdout(output), patch.object(host, 'run') as run:
             host.manage(['check'])
-        self.assertEqual(output.getvalue(), 'asterion-host-v2\n')
+        self.assertEqual(output.getvalue(), 'asterion-host\n')
         run.assert_not_called()
 
     def test_failed_file_flush_does_not_publish_partial_administrative_configuration(self):

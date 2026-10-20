@@ -1,4 +1,3 @@
-import { Icon } from "../contract";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
@@ -22,12 +21,14 @@ export const plugin: TerminalPlugin = {
     "live.close",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
-  workspace: {
-    id: "workspace.trading",
-    get title() {
-      return t("交易");
+  workspaces: [
+    {
+      id: "workspace.trading",
+      get title() {
+        return t("交易");
+      },
+
+      component: context => <LivePanel {...context} />,
     },
-    icon: <Icon name="trading" />,
-    component: context => <LivePanel {...context} />,
-  },
+  ],
 };

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { openView } from "./navigation-helper";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { test, expect } from "./test";
@@ -29,14 +29,8 @@ test("research chain integration @joint: fixed evidence through revision recover
     await info.attach(name, { path, contentType: "image/png" });
   }
   async function openResearch(kind: "factor" | "backtest", id: string) {
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
-    await page
-      .getByRole("navigation", { name: "研究页面", exact: true })
-      .getByRole("button", { name: kind === "factor" ? "因子" : "回测", exact: true })
-      .click();
+    await openView(page, "backtest");
+    await openView(page, kind);
     const workspace = page.getByRole("region", { name: "期货研究", exact: true });
     const back = workspace.getByRole("button", { name: "返回回测记录", exact: true });
     if (kind === "backtest" && (await back.isVisible())) await back.click();
@@ -188,7 +182,6 @@ test("research chain integration @joint: fixed evidence through revision recover
         original.experiment,
         variant.experiment,
       ]);
-      records.factor_export_sha256 = createHash("sha256").update(bytes).digest("hex");
       await info.attach("factor comparison evidence", { path, contentType: "application/json" });
       await screenshot("01-fixed-factor-comparison");
     });
@@ -286,7 +279,6 @@ test("research chain integration @joint: fixed evidence through revision recover
       expect(doc.trades).toEqual(base.trades);
       expect(doc.performance).toEqual(base.performance);
       expect(doc.reconciliation).toEqual(base.reconciliation);
-      records.backtest_export_sha256 = createHash("sha256").update(bytes).digest("hex");
       await info.attach("backtest attribution evidence", { path, contentType: "application/json" });
       await screenshot("02-account-attribution");
     });
@@ -339,7 +331,7 @@ test("research chain integration @joint: fixed evidence through revision recover
         .locator(".workspace-tabs")
         .getByRole("button", { name: "数据", exact: true })
         .click();
-      await page.getByRole("button", { name: "全市场数据", exact: true }).click();
+      await openView(page, "tables");
       const tables = page.getByRole("region", { name: "全市场数据", exact: true });
       await tables
         .getByRole("table", { name: "全市场数据覆盖", exact: true })
@@ -460,14 +452,8 @@ test("research chain integration @joint: fixed evidence through revision recover
       // its back button was observed. Reload after verifying recovery, then
       // wait for the actual records view before selecting the result.
       await page.reload();
-      await page
-        .locator(".workspace-tabs")
-        .getByRole("button", { name: "研究", exact: true })
-        .click();
-      await page
-        .getByRole("navigation", { name: "研究页面", exact: true })
-        .getByRole("button", { name: "回测", exact: true })
-        .click();
+      await openView(page, "backtest");
+      await openView(page, "backtest");
       await expect(
         page
           .getByRole("region", { name: "期货研究", exact: true })

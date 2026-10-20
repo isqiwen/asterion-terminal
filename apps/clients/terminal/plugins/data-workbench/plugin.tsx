@@ -1,4 +1,3 @@
-import { Icon } from "../contract";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -62,16 +61,20 @@ export const plugin: TerminalPlugin = {
         completed: task.completed,
         total: task.total,
         open: () =>
-          context.navigate("workspace.data", {
-            page: task.kind === "table_update" ? "tables" : "history",
-          }),
+          context.navigate(task.kind === "table_update" ? "workspace.tables" : "workspace.history"),
       })),
-  workspace: {
-    id: "workspace.data",
+  workspaces: [
+    ["history", "历史数据"],
+    ["tables", "全市场数据"],
+    ["records", "历史数据仓库"],
+  ].map(([page, title]) => ({
+    id: `workspace.${page}`,
     get title() {
-      return t("数据");
+      return t(title);
     },
-    icon: <Icon name="data" />,
-    component: context => <Panel {...context} busy={context.busy || !context.snapshot} />,
-  },
+
+    component: context => (
+      <Panel {...context} workspacePage={page} busy={context.busy || !context.snapshot} />
+    ),
+  })),
 };

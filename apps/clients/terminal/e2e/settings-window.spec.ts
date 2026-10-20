@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import type { Snapshot } from "../src/bridge/client";
@@ -104,7 +105,7 @@ test("settings shows a busy command without automatically retrying or losing dra
 }) => {
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await openView(page, "history");
   await page.getByLabel("每分钟请求上限").fill("17");
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
@@ -140,7 +141,7 @@ test("settings shows a busy command without automatically retrying or losing dra
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await openView(page, "history");
   await page.getByLabel("每分钟请求上限").fill("17");
   const settings = await openSettingsWindow(page);
   await settings.setViewportSize({ width: 760, height: 540 });

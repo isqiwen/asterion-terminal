@@ -53,9 +53,9 @@ std::filesystem::path TaskEvents::path(std::uint64_t id) const
     return directory_ / (std::to_string(id) + ".pb");
 }
 
-task::v1::StoredTaskEventSegment TaskEvents::live() const
+task::proto::StoredTaskEventSegment TaskEvents::live() const
 {
-    task::v1::StoredTaskEventSegment result;
+    task::proto::StoredTaskEventSegment result;
     Database::Statement events(
         database_,
         "SELECT CASE WHEN length(CAST(task_id AS BLOB)) <= 128 THEN task_id END, sequence, " "CASE WHEN length(CAST(body AS BLOB)) <= 65536 THEN body END " "FROM task_events ORDER BY rowid");
@@ -82,7 +82,7 @@ void TaskEvents::read(const Visitor& visit) const
     Database::Statement segments(
         database_,
         "SELECT id, CASE WHEN length(sha256)=64 THEN sha256 END, " "bytes, records FROM task_event_segments ORDER BY id");
-    const auto consume = [&](const task::v1::StoredTaskEventSegment& segment) {
+    const auto consume = [&](const task::proto::StoredTaskEventSegment& segment) {
         protocol::validate_message(segment);
         if (segment.events_size() > segment_events)
             throw std::invalid_argument("unsupported task event segment");
@@ -98,7 +98,7 @@ void TaskEvents::read(const Visitor& visit) const
             throw std::invalid_argument("task event segments have a gap");
         const auto file = path(last);
         const auto raw = bytes(file, segments.integer(2));
-        task::v1::StoredTaskEventSegment segment;
+        task::proto::StoredTaskEventSegment segment;
         if (sha256_bytes(raw) != segments.text(1) || !segment.ParseFromString(raw)
             || !segment.events_size() || segment.events_size() != segments.integer(3))
             throw std::invalid_argument("invalid task event segment");
@@ -142,7 +142,7 @@ void TaskEvents::read(const Visitor& visit) const
     }
 }
 
-const task::v1::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id) const
+const task::proto::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id) const
 {
     if (cached_id_ == id)
         return cached_segment_;
@@ -153,7 +153,7 @@ const task::v1::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id) co
     if (!index.step())
         throw std::invalid_argument("task event membership index refers to a missing segment");
     const auto raw = bytes(path(id), index.integer(1));
-    task::v1::StoredTaskEventSegment loaded;
+    task::proto::StoredTaskEventSegment loaded;
     if (sha256_bytes(raw) != index.text(0) || !loaded.ParseFromString(raw)
         || loaded.events_size() != index.integer(2))
         throw std::invalid_argument("invalid task event segment");

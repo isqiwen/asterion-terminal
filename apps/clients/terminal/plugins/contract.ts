@@ -61,7 +61,7 @@ import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";
 export type { MessageValues, LanguageResources } from "../src/i18n";
 import type { Snapshot, TerminalCommand } from "../src/bridge/client";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType } from "react";
 
 // Terminal plugins contribute workspaces, tasks and language resources.
 export type TerminalContext = {
@@ -88,15 +88,14 @@ export type TerminalPlugin = {
   // between plugins, it is not a sandbox.
   commands: readonly PluginCommand[];
   languageResources?: LanguageResources;
-  workspace: {
+  workspaces: readonly {
     id: string;
     title: string;
-    icon: ReactNode;
     component: ComponentType<TerminalContext>;
     headerTools?: ComponentType<TerminalContext>;
     toolbar?: ComponentType<TerminalContext>;
     hideToolbar?: boolean;
-  };
+  }[];
   tasks?: (context: TerminalContext) => TerminalTask[];
 };
 

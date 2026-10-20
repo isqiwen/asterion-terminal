@@ -10,7 +10,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/v1/market.pb.h>
+#include <asterion/market.pb.h>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
@@ -53,7 +53,7 @@ public:
         session_.query_costs().get();
     }
 
-    protocol::v1::LiveSnapshot wire_snapshot() const
+    protocol::proto::LiveSnapshot wire_snapshot() const
     {
         return session_.snapshot().get();
     }
@@ -329,7 +329,7 @@ public:
         bool interrupted = false,
         int minute = 0)
     {
-        market::v1::MinuteSeries series;
+        market::proto::MinuteSeries series;
         series.set_trading_day(trading_day);
         std::int64_t start = base + minute * 60000;
         series.set_first_observation_ms(start - 1);
@@ -381,10 +381,10 @@ private:
         while (!stop.stop_requested()) {
             try {
                 auto peer = listener_.accept(20ms);
-                market::v1::Request request;
+                market::proto::Request request;
                 if (!request.ParseFromString(peer.receive(1s)))
                     continue;
-                market::v1::Response response;
+                market::proto::Response response;
                 response.set_version(1);
                 response.set_service_id(request.service_id());
                 response.set_correlation_id(request.correlation_id());
@@ -403,7 +403,7 @@ private:
     std::string endpoint_;
     testing_support::LocalListener listener_;
     std::mutex mutex_;
-    market::v1::MinuteSeries series_;
+    market::proto::MinuteSeries series_;
     std::jthread thread_;
 };
 
@@ -2059,15 +2059,15 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     ASSERT_TRUE(snapshot.has_funds());
     EXPECT_EQ(snapshot.funds().commission().units(), Decimal::parse("12.34").raw());
     ASSERT_EQ(snapshot.orders_size(), 1);
-    EXPECT_EQ(snapshot.orders(0).side(), protocol::v1::BUY);
-    EXPECT_EQ(snapshot.orders(0).offset(), protocol::v1::OPEN);
+    EXPECT_EQ(snapshot.orders(0).side(), protocol::proto::BUY);
+    EXPECT_EQ(snapshot.orders(0).offset(), protocol::proto::OPEN);
     EXPECT_EQ(snapshot.orders(0).limit_price().units(), Decimal::parse("3500").raw());
     EXPECT_EQ(snapshot.orders(0).filled().units(), Decimal::parse("2").raw());
     ASSERT_EQ(snapshot.costs_size(), 1);
     EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().units(), Decimal::parse("1.5").raw());
     EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().units(), Decimal::parse("0.0001").raw());
     ASSERT_TRUE(snapshot.has_authorization());
-    protocol::v1::LiveSnapshot received;
+    protocol::proto::LiveSnapshot received;
     ASSERT_TRUE(received.ParseFromString(snapshot.SerializeAsString()));
     EXPECT_EQ(protocol::decode_live_snapshot(received), protocol::decode_live_snapshot(snapshot));
     act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
@@ -2121,7 +2121,7 @@ TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
     auto order = protocol::encode_command(submit("exact", "2", "3500.25"));
     const auto typed = trading::AccountRequest::from_wire(order);
     EXPECT_EQ(typed.as<trading::SubmitOrder>()->order.limit_price, Decimal::parse("3500.25"));
-    order.mutable_submit()->set_side(protocol::v1::SIDE_UNSPECIFIED);
+    order.mutable_submit()->set_side(protocol::proto::SIDE_UNSPECIFIED);
     EXPECT_THROW(trading::AccountRequest::from_wire(order), std::invalid_argument);
 }
 
@@ -2502,10 +2502,10 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
         };
         for (int sample = 0; sample < 35; ++sample) {
             const auto begin = std::chrono::steady_clock::now();
-            std::vector<std::future<protocol::v1::LiveSnapshot>> pending;
+            std::vector<std::future<protocol::proto::LiveSnapshot>> pending;
             for (const auto& session : sessions)
                 pending.push_back(session->snapshot());
-            std::vector<protocol::v1::LiveSnapshot> snapshots;
+            std::vector<protocol::proto::LiveSnapshot> snapshots;
             for (auto& future : pending)
                 snapshots.push_back(future.get());
             const auto observation = elapsed(begin);

@@ -40,14 +40,14 @@ json risk_parameters(const json& p);
 void fields_with_risk(const json& object, std::initializer_list<std::string_view> names);
 std::string text(const json& object, const char* name, bool allow_empty = false);
 unsigned short port_number(const json& p, const char* name);
-data::v1::MinutePageQuery minute_page_query(const json& params);
+data::proto::MinutePageQuery minute_page_query(const json& params);
 
 // Bars selected for backtests and factors: completed downloads resolved by
 // the data service, never local files.
 struct DatasetSelection
 {
-    data::v1::BarDatasetRequest request;
-    data::v1::BarDataset dataset;
+    data::proto::BarDatasetRequest request;
+    data::proto::BarDataset dataset;
     json summary;
 };
 
@@ -57,8 +57,8 @@ struct DatasetSelection
 // months the daily table names.
 struct DatasetSeries
 {
-    std::vector<data::v1::BarDatasetRequest> months;
-    std::optional<data::v1::ProductBarsRequest> product;
+    std::vector<data::proto::BarDatasetRequest> months;
+    std::optional<data::proto::ProductBarsRequest> product;
     json summary;
 };
 
@@ -123,15 +123,15 @@ struct Application::Impl
     std::vector<DatasetSelection> selections;
     std::vector<DatasetSeries> dataset_series;
     // The series a selected contract is a month of, if any.
-    std::optional<std::size_t> series_of(const protocol::v1::Contract& contract) const;
+    std::optional<std::size_t> series_of(const protocol::proto::Contract& contract) const;
     // One contract's dataset joins the selection, or replaces the contract's.
     void adopt_selection(DatasetSelection next);
     // A resolved series replaces whatever was selected of its product: `traded`
     // are the requests of the months that trade, in the preview's order.
     void adopt_series(
         DatasetSeries series,
-        const data::v1::DominantSeriesPreview& preview,
-        const std::vector<data::v1::BarDatasetRequest>& traded);
+        const data::proto::DominantSeriesPreview& preview,
+        const std::vector<data::proto::BarDatasetRequest>& traded);
     std::uint64_t dataset_selection_generation = 0;
     // The selected datasets or an actionable error; never an empty stand-in.
     const std::vector<DatasetSelection>& selected() const;

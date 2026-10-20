@@ -325,10 +325,10 @@ AstStatus verify_connection(
     });
 }
 
-const AstHistoryConnectionV1
-    connection{sizeof(AstHistoryConnectionV1), 1, describe_connection, verify_connection};
-const AstHistoryV3 history{sizeof(AstHistoryV3), 3, sources, minutes};
-const AstHistoryTablesV1 history_tables{sizeof(AstHistoryTablesV1), 1, tables, read_table};
+const AstHistoryConnection
+    connection{sizeof(AstHistoryConnection), 1, describe_connection, verify_connection};
+const AstHistory history{sizeof(AstHistory), 3, sources, minutes};
+const AstHistoryTables history_tables{sizeof(AstHistoryTables), 1, tables, read_table};
 
 AstStatus
 create(const char* capability, const AstSetting* settings, uint32_t count, void** out) noexcept
@@ -338,9 +338,9 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
     *out = nullptr;
     return sdk::boundary([&] {
         if (!capability
-            || (std::string_view(capability) != AST_HISTORY_V3
-                && std::string_view(capability) != AST_HISTORY_CONNECTION_V1
-                && std::string_view(capability) != AST_HISTORY_TABLES_V1))
+            || (std::string_view(capability) != AST_HISTORY
+                && std::string_view(capability) != AST_HISTORY_CONNECTION
+                && std::string_view(capability) != AST_HISTORY_TABLES))
             throw AstStatus(AST_UNSUPPORTED);
         if (count > 64 || (count && !settings))
             throw AstStatus(AST_INVALID);
@@ -364,11 +364,11 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
         };
         if (result->source == "tushare.ft_mins")
             result->minutes = std::make_unique<tushare::Minutes>(result->credential, post);
-        if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && count
+        if (std::string_view(capability) == AST_HISTORY_TABLES && count
             && result->credential.empty())
             throw AstStatus(AST_INVALID);
         // A metadata instance has no credential and only lists the tables.
-        if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && !result->credential.empty())
+        if (std::string_view(capability) == AST_HISTORY_TABLES && !result->credential.empty())
             result->tables = std::make_unique<tushare::Tables>(result->credential, post);
         *out = result.release();
     });
@@ -421,43 +421,42 @@ AstStatus response_get(
     });
 }
 
-const AstHistoryResponseV1 response_evidence{sizeof(AstHistoryResponseV1), 1, response_get};
+const AstHistoryResponse response_evidence{sizeof(AstHistoryResponse), 1, response_get};
 
 AstStatus query(void*, const char* id, uint32_t version, uint32_t size, const void** out) noexcept
 {
     if (!out)
         return AST_INVALID;
     *out = nullptr;
-    if (id && std::string_view(id) == AST_HISTORY_RESPONSE_V1 && version == 1
-        && size == sizeof(AstHistoryResponseV1)) {
+    if (id && std::string_view(id) == AST_HISTORY_RESPONSE && version == 1
+        && size == sizeof(AstHistoryResponse)) {
         *out = &response_evidence;
         return AST_OK;
     }
-    if (id && std::string_view(id) == AST_HISTORY_CONNECTION_V1 && version == 1
-        && size == sizeof(AstHistoryConnectionV1)) {
+    if (id && std::string_view(id) == AST_HISTORY_CONNECTION && version == 1
+        && size == sizeof(AstHistoryConnection)) {
         *out = &connection;
         return AST_OK;
     }
-    if (id && std::string_view(id) == AST_HISTORY_TABLES_V1 && version == 1
-        && size == sizeof(AstHistoryTablesV1)) {
+    if (id && std::string_view(id) == AST_HISTORY_TABLES && version == 1
+        && size == sizeof(AstHistoryTables)) {
         *out = &history_tables;
         return AST_OK;
     }
-    if (!id || std::string_view(id) != AST_HISTORY_V3 || version != 3
-        || size != sizeof(AstHistoryV3))
+    if (!id || std::string_view(id) != AST_HISTORY || version != 3 || size != sizeof(AstHistory))
         return AST_UNSUPPORTED;
     *out = &history;
     return AST_OK;
 }
 
 const AstCapability capabilities[] = {
-    {AST_HISTORY_V3, 3, "data"},
-    {AST_HISTORY_CONNECTION_V1, 1, "data"},
-    {AST_HISTORY_TABLES_V1, 1, "data"},
-    {AST_HISTORY_RESPONSE_V1, 1, "data"}
+    {AST_HISTORY, 3, "data"},
+    {AST_HISTORY_CONNECTION, 1, "data"},
+    {AST_HISTORY_TABLES, 1, "data"},
+    {AST_HISTORY_RESPONSE, 1, "data"}
 };
-const AstPluginV1 plugin{
-    sizeof(AstPluginV1),
+const AstPlugin plugin{
+    sizeof(AstPlugin),
     ASTERION_PLUGIN_ABI_VERSION,
     "asterion.data.tushare",
     "1.0.0",
@@ -473,8 +472,8 @@ const AstPluginV1 plugin{
 
 } // namespace
 
-extern "C" ASTERION_PLUGIN_EXPORT const AstPluginV1*
-asterion_plugin_entry_v1(uint32_t abi, uint32_t size) noexcept
+extern "C" ASTERION_PLUGIN_EXPORT const AstPlugin*
+asterion_plugin_entry(uint32_t abi, uint32_t size) noexcept
 {
-    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPluginV1) ? &plugin : nullptr;
+    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPlugin) ? &plugin : nullptr;
 }

@@ -2,9 +2,9 @@
 
 namespace asterion::protocol {
 
-market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::string& instance)
+market::proto::Snapshot encode_market(const LiveMarketSnapshot& state, const std::string& instance)
 {
-    market::v1::Snapshot out;
+    market::proto::Snapshot out;
     out.set_subscriptions_delta(state.subscriptions_delta);
     out.set_instance_id(instance);
     out.set_phase(std::string(market_phase_name(state.phase)));
@@ -73,9 +73,9 @@ market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::s
     return out;
 }
 
-market::v1::EventBatch encode_market_events(const MarketEventBatch& batch)
+market::proto::EventBatch encode_market_events(const MarketEventBatch& batch)
 {
-    market::v1::EventBatch out;
+    market::proto::EventBatch out;
     out.set_stream_id(batch.stream_id);
     out.set_oldest_sequence(batch.oldest_sequence);
     out.set_latest_sequence(batch.latest_sequence);
@@ -111,7 +111,7 @@ market::v1::EventBatch encode_market_events(const MarketEventBatch& batch)
     return out;
 }
 
-Json decode_market(const market::v1::Snapshot& state)
+Json decode_market(const market::proto::Snapshot& state)
 {
     Json rows = Json::array();
     for (const auto& s : state.subscriptions()) {
@@ -210,9 +210,9 @@ Json decode_market(const market::v1::Snapshot& state)
     };
 }
 
-market::v1::MinuteSeries encode_minutes(const IntradaySeries& series)
+market::proto::MinuteSeries encode_minutes(const IntradaySeries& series)
 {
-    market::v1::MinuteSeries out;
+    market::proto::MinuteSeries out;
     out.mutable_instrument()->set_venue(series.instrument.venue);
     out.mutable_instrument()->set_symbol(series.instrument.symbol);
     out.set_trading_day(series.trading_day);
@@ -236,7 +236,7 @@ market::v1::MinuteSeries encode_minutes(const IntradaySeries& series)
     return out;
 }
 
-Json decode_minutes(const market::v1::MinuteSeries& series)
+Json decode_minutes(const market::proto::MinuteSeries& series)
 {
     Json bars = Json::array();
     std::int64_t previous = 0;

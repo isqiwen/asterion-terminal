@@ -49,7 +49,7 @@ void check_plugin_status(AstStatus status)
 struct NativeLibrary::State
 {
     void* library = nullptr;
-    const AstPluginV1* api = nullptr;
+    const AstPlugin* api = nullptr;
     NativeDescriptor descriptor;
     std::string sha256;
     std::filesystem::path path;
@@ -61,7 +61,7 @@ struct NativeLibrary::State
     }
 };
 
-NativeLibrary::NativeLibrary(const std::filesystem::path& path)
+NativeLibrary::NativeLibrary(const std::filesystem::path& path, const std::string& expected_digest)
     : state_(std::make_shared<State>())
 {
     if (!path.is_absolute() || std::filesystem::is_symlink(path)
@@ -69,16 +69,18 @@ NativeLibrary::NativeLibrary(const std::filesystem::path& path)
         throw std::invalid_argument("native plugin requires an absolute regular library");
     state_->path = path;
     state_->sha256 = sha256_file(path);
+    if (!expected_digest.empty() && state_->sha256 != expected_digest)
+        throw std::invalid_argument("native plugin catalog changed; inspect again");
     state_->library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!state_->library)
         throw Error(ErrorCode::unavailable, "cannot load native plugin library");
     if (sha256_file(path) != state_->sha256)
         throw std::invalid_argument("native plugin catalog changed; inspect again");
-    auto entry = reinterpret_cast<AstPluginEntryV1>(dlsym(state_->library, ASTERION_PLUGIN_ENTRY));
+    auto entry = reinterpret_cast<AstPluginEntry>(dlsym(state_->library, ASTERION_PLUGIN_ENTRY));
     if (!entry)
         throw std::invalid_argument("native plugin entry is missing");
-    const auto* api = entry(ASTERION_PLUGIN_ABI_VERSION, sizeof(AstPluginV1));
-    if (!api || api->size != sizeof(AstPluginV1) || api->abi_version != ASTERION_PLUGIN_ABI_VERSION)
+    const auto* api = entry(ASTERION_PLUGIN_ABI_VERSION, sizeof(AstPlugin));
+    if (!api || api->size != sizeof(AstPlugin) || api->abi_version != ASTERION_PLUGIN_ABI_VERSION)
         throw std::invalid_argument("native plugin ABI mismatch");
     if (bounded(api->platform) != ASTERION_PLUGIN_PLATFORM)
         throw std::invalid_argument("native plugin platform mismatch");

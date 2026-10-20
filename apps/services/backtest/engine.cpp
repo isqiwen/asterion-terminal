@@ -15,7 +15,7 @@
 namespace asterion::backtest {
 namespace {
 
-Decimal decimal(const protocol::v1::Decimal& value)
+Decimal decimal(const protocol::proto::Decimal& value)
 {
     return Decimal::from_raw(value.units());
 }
@@ -23,7 +23,7 @@ Decimal decimal(const protocol::v1::Decimal& value)
 constexpr std::size_t none = static_cast<std::size_t>(-1);
 
 // For each contract, the dominant series it is a month of, or none.
-std::vector<std::size_t> series_of(const backtest::v1::BacktestInput& input)
+std::vector<std::size_t> series_of(const backtest::proto::BacktestInput& input)
 {
     std::vector<std::size_t> result(static_cast<std::size_t>(input.paper().contracts_size()), none);
     for (int s = 0; s < input.series_size(); ++s)
@@ -51,7 +51,7 @@ MarketBar adjusted(MarketBar bar, Decimal factor, Decimal increment)
 
 } // namespace
 
-void validate(const backtest::v1::BacktestInput& input)
+void validate(const backtest::proto::BacktestInput& input)
 {
     static_cast<void>(protocol::decode_backtest(input, protocol::DatasetView::metadata));
     const auto& p = input.paper();
@@ -87,7 +87,7 @@ void validate(const backtest::v1::BacktestInput& input)
         if (CrossSection::defines(strategy)) {
             static_cast<void>(CrossSection(strategy, units));
             // Only a series has a later month to stand against.
-            if (strategy.cross().factor() == protocol::v1::TERM_STRUCTURE
+            if (strategy.cross().factor() == protocol::proto::TERM_STRUCTURE
                 && std::ranges::count(series, none))
                 throw std::invalid_argument("ranking by the term structure needs dominant series");
         }
@@ -103,7 +103,7 @@ namespace {
 // unit, or one rule that ranks them all.
 struct Follower
 {
-    const protocol::v1::Strategy* definition;
+    const protocol::proto::Strategy* definition;
     std::unique_ptr<CrossSection> cross;
     std::vector<std::unique_ptr<Strategy>> strategies;
     // The last target asked for each unit.
@@ -115,9 +115,9 @@ struct Follower
 // settlement and carries the equity record alone. Every one of `definitions`
 // reads every bar. `followed` says, for each trading day, whose targets the
 // account takes: one of them, or none and it holds nothing.
-backtest::v1::BacktestResult replay(
-    const backtest::v1::BacktestInput& input,
-    const std::vector<const protocol::v1::Strategy*>& definitions,
+backtest::proto::BacktestResult replay(
+    const backtest::proto::BacktestInput& input,
+    const std::vector<const protocol::proto::Strategy*>& definitions,
     const std::vector<std::optional<std::size_t>>& followed,
     const std::string& until,
     std::stop_token stop,
@@ -150,7 +150,7 @@ backtest::v1::BacktestResult replay(
     // of each series begins with, where it has a term point.
     std::vector<std::map<std::string, Decimal>> carry;
     {
-        std::vector<const protocol::v1::Contract*> contracts;
+        std::vector<const protocol::proto::Contract*> contracts;
         for (const auto& contract : p.contracts())
             contracts.push_back(&contract.dataset().contract());
         for (const auto& rolls : input.series())
@@ -201,12 +201,12 @@ backtest::v1::BacktestResult replay(
             return lot.instrument == id;
         });
     };
-    backtest::v1::BacktestResult result;
+    backtest::proto::BacktestResult result;
     result.set_dataset_revision(input.dataset_revision());
     auto peak = decimal(p.deposit());
     Decimal drawdown;
     const auto add_equity =
-        [&](std::int64_t time, backtest::v1::EquityEvent event, const FuturesAccount& account) {
+        [&](std::int64_t time, backtest::proto::EquityEvent event, const FuturesAccount& account) {
             const auto equity = account.balance() + account.unrealized();
             peak = std::max(peak, equity);
             drawdown = std::max(drawdown, peak - equity);
@@ -304,7 +304,7 @@ backtest::v1::BacktestResult replay(
                             if (const auto wanted = follower.strategies[u]->on_bar(seen))
                                 follower.wanted[u] = wanted;
                         } else if (follower.definition->cross().factor()
-                            != protocol::v1::TERM_STRUCTURE) {
+                            != protocol::proto::TERM_STRUCTURE) {
                             follower.cross->on_bar(u, seen.timestamp_ns, seen.close);
                         } else if (const auto term = carry[member].find(bar.trading_day);
                             term != carry[member].end()) {
@@ -372,7 +372,7 @@ backtest::v1::BacktestResult replay(
                     observed->set_fill_id(account.fills()[recorded_fills++].execution.execution_id);
                     observed->set_trading_day(bar.trading_day);
                 }
-            add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
+            add_equity(bar.timestamp_ns, backtest::proto::TRADE_MARK, account);
             settled_at = bar.timestamp_ns;
             step();
         }
@@ -385,7 +385,7 @@ backtest::v1::BacktestResult replay(
             day.prices,
             event == input.settlement_margins().end() ? std::nullopt
                                                       : std::optional{decimal(event->rate())});
-        add_equity(settled_at, backtest::v1::DAILY_SETTLEMENT, account);
+        add_equity(settled_at, backtest::proto::DAILY_SETTLEMENT, account);
         auto* settled = result.add_settlements();
         settled->set_trading_day(day.trading_day);
         settled->set_timestamp_ns(settled_at);
@@ -461,10 +461,10 @@ namespace {
 
 // What a candidate's days before the holdout, or a round's training days,
 // showed of it.
-backtest::v1::BacktestCandidate
+backtest::proto::BacktestCandidate
 scored(Decimal base, std::span<const EquityDay> days, std::span<const Decimal> marks)
 {
-    backtest::v1::BacktestCandidate candidate;
+    backtest::proto::BacktestCandidate candidate;
     // An account already emptied has no return to speak of.
     if (base <= Decimal{})
         return candidate;
@@ -499,12 +499,12 @@ struct Curve
     std::vector<std::size_t> day_end;
 };
 
-Curve curve(const backtest::v1::BacktestResult& result)
+Curve curve(const backtest::proto::BacktestResult& result)
 {
     Curve value;
     for (const auto& point : result.equity()) {
         value.marks.push_back(decimal(point.equity()));
-        if (point.event() == backtest::v1::DAILY_SETTLEMENT)
+        if (point.event() == backtest::proto::DAILY_SETTLEMENT)
             value.day_end.push_back(value.marks.size());
     }
     for (const auto& day : result.settlements())
@@ -515,8 +515,8 @@ Curve curve(const backtest::v1::BacktestResult& result)
 
 } // namespace
 
-backtest::v1::BacktestResult run(
-    const backtest::v1::BacktestInput& input,
+backtest::proto::BacktestResult run(
+    const backtest::proto::BacktestInput& input,
     std::stop_token stop,
     const std::function<void(std::size_t, std::size_t)>& progress,
     const risk_providers::Module* pinned)
@@ -531,7 +531,7 @@ backtest::v1::BacktestResult run(
     const auto days = protocol::backtest_trading_days(input).size();
     const auto deposit = decimal(input.paper().deposit());
     // One strategy alone on the account, over all the days or those before `until`.
-    const auto alone = [&](const protocol::v1::Strategy& strategy, const std::string& until) {
+    const auto alone = [&](const protocol::proto::Strategy& strategy, const std::string& until) {
         return replay(
             input,
             {&strategy},
@@ -546,7 +546,7 @@ backtest::v1::BacktestResult run(
     if (!input.has_walk_forward()) {
         // Each strategy is judged by the days before the holdout and nothing
         // else: its replay ends there.
-        std::vector<backtest::v1::BacktestCandidate> candidates;
+        std::vector<backtest::proto::BacktestCandidate> candidates;
         for (const auto& strategy : input.strategies()) {
             const auto development = curve(alone(strategy, input.holdout_day()));
             candidates.push_back(scored(deposit, development.days, development.marks));
@@ -565,14 +565,14 @@ backtest::v1::BacktestResult run(
     // reads of those replays its training days and nothing after them, and the
     // account then follows the round's best strategy over its validation days.
     std::vector<Curve> curves;
-    std::vector<const protocol::v1::Strategy*> definitions;
+    std::vector<const protocol::proto::Strategy*> definitions;
     for (const auto& strategy : input.strategies()) {
         curves.push_back(curve(alone(strategy, {})));
         definitions.push_back(&strategy);
     }
     const auto training = input.walk_forward().training_days();
     std::vector<std::optional<std::size_t>> followed(days);
-    std::vector<backtest::v1::BacktestFold> folds;
+    std::vector<backtest::proto::BacktestFold> folds;
     for (const auto& range : protocol::backtest_folds(input)) {
         auto& fold = folds.emplace_back();
         fold.set_first_day(

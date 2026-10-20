@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect, type Page } from "./test";
 import type { Snapshot, TableContracts } from "../src/bridge/client";
 
@@ -131,7 +132,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.screenshot({ path: "build/contract-units-browser.png" });
   await section.getByLabel("分钟周期", { exact: true }).selectOption("5");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await expect(page.getByRole("region", { name: "期货研究", exact: true })).toBeVisible();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
@@ -178,7 +179,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "下载整个合约", exact: true }).click();
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await expect(section).toHaveCount(0);
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
@@ -227,10 +228,10 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   ]);
   await history.getByLabel("品种", { exact: true }).selectOption("cu");
   await history.getByLabel("Tushare Token", { exact: true }).fill("subpage-fixture-secret");
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   await expect(history).toHaveCount(0);
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
-  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await openView(page, "history");
   await expect(history.getByLabel("品种", { exact: true })).toHaveValue("cu");
   await expect(history.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
   await page.screenshot({ path: "build/history-page-desktop.png", fullPage: true });
@@ -238,7 +239,7 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   await expect(history.locator(".history-layout")).toHaveCSS("grid-template-columns", /px$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "build/history-page-compact.png", fullPage: true });
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
 });
 

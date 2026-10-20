@@ -40,7 +40,7 @@ void digest(const std::string& id)
         throw std::invalid_argument("invalid historical dataset revision");
 }
 
-HistoryDataset summary(const data::v1::HistoryRecord& record)
+HistoryDataset summary(const data::proto::HistoryRecord& record)
 {
     if (!record.has_minutes() || !record.has_minute_result())
         throw std::invalid_argument("invalid historical archive record");
@@ -121,7 +121,7 @@ std::filesystem::path Archive::directory(
     return p;
 }
 
-void Archive::publish_verified(const data::v1::HistoryRecord& record)
+void Archive::publish_verified(const data::proto::HistoryRecord& record)
 {
     writable();
     const auto item = summary(record);
@@ -141,7 +141,7 @@ void Archive::publish_verified(const data::v1::HistoryRecord& record)
     replace_file_durably(index, record.SerializeAsString());
 }
 
-data::v1::HistoryRecord Archive::get(const std::string& id) const
+data::proto::HistoryRecord Archive::get(const std::string& id) const
 {
     digest(id);
     const auto index = root_ / "index" / (id + ".pb");
@@ -150,7 +150,7 @@ data::v1::HistoryRecord Archive::get(const std::string& id) const
         throw std::invalid_argument("historical dataset is unavailable");
     std::ifstream file(index, std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(file)), {});
-    data::v1::HistoryRecord record;
+    data::proto::HistoryRecord record;
     if (!record.ParseFromString(bytes) || summary(record).id != id)
         throw std::invalid_argument("historical archive revision mismatch");
     const auto path = std::filesystem::path(record.minute_result().directory());
@@ -192,7 +192,7 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
     return result;
 }
 
-void Archive::save_named_dataset(const data::v1::NamedDataset& value)
+void Archive::save_named_dataset(const data::proto::NamedDataset& value)
 {
     writable();
     protocol::validate_named_dataset(value);
@@ -221,7 +221,7 @@ bool Archive::has_named_dataset(const std::string& id) const
     return true;
 }
 
-data::v1::NamedDataset Archive::named_dataset(const std::string& id) const
+data::proto::NamedDataset Archive::named_dataset(const std::string& id) const
 {
     digest(id);
     const auto path = root_ / "named-datasets" / (id + ".pb");
@@ -230,7 +230,7 @@ data::v1::NamedDataset Archive::named_dataset(const std::string& id) const
         throw std::invalid_argument("saved dataset is unavailable");
     std::ifstream file(path, std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(file)), {});
-    data::v1::NamedDataset value;
+    data::proto::NamedDataset value;
     if (!value.ParseFromString(bytes))
         throw std::invalid_argument("invalid saved dataset");
     if (value.id() != id)
@@ -239,7 +239,7 @@ data::v1::NamedDataset Archive::named_dataset(const std::string& id) const
     return value;
 }
 
-data::v1::NamedDatasets Archive::named_datasets() const
+data::proto::NamedDatasets Archive::named_datasets() const
 {
     safe(root_ / "datasets.lock");
     std::optional<FileLock> lock;
@@ -251,8 +251,8 @@ data::v1::NamedDatasets Archive::named_datasets() const
                                       : FileLock::Access::shared_existing);
     else if (!std::filesystem::is_empty(root_ / "named-datasets"))
         throw std::invalid_argument("historical archive coordination file is missing");
-    std::vector<data::v1::NamedDataset> rows;
-    data::v1::NamedDatasets result;
+    std::vector<data::proto::NamedDataset> rows;
+    data::proto::NamedDatasets result;
     for (const auto& entry : std::filesystem::directory_iterator(root_ / "named-datasets")) {
         if (entry.path().extension() != ".pb" || rows.size() >= 1000)
             throw std::invalid_argument("invalid saved dataset");

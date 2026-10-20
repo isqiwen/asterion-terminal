@@ -10,15 +10,15 @@ Decimal d(const char* value)
     return Decimal::parse(value);
 }
 
-void put(protocol::v1::Decimal* field, const char* value)
+void put(protocol::proto::Decimal* field, const char* value)
 {
     field->set_units(d(value).raw());
 }
 
 struct Evidence
 {
-    backtest::v1::BacktestInput input;
-    backtest::v1::BacktestResult result;
+    backtest::proto::BacktestInput input;
+    backtest::proto::BacktestResult result;
 
     Evidence()
     {
@@ -52,7 +52,7 @@ struct Evidence
     {
         auto* order = result.mutable_account()->add_orders();
         order->set_id(id);
-        order->set_side(buy ? protocol::v1::BUY : protocol::v1::SELL);
+        order->set_side(buy ? protocol::proto::BUY : protocol::proto::SELL);
         auto* fill = result.mutable_account()->add_fills();
         fill->set_id(id);
         fill->set_order_id(id);
@@ -102,7 +102,7 @@ struct Evidence
         put(a->mutable_margin(), margin);
         put(a->mutable_available(), available);
         auto* lot = a->add_positions();
-        lot->set_side(protocol::v1::BUY);
+        lot->set_side(protocol::proto::BUY);
         put(lot->mutable_quantity(), qty);
     }
 };
@@ -198,7 +198,7 @@ TEST(AccountReconciliation, MarginSumsSavedLotsWithOriginalRoundingAndLastEffect
     e.day("2024-01-02", "101", "0.02", "1000.02", "0.02", "0");
     e.final("1000.02", "0.01", "0.02", "0", "1.02", "999");
     auto* lot = e.result.mutable_account()->add_positions();
-    lot->set_side(protocol::v1::BUY);
+    lot->set_side(protocol::proto::BUY);
     put(lot->mutable_quantity(), "0.01");
     const auto a = reconcile_backtest(e.input, e.result);
     EXPECT_EQ(a.cost_source, "second fixed assumption");

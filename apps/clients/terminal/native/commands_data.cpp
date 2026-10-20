@@ -12,7 +12,7 @@ namespace asterion::terminal {
 namespace {
 
 DatasetSelection
-resolved_selection(const data::v1::BarDatasetRequest& request, data::v1::BarDataset dataset)
+resolved_selection(const data::proto::BarDatasetRequest& request, data::proto::BarDataset dataset)
 {
     const auto& bars = dataset.bars();
     const auto& first = bars.Get(0);
@@ -56,9 +56,9 @@ resolved_selection(const data::v1::BarDatasetRequest& request, data::v1::BarData
 // What a download of one contract asks the data service for: the contract
 // list of the history source's own data source, under the snapshot the user
 // chose the contract from.
-data::v1::TableContractsQuery contract_list(const json& p, const HistoryIdentity& contract)
+data::proto::TableContractsQuery contract_list(const json& p, const HistoryIdentity& contract)
 {
-    data::v1::TableContractsQuery query;
+    data::proto::TableContractsQuery query;
     query.set_snapshot(p.at("snapshot").get<std::string>());
     query.set_source(p.at("source").get<std::string>());
     query.set_exchange(contract.venue);
@@ -87,7 +87,7 @@ std::int64_t download_cutoff(const json& p)
 // The request for one contract. Its daily facts and units come from the
 // market-wide tables under the snapshot the user saw; `sources` are archive
 // versions of its minute bars, or none for its daily bars in that table.
-data::v1::BarDatasetRequest
+data::proto::BarDatasetRequest
 contract_request(const HistoryIdentity& identity, const json& sources, const json& p)
 {
     return protocol::encode_bar_dataset_request(
@@ -112,7 +112,7 @@ HistoryIdentity archived_contract(const Json& archive, const json& sources)
 
 } // namespace
 
-data::v1::MinutePageQuery minute_page_query(const json& p)
+data::proto::MinutePageQuery minute_page_query(const json& p)
 {
     fields(p, {"id", "offset", "limit", "start", "end", "include_macd"});
     if (!p.at("include_macd").is_boolean())
@@ -120,7 +120,7 @@ data::v1::MinutePageQuery minute_page_query(const json& p)
     if (!p.at("offset").is_number_integer() || p.at("offset") < 0 || p.at("offset") > 60000000
         || !p.at("limit").is_number_integer() || p.at("limit") < 1 || p.at("limit") > 200)
         throw std::invalid_argument("invalid minute dataset page query");
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_dataset_id(text(p, "id"));
     query.set_include_macd(p.at("include_macd").get<bool>());
     query.set_offset(p.at("offset").get<std::uint64_t>());
@@ -164,8 +164,8 @@ void Application::Impl::adopt_selection(DatasetSelection next)
 
 void Application::Impl::adopt_series(
     DatasetSeries series,
-    const data::v1::DominantSeriesPreview& preview,
-    const std::vector<data::v1::BarDatasetRequest>& traded)
+    const data::proto::DominantSeriesPreview& preview,
+    const std::vector<data::proto::BarDatasetRequest>& traded)
 {
     const auto& product = preview.datasets(0).contract();
     // The series replaces whatever was selected for this product.
@@ -225,7 +225,7 @@ void Application::Impl::register_data_commands()
 {
     command("data.history.usage", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id"});
-        data::v1::HistoryUsage usage;
+        data::proto::HistoryUsage usage;
         usage.set_dataset_id(text(p, "id"));
         (void)protocol::decode_history_usage(usage);
         if (!task_client || !data_client)
@@ -268,7 +268,7 @@ void Application::Impl::register_data_commands()
                 "repair preview is blocked by reviewed closure conflicts; inspect the preview");
         const auto credential =
             (co_await source_credential(plan.minutes().source(), text(p, "token", true)));
-        data::v1::DownloadAuthorizationRequest authorization;
+        data::proto::DownloadAuthorizationRequest authorization;
         authorization.set_task_instance(client->endpoint().session);
         authorization.set_task_id(text(p, "id"));
         authorization.set_credential(credential);
@@ -319,7 +319,7 @@ void Application::Impl::register_data_commands()
             throw Error(
                 ErrorCode::conflict,
                 "data/task service selection changed during archive query");
-        data::v1::DownloadAuthorizationRequest authorization;
+        data::proto::DownloadAuthorizationRequest authorization;
         authorization.set_task_instance(client->endpoint().session);
         authorization.set_task_id(text(p, "id"));
         *authorization.mutable_table_update() = plan.update();
@@ -342,7 +342,7 @@ void Application::Impl::register_data_commands()
         const auto client = task_client;
         const auto reader = data_client;
         const auto generation = data_task_generation;
-        data::v1::DownloadAuthorizationRequest authorization;
+        data::proto::DownloadAuthorizationRequest authorization;
         *authorization.mutable_table_update() = protocol::encode_table_update(
             {{"provider", p.at("provider")},
                 {"tables", p.at("tables")},
@@ -461,7 +461,7 @@ void Application::Impl::register_data_commands()
             throw std::invalid_argument("connect the data and task services first");
         if (!dataset_series.empty())
             throw std::invalid_argument("a named dataset cannot hold a dominant series");
-        data::v1::NamedDataset saved;
+        data::proto::NamedDataset saved;
         saved.set_name(text(p, "name"));
         for (const auto& item : selected()) {
             *saved.add_selections() = item.request;
@@ -526,7 +526,7 @@ void Application::Impl::register_data_commands()
                     throw std::invalid_argument("connect the data and task services first");
                 const auto reader = data_client;
                 const auto generation = data_task_generation;
-                data::v1::HistoryCoverageQuery query;
+                data::proto::HistoryCoverageQuery query;
                 auto& filter = *query.mutable_filter();
                 filter.set_venue(p.value("venue", ""));
                 filter.set_product(p.value("product", ""));
@@ -656,7 +656,7 @@ void Application::Impl::register_data_commands()
                 || value > (std::string_view(name) == "interval_minutes" ? 1440 : 500))
                 throw std::invalid_argument("invalid minute download definition");
         }
-        data::v1::MinuteDownload input;
+        data::proto::MinuteDownload input;
         input.set_source(text(p, "source"));
         input.set_contract_id(text(p, "contract_id"));
         input.set_interval_minutes(p.at("interval_minutes").get<unsigned>());
@@ -677,7 +677,7 @@ void Application::Impl::register_data_commands()
             std::min(
                 cutoff / 1000000000 * 1000000000,
                 parse_shanghai_time(found->delist_date + " 23:59:59")));
-        data::v1::DownloadAuthorizationRequest authorization;
+        data::proto::DownloadAuthorizationRequest authorization;
         authorization.set_task_instance(client->endpoint().session);
         authorization.set_task_id(text(p, "id"));
         authorization.set_credential(
@@ -761,13 +761,14 @@ void Application::Impl::register_data_commands()
         const auto selection_generation = dataset_selection_generation;
         const auto client = data_client;
         const auto generation = data_task_generation;
-        auto awaited = (co_await run<
-            std::pair<std::vector<data::v1::BarDatasetRequest>, data::v1::DominantSeriesPreview>>(
+        auto awaited = (co_await run<std::pair<
+                std::vector<data::proto::BarDatasetRequest>,
+                data::proto::DominantSeriesPreview>>(
             [&]() -> PolledTask<std::pair<
-                      std::vector<data::v1::BarDatasetRequest>,
-                      data::v1::DominantSeriesPreview>> {
+                      std::vector<data::proto::BarDatasetRequest>,
+                      data::proto::DominantSeriesPreview>> {
                 const auto archive = (co_await PollFuture{client->datasets({})});
-                std::vector<data::v1::BarDatasetRequest> months;
+                std::vector<data::proto::BarDatasetRequest> months;
                 for (std::size_t i = 0; i < sources.size(); ++i)
                     months.push_back(contract_request(
                         archived_contract(archive, json::array({sources[i]})),
@@ -784,7 +785,7 @@ void Application::Impl::register_data_commands()
         if (selection_generation != dataset_selection_generation)
             throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
         // Each month that trades is selected with the request it was resolved from.
-        std::vector<data::v1::BarDatasetRequest> traded;
+        std::vector<data::proto::BarDatasetRequest> traded;
         for (const auto index : preview.months())
             traded.push_back(months[index]);
         adopt_series({std::move(months), std::nullopt, {}}, preview, traded);
@@ -818,7 +819,7 @@ void Application::Impl::register_data_commands()
             throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
         // Each month that trades is selected as its own daily bars over the days
         // the series reads of it.
-        std::vector<data::v1::BarDatasetRequest> traded;
+        std::vector<data::proto::BarDatasetRequest> traded;
         for (const auto& dataset : preview.datasets())
             traded.push_back(protocol::bar_dataset_selection(dataset));
         adopt_series({{}, request, {}}, preview, traded);

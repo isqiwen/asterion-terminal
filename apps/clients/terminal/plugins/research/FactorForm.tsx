@@ -312,7 +312,7 @@ export function BarFactorForm({
         snapshot={snapshot}
         busy={busy}
         trade={trade}
-        onDownload={() => navigate("workspace.data", { page: "history" })}
+        onDownload={() => navigate("workspace.history")}
       />
       <div className="research-fields">
         <label>
@@ -542,7 +542,7 @@ export function TableFactorForm({
       )}
       {held && !daily && <p role="status">{t("还没有入库的全市场日线。")}</p>}
       <div className="workflow-actions">
-        <button disabled={busy} onClick={() => navigate("workspace.data", { page: "tables" })}>
+        <button disabled={busy} onClick={() => navigate("workspace.tables")}>
           {t("更新全市场数据")}
         </button>
         <button disabled={busy || loading || !online} onClick={() => void load()}>

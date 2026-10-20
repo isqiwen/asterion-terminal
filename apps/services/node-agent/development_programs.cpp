@@ -24,7 +24,7 @@ void prepare_development_programs(const fs::path& root, const fs::path& manifest
     require_managed_path(manifest);
     if (fs::file_size(manifest) > 1024 * 1024)
         throw std::invalid_argument("development program manifest is too large");
-    node::v1::DevelopmentPrograms sources;
+    node::proto::DevelopmentPrograms sources;
     std::ifstream input(manifest, std::ios::binary);
     if (!sources.ParseFromIstream(&input) || sources.version() != 1)
         throw std::invalid_argument("unsupported development program manifest");
@@ -34,6 +34,8 @@ void prepare_development_programs(const fs::path& root, const fs::path& manifest
     std::map<std::string, ServiceConfiguration> configurations;
     for (const auto& entry : fs::directory_iterator(root / "services")) {
         validate_service_id(entry.path().filename().string());
+        std::cerr << "Reading managed service configuration: "
+                  << (entry.path() / "service.json").string() << '\n';
         configurations.emplace(
             entry.path().filename().string(),
             load_service_configuration(entry.path(), true, 0));
@@ -84,15 +86,15 @@ void prepare_development_programs(const fs::path& root, const fs::path& manifest
     // Only the programs of a kind of service this node has are staged: a
     // service deployed later brings its own, and a copy nothing runs would be
     // left behind by every build.
-    std::set<node::v1::ServiceKind> present, listed;
+    std::set<node::proto::ServiceKind> present, listed;
     for (const auto& [name, config] : configurations)
         present.insert(config.kind);
-    std::map<node::v1::ServiceKind, ServiceConfiguration> programs;
+    std::map<node::proto::ServiceKind, ServiceConfiguration> programs;
     for (const auto& source : sources.services()) {
-        const bool market = source.kind() == node::v1::MARKET_DATA;
-        const bool trading = source.kind() == node::v1::LIVE_TRADING;
-        const bool task = source.kind() == node::v1::TASK_SERVICE;
-        if ((!market && !trading && !task && source.kind() != node::v1::DATA_SERVICE)
+        const bool market = source.kind() == node::proto::MARKET_DATA;
+        const bool trading = source.kind() == node::proto::LIVE_TRADING;
+        const bool task = source.kind() == node::proto::TASK_SERVICE;
+        if ((!market && !trading && !task && source.kind() != node::proto::DATA_SERVICE)
             || source.executable().empty() || source.provider().empty() == market
             || source.catalog().empty() == (market || trading) || source.worker().empty() == task
             || source.factor().empty() == task || source.data().empty() == task
@@ -114,7 +116,7 @@ void prepare_development_programs(const fs::path& root, const fs::path& manifest
     std::map<std::string, std::string> bundled;
     for (const auto& source : sources.bundled_plugins()) {
         const auto hash = install(source);
-        if (!bundled.emplace(plugins.identity(root / "artifacts" / (hash + ".bin")), hash).second)
+        if (!bundled.emplace(plugins.identity(hash), hash).second)
             throw std::invalid_argument("duplicate development plugin identity");
     }
     std::map<std::string, ServiceConfiguration> changed;
@@ -125,14 +127,14 @@ void prepare_development_programs(const fs::path& root, const fs::path& manifest
         next.desired = config.desired;
         next.task_service = config.task_service;
         next.data_service = config.data_service;
-        plugins.verify(config.plugin_artifacts);
+        const auto identities = plugins.verify(config.plugin_artifacts);
         next.plugin_artifacts = config.plugin_artifacts;
         for (auto& hash : next.plugin_artifacts) {
-            const auto found = bundled.find(plugins.identity(root / "artifacts" / (hash + ".bin")));
+            const auto found = bundled.find(identities.at(hash));
             if (found != bundled.end())
                 hash = found->second;
         }
-        if (service_revision(next) != service_revision(config))
+        if (next != config)
             changed.emplace(name, std::move(next));
     }
     for (const auto& [name, config] : changed)

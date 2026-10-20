@@ -8,7 +8,7 @@
 #include <array>
 
 namespace asterion::terminal {
-namespace wire = asterion::market::v1;
+namespace wire = asterion::market::proto;
 using namespace std::chrono_literals;
 
 struct MarketClient::Impl : std::enable_shared_from_this<Impl>

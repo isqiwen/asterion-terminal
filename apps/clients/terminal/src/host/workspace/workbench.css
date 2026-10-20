@@ -11,12 +11,12 @@
   border-right: 1px solid var(--line);
   padding: 0 4px;
 }
-/* Three 12px characters to a line: 回测与 / 因子. */
+/* Business names remain legible in each locale. */
 .activity-rail.expanded {
   width: 48px;
 }
 html[lang="en-US"] .activity-rail.expanded {
-  width: 64px;
+  width: 80px;
 }
 .rail-brand {
   color: var(--accent);
@@ -153,7 +153,8 @@ html[lang="en-US"] .activity-rail.expanded {
 .activity-rail.collapsed .nav-label {
   display: none;
 }
-.rail-actions button[aria-pressed="true"] {
+.rail-actions button[aria-pressed="true"],
+.rail-actions button[aria-current="page"] {
   background: var(--accent-surface);
   color: var(--accent);
 }
@@ -211,4 +212,37 @@ html[lang="en-US"] .activity-rail.expanded {
 .status-bar button:enabled:not([aria-disabled="true"]):hover {
   background: transparent;
   color: var(--accent);
+}
+
+.module-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.module-sections,
+.module-views {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 6px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+.module-sections button,
+.module-views button {
+  flex-shrink: 0;
+}
+.module-sections [aria-current="page"],
+.module-views [aria-current="page"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.module-empty {
+  padding: 24px;
+}
+.module-empty button {
+  margin: 6px 8px 0 0;
 }

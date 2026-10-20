@@ -9,15 +9,15 @@ Decimal d(const char* s)
     return Decimal::parse(s);
 }
 
-void put(protocol::v1::Decimal* p, const char* s)
+void put(protocol::proto::Decimal* p, const char* s)
 {
     p->set_units(d(s).raw());
 }
 
 struct Evidence
 {
-    backtest::v1::BacktestInput input;
-    backtest::v1::BacktestResult result;
+    backtest::proto::BacktestInput input;
+    backtest::proto::BacktestResult result;
 
     Evidence()
     {
@@ -62,7 +62,7 @@ struct Evidence
             auto* lot = result.mutable_account()->add_positions();
             lot->set_venue("SHFE");
             lot->set_symbol(symbol);
-            lot->set_side(buy ? protocol::v1::BUY : protocol::v1::SELL);
+            lot->set_side(buy ? protocol::proto::BUY : protocol::proto::SELL);
             put(lot->mutable_quantity(), quantity);
         }
     }

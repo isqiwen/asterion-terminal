@@ -1,5 +1,5 @@
+import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { seedHistory, rpc } from "./dataset-fixture";
 import { test, expect } from "./test";
 test("daily factor reuse keeps original snapshots or explicitly chooses revised data", async ({
@@ -20,9 +20,9 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
       openInterest: product === "cu" ? 50 : 200,
     });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await openView(page, "factor");
   await workspace.getByRole("button", { name: "全市场数据表", exact: true }).click();
   const input = workspace.getByLabel("品种或合约", { exact: true });
   for (const product of ["rb", "cu", "al"]) {
@@ -112,8 +112,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   });
   await page.reload();
   await rpc(page.request, "task.result", { id });
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
-  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await openView(page, "factor");
   const originalRow = workspace
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
@@ -232,7 +231,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
     },
   );
   await expect(comparisonExport.getByRole("status")).toContainText(
-    createHash("sha256").update(comparisonBytes).digest("hex"),
+    `${comparisonBytes.length} bytes`,
   );
 
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(before);
@@ -291,9 +290,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   expect(document.result).toEqual(edited.result);
   expect(document.not_included).toContain("input.pb");
   expect(download.suggestedFilename()).toBe(id + ".evidence.json");
-  await expect(exportPanel.getByRole("status")).toContainText(
-    createHash("sha256").update(bytes).digest("hex"),
-  );
+  await expect(exportPanel.getByRole("status")).toContainText(`${bytes.length} bytes`);
   expect((await rpc(page.request, "task.result.read", { id })).task_result).toEqual(edited);
   await page.reload();
   const restored = (await rpc(page.request, "task.metadata.read", { id })).task_description;

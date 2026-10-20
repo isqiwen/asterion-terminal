@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { ctpConnection, rpc } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./test";
@@ -42,7 +43,7 @@ test("account policy changes retain the record, reject stale commands and recove
   const original = before.live[account].session!;
   const service = before.live[account].connection.session;
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await openView(page, "trading");
   const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
   await panel.getByRole("button", { name: "风控", exact: true }).click();
   const editor = panel.getByRole("region", { name: "账户政策", exact: true });

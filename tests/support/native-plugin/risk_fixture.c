@@ -47,7 +47,7 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
     if (!out)
         return AST_INVALID;
     *out = NULL;
-    if (!capability || strcmp(capability, AST_RISK_V1) || !settings)
+    if (!capability || strcmp(capability, AST_RISK) || !settings)
         return AST_INVALID;
     if (count != 3
         && (count != 1 || !settings[0].key || strcmp(settings[0].key, "mode")
@@ -100,7 +100,7 @@ static AstStatus evaluate(void* self, const AstRiskContext* input, uint32_t* dec
     }
 }
 
-static const AstRiskV1 table = {sizeof(AstRiskV1), 1, evaluate};
+static const AstRisk table = {sizeof(AstRisk), 1, evaluate};
 
 static AstStatus
 query(void* self, const char* capability, uint32_t version, uint32_t size, const void** out)
@@ -110,15 +110,15 @@ query(void* self, const char* capability, uint32_t version, uint32_t size, const
     *out = NULL;
     if (!self || !capability)
         return AST_INVALID;
-    if (strcmp(capability, AST_RISK_V1) || version != 1 || size != sizeof(table))
+    if (strcmp(capability, AST_RISK) || version != 1 || size != sizeof(table))
         return AST_UNSUPPORTED;
     *out = &table;
     return AST_OK;
 }
 
-static const AstCapability capabilities[] = {{AST_RISK_V1, 1, "risk"}};
-static const AstPluginV1 plugin = {
-    sizeof(AstPluginV1),
+static const AstCapability capabilities[] = {{AST_RISK, 1, "risk"}};
+static const AstPlugin plugin = {
+    sizeof(AstPlugin),
     ASTERION_PLUGIN_ABI_VERSION,
     "test.risk-failures",
     "1.0.0",
@@ -132,7 +132,7 @@ static const AstPluginV1 plugin = {
     query
 };
 
-ASTERION_PLUGIN_EXPORT const AstPluginV1* asterion_plugin_entry_v1(uint32_t abi, uint32_t size)
+ASTERION_PLUGIN_EXPORT const AstPlugin* asterion_plugin_entry(uint32_t abi, uint32_t size)
 {
-    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPluginV1) ? &plugin : NULL;
+    return abi == ASTERION_PLUGIN_ABI_VERSION && size == sizeof(AstPlugin) ? &plugin : NULL;
 }

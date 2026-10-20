@@ -6,7 +6,7 @@
 #include <thread>
 using namespace asterion;
 using namespace std::chrono_literals;
-namespace wire = asterion::protocol::v1;
+namespace wire = asterion::protocol::proto;
 
 namespace {
 

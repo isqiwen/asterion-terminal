@@ -10,7 +10,7 @@
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <future>
 #include <gtest/gtest.h>
 #include <thread>
@@ -160,7 +160,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     client
         ->deploy(
             {.service = "account",
-                .kind = node::v1::LIVE_TRADING,
+                .kind = node::proto::LIVE_TRADING,
                 .platform = platform,
                 .programs =
                     {.executable = ASTERION_TRADE_PATH, .catalog = ASTERION_FAKE_CTP_TRADER},
@@ -189,7 +189,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     EXPECT_TRUE(second->status().get().at("error").get<std::string>().empty());
     // Verify every mutation family is rejected before payload handling.
     for (int operation = 0; operation < 8; ++operation) {
-        node::v1::Request request;
+        node::proto::Request request;
         request.set_version(1);
         request.set_correlation_id("blocked");
         switch (operation) {
@@ -220,7 +220,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
         }
         auto channel = ipc::Channel::connect(endpoint, 3s);
         channel.send(request.SerializeAsString(), 3s);
-        node::v1::Response response;
+        node::proto::Response response;
         ASSERT_TRUE(response.ParseFromString(channel.receive(3s)));
         ASSERT_TRUE(response.has_error());
         EXPECT_NE(response.error().message().find("maintenance"), std::string::npos);
@@ -281,16 +281,16 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
         auto server = std::async(std::launch::async, [&] {
             for (int i = 0; i < 3; ++i) {
                 auto channel = listener.accept(3s);
-                node::v1::Request request;
+                node::proto::Request request;
                 if (!request.ParseFromString(channel.receive(3s)))
                     throw std::runtime_error("invalid test request");
-                node::v1::Response response;
+                node::proto::Response response;
                 response.set_version(1);
                 response.set_correlation_id(request.correlation_id());
                 if (i == 0) {
                     EXPECT_TRUE(request.has_status());
                     auto* status = response.mutable_status();
-                    status->set_phase(asterion::node::v1::Status::READY);
+                    status->set_phase(asterion::node::proto::Status::READY);
                     status->mutable_resource_budget()->set_file_workers(1);
                     status->set_instance_id("test-instance");
                     status->set_os("test-os");
@@ -490,7 +490,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
         client
             ->deploy(
                 {.service = name,
-                    .kind = node::v1::MARKET_DATA,
+                    .kind = node::proto::MARKET_DATA,
                     .platform = platform,
                     .programs =
                         {.executable = ASTERION_MARKET_PATH, .provider = ASTERION_FAKE_CTP}})
@@ -551,7 +551,7 @@ class DevelopmentPrograms : public testing::Test
 {
 protected:
     fs::path root = fs::temp_directory_path() / ("ast-dev-programs-" + unique_process_id());
-    node::v1::DevelopmentPrograms manifest;
+    node::proto::DevelopmentPrograms manifest;
 
     void SetUp() override
     {
@@ -562,12 +562,12 @@ protected:
         fs::copy_file(ASTERION_AGENT_PATH, root / "artifacts" / (old + ".bin"));
         for (const auto& name : {"market", "trading"}) {
             agent::ServiceConfiguration config;
-            config.kind =
-                std::string(name) == "market" ? node::v1::MARKET_DATA : node::v1::LIVE_TRADING;
+            config.kind = std::string(name) == "market" ? node::proto::MARKET_DATA
+                                                        : node::proto::LIVE_TRADING;
             config.artifact = old;
             config.catalog_artifact = old;
-            config.provider_artifact = config.kind == node::v1::MARKET_DATA ? old : "";
-            config.desired = config.kind == node::v1::MARKET_DATA;
+            config.provider_artifact = config.kind == node::proto::MARKET_DATA ? old : "";
+            config.desired = config.kind == node::proto::MARKET_DATA;
             config.directory = (root / "services" / name / "ledger").string();
             agent::save_service_configuration(root / "services" / name, config);
             write_file_durably(fs::path(config.directory) / "retained", "business data");

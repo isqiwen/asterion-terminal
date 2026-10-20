@@ -1,3 +1,4 @@
+const { openView } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 // Exercise the unchanged production host with an isolated resource tree and explicit SDK fixture.
@@ -145,15 +146,14 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     assert.equal(fullMarket.catalog.phase, "ready");
     assert.equal(fullMarket.catalog.contracts[0].name, "螺纹钢");
     assert.equal(fullMarket.watchlist.length, 0);
-    const navigation = page.getByRole("navigation", { name: "业务工作区" });
-    await navigation.getByRole("button", { name: "市场", exact: true }).click();
+    await openView(page, "market");
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     await expect(page.getByRole("button", { name: "期货全景", exact: true })).toBeVisible();
     await expect(page.locator(".quote-select").filter({ hasText: "螺纹钢" })).toHaveCount(1);
     await expect(page.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
     await fs.mkdir(path.resolve("build/native-depth-check"), { recursive: true });
     await page.screenshot({ path: path.resolve("build/native-depth-check/full-market.png") });
-    await navigation.getByRole("button", { name: "自选", exact: true }).click();
+    await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
     await call("market.subscribe", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
     const quote = fullMarket.subscriptions[0].quote;
@@ -167,10 +167,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     assert.equal(quote.bid_levels[1].quantity, null);
     assert.equal(quote.bid_levels[2].quantity, null);
     assert.equal(quote.ask_levels[3].price, "3515");
-    await page
-      .getByRole("navigation", { name: "业务工作区" })
-      .getByRole("button", { name: "自选", exact: true })
-      .click();
+    await openView(page, "watchlist");
     const previousClose = page
       .locator(".watchlist-table tbody tr")
       .first()
@@ -179,10 +176,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       .locator("span");
     await expect(previousClose).toHaveText("3480.125");
     await expect(previousClose).toHaveAttribute("title", "3480.125");
-    await page
-      .getByRole("navigation", { name: "业务工作区" })
-      .getByRole("button", { name: "合约", exact: true })
-      .click();
+    await openView(page, "contract");
     const summary = page.locator(".contract-summary dl");
     for (const [label, value] of [
       ["开盘", "3490.25"],

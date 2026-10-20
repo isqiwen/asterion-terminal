@@ -1,7 +1,7 @@
 #pragma once
 #include "risk_module.hpp"
 #include <asterion/domain/futures.hpp>
-#include <asterion/v1/trading.pb.h>
+#include <asterion/trading.pb.h>
 
 namespace asterion::trading {
 
@@ -11,7 +11,7 @@ struct PolicyDefinition
     OrderLimitsConfig limits;
     Decimal max_price_deviation;
     std::vector<FuturesContract> contracts;
-    static PolicyDefinition from_wire(const protocol::v1::LivePolicy& policy);
+    static PolicyDefinition from_wire(const protocol::proto::LivePolicy& policy);
 };
 
 // One immutable policy owns its algorithm and typed parameters. It owns no

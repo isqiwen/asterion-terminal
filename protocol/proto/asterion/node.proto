@@ -1,6 +1,6 @@
 syntax = "proto3";
-import "asterion/v1/health.proto";
-package asterion.node.v1;
+import "asterion/health.proto";
+package asterion.node.proto;
 message Empty {}
 // Local development bootstrap input, consumed offline before Agent/service startup.
 message ProgramSources {
@@ -153,7 +153,7 @@ message Service {
   repeated string plugin_artifacts = 16;
   string task_service = 17;
   string data_service = 18;
-  asterion.runtime.v1.ExecutionHealth execution = 19;
+  asterion.runtime.proto.ExecutionHealth execution = 19;
   ResourceUse resource_request = 20;
 }
 // Static admission reservations; these are not measured CPU/RSS/I/O usage.
@@ -193,7 +193,7 @@ message Status {
 
   Phase phase = 10;
   Error failure = 11;
-  asterion.runtime.v1.ExecutionHealth execution = 12;
+  asterion.runtime.proto.ExecutionHealth execution = 12;
   WorkerCapacity worker_capacity = 13;
   ResourceBudget resource_budget = 14;
 }

@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
@@ -9,7 +10,7 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await rpc(page.request, "data.dataset.save", { name: "引用核对组合" });
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
   const minute = archive.locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`);
   // The daily table is not a second archive version.
@@ -79,7 +80,7 @@ test("other data services retain known references and disclose stopped or failed
   });
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+  await openView(page, "records");
   const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
   await archive
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
@@ -127,7 +128,7 @@ test("registered disconnected nodes are disclosed without reading identities or 
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    await openView(page, "records");
     const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
     await archive
       .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)

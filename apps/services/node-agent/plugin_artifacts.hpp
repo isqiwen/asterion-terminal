@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <map>
 
 namespace asterion::agent {
 
@@ -17,8 +18,8 @@ public:
           inspector_(std::move(inspector))
     {}
 
-    void verify(const std::vector<std::string>& artifacts) const;
-    std::string identity(const std::filesystem::path& library) const;
+    std::map<std::string, std::string> verify(const std::vector<std::string>& artifacts) const;
+    std::string identity(const std::string& artifact) const;
     std::filesystem::path
     materialize(const std::string& service, const std::vector<std::string>& artifacts) const;
     // Removes every folder materialize made for a service: copies of the
@@ -32,6 +33,6 @@ private:
 };
 
 // Entry point of --inspect-plugin: prints the plugin identity, or fails.
-int inspect_plugin(const std::string& path);
+int inspect_plugin(const std::string& path, const std::string& artifact);
 
 } // namespace asterion::agent

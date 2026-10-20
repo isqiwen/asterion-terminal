@@ -8,7 +8,7 @@
 namespace asterion::tasks {
 
 template <class... Input>
-task::v1::Task submit(Store& store, Input&&... input)
+task::proto::Task submit(Store& store, Input&&... input)
 {
     auto submission = store.submission(std::forward<Input>(input)...);
     store.admit_submission(submission);
@@ -23,7 +23,7 @@ task::v1::Task submit(Store& store, Input&&... input)
     return store.get(id);
 }
 
-inline Store::Change finish(Store& store, task::v1::TaskFinish request)
+inline Store::Change finish(Store& store, task::proto::TaskFinish request)
 {
     auto completion = store.prepare_finish(request);
     completion.prepare_payload();
@@ -34,9 +34,9 @@ inline Store::Change finish(
     Store& store,
     const std::string& id,
     const std::string& token,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestResult& result)
 {
-    task::v1::TaskFinish request;
+    task::proto::TaskFinish request;
     request.set_id(id);
     request.set_token(token);
     *request.mutable_result() = result;
@@ -47,23 +47,23 @@ inline Store::Change finish(
     Store& store,
     const std::string& id,
     const std::string& token,
-    const factor::v1::FactorResult& result)
+    const factor::proto::FactorResult& result)
 {
-    task::v1::TaskFinish request;
+    task::proto::TaskFinish request;
     request.set_id(id);
     request.set_token(token);
     *request.mutable_factor() = result;
     return finish(store, std::move(request));
 }
 
-inline task::v1::TaskResponse verified_result(const Store& store, const std::string& id)
+inline task::proto::TaskResponse verified_result(const Store& store, const std::string& id)
 {
     auto read = store.prepare_result(id);
     read.verify();
     return store.confirm_result(std::move(read));
 }
 
-inline backtest::v1::BacktestResult result(const Store& store, const std::string& id)
+inline backtest::proto::BacktestResult result(const Store& store, const std::string& id)
 {
     const auto response = verified_result(store, id);
     if (!response.has_backtest())
@@ -71,7 +71,7 @@ inline backtest::v1::BacktestResult result(const Store& store, const std::string
     return response.backtest();
 }
 
-inline factor::v1::FactorResult factor_result(const Store& store, const std::string& id)
+inline factor::proto::FactorResult factor_result(const Store& store, const std::string& id)
 {
     const auto response = verified_result(store, id);
     if (!response.has_factor())

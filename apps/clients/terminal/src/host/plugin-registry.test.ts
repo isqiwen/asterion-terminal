@@ -7,20 +7,21 @@ import type { TerminalContext, TerminalPlugin } from "../../plugins/contract";
 const plugin: TerminalPlugin = {
   id: "test.panel",
   commands: ["node.data_tasks.local.open"],
-  workspace: {
-    id: "test.workspace",
-    title: "Test",
-    icon: "x",
-    component: () => null,
-  },
+  workspaces: [
+    {
+      id: "test.workspace",
+      title: "Test",
+      component: () => null,
+    },
+  ],
 };
 
 test("registration rejects conflicting identities and preserves registered contributions", () => {
   expect(() => registerTerminalPlugins([plugin, plugin])).toThrow("UI 插件");
   expect(() => registerTerminalPlugins([plugin, { ...plugin, id: "other" }])).toThrow("工作区");
   const registered = registerTerminalPlugins([plugin]);
-  plugin.workspace.title = "Changed by caller";
-  expect(registered[0].workspace.title).toBe("Test");
+  plugin.workspaces[0].title = "Changed by caller";
+  expect(registered[0].workspaces[0].title).toBe("Test");
   expect(Object.isFrozen(registered)).toBe(true);
 });
 

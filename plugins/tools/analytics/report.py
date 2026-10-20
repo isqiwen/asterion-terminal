@@ -28,7 +28,7 @@ from skfolio import RiskMeasure
 from skfolio.optimization import EqualWeighted, MeanRisk, ObjectiveFunction
 from skfolio.prior import EmpiricalPrior
 from skfolio.moments import LedoitWolf
-from asterion.v1.analytics_pb2 import (
+from asterion.analytics_pb2 import (
     BacktestEquity, AnalyticsRequest, AnalyticsReply, QuantStatsReport, PortfolioReport,
 )
 

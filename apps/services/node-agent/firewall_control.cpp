@@ -56,10 +56,10 @@ FirewallControl::FirewallControl(fs::path root, BlockingWork blocking)
 {}
 
 PolledTask<void> FirewallControl::manage(
-    const node::v1::Firewall& operation,
+    const node::proto::Firewall& operation,
     const std::string& peer,
     unsigned short port,
-    node::v1::FirewallPlan& report)
+    node::proto::FirewallPlan& report)
 {
     const auto os = current_platform().os;
     const auto file = root_ / "firewall" / (operation.service_id() + ".json");

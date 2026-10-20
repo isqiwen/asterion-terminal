@@ -19,9 +19,9 @@ bool PluginCatalogEntry::selectable_for_data_tasks() const
 {
     return availability == PluginAvailability::available
         && std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
-               return (capability.id == AST_HISTORY_V3 && capability.version == 3)
-                   || (capability.id == AST_HISTORY_TABLES_V1 && capability.version == 1)
-                   || (capability.id == AST_RISK_V1 && capability.version == 1
+               return (capability.id == AST_HISTORY && capability.version == 3)
+                   || (capability.id == AST_HISTORY_TABLES && capability.version == 1)
+                   || (capability.id == AST_RISK && capability.version == 1
                        && capability.kind == "risk");
            });
 }
@@ -43,18 +43,20 @@ PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory)
     for (const auto& file : files) {
         PluginCatalogEntry entry{.artifact = {.path = file}};
         try {
-            const auto expected = sha256_file(file);
-            entry.artifact.sha256 = expected;
             NativeLibrary library(file);
             entry.descriptor = library.descriptor();
-            entry.artifact.sha256 = sha256_file(file);
-            if (entry.artifact.sha256 != expected)
-                throw std::invalid_argument("native plugin catalog changed; inspect again");
+            entry.artifact.sha256 = library.sha256();
             entry.availability = PluginAvailability::available;
             entry.error.clear();
             ++identities[entry.descriptor.id + "@" + entry.descriptor.version];
         } catch (const std::exception&) {
             // One invalid module must not hide the rest of the catalog. Do not expose vendor errors.
+            try {
+                // Only failed loads need a separate identity for explicit removal.
+                entry.artifact.sha256 = sha256_file(file);
+            } catch (const std::exception&) {
+                // An unreadable file remains visible without a removable identity.
+            }
         }
         catalog.entries.push_back(std::move(entry));
     }
@@ -129,12 +131,9 @@ PluginCatalogEntry preview_plugin(const std::filesystem::path& path)
         || std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path)
         || std::filesystem::file_size(path) > 128 * 1024 * 1024)
         throw std::invalid_argument("invalid native plugin installation file");
-    const auto hash = sha256_file(path);
     NativeLibrary library(path);
-    if (sha256_file(path) != hash)
-        throw std::invalid_argument("native plugin catalog changed; inspect again");
     return {
-        .artifact = {path, hash},
+        .artifact = {path, library.sha256()},
         .descriptor = library.descriptor(),
         .availability = PluginAvailability::available,
         .error = {}

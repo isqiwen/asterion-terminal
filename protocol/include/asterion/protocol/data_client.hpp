@@ -1,12 +1,12 @@
 #pragma once
 #include <asterion/kernel/ipc/tls_channel.hpp>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include <chrono>
 
 namespace asterion::protocol {
 
 // Shared identity and result validation for synchronous and event-loop transports.
-data::v1::DataResponse decode_data_response(const data::v1::DataRequest&, const std::string&);
+data::proto::DataResponse decode_data_response(const data::proto::DataRequest&, const std::string&);
 
 // A connection target names a persistent data instance. Each call opens a
 // bounded exchange; uncertain outcomes are returned to the owning coordinator.
@@ -16,8 +16,8 @@ class DataClient
 public:
     DataClient(std::string endpoint, std::string instance);
     DataClient(std::string host, unsigned short port, ipc::TlsIdentity tls, std::string instance);
-    data::v1::DataResponse call(
-        data::v1::DataRequest,
+    data::proto::DataResponse call(
+        data::proto::DataRequest,
         std::chrono::milliseconds timeout = std::chrono::seconds(120)) const;
 
     const std::string& instance() const noexcept

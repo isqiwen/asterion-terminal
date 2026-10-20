@@ -512,15 +512,15 @@
   .market-contract .price-chart[data-fit-height] {
     display: flex;
     flex-direction: column;
-    flex: 1;
-    min-height: 0;
+    flex: 1 0 auto;
+    min-height: min-content;
   }
   .market-contract .price-chart[data-fit-height] > :not(.price-chart-canvas) {
     flex-shrink: 0;
   }
   .market-contract .price-chart[data-fit-height] .price-chart-canvas {
-    flex: 1;
-    height: 0;
+    flex: 1 0 190px;
+    height: 190px;
     min-height: 190px;
   }
 }
@@ -1094,8 +1094,8 @@
 .quote-pane-body .contract-live-chart {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: min-content;
 }
 .quote-pane-body .market-chart-empty {
   margin: auto;

@@ -16,14 +16,15 @@ Instrument instrument()
     return {{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
 }
 
-protocol::v1::Strategy strategy(Json rule, const char* sides = "both", const char* quantity = "1")
+protocol::proto::Strategy
+strategy(Json rule, const char* sides = "both", const char* quantity = "1")
 {
     return protocol::encode_strategy(
         {{"quantity", quantity}, {"sides", sides}, {"rule", std::move(rule)}});
 }
 
 // A rule over several contracts: it carries a notional and takes no quantity.
-protocol::v1::Strategy ranking(Json rule, const char* sides = "both")
+protocol::proto::Strategy ranking(Json rule, const char* sides = "both")
 {
     return protocol::encode_strategy({{"sides", sides}, {"rule", std::move(rule)}});
 }
@@ -31,7 +32,8 @@ protocol::v1::Strategy ranking(Json rule, const char* sides = "both")
 using Targets = std::vector<std::optional<Decimal>>;
 
 // The target after each of these closes, fed as bars without a range.
-Targets targets(const protocol::v1::Strategy& definition, std::initializer_list<const char*> closes)
+Targets
+targets(const protocol::proto::Strategy& definition, std::initializer_list<const char*> closes)
 {
     auto run = make_strategy(definition, instrument());
     run->start();
@@ -321,7 +323,7 @@ TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow)
     EXPECT_EQ(bars(3, "-0.4", "0.2"), Wanted({-1, 1}));
     EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 2U);
     EXPECT_EQ(protocol::decode_strategy(ranking(rule)).at("rule"), rule);
-    EXPECT_EQ(ranking(rule).cross().factor(), protocol::v1::TERM_STRUCTURE);
+    EXPECT_EQ(ranking(rule).cross().factor(), protocol::proto::TERM_STRUCTURE);
     // A ranking names what it ranks by.
     auto unnamed = ranking(rule);
     unnamed.mutable_cross()->clear_factor();
@@ -366,7 +368,7 @@ TEST(Strategy, ARankingByVolatilityHoldsTheUnitThatMovedTheMostLong)
     EXPECT_EQ(run(other), Wanted({-1, 0, 1}));
     EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 3U);
     EXPECT_EQ(protocol::decode_strategy(ranking(rule)).at("rule"), rule);
-    EXPECT_EQ(ranking(rule).cross().factor(), protocol::v1::VOLATILITY);
+    EXPECT_EQ(ranking(rule).cross().factor(), protocol::proto::VOLATILITY);
     // One return has no deviation; a ranking is by a factor there is.
     auto single = rule;
     single["lookback"] = 1;

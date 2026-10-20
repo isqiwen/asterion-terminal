@@ -25,10 +25,10 @@ std::string snapshot_bytes(const TableRevision& next, const std::string& previou
         + std::to_string(next.acquired_at_ns) + "\t" + next.provider_artifact;
 }
 
-std::string response_link(const SourceResponse& response)
+std::string response_link(const SourceResponse& response, const std::string& hash)
 {
     return "\traw-response-v1\t" + response.format + "\t" + std::to_string(response.received_at_ns)
-        + "\t" + sha256_bytes(response.body);
+        + "\t" + hash;
 }
 
 std::string read_response_file(const fs::path& path, std::uintmax_t bound)
@@ -204,15 +204,19 @@ TableStore::Recorded TableStore::record(
     next.bytes = object.bytes;
     next.acquired_at_ns = acquired_at_ns;
     next.provider_artifact = provider_artifact;
-    // No field can contain a tab: identifiers, digests and numbers only.
-    next.snapshot = sha256_bytes(
-        snapshot_bytes(next, previous) + (response ? response_link(*response) : std::string{}));
+    std::string response_hash;
     if (response) {
         if (response->body.empty() || response->body.size() > max_source_response_bytes
             || response->received_at_ns <= 0 || !valid_source_response_format(response->format))
             throw std::invalid_argument("invalid source response evidence");
-        const auto hash = sha256_bytes(response->body);
-        const auto object_path = root_ / "responses" / "objects" / (hash + ".json");
+        response_hash = sha256_bytes(response->body);
+    }
+    // No field can contain a tab: identifiers, digests and numbers only.
+    next.snapshot = sha256_bytes(
+        snapshot_bytes(next, previous)
+        + (response ? response_link(*response, response_hash) : std::string{}));
+    if (response) {
+        const auto object_path = root_ / "responses" / "objects" / (response_hash + ".json");
         const auto reference_path = root_ / "responses" / "revisions" / (next.snapshot + ".json");
         create_directories_durably(object_path.parent_path());
         create_directories_durably(reference_path.parent_path());
@@ -225,7 +229,7 @@ TableStore::Recorded TableStore::record(
             {"kind", "raw_response_body"},
             {"format", response->format},
             {"received_at_ns", std::to_string(response->received_at_ns)},
-            {"sha256", hash},
+            {"sha256", response_hash},
             {"bytes", response->body.size()},
             {"revision_snapshot", next.snapshot},
             {"normalized_content", next.content},
@@ -292,7 +296,7 @@ std::optional<SourceResponse> TableStore::response(const TableRevision& revision
         };
         if (!valid_source_response_format(response.format) || response.received_at_ns <= 0
             || reference.at("bytes") != response.body.size() || hash != sha256_bytes(response.body)
-            || sha256_bytes(snapshot_bytes(revision, previous) + response_link(response))
+            || sha256_bytes(snapshot_bytes(revision, previous) + response_link(response, hash))
                 != revision.snapshot)
             throw std::invalid_argument("source response evidence is missing or corrupt");
         return response;

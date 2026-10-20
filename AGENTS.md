@@ -20,15 +20,29 @@ philosophy guides implementation within those constraints.
   tests, and documentation together.
 - The project is unreleased and has no historical-data compatibility commitment.
   Maintain only the current development contract. Git records implementation history.
+- Use stable, responsibility-based names for project-owned types, functions,
+  constants, modules, namespaces/packages, files, and directories. Do not encode
+  implementation generations in names with `V1`, `V2`, `v3`, or similar prefixes,
+  suffixes, or path segments. Update the current implementation in place.
+- This naming rule includes project-owned protocol packages and plugin API types.
+  A necessary ABI check does not require versioned type names or parallel APIs.
+  Keep required dependency/release versions, external-standard identifiers, and
+  explicit ABI compatibility checks distinct from implementation naming.
+- When removing existing versioned names, update definitions, consumers, build
+  rules, generators, tests, and current documentation together. Do not leave old
+  names as aliases or compatibility entry points, or silently rewrite persisted
+  identifiers and user data as part of a naming cleanup.
 - Do not accumulate internal engine or persisted-format version counters, bump them
   after routine changes, or add old-format readers, migration paths, retained legacy
   task kinds, or UI flows for rebuilding unsupported historical experiments.
 - Change current producers, consumers, fixtures, and documentation together. Validate
   the actual structure, identities, content digests, and domain invariants; reject
   invalid input explicitly. Preserve existing files; never silently convert or delete them.
-- Keep dependency locks, plugin ABI checks, build/artifact identities, the current
-  transport contract, and domain revisions (data snapshots, policy revisions, attempt
-  tokens). These serve current correctness and are not development-history counters.
+- Keep dependency locks, plugin ABI checks, required deployment artifact identities,
+  the current transport contract, and domain revisions (data snapshots, policy
+  revisions, attempt tokens). Retain hashes only where they satisfy the concrete
+  requirements in "Hash and Integrity Checks" below; a build or artifact label alone
+  does not justify another checksum.
 - Establish release and compatibility policy when preparing the first release, based
   on actual distribution and data-retention requirements.
 
@@ -76,6 +90,40 @@ philosophy guides implementation within those constraints.
   credentials for trading login.
 - Never silently rewrite, migrate, or delete user ledgers, tasks, or datasets.
 
+## Hash and Integrity Checks
+
+- Do not add hashes, checksums, source fingerprints, digest manifests, or repeated
+  integrity scans by default. This rule applies to AI-generated changes as well as
+  manual changes across production code, scripts, tests, and documentation.
+- Before adding or retaining a check, identify its actual requirement, reachable
+  failure mode, consumer, and owning boundary. "Extra safety", generic corruption
+  concerns, and audit decoration are not sufficient reasons.
+- Decide whether the validation itself is necessary before choosing an algorithm.
+  Delete unnecessary validation rather than replacing its hash with another check.
+  If validation is necessary and hashing is the simplest correct implementation,
+  keep it. Reducing the number of hash calls is not a goal in itself.
+- Do not introduce extra copies, reads, computation, state, caches, interfaces, or
+  control-flow branches merely to avoid hashing. Compare the total complexity and
+  cost of a proposed change; fewer hashes alone do not justify it.
+- Trust invariants already established by the owning boundary. Do not repeat
+  validation downstream without a concrete intervening change or failure mode.
+- Keep necessary checks for locked dependency downloads, fixed data/task identities,
+  ledger consistency, deployment artifact selection/integrity, and cryptographic
+  trust. These categories are not blanket permission to add checks.
+- Compute and validate at the owning boundary. Reuse a validated identity when it
+  is already available to the consumer; do not widen contracts solely to reduce
+  hash counts. Revalidation requires a real intervening mutation or trust boundary.
+- Prefer continuous ownership and atomic publication over before/after hashes.
+  Do not hash whole databases to compensate for releasing and reacquiring a lock,
+  or repeat validated file scans while the same owner still holds the lock.
+- Do not gate ordinary local startup on source-tree hashes or rescan every bundled
+  dependency. Use the build process to prepare generated resources and check the
+  actual runtime requirements. Do not generate extra hashes solely for display,
+  logs, test reports, or exports without a concrete consumer.
+- Remove unnecessary producers, fields, checks, tests, and current documentation
+  together. Do not replace removed hashes with equally unnecessary version counters
+  or other gates. Do not bypass necessary domain validation or rewrite user data.
+
 ## UI
 
 - Follow the minimal, technical, futuristic style in [Terminal design](docs/terminal.md).
@@ -108,9 +156,11 @@ philosophy guides implementation within those constraints.
   `pnpm run test:e2e:journeys` (the key journeys), which isolate Agent and the
   test CTP SDK. Never invoke `playwright test` directly; it can operate real
   local services.
-- Changes to `core/`, `protocol/`, `plugins/`, `apps/services/`, or `bindings/`
-  change the Linux service source fingerprint. Rebuild before release following
-  the [development guide](docs/development.md); `pnpm desktop` only warns in development.
+- Changes to service build inputs in `core/`, `protocol/`, `plugins/`,
+  `apps/services/`, or `bindings/` change the Linux service source fingerprint.
+  Desktop-only `plugins/tools/analytics/` is excluded. Rebuild affected service
+  bundles before release following the [development guide](docs/development.md);
+  `pnpm desktop` only warns in development.
 - Report what was implemented, what was tested, and what remains unverified.
 
 ## Engineering Philosophy

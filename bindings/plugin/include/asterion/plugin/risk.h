@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_RISK_V1 "asterion.risk.pre-trade.v1"
+#define AST_RISK "asterion.risk.pre-trade"
 
 /* Futures only. Decimal fields use signed int64 units scaled by 10^8.
  * The host supplies a consistent account snapshot, serialized with submission.
@@ -47,7 +47,7 @@ typedef struct
 {
     uint32_t size, version;
     AstStatus (*evaluate)(void*, const AstRiskContext*, uint32_t* decision);
-} AstRiskV1;
+} AstRisk;
 #ifdef __cplusplus
 }
 #endif

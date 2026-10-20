@@ -54,9 +54,7 @@ function MinuteMarketPanel({ context }: { context: TerminalContext }) {
       <div className="history-market-contracts">
         <header>
           <strong>{t("历史合约")}</strong>
-          <button onClick={() => context.navigate("workspace.data", { page: "history" })}>
-            {t("下载历史数据")}
-          </button>
+          <button onClick={() => context.navigate("workspace.history")}>{t("下载历史数据")}</button>
         </header>
         <input
           type="search"
@@ -148,7 +146,7 @@ function MinuteMarketPanel({ context }: { context: TerminalContext }) {
             ) : offline ? (
               <>
                 <p>{t("历史数据服务未连接")}</p>
-                <button onClick={() => context.navigate("workspace.data", { page: "history" })}>
+                <button onClick={() => context.navigate("workspace.history")}>
                   {t("管理历史数据")}
                 </button>
               </>

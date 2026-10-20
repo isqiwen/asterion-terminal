@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
@@ -12,7 +13,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     day: "2026-09-23",
   });
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
   const picker = page.getByRole("region", { name: "历史数据集", exact: true });
   await picker.getByRole("button", { name: "分钟线合约", exact: true }).click();
@@ -68,7 +69,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     fullPage: true,
   });
   await rpc(page.request, "data.dataset.clear");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
+  await openView(page, "watchlist");
   await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
   await rpc(page.request, "node.data_tasks.local.open");
   await rpc(page.request, "data.dataset.use", { id: saved.id });

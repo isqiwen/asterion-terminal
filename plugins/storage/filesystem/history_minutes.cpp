@@ -280,7 +280,7 @@ Json verify(
 
 } // namespace
 
-HistoricalBarRange minute_range(const data::v1::MinuteDownload& input)
+HistoricalBarRange minute_range(const data::proto::MinuteDownload& input)
 {
     if (input.requests_per_minute() < 1 || input.requests_per_minute() > 500)
         throw std::invalid_argument("invalid minute download definition");
@@ -297,12 +297,12 @@ HistoricalBarRange minute_range(const data::v1::MinuteDownload& input)
     return range;
 }
 
-data::v1::MinuteDownloadResult minute_result(const std::filesystem::path& dir)
+data::proto::MinuteDownloadResult minute_result(const std::filesystem::path& dir)
 {
     auto manifest = inspect_minutes(dir);
     if (!manifest.at("complete").get<bool>())
         throw std::invalid_argument("minute dataset is incomplete");
-    data::v1::MinuteDownloadResult result;
+    data::proto::MinuteDownloadResult result;
     const auto path = dir.u8string();
     result.set_directory(std::string(path.begin(), path.end()));
     result.set_manifest_sha256(sha256_bytes(manifest.dump()));
@@ -312,8 +312,8 @@ data::v1::MinuteDownloadResult minute_result(const std::filesystem::path& dir)
 }
 
 void verify_minute_result(
-    const data::v1::MinuteDownload& input,
-    const data::v1::MinuteDownloadResult& result)
+    const data::proto::MinuteDownload& input,
+    const data::proto::MinuteDownloadResult& result)
 {
     const auto directory =
         std::filesystem::path(std::u8string(result.directory().begin(), result.directory().end()));
@@ -410,7 +410,7 @@ Json download_minutes(
     return manifest;
 }
 
-data::v1::MinuteEvidence
+data::proto::MinuteEvidence
 minute_evidence(const std::filesystem::path& dir, const std::string& expected_revision)
 {
     directory_check(dir);
@@ -429,7 +429,7 @@ minute_evidence(const std::filesystem::path& dir, const std::string& expected_re
             throw std::invalid_argument("minute dataset digest mismatch");
         files.push_back(path);
     }
-    data::v1::MinuteEvidence evidence;
+    data::proto::MinuteEvidence evidence;
     evidence.set_dataset_id(expected_revision);
     for (const auto& day : parquet::minute_evidence(files)) {
         evidence.set_total_rows(evidence.total_rows() + day.rows);
@@ -472,10 +472,10 @@ void read_minutes(
     (void)verify(dir, consume);
 }
 
-data::v1::MinutePage read_minute_page(
-    const data::v1::MinuteDownload& input,
-    const data::v1::MinuteDownloadResult& result,
-    const data::v1::MinutePageQuery& query,
+data::proto::MinutePage read_minute_page(
+    const data::proto::MinuteDownload& input,
+    const data::proto::MinuteDownloadResult& result,
+    const data::proto::MinutePageQuery& query,
     MinutePageWork* work)
 {
     if (work)
@@ -517,7 +517,7 @@ data::v1::MinutePage read_minute_page(
         const auto first = manifest.at("segments").at(segment).at("first_page").get<unsigned>();
         return loaded.at(segment).at(index - first);
     };
-    data::v1::MinutePage output;
+    data::proto::MinutePage output;
     output.set_task_id(query.dataset_id().empty() ? query.task_id() : query.dataset_id());
     output.set_source(input.source());
     output.set_contract_id(input.contract_id());

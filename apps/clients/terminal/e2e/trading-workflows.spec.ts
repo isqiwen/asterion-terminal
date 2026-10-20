@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedDataset } from "./dataset-fixture";
 
@@ -20,21 +21,21 @@ for (const locale of ["zh-CN", "en-US"]) {
           .locator(".terminal-business")
           .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
       ).toBe(true);
-    await button("交易", "Trading").click();
+    await openView(page, "trading");
     await expect(
       page.getByRole("region", { name: en ? "CTP trading account" : "CTP 交易账户", exact: true }),
     ).toBeVisible();
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
-    await button("研究", "Research").click();
+    await openView(page, "backtest");
     await button("回测", "Backtest").click();
     await button("新建回测", "New backtest").click();
     await button("下一步", "Next").click();
     await page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true }).fill("25000");
     await fits();
     // A draft survives leaving the workspace and coming back.
-    await button("交易", "Trading").click();
-    await button("研究", "Research").click();
+    await openView(page, "trading");
+    await openView(page, "backtest");
     await expect(page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true })).toHaveValue(
       "25000",
     );

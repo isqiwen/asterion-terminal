@@ -1,47 +1,65 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
-test("six workspaces restore the last destination without a dashboard", async ({ page }) => {
+test("seven business modules and separate system administration preserve navigation without starting work", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(page.locator(".environment-label")).toHaveText("开发环境");
   await expect(page).toHaveTitle(/开发环境/);
+  const methods: string[] = [];
+  page.on("request", request => {
+    if (request.url().endsWith("/__asterion/api")) methods.push(request.postDataJSON().method);
+  });
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   await expect(nav.getByRole("button")).toHaveText([
-    "自选",
-    "合约",
-    "市场",
     "数据",
-    "研究",
-    "交易",
+    "情报",
+    "分析",
+    "策略",
+    "回测",
+    "评估",
+    "实盘",
   ]);
-  await expect(nav.getByRole("button", { name: "自选", exact: true })).toHaveAttribute(
+  await expect(nav.getByRole("button", { name: "数据", exact: true })).toHaveAttribute(
     "aria-current",
     "page",
   );
   await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
-  for (const [index, name] of ["自选", "合约", "市场", "数据", "研究", "交易"].entries()) {
+  for (const [index, name] of ["数据", "情报", "分析", "策略", "回测", "评估", "实盘"].entries()) {
     await page.keyboard.press(`Control+${index + 1}`);
     await expect(nav.getByRole("button", { name, exact: true })).toHaveAttribute(
       "aria-current",
       "page",
     );
   }
+  await openView(page, "trading");
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   page = await closeSettingsWindow(settings);
   await page.reload();
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }),
+    page.locator(".workspace-tabs").getByRole("button", { name: "实盘", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "CTP 交易账户", exact: true })).toBeVisible();
-  await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-trading.png" });
+  await page.getByRole("button", { name: "系统管理", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "业务子模块" }).getByRole("button")).toHaveText(
+    ["安装与配置", "任务与节点", "资料与诊断"],
+  );
+  expect(
+    methods.filter(method => method.startsWith("live.") || method.endsWith(".submit")),
+  ).toEqual([]);
+  await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-system.png" });
 });
 
-test("unknown saved workspace starts at watchlist", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("asterion.workspace", "unknown.workspace"));
+test("unknown saved module starts at data", async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("asterion.navigation", JSON.stringify({ module: "unknown.module" })),
+  );
   await page.goto("/");
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+    page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
@@ -88,7 +106,7 @@ test("service and task failures remain visible from every workspace", async ({ p
   const footer = page.locator(".status-bar");
   await expect(footer).toContainText("服务异常");
   await expect(footer).toContainText("1 项任务异常");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   await expect(footer).toContainText("服务异常");
   await footer.getByRole("button", { name: /1 项任务异常/ }).click();
   const tasks = page.getByRole("region", { name: "任务中心", exact: true });
@@ -97,7 +115,7 @@ test("service and task failures remain visible from every workspace", async ({ p
   await expect(
     page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }),
   ).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("navigation", { name: "数据页面", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "业务子模块", exact: true })).toBeVisible();
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-issues.png" });
   issues = false;
   await expect(footer).not.toContainText("1 项任务异常");

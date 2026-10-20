@@ -13,7 +13,7 @@ ArtifactUploads::ArtifactUploads(fs::path root, BlockingWork blocking)
       blocking_(std::move(blocking))
 {}
 
-PolledTask<void> ArtifactUploads::begin(const node::v1::Upload& u)
+PolledTask<void> ArtifactUploads::begin(const node::proto::Upload& u)
 {
     validate_artifact_digest(u.sha256());
     const auto platform = current_platform();
@@ -30,7 +30,7 @@ PolledTask<void> ArtifactUploads::begin(const node::v1::Upload& u)
     uploads_[u.sha256()] = {u.size(), 0};
 }
 
-PolledTask<void> ArtifactUploads::append(const node::v1::Chunk& c)
+PolledTask<void> ArtifactUploads::append(const node::proto::Chunk& c)
 {
     validate_artifact_digest(c.sha256());
     auto& u = uploads_.at(c.sha256());
@@ -49,7 +49,7 @@ PolledTask<void> ArtifactUploads::append(const node::v1::Chunk& c)
     u.offset += c.data().size();
 }
 
-PolledTask<void> ArtifactUploads::finish(const node::v1::Finish& finished)
+PolledTask<void> ArtifactUploads::finish(const node::proto::Finish& finished)
 {
     const auto hash = finished.sha256();
     validate_artifact_digest(hash);
@@ -61,7 +61,8 @@ PolledTask<void> ArtifactUploads::finish(const node::v1::Finish& finished)
         require_managed_path(target);
         // A failed directory sync may leave the renamed target in place.
         // Revalidate and durably acknowledge it on an explicit finish retry.
-        const auto source = fs::exists(path) ? path : target;
+        const bool uploaded = fs::exists(path);
+        const auto source = uploaded ? path : target;
         if (u.offset != u.size || sha256_file(source) != hash)
             throw std::invalid_argument("artifact size or checksum mismatch");
         const auto actual = artifact_platform(source);
@@ -69,10 +70,10 @@ PolledTask<void> ArtifactUploads::finish(const node::v1::Finish& finished)
         if (actual.os != platform.os || actual.arch != platform.arch)
             throw std::invalid_argument("uploaded executable platform mismatch");
         if (fs::exists(target)) {
-            if (sha256_file(target) != hash)
+            if (uploaded && sha256_file(target) != hash)
                 throw std::runtime_error("existing artifact corrupted");
             sync_directory(target.parent_path());
-            if (fs::exists(path))
+            if (uploaded)
                 fs::remove(path);
         } else {
             fs::permissions(path, fs::perms::owner_all);

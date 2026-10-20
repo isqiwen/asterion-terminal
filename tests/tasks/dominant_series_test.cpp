@@ -55,7 +55,7 @@ std::vector<MarketBar> join(std::initializer_list<std::vector<MarketBar>> parts)
 // rb2610 is dominant on the first two days at about twice the price of
 // rb2701, which takes over on the third day. Raw prices fall by half at the
 // roll; back-adjusted they keep rising.
-backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10")
+backtest::proto::BacktestInput rolling(const char* outgoing_volume = "10")
 {
     const auto near = test::dataset(
         join(
@@ -78,7 +78,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10")
             {"open_fee_rate", "0"},
             {"close_today_fee_rate", "0"},
             {"close_yesterday_fee_rate", "0"}});
-    backtest::v1::BacktestInput input;
+    backtest::proto::BacktestInput input;
     *input.mutable_paper() = testing_support::paper_input(
         {{"type", "historical_paper"},
             {"risk",
@@ -166,8 +166,8 @@ TEST(DominantSeries, AMonthWithAnEarlierBarTakesOverOnTheBarTheOldOneIsClosedOn)
             return item.id();
         });
     };
-    EXPECT_EQ(order(sold.order_id()).side(), protocol::v1::SELL);
-    EXPECT_EQ(order(bought.order_id()).side(), protocol::v1::BUY);
+    EXPECT_EQ(order(sold.order_id()).side(), protocol::proto::SELL);
+    EXPECT_EQ(order(bought.order_id()).side(), protocol::proto::BUY);
     EXPECT_EQ(order(bought.order_id()).limit_price().units(), d("106").raw());
     // (212 - 206) * 10 on rb2610, rb2701 from 106 to its last settlement 112.
     EXPECT_EQ(result.account().equity().units(), d("100112").raw());
@@ -238,7 +238,7 @@ namespace {
 // one: before the roll day rb2610 settled above rb2701 and hc level with its
 // later month; from the roll day rb2701 stands below its later month and hc
 // above.
-backtest::v1::BacktestInput ranked_by_carry(std::size_t first)
+backtest::proto::BacktestInput ranked_by_carry(std::size_t first)
 {
     auto input = rolling();
     auto* flat = input.mutable_paper()->add_contracts();
@@ -397,7 +397,7 @@ void month(
 
 // The product as the daily table has it once its months are seeded: each
 // seeding keeps what the earlier ones stored.
-data::v1::ProductBarsRequest product_bars(
+data::proto::ProductBarsRequest product_bars(
     const data::Store& store,
     const std::string& product,
     const std::string& begin,
@@ -440,7 +440,7 @@ TEST(DominantSeries, PersistedRollingResultSurvivesRestart)
         store.commit(tasks::finish(store, "rolling", token, expected));
     }
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.get("rolling").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(restored.get("rolling").state(), task::proto::SUCCEEDED);
     EXPECT_EQ(restored.get("rolling").input().SerializeAsString(), input.SerializeAsString());
     EXPECT_EQ(tasks::result(restored, "rolling").SerializeAsString(), expected.SerializeAsString());
 }
@@ -474,9 +474,9 @@ MarketBar daily_bar(int day)
         std::to_string(close).c_str());
 }
 
-backtest::v1::BacktestInput traded(Json contracts)
+backtest::proto::BacktestInput traded(Json contracts)
 {
-    backtest::v1::BacktestInput input;
+    backtest::proto::BacktestInput input;
     *input.mutable_paper() = testing_support::paper_input(
         {{"type", "historical_paper"},
             {"risk",
@@ -493,7 +493,7 @@ backtest::v1::BacktestInput traded(Json contracts)
 // A product whose months roll every day: month m is dominant on day m, with a
 // bar the day before, for the account to have a price of it, and one the day
 // after. Every month closes at the same price, so every factor is 1.
-backtest::v1::BacktestInput rolling_daily(int months)
+backtest::proto::BacktestInput rolling_daily(int months)
 {
     Json contracts = Json::array();
     for (int m = 0; m < months; ++m) {
@@ -644,7 +644,7 @@ TEST(DominantSeries, AMonthOfMinuteBarsIsDominantByTheTableNotByItsDownload)
         [&](const std::string& product, const std::vector<Json>& months, const Json& daily) {
             std::vector<data::BarDatasetSources> inputs;
             for (std::size_t m = 0; m < months.size(); ++m) {
-                data::v1::BarDatasetRequest request;
+                data::proto::BarDatasetRequest request;
                 request.add_source_dataset_ids(
                     months[m].at("source_dataset_ids").at(0).get<std::string>());
                 *request.mutable_daily() = protocol::encode_daily_table(daily);
@@ -841,7 +841,7 @@ TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement)
     }
     const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
     request.set_contract("SHFE/rb/2026-10");
     request.set_begin_day(day(0));
@@ -888,7 +888,7 @@ TEST(DailyBars, ABacktestCrossesAChangeOfThePriceIncrement)
     }
     const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
     data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
     request.set_contract("SHFE/rb/2026-10");
     request.set_begin_day(day(0));
@@ -1132,7 +1132,7 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
     EXPECT_EQ(rb_series.schedule.terms_size(), 43);
     EXPECT_EQ(hc_series.schedule.terms_size(), 51);
 
-    backtest::v1::BacktestInput input;
+    backtest::proto::BacktestInput input;
     auto* paper = input.mutable_paper();
     paper->mutable_deposit()->set_units(d("1000000").raw());
     *paper->mutable_risk() = protocol::encode_risk(
@@ -1164,7 +1164,7 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
     }
     // Momentum over one day and over five; 30000 is nearest one lot of either
     // product at ten times its price.
-    backtest::v1::BacktestRequest request;
+    backtest::proto::BacktestRequest request;
     for (const int lookback : {1, 5})
         *request.add_strategies() = protocol::encode_strategy(
             {{"sides", "both"},
@@ -1243,29 +1243,30 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
         tasks::submit(kept, "daily", input);
         const auto token = kept.commit(kept.claim("daily")).token();
         kept.commit(tasks::finish(kept, "daily", token, result));
-        EXPECT_EQ(kept.get("daily").state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(kept.get("daily").state(), task::proto::SUCCEEDED);
     }
 
     // The same series as factor series: momentum reads every day of rb, the
     // term structure the 51 days of hc that have a term point.
-    const auto factor_of =
-        [](const data::DominantSeries& resolved, protocol::v1::Factor factor, unsigned lookback) {
-            factor::v1::FactorInput value;
-            value.set_factor(factor);
-            value.set_full_sample(true);
-            value.add_lookbacks(lookback);
-            value.set_horizon(1);
-            auto* series = value.add_series()->mutable_dominant();
-            for (const auto& dataset : resolved.datasets)
-                *series->add_months() = dataset;
-            *series->mutable_schedule() = resolved.schedule;
-            value.set_dataset_revision(protocol::factor_revision(value.series()));
-            return value;
-        };
-    const auto momentum = factor::run(factor_of(rb_series, protocol::v1::PRICE_MOMENTUM, 5));
+    const auto factor_of = [](const data::DominantSeries& resolved,
+                               protocol::proto::Factor factor,
+                               unsigned lookback) {
+        factor::proto::FactorInput value;
+        value.set_factor(factor);
+        value.set_full_sample(true);
+        value.add_lookbacks(lookback);
+        value.set_horizon(1);
+        auto* series = value.add_series()->mutable_dominant();
+        for (const auto& dataset : resolved.datasets)
+            *series->add_months() = dataset;
+        *series->mutable_schedule() = resolved.schedule;
+        value.set_dataset_revision(protocol::factor_revision(value.series()));
+        return value;
+    };
+    const auto momentum = factor::run(factor_of(rb_series, protocol::proto::PRICE_MOMENTUM, 5));
     EXPECT_EQ(momentum.input_count(), 59U);
     EXPECT_EQ(momentum.samples_size(), 53); // 59 - warmup 5 - horizon 1
-    const auto carry = factor::run(factor_of(hc_series, protocol::v1::TERM_STRUCTURE, 1));
+    const auto carry = factor::run(factor_of(hc_series, protocol::proto::TERM_STRUCTURE, 1));
     EXPECT_EQ(carry.input_count(), 51U);
     ASSERT_EQ(carry.samples_size(), 49); // 51 - warmup 1 - horizon 1
     // The second day began knowing settlements of 3990 and 3960, three delivery

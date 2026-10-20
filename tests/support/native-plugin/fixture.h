@@ -1,7 +1,7 @@
 #ifndef ASTERION_TEST_FIXTURE_H
 #define ASTERION_TEST_FIXTURE_H
 #include <asterion/plugin/abi.h>
-#define AST_TEST_LIFETIME "test.lifetime.v1"
+#define AST_TEST_LIFETIME "test.lifetime"
 
 typedef struct
 {

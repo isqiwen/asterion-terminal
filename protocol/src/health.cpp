@@ -2,18 +2,18 @@
 
 namespace asterion::protocol {
 
-runtime::v1::Progress encode_progress(Progress::Observation value)
+runtime::proto::Progress encode_progress(Progress::Observation value)
 {
-    runtime::v1::Progress result;
+    runtime::proto::Progress result;
     result.set_observed(value.observed);
     result.set_pending(value.pending);
     result.set_age_ms(value.age_ms);
     return result;
 }
 
-Json execution_health_json(const runtime::v1::ExecutionHealth& health)
+Json execution_health_json(const runtime::proto::ExecutionHealth& health)
 {
-    const auto progress = [](const runtime::v1::Progress& p) {
+    const auto progress = [](const runtime::proto::Progress& p) {
         return Json{{"observed", p.observed()}, {"pending", p.pending()}, {"age_ms", p.age_ms()}};
     };
     return {
@@ -26,7 +26,7 @@ Json execution_health_json(const runtime::v1::ExecutionHealth& health)
     };
 }
 
-void age_execution_health(runtime::v1::ExecutionHealth& health, std::uint64_t elapsed_ms)
+void age_execution_health(runtime::proto::ExecutionHealth& health, std::uint64_t elapsed_ms)
 {
     for (auto* p :
         {health.mutable_io(),
@@ -38,9 +38,9 @@ void age_execution_health(runtime::v1::ExecutionHealth& health, std::uint64_t el
             p->set_age_ms(p->age_ms() + elapsed_ms);
 }
 
-bool execution_health_stalled(const runtime::v1::ExecutionHealth& e)
+bool execution_health_stalled(const runtime::proto::ExecutionHealth& e)
 {
-    const auto stalled = [](const runtime::v1::Progress& p, bool periodic) {
+    const auto stalled = [](const runtime::proto::Progress& p, bool periodic) {
         return p.observed() && p.age_ms() > 30000 && (periodic || p.pending());
     };
     return stalled(e.io(), true) || stalled(e.state(), true) || stalled(e.persistence(), false)
@@ -66,7 +66,7 @@ std::string_view service_health_name(ServiceHealth health) noexcept
     return "degraded";
 }
 
-ServiceHealth trading_health_phase(const v1::Health& health)
+ServiceHealth trading_health_phase(const proto::Health& health)
 {
     if (!health.has_execution())
         throw std::invalid_argument("invalid service health");

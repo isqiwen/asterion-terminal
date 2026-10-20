@@ -48,7 +48,7 @@ void Application::Impl::register_market_commands()
         auto next = (co_await PollFuture{MarketClient::open(
             service_io,
             (co_await PollFuture{nodes.at(text(p, "id"))
-                    ->service_endpoint(text(p, "service"), asterion::node::v1::MARKET_DATA)}))});
+                    ->service_endpoint(text(p, "service"), asterion::node::proto::MARKET_DATA)}))});
         market = std::move(next);
         co_return snapshot();
     });

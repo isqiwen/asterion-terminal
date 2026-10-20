@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/v1/node.pb.h>
+#include <asterion/node.pb.h>
 #include <filesystem>
 #include <string>
 
@@ -10,7 +10,7 @@ struct ServicePrograms
     std::filesystem::path executable, provider, worker, factor, data, catalog;
 };
 
-ServicePrograms local_service_programs(node::v1::ServiceKind kind);
-ServicePrograms bundled_service_programs(const std::string& arch, node::v1::ServiceKind kind);
+ServicePrograms local_service_programs(node::proto::ServiceKind kind);
+ServicePrograms bundled_service_programs(const std::string& arch, node::proto::ServiceKind kind);
 
 } // namespace asterion::terminal

@@ -127,7 +127,7 @@ def service_text(identity, port, bind):
 def manage(arguments):
     account()
     if arguments == ['check']:
-        print('asterion-host-v2')
+        print('asterion-host')
         return
     if len(arguments) != 4 or arguments[0] != 'install':
         raise ValueError('Only check and install NODE PORT BIND are supported')

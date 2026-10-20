@@ -6,12 +6,12 @@
 // A backtest account input for tests, written as the manifest a client shows.
 namespace asterion::testing_support {
 
-inline protocol::v1::PaperInput paper_input(const Json& manifest)
+inline protocol::proto::PaperInput paper_input(const Json& manifest)
 {
     require_fields(manifest, {"type", "deposit", "risk", "contracts"});
     if (manifest.at("type") != "historical_paper")
         throw std::invalid_argument("invalid paper input");
-    protocol::v1::PaperInput result;
+    protocol::proto::PaperInput result;
     result.mutable_deposit()->set_units(
         Decimal::parse(manifest.at("deposit").get<std::string>()).raw());
     *result.mutable_risk() = protocol::encode_risk(manifest.at("risk"));
@@ -28,7 +28,7 @@ inline protocol::v1::PaperInput paper_input(const Json& manifest)
 }
 
 // A moving-average strategy, as most tests trade.
-inline protocol::v1::Strategy
+inline protocol::proto::Strategy
 moving_average(unsigned fast, unsigned slow, const char* quantity = "1", const char* sides = "long")
 {
     return protocol::encode_strategy(

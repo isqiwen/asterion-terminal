@@ -2,7 +2,7 @@
 #include "service_endpoint.hpp"
 #include "service_io.hpp"
 #include <asterion/protocol/data.hpp>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include <asterion/protocol/backtest.hpp>
 #include <memory>
 #include <chrono>
@@ -20,49 +20,50 @@ public:
     DataClient& operator=(const DataClient&) = delete;
     [[nodiscard]] std::future<Json> status() const;
     [[nodiscard]] std::future<std::string> authorize_download(
-        const data::v1::DownloadAuthorizationRequest&);
+        const data::proto::DownloadAuthorizationRequest&);
     [[nodiscard]] std::future<void> configure_download_budget(
-        const data::v1::DownloadBudgetConfiguration&);
+        const data::proto::DownloadBudgetConfiguration&);
     ServiceEndpoint endpoint() const;
-    [[nodiscard]] std::future<data::v1::HistorySource> source(const std::string& id) const;
-    [[nodiscard]] std::future<std::vector<data::v1::HistorySource>> provider_sources(
+    [[nodiscard]] std::future<data::proto::HistorySource> source(const std::string& id) const;
+    [[nodiscard]] std::future<std::vector<data::proto::HistorySource>> provider_sources(
         const std::string& plugin_id) const;
-    [[nodiscard]] std::future<data::v1::HistoryConnectionVerification>
+    [[nodiscard]] std::future<data::proto::HistoryConnectionVerification>
     verify_connection(const std::string& source, const std::string& credential);
-    [[nodiscard]] std::future<data::v1::BarDataset> bar_dataset(const data::v1::BarDatasetRequest&);
-    [[nodiscard]] std::future<data::v1::DominantSeriesPreview> dominant_series(
-        const std::vector<data::v1::BarDatasetRequest>&);
+    [[nodiscard]] std::future<data::proto::BarDataset> bar_dataset(
+        const data::proto::BarDatasetRequest&);
+    [[nodiscard]] std::future<data::proto::DominantSeriesPreview> dominant_series(
+        const std::vector<data::proto::BarDatasetRequest>&);
     // A product's own months in the daily table, as its dominant series.
-    [[nodiscard]] std::future<data::v1::DominantSeriesPreview> dominant_series(
-        const data::v1::ProductBarsRequest&);
-    [[nodiscard]] std::future<data::v1::HistoryUpdatePlan> history_update_plan(
-        const data::v1::HistoryUpdateQuery&);
-    [[nodiscard]] std::future<Json> datasets(const data::v1::HistoryFilter&);
-    [[nodiscard]] std::future<Json> coverage(const data::v1::HistoryCoverageQuery&);
+    [[nodiscard]] std::future<data::proto::DominantSeriesPreview> dominant_series(
+        const data::proto::ProductBarsRequest&);
+    [[nodiscard]] std::future<data::proto::HistoryUpdatePlan> history_update_plan(
+        const data::proto::HistoryUpdateQuery&);
+    [[nodiscard]] std::future<Json> datasets(const data::proto::HistoryFilter&);
+    [[nodiscard]] std::future<Json> coverage(const data::proto::HistoryCoverageQuery&);
     [[nodiscard]] std::future<std::vector<HistoryListing>> table_contracts(
-        const data::v1::TableContractsQuery&);
-    [[nodiscard]] std::future<Json> minute_page(const data::v1::MinutePageQuery&);
-    [[nodiscard]] std::future<Json> minute_range(const data::v1::MinuteRangeQuery&);
-    [[nodiscard]] std::future<Json> minute_evidence(const data::v1::MinuteEvidenceQuery&);
+        const data::proto::TableContractsQuery&);
+    [[nodiscard]] std::future<Json> minute_page(const data::proto::MinutePageQuery&);
+    [[nodiscard]] std::future<Json> minute_range(const data::proto::MinuteRangeQuery&);
+    [[nodiscard]] std::future<Json> minute_evidence(const data::proto::MinuteEvidenceQuery&);
     [[nodiscard]] std::future<Json> history_usage(const std::string&);
     // Market-wide tables: what the store holds, and one page of a partition.
-    [[nodiscard]] std::future<data::v1::TableRefreshPlan> table_refresh_plan(
-        const data::v1::TableRefreshQuery&);
-    [[nodiscard]] std::future<Json> historical_margins(const data::v1::HistoricalMarginQuery&);
+    [[nodiscard]] std::future<data::proto::TableRefreshPlan> table_refresh_plan(
+        const data::proto::TableRefreshQuery&);
+    [[nodiscard]] std::future<Json> historical_margins(const data::proto::HistoricalMarginQuery&);
     [[nodiscard]] std::future<Json> table_coverage();
-    [[nodiscard]] std::future<Json> table_page(const data::v1::TablePageQuery&);
-    [[nodiscard]] std::future<Json> table_products(const data::v1::TableProductsQuery&);
+    [[nodiscard]] std::future<Json> table_page(const data::proto::TablePageQuery&);
+    [[nodiscard]] std::future<Json> table_products(const data::proto::TableProductsQuery&);
     [[nodiscard]] std::future<Json> table_listed_contracts(
-        const data::v1::TableListedContractsQuery&);
-    [[nodiscard]] std::future<Json> table_daily(const data::v1::TableDailyQuery&);
+        const data::proto::TableListedContractsQuery&);
+    [[nodiscard]] std::future<Json> table_daily(const data::proto::TableDailyQuery&);
     [[nodiscard]] static std::future<Json> inspect_history_usage(
         ServiceIo&,
         const ServiceEndpoint&,
         const std::string&,
         std::chrono::steady_clock::time_point deadline);
     [[nodiscard]] std::future<Json> saved_datasets();
-    [[nodiscard]] std::future<data::v1::NamedDataset> saved_dataset(const std::string&);
-    [[nodiscard]] std::future<void> save_dataset(const data::v1::NamedDataset&);
+    [[nodiscard]] std::future<data::proto::NamedDataset> saved_dataset(const std::string&);
+    [[nodiscard]] std::future<void> save_dataset(const data::proto::NamedDataset&);
 
 private:
     friend class Application;

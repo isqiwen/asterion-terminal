@@ -40,12 +40,12 @@ int main(int argc, char** argv)
             tls,
             service,
             task,
-            asterion::task::v1::BACKTEST,
+            asterion::task::proto::BACKTEST,
             [](const auto& input, auto stop, const auto& progress) {
                 const auto module = asterion::risk_providers::Module::selected();
                 if (module.artifact() != input.task().risk_artifact())
                     throw std::invalid_argument("risk plugin artifact does not match its owner");
-                asterion::task::v1::TaskFinish result;
+                asterion::task::proto::TaskFinish result;
                 *result.mutable_result() =
                     asterion::backtest::run(input.task().input(), stop, progress, &module);
                 return result;

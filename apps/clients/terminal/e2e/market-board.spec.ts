@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import type { Snapshot, LiveMarket } from "../src/bridge/client";
 
@@ -56,7 +57,7 @@ test("market board groups exchanges and links contract selection without inventi
     await route.fulfill({ response, json: body });
   });
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "market");
   const board = page.locator(".futures-market-board");
   const detail = page.getByRole("complementary", { name: "合约详情" });
   // Without a catalog the board lists subscribed months even in product overview.
@@ -82,9 +83,8 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(board.getByRole("button", { name: "i2701", exact: true })).toHaveCount(0);
   await expect(detail).toContainText("rb2610");
   await expect(detail.locator(".quote-pane-status").first()).toHaveText("等待首笔");
-  const navigation = page.getByRole("navigation", { name: "业务工作区" });
-  await navigation.getByRole("button", { name: "自选", exact: true }).click();
-  await navigation.getByRole("button", { name: "市场", exact: true }).click();
+  await openView(page, "watchlist");
+  await openView(page, "market");
   await expect(categories.getByRole("button", { name: "上期所", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -182,17 +182,11 @@ test("market board groups exchanges and links contract selection without inventi
   await page.screenshot({ path: "build/market-mouse-keyboard-selection.png" });
   await page.keyboard.press("Enter");
   await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "市场", exact: true })
-    .click();
+  await openView(page, "market");
   await board.getByRole("button", { name: "i2701", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("i2701");
-  await page
-    .getByRole("navigation", { name: "业务工作区" })
-    .getByRole("button", { name: "市场", exact: true })
-    .click();
+  await openView(page, "market");
   await rbRow.locator("td").nth(1).dblclick();
   await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
 });

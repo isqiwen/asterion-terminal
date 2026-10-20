@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/domain/history_store.hpp>
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 #include <filesystem>
 
 namespace asterion::history_files {
@@ -27,12 +27,12 @@ public:
         const std::string& acquisition) const;
     // The data owner verifies files on its file pool before retaining prepared
     // evidence. Publication only exposes that immutable, already verified record.
-    void publish_verified(const data::v1::HistoryRecord&);
-    data::v1::HistoryRecord get(const std::string& id) const;
-    void save_named_dataset(const data::v1::NamedDataset&);
-    data::v1::NamedDataset named_dataset(const std::string&) const;
+    void publish_verified(const data::proto::HistoryRecord&);
+    data::proto::HistoryRecord get(const std::string& id) const;
+    void save_named_dataset(const data::proto::NamedDataset&);
+    data::proto::NamedDataset named_dataset(const std::string&) const;
     bool has_named_dataset(const std::string&) const;
-    data::v1::NamedDatasets named_datasets() const;
+    data::proto::NamedDatasets named_datasets() const;
 
 private:
     std::filesystem::path root_;

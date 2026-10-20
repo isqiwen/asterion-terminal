@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { seedHistory, rpc } from "./dataset-fixture";
 import { test, expect } from "./test";
 test("daily factor persists liquidity eligibility separately from evaluated members", async ({
@@ -17,9 +18,9 @@ test("daily factor persists liquidity eligibility separately from evaluated memb
       openInterest: product === "cu" ? 50 : 200,
     });
   await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await openView(page, "factor");
   await workspace.getByRole("button", { name: "全市场数据表", exact: true }).click();
   const input = workspace.getByLabel("品种或合约", { exact: true });
   for (const product of ["rb", "cu", "al"]) {

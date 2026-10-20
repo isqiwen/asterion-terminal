@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/foundation/time.hpp>
-#include <asterion/v1/data_service.pb.h>
+#include <asterion/data_service.pb.h>
 #include <deque>
 #include <filesystem>
 #include <map>
@@ -16,7 +16,7 @@ public:
     struct Configuration
     {
         std::string account;
-        v1::DownloadBudgetPolicy policy;
+        proto::DownloadBudgetPolicy policy;
     };
 
     DownloadBudget(
@@ -32,7 +32,7 @@ public:
         failed_ = true;
     }
 
-    v1::DownloadPermit acquire(const std::string& provider, const std::string& credential);
+    proto::DownloadPermit acquire(const std::string& provider, const std::string& credential);
 
 private:
     struct Window

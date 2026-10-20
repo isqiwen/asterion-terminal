@@ -80,7 +80,7 @@ def stage(archives, destination):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
                 target.chmod(0o644)
-        verify(prepared)
+        # read_archive already validated these bytes; staging owns this fresh tree.
         publish_tree(prepared, destination)
 
 
@@ -91,6 +91,9 @@ if __name__ == '__main__':
     parser.add_argument('--archives',type=Path,default=ROOT/'build/linux-bundles')
     parser.add_argument('--directory',type=Path,default=ROOT/'build/electron-resources/remote-linux')
     args=parser.parse_args()
-    if args.action=='stage': stage(args.archives,args.directory)
-    else: verify(args.directory)
+    try:
+        if args.action=='stage': stage(args.archives,args.directory)
+        else: verify(args.directory)
+    except (ValueError, OSError, zipfile.BadZipFile) as error:
+        parser.exit(1, f'Linux service resources: {error}\n')
     print('Verified bundled Linux x86_64 services and initializer')

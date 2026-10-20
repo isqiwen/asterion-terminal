@@ -35,7 +35,7 @@ DownloadBudget::DownloadBudget(std::filesystem::path directory, std::shared_ptr<
             throw std::invalid_argument("invalid download budget policy");
         std::ifstream stream(path, std::ios::binary);
         const std::string bytes{std::istreambuf_iterator<char>(stream), {}};
-        v1::DownloadBudgetPolicy policy;
+        proto::DownloadBudgetPolicy policy;
         if (!stream || !policy.ParseFromString(bytes))
             throw std::invalid_argument("invalid download budget policy");
         protocol::validate_message(policy);
@@ -91,7 +91,7 @@ void DownloadBudget::committed(const Configuration& configuration)
     // Reconfiguration preserves admissions and any restart quiet period.
 }
 
-v1::DownloadPermit
+proto::DownloadPermit
 DownloadBudget::acquire(const std::string& provider, const std::string& credential)
 {
     require_available();
@@ -107,7 +107,7 @@ DownloadBudget::acquire(const std::string& provider, const std::string& credenti
     auto ready = current.not_before;
     if (current.granted.size() >= current.limit)
         ready = std::max(ready, current.granted[current.granted.size() - current.limit] + minute);
-    v1::DownloadPermit result;
+    proto::DownloadPermit result;
     if (now < ready) {
         result.set_retry_after_ms(static_cast<unsigned>((ready - now + 999999) / 1000000));
         return result;

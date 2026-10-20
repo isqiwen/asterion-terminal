@@ -25,7 +25,7 @@ int main(int argc, char** argv)
                 throw std::logic_error("unexpected provider request");
         });
         history_files::TableStore store(directory);
-        data::v1::HistoricalMarginQuery query;
+        data::proto::HistoricalMarginQuery query;
         query.set_contract(shfe::contract);
         for (const auto* day : shfe::days) {
             const auto& schema = history_table(shfe::table);

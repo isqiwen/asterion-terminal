@@ -240,7 +240,7 @@ historical_costs::MarginFact settlement_margin_fact(
 
 DailyFacts daily_facts(
     const TableStore& store,
-    const v1::DailyTable& table,
+    const proto::DailyTable& table,
     const std::string& venue,
     const std::string& begin_day,
     const std::string& end_day,
@@ -278,7 +278,7 @@ DailyFacts daily_facts(
 
 std::map<std::string, Decimal> price_increments(
     const TableStore& store,
-    const v1::DailyTable& table,
+    const proto::DailyTable& table,
     const std::string& venue,
     const std::string& product,
     const std::string& begin_day,
@@ -374,7 +374,7 @@ std::optional<Decimal> quoted_lots(const TableCell& trade_unit, const TableCell&
 
 std::map<std::string, Decimal> contract_multipliers(
     const TableStore& store,
-    const v1::DailyTable& table,
+    const proto::DailyTable& table,
     const std::string& venue,
     const std::vector<std::string>& contracts)
 {
@@ -418,7 +418,7 @@ std::map<std::string, Decimal> contract_multipliers(
 
 std::string previous_trading_day(
     const TableStore& store,
-    const v1::DailyTable& table,
+    const proto::DailyTable& table,
     const std::string& venue,
     const std::string& first_day)
 {
@@ -445,7 +445,8 @@ std::string previous_trading_day(
     return days.back();
 }
 
-v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeriesRequest& request)
+proto::TableSeriesGroup
+table_series(const TableStore& store, const proto::TableSeriesRequest& request)
 {
     protocol::validate_table_series_request(request);
     const auto until = held(store, request.snapshot());
@@ -458,7 +459,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
         instruments.push_back(protocol::table_instrument(request.instruments(i)));
         exchanges[instruments.back().venue].push_back(i);
     }
-    v1::TableSeriesGroup group;
+    proto::TableSeriesGroup group;
     for (int i = 0; i < request.instruments_size(); ++i)
         group.add_series();
     std::size_t total = 0;
@@ -496,7 +497,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
             series.set_end_day(request.end_day());
             series.set_instrument(name);
             series.set_acquired_at_ns(acquired);
-            const auto add = [&](v1::TableMonth& target,
+            const auto add = [&](proto::TableMonth& target,
                                  const Month& month,
                                  const std::string& first,
                                  const std::string* before) {
@@ -585,7 +586,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
     return group;
 }
 
-v1::TableProducts table_products(const TableStore& store, const v1::TableProductsQuery& query)
+proto::TableProducts table_products(const TableStore& store, const proto::TableProductsQuery& query)
 {
     const auto until = held(store, query.snapshot());
     const auto& table = history_table(contracts_table);
@@ -593,7 +594,7 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
     const auto contract = table_column(table, "contract"),
                listed = table_column(table, "list_date"),
                delisted = table_column(table, "delist_date");
-    v1::TableProducts result;
+    proto::TableProducts result;
     for (const auto venue : history_venues()) {
         const auto revisions = store.revisions(contracts, std::string(venue), "all", "all", until);
         if (revisions.empty())
@@ -632,8 +633,8 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
     return result;
 }
 
-v1::TableListedContracts
-table_listed_contracts(const TableStore& store, const v1::TableListedContractsQuery& query)
+proto::TableListedContracts
+table_listed_contracts(const TableStore& store, const proto::TableListedContractsQuery& query)
 {
     protocol::validate_table_listed_contracts_query(query);
     const auto lists = store.revisions(
@@ -648,7 +649,7 @@ table_listed_contracts(const TableStore& store, const v1::TableListedContractsQu
     const auto contract = table_column(table, "contract"), name = table_column(table, "name"),
                listed = table_column(table, "list_date"),
                delisted = table_column(table, "delist_date");
-    v1::TableListedContracts result;
+    proto::TableListedContracts result;
     *result.mutable_query() = query;
     for (const auto& row : store.rows(lists.front())) {
         const auto& key = std::get<std::string>(row[contract]);
@@ -666,7 +667,7 @@ table_listed_contracts(const TableStore& store, const v1::TableListedContractsQu
     return result;
 }
 
-v1::HistoryCatalog table_contracts(
+proto::HistoryCatalog table_contracts(
     const TableStore& store,
     const std::string& snapshot,
     const std::string& source,
@@ -691,7 +692,7 @@ v1::HistoryCatalog table_contracts(
                delisted = column("delist_date"), multiplier = column("multiplier"),
                per_unit = column("per_unit"), trade_unit = column("trade_unit"),
                quote_unit = column("quote_unit");
-    v1::HistoryCatalog result;
+    proto::HistoryCatalog result;
     result.set_source(source);
     for (const auto& row : store.rows(lists.front())) {
         const auto& key = std::get<std::string>(row[contract]);
@@ -721,7 +722,7 @@ v1::HistoryCatalog table_contracts(
 
 TradedDays traded_days(
     const TableStore& store,
-    const v1::DailyTable& table,
+    const proto::DailyTable& table,
     const std::string& contract,
     const std::string& first,
     const std::string& last)
@@ -747,7 +748,7 @@ TradedDays traded_days(
     return result;
 }
 
-v1::TableDailyPage table_daily(const TableStore& store, const v1::TableDailyQuery& query)
+proto::TableDailyPage table_daily(const TableStore& store, const proto::TableDailyQuery& query)
 {
     using chart_indicators::DailyCandle;
     protocol::validate_table_daily_query(query);
@@ -823,20 +824,20 @@ v1::TableDailyPage table_daily(const TableStore& store, const v1::TableDailyQuer
     std::vector<DailyCandle> candles;
     for (const auto& [day, candle] : days)
         candles.push_back(candle);
-    if (query.period() != v1::DAY) {
+    if (query.period() != proto::DAY) {
         std::vector<DailyCandle> grouped;
         for (const auto& bucket : chart_indicators::calendar_bars(
                  candles,
-                 query.period() == v1::WEEK          ? chart_indicators::CalendarPeriod::week
-                     : query.period() == v1::MONTH   ? chart_indicators::CalendarPeriod::month
-                     : query.period() == v1::QUARTER ? chart_indicators::CalendarPeriod::quarter
-                                                     : chart_indicators::CalendarPeriod::year))
+                 query.period() == proto::WEEK          ? chart_indicators::CalendarPeriod::week
+                     : query.period() == proto::MONTH   ? chart_indicators::CalendarPeriod::month
+                     : query.period() == proto::QUARTER ? chart_indicators::CalendarPeriod::quarter
+                                                        : chart_indicators::CalendarPeriod::year))
             grouped.push_back(bucket.bar);
         candles = std::move(grouped);
     }
     if (query.offset() > candles.size() || (!candles.empty() && query.offset() == candles.size()))
         throw std::invalid_argument("daily table chart offset is out of range");
-    v1::TableDailyPage page;
+    proto::TableDailyPage page;
     *page.mutable_daily() = table;
     page.set_contract(query.contract());
     page.set_period(query.period());

@@ -376,7 +376,7 @@ TEST(ResponseReview, PageQueryChecksOffPageRowsAndLeavesEveryStoredByteAndHeadUn
     };
     const auto hashes = before();
     const auto head = store.head();
-    data::v1::TablePageQuery query;
+    data::proto::TablePageQuery query;
     query.mutable_partition()->set_table("futures.daily");
     query.mutable_partition()->set_exchange("SHFE");
     query.mutable_partition()->set_period("2025-07-25");
@@ -450,7 +450,7 @@ TEST(RefreshObservation, SameContentHasSeparateImmutableEvidenceAndReplaySurvive
     const auto first = store.record_refresh_observation(context, old, raw, 20, true);
     EXPECT_EQ(store.head(), old.snapshot);
     EXPECT_FALSE(store.response(old));
-    data::v1::TablePageQuery query;
+    data::proto::TablePageQuery query;
     query.mutable_partition()->set_table("futures.daily");
     query.mutable_partition()->set_exchange("SHFE");
     query.mutable_partition()->set_period("2025-07-25");

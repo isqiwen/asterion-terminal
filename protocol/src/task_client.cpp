@@ -25,12 +25,12 @@ int run_task_worker(
     const ipc::TlsIdentity& tls,
     const std::string& service,
     const std::string& task,
-    task::v1::TaskKind kind,
+    task::proto::TaskKind kind,
     const TaskRunner& runner,
     std::uint64_t owner_pid)
 {
-    if (kind != task::v1::BACKTEST && kind != task::v1::FACTOR && kind != task::v1::MINUTE_DOWNLOAD
-        && kind != task::v1::TABLE_UPDATE)
+    if (kind != task::proto::BACKTEST && kind != task::proto::FACTOR
+        && kind != task::proto::MINUTE_DOWNLOAD && kind != task::proto::TABLE_UPDATE)
         throw std::invalid_argument("unsupported worker kind");
     validate_id(service);
     validate_id(task);
@@ -50,7 +50,7 @@ int run_task_worker(
         : std::make_unique<ipc::RpcClient>(endpoint, 2, PayloadBudget{128 * 1024 * 1024});
     const auto worker_trace = next_correlation_id();
     TraceScope context(worker_trace);
-    namespace wire = task::v1;
+    namespace wire = task::proto;
 
     struct Pending
     {

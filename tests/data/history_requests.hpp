@@ -7,7 +7,7 @@
 // validated the way the history store validates a definition it is given.
 namespace asterion::testing_support {
 
-inline data::v1::MinuteDownload minute_request(const Json& value)
+inline data::proto::MinuteDownload minute_request(const Json& value)
 {
     require_fields(
         value,
@@ -18,7 +18,7 @@ inline data::v1::MinuteDownload minute_request(const Json& value)
             "begin_ns",
             "end_ns",
             "requests_per_minute"});
-    data::v1::MinuteDownload input;
+    data::proto::MinuteDownload input;
     input.set_contract_id(value.at("contract_id").get<std::string>());
     input.set_source(value.at("source").get<std::string>());
     input.set_source_instrument(value.at("source_instrument").get<std::string>());

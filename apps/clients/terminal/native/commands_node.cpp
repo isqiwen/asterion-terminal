@@ -15,7 +15,7 @@ PolledTask<void> deploy_service(ServiceIo& io, NodeClient& node, bool local, con
     const auto kind = parse_service_kind(text(p, "kind"));
     const auto name = text(p, "service");
     const auto port = local ? std::uint16_t{0} : port_number(p, "port");
-    if (local && (kind != node::v1::TASK_SERVICE || text(p, "port") != "0"))
+    if (local && (kind != node::proto::TASK_SERVICE || text(p, "port") != "0"))
         throw std::invalid_argument("local deployment requires a task service and port zero");
     if (!local
         && (status.health->os() != "linux" || status.health->version() != ASTERION_PRODUCT_VERSION))
@@ -23,21 +23,21 @@ PolledTask<void> deploy_service(ServiceIo& io, NodeClient& node, bool local, con
             "remote services require an online Linux Agent of the same version");
     const auto platform =
         local ? current_platform() : HostPlatform{.os = "linux", .arch = status.health->arch()};
-    const auto programs = [&](node::v1::ServiceKind type) -> PolledTask<ServicePrograms> {
+    const auto programs = [&](node::proto::ServiceKind type) -> PolledTask<ServicePrograms> {
         co_return co_await io.admin<ServicePrograms>([&] {
             return local ? local_service_programs(type)
                          : bundled_service_programs(platform.arch, type);
         });
     };
     std::string data_service;
-    if (kind == node::v1::TASK_SERVICE) {
+    if (kind == node::proto::TASK_SERVICE) {
         data_service = name + "-data";
-        const node::v1::Service* existing = nullptr;
+        const node::proto::Service* existing = nullptr;
         for (const auto& service : status.health->services())
             if (service.id() == data_service)
                 existing = &service;
         if (existing) {
-            if (existing->kind() != node::v1::DATA_SERVICE || existing->task_service() != name)
+            if (existing->kind() != node::proto::DATA_SERVICE || existing->task_service() != name)
                 throw std::invalid_argument("data and task service bindings disagree");
             (co_await PollFuture{node.action(data_service, "start")});
         } else {
@@ -55,10 +55,10 @@ PolledTask<void> deploy_service(ServiceIo& io, NodeClient& node, bool local, con
                 if (data_port > 65535)
                     throw std::invalid_argument("no port available for data service");
             }
-            auto data_programs = co_await programs(node::v1::DATA_SERVICE);
+            auto data_programs = co_await programs(node::proto::DATA_SERVICE);
             const ServiceDeployment deployment{
                 .service = data_service,
-                .kind = node::v1::DATA_SERVICE,
+                .kind = node::proto::DATA_SERVICE,
                 .platform = platform,
                 .programs = std::move(data_programs),
                 .port = static_cast<std::uint16_t>(data_port),
@@ -87,7 +87,7 @@ PolledTask<void> update_service(ServiceIo& io, NodeClient& node, bool local, con
     if (!state.online || !state.health)
         throw std::invalid_argument("connect the node before updating");
     const auto& health = *state.health;
-    auto kind = node::v1::UNSPECIFIED_SERVICE;
+    auto kind = node::proto::UNSPECIFIED_SERVICE;
     for (const auto& service_status : health.services())
         if (service_status.id() == service)
             kind = service_status.kind();

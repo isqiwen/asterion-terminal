@@ -5,7 +5,7 @@
 namespace asterion {
 namespace {
 
-Decimal decimal(const protocol::v1::Decimal& value)
+Decimal decimal(const protocol::proto::Decimal& value)
 {
     return Decimal::from_raw(value.units());
 }
@@ -13,8 +13,8 @@ Decimal decimal(const protocol::v1::Decimal& value)
 } // namespace
 
 AccountReconciliation reconcile_backtest(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     AccountReconciliation audit;
     if (input.paper().contracts_size() != 1
@@ -35,7 +35,7 @@ AccountReconciliation reconcile_backtest(
     audit.deposit = decimal(input.paper().deposit());
     std::map<std::string, bool> buys;
     for (const auto& order : account.orders())
-        buys.emplace(order.id(), order.side() == protocol::v1::BUY);
+        buys.emplace(order.id(), order.side() == protocol::proto::BUY);
     Decimal quantity, previous_price, balance = audit.deposit, cumulative_gross, cumulative_fees;
     std::size_t cursor = 0;
     for (const auto& day : result.settlements()) {
@@ -104,7 +104,7 @@ AccountReconciliation reconcile_backtest(
     for (const auto& lot : account.positions()) {
         const auto lots = decimal(lot.quantity());
         final_quantity =
-            lot.side() == protocol::v1::BUY ? final_quantity + lots : final_quantity - lots;
+            lot.side() == protocol::proto::BUY ? final_quantity + lots : final_quantity - lots;
         audit.gross_notional = audit.gross_notional + lots * previous_price * audit.multiplier;
         // Sum retained position lots, exactly as the fixed model does; rounding
         // each margin charge can differ from first aggregating the quantities.

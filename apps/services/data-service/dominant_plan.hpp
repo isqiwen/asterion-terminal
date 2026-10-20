@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/foundation/decimal.hpp>
-#include <asterion/v1/data.pb.h>
+#include <asterion/data.pb.h>
 #include <map>
 #include <span>
 #include <string>
@@ -35,7 +35,7 @@ struct DominantPlan
 {
     std::vector<std::string> days; // every day one of the months settled on, ascending
     std::vector<DominantSegment> segments;
-    std::vector<data::v1::TermPoint> terms;
+    std::vector<data::proto::TermPoint> terms;
 };
 // What a series is for. One that is traded must be able to leave a month: on
 // its last day the month hands over to the most held of the others, whatever

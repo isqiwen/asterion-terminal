@@ -1,5 +1,5 @@
 syntax = "proto3";
-package asterion.runtime.v1;
+package asterion.runtime.proto;
 // Ages are local monotonic durations, never wall-clock timestamps. Only the
 // executor publishes progress. Idle persistence does not require periodic work.
 message Progress {

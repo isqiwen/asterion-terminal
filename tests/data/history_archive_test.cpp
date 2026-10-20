@@ -57,7 +57,7 @@ public:
 };
 
 // Where a saved selection reads its daily facts; nothing is read of it here.
-data::v1::DailyTable daily_table()
+data::proto::DailyTable daily_table()
 {
     return protocol::encode_daily_table(
         {{"snapshot", std::string(64, 'd')},
@@ -69,7 +69,7 @@ data::v1::DailyTable daily_table()
 // The one bar of 2024-01-02 09:01.
 const auto minute = parse_shanghai_time("2024-01-02 09:01:00");
 
-data::v1::HistoryRecord publish(
+data::proto::HistoryRecord publish(
     history_files::Archive& archive,
     AlternateMinutes& provider,
     const HistoryIdentity& identity,
@@ -85,7 +85,7 @@ data::v1::HistoryRecord publish(
             {"requests_per_minute", 500}});
     const auto path = archive.directory(identity, provider.source, 1, acquisition);
     history_files::download_minutes(provider, history_files::minute_range(input), path);
-    data::v1::HistoryRecord record;
+    data::proto::HistoryRecord record;
     *record.mutable_minutes() = input;
     *record.mutable_minute_result() = history_files::minute_result(path);
     history_files::verify_minute_result(record.minutes(), record.minute_result());
@@ -93,9 +93,9 @@ data::v1::HistoryRecord publish(
     return record;
 }
 
-data::v1::MinutePageQuery first_page(const data::v1::HistoryRecord& record)
+data::proto::MinutePageQuery first_page(const data::proto::HistoryRecord& record)
 {
-    data::v1::MinutePageQuery query;
+    data::proto::MinutePageQuery query;
     query.set_dataset_id(record.minute_result().manifest_sha256());
     query.set_limit(10);
     return query;
@@ -244,7 +244,7 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks)
     EXPECT_NE(newer.minute_result().manifest_sha256(), id);
     EXPECT_EQ(archive.get(id).SerializeAsString(), before.SerializeAsString());
     // A selection names versions by their identity, not by the task that made them.
-    data::v1::BarDatasetRequest request;
+    data::proto::BarDatasetRequest request;
     request.add_source_dataset_ids("first");
     *request.mutable_daily() = daily_table();
     request.set_contract("SHFE/cu/2024-03");
@@ -257,7 +257,7 @@ TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart)
     history_files::Archive archive(root.path / "history");
     AlternateMinutes provider;
     const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "named");
-    data::v1::NamedDataset saved;
+    data::proto::NamedDataset saved;
     saved.set_name("铜分钟研究");
     auto* input = saved.add_selections();
     input->add_source_dataset_ids(original.minute_result().manifest_sha256());
@@ -291,7 +291,7 @@ TEST(HistoryArchive, NamedDatasetsRejectInvalidNamesDuplicateContractsAndMissing
 {
     Folder root;
     history_files::Archive archive(root.path / "history");
-    data::v1::NamedDataset value;
+    data::proto::NamedDataset value;
     value.set_name("test");
     auto* input = value.add_selections();
     input->add_source_dataset_ids(std::string(64, 'a'));

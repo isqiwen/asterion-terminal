@@ -41,7 +41,7 @@ Message read_message(const fs::path& path)
     return message;
 }
 
-std::string dataset_id(const v1::HistoryRecord& record)
+std::string dataset_id(const proto::HistoryRecord& record)
 {
     return record.minute_result().manifest_sha256();
 }
@@ -87,7 +87,8 @@ Store::Store(fs::path root, std::string instance, std::string task_instance)
       tables_(root_ / "tables")
 {}
 
-v1::DownloadBudgetPolicy Store::verify_budget(const v1::DownloadBudgetConfiguration& request) const
+proto::DownloadBudgetPolicy Store::verify_budget(
+    const proto::DownloadBudgetConfiguration& request) const
 {
     protocol::validate_message(request);
     for (const auto& source : history_providers::sources()) {
@@ -97,7 +98,7 @@ v1::DownloadBudgetPolicy Store::verify_budget(const v1::DownloadBudgetConfigurat
             || request.requests_per_minute() > source.max_requests_per_minute
             || (source.credential_required && request.credential().empty()))
             throw std::invalid_argument("invalid download request budget");
-        v1::DownloadBudgetPolicy result;
+        proto::DownloadBudgetPolicy result;
         result.set_provider_id(source.plugin_id);
         result.set_requests_per_minute(request.requests_per_minute());
         return result;
@@ -105,7 +106,7 @@ v1::DownloadBudgetPolicy Store::verify_budget(const v1::DownloadBudgetConfigurat
     if (request.source() == shfe::source && request.credential().empty()
         && request.requests_per_minute() > 0 && request.requests_per_minute() <= 60) {
         (void)history_providers::table_artifact(shfe::provider);
-        v1::DownloadBudgetPolicy result;
+        proto::DownloadBudgetPolicy result;
         result.set_provider_id(shfe::provider);
         result.set_requests_per_minute(request.requests_per_minute());
         return result;
@@ -113,11 +114,11 @@ v1::DownloadBudgetPolicy Store::verify_budget(const v1::DownloadBudgetConfigurat
     throw std::invalid_argument("historical data source is unavailable");
 }
 
-v1::StoredDownloadAuthorization Store::download_authorization(
-    const v1::DownloadIdentity& identity) const
+proto::StoredDownloadAuthorization Store::download_authorization(
+    const proto::DownloadIdentity& identity) const
 {
     const auto allocated =
-        read_message<v1::AllocatedDownload>(operation(identity) / "allocation.pb");
+        read_message<proto::AllocatedDownload>(operation(identity) / "allocation.pb");
     if (allocated.request().identity().SerializeAsString() != identity.SerializeAsString())
         throw std::invalid_argument("download allocation identity mismatch");
     const auto stored = read_authorization(allocated.request().authorization_id());
@@ -134,7 +135,7 @@ fs::path Store::authorization_path(const std::string& id) const
 }
 
 Store::VerifiedAuthorization Store::verify_authorization(
-    const v1::DownloadAuthorizationRequest& request) const
+    const proto::DownloadAuthorizationRequest& request) const
 {
     protocol::validate_message(request);
     validate_id(request.task_id());
@@ -154,7 +155,7 @@ Store::VerifiedAuthorization Store::verify_authorization(
             throw Error(ErrorCode::conflict, "data operation identity has different content");
         return VerifiedAuthorization(std::move(existing));
     }
-    v1::StoredDownloadAuthorization stored;
+    proto::StoredDownloadAuthorization stored;
     auto* authorization = stored.mutable_authorization();
     authorization->set_data_instance(instance_);
     authorization->set_task_instance(task_instance_);
@@ -181,7 +182,7 @@ Store::VerifiedAuthorization Store::verify_authorization(
                 }))
                 throw std::invalid_argument("history table is unavailable from this source");
         if (input.has_refresh()) {
-            v1::TableRefreshQuery query;
+            proto::TableRefreshQuery query;
             query.set_provider(input.provider());
             query.set_source(input.refresh().source());
             *query.mutable_partition() = input.refresh().partition();
@@ -217,7 +218,7 @@ Store::VerifiedAuthorization Store::verify_authorization(
     return VerifiedAuthorization(std::move(stored));
 }
 
-v1::DownloadAuthorization Store::authorize(const VerifiedAuthorization& verified)
+proto::DownloadAuthorization Store::authorize(const VerifiedAuthorization& verified)
 {
     const auto& stored = verified.value_;
     const auto& authorization = stored.authorization();
@@ -231,9 +232,9 @@ v1::DownloadAuthorization Store::authorize(const VerifiedAuthorization& verified
     return authorization;
 }
 
-v1::StoredDownloadAuthorization Store::read_authorization(const std::string& id) const
+proto::StoredDownloadAuthorization Store::read_authorization(const std::string& id) const
 {
-    const auto stored = read_message<v1::StoredDownloadAuthorization>(authorization_path(id));
+    const auto stored = read_message<proto::StoredDownloadAuthorization>(authorization_path(id));
     const auto& value = stored.authorization();
     if (value.id() != id || value.data_instance() != instance_
         || value.task_instance() != task_instance_
@@ -253,7 +254,7 @@ v1::StoredDownloadAuthorization Store::read_authorization(const std::string& id)
     return stored;
 }
 
-v1::DownloadAuthorization Store::authorization(const std::string& id) const
+proto::DownloadAuthorization Store::authorization(const std::string& id) const
 {
     const auto stored = read_authorization(id);
     // Complete any capture whose reply was lost after rename but before directory sync.
@@ -261,7 +262,7 @@ v1::DownloadAuthorization Store::authorization(const std::string& id) const
     return stored.authorization();
 }
 
-fs::path Store::operation(const v1::DownloadIdentity& identity) const
+fs::path Store::operation(const proto::DownloadIdentity& identity) const
 {
     protocol::validate_message(identity);
     validate_id(identity.task_id());
@@ -271,7 +272,7 @@ fs::path Store::operation(const v1::DownloadIdentity& identity) const
     return root_ / "downloads" / sha256_bytes(identity.SerializeAsString());
 }
 
-BarDatasetSources Store::sources(const v1::BarDatasetRequest& request) const
+BarDatasetSources Store::sources(const proto::BarDatasetRequest& request) const
 {
     protocol::decode_bar_dataset_request(request);
     BarDatasetSources result;
@@ -281,7 +282,7 @@ BarDatasetSources Store::sources(const v1::BarDatasetRequest& request) const
     return result;
 }
 
-Store::VerifiedDataset Store::verify_dataset(const v1::NamedDataset& value) const
+Store::VerifiedDataset Store::verify_dataset(const proto::NamedDataset& value) const
 {
     protocol::validate_named_dataset(value);
     std::size_t bars = 0;
@@ -308,7 +309,7 @@ void Store::save(const VerifiedDataset& verified)
     archive_.save_named_dataset(verified.value_);
 }
 
-Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation& request) const
+Store::VerifiedAllocation Store::verify_allocation(const proto::DownloadAllocation& request) const
 {
     protocol::validate_message(request);
     const auto path = operation(request.identity());
@@ -323,7 +324,7 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
         throw Error(ErrorCode::conflict, "download allocation does not match authorization");
     std::optional<std::string> directory;
     if (fs::exists(path / "allocation.pb")) {
-        const auto saved = read_message<v1::AllocatedDownload>(path / "allocation.pb");
+        const auto saved = read_message<proto::AllocatedDownload>(path / "allocation.pb");
         if (saved.request().SerializeAsString() != request.SerializeAsString())
             throw Error(ErrorCode::conflict, "data operation identity has different content");
         if (request.has_table_update() ? !saved.directory().empty()
@@ -345,15 +346,15 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
     throw std::invalid_argument("download definition is missing");
 }
 
-v1::DownloadDirectory Store::allocate(const VerifiedAllocation& verified)
+proto::DownloadDirectory Store::allocate(const VerifiedAllocation& verified)
 {
     const auto& request = verified.value_;
     const auto path = operation(request.identity());
-    v1::DownloadDirectory result;
+    proto::DownloadDirectory result;
     if (!verified.contract_) {
         // The receipt alone binds the attempt to its authorization.
         create_directories_durably(path);
-        v1::AllocatedDownload allocation;
+        proto::AllocatedDownload allocation;
         *allocation.mutable_request() = request;
         store_once(path / "allocation.pb", allocation.SerializeAsString());
         return result;
@@ -374,7 +375,7 @@ v1::DownloadDirectory Store::allocate(const VerifiedAllocation& verified)
         return result;
     }
     create_directories_durably(path);
-    v1::AllocatedDownload allocation;
+    proto::AllocatedDownload allocation;
     *allocation.mutable_request() = request;
     allocation.set_directory(directory.string());
     store_once(path / "allocation.pb", allocation.SerializeAsString());
@@ -382,22 +383,22 @@ v1::DownloadDirectory Store::allocate(const VerifiedAllocation& verified)
     return result;
 }
 
-v1::DownloadCredentials Store::credentials(const v1::DownloadIdentity& identity) const
+proto::DownloadCredentials Store::credentials(const proto::DownloadIdentity& identity) const
 {
     const auto stored = download_authorization(identity);
     const auto& authorized = stored.authorization();
-    v1::DownloadCredentials result;
+    proto::DownloadCredentials result;
     *result.mutable_identity() = identity;
     result.set_authorization_id(authorized.id());
     result.set_credential(stored.credential());
     return result;
 }
 
-Store::VerifiedDownload Store::verify_download(const v1::DownloadPreparation& request) const
+Store::VerifiedDownload Store::verify_download(const proto::DownloadPreparation& request) const
 {
     protocol::validate_message(request);
     const auto path = operation(request.identity());
-    const auto allocated = read_message<v1::AllocatedDownload>(path / "allocation.pb");
+    const auto allocated = read_message<proto::AllocatedDownload>(path / "allocation.pb");
     const auto& allocation = allocated.request();
     if (allocation.identity().SerializeAsString() != request.identity().SerializeAsString())
         throw std::invalid_argument("download allocation identity mismatch");
@@ -413,7 +414,7 @@ Store::VerifiedDownload Store::verify_download(const v1::DownloadPreparation& re
     return VerifiedDownload(request);
 }
 
-v1::PreparedDownload Store::prepare(const VerifiedDownload& verified)
+proto::PreparedDownload Store::prepare(const VerifiedDownload& verified)
 {
     const auto& request = verified.value_;
     const auto path = operation(request.identity());
@@ -421,19 +422,20 @@ v1::PreparedDownload Store::prepare(const VerifiedDownload& verified)
     // Files are already under the warehouse. Persisting this record accepts
     // custody without exposing the version in the public archive index.
     store_once(path / "prepared.pb", request.SerializeAsString());
-    v1::PreparedDownload result;
+    proto::PreparedDownload result;
     *result.mutable_identity() = request.identity();
     result.set_candidate_digest(sha256_bytes(request.SerializeAsString()));
     result.set_dataset_id(dataset_id(record));
     return result;
 }
 
-Store::VerifiedPublication Store::verify_publication(const v1::DownloadPublication& decision) const
+Store::VerifiedPublication Store::verify_publication(
+    const proto::DownloadPublication& decision) const
 {
     protocol::validate_message(decision);
     validate_id(decision.publication_id());
     const auto path = operation(decision.identity());
-    const auto prepared = read_message<v1::DownloadPreparation>(path / "prepared.pb");
+    const auto prepared = read_message<proto::DownloadPreparation>(path / "prepared.pb");
     if (prepared.identity().SerializeAsString() != decision.identity().SerializeAsString()
         || sha256_bytes(prepared.SerializeAsString()) != decision.candidate_digest())
         throw Error(ErrorCode::conflict, "publication does not match prepared download");
@@ -443,7 +445,7 @@ Store::VerifiedPublication Store::verify_publication(const v1::DownloadPublicati
     return VerifiedPublication(decision, prepared.record());
 }
 
-v1::PublishedDownload Store::publish(const VerifiedPublication& verified)
+proto::PublishedDownload Store::publish(const VerifiedPublication& verified)
 {
     const auto& decision = verified.decision_;
     const auto path = operation(decision.identity());
@@ -454,24 +456,24 @@ v1::PublishedDownload Store::publish(const VerifiedPublication& verified)
     return published(decision.identity());
 }
 
-v1::PublishedDownload Store::published(const v1::DownloadIdentity& identity) const
+proto::PublishedDownload Store::published(const proto::DownloadIdentity& identity) const
 {
     const auto path = operation(identity);
-    const auto decision = read_message<v1::DownloadPublication>(path / "publication.pb");
-    const auto prepared = read_message<v1::DownloadPreparation>(path / "prepared.pb");
+    const auto decision = read_message<proto::DownloadPublication>(path / "publication.pb");
+    const auto prepared = read_message<proto::DownloadPreparation>(path / "prepared.pb");
     if (decision.identity().SerializeAsString() != identity.SerializeAsString()
         || prepared.identity().SerializeAsString() != identity.SerializeAsString()
         || decision.candidate_digest() != sha256_bytes(prepared.SerializeAsString()))
         throw std::invalid_argument("published download evidence mismatch");
-    v1::PublishedDownload result;
+    proto::PublishedDownload result;
     *result.mutable_decision() = decision;
     *result.mutable_record() = archive_.get(dataset_id(prepared.record()));
     return result;
 }
 
-v1::HistoryUsage Store::history_usage(const std::string& dataset) const
+proto::HistoryUsage Store::history_usage(const std::string& dataset) const
 {
-    v1::HistoryUsage usage;
+    proto::HistoryUsage usage;
     usage.set_dataset_id(dataset);
     const auto saved_datasets = archive_.named_datasets();
     for (const auto& saved : saved_datasets.items()) {
@@ -482,10 +484,10 @@ v1::HistoryUsage Store::history_usage(const std::string& dataset) const
         if (!market)
             continue;
         auto* row = usage.add_references();
-        row->set_kind(asterion::data::v1::HISTORY_SAVED_DATASET);
+        row->set_kind(asterion::data::proto::HISTORY_SAVED_DATASET);
         row->set_id(saved.id());
         row->set_name(saved.name());
-        row->add_roles(asterion::data::v1::HISTORY_MARKET);
+        row->add_roles(asterion::data::proto::HISTORY_MARKET);
     }
     (void)asterion::protocol::decode_history_usage(usage);
     return usage;
@@ -502,8 +504,8 @@ std::vector<TableOffer> Store::table_offers() const
     return result;
 }
 
-std::pair<v1::TableUpdate, std::vector<TableOffer>> Store::table_attempt(
-    const v1::DownloadIdentity& identity) const
+std::pair<proto::TableUpdate, std::vector<TableOffer>> Store::table_attempt(
+    const proto::DownloadIdentity& identity) const
 {
     const auto stored = download_authorization(identity);
     const auto& authorization = stored.authorization();
@@ -523,16 +525,16 @@ std::pair<v1::TableUpdate, std::vector<TableOffer>> Store::table_attempt(
     return {authorization.table_update(), std::move(offers)};
 }
 
-v1::TableUpdatePlan
-Store::table_plan(const v1::TablePlanQuery& query, const std::string& today) const
+proto::TableUpdatePlan
+Store::table_plan(const proto::TablePlanQuery& query, const std::string& today) const
 {
     protocol::validate_message(query);
     const auto [update, offers] = table_attempt(query.identity());
     return table_update_plan(tables_, offers, update, query.step(), today);
 }
 
-std::variant<v1::TablePartitionReceipt, Store::VerifiedPartition> Store::verify_partition(
-    const v1::TablePartitionRows& request) const
+std::variant<proto::TablePartitionReceipt, Store::VerifiedPartition> Store::verify_partition(
+    const proto::TablePartitionRows& request) const
 {
     protocol::validate_message(request);
     const auto [update, offers] = table_attempt(request.identity());
@@ -550,7 +552,7 @@ std::variant<v1::TablePartitionReceipt, Store::VerifiedPartition> Store::verify_
         for (const auto& cell : source.cells())
             row.push_back(cell.has_text() ? std::optional(cell.text()) : std::nullopt);
     }
-    v1::TablePartitionReceipt receipt;
+    proto::TablePartitionReceipt receipt;
     VerifiedPartition verified;
     if (request.has_response()) {
         const auto& captured = request.response();
@@ -624,11 +626,11 @@ std::variant<v1::TablePartitionReceipt, Store::VerifiedPartition> Store::verify_
     return verified;
 }
 
-v1::TablePartitionReceipt
+proto::TablePartitionReceipt
 Store::record_partition(const VerifiedPartition& verified, std::int64_t now_ns)
 {
     const auto observed = [&](const history_files::TableRevision& revision, bool unchanged) {
-        v1::TablePartitionReceipt receipt;
+        proto::TablePartitionReceipt receipt;
         *receipt.mutable_revision() = encode_table_revision(revision);
         receipt.set_unchanged(unchanged);
         if (verified.observation_context_) {
@@ -660,13 +662,13 @@ Store::record_partition(const VerifiedPartition& verified, std::int64_t now_ns)
             return observed(*held, true);
         }
         if (verified.missing_only_day_ && held) {
-            v1::TablePartitionReceipt receipt;
+            proto::TablePartitionReceipt receipt;
             receipt.set_rejection("day partition is already stored; use explicit refresh");
             return receipt;
         }
         if (!verified.missing_only_day_
             && (!held || held->snapshot != verified.expected_snapshot_)) {
-            v1::TablePartitionReceipt receipt;
+            proto::TablePartitionReceipt receipt;
             receipt.set_rejection("selected table partition changed; read it and preview again");
             return receipt;
         }

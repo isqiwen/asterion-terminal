@@ -501,7 +501,7 @@ std::future<void> LiveSession::execute(
         std::move(cancel_order));
 }
 
-std::future<protocol::v1::LiveSnapshot> LiveSession::snapshot() const
+std::future<protocol::proto::LiveSnapshot> LiveSession::snapshot() const
 {
     return loop_->call(
         [](LiveAccountState& account) {

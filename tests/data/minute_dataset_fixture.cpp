@@ -89,7 +89,7 @@ int main(int argc, char** argv)
                 "tushare.ft_mins",
                 "CU2310.SHF"
             };
-            data::v1::MinuteDownload input;
+            data::proto::MinuteDownload input;
             input.set_source("tushare.ft_mins");
             input.set_source_instrument("CU2310.SHF");
             input.set_contract_id("SHFE/cu/2023-10");
@@ -99,10 +99,10 @@ int main(int argc, char** argv)
             input.set_requests_per_minute(60);
             const std::string id = "native-minute-fixture";
             tasks::submit(store, test::authorize_download(warehouse, "task", id, input));
-            task::v1::TaskAttempt attempt;
+            task::proto::TaskAttempt attempt;
             attempt.set_token(store.commit(store.claim(id)).token());
             *attempt.mutable_task() = store.get(id);
-            data::v1::DownloadAllocation allocation;
+            data::proto::DownloadAllocation allocation;
             auto* identity = allocation.mutable_identity();
             identity->set_data_instance("historical-data");
             identity->set_task_instance("task");
@@ -131,7 +131,7 @@ int main(int argc, char** argv)
                 }));
             provider.start();
             history_files::download_minutes(provider, range, attempt.output_directory());
-            task::v1::TaskFinish finish;
+            task::proto::TaskFinish finish;
             finish.set_id(id);
             finish.set_token(attempt.token());
             *finish.mutable_minutes() = history_files::minute_result(attempt.output_directory());
@@ -142,7 +142,7 @@ int main(int argc, char** argv)
             if (!(store.commit(store.prepare_publication(std::move(completion), prepared))
                         .task()
                         .state()
-                    == asterion::task::v1::PUBLISHING))
+                    == asterion::task::proto::PUBLISHING))
                 throw std::runtime_error("fixture publication was cancelled");
             store.commit(store.confirm_publication(warehouse.publish(
                 warehouse.verify_publication(store.pending_publications().front()))));
@@ -163,7 +163,7 @@ int main(int argc, char** argv)
                 provider,
                 history_files::minute_range(queued),
                 test::allocate_download(warehouse, allocation).directory());
-            if (store.get(queued_id).state() != task::v1::QUEUED
+            if (store.get(queued_id).state() != task::proto::QUEUED
                 || store.get(queued_id).attempt() != 0)
                 throw std::runtime_error("queued fixture must remain queued for Agent dispatch");
         }

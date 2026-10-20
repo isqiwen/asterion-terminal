@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <nlohmann/json.hpp>
 #include <asterion/foundation/serialization.hpp>

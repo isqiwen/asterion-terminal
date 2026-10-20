@@ -12,9 +12,9 @@ NativeRisk::NativeRisk(
     std::vector<AstSetting> values;
     for (const auto& [key, value] : settings)
         values.push_back({key.c_str(), value.c_str()});
-    instance_ = library_.create(AST_RISK_V1, values);
-    table_ = static_cast<const AstRiskV1*>(instance_->query(AST_RISK_V1, 1, sizeof(AstRiskV1)));
-    if (table_->size != sizeof(AstRiskV1) || table_->version != 1 || !table_->evaluate)
+    instance_ = library_.create(AST_RISK, values);
+    table_ = static_cast<const AstRisk*>(instance_->query(AST_RISK, 1, sizeof(AstRisk)));
+    if (table_->size != sizeof(AstRisk) || table_->version != 1 || !table_->evaluate)
         throw std::invalid_argument("invalid native risk capability");
 }
 

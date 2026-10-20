@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/domain/market.hpp>
-#include <asterion/v1/trading.pb.h>
+#include <asterion/trading.pb.h>
 #include <functional>
 #include <optional>
 #include <string>
@@ -22,7 +22,7 @@ public:
     {
         std::string market_endpoint, market_service;
         Instrument instrument;
-        protocol::v1::Strategy strategy;
+        protocol::proto::Strategy strategy;
     };
 
     struct Bar

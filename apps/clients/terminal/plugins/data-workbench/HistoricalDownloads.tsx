@@ -391,10 +391,7 @@ function SourceDownloads({
                       "这个数据源的合约表还没有入库：月份合约和它们的上市日期取自合约表。请先更新全市场数据。",
                     )}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate("workspace.data", { page: "tables" })}
-                  >
+                  <button type="button" onClick={() => navigate("workspace.tables")}>
                     {t("更新全市场数据")}
                   </button>
                 </div>
@@ -527,7 +524,7 @@ function SourceDownloads({
                   disabled={busy || !taskService?.online || !task.history_dataset_id}
                   onClick={() => {
                     setToken("");
-                    navigate("workspace.research", {
+                    navigate("workspace.backtest", {
                       page: "backtest",
                       params: {
                         source_dataset_id: task.history_dataset_id!,

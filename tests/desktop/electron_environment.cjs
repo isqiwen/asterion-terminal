@@ -83,7 +83,7 @@ async function main() {
     assert.equal(await application.evaluate(() => process.env.ASTERION_ENVIRONMENT), "development");
     await expect(page.locator(".environment-label")).toBeVisible();
     await enterWorkbench(page);
-    await expect(page.locator(".workspace-tabs button")).toHaveCount(6, { timeout: 60000 });
+    await expect(page.locator(".workspace-tabs button")).toHaveCount(7, { timeout: 60000 });
     await expect(page.locator(".service-status > button")).toHaveClass("good", { timeout: 30000 });
     assert.ok((await fs.readFile(definition, "utf8")).includes(development));
     const pid = Number(await fs.readFile(path.join(development, "agent.pid"), "utf8"));

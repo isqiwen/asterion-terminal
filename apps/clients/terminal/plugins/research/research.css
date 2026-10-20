@@ -5,27 +5,6 @@
   overflow: auto;
 }
 
-/* Header: the page tabs, the task capacity line and the service status are
-   three slim rows, not three page titles. */
-nav.research-modes {
-  display: flex;
-  gap: 8px;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--line);
-}
-.research-modes button {
-  border-color: transparent;
-  background: transparent;
-}
-.research-modes button[aria-pressed="true"] {
-  color: var(--accent);
-  border-color: transparent;
-  background: var(--accent-surface);
-}
-.research-modes + .data-task-access {
-  padding-block: 6px;
-  font-size: 12px;
-}
 .terminal-business section.research-workspace > .panel-heading {
   min-height: 40px;
   padding-block: 6px;
@@ -315,4 +294,8 @@ nav.research-modes {
 .experiment-note {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.evaluation-workspace {
+  padding: 20px var(--space-page);
 }

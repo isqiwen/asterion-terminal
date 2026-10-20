@@ -34,7 +34,7 @@ export async function saveResearchExport(query: (path: string) => Promise<Snapsh
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return { sha256: value.sha256, bytes: value.bytes };
+  return { bytes: value.bytes };
 }
 export function ResearchExport({
   id,
@@ -43,7 +43,7 @@ export function ResearchExport({
   query,
 }: { id: string; kind: "factor" | "backtest" } & Pick<TerminalContext, "busy" | "query">) {
   const [pending, setPending] = useState(false),
-    [receipt, setReceipt] = useState<{ sha256: string; bytes: number } | null>(null);
+    [receipt, setReceipt] = useState<{ bytes: number } | null>(null);
   const [error, setError] = useState<DisplayError>("");
   async function exportFile() {
     setPending(true);
@@ -81,8 +81,7 @@ export function ResearchExport({
       </button>
       {receipt && (
         <p role="status">
-          {t(nativeDesktop ? "研究证据已保存" : "研究证据下载已发起")} · {receipt.bytes} bytes ·
-          SHA-256 <code>{receipt.sha256}</code>
+          {t(nativeDesktop ? "研究证据已保存" : "研究证据下载已发起")} · {receipt.bytes} bytes
         </p>
       )}
       <ErrorNotice error={error} namespace={namespace} />

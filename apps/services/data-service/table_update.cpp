@@ -35,7 +35,7 @@ const TableOffer& refresh_offer(
     const std::vector<TableOffer>& offers,
     const std::string& provider,
     const std::string& source,
-    const v1::TablePartitionKey& key)
+    const proto::TablePartitionKey& key)
 {
     const auto found = std::ranges::find_if(offers, [&](const auto& item) {
         return item.plugin_id == provider && item.series.source == source
@@ -119,7 +119,7 @@ std::optional<std::vector<std::string>> open_days(
 }
 
 void add(
-    v1::TableUpdatePlan& plan,
+    proto::TableUpdatePlan& plan,
     std::string_view table,
     const std::string& venue,
     const std::string& period)
@@ -132,10 +132,10 @@ void add(
 
 } // namespace
 
-v1::TableRefreshPlan table_refresh_plan(
+proto::TableRefreshPlan table_refresh_plan(
     const TableStore& store,
     const std::vector<TableOffer>& offers,
-    const v1::TableRefreshQuery& query,
+    const proto::TableRefreshQuery& query,
     const std::string& artifact,
     const std::string& today)
 {
@@ -151,7 +151,7 @@ v1::TableRefreshPlan table_refresh_plan(
         throw Error(
             ErrorCode::conflict,
             "selected table partition changed; read it and preview again");
-    v1::TableRefreshPlan plan;
+    proto::TableRefreshPlan plan;
     *plan.mutable_query() = query;
     *plan.mutable_previous() = encode_table_revision(previous);
     auto* update = plan.mutable_update();
@@ -173,8 +173,8 @@ v1::TableRefreshPlan table_refresh_plan(
 
 bool table_update_covers(
     const std::vector<TableOffer>& offers,
-    const v1::TableUpdate& update,
-    const v1::TablePartitionKey& partition)
+    const proto::TableUpdate& update,
+    const proto::TablePartitionKey& partition)
 {
     if (update.has_refresh())
         return partition.SerializeAsString() == update.refresh().partition().SerializeAsString()
@@ -194,27 +194,27 @@ bool table_update_covers(
     });
 }
 
-v1::TableUpdatePlan table_update_plan(
+proto::TableUpdatePlan table_update_plan(
     const TableStore& store,
     const std::vector<TableOffer>& offers,
-    const v1::TableUpdate& update,
-    v1::TablePlanStep step,
+    const proto::TableUpdate& update,
+    proto::TablePlanStep step,
     const std::string& today)
 {
     protocol::validate_table_update(update);
-    if (step != v1::TABLE_PLAN_CONTRACTS && step != v1::TABLE_PLAN_CALENDAR
-        && step != v1::TABLE_PLAN_DAYS)
+    if (step != proto::TABLE_PLAN_CONTRACTS && step != proto::TABLE_PLAN_CALENDAR
+        && step != proto::TABLE_PLAN_DAYS)
         throw std::invalid_argument("invalid table plan step");
     (void)parse_trading_date(today);
     const auto ended = shifted(today, -1);
     const auto end = update.end_day().empty() ? ended : std::min(update.end_day(), ended);
-    v1::TableUpdatePlan plan;
+    proto::TableUpdatePlan plan;
     if (update.has_refresh()) {
         const auto& target = update.refresh();
         (void)refresh_offer(offers, update.provider(), target.source(), target.partition());
         if (target.partition().period() >= today)
             throw std::invalid_argument("table refresh requires a completed trading date");
-        if (step == v1::TABLE_PLAN_DAYS)
+        if (step == proto::TABLE_PLAN_DAYS)
             *plan.add_partitions() = target.partition();
         return plan;
     }
@@ -225,7 +225,7 @@ v1::TableUpdatePlan table_update_plan(
         shfe::validate_scope("SHFE", update.end_day());
         if (update.tables_size() != 1 || update.tables(0) != shfe::table)
             throw std::invalid_argument("history table is unavailable from this source");
-        if (step == v1::TABLE_PLAN_DAYS)
+        if (step == proto::TABLE_PLAN_DAYS)
             for (const auto* day : shfe::days)
                 if (day >= update.begin_day() && day <= end
                     && !store.current({shfe::table, 1, shfe::source}, "SHFE", day))
@@ -260,7 +260,7 @@ v1::TableUpdatePlan table_update_plan(
             starts.push_back({table, venue, std::move(first)});
         }
     }
-    if (step == v1::TABLE_PLAN_CONTRACTS) {
+    if (step == proto::TABLE_PLAN_CONTRACTS) {
         std::set<std::string> venues;
         for (const auto& start : starts)
             venues.insert(start.venue);
@@ -284,7 +284,7 @@ v1::TableUpdatePlan table_update_plan(
     std::erase_if(starts, [&](const Start& start) {
         return start.first > end;
     });
-    if (step == v1::TABLE_PLAN_CALENDAR) {
+    if (step == proto::TABLE_PLAN_CALENDAR) {
         std::map<std::string, std::string> earliest; // by exchange
         for (const auto& start : starts) {
             const auto [found, inserted] = earliest.emplace(start.venue, start.first);
@@ -302,7 +302,7 @@ v1::TableUpdatePlan table_update_plan(
         }
         return plan;
     }
-    std::vector<v1::TablePartitionKey> days;
+    std::vector<proto::TablePartitionKey> days;
     for (const auto& start : starts) {
         const auto& series = offer(offers, start.table, start.venue).series;
         const auto& calendar = offer(offers, calendar_table, start.venue).series;
@@ -330,9 +330,9 @@ v1::TableUpdatePlan table_update_plan(
     return plan;
 }
 
-v1::TableRevision encode_table_revision(const TableRevision& revision)
+proto::TableRevision encode_table_revision(const TableRevision& revision)
 {
-    v1::TableRevision result;
+    proto::TableRevision result;
     result.set_sequence(revision.sequence);
     result.set_table(revision.series.table);
     result.set_schema(revision.series.schema);
@@ -349,9 +349,10 @@ v1::TableRevision encode_table_revision(const TableRevision& revision)
     return result;
 }
 
-v1::TableCoverage table_coverage(const TableStore& store, const std::vector<TableOffer>& installed)
+proto::TableCoverage
+table_coverage(const TableStore& store, const std::vector<TableOffer>& installed)
 {
-    v1::TableCoverage result;
+    proto::TableCoverage result;
     result.set_snapshot(store.head());
     for (const auto& item : installed) {
         auto* source = result.add_sources();
@@ -406,7 +407,7 @@ v1::TableCoverage table_coverage(const TableStore& store, const std::vector<Tabl
     return result;
 }
 
-v1::TableRefreshObservation encode_refresh_observation(
+proto::TableRefreshObservation encode_refresh_observation(
     const history_files::TableRefreshObservation& o)
 {
     history_providers::validate_response(
@@ -414,7 +415,7 @@ v1::TableRefreshObservation encode_refresh_observation(
         o.revision.exchange,
         o.revision.period,
         o.response);
-    v1::TableRefreshObservation value;
+    proto::TableRefreshObservation value;
     value.set_id(o.id);
     value.set_operation(o.operation);
     value.set_data_instance(o.context.data_instance);
@@ -437,7 +438,7 @@ v1::TableRefreshObservation encode_refresh_observation(
     return value;
 }
 
-v1::TablePage table_page(const TableStore& store, const v1::TablePageQuery& query)
+proto::TablePage table_page(const TableStore& store, const proto::TablePageQuery& query)
 {
     protocol::validate_message(query);
     const auto& table = history_table(query.partition().table());
@@ -459,7 +460,7 @@ v1::TablePage table_page(const TableStore& store, const v1::TablePageQuery& quer
     const auto& rows = partition.rows;
     if (query.offset() > rows.size() || (query.offset() == rows.size() && !rows.empty()))
         throw std::invalid_argument("history table page offset is out of range");
-    v1::TablePage page;
+    proto::TablePage page;
     *page.mutable_revision() = encode_table_revision(*revision);
     const auto response = store.response(*revision);
     if (response) {

@@ -13,78 +13,78 @@
 namespace asterion::protocol {
 namespace {
 
-void set(v1::Decimal* target, const Json& value)
+void set(proto::Decimal* target, const Json& value)
 {
     target->set_units(Decimal::parse(value.get<std::string>()).raw());
 }
 
-std::string get(const v1::Decimal& value)
+std::string get(const proto::Decimal& value)
 {
     return Decimal::from_raw(value.units()).str();
 }
 
-v1::Side side(const std::string& value)
+proto::Side side(const std::string& value)
 {
     if (value == "buy")
-        return v1::BUY;
+        return proto::BUY;
     if (value == "sell")
-        return v1::SELL;
+        return proto::SELL;
     throw std::invalid_argument("invalid side");
 }
 
-std::string side(v1::Side value)
+std::string side(proto::Side value)
 {
-    if (value == v1::BUY)
+    if (value == proto::BUY)
         return "buy";
-    if (value == v1::SELL)
+    if (value == proto::SELL)
         return "sell";
     throw std::invalid_argument("invalid side");
 }
 
 } // namespace
 
-PositionSides position_sides(v1::PositionSides value)
+PositionSides position_sides(proto::PositionSides value)
 {
     switch (value) {
-        case v1::LONG_AND_SHORT:
+        case proto::LONG_AND_SHORT:
             return PositionSides::both;
-        case v1::LONG_ONLY:
+        case proto::LONG_ONLY:
             return PositionSides::long_only;
-        case v1::SHORT_ONLY:
+        case proto::SHORT_ONLY:
             return PositionSides::short_only;
         default:
             throw std::invalid_argument("position sides must be both, long or short");
     }
 }
 
-v1::PositionSides encode_position_sides(const Json& value)
+proto::PositionSides encode_position_sides(const Json& value)
 {
     if (!value.is_string())
         throw std::invalid_argument("position sides must be both, long or short");
     switch (parse_position_sides(value.get<std::string>())) {
         case PositionSides::long_only:
-            return v1::LONG_ONLY;
+            return proto::LONG_ONLY;
         case PositionSides::short_only:
-            return v1::SHORT_ONLY;
+            return proto::SHORT_ONLY;
         case PositionSides::both:
             break;
     }
-    return v1::LONG_AND_SHORT;
+    return proto::LONG_AND_SHORT;
 }
 
 namespace {
 
-constexpr std::pair<v1::Factor, const char*> factors[] = {
-    {v1::PRICE_MOMENTUM, "momentum"},
-    {v1::TERM_STRUCTURE, "term_structure"},
-    {v1::VOLATILITY, "volatility"}
+constexpr std::pair<proto::Factor, const char*> factors[] = {
+    {proto::PRICE_MOMENTUM, "momentum"},
+    {proto::TERM_STRUCTURE, "term_structure"},
+    {proto::VOLATILITY, "volatility"}
 };
 // A rule that ranks by a factor is of the kind named after it.
 const char cross_prefix[] = "cross_";
 
 } // namespace
 
-v1::Factor encode_factor(const Json& name)
+proto::Factor encode_factor(const Json& name)
 {
     for (const auto& [factor, known] : factors)
         if (name == known)
@@ -92,7 +92,7 @@ v1::Factor encode_factor(const Json& name)
     throw std::invalid_argument("unknown factor");
 }
 
-const char* factor_name(v1::Factor factor)
+const char* factor_name(proto::Factor factor)
 {
     for (const auto& [known, name] : factors)
         if (known == factor)
@@ -100,7 +100,7 @@ const char* factor_name(v1::Factor factor)
     throw std::invalid_argument("unknown factor");
 }
 
-v1::Strategy encode_strategy(const Json& value)
+proto::Strategy encode_strategy(const Json& value)
 {
     if (!value.is_object() || !value.contains("rule") || !value.at("rule").is_object()
         || !value.at("rule").contains("kind") || !value.at("rule").at("kind").is_string())
@@ -118,7 +118,7 @@ v1::Strategy encode_strategy(const Json& value)
             throw std::invalid_argument("invalid strategy");
         return Decimal::parse(text.get<std::string>()).raw();
     };
-    v1::Strategy result;
+    proto::Strategy result;
     if (!ranks)
         result.mutable_quantity()->set_units(amount(value.at("quantity")));
     result.set_sides(encode_position_sides(value.at("sides")));
@@ -161,35 +161,35 @@ v1::Strategy encode_strategy(const Json& value)
     return result;
 }
 
-Json decode_strategy(const v1::Strategy& strategy)
+Json decode_strategy(const proto::Strategy& strategy)
 {
     Json rule;
     switch (strategy.rule_case()) {
-        case v1::Strategy::kMovingAverage:
+        case proto::Strategy::kMovingAverage:
             rule = {
                 {"kind", "moving_average"},
                 {"fast", strategy.moving_average().fast()},
                 {"slow", strategy.moving_average().slow()}
             };
             break;
-        case v1::Strategy::kBreakout:
+        case proto::Strategy::kBreakout:
             rule = {
                 {"kind", "breakout"},
                 {"entry", strategy.breakout().entry()},
                 {"exit", strategy.breakout().exit()}
             };
             break;
-        case v1::Strategy::kMomentum:
+        case proto::Strategy::kMomentum:
             rule = {{"kind", "momentum"}, {"lookback", strategy.momentum().lookback()}};
             break;
-        case v1::Strategy::kReversion:
+        case proto::Strategy::kReversion:
             rule = {
                 {"kind", "reversion"},
                 {"window", strategy.reversion().window()},
                 {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}
             };
             break;
-        case v1::Strategy::kCross:
+        case proto::Strategy::kCross:
             rule = {
                 {"kind", std::string(cross_prefix) + factor_name(strategy.cross().factor())},
                 {"reverse", strategy.cross().reversed()},
@@ -200,7 +200,7 @@ Json decode_strategy(const v1::Strategy& strategy)
                 {"volatility", strategy.cross().volatility()}
             };
             break;
-        case v1::Strategy::RULE_NOT_SET:
+        case proto::Strategy::RULE_NOT_SET:
             throw std::invalid_argument("unknown strategy rule");
     }
     Json result{
@@ -212,19 +212,20 @@ Json decode_strategy(const v1::Strategy& strategy)
     return result;
 }
 
-void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
+void validate_strategy(const proto::Strategy& strategy, Decimal quantity_increment)
 {
     static_cast<void>(position_sides(strategy.sides()));
     if (strategy.has_cross()) {
         const auto& rule = strategy.cross();
-        if (strategy.has_quantity() || rule.factor() == v1::FACTOR_UNSPECIFIED || !rule.lookback()
-            || rule.lookback() > 10000 || !rule.rebalance() || rule.rebalance() > 10000
-            || !rule.count() || rule.count() > 10 || rule.notional().units() <= 0)
+        if (strategy.has_quantity() || rule.factor() == proto::FACTOR_UNSPECIFIED
+            || !rule.lookback() || rule.lookback() > 10000 || !rule.rebalance()
+            || rule.rebalance() > 10000 || !rule.count() || rule.count() > 10
+            || rule.notional().units() <= 0)
             throw std::invalid_argument(
                 "a ranking rule requires a factor, a lookback and a rebalance of 1..10000 bars, 1..10 " "contracts a side and a positive notional in place of a quantity");
         static_cast<void>(factor_name(rule.factor()));
         // A standard deviation needs two returns.
-        if (rule.factor() == v1::VOLATILITY && rule.lookback() < 2)
+        if (rule.factor() == proto::VOLATILITY && rule.lookback() < 2)
             throw std::invalid_argument("volatility lookback must be 2..10000 observations");
         if (rule.volatility() == 1 || rule.volatility() > 10000)
             throw std::invalid_argument(
@@ -236,21 +237,21 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
         || !quantity.multiple_of(quantity_increment))
         throw std::invalid_argument("strategy requires a positive lot-aligned quantity");
     switch (strategy.rule_case()) {
-        case v1::Strategy::kMovingAverage:
+        case proto::Strategy::kMovingAverage:
             if (const auto& rule = strategy.moving_average();
                 !rule.fast() || rule.fast() >= rule.slow() || rule.slow() > 10000)
                 throw std::invalid_argument("moving average requires 0 < fast < slow <= 10000");
             return;
-        case v1::Strategy::kBreakout:
+        case proto::Strategy::kBreakout:
             if (const auto& rule = strategy.breakout();
                 !rule.exit() || rule.exit() > rule.entry() || rule.entry() > 10000)
                 throw std::invalid_argument("breakout requires 1 <= exit <= entry <= 10000");
             return;
-        case v1::Strategy::kMomentum:
+        case proto::Strategy::kMomentum:
             if (!strategy.momentum().lookback() || strategy.momentum().lookback() > 10000)
                 throw std::invalid_argument("momentum requires a lookback of 1..10000 bars");
             return;
-        case v1::Strategy::kReversion: {
+        case proto::Strategy::kReversion: {
             const auto& rule = strategy.reversion();
             const auto width = Decimal::from_raw(rule.width().units());
             if (rule.window() < 2 || rule.window() > 10000 || !rule.has_width()
@@ -259,34 +260,34 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
                     "reversion requires a window of 2..10000 bars and a width above 0 up to 10");
             return;
         }
-        case v1::Strategy::kCross:
-        case v1::Strategy::RULE_NOT_SET:
+        case proto::Strategy::kCross:
+        case proto::Strategy::RULE_NOT_SET:
             break;
     }
     throw std::invalid_argument("unknown strategy rule");
 }
 
-std::size_t strategy_warmup(const v1::Strategy& strategy)
+std::size_t strategy_warmup(const proto::Strategy& strategy)
 {
     switch (strategy.rule_case()) {
-        case v1::Strategy::kMovingAverage:
+        case proto::Strategy::kMovingAverage:
             return strategy.moving_average().slow();
-        case v1::Strategy::kBreakout:
+        case proto::Strategy::kBreakout:
             return strategy.breakout().entry() + 1;
-        case v1::Strategy::kMomentum:
+        case proto::Strategy::kMomentum:
             return strategy.momentum().lookback() + 1;
-        case v1::Strategy::kReversion:
+        case proto::Strategy::kReversion:
             return strategy.reversion().window();
-        case v1::Strategy::kCross:
+        case proto::Strategy::kCross:
             // Momentum compares with the bar a lookback earlier and volatility reads
             // a lookback of returns; the term structure averages over the lookback
             // itself. Sizing by volatility needs one bar more than its window of
             // returns.
             return std::max<std::size_t>(
                 strategy.cross().lookback()
-                    + (strategy.cross().factor() == v1::TERM_STRUCTURE ? 0 : 1),
+                    + (strategy.cross().factor() == proto::TERM_STRUCTURE ? 0 : 1),
                 strategy.cross().volatility() ? strategy.cross().volatility() + 1 : 0);
-        case v1::Strategy::RULE_NOT_SET:
+        case proto::Strategy::RULE_NOT_SET:
             break;
     }
     throw std::invalid_argument("unknown strategy rule");
@@ -294,66 +295,66 @@ std::size_t strategy_warmup(const v1::Strategy& strategy)
 
 namespace {
 
-v1::Offset offset(const std::string& value)
+proto::Offset offset(const std::string& value)
 {
     if (value == "open")
-        return v1::OPEN;
+        return proto::OPEN;
     if (value == "close_today")
-        return v1::CLOSE_TODAY;
+        return proto::CLOSE_TODAY;
     if (value == "close_yesterday")
-        return v1::CLOSE_YESTERDAY;
+        return proto::CLOSE_YESTERDAY;
     if (value == "close")
-        return v1::CLOSE;
+        return proto::CLOSE;
     throw std::invalid_argument("invalid offset");
 }
 
-std::string offset(v1::Offset value)
+std::string offset(proto::Offset value)
 {
-    if (value == v1::OPEN)
+    if (value == proto::OPEN)
         return "open";
-    if (value == v1::CLOSE_TODAY)
+    if (value == proto::CLOSE_TODAY)
         return "close_today";
-    if (value == v1::CLOSE_YESTERDAY)
+    if (value == proto::CLOSE_YESTERDAY)
         return "close_yesterday";
-    if (value == v1::CLOSE)
+    if (value == proto::CLOSE)
         return "close";
     throw std::invalid_argument("invalid offset");
 }
 
-v1::OrderState state(const std::string& value)
+proto::OrderState state(const std::string& value)
 {
     if (value == "accepted")
-        return v1::ACCEPTED;
+        return proto::ACCEPTED;
     if (value == "partially_filled")
-        return v1::PARTIALLY_FILLED;
+        return proto::PARTIALLY_FILLED;
     if (value == "filled")
-        return v1::FILLED;
+        return proto::FILLED;
     if (value == "cancelled")
-        return v1::CANCELLED;
+        return proto::CANCELLED;
     if (value == "rejected")
-        return v1::REJECTED;
+        return proto::REJECTED;
     throw std::invalid_argument("invalid order state");
 }
 
-std::string state(v1::OrderState value)
+std::string state(proto::OrderState value)
 {
     switch (value) {
-        case v1::ACCEPTED:
+        case proto::ACCEPTED:
             return "accepted";
-        case v1::PARTIALLY_FILLED:
+        case proto::PARTIALLY_FILLED:
             return "partially_filled";
-        case v1::FILLED:
+        case proto::FILLED:
             return "filled";
-        case v1::CANCELLED:
+        case proto::CANCELLED:
             return "cancelled";
-        case v1::REJECTED:
+        case proto::REJECTED:
             return "rejected";
         default:
             throw std::invalid_argument("invalid order state");
     }
 }
 
-v1::Contract contract(const Json& c)
+proto::Contract contract(const Json& c)
 {
     require_fields(
         c,
@@ -365,7 +366,7 @@ v1::Contract contract(const Json& c)
             "multiplier",
             "product",
             "delivery_month"});
-    v1::Contract result;
+    proto::Contract result;
     result.set_venue(c.at("venue").get<std::string>());
     result.set_symbol(c.at("symbol").get<std::string>());
     result.set_currency(c.at("currency").get<std::string>());
@@ -377,7 +378,7 @@ v1::Contract contract(const Json& c)
     return result;
 }
 
-Json contract(const v1::Contract& c)
+Json contract(const proto::Contract& c)
 {
     return {
         {"venue", c.venue()},
@@ -393,7 +394,7 @@ Json contract(const v1::Contract& c)
 
 } // namespace
 
-v1::Costs encode_costs(const Json& c)
+proto::Costs encode_costs(const Json& c)
 {
     require_fields(
         c,
@@ -405,7 +406,7 @@ v1::Costs encode_costs(const Json& c)
             "open_fee_rate",
             "close_today_fee_rate",
             "close_yesterday_fee_rate"});
-    v1::Costs result;
+    proto::Costs result;
     set(result.mutable_margin_per_lot(), c.at("margin_per_lot"));
     set(result.mutable_open_fee(), c.at("open_fee"));
     set(result.mutable_close_today_fee(), c.at("close_today_fee"));
@@ -418,7 +419,7 @@ v1::Costs encode_costs(const Json& c)
     return result;
 }
 
-Json decode_costs(const v1::Costs& c)
+Json decode_costs(const proto::Costs& c)
 {
     if (!c.has_margin_per_lot() || !c.has_open_fee() || !c.has_close_today_fee()
         || !c.has_close_yesterday_fee() || !c.has_margin_rate() || !c.has_open_fee_rate()
@@ -436,9 +437,9 @@ Json decode_costs(const v1::Costs& c)
     };
 }
 
-FuturesCosts futures_costs(const v1::Costs& c)
+FuturesCosts futures_costs(const proto::Costs& c)
 {
-    const auto value = [](const v1::Decimal& d) {
+    const auto value = [](const proto::Decimal& d) {
         return Decimal::from_raw(d.units());
     };
     return {
@@ -453,10 +454,10 @@ FuturesCosts futures_costs(const v1::Costs& c)
     };
 }
 
-v1::Costs encode_costs(const FuturesCosts& costs)
+proto::Costs encode_costs(const FuturesCosts& costs)
 {
     costs.validate();
-    v1::Costs result;
+    proto::Costs result;
 #define COST(name) result.mutable_##name()->set_units(costs.name.raw())
     COST(margin_per_lot);
     COST(open_fee);
@@ -470,7 +471,7 @@ v1::Costs encode_costs(const FuturesCosts& costs)
     return result;
 }
 
-std::vector<FuturesCostVersion> cost_schedule(const v1::CostSchedule& input)
+std::vector<FuturesCostVersion> cost_schedule(const proto::CostSchedule& input)
 {
     std::vector<FuturesCostVersion> result;
     for (const auto& version : input.versions()) {
@@ -482,11 +483,11 @@ std::vector<FuturesCostVersion> cost_schedule(const v1::CostSchedule& input)
     return result;
 }
 
-v1::CostSchedule encode_cost_schedule(const Json& input)
+proto::CostSchedule encode_cost_schedule(const Json& input)
 {
     if (!input.is_array() || input.empty() || input.size() > 512)
         throw std::invalid_argument("cost schedule requires 1 to 512 versions");
-    v1::CostSchedule result;
+    proto::CostSchedule result;
     for (const auto& version : input) {
         require_fields(version, {"effective_from", "source", "values"});
         auto* row = result.add_versions();
@@ -498,7 +499,7 @@ v1::CostSchedule encode_cost_schedule(const Json& input)
     return result;
 }
 
-Json decode_cost_schedule(const v1::CostSchedule& input)
+Json decode_cost_schedule(const proto::CostSchedule& input)
 {
     (void)cost_schedule(input);
     Json result = Json::array();
@@ -531,22 +532,22 @@ void validate_message(const google::protobuf::Message& message)
     }
 }
 
-v1::Contract encode_contract(const Json& value)
+proto::Contract encode_contract(const Json& value)
 {
     return contract(value);
 }
 
-Json decode_contract(const v1::Contract& value)
+Json decode_contract(const proto::Contract& value)
 {
     return contract(value);
 }
 
-v1::RiskLimits encode_risk(const Json& value)
+proto::RiskLimits encode_risk(const Json& value)
 {
     require_fields(value, {"max_order_quantity", "max_gross_quantity", "max_working_orders"});
     if (!value.at("max_working_orders").is_number_unsigned() || value.at("max_working_orders") == 0)
         throw std::invalid_argument("invalid risk working order limit");
-    v1::RiskLimits result;
+    proto::RiskLimits result;
     set(result.mutable_max_order_quantity(), value.at("max_order_quantity"));
     set(result.mutable_max_gross_quantity(), value.at("max_gross_quantity"));
     if (get(result.max_order_quantity()) != value.at("max_order_quantity").get<std::string>()
@@ -560,7 +561,7 @@ v1::RiskLimits encode_risk(const Json& value)
 
 namespace {
 
-void validate_risk(const v1::RiskLimits& value)
+void validate_risk(const proto::RiskLimits& value)
 {
     if (!value.has_max_order_quantity() || !value.has_max_gross_quantity()
         || value.max_order_quantity().units() <= 0 || value.max_gross_quantity().units() <= 0
@@ -570,7 +571,7 @@ void validate_risk(const v1::RiskLimits& value)
 
 } // namespace
 
-Json decode_risk(const v1::RiskLimits& value)
+Json decode_risk(const proto::RiskLimits& value)
 {
     validate_risk(value);
     return {
@@ -591,7 +592,7 @@ Json instrument_fields(const std::string& venue, const std::string& symbol)
 } // namespace
 
 // Identity of a portfolio's data: its datasets' revisions in contract order.
-std::string dataset_revision(const v1::PaperInput& input)
+std::string dataset_revision(const proto::PaperInput& input)
 {
     if (input.contracts().empty())
         throw std::invalid_argument("paper input has no contracts");
@@ -604,7 +605,7 @@ std::string dataset_revision(const v1::PaperInput& input)
                                        : sha256_bytes(revisions.dump());
 }
 
-ContractTerms contract_terms(const v1::PaperContract& contract)
+ContractTerms contract_terms(const proto::PaperContract& contract)
 {
     validate_bar_dataset(contract.dataset());
     return {
@@ -615,7 +616,7 @@ ContractTerms contract_terms(const v1::PaperContract& contract)
 }
 
 // Each manifest contract pins a complete dated cost schedule.
-Json decode_input(const v1::PaperInput& input, DatasetView view)
+Json decode_input(const proto::PaperInput& input, DatasetView view)
 {
     if (!input.has_deposit() || !input.has_risk() || input.contracts().empty()
         || static_cast<std::size_t>(input.contracts_size()) > max_account_contracts)
@@ -646,9 +647,9 @@ Json decode_input(const v1::PaperInput& input, DatasetView view)
     };
 }
 
-v1::Command encode_command(const Json& c)
+proto::Command encode_command(const Json& c)
 {
-    v1::Command result;
+    proto::Command result;
     result.set_request_id(c.at("request_id").get<std::string>());
     const auto action = c.at("action").get<std::string>();
     if (action == "cancel") {
@@ -713,15 +714,15 @@ v1::Command encode_command(const Json& c)
     return result;
 }
 
-Json decode_command(const v1::Command& c)
+Json decode_command(const proto::Command& c)
 {
     Json result{{"request_id", c.request_id()}};
     switch (c.operation_case()) {
-        case v1::Command::kCancel:
+        case proto::Command::kCancel:
             result["action"] = "cancel";
             result["order_id"] = c.cancel().order_id();
             break;
-        case v1::Command::kSubmit: {
+        case proto::Command::kSubmit: {
             const auto& o = c.submit();
             auto fields = instrument_fields(o.venue(), o.symbol());
             result.update(
@@ -734,23 +735,23 @@ Json decode_command(const v1::Command& c)
             result.update(fields);
             break;
         }
-        case v1::Command::kLiveAuthorize:
+        case proto::Command::kLiveAuthorize:
             result.update(
                 {{"action", "live_authorize"}, {"user_id", c.live_authorize().user_id()}});
             break;
-        case v1::Command::kLiveRevoke:
+        case proto::Command::kLiveRevoke:
             result["action"] = "live_revoke";
             break;
-        case v1::Command::kLivePolicy:
+        case proto::Command::kLivePolicy:
             result.update(
                 {{"action", "live_policy"},
                     {"policy", decode_live_policy(c.live_policy().policy())},
                     {"risk_artifact", c.live_policy().risk_artifact()}});
             break;
-        case v1::Command::kLiveResolve:
+        case proto::Command::kLiveResolve:
             result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
             break;
-        case v1::Command::kStrategyStart: {
+        case proto::Command::kStrategyStart: {
             const auto& start = c.strategy_start();
             result.update(
                 {{"action", "strategy_start"},
@@ -760,7 +761,7 @@ Json decode_command(const v1::Command& c)
             result.update(instrument_fields(start.venue(), start.symbol()));
             break;
         }
-        case v1::Command::kStrategyStop:
+        case proto::Command::kStrategyStop:
             result["action"] = "strategy_stop";
             break;
         default:
@@ -769,10 +770,10 @@ Json decode_command(const v1::Command& c)
     return result;
 }
 
-v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput& input)
+proto::Snapshot encode_snapshot(const FuturesAccount& account, const proto::PaperInput& input)
 {
     const auto s = account.snapshot();
-    v1::Snapshot result;
+    proto::Snapshot result;
     *result.mutable_risk() = input.risk();
     if (s.marks.size() != static_cast<std::size_t>(input.contracts_size()))
         throw std::logic_error("account contracts differ from fixed input");
@@ -802,7 +803,7 @@ v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput
         auto* item = result.add_positions();
         item->set_venue(p.instrument.venue);
         item->set_symbol(p.instrument.symbol);
-        item->set_side(p.side == Side::buy ? v1::BUY : v1::SELL);
+        item->set_side(p.side == Side::buy ? proto::BUY : proto::SELL);
         item->set_today(p.today);
         item->mutable_quantity()->set_units(p.quantity.raw());
         item->mutable_basis()->set_units(p.price.raw());
@@ -812,19 +813,19 @@ v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput
         item->set_id(o.request.id);
         item->set_venue(o.request.instrument.venue);
         item->set_symbol(o.request.instrument.symbol);
-        item->set_side(o.request.side == Side::buy ? v1::BUY : v1::SELL);
+        item->set_side(o.request.side == Side::buy ? proto::BUY : proto::SELL);
         switch (o.offset) {
             case Offset::open:
-                item->set_offset(v1::OPEN);
+                item->set_offset(proto::OPEN);
                 break;
             case Offset::close_today:
-                item->set_offset(v1::CLOSE_TODAY);
+                item->set_offset(proto::CLOSE_TODAY);
                 break;
             case Offset::close_yesterday:
-                item->set_offset(v1::CLOSE_YESTERDAY);
+                item->set_offset(proto::CLOSE_YESTERDAY);
                 break;
             case Offset::close:
-                item->set_offset(v1::CLOSE);
+                item->set_offset(proto::CLOSE);
                 break;
         }
         item->mutable_quantity()->set_units(o.request.quantity.raw());
@@ -832,19 +833,19 @@ v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput
         item->mutable_filled()->set_units(o.filled.raw());
         switch (o.state) {
             case OrderState::accepted:
-                item->set_state(v1::ACCEPTED);
+                item->set_state(proto::ACCEPTED);
                 break;
             case OrderState::partially_filled:
-                item->set_state(v1::PARTIALLY_FILLED);
+                item->set_state(proto::PARTIALLY_FILLED);
                 break;
             case OrderState::filled:
-                item->set_state(v1::FILLED);
+                item->set_state(proto::FILLED);
                 break;
             case OrderState::cancelled:
-                item->set_state(v1::CANCELLED);
+                item->set_state(proto::CANCELLED);
                 break;
             case OrderState::rejected:
-                item->set_state(v1::REJECTED);
+                item->set_state(proto::REJECTED);
                 break;
             case OrderState::pending:
                 throw std::logic_error("account observation contains an unaccepted order");
@@ -863,7 +864,7 @@ v1::Snapshot encode_snapshot(const FuturesAccount& account, const v1::PaperInput
     return result;
 }
 
-Json decode_snapshot(const v1::Snapshot& s)
+Json decode_snapshot(const proto::Snapshot& s)
 {
     if (s.contracts().empty()
         || static_cast<std::size_t>(s.contracts_size()) > max_account_contracts || !s.has_balance()
@@ -1005,12 +1006,12 @@ std::string live_status(const std::string& value)
 
 } // namespace
 
-v1::LivePolicy encode_live_policy(const Json& policy)
+proto::LivePolicy encode_live_policy(const Json& policy)
 {
     require_fields(policy, {"risk", "max_price_deviation", "contracts"});
     if (!policy.at("contracts").is_array())
         throw std::invalid_argument("live policy contracts must be an array");
-    v1::LivePolicy result;
+    proto::LivePolicy result;
     *result.mutable_risk() = encode_risk(policy.at("risk"));
     set(result.mutable_max_price_deviation(), policy.at("max_price_deviation"));
     if (get(result.max_price_deviation()) != policy.at("max_price_deviation").get<std::string>())
@@ -1021,7 +1022,7 @@ v1::LivePolicy encode_live_policy(const Json& policy)
     return result;
 }
 
-void validate_live_policy(const v1::LivePolicy& policy)
+void validate_live_policy(const proto::LivePolicy& policy)
 {
     if (!policy.has_risk() || policy.contracts().empty()
         || static_cast<std::size_t>(policy.contracts_size()) > max_portfolio_contracts)
@@ -1040,7 +1041,7 @@ void validate_live_policy(const v1::LivePolicy& policy)
     }
 }
 
-Json decode_live_policy(const v1::LivePolicy& policy)
+Json decode_live_policy(const proto::LivePolicy& policy)
 {
     validate_live_policy(policy);
     Json contracts = Json::array();
@@ -1053,13 +1054,13 @@ Json decode_live_policy(const v1::LivePolicy& policy)
     };
 }
 
-v1::LiveInput encode_live_input(const Json& m)
+proto::LiveInput encode_live_input(const Json& m)
 {
     require_fields(m, {"type", "account_id", "broker", "policy"});
     if (m.at("type") != "live_ctp")
         throw std::invalid_argument("invalid live input");
     validate_id(m.at("account_id").get<std::string>());
-    v1::LiveInput result;
+    proto::LiveInput result;
     result.set_account_id(m.at("account_id"));
     const auto broker = live_broker(m.at("broker"));
     result.mutable_broker()->set_front(broker.at("front"));
@@ -1070,7 +1071,7 @@ v1::LiveInput encode_live_input(const Json& m)
     return result;
 }
 
-Json decode_live_input(const v1::LiveInput& input)
+Json decode_live_input(const proto::LiveInput& input)
 {
     if (!input.has_broker() || !input.has_policy())
         throw std::invalid_argument("live input requires a broker and policy");
@@ -1089,7 +1090,7 @@ Json decode_live_input(const v1::LiveInput& input)
     };
 }
 
-Json decode_live_snapshot(const v1::LiveSnapshot& s)
+Json decode_live_snapshot(const proto::LiveSnapshot& s)
 {
     validate_id(s.account_id());
     validate_id(s.policy_revision());
@@ -1105,7 +1106,7 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s)
         || capacity.bytes_limit() > 9007199254740991ULL)
         throw std::invalid_argument("invalid journal capacity");
     auto input = decode_live_input([&] {
-        v1::LiveInput value;
+        proto::LiveInput value;
         value.set_account_id(s.account_id());
         *value.mutable_broker() = s.broker();
         *value.mutable_policy()->mutable_risk() = s.risk();

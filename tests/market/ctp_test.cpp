@@ -499,7 +499,7 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = asterion::market::v1;
+    namespace wire = asterion::market::proto;
     CtpDirectory directory;
     wire::CatalogState catalog;
     catalog.set_phase("ready");
@@ -589,7 +589,7 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = asterion::market::v1;
+    namespace wire = asterion::market::proto;
     CtpDirectory directory;
     const auto endpoint = "/tmp/ast-events-" + unique_process_id() + ".sock";
     const auto raw = directory.path.u8string();
@@ -792,7 +792,7 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = asterion::market::v1;
+    namespace wire = asterion::market::proto;
     CtpDirectory directory;
     const auto endpoint = "/tmp/ast-quotes-" + unique_process_id() + ".sock";
     ChildProcess process(

@@ -36,7 +36,7 @@ public:
         Change& operator=(Change&&) noexcept;
         ~Change();
         bool needs_write() const;
-        const task::v1::Task& task() const;
+        const task::proto::Task& task() const;
         const std::string& token() const;
         void persist(); // Journal thread only; never changes the active state.
 
@@ -64,25 +64,25 @@ public:
         Submission(const Submission&) = delete;
         // File worker only: owns its definition and an optional existing-input snapshot.
         void prepare_files();
-        void set_derivation(task::v1::TaskDerivation);
+        void set_derivation(task::proto::TaskDerivation);
 
     private:
         friend class Store;
-        Submission(Impl*, std::filesystem::path, task::v1::Task);
+        Submission(Impl*, std::filesystem::path, task::proto::Task);
         Impl* owner_;
         std::filesystem::path root_;
-        task::v1::Task task_;
-        std::optional<task::v1::StoredTaskRecord> existing_;
+        task::proto::Task task_;
+        std::optional<task::proto::StoredTaskRecord> existing_;
         std::string digest_;
         std::uint64_t bytes_ = 0;
         bool admitted_ = false, created_ = false, prepared_ = false;
     };
 
     // Definition validation may be expensive; construct submissions on the file worker.
-    Submission submission(const std::string&, backtest::v1::BacktestInput) const;
-    Submission submission(const std::string&, factor::v1::FactorInput) const;
-    Submission submission(const data::v1::DownloadAuthorization&) const;
-    [[nodiscard]] Change edit_metadata(const task::v1::TaskMetadataEdit&);
+    Submission submission(const std::string&, backtest::proto::BacktestInput) const;
+    Submission submission(const std::string&, factor::proto::FactorInput) const;
+    Submission submission(const data::proto::DownloadAuthorization&) const;
+    [[nodiscard]] Change edit_metadata(const task::proto::TaskMetadataEdit&);
     void admit_submission(Submission&);
     [[nodiscard]] Change register_submission(Submission&);
     // Release an unconfirmed reservation, retaining any created directory.
@@ -100,20 +100,20 @@ public:
 
     private:
         friend class Store;
-        InputRead(task::v1::Task, std::filesystem::path, std::string, std::uint64_t);
-        task::v1::Task task_;
+        InputRead(task::proto::Task, std::filesystem::path, std::string, std::uint64_t);
+        task::proto::Task task_;
         std::filesystem::path path_;
         std::string digest_;
         std::uint64_t bytes_;
         bool loaded_ = false;
-        task::v1::TaskExecution execution_;
+        task::proto::TaskExecution execution_;
         // Why the fixed input cannot execute; empty when valid.
         std::string refusal_;
     };
 
     InputRead prepare_input(const std::string&) const;
-    task::v1::Task confirm_input(InputRead) const;
-    task::v1::TaskAttempt confirm_attempt(InputRead) const;
+    task::proto::Task confirm_input(InputRead) const;
+    task::proto::TaskAttempt confirm_attempt(InputRead) const;
 
     // Capture metadata under the host lock, verify owned input/result files outside
     // it, then confirm identity under the lock. Reads never execute an algorithm.
@@ -126,23 +126,23 @@ public:
         friend class Store;
         ResultRead(
             Identity,
-            task::v1::Task,
+            task::proto::Task,
             std::filesystem::path,
             std::string,
             std::uint64_t,
             bool verify_content,
             bool include_input);
-        task::v1::Task task_;
+        task::proto::Task task_;
         std::filesystem::path directory_;
         std::string input_digest_;
         std::uint64_t input_bytes_;
         Identity identity_;
         bool verify_content_, include_input_, verified_ = false;
-        task::v1::TaskResponse response_;
+        task::proto::TaskResponse response_;
     };
 
     ResultRead prepare_result(const std::string&) const;
-    task::v1::TaskResponse confirm_result(ResultRead) const;
+    task::proto::TaskResponse confirm_result(ResultRead) const;
 
     // Owns an immutable attempt/input/result snapshot, never a reference to Store.
     // prepare_finish/finish require host serialization. prepare_payload verifies
@@ -151,46 +151,46 @@ public:
     {
     public:
         void prepare_payload();
-        data::v1::DownloadPreparation download_preparation() const;
+        data::proto::DownloadPreparation download_preparation() const;
 
     private:
         friend class Store;
         Completion(
             Identity identity,
-            task::v1::Task task,
-            task::v1::TaskFinish result,
+            task::proto::Task task,
+            task::proto::TaskFinish result,
             std::filesystem::path directory,
             std::string input_digest,
             std::uint64_t input_bytes);
-        task::v1::Task task_;
+        task::proto::Task task_;
         std::filesystem::path directory_;
         std::string input_digest_;
         std::uint64_t input_bytes_;
-        task::v1::TaskFinish result_;
+        task::proto::TaskFinish result_;
         Identity identity_;
         std::string result_digest_;
         bool prepared_ = false;
     };
 
-    Completion prepare_finish(const task::v1::TaskFinish& result);
+    Completion prepare_finish(const task::proto::TaskFinish& result);
     [[nodiscard]] Change finish(Completion completion);
     // Cancellation and publication are ordered by the same durable task writer.
     // A confirmed PUBLISHING change transfers custody; the worker lease no longer applies.
-    [[nodiscard]] Change prepare_publication(Completion, const data::v1::PreparedDownload&);
-    std::vector<data::v1::DownloadPublication> pending_publications() const;
-    [[nodiscard]] Change confirm_publication(const data::v1::PublishedDownload&);
+    [[nodiscard]] Change prepare_publication(Completion, const data::proto::PreparedDownload&);
+    std::vector<data::proto::DownloadPublication> pending_publications() const;
+    [[nodiscard]] Change confirm_publication(const data::proto::PublishedDownload&);
     // Full immutable input is loaded and integrity-checked only for explicit reads.
-    task::v1::Task get(const std::string& id) const;
-    task::v1::Task describe(const std::string& id) const;
-    task::v1::TaskList list(unsigned limit = 200, unsigned before_sequence = 0) const;
-    std::vector<task::v1::Task> active_tasks() const;
+    task::proto::Task get(const std::string& id) const;
+    task::proto::Task describe(const std::string& id) const;
+    task::proto::TaskList list(unsigned limit = 200, unsigned before_sequence = 0) const;
+    std::vector<task::proto::Task> active_tasks() const;
 
     class HistoryRead
     {
     public:
         void load_page(); // File worker; consumes only the captured metadata page.
 
-        data::v1::HistoryUsage take()
+        data::proto::HistoryUsage take()
         {
             return std::move(result_);
         }
@@ -207,19 +207,19 @@ public:
 
         std::filesystem::path root_;
         std::uint32_t through_, after_ = 0;
-        std::vector<task::v1::StoredTaskRecord> page_;
-        data::v1::HistoryUsage result_;
+        std::vector<task::proto::StoredTaskRecord> page_;
+        data::proto::HistoryUsage result_;
     };
 
     HistoryRead prepare_history_usage(const std::string&) const;
     bool next_history_page(HistoryRead&) const; // State owner; at most 200 metadata rows.
-    data::v1::HistoryUsage history_usage(const std::string& dataset_id) const;
-    static data::v1::HistoryUsage inspect_history_usage(
+    data::proto::HistoryUsage history_usage(const std::string& dataset_id) const;
+    static data::proto::HistoryUsage inspect_history_usage(
         const std::filesystem::path& directory,
         Identity identity,
         const std::string& dataset_id);
-    task::v1::TaskLaunches
-    dispatch(const task::v1::TaskDispatch& processes, bool data_available = true) const;
+    task::proto::TaskLaunches
+    dispatch(const task::proto::TaskDispatch& processes, bool data_available = true) const;
     [[nodiscard]] Change claim(const std::string& id);
     [[nodiscard]] Change claim(const InputRead&);
     [[nodiscard]] Change

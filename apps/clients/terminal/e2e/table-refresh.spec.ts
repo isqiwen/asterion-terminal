@@ -1,3 +1,4 @@
+import { openView } from "./navigation-helper";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -101,7 +102,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
 
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "全市场数据", exact: true }).click();
+  await openView(page, "tables");
   const tables = page.getByRole("region", { name: "全市场数据", exact: true });
   await tables
     .getByRole("table", { name: "全市场数据覆盖" })

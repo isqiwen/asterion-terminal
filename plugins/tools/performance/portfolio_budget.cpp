@@ -4,7 +4,7 @@
 namespace asterion {
 namespace {
 
-Decimal decimal(const protocol::v1::Decimal& value)
+Decimal decimal(const protocol::proto::Decimal& value)
 {
     return Decimal::from_raw(value.units());
 }
@@ -12,8 +12,8 @@ Decimal decimal(const protocol::v1::Decimal& value)
 } // namespace
 
 PortfolioExposure portfolio_exposure(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     PortfolioExposure exposure;
     const auto& account = result.account();
@@ -46,8 +46,8 @@ PortfolioExposure portfolio_exposure(
             if (same(lot)) {
                 const auto quantity = decimal(lot.quantity());
                 row.gross_quantity = row.gross_quantity + quantity;
-                row.net_quantity = lot.side() == protocol::v1::BUY ? row.net_quantity + quantity
-                                                                   : row.net_quantity - quantity;
+                row.net_quantity = lot.side() == protocol::proto::BUY ? row.net_quantity + quantity
+                                                                      : row.net_quantity - quantity;
                 row.gross_notional = row.gross_notional + quantity * row.mark * row.multiplier;
                 row.margin = row.margin + row.costs.margin(quantity, row.mark, row.multiplier);
                 row.quantities_on_grid =
@@ -76,8 +76,8 @@ PortfolioExposure portfolio_exposure(
 }
 
 std::vector<SettlementExposure> settlement_exposure(
-    const backtest::v1::BacktestInput& input,
-    const backtest::v1::BacktestResult& result)
+    const backtest::proto::BacktestInput& input,
+    const backtest::proto::BacktestResult& result)
 {
     std::vector<SettlementExposure> points;
     for (const auto& day : result.settlements()) {

@@ -4,7 +4,7 @@
 #include <future>
 using namespace asterion;
 using namespace asterion::terminal;
-namespace wire = asterion::market::v1;
+namespace wire = asterion::market::proto;
 
 namespace {
 
