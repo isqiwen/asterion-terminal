@@ -4,9 +4,11 @@
 
 ## 本轮与总体记录
 
-- [2026-10-21 需求驱动架构与工程设计](architecture-design-review.md)：八模块、23子模块、五类业务服务、三类worker、状态与配置归属、实施顺序；[304项FR责任映射](requirements-architecture-map.md)。目标设计，未切换生产代码。
+- [2026-10-21 项目需求与新架构全面评估](requirements-architecture-assessment-2026-10-21.md)：固定基线e9c643f，完整分析、15项发现、证据与优先级、优化方案、交付阶段和验收建议；评审已记录，建议待采纳与实施。
 
-- [2026-10-21 按业务服务归属管理任务](service-owned-tasks-design.md)：数据／研究职责、Core 复用与服务实例并发；主动启动流程已实现，任务归属仍待切换。
+- [2026-10-21 需求驱动架构与工程设计](architecture-design-review.md)：七个业务模块及系统管理、23子模块、五类业务服务、服务内任务执行、状态与配置归属、实施顺序；[304项FR责任映射](requirements-architecture-map.md)。服务内执行已落地，业务职责与工程目录调整仍为目标。
+
+- [2026-10-21 按业务服务归属管理任务](service-owned-tasks-design.md)：数据／研究职责、Core 复用与服务实例并发；任务在服务内部执行，Data／Research业务归属仍待切换。
 
 - [2026-10-20 开发前需求与交互设计修订](requirements-specification-2026-10-20.md)：目标功能、逐页字段与操作、跨模块规则、设计图和派生阅读版的一致性。
 

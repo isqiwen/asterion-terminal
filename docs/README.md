@@ -13,6 +13,7 @@
 | 项目范围、首次启动                        | [项目首页](../README.md)、[开发指南](development.md)                                                                                              |
 | 层次、进程、状态归属、插件方式            | [架构](architecture.md)                                                                                                                           |
 | 按需求重组模块、进程、配置与工程目录 | [目标架构设计](reviews/architecture-design-review.md)、[逐功能责任映射](reviews/requirements-architecture-map.md) |
+| 需求与新架构的评估、风险及优化建议 | [2026-10-21 全面评审](reviews/requirements-architecture-assessment-2026-10-21.md)（基线e9c643f；建议待采纳与实施） |
 | 已实现能力、限制与下一步                  | [现状](status.md)                                                                                                                                 |
 | 界面、UI 贡献与命令                       | [Terminal](terminal.md)                                                                                                                           |
 | 原生 SDK、安装、版本选择与任务绑定        | [原生插件](native-plugins.md)                                                                                                                     |
