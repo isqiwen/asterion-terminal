@@ -1,6 +1,5 @@
 """Opt-in native launchd ownership/stop/restart acceptance using a unique label."""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,7 +28,8 @@ def alive(pid):
     except ProcessLookupError:return False
 with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_errors=True) as folder:
     root=Path(folder).resolve();home=root/'home';home.mkdir();state=root/'state';state.mkdir();bin_dir=state/'bin';bin_dir.mkdir()
-    binary=bin_dir/'asterion-node-agent';shutil.copy2(build/'asterion-node-agent',binary)
+    binary=bin_dir/'asterion_node_agent';shutil.copy2(build/'asterion_node_agent',binary)
+    shutil.copytree(build / "config", state / "config")
     endpoint=str(root/'agent.sock');env=dict(os.environ,HOME=str(home))
     base=[str(build/'asterion_test_node_service_control'),'--executable',str(binary),'--root',str(state),'--endpoint',endpoint,'--name',name]
     def run(operation,pid=0,extra=None):
@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert run('verify-stopped').returncode!=0
         first=pid();definition=home/'Library/LaunchAgents'/f'{name}.plist';original=definition.read_bytes()
         marker=state/'preserved-data';marker.write_text('retain this test-owned data')
-        deployed=run('deploy-market',extra={'--source':str(build/'asterion-market-data'),
+        deployed=run('deploy-market',extra={'--source':str(build/'asterion_market_data'),
                                            '--provider':str(build/'libasterion_test_ctp.dylib')})
         assert deployed.returncode==0,deployed.stderr
         health=json.loads(run('status').stdout)['health']
@@ -82,54 +82,6 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         wait(lambda:not alive(foreign_pid))
         restarted=run('install');assert restarted.returncode==0,restarted.stderr
         wait(lambda:pid()!=first and alive(pid()))
-        previous_pid=pid()
-        old_hash=hashlib.sha256(binary.read_bytes()).hexdigest()
-        revision=build/'asterion_test_agent_revision'
-        upgraded=run('upgrade',extra={'--source':str(revision),'--expected':old_hash})
-        assert upgraded.returncode==0,upgraded.stderr
-        wait(lambda:pid()!=previous_pid and alive(pid()))
-        assert hashlib.sha256(binary.read_bytes()).hexdigest()==hashlib.sha256(revision.read_bytes()).hexdigest()
-        assert marker.read_text()=='retain this test-owned data' and definition.read_bytes()==original
-        assert not (state/'agent-upgrade.json').exists()
-        stopped=run('stop',pid());assert stopped.returncode==0,stopped.stderr
-        # Obtain the real Agent quiescence decision before rejecting OS ownership.
-        # A synthetic outer checkpoint alone is not a valid coordinated upgrade.
-        new_hash=hashlib.sha256(binary.read_bytes()).hexdigest()
-        record_path=state/'agent-service-upgrade.json'
-        args={'--source':str(build/'asterion-node-agent'),'--expected':new_hash}
-        restarted=run('install');assert restarted.returncode==0,restarted.stderr
-        wait(lambda:(response:=run('status')).returncode==0 and
-             json.loads(response.stdout)['health']['phase']=='ready')
-        definition.write_bytes(original+b'\n')
-        ambiguous=run('upgrade',extra=args)
-        assert ambiguous.returncode!=0 and record_path.exists()
-        record=json.loads(record_path.read_text())
-        assert record['phase']=='quiesced'
-        plan=json.loads((state/'maintenance-plan.json').read_text())
-        assert plan['phase']=='ready' and plan['operation']=='upgrade.'+old_hash[:32]
-        assert hashlib.sha256(binary.read_bytes()).hexdigest()==new_hash
-        definition.write_bytes(original)
-        recovered_stop=run('upgrade',extra=args)
-        assert recovered_stop.returncode==0,recovered_stop.stderr
-        assert not record_path.exists()
-        stopped=run('stop',pid());assert stopped.returncode==0,stopped.stderr
-        # Restore only this test-owned stopped executable for the next fault.
-        shutil.copy2(revision,binary)
-        # Test-owned checkpoint injection: the OS stop above was verified.
-        record['phase']='stopped';record_path.write_text(json.dumps(record))
-        definition.write_bytes(original+b'\n')
-        interrupted=run('upgrade',extra=args)
-        assert interrupted.returncode!=0 and record_path.exists()
-        assert json.loads(record_path.read_text())['phase']=='published'
-        assert hashlib.sha256(binary.read_bytes()).hexdigest()==old_hash
-        assert marker.read_text()=='retain this test-owned data'
-        # A different target cannot take over the retained operation.
-        assert run('upgrade',extra={'--source':str(revision),'--expected':new_hash}).returncode!=0
-        definition.write_bytes(original)
-        resumed=run('upgrade',extra=args)
-        assert resumed.returncode==0,resumed.stderr
-        assert not record_path.exists()
-        assert marker.read_text()=='retain this test-owned data'
         stopped=run('stop',pid());assert stopped.returncode==0,stopped.stderr
         # Startup recovery must remain stoppable through the same owned OS service path.
         pending=state/'services/market-running/service.pending'
@@ -146,4 +98,4 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert marker.read_text()=='retain this test-owned data'
     finally:
         subprocess.run(['/bin/launchctl','bootout',domain],capture_output=True)
-print('Unique launchd registration: wrong PID/config/registration rejected, owned stop confirmed in running and recovery phases, children stopped and configurations retained, restart, real Agent upgrade and publication failure recovery passed')
+print('Unique launchd registration: wrong PID/config/registration rejected, owned stop confirmed in running and recovery phases, children stopped and configurations retained, restart passed')

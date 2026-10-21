@@ -28,11 +28,11 @@ void Application::Impl::register_data_task_connection_commands()
                 std::shared_ptr<NodeClient>,
                 std::shared_ptr<TaskClient>,
                 std::shared_ptr<DataClient>>>(
-            [this, existing = existing_local_node(), service]() -> PolledTask<std::tuple<
-                                                                    std::shared_ptr<NodeClient>,
-                                                                    std::shared_ptr<TaskClient>,
-                                                                    std::shared_ptr<DataClient>>> {
-                auto node = (co_await local_node_client(existing));
+            [this, service]() -> PolledTask<std::tuple<
+                                  std::shared_ptr<NodeClient>,
+                                  std::shared_ptr<TaskClient>,
+                                  std::shared_ptr<DataClient>>> {
+                auto node = (co_await local_node_client());
                 ServiceEndpoint address;
                 if (service.empty()) {
                     address = co_await PollFuture{node->local_data_tasks()};
@@ -52,14 +52,13 @@ void Application::Impl::register_data_task_connection_commands()
             throw Error(
                 ErrorCode::conflict,
                 "data/task service selection changed during operation; inspect the " "original services before retrying");
-        nodes.try_emplace("local", std::move(node));
         adopt_data_tasks(std::move(next), std::move(next_data));
         co_return snapshot();
     });
     command("node.data_tasks.attach", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "service"});
         const auto generation = data_task_generation;
-        const auto node = nodes.at(text(p, "id"));
+        const auto node = manager.node(text(p, "id"));
         const auto service = text(p, "service");
         auto awaited =
             (co_await manage<std::pair<std::shared_ptr<TaskClient>, std::shared_ptr<DataClient>>>(

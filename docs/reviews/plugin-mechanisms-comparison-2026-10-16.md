@@ -47,7 +47,7 @@ QuantStats 是随桌面分发的独立分析助手，经 Protobuf 调用，不�
 - [原生 ABI](../../bindings/plugin/include/asterion/plugin/abi.h)
 - [加载器和实例所有权](../../core/src/kernel/native_plugin.cpp)
 - [UI 契约](../../apps/clients/terminal/plugins/contract.ts)、[内置注册](../../apps/clients/terminal/src/plugins.ts)、[命令范围](../../apps/clients/terminal/src/host/plugin-registry.ts)
-- [部署产物](../../apps/services/node-agent/plugin_artifacts.cpp)、[本机插件目录](../../apps/clients/terminal/native/plugin_catalog.cpp)
+- [部署产物](../../apps/management/node-agent/plugin_artifacts.cpp)、[本机插件目录](../../apps/common/control/plugin_catalog.cpp)
 - [当前 SDK 边界](../native-plugins.md)、[构建目标](../../CMakeLists.txt)
 
 ### NMR 的实际开放程度与限制

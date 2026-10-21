@@ -23,7 +23,7 @@ def verify(directory=DESTINATION):
     manifest = json.loads((directory / "manifest.json").read_text())
     if manifest["platform"] != [sys.platform, platform.machine()]:
         raise ValueError("Analytics runtime is built for another platform; run pnpm prepare:analytics")
-    executable = directory / "asterion-analytics"
+    executable = directory / "asterion_analytics"
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("Analytics helper is not executable")
 
@@ -62,7 +62,7 @@ manager.afmlist = [font for font in manager.afmlist if Path(font.fname).is_relat
 font_manager.json_dump(manager, Path(sys.argv[1]) / f"fontlist-v{manager.__version__}.json")
 """, font_cache])
         run([ENVIRONMENT / "bin/python", "-m", "PyInstaller", "--noconfirm", "--clean",
-             "--onedir", "--name", "asterion-analytics", "--paths", build / "generated-python",
+             "--onedir", "--name", "asterion_analytics", "--paths", build / "generated-python",
              "--copy-metadata", "quantstats", "--collect-data", "quantstats",
              "--copy-metadata", "skfolio", "--copy-metadata", "polars",
              "--additional-hooks-dir", ROOT / "scripts/desktop/pyinstaller",
@@ -74,7 +74,7 @@ font_manager.json_dump(manager, Path(sys.argv[1]) / f"fontlist-v{manager.__versi
              "--specpath", temporary, PROJECT / "report.py"])
         # Dereference PyInstaller's internal symlinks so packaging owns one regular tree.
         prepared = temporary / "analytics"
-        shutil.copytree(temporary / "dist/asterion-analytics", prepared)
+        shutil.copytree(temporary / "dist/asterion_analytics", prepared)
         licenses = prepared / "licenses"
         licenses.mkdir()
         shutil.copy2(PROJECT / "PYTHON-LICENSE.txt", licenses / "PYTHON-LICENSE.txt")

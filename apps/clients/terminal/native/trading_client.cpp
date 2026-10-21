@@ -152,17 +152,20 @@ struct TradingClient::Impl
         co_return;
     }
 
-    PolledTask<void> initialize(Json manifest, std::stop_token stop)
+    PolledTask<void>
+    initialize(Json manifest, const std::string& expected_account, std::stop_token stop)
     {
         wire::Request attach;
         attach.mutable_attach();
         co_await call(std::move(attach), stop);
+        if (last_snapshot && !expected_account.empty()
+            && last_snapshot->at("account_id") != expected_account)
+            throw Error(ErrorCode::conflict, "trading service belongs to another account");
         if (!manifest.is_null()) {
             wire::Request create;
             *create.mutable_live_create() = protocol::encode_live_input(manifest);
             co_await call(std::move(create), stop);
-        } else if (!last_snapshot)
-            throw std::invalid_argument("trading record is not initialized");
+        }
         wire::Request ping;
         ping.mutable_heartbeat();
         co_await call(std::move(ping), stop);
@@ -236,22 +239,58 @@ TradingClient::TradingClient(ServiceIo& io, ServiceEndpoint endpoint)
       impl_(std::make_shared<Impl>(io, std::move(endpoint)))
 {}
 
-std::future<std::shared_ptr<TradingClient>>
-TradingClient::open(ServiceIo& io, ServiceEndpoint endpoint, Json manifest)
+std::future<std::shared_ptr<TradingClient>> TradingClient::open(
+    ServiceIo& io,
+    ServiceEndpoint endpoint,
+    Json manifest,
+    std::string expected_account)
 {
     return io.submit<std::shared_ptr<TradingClient>>(
-        [&io, endpoint = std::move(endpoint), manifest = std::move(manifest)](
+        [&io,
+            endpoint = std::move(endpoint),
+            manifest = std::move(manifest),
+            expected_account = std::move(expected_account)](
             std::stop_token stop) mutable -> PolledTask<std::shared_ptr<TradingClient>> {
             auto client = co_await io.admin<std::shared_ptr<TradingClient>>([&] {
                 return std::shared_ptr<TradingClient>(new TradingClient(io, std::move(endpoint)));
             });
-            co_await client->impl_->initialize(manifest, stop);
+            co_await client->impl_->initialize(manifest, expected_account, stop);
             (void)client->io_.submit<void>(
                 [state = client->impl_](std::stop_token stop) {
                     return state->monitor(stop);
                 },
                 ServiceIo::Lane::observation);
             co_return client;
+        });
+}
+
+std::future<void> TradingClient::create(const Json& manifest)
+{
+    auto input = protocol::encode_live_input(manifest);
+    return io_.submit<void>(
+        [state = impl_, input = std::move(input), manifest](
+            std::stop_token stop) -> PolledTask<void> {
+            // Explicit continuation after a lost creation reply observes the same account.
+            if (state->last_snapshot) {
+                const auto& existing = *state->last_snapshot;
+                if (existing.at("account_id") != manifest.at("account_id")
+                    || existing.at("broker") != manifest.at("broker")
+                    || existing.at("environment") != manifest.at("environment")
+                    || existing.at("risk") != manifest.at("policy").at("risk")
+                    || existing.at("contracts") != manifest.at("policy").at("contracts")
+                    || existing.at("max_price_deviation")
+                        != manifest.at("policy").at("max_price_deviation"))
+                    throw Error(
+                        ErrorCode::conflict,
+                        "trading account already initialized with a different definition");
+                co_return;
+            }
+            wire::Request request;
+            *request.mutable_live_create() = input;
+            co_await state->call(std::move(request), stop);
+            wire::Request ping;
+            ping.mutable_heartbeat();
+            co_await state->call(std::move(ping), stop);
         });
 }
 

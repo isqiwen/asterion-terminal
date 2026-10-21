@@ -32,7 +32,6 @@ test("isolated one-minute replay keeps archive and observed segments explicit", 
     // their explicit startup checks; all market/data replies below are replayed.
     if (
       [
-        "node.agent.inspect",
         "node.local",
         "market.local",
         "native.plugins.inspect",

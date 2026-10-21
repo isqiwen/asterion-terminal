@@ -64,6 +64,17 @@ probe.listen(port, "127.0.0.1", () =>
     });
     const deadline = Date.now() + 30000;
     (async () => {
+      // End a previous crashed development session before using this build.
+      const cleanup = spawn(process.execPath, [path.join(__dirname, "stop-development.cjs")], {
+        cwd: root,
+        env: process.env,
+        stdio: "inherit",
+      });
+      const cleaned = await new Promise((resolve, reject) => {
+        cleanup.once("error", reject);
+        cleanup.once("exit", code => resolve(code));
+      });
+      if (cleaned !== 0) throw new Error("Previous development services could not be stopped");
       while (!stopping) {
         try {
           if ((await fetch(`http://127.0.0.1:${port}/index.html`)).ok) break;

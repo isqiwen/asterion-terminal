@@ -1,4 +1,6 @@
 #include <asterion/kernel/rpc_host.hpp>
+#include <asterion/kernel/durable_file.hpp>
+#include "node_enrollment.hpp"
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
 #include <asterion/kernel/environment.hpp>
@@ -118,22 +120,19 @@ struct ApplicationTestAccess
             .get();
     }
 
-    static std::shared_ptr<NodeClient> connect_node(Application& app, NodeEndpoint endpoint)
+    static std::shared_ptr<NodeClient> connect_node(Application& app)
     {
-        return NodeClient::open(app.impl_->service_io, std::move(endpoint)).get();
+        (void)app.dispatch(
+            {{"version", 1}, {"method", "node.connect"}, {"params", {{"id", "fixture"}}}});
+        return app.impl_->manager.node("fixture");
     }
 
     static void node(Application& app, std::shared_ptr<NodeClient> client)
     {
-        app.impl_->service_io
-            .submit<void>([&](std::stop_token) -> PolledTask<void> {
-                if (client)
-                    app.impl_->nodes["local"] = std::move(client);
-                else
-                    app.impl_->nodes.erase("local");
-                co_return;
-            })
-            .get();
+        (void)app.dispatch(
+            {{"version", 1},
+                {"method", client ? "node.connect" : "node.disconnect"},
+                {"params", {{"id", "fixture"}}}});
     }
 
     // Changes what the core publishes, as an owner operation does.
@@ -962,6 +961,21 @@ TEST(TerminalHistoryUsage, SlowQueryDoesNotBlockAndRejectsStaleOrWrongIdentity)
     EXPECT_THROW(app.dispatch(query), Error);
 }
 
+// A Manager protocol fixture isolates UI behavior from OS registration and Agent ownership.
+static std::string manager_fixture_socket(const std::filesystem::path& root)
+{
+    const auto identity = unique_process_id();
+    create_directories_durably(root / "manager");
+    replace_file_durably(root / "manager/ipc-id", identity);
+    const auto sockets = std::filesystem::path("/tmp") / ("ast-manager-" + identity);
+    std::filesystem::create_directories(sockets);
+    std::filesystem::permissions(
+        sockets,
+        std::filesystem::perms::owner_all,
+        std::filesystem::perm_options::replace);
+    return (sockets / "manager.sock").string();
+}
+
 TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelatedCommands)
 {
     MinuteService source;
@@ -983,31 +997,52 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     std::promise<void> entered, release;
     const auto released = release.get_future().share();
     std::atomic<unsigned> actions{0};
-    const auto socket = (source.root / "node.sock").string();
+    std::atomic<bool> busy{false}, connected{true};
+    const auto socket = manager_fixture_socket(source.root);
     testing_support::BlockingService host(
         {socket, {}, 0, {}},
         [&](testing_support::Connection& connection, std::stop_token) {
-            node::proto::Request request;
+            manager::proto::Request request;
             if (!request.ParseFromString(connection.receive(2s)))
                 throw std::runtime_error("invalid fixture request");
-            node::proto::Response response;
+            manager::proto::Response response;
             response.set_version(1);
             response.set_correlation_id(request.correlation_id());
-            if (request.has_status()) {
-                auto* status = response.mutable_status();
-                status->set_phase(asterion::node::proto::Status::READY);
-                status->mutable_resource_budget()->set_file_workers(1);
+            if (request.has_snapshot())
+                response.mutable_snapshot();
+            else if (request.has_node() && request.node().has_history())
+                response.mutable_history();
+            else if (request.has_node() && request.node().has_action()) {
+                if (busy.exchange(true)) {
+                    response.mutable_error()->set_code("conflict");
+                    response.mutable_error()->set_message(
+                        "another node operation is in progress; retry after it completes");
+                } else {
+                    if (actions.fetch_add(1) == 0)
+                        entered.set_value();
+                    if (released.wait_for(testing_support::bound(4s)) != std::future_status::ready)
+                        throw std::runtime_error("fixture action was not released");
+                    response.mutable_accepted();
+                    busy = false;
+                }
+            } else {
+                if (request.node().has_disconnect())
+                    connected = false;
+                else
+                    connected = true;
+                response.mutable_accepted();
+            }
+            auto* view =
+                request.has_snapshot() ? response.mutable_snapshot() : response.mutable_view();
+            if (connected) {
+                auto* node = view->add_nodes();
+                node->set_id("fixture");
+                node->set_online(true);
+                auto* status = node->mutable_health();
                 status->set_instance_id(actions.load() ? "restarted-fixture" : "fixture");
+                status->set_phase(node::proto::Status::READY);
                 status->set_os("macos");
                 status->set_arch("arm64");
-            } else if (request.has_action()) {
-                if (actions.fetch_add(1) == 0)
-                    entered.set_value();
-                if (released.wait_for(testing_support::bound(4s)) != std::future_status::ready)
-                    throw std::runtime_error("fixture action was not released");
-                response.mutable_accepted();
-            } else {
-                throw std::runtime_error("unexpected fixture operation");
             }
             connection.send(response.SerializeAsString(), 2s);
         });
@@ -1027,14 +1062,12 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     } stop{running};
 
     terminal::Application app;
-    auto node = terminal::ApplicationTestAccess::connect_node(
-        app,
-        terminal::NodeEndpoint{"local", "localhost", 0, {}, socket});
+    auto node = terminal::ApplicationTestAccess::connect_node(app);
     terminal::ApplicationTestAccess::node(app, node);
     (void)app.dispatch(request("runtime.snapshot"));
     auto captured = terminal::ApplicationTestAccess::capture(app);
     const auto action =
-        request("node.action", {{"id", "local"}, {"service", "task"}, {"action", "restart"}});
+        request("node.action", {{"id", "fixture"}, {"service", "task"}, {"action", "restart"}});
     auto pending = std::async(std::launch::async, [&] {
         return app.dispatch(action);
     });
@@ -1060,7 +1093,13 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     EXPECT_NO_THROW((void)pending.get());
     EXPECT_NO_THROW((void)app.dispatch(action));
     EXPECT_EQ(actions.load(), 2U);
-    EXPECT_EQ(node->status().get().at("health").at("instance_id"), "restarted-fixture");
+    EXPECT_EQ(
+        app.dispatch(request("node.connect", {{"id", "fixture"}}))
+            .at("nodes")
+            .at(0)
+            .at("health")
+            .at("instance_id"),
+        "restarted-fixture");
     terminal::ApplicationTestAccess::node(app, {});
     node.reset();
     auto retained = std::async(std::launch::async, std::move(captured));
@@ -1089,37 +1128,59 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
     other.release();
     other.reference = true;
     std::atomic<unsigned> mutations{0};
-    const auto socket = (source.root / "node.sock").string();
+    std::atomic<bool> connected{true};
+    const auto socket = manager_fixture_socket(source.root);
     testing_support::BlockingService host(
         {socket, {}, 0, {}},
         [&](testing_support::Connection& connection, std::stop_token) {
-            node::proto::Request request;
-            if (!request.ParseFromString(connection.receive(2s)) || !request.has_status()) {
-                ++mutations;
-                return;
-            }
-            node::proto::Response response;
+            manager::proto::Request request;
+            if (!request.ParseFromString(connection.receive(2s)))
+                throw std::runtime_error("invalid fixture request");
+            manager::proto::Response response;
             response.set_version(1);
             response.set_correlation_id(request.correlation_id());
-            auto* status = response.mutable_status();
-            status->set_phase(asterion::node::proto::Status::READY);
-            status->mutable_resource_budget()->set_file_workers(1);
-            status->set_instance_id("fixture");
-            status->set_os("macos");
-            status->set_arch("arm64");
-            for (const auto& [name, endpoint, state] :
-                std::vector<std::tuple<std::string, std::string, std::string>>{
-                    {"minute-fixture", source.endpoint, "running"},
-                    {"other", other.endpoint, "running"},
-                    {"stopped", other.endpoint + ".stopped", "stopped"},
-                    {"offline", other.endpoint + ".missing", "running"}
-                }) {
-                auto* entry = status->add_services();
-                entry->set_id(name);
-                entry->set_endpoint(endpoint);
-                entry->set_state(state);
-                entry->set_kind(node::proto::TASK_SERVICE);
+            if (request.has_snapshot())
+                response.mutable_snapshot();
+            else if (request.has_inventory())
+                response.set_presentation(terminal::registered_node_inventory().dump());
+            else if (request.node().has_history()) {
+                auto* history = response.mutable_history();
+                for (const auto& [name, endpoint, state] :
+                    std::vector<std::tuple<std::string, std::string, std::string>>{
+                        {"minute-fixture", source.endpoint, "running"},
+                        {"other", other.endpoint, "running"},
+                        {"stopped", other.endpoint + ".stopped", "stopped"},
+                        {"offline", other.endpoint + ".missing", "running"}
+                    }) {
+                    auto* entry = history->add_services();
+                    entry->set_kind(node::proto::TASK_SERVICE);
+                    entry->set_state(state);
+                    entry->mutable_address()->set_session(name);
+                    entry->mutable_address()->set_socket(endpoint);
+                }
+            } else if (request.node().has_disconnect()) {
+                connected = false;
+                response.mutable_accepted();
+            } else if (request.node().has_connect()) {
+                connected = true;
+                response.mutable_accepted();
+            } else {
+                ++mutations;
+                response.mutable_error()->set_code("invalid_request");
+                response.mutable_error()->set_message("unexpected fixture operation");
             }
+            if (connected) {
+                auto* view =
+                    request.has_snapshot() ? response.mutable_snapshot() : response.mutable_view();
+                auto* node = view->add_nodes();
+                node->set_id("fixture");
+                node->set_online(true);
+                node->mutable_health()->set_instance_id("fixture");
+                node->mutable_health()->set_os("macos");
+                node->mutable_health()->set_arch("arm64");
+                node->mutable_health()->set_phase(node::proto::Status::READY);
+            } else
+                response.mutable_view();
             connection.send(response.SerializeAsString(), 2s);
         });
     auto running = std::async(std::launch::async, [&] {
@@ -1138,9 +1199,7 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
     } stop{running};
 
     terminal::Application app;
-    auto node = terminal::ApplicationTestAccess::connect_node(
-        app,
-        terminal::NodeEndpoint{"local", "localhost", 0, {}, socket});
+    auto node = terminal::ApplicationTestAccess::connect_node(app);
     terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
     auto current_address = source.address();
     current_address.host = "localhost"; // Host is irrelevant for the same IPC endpoint.
@@ -1160,7 +1219,9 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
     EXPECT_TRUE(groups[0].at("checked"));
     EXPECT_EQ(groups[0].at("references")[0].at("id"), "external-task");
     EXPECT_FALSE(groups[1].at("checked"));
-    EXPECT_EQ(groups[1].at("error"), "invalid local task ledger directory");
+    EXPECT_EQ(
+        groups[1].at("error"),
+        "data/task service is not running; references were not inspected");
     EXPECT_FALSE(groups[2].at("checked"));
     other.wrong_identity = true;
     const auto wrong = app.dispatch(query).at("history_usage").at("other_data_services")[0];
@@ -1275,6 +1336,7 @@ struct LiveService
                         const auto input = protocol::encode_live_input(
                             {{"account_id", "fixture-record"},
                                 {"type", "live_ctp"},
+                                {"environment", "simulation"},
                                 {"broker",
                                     {{"front", "tcp://127.0.0.1:1"},
                                         {"broker_id", "9999"},

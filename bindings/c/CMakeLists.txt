@@ -1,0 +1,4 @@
+add_library(asterion_terminal_api STATIC src/terminal.cpp)
+target_include_directories(asterion_terminal_api PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(asterion_terminal_api PUBLIC asterion_terminal_application)
+asterion_target_defaults(asterion_terminal_api)

@@ -27,7 +27,7 @@ async function status() {
       "--operation",
       "status",
       "--executable",
-      path.join(nodeRoot, "bin/asterion-node-agent"),
+      path.join(nodeRoot, "bin/asterion_node_agent"),
       "--root",
       nodeRoot,
       "--endpoint",
@@ -46,23 +46,20 @@ async function verifyPrograms(services) {
       .update(await fs.readFile(file))
       .digest("hex");
   assert.equal(
-    await digest(path.join(nodeRoot, "bin/asterion-node-agent")),
-    await digest(path.join(native, "asterion-node-agent")),
+    await digest(path.join(nodeRoot, "bin/asterion_node_agent")),
+    await digest(path.join(native, "asterion_node_agent")),
   );
   const programs = {
     market: {
-      artifact: "asterion-market-data",
+      artifact: "asterion_market_data",
       provider_artifact: "ctp-md" + local.library,
       catalog_artifact: "ctp-trader" + local.library,
     },
-    data: { artifact: "asterion-data-service" },
+    data: { artifact: "asterion_data_service" },
     task: {
-      artifact: "asterion-task-service",
-      worker_artifact: "asterion-backtest",
-      factor_artifact: "asterion-factor",
-      data_artifact: "asterion-data-pipeline",
+      artifact: "asterion_task_service",
     },
-    live: { artifact: "asterion-trading", catalog_artifact: "ctp-trader" + local.library },
+    live: { artifact: "asterion_trading", catalog_artifact: "ctp-trader" + local.library },
   };
   for (const service of services) {
     const config = JSON.parse(

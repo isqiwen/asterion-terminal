@@ -25,15 +25,13 @@ public:
     {
         std::filesystem::path directory;
         std::string service, data_instance, data_endpoint;
-        std::chrono::seconds worker_timeout{30};
         unsigned file_workers = 2;
+        unsigned task_concurrency = 1;
     };
-    // The endpoint a request arrived on. Execution operations need the private worker
-    // endpoint; upgrade control needs the private health endpoint.
+    // The endpoint a request arrived on; upgrade control requires the private health endpoint.
     enum class Lane
     {
         client,
-        worker,
         health
     };
     explicit TaskHost(Configuration configuration);
@@ -51,12 +49,6 @@ public:
 private:
     using Clock = std::chrono::steady_clock;
     struct Call;
-
-    struct Lease
-    {
-        std::string token;
-        Clock::time_point expires;
-    };
 
     struct Writing
     {
@@ -88,16 +80,14 @@ private:
         data::proto::DataRequest request,
         std::chrono::milliseconds timeout,
         std::string parent = {});
-    // The I/O owner observes lease expiry even while file, RPC or journal work waits.
-    void expire_leases();
-    // Only original durable publication decisions are retried. No worker is rerun.
+    // Only original durable publication decisions are retried. No task is rerun.
     PolledTask<> publish();
 
     PolledTask<std::string> serve(std::string frame, Lane lane);
     PolledTask<task::proto::TaskResponse>
     respond(std::string frame, Lane lane, Clock::time_point deadline);
     PolledTask<> handle(Call& call, std::string frame);
-    // The task's own pending change has settled and a worker report still holds its lease.
+    // Wait for the task's own pending durable change.
     PolledTask<Clock::time_point>
     ready(const Call& call, Clock::time_point deadline = Clock::time_point::max());
     PolledTask<data::proto::DataResponse>
@@ -106,13 +96,14 @@ private:
     PolledTask<Store::Change> submit(const Call& call, F make_input);
     void quiesce(Call& call);
     PolledTask<> history_usage(Call& call);
-    PolledTask<> dispatch(Call& call);
+    PolledTask<> run_task(std::string id);
+    PolledTask<> schedule_tasks();
     PolledTask<> submit_download(Call& call);
     PolledTask<> submit_backtest(Call& call);
     PolledTask<> reuse_backtest(Call& call);
     PolledTask<> submit_factor(Call& call);
     PolledTask<> claim(Call& call);
-    PolledTask<> finish(Call& call);
+    PolledTask<> finish(Call& call, const task::proto::TaskFinish& result);
 
     const Configuration configuration_;
     const Clock::time_point started_ = Clock::now();
@@ -122,13 +113,16 @@ private:
     VerificationSlots verification_slots_, input_slots_;
     bool quiescing_ = false, degraded_ = false, initialized_ = false;
     ipc::RpcClient data_;
-    std::map<std::string, Lease> leases_;
     std::atomic<bool> journal_failed_{false};
     std::map<std::string, std::shared_ptr<Writing>> writing_;
     static constexpr std::size_t journal_capacity = 16;
     // Requests wait on these pools; finished work prompts the I/O owner.
     ThreadPool journal_{1, journal_capacity, service::wake_io_owner};
     ThreadPool files_;
+    std::map<std::string, PolledTask<>> executions_;
+    ThreadPool computation_;
+    std::optional<PolledTask<>> scheduling_;
+    Clock::time_point next_schedule_ = Clock::now();
     bool publication_wake_ = true;
     std::optional<PolledTask<>> publication_;
     Clock::time_point next_publication_ = Clock::now();

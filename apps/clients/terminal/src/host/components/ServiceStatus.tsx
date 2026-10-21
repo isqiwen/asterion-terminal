@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ExecutionHealth, Snapshot } from "../../bridge/client";
 import { translate, useLocale } from "../../i18n";
 import { BackendError, ErrorNotice } from "../../i18n/errors";
+import { LocalLogsButton } from "./LocalLogsButton";
 const t = (key: string) => translate("host", key);
 const progressLabels: Record<Exclude<keyof ExecutionHealth, "business_ready">, string> = {
   io: "请求处理",
@@ -249,6 +250,10 @@ export function ServiceStatus({
               )}
             </div>
           ))}
+          <div className="service-connection-details">
+            <span>{t("本机日志目录")}</span> <LocalLogsButton />
+            <p className="error-diagnostic">{snapshot?.diagnostics.log_directory}</p>
+          </div>
           {loggingFailed && (
             <p role="status">
               {t("本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。")}

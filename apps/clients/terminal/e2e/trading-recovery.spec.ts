@@ -22,6 +22,9 @@ test(
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).market.catalog.phase)
       .toBe("ready");
     await rpc(page.request, "live.create", {
+      node: "local",
+      service: "",
+      environment: "simulation",
       account,
       max_order_quantity: "5",
       max_gross_quantity: "10",

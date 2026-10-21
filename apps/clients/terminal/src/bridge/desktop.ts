@@ -11,6 +11,7 @@ export interface DesktopBridge {
   onDevelopmentStopping(listener: (stopping: boolean) => void): () => void;
   request(body: string): Promise<string>;
   openSettings(category: string): Promise<void>;
+  openLogs(): Promise<void>;
   open(options: DialogOptions): Promise<string | string[] | null>;
   save(options: DialogOptions): Promise<string | null>;
   setTitle(title: string): Promise<void>;

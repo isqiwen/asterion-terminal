@@ -1,7 +1,10 @@
 #include "task_host.hpp"
+#include "task_execution.hpp"
+#include <limits>
 #include "risk_module.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/owner.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/data_client.hpp>
@@ -34,31 +37,7 @@ std::string named_task(const wire::TaskRequest& request)
         return request.cancel().id();
     if (request.has_result())
         return request.result().id();
-    if (request.has_claim())
-        return request.claim().id();
-    if (request.has_progress())
-        return request.progress().id();
-    if (request.has_finish())
-        return request.finish().id();
-    if (request.has_fail())
-        return request.fail().id();
-    if (request.has_cancel_ack())
-        return request.cancel_ack().id();
     return {};
-}
-
-// The attempt token of a worker report.
-const std::string* report_token(const wire::TaskRequest& request)
-{
-    if (request.has_progress())
-        return &request.progress().token();
-    if (request.has_finish())
-        return &request.finish().token();
-    if (request.has_fail())
-        return &request.fail().token();
-    if (request.has_cancel_ack())
-        return &request.cancel_ack().token();
-    return nullptr;
 }
 
 // New work is not admitted once an upgrade has asked the service to quiesce.
@@ -74,10 +53,10 @@ struct TaskHost::Call
 {
     wire::TaskRequest request;
     wire::TaskResponse response;
+    wire::TaskAttempt attempt;
     Lane lane = Lane::client;
     Clock::time_point deadline, verification_deadline, input_deadline;
     std::string task_id;
-    const std::string* report_token = nullptr;
 
     void admitted() const
     {
@@ -102,7 +81,11 @@ TaskHost::TaskHost(Configuration configuration)
     : configuration_(std::move(configuration)),
       process_(unique_process_id()),
       data_(configuration_.data_endpoint, 8, PayloadBudget{128 * 1024 * 1024}),
-      files_(configuration_.file_workers, 8, service::wake_io_owner)
+      files_(configuration_.file_workers, 8, service::wake_io_owner),
+      computation_(
+          configuration_.task_concurrency,
+          configuration_.task_concurrency,
+          service::wake_io_owner)
 {}
 
 void TaskHost::open()
@@ -125,9 +108,6 @@ void TaskHost::collect_writes()
         try {
             work.result.get();
             storage_->confirm(work.change);
-            const auto state = work.change.task().state();
-            if (state != wire::RUNNING && state != wire::CANCEL_REQUESTED)
-                leases_.erase(it->first);
         } catch (...) {
             work.error = std::current_exception();
             storage_->persistence_failed();
@@ -224,39 +204,11 @@ PolledTask<> TaskHost::publish()
     }
 }
 
-void TaskHost::expire_leases()
-{
-    collect_writes();
-    if (degraded_)
-        return;
-    for (auto it = leases_.begin(); it != leases_.end();) {
-        if (writing_.size() >= journal_capacity)
-            break;
-        if (Clock::now() >= it->second.expires && !writing_.contains(it->first)) {
-            write(storage_->interrupt(
-                it->first,
-                it->second.token,
-                "worker heartbeat expired; explicit retry required"));
-            it = leases_.erase(it);
-        } else
-            ++it;
-    }
-}
-
 PolledTask<TaskHost::Clock::time_point>
 TaskHost::ready(const Call& call, Clock::time_point deadline)
 {
     co_await wait_for_store(call.task_id, deadline);
-    const auto observed = Clock::now();
-    if (call.report_token) {
-        // Expiration is a state-owner fact, independent of whether its journal
-        // record has obtained a writer slot or completed its durable barrier.
-        const auto lease = leases_.find(call.task_id);
-        if (lease == leases_.end() || lease->second.token != *call.report_token
-            || observed >= lease->second.expires)
-            throw std::invalid_argument("stale or inactive task attempt");
-    }
-    co_return observed;
+    co_return Clock::now();
 }
 
 PolledTask<data::proto::DataResponse>
@@ -307,7 +259,8 @@ void TaskHost::quiesce(Call& call)
         const auto waiting = [] {
             return Error(ErrorCode::unavailable, "upgrade is waiting for running task tasks");
         };
-        if (!initialized_ || !writing_.empty() || storage_->has_submission())
+        if (!initialized_ || !writing_.empty() || !executions_.empty()
+            || storage_->has_submission())
             throw waiting();
         for (const auto& task : storage_->active_tasks())
             if (task.state() == wire::RUNNING || task.state() == wire::CANCEL_REQUESTED
@@ -335,32 +288,134 @@ PolledTask<> TaskHost::history_usage(Call& call)
     *call.response.mutable_history_usage() = read.take();
 }
 
-PolledTask<> TaskHost::dispatch(Call& call)
+PolledTask<> TaskHost::schedule_tasks()
 {
-    bool data_available = true;
-    const auto tasks = storage_->active_tasks();
-    if (std::ranges::any_of(tasks, [](const auto& task) {
+    if (executions_.size() >= configuration_.task_concurrency)
+        co_return;
+    const auto pending = storage_->active_tasks();
+    if (std::ranges::none_of(pending, [](const auto& task) {
             return task.state() == wire::QUEUED;
-        })) {
-        try {
-            data::proto::DataRequest heartbeat;
-            heartbeat.mutable_heartbeat();
-            const auto reply =
-                co_await data_call(std::move(heartbeat), 1s, call.request.correlation_id());
-            if (!reply.has_health() || reply.health().instance_id() != configuration_.data_instance
-                || reply.health().task_instance() != configuration_.service)
-                throw std::invalid_argument("data and task service bindings disagree");
-            data_available = reply.health().initialized() && !reply.health().recovery_required();
-        } catch (const Error& error) {
-            if (error.code() != ErrorCode::unavailable)
-                throw;
-            data_available = false;
-        }
-        co_await ready(call);
-        call.admitted();
-        refuse_during_upgrade(quiescing_);
+        }))
+        co_return;
+    data::proto::DataRequest heartbeat;
+    heartbeat.mutable_heartbeat();
+    const auto response = co_await data_call(std::move(heartbeat), 1s);
+    if (!response.health().initialized() || response.health().recovery_required())
+        co_return;
+    if (quiescing_)
+        co_return;
+    for (const auto& task : storage_->active_tasks()) {
+        if (executions_.size() >= configuration_.task_concurrency)
+            break;
+        if (task.state() == wire::QUEUED && !executions_.contains(task.id()))
+            executions_.emplace(task.id(), run_task(task.id()));
     }
-    *call.response.mutable_launches() = storage_->dispatch(call.request.dispatch(), data_available);
+}
+
+PolledTask<> TaskHost::run_task(std::string id)
+{
+    Call call;
+    call.task_id = id;
+    call.deadline = Clock::time_point::max();
+    call.input_deadline = Clock::now() + protocol::task_input_timeout;
+    call.request.set_correlation_id(next_correlation_id());
+    std::exception_ptr failure;
+    std::string token;
+    unsigned attempt_number = 0;
+    try {
+        co_await wait_for_store(id);
+        const auto before = storage_->describe(id);
+        if (before.state() != wire::QUEUED || quiescing_)
+            co_return;
+        attempt_number = before.attempt() + 1;
+        co_await claim(call);
+        auto attempt = std::move(call.attempt);
+        token = attempt.token();
+        log_process_event(
+            "task-service",
+            LogLevel::info,
+            "task.started",
+            {{"task_id", id}, {"attempt", attempt_number}});
+        std::stop_source cancel;
+        std::atomic<unsigned> completed{0};
+        wire::TaskFinish result;
+        auto execution = computation_.submit(
+            [&, attempt = std::move(attempt)](std::stop_token pool_stop) mutable {
+                std::stop_callback stop(pool_stop, [&] {
+                    cancel.request_stop();
+                });
+                result = execute(
+                    std::move(attempt),
+                    std::filesystem::absolute(configuration_.directory),
+                    configuration_.service,
+                    cancel.get_token(),
+                    [&](auto done, auto total) {
+                        if (done > total || done > std::numeric_limits<unsigned>::max()
+                            || done < completed.load())
+                            throw std::invalid_argument("invalid task progress");
+                        completed = static_cast<unsigned>(done);
+                    });
+            });
+        // The execution frame and its inputs outlive the pool callback even when
+        // persistence fails or the service is stopping.
+        std::exception_ptr control_failure;
+        while (execution.wait_for(0ms) != std::future_status::ready) {
+            const auto next = Clock::now() + 100ms;
+            co_await PollUntil{[&] {
+                return execution.wait_for(0ms) == std::future_status::ready || Clock::now() >= next;
+            }};
+            if (service::stop_requested() || degraded_ || control_failure)
+                cancel.request_stop();
+            if (control_failure || degraded_)
+                continue;
+            try {
+                co_await wait_for_store(id);
+                const auto state = storage_->describe(id);
+                if (state.state() == wire::CANCEL_REQUESTED)
+                    cancel.request_stop();
+                if (state.completed() != completed.load())
+                    co_await commit(storage_->progress(id, token, completed.load()));
+            } catch (...) {
+                control_failure = std::current_exception();
+                cancel.request_stop();
+            }
+        }
+        execution.get();
+        if (control_failure)
+            std::rethrow_exception(control_failure);
+        co_await wait_for_store(id);
+        call.verification_deadline = Clock::now() + protocol::task_verification_timeout;
+        co_await finish(call, result);
+        log_process_event(
+            "task-service",
+            LogLevel::info,
+            "task.finished",
+            {{"task_id", id},
+                {"attempt", attempt_number},
+                {"state", wire::TaskState_Name(call.response.task().state())}});
+    } catch (...) {
+        failure = std::current_exception();
+    }
+    if (failure) {
+        std::string message, code;
+        try {
+            std::rethrow_exception(failure);
+        } catch (const std::exception& error) {
+            message = error.what();
+            code = std::string(error_name(classify(error)));
+        }
+        co_await wait_for_store(id);
+        const auto state = storage_->describe(id);
+        if (state.state() == wire::CANCEL_REQUESTED && !token.empty())
+            co_await commit(storage_->acknowledge_cancel(id, token));
+        else if (!token.empty() && state.state() == wire::RUNNING)
+            co_await commit(
+                service::stop_requested()
+                    ? storage_->interrupt(id, token, "service stopped during task execution")
+                    : storage_->fail(id, token, message, code));
+        else if (state.state() == wire::QUEUED && !quiescing_)
+            co_await commit(storage_->fail_start(id, attempt_number, message, code));
+    }
 }
 
 PolledTask<> TaskHost::submit_download(Call& call)
@@ -690,7 +745,7 @@ PolledTask<> TaskHost::submit_factor(Call& call)
     call.input_in_time();
     refuse_during_upgrade(quiescing_);
     *call.response.mutable_task() = (co_await submit(call, [&] {
-        // Hashing a daily series is file-worker work, like the rest of the submission.
+        // Hashing a daily series is file-pool work, like the rest of the submission.
         input.set_dataset_revision(protocol::factor_revision(input.series()));
         if (!f.expected_dataset_revision().empty()
             && input.dataset_revision() != f.expected_dataset_revision())
@@ -705,11 +760,13 @@ PolledTask<> TaskHost::submit_factor(Call& call)
 PolledTask<> TaskHost::claim(Call& call)
 {
     const auto& request = call.request;
-    const auto& id = request.claim().id();
-    if (storage_->describe(id).kind() != request.claim().kind())
-        throw std::invalid_argument("worker kind does not match task");
+    const auto& id = call.task_id;
     // Load before committing an attempt. Slow file parsing must not consume an
-    // active lease or block unrelated worker controls.
+    // execution slot while blocking unrelated controls.
+    co_await PollUntil{[&] {
+        call.input_in_time();
+        return input_slots_.completion_available();
+    }};
     auto slot = input_slots_.acquire(true, id);
     auto read = storage_->prepare_input(id);
     co_await file_work([&] {
@@ -717,9 +774,8 @@ PolledTask<> TaskHost::claim(Call& call)
     });
     co_await ready(call);
     call.input_in_time();
-    if (call.lane != Lane::worker)
-        refuse_during_upgrade(quiescing_);
-    auto* attempt = call.response.mutable_attempt();
+    refuse_during_upgrade(quiescing_);
+    auto* attempt = &call.attempt;
     const auto token = (co_await commit(storage_->claim(read))).token();
     // An attempt that cannot begin fails with the reason: invalid fixed input
     // or a download with nowhere to write.
@@ -749,7 +805,6 @@ PolledTask<> TaskHost::claim(Call& call)
                 throw Error(ErrorCode::cancelled, "download cancelled before allocation completed");
             attempt->set_output_directory(allocated.download_directory().directory());
         }
-        leases_[id] = {attempt->token(), Clock::now() + configuration_.worker_timeout};
     } catch (...) {
         allocation_error = std::current_exception();
     }
@@ -766,9 +821,12 @@ PolledTask<> TaskHost::claim(Call& call)
     }
 }
 
-PolledTask<> TaskHost::finish(Call& call)
+PolledTask<> TaskHost::finish(Call& call, const wire::TaskFinish& p)
 {
-    const auto& p = call.request.finish();
+    co_await PollUntil{[&] {
+        call.verified_in_time();
+        return verification_slots_.completion_available();
+    }};
     auto slot = verification_slots_.acquire(true, p.id());
     auto completion = storage_->prepare_finish(p);
     co_await file_work([&] {
@@ -776,7 +834,6 @@ PolledTask<> TaskHost::finish(Call& call)
     });
     co_await ready(call);
     call.verified_in_time();
-    expire_leases();
     co_await ready(call);
     if (p.has_minutes() && storage_->describe(p.id()).state() != wire::CANCEL_REQUESTED) {
         data::proto::DataRequest preparation;
@@ -787,7 +844,6 @@ PolledTask<> TaskHost::finish(Call& call)
             call.request.correlation_id());
         co_await ready(call);
         call.verified_in_time();
-        expire_leases();
         co_await ready(call);
         auto applied = co_await commit(
             storage_->prepare_publication(std::move(completion), prepared.prepared_download()));
@@ -840,21 +896,12 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame)
         throw Error(ErrorCode::unavailable, "task service is initializing");
     if (call.lane == Lane::health)
         throw std::invalid_argument("health channel only accepts heartbeat");
-    if (call.lane != Lane::worker
-        && (request.has_dispatch() || request.has_claim() || request.has_progress()
-            || request.has_finish() || request.has_fail() || request.has_cancel_ack()))
-        throw Error(
-            ErrorCode::permission_denied,
-            "task execution requires the private worker channel");
     call.admitted();
-    expire_leases();
     call.admitted();
     call.task_id = named_task(request);
-    call.report_token = report_token(request);
     co_await ready(call, call.deadline);
     call.admitted();
-    if (request.has_submit() || request.has_metadata_edit() || request.has_retry()
-        || request.has_dispatch())
+    if (request.has_submit() || request.has_metadata_edit() || request.has_retry())
         refuse_during_upgrade(quiescing_);
     std::optional<VerificationSlots::Lease> preparation;
     if (request.has_submit()
@@ -864,8 +911,6 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame)
         preparation.emplace(input_slots_.acquire(false, request.correlation_id()));
     if (request.has_history_usage())
         co_await history_usage(call);
-    else if (request.has_dispatch())
-        co_await dispatch(call);
     else if (request.has_submit()) {
         const auto& p = request.submit();
         if (p.has_download_authorization())
@@ -913,29 +958,6 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame)
         response.set_version(1);
         response.set_service_id(configuration_.service);
         response.set_correlation_id(request.correlation_id());
-    } else if (request.has_claim())
-        co_await claim(call);
-    else if (request.has_progress()) {
-        const auto& p = request.progress();
-        // A report waiting behind another durable change cannot revive an expired
-        // attempt. Liveness is observed now, not at a later disk acknowledgement.
-        expire_leases();
-        const auto observed = co_await ready(call);
-        auto change = storage_->progress(p.id(), p.token(), p.completed());
-        leases_.at(p.id()).expires = observed + configuration_.worker_timeout;
-        *response.mutable_task() = (co_await commit(std::move(change))).task();
-    } else if (request.has_finish())
-        co_await finish(call);
-    else if (request.has_fail()) {
-        const auto& p = request.fail();
-        if (!parse_error_code(p.error_code()))
-            throw std::invalid_argument("invalid task failure error code");
-        *response.mutable_task() =
-            (co_await commit(storage_->fail(p.id(), p.token(), p.error(), p.error_code()))).task();
-    } else if (request.has_cancel_ack()) {
-        const auto& p = request.cancel_ack();
-        *response.mutable_task() =
-            (co_await commit(storage_->acknowledge_cancel(p.id(), p.token()))).task();
     } else
         throw std::invalid_argument("missing task operation");
     if (response.has_task() && !request.has_get())
@@ -975,9 +997,7 @@ TaskHost::respond(std::string frame, Lane lane, Clock::time_point deadline)
     if (response.has_task()) {
         task = response.task().id();
         attempt = response.task().attempt();
-    } else if (response.has_attempt()) {
-        task = response.attempt().task().id();
-        attempt = response.attempt().task().attempt();
+
     } else if (response.has_result_task()) {
         task = response.result_task().id();
         attempt = response.result_task().attempt();
@@ -991,8 +1011,7 @@ TaskHost::respond(std::string frame, Lane lane, Clock::time_point deadline)
         "task-service",
         request,
         response,
-        request.has_list() || request.has_dispatch() || request.has_progress()
-            || request.has_heartbeat(),
+        request.has_list() || request.has_heartbeat(),
         {{"service_id", configuration_.service}, {"task_id", task}},
         attempt);
     co_return std::move(response);
@@ -1001,7 +1020,7 @@ TaskHost::respond(std::string frame, Lane lane, Clock::time_point deadline)
 PolledTask<std::string> TaskHost::serve(std::string frame, Lane lane)
 {
     auto response = co_await respond(std::move(frame), lane, Clock::now() + 10s);
-    if (!response.has_result_task() && !response.has_attempt()
+    if (!response.has_result_task()
         && (!response.has_task()
             || response.task().definition_case() == wire::Task::DEFINITION_NOT_SET))
         co_return response.SerializeAsString();
@@ -1034,8 +1053,37 @@ bool TaskHost::advance(service::RpcHost::Stage stage)
     data_.poll();
     if (initialized_) {
         collect_writes();
-        if (stage == Stage::running)
-            expire_leases();
+        if (!scheduling_ && !degraded_ && !quiescing_ && stage == Stage::running
+            && Clock::now() >= next_schedule_)
+            scheduling_.emplace(schedule_tasks());
+        if (scheduling_ && scheduling_->poll()) {
+            try {
+                scheduling_->take();
+            } catch (const Error& error) {
+                if (error.code() != ErrorCode::unavailable
+                    && error.code() != ErrorCode::resource_exhausted)
+                    throw;
+            }
+            scheduling_.reset();
+            next_schedule_ = Clock::now() + 1s;
+        }
+        for (auto it = executions_.begin(); it != executions_.end();) {
+            if (!it->second.poll()) {
+                ++it;
+                continue;
+            }
+            try {
+                it->second.take();
+            } catch (const std::exception& error) {
+                degraded_ = true;
+                log_process_event(
+                    "task-service",
+                    LogLevel::error,
+                    "task.execution_failed",
+                    {{"task_id", it->first}, {"message", error.what()}});
+            }
+            it = executions_.erase(it);
+        }
         if (!publication_ && !degraded_ && stage == Stage::running
             && (publication_wake_ || Clock::now() >= next_publication_)) {
             publication_.emplace(publish());
@@ -1059,7 +1107,7 @@ bool TaskHost::advance(service::RpcHost::Stage stage)
     // Accepted work retains its coroutine frame through all file and RPC waits,
     // even after a client disconnect. Never destroy locals still used by a pool.
     return stage == Stage::stopping_resources && !opening_.valid() && writing_.empty()
-        && !publication_;
+        && !publication_ && !scheduling_ && executions_.empty();
 }
 
 } // namespace asterion::tasks

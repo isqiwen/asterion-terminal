@@ -47,7 +47,6 @@ test(
         Object.assign(service, {
           id: params.service,
           port: Number(params.port),
-          active_workers: 2,
           endpoint: "",
           directory: "/test/remote/taskService",
           revision: "remote-revision",
@@ -70,7 +69,6 @@ test(
           state: "stopped",
           desired_running: false,
           health: "offline",
-          active_workers: 0,
         });
       }
       current = {
@@ -115,7 +113,7 @@ test(
     await service.getByText("管理服务", { exact: true }).click();
     await service.getByRole("button", { name: "停止", exact: true }).click();
     const stop = page.getByRole("dialog", { name: "停止服务" });
-    await expect(stop).toContainText("当前工作进程：2");
+    await expect(stop).toContainText("task");
     await page.screenshot({ path: "apps/clients/terminal/test-results/deployment-stop.png" });
     await stop.getByRole("button", { name: "取消", exact: true }).click();
     expect(mutations.filter(m => m.method === "node.action")).toHaveLength(0);

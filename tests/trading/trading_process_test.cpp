@@ -25,7 +25,7 @@ struct Host
         std::filesystem::create_directory(directory);
         // macOS's temp_directory_path can exceed sockaddr_un's path length.
         endpoint = "/tmp/ast-" + unique_process_id() + ".sock";
-        const auto executable = current_executable().parent_path() / "asterion-trading";
+        const auto executable = current_executable().parent_path() / "asterion_trading";
         const auto path = directory.u8string();
         process = std::make_unique<ChildProcess>(
             executable,

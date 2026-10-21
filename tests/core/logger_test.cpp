@@ -182,8 +182,11 @@ TEST_F(LogFixture, ProcessFailureEventsReuseTheSinkAndBoundRepeatedDiagnostics)
     EXPECT_EQ(logger, process_logger("bounded"));
     for (std::uint64_t i = 1; i <= 17; ++i)
         log_process_failure("bounded", "connection.failed", ErrorCode::unavailable, i);
+    log_process_failure("transport", "connection.failed", ErrorCode::unavailable, 32);
     std::vector<unsigned> counts;
+    unsigned files = 0;
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        ++files;
         std::ifstream stream(entry.path());
         std::string line;
         while (std::getline(stream, line)) {
@@ -193,7 +196,8 @@ TEST_F(LogFixture, ProcessFailureEventsReuseTheSinkAndBoundRepeatedDiagnostics)
             counts.push_back(record.at("fields").at("failures").get<unsigned>());
         }
     }
-    EXPECT_EQ(counts, (std::vector<unsigned>{1, 2, 4, 8, 16}));
+    EXPECT_EQ(files, 1);
+    EXPECT_EQ(counts, (std::vector<unsigned>{1, 2, 4, 8, 16, 32}));
     const auto before = process_log_failures();
     ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
     log_process_event("bounded", LogLevel::info, "creation.failed", {{"password", "test-secret"}});
@@ -222,4 +226,62 @@ TEST(Logger, TraceScopesRestoreAcrossFailuresAndThreads)
     });
     worker.join();
     EXPECT_EQ(current_trace_id(), outer);
+}
+
+TEST_F(LogFixture, NodePolicyFiltersAllModulesAndPrunesOnlyExpiredProcessLogs)
+{
+    const auto previous = std::getenv("ASTERION_LOG_DIRECTORY");
+    const auto saved = previous ? std::optional<std::string>(previous) : std::nullopt;
+
+    struct Restore
+    {
+        std::optional<std::string> value;
+
+        ~Restore()
+        {
+            if (value)
+                ::setenv("ASTERION_LOG_DIRECTORY", value->c_str(), 1);
+            else
+                ::unsetenv("ASTERION_LOG_DIRECTORY");
+        }
+    } restore{saved};
+
+    const auto logs = directory / "logs";
+    std::filesystem::create_directory(logs);
+    std::filesystem::create_directory(directory / "config");
+    std::ofstream(directory / "config" / "logging.json")
+        << R"({"level":"warning","retention_days":2})";
+    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
+    initialize_process_logging("agent", "local");
+    auto deployment = process_logger("deployment"), transport = process_logger("transport");
+    deployment->write(LogLevel::info, "hidden");
+    deployment->write(LogLevel::warning, "deployment.failed");
+    transport->write(LogLevel::warning, "transport.failed");
+    deployment->flush();
+    unsigned records = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
+        std::ifstream input(entry.path());
+        for (std::string line; std::getline(input, line);) {
+            const auto record = Json::parse(line);
+            EXPECT_EQ(record.at("level"), "warning");
+            EXPECT_EQ(record.at("process").at("program"), "agent");
+            EXPECT_EQ(record.at("process").at("instance"), "local");
+            EXPECT_EQ(
+                entry.path(),
+                process_log_file(logs, "agent", record.at("process").at("pid")));
+            ++records;
+        }
+    }
+    EXPECT_EQ(records, 2);
+    const auto expired = logs / "agent-999_2000-01-01.log";
+    const auto old_name = logs / "development-programs-old.log";
+    for (const auto& file : {expired, old_name}) {
+        std::ofstream(file) << "preserved unless owned by the process log policy";
+        std::filesystem::last_write_time(
+            file,
+            std::filesystem::file_time_type::clock::now() - std::chrono::hours(72));
+    }
+    prune_process_logs(logs);
+    EXPECT_FALSE(std::filesystem::exists(expired));
+    EXPECT_TRUE(std::filesystem::exists(old_name));
 }

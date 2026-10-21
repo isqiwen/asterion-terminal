@@ -11,9 +11,11 @@ import subprocess
 import sys
 import tempfile
 import signal
+import tarfile
 from generated_resources import publish_tree
 import macos_release
 import analytics_runtime
+import remote_resources
 
 ROOT = Path(__file__).resolve().parents[2]
 env = os.environ.copy()
@@ -26,6 +28,18 @@ def run(args, cwd=ROOT, environment=None):
     if executable is None:
         raise SystemExit(f"Required build tool not found: {args[0]}")
     subprocess.run([executable, *args[1:]], cwd=cwd, env=environment or env, check=True)
+
+
+def prepare_installer_services(archives, destination):
+    try:
+        remote_resources.stage(archives, destination)
+    except remote_resources.BundleNeedsBuild as error:
+        print(f"{error}\nBuilding embedded Linux services with Docker/OrbStack...", flush=True)
+        run(["bash", str(ROOT / "scripts/services/build_linux_services.sh")],
+            environment={**env, "ASTERION_LINUX_BUNDLES": str(archives.resolve())})
+        # Validate and publish the newly built output once; a failed rebuild is
+        # reported directly, never retried or replaced by an older bundle.
+        remote_resources.stage(archives, destination)
 
 
 def run_development():
@@ -70,17 +84,19 @@ MACOS = sys.platform == "darwin"
 LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 # Programs keep their name; shared libraries take the platform's suffix.
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
-NATIVE_FILES = set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-data-service",
-                    "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline")
+CONFIG_FILES = set(_resources["configuration"])
+NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
+SERVICE_PROGRAMS = ("asterion_trading", "asterion_node_agent", "asterion_node_manager", "asterion_market_data", "asterion_data_service",
+                    "asterion_task_service")
 
-def verify_native_resources(directory):
+def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
         raise ValueError("Native resource directory cannot be a symlink")
     entries = list(directory.rglob("*"))
     actual = {path.relative_to(directory).as_posix() for path in entries if path.is_file()}
-    if actual != NATIVE_FILES or any(path.is_symlink() or
-            (path.is_dir() and path.relative_to(directory).as_posix() != "plugins") for path in entries):
+    expected = NATIVE_FILES | ({"runtime-requirements.json"} if packaged and not MACOS else set())
+    if actual != expected or any(path.is_symlink() or
+            (path.is_dir() and path.relative_to(directory).as_posix() not in {"plugins", "config"}) for path in entries):
         raise ValueError("Native resources differ from the current distribution manifest")
 
 
@@ -93,8 +109,12 @@ def stage_native_resources(build, destination):
     with tempfile.TemporaryDirectory(prefix=".native-stage-", dir=destination.parent) as temporary:
         prepared = Path(temporary) / "native"
         (prepared / "plugins").mkdir(parents=True)
+        (prepared / "config").mkdir()
         for name in sorted(NATIVE_FILES):
-            stage_native(build / name, prepared / name)
+            if name in CONFIG_FILES:
+                shutil.copyfile(build / name, prepared / name)
+            else:
+                stage_native(build / name, prepared / name)
         verify_native_resources(prepared)
         publish_tree(prepared, destination)
 
@@ -102,18 +122,16 @@ def stage_native_resources(build, destination):
 def exercise_packaged_programs(native):
     """Task recovery and both vendor SDK lifecycles, run by the packaged programs."""
     def packaged(programs):
-        programs = {"ASTERION_NODE_AGENT_EXECUTABLE": "asterion-node-agent",
-                    "ASTERION_TRADING_EXECUTABLE": "asterion-trading", **programs}
+        programs = {"ASTERION_NODE_MANAGER_EXECUTABLE": "asterion_node_manager",
+                    "ASTERION_NODE_AGENT_EXECUTABLE": "asterion_node_agent",
+                    "ASTERION_TRADING_EXECUTABLE": "asterion_trading", **programs}
         return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
     isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
     run([*isolated, str(ROOT / "tests/tasks/task_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
-        environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion-data-service",
-                              "ASTERION_TASK_EXECUTABLE": "asterion-task-service",
-                              "ASTERION_BACKTEST_EXECUTABLE": "asterion-backtest",
-                              "ASTERION_FACTOR_EXECUTABLE": "asterion-factor",
-                              "ASTERION_DATA_PIPELINE_EXECUTABLE": "asterion-data-pipeline"}))
+        environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion_data_service",
+                              "ASTERION_TASK_EXECUTABLE": "asterion_task_service"}))
     run([*isolated, str(ROOT / "tests/market/ctp_sdk_smoke.py"), str(ROOT / "build/Release")],
-        environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion-market-data",
+        environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion_market_data",
                               "ASTERION_CTP_LIBRARY": "ctp-md" + LIBRARY_SUFFIX,
                               "ASTERION_CTP_CATALOG_LIBRARY": "ctp-trader" + LIBRARY_SUFFIX}))
 
@@ -135,7 +153,7 @@ def debian_dependencies(files, libraries):
             "Description: Asterion Terminal\n")
         executable = shutil.which("dpkg-shlibdeps", path=env["PATH"])
         if executable is None:
-            raise SystemExit("Debian packaging requires dpkg-dev (dpkg-shlibdeps)")
+            raise SystemExit("Runtime dependency analysis requires dpkg-dev (dpkg-shlibdeps)")
         output = subprocess.check_output(
             [executable, "-O", "--ignore-missing-info", *["-l" + str(path) for path in libraries],
              *["-e" + str(path) for path in files]],
@@ -149,37 +167,33 @@ def debian_dependencies(files, libraries):
 
 def verify_linux_package(distribution=True):
     if sys.platform != "linux":
-        raise SystemExit("Debian package verification requires Linux")
+        raise SystemExit("Installer verification requires Linux")
     output = ROOT / "build" / ("desktop" if distribution else "desktop-test")
-    packages = list(output.glob("*.deb"))
+    packages = list(output.glob("*.tar.gz"))
     if len(packages) != 1:
-        raise SystemExit("Expected exactly one current Debian package; inspect build outputs")
-    def field(name):
-        return subprocess.check_output(["dpkg-deb", "--field", str(packages[0]), name], text=True).strip()
-    version = json.loads((ROOT / "apps/clients/terminal/electron/package.json").read_text())["version"]
-    if (field("Package"), field("Version"), field("Architecture")) != ("asterion-terminal", version, "amd64"):
-        raise SystemExit("Debian package identity, version or architecture differs from this source")
+        raise SystemExit("Expected exactly one current installer archive; inspect build outputs")
     with tempfile.TemporaryDirectory(prefix="asterion-verify-") as folder:
-        # Unpacked beside nothing else; the package is never installed here.
-        run(["dpkg-deb", "--extract", str(packages[0]), folder])
-        applications = [path for path in (Path(folder) / "opt").iterdir() if path.is_dir()]
-        if len(applications) != 1:
-            raise SystemExit("Expected exactly one application in the Debian package")
-        app = applications[0]
+        with tarfile.open(packages[0]) as archive:
+            archive.extractall(folder, filter="data")
+        helpers = list(Path(folder).rglob("asterion_installer"))
+        if len(helpers) != 1:
+            raise SystemExit("Expected exactly one graphical installer")
+        app = helpers[0].parent / "resources/terminal"
         native = app / "resources/native"
-        verify_native_resources(native)
+        verify_native_resources(native, packaged=True)
         analytics_runtime.verify(app / "resources/analytics")
         run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify",
              "--directory", str(app / "resources/remote-linux")])
         # The bundled remote services run on other machines, not from this package.
         local = [path for path in elf_files(app) if app / "resources/remote-linux" not in path.parents]
-        missing = set(debian_dependencies(local, [app, app / "resources/analytics/_internal"])) - set(field("Depends").split(", "))
+        required = json.loads((app / "resources/native/runtime-requirements.json").read_text())
+        missing = set(debian_dependencies(local, [app, app / "resources/analytics/_internal"])) - set(required)
         if missing:
-            raise SystemExit("Debian package does not declare what its programs need: " + ", ".join(sorted(missing)))
+            raise SystemExit("Installer runtime requirements are incomplete: " + ", ".join(sorted(missing)))
         for name in SERVICE_PROGRAMS:
             run([str(native / name), "--version"])
         exercise_packaged_programs(native)
-    print("Debian package identity, declared dependencies, packaged task recovery and "
+    print("Installer resources, documented dependencies, packaged task recovery and "
           "vendor market/trader lifecycles verified")
 
 
@@ -191,12 +205,12 @@ def write_linux_evidence(package, installed_report):
         raise ValueError("Installed acceptance does not prove this exact package")
     report = {"status": "passed", "architecture": platform.machine(), "sha256": digest,
               "installer": package.name, "installed_acceptance": str(installed_report),
-              "depends": subprocess.check_output(["dpkg-deb", "--field", str(package), "Depends"], text=True).strip(),
+              "scope": "current user",
               "checks": ["package identity, version and architecture", "exact native resource set",
-                         "declared dependencies cover every packaged program",
+                         "documented dependencies cover every packaged program",
                          "bundled remote Linux services", "packaged task recovery and vendor SDK lifecycles",
                          "unpacked application acceptance"],
-              "limits": ["unsigned package", "not installed through dpkg; maintainer scripts not exercised"]}
+              "limits": ["unsigned archive", "OS service registration requires separate acceptance"]}
     (package.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
@@ -216,11 +230,12 @@ def verify_macos_bundle(distribution=True):
             apps = list(Path(folder).glob("*.app"))
             if len(apps) != 1:
                 raise SystemExit("Expected exactly one application in DMG")
-            app = apps[0]
+            run(["codesign", "--verify", "--deep", "--strict", str(apps[0])])
+            app = apps[0] / "Contents/Resources/terminal.app"
             verify_native_resources(app / "Contents/Resources/native")
             analytics_runtime.verify(app / "Contents/Resources/analytics")
             if distribution:
-                macos_release.verify_application(app, NATIVE_FILES)
+                macos_release.verify_application(app, NATIVE_FILES - CONFIG_FILES)
             minimum = "13.0"
             for program in (app / "Contents/Resources/analytics").rglob("*"):
                 if program.is_file():
@@ -229,23 +244,23 @@ def verify_macos_bundle(distribution=True):
                     if magic in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
                         verify_macos_target(program, minimum)
             for program in (app / "Contents/Resources/native").iterdir():
-                if program.is_file():
+                if program.is_file() and program.name not in CONFIG_FILES:
                     verify_macos_target(program, minimum)
             verify_macos_target(app / "Contents/Resources/native/ctp-md.dylib", minimum)
             run(["codesign", "--verify", "--deep", "--strict", str(app)])
             run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify", "--directory", str(app / "Contents/Resources/remote-linux")])
-            trading = app / "Contents/Resources/native/asterion-trading"
+            trading = app / "Contents/Resources/native/asterion_trading"
             if not trading.is_file():
                 raise SystemExit("DMG does not contain the trading sidecar")
             run(["codesign", "--verify", "--strict", str(trading)])
             run([str(trading), "--version"])
-            node = app / "Contents/Resources/native/asterion-node-agent"
+            node = app / "Contents/Resources/native/asterion_node_agent"
             run(["codesign", "--verify", "--strict", str(node)])
             run([str(node), "--version"])
-            market = app / "Contents/Resources/native/asterion-market-data"
+            market = app / "Contents/Resources/native/asterion_market_data"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion-data-service", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline"):
+            for name in ("asterion_data_service", "asterion_task_service"):
                 program = app / "Contents/Resources/native" / name
                 run(["codesign", "--verify", "--strict", str(program)])
                 run([str(program), "--version"])
@@ -276,15 +291,6 @@ def main():
     if mode != "check":
         resources = ROOT / "build/electron-resources/remote-linux"
         archives = Path(env.get("ASTERION_LINUX_BUNDLES", str(ROOT / "build/linux-bundles")))
-        if mode != "dev" and not (archives / "asterion-services-linux-x86_64.zip").is_file():
-            raise SystemExit(
-                "Missing required Linux x86_64 release bundle: "
-                + str(archives / "asterion-services-linux-x86_64.zip")
-                + "\nBuild it with scripts/services/build_linux_services.sh, or obtain the matching "
-                "source revision's remote-linux CI artifact and place it in this directory, or set "
-                "ASTERION_LINUX_BUNDLES to its directory. Packaging requires the bundled remote "
-                "services; pnpm desktop and pnpm desktop:check run without them."
-            )
         stage = [sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "stage", "--archives", str(archives)]
         if mode == "dev" and archives.is_dir():
             # Development must not block on the cross-built Linux bundle. A stale
@@ -297,8 +303,8 @@ def main():
                       "Local development will continue. Rebuild with "
                       "scripts/services/build_linux_services.sh before packaging or remote deployment.",
                       file=sys.stderr)
-        elif mode != "dev" or archives.is_dir():
-            run(stage)
+        elif mode != "dev":
+            prepare_installer_services(archives, resources)
         else:
             resources.mkdir(parents=True, exist_ok=True)
         env["ASTERION_REMOTE_RESOURCES"] = str(resources)
@@ -375,22 +381,28 @@ def main():
                "--mac" if MACOS else "--linux",
                "--config", "apps/clients/terminal/electron/builder.cjs"]
     env["ASTERION_PACKAGE_MODE"] = "release" if mode == "build" else "test"
+    # Acceptance packages exercise the same files without release-level compression cost.
+    env["ELECTRON_BUILDER_COMPRESSION_LEVEL"] = "9" if mode == "build" else "1"
     if not MACOS:
         # What the Electron runtime and the native programs link against on this
         # host decides which systems the package installs on.
         runtime = Path(json.loads(subprocess.check_output(
             ["node", "-p", "JSON.stringify(require('./scripts/desktop/electron-path.cjs')())"],
             cwd=ROOT, env=env, text=True))).parent
-        env["ASTERION_DEB_DEPENDS"] = json.dumps(
+        requirements = json.dumps(
             debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(analytics_runtime.DESTINATION),
                                 [runtime, analytics_runtime.DESTINATION / "_internal"]))
+        (native / "runtime-requirements.json").write_text(requirements + "\n")
     output = ROOT / "build" / ("desktop" if mode == "build" else "desktop-test")
     if output.exists():
         if output.is_symlink() or not output.is_dir():
             raise ValueError("Desktop output must be a generated directory")
         shutil.rmtree(output)
-    run(builder)
-    installers = list(output.glob("*.dmg" if MACOS else "*.deb"))
+    run(builder + ["--dir"])
+    run(["pnpm", "exec", "electron-builder", "--publish", "never",
+         "--mac" if MACOS else "--linux", "--arm64" if MACOS else "--x64",
+         "--config", "apps/clients/installer/electron/builder.cjs"])
+    installers = list(output.glob("*.dmg" if MACOS else "*.tar.gz"))
     if len(installers) != 1:
         raise ValueError("Expected exactly one current installer")
     if mode == "build" and MACOS:

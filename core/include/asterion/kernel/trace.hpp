@@ -20,7 +20,7 @@ private:
 
 std::string_view current_trace_id() noexcept;
 // A fresh process-unique request identity, with a payload-free link to the
-// current command/request in requests_YYYY-MM-DD.log when tracing is active.
+// current command/request in the process log (module requests) when tracing is active.
 std::string next_correlation_id();
 
 } // namespace asterion

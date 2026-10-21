@@ -1,0 +1,164 @@
+syntax = "proto3";
+package asterion.manager.proto;
+
+import "asterion/node.proto";
+
+message Empty {}
+
+message Endpoint {
+  string host = 1;
+  uint32 port = 2;
+  string session = 3;
+  string socket = 4;
+  string ca_file = 5;
+  string certificate_file = 6;
+  string private_key_file = 7;
+}
+
+message Node {
+  string id = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool online = 4;
+  int64 last_heartbeat_ms = 5;
+  int64 latency_ms = 6;
+  string error = 7;
+  node.proto.Status health = 8;
+}
+
+message Snapshot {
+  repeated Node nodes = 1;
+  uint64 pid = 2;
+}
+
+message Service {
+  string name = 1;
+  node.proto.ServiceKind kind = 2;
+}
+message Deployment {
+  string service = 1;
+  node.proto.ServiceKind kind = 2;
+  uint32 port = 3;
+}
+message Update {
+  string service = 1;
+  string revision = 2;
+}
+message Plugins {
+  repeated string hashes = 1;
+}
+message ConfigurePlugins {
+  string service = 1;
+  string revision = 2;
+  Plugins plugins = 3;
+}
+message Action {
+  string service = 1;
+  string action = 2;
+  string token = 3;
+}
+message NodeCommand {
+  string id = 1;
+  oneof operation {
+    Empty connect = 2;
+    Empty disconnect = 3;
+    Empty history = 4;
+    Service endpoint = 5;
+    string data_tasks = 6;
+    string local_session = 7;
+    Empty local_market = 8;
+    Plugins create_data_tasks = 9;
+    Empty local_data_tasks = 10;
+    ConfigurePlugins configure_plugins = 11;
+    Deployment deploy = 12;
+    Update update = 13;
+    Action action = 14;
+    Action firewall = 15;
+    string trading_session = 16;
+  }
+}
+
+message Ssh {
+  enum Operation {
+    UNSPECIFIED = 0;
+    PREPARE_KEY = 1;
+    ENROLL = 2;
+    REPLACE_IDENTITY = 3;
+    INSPECT_FIREWALL = 4;
+    APPLY_FIREWALL = 5;
+  }
+
+  Operation operation = 1;
+  string id = 2;
+  string host = 3;
+  string ssh_port = 4;
+  string username = 5;
+  string key_source = 6;
+  string private_key = 7;
+  string known_hosts = 8;
+  string agent_port = 9;
+  string firewall_port = 10;
+  string firewall_action = 11;
+  string token = 12;
+}
+
+// Installer maintenance uses the installed executor and Manager. Secrets are
+// transient request input; only SSH connection metadata is persisted.
+message Maintenance {
+  enum Action {
+    INSPECT = 0;
+    PREPARE = 1;
+    FINISH = 2;
+    UNINSTALL = 3;
+    CONFIGURE = 4;
+  }
+
+  Action action = 1;
+  string resources = 2;
+  string target_version = 3;
+  repeated string nodes = 4;
+  bool remove_data = 5;
+  repeated Ssh connections = 6;
+}
+
+message Request {
+  uint32 version = 1;
+  string correlation_id = 2;
+  oneof operation {
+    Empty snapshot = 10;
+    NodeCommand node = 11;
+    Ssh ssh = 12;
+    bool shutdown_development = 15;
+    Empty inventory = 16;
+    Maintenance maintenance = 17;
+  }
+}
+message DataTasks {
+  Endpoint task = 1;
+  Endpoint data = 2;
+}
+message HistoryService {
+  node.proto.ServiceKind kind = 1;
+  string directory = 2;
+  string state = 3;
+  string data_service = 4;
+  Endpoint address = 5;
+}
+message History {
+  repeated HistoryService services = 1;
+}
+message Response {
+  uint32 version = 1;
+  string correlation_id = 2;
+  Snapshot view = 3;
+  oneof result {
+    Snapshot snapshot = 10;
+    Endpoint endpoint = 11;
+    DataTasks data_tasks = 12;
+    History history = 13;
+    // UI projections of SSH/firewall/update results; never used for service routing.
+    string presentation = 14;
+    Empty accepted = 15;
+    node.proto.Error error = 16;
+  }
+}

@@ -1,0 +1,28 @@
+add_library(asterion_node_firewall STATIC firewall.cpp)
+target_include_directories(asterion_node_firewall PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_node_firewall PUBLIC Asterion::Kernel PRIVATE asio::asio OpenSSL::Crypto)
+
+add_library(asterion_node_storage STATIC
+  plugin_artifacts.cpp
+  service_configuration.cpp
+  program_preparation.cpp
+  upgrade_plan.cpp
+)
+target_include_directories(asterion_node_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_node_storage PUBLIC Asterion::Kernel asterion_protocol)
+
+add_library(asterion_node_supervision STATIC supervision_rpc.cpp)
+target_include_directories(asterion_node_supervision PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_node_supervision PUBLIC Asterion::Kernel asterion_protocol)
+
+add_library(asterion_node_operations STATIC artifact_uploads.cpp firewall_control.cpp)
+target_include_directories(asterion_node_operations PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_node_operations PUBLIC Asterion::Kernel asterion_protocol PRIVATE asterion_node_firewall)
+add_executable(asterion_node_agent main.cpp)
+target_compile_definitions(asterion_node_agent PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
+target_link_libraries(asterion_node_agent PRIVATE asterion_node_operations asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
+asterion_target_defaults(asterion_node_firewall)
+asterion_target_defaults(asterion_node_storage)
+asterion_target_defaults(asterion_node_supervision)
+asterion_target_defaults(asterion_node_operations)
+asterion_target_defaults(asterion_node_agent)

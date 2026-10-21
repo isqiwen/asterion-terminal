@@ -1,3 +1,5 @@
+#include <asterion/kernel/durable_file.hpp>
+#include "support/task_wait.hpp"
 #include "data/history_fixture.hpp"
 #include "table_update.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -7,6 +9,7 @@
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/task.hpp>
 #include <asterion/task.pb.h>
+#include <algorithm>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <thread>
@@ -48,7 +51,6 @@ struct Node
 {
     Folder warehouse{"ast-tw-"}, ledger{"ast-tl-"}, sockets{"ast-ts-"};
     const std::string endpoint = (sockets.path / "task.sock").string(),
-                      workers = (sockets.path / "worker.sock").string(),
                       data_endpoint = (sockets.path / "data.sock").string(),
                       data_workers = (sockets.path / "data.workers").string();
     ChildProcess data_service{
@@ -61,34 +63,44 @@ struct Node
             "table-test",
             "--endpoint",
             data_endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             data_workers,
             "--plugin-directory",
             PLUGIN_FIXTURE_DIRECTORY}
     };
     protocol::DataClient data{data_endpoint, "fixture-data"};
+
+    std::string policy()
+    {
+        const auto path = sockets.path / "task.json";
+        replace_file_durably(path, R"({"task_concurrency":2})");
+        return path.string();
+    }
+
     ChildProcess task_service{
         ASTERION_TASK_SERVICE_PATH,
-        {"--directory",
+        {"--config",
+            policy(),
+            "--directory",
             ledger.path.string(),
             "--endpoint",
             endpoint,
-            "--worker-endpoint",
-            workers,
             "--session",
             "table-test",
             "--data-instance",
             "fixture-data",
             "--data-endpoint",
-            data_workers}
+            data_workers,
+            "--plugin-directory",
+            PLUGIN_FIXTURE_DIRECTORY}
     };
 
-    task::proto::TaskResponse call(task::proto::TaskRequest request, bool worker = false)
+    task::proto::TaskResponse call(task::proto::TaskRequest request)
     {
         request.set_version(1);
         request.set_service_id("table-test");
         request.set_correlation_id(unique_process_id());
-        auto channel = ipc::Channel::connect(worker ? workers : endpoint, 2s);
+        auto channel = ipc::Channel::connect(endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
         task::proto::TaskResponse reply;
         if (!reply.ParseFromString(channel.receive(5s)))
@@ -105,7 +117,7 @@ struct Node
                 ping.mutable_heartbeat();
                 data::proto::DataRequest data_ping;
                 data_ping.mutable_heartbeat();
-                if (call(ping, true).health().initialized() && call(ping).health().initialized()
+                if (call(ping).health().initialized()
                     && data.call(data_ping).health().initialized())
                     break;
             } catch (const std::exception&) {
@@ -163,36 +175,8 @@ struct Node
         return run(id);
     }
 
-    task::proto::Task run(
-        const std::string& id,
-        const std::filesystem::path& cancel_control = {},
-        unsigned launch_slots = 1)
+    task::proto::Task run(const std::string& id, const std::filesystem::path& cancel_control = {})
     {
-        task::proto::TaskRequest dispatch;
-        dispatch.mutable_dispatch()->set_launch_slots(launch_slots);
-        auto launches = call(dispatch, true);
-        for (const auto deadline = std::chrono::steady_clock::now() + 10s;
-            launches.launches().launches().empty() && std::chrono::steady_clock::now() < deadline;
-            launches = call(dispatch, true))
-            std::this_thread::sleep_for(20ms);
-        EXPECT_EQ(launches.launches().launches_size(), 1) << launches.DebugString();
-        EXPECT_TRUE(launches.launches().launches(0).table_update());
-        EXPECT_EQ(launches.launches().launches(0).provider_artifact().size(), 64U);
-        const auto log = ledger.path / (id + "-" + unique_process_id() + ".log");
-        ChildProcess worker(
-            ASTERION_DATA_PIPELINE_PATH,
-            {"--endpoint",
-                workers,
-                "--session",
-                "table-test",
-                "--task",
-                id,
-                "--table-update",
-                "--plugin-directory",
-                PLUGIN_FIXTURE_DIRECTORY},
-            false,
-            log,
-            true);
         if (!cancel_control.empty()) {
             const auto deadline = std::chrono::steady_clock::now() + 10s;
             while (contents(cancel_control) != "waiting"
@@ -203,7 +187,11 @@ struct Node
             cancel.mutable_cancel()->set_id(id);
             EXPECT_TRUE(call(cancel).has_task());
         }
-        EXPECT_TRUE(worker.wait(20s)) << contents(log);
+        (void)testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            id);
         task::proto::TaskRequest get;
         get.mutable_get()->set_id(id);
         return call(get).task();
@@ -544,7 +532,7 @@ TEST(TableRefresh, ADelayedMissingOnlyFetchCannotReplaceANewlyStoredPartition)
     ASSERT_EQ(contents(control.path), "holding");
     control.set("corrected");
     node.submit_definition("creator", next);
-    ASSERT_EQ(node.run("creator", {}, 2).state(), task::proto::SUCCEEDED);
+    ASSERT_EQ(node.run("creator").state(), task::proto::SUCCEEDED);
     const auto snapshot = node.coverage().snapshot();
     control.set("release");
     ASSERT_EQ(late.get().state(), task::proto::SUCCEEDED);

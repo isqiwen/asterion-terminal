@@ -215,7 +215,6 @@ TEST(TerminalEnvironment, SeparatesManagedPathsAndServiceIdentityWithoutCreating
     setenv("ASTERION_NODE_DIRECTORY", isolated.path.c_str(), 1);
     EXPECT_EQ(terminal::local_node_directory(), isolated.path);
     EXPECT_EQ(terminal::node_enrollment_directory(), isolated.path / "enrollments");
-    EXPECT_EQ(terminal::local_node_program_status().at("state"), "isolated");
     EXPECT_FALSE(fs::exists(isolated.path));
     setenv("ASTERION_ENVIRONMENT", "invalid", 1);
     EXPECT_THROW(terminal::local_node_directory(), std::invalid_argument);

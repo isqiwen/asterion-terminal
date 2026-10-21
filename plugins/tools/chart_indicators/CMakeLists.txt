@@ -1,0 +1,3 @@
+add_library(asterion_chart_indicators STATIC macd.cpp calendar_bars.cpp)
+target_include_directories(asterion_chart_indicators PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_chart_indicators PUBLIC Asterion::Domain)

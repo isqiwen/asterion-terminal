@@ -5,7 +5,7 @@
 当前范围：**只开发 macOS（Apple Silicon）与 Linux x86_64 上的 Terminal，只做期货。**
 
 行情、数据、任务、账户交易分别运行于独立服务进程，由 Node Agent 管理；
-下载、回测和因子计算使用按需工作进程。见[架构与状态所有权](docs/architecture.md)。
+下载、回测和因子计算由任务服务内部线程池执行。见[架构与状态所有权](docs/architecture.md)。
 
 ## 能做什么
 
@@ -45,7 +45,10 @@ pnpm desktop --prepare-analytics    # 首次显式准备分析助手、构建并
 | `core/` | C++ 基础（Decimal、ID、时间、错误）、内核（插件、IPC、进程、日志）、期货领域模型 |
 | `plugins/` | 数据（CTP、Tushare、SHFE、历史数据源注册）、执行（回测撮合、CTP）、存储、策略、风控、工具插件 |
 | `protocol/` | Protobuf 契约与校验 |
-| `apps/services/` | 常驻服务：node-agent、market-data、trading、data-service、task-service；任务工作程序：backtest、factor、data-pipeline |
+| `apps/management/` | 管理进程：node-manager、node-agent，由操作系统独立监督 |
+| `apps/services/` | 常驻业务服务：market-data、trading、data-service、task-service |
+| `apps/common/control/` | 应用共享的控制机制，不拥有业务或节点登记状态 |
+| `apps/clients/installer/` | 安装器 Electron 宿主、原生维护执行器与发行描述模板 |
 | `apps/clients/terminal/` | 桌面终端：Electron 主进程、React 宿主与工作区插件、C++ 应用编排 |
 | `bindings/` | C ABI 与 Node-API 绑定 |
 | `packages/client-ui/` | 终端使用的图表组件 |
@@ -54,7 +57,7 @@ pnpm desktop --prepare-analytics    # 首次显式准备分析助手、构建并
 ## 文档
 
 - [产品需求：个人期货研究与实盘交易](docs/requirements/README.md)
-- [架构](docs/architecture.md)
+- [当前架构](docs/architecture.md) · [需求驱动目标设计](docs/reviews/architecture-design-review.md)
 - [开发指南](docs/development.md)
 - [终端界面](docs/terminal.md)
 - [行情与数据](docs/market-data.md)

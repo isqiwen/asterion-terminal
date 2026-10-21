@@ -613,7 +613,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
             "historical-data",
             "--task-instance",
             "task",
-            "--worker-endpoint",
+            "--internal-endpoint",
             endpoint + ".workers"});
     auto call = [&](data::proto::DataRequest request) {
         request.set_version(1);

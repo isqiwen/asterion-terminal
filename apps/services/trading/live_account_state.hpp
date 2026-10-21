@@ -259,6 +259,7 @@ private:
     std::unique_ptr<const AccountPolicy> policy_;
     BrokerSendGate& send_gate_;
     std::unique_ptr<ctp::Trader> trader_;
+    protocol::proto::TradingEnvironment environment_;
     std::string account_id_, trade_front_, app_id_, broker_id_, investor_id_;
     // Journal record 0; the durable form of the account's creation.
     Json header_;

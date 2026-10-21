@@ -1,0 +1,8 @@
+{
+  "name": "asterion_installer",
+  "version": "0.1.0",
+  "description": "Install, upgrade and uninstall Asterion Terminal for the current user",
+  "author": "Asterion",
+  "private": true,
+  "main": "main.cjs"
+}

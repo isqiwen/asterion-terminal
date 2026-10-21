@@ -147,7 +147,11 @@ export function CtpConnections({
                 {t("确认删除账户")}
               </button>
             ) : (
-              <button disabled={busy} onClick={() => setRemoving(connection.id)}>
+              <button
+                disabled={busy || !!connection.trading}
+                onClick={() => setRemoving(connection.id)}
+                title={connection.trading ? t("已绑定交易实例，请保留账户登记。") : undefined}
+              >
                 {t("删除账户")}
               </button>
             )}

@@ -313,7 +313,7 @@ PythonRunner（外部基线路径 `../../../FinceptTerminal/fincept-qt/src/pytho
 [实时策略 host](../../apps/services/trading/strategy_host.hpp)、
 [订单限额](../../plugins/risk/order-limits/order_limits.hpp)、
 [资格规则](../../plugins/tools/factor_analysis/universe.cpp)、
-[因子引擎](../../apps/services/factor/engine.cpp)、
+[因子引擎](../../apps/services/task-service/factor/engine.cpp)、
 [历史保证金解析](../../apps/services/data-service/historical_margins.cpp)、
 [窗口草稿](../../apps/clients/terminal/src/host/workspace/drafts.tsx)。
 

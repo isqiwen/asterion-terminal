@@ -21,11 +21,11 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
             std::ranges::find(data.source_dataset_ids(), id) != data.source_dataset_ids().end();
     }
     const auto task_address = client->endpoint();
-    const auto inspected_nodes = nodes;
+    std::map<std::string, std::shared_ptr<NodeClient>> inspected_nodes;
+    for (const auto& node : manager.view())
+        inspected_nodes.emplace(node.id, manager.node(node.id));
     auto report = (co_await run<json>([&]() -> PolledTask<json> {
-        const auto registered = (co_await service_io.admin<json>([&] {
-            return registered_node_inventory();
-        }));
+        const auto registered = (co_await PollFuture{manager.inventory()});
         auto usage = (co_await PollFuture{client->history_usage(id)});
         const auto data_usage = (co_await PollFuture{warehouse->history_usage(id)});
         for (const auto& reference : data_usage.at("references"))
@@ -123,14 +123,14 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                         {"error", e.what()}});
             }
         }
-        if ((co_await service_io.admin<json>([&] {
-                return registered_node_inventory();
-            }))
-            != registered)
+        if ((co_await PollFuture{manager.inventory()}) != registered)
             throw Error(ErrorCode::conflict, "registered nodes changed during archive query");
         co_return usage;
     }));
-    if (nodes != inspected_nodes)
+    if (manager.view().size() != inspected_nodes.size()
+        || std::ranges::any_of(manager.view(), [&](const auto& node) {
+               return !inspected_nodes.contains(node.id);
+           }))
         throw Error(ErrorCode::conflict, "node connections changed during archive query");
     if (generation != data_task_generation)
         throw Error(

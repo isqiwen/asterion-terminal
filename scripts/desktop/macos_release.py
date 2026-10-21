@@ -84,7 +84,7 @@ def verify_application(app, native_files):
         raise ValueError("Distribution application lacks a Developer ID signature")
     if not has_hardened_runtime(description):
         raise ValueError("Distribution application lacks hardened runtime signing")
-    if "arm64" not in output(["lipo", "-archs", str(app / "Contents/MacOS/asterion-terminal")]).split():
+    if "arm64" not in output(["lipo", "-archs", str(app / "Contents/MacOS/asterion_terminal")]).split():
         raise ValueError("Application is not built for Apple Silicon")
     for name in sorted(native_files):
         binary = app / "Contents/Resources/native" / name

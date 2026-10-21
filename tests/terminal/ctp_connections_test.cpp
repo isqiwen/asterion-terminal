@@ -232,3 +232,38 @@ TEST(CtpConnections, MarketCredentialFailuresNeverExposeSecretsOrWriteAccountPas
     EXPECT_THROW(unavailable.remember_market_credentials("a", {"password", "auth"}), Error);
     EXPECT_THROW(unavailable.market_credentials(unavailable.get("a")), Error);
 }
+
+TEST(CtpConnections, TradingBindingSurvivesReopenAndPreventsSecondExecutionLocation)
+{
+    Directory root;
+    const auto folder = root.path / "ctp-connections";
+    terminal::CtpConnections connections(folder);
+    connections.save(simnow("real"), "");
+    connections.save(simnow("simulation"), "");
+    connections.bind_trading("real", connections.get("real").revision, {"machine-a", "trading"});
+    terminal::CtpConnections reopened(folder);
+    const auto account = reopened.get("real");
+    ASSERT_TRUE(account.trading);
+    EXPECT_EQ(account.trading->node, "machine-a");
+    EXPECT_EQ(account.trading->service, "trading");
+    EXPECT_THROW(reopened.bind_trading("real", account.revision, {"machine-b", "trading"}), Error);
+    EXPECT_THROW(
+        reopened.bind_trading(
+            "simulation",
+            reopened.get("simulation").revision,
+            {"machine-a", "trading"}),
+        Error);
+    // Service names are scoped to their node, not globally unique.
+    reopened.bind_trading(
+        "simulation",
+        reopened.get("simulation").revision,
+        {"machine-b", "trading"});
+    auto renamed = account;
+    renamed.name = "Account A";
+    reopened.save(renamed, account.revision);
+    EXPECT_EQ(reopened.get("real").trading, account.trading);
+    renamed = reopened.get("real");
+    renamed.trade_front = "tcp://other-host:1234";
+    EXPECT_THROW(reopened.save(renamed, renamed.revision), Error);
+    EXPECT_THROW(reopened.remove("real", reopened.get("real").revision), Error);
+}

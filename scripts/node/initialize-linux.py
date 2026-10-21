@@ -8,6 +8,7 @@ import argparse
 import base64
 import errno
 import grp
+import json
 import os
 from pathlib import Path
 import pwd
@@ -19,7 +20,8 @@ import tempfile
 
 ACCOUNT = 'asterion'
 HOME = '/var/lib/asterion'
-HELPER = Path('/usr/local/sbin/asterion-host')
+HELPER = Path('/usr/local/sbin/asterion_host')
+UNITS = Path('/etc/systemd/system')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 
 
@@ -117,7 +119,7 @@ def service_text(identity, port, bind):
     root = f'{HOME}/nodes/{identity}'
     return (f'[Unit]\nDescription=Asterion Node Agent\nAfter=network.target\nStartLimitIntervalSec=60\nStartLimitBurst=3\n'
             f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
-            f'ExecStart={root}/asterion-node-agent --directory {root}/state --bind {bind} --port {port} '
+            f'ExecStart={root}/asterion_node_agent --directory {root}/state --bind {bind} --port {port} '
             f'--tls-ca {root}/ca.crt --tls-cert {root}/server.crt --tls-key {root}/server.key\n'
             'NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n'
             f'ReadWritePaths={HOME}\nCapabilityBoundingSet=\nRestrictSUIDSGID=yes\n'
@@ -127,16 +129,54 @@ def service_text(identity, port, bind):
 def manage(arguments):
     account()
     if arguments == ['check']:
-        print('asterion-host')
+        print('asterion_host')
         return
-    if len(arguments) != 4 or arguments[0] != 'install':
-        raise ValueError('Only check and install NODE PORT BIND are supported')
-    _, identity, port, bind = arguments
-    definition = service_text(identity, int(port), bind)
+    if arguments == ['capabilities']:
+        print(json.dumps(['install', 'stop', 'start', 'remove']))
+        return
+    if len(arguments) == 4 and arguments[0] == 'install':
+        _, identity, port, bind = arguments
+        definition = service_text(identity, int(port), bind)
+        unit = f'asterion-node-agent-{identity}.service'
+        put_once(UNITS / unit, definition, 0o644)
+        run('/usr/bin/systemctl', 'daemon-reload')
+        run('/usr/bin/systemctl', 'enable', '--now', unit)
+        return
+    if len(arguments) != 2 or arguments[0] not in ('stop', 'start', 'remove'):
+        raise ValueError('Expected install NODE PORT BIND, stop/start/remove NODE, check or capabilities')
+    action, identity = arguments
+    if not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_-]{0,40}', identity):
+        raise ValueError('Invalid node ID')
     unit = f'asterion-node-agent-{identity}.service'
-    put_once(Path('/etc/systemd/system') / unit, definition, 0o644)
-    run('/usr/bin/systemctl', 'daemon-reload')
-    run('/usr/bin/systemctl', 'enable', '--now', unit)
+    file = UNITS / unit
+    protected_directory(file.parent)
+    if action == 'remove' and not file.exists() and not file.is_symlink():
+        run('/usr/bin/systemctl', 'daemon-reload')
+        return
+    # Only a root-owned definition matching this node's fixed service is accepted.
+    fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size > 8192:
+            raise ValueError('Unsafe Agent system service definition')
+        text = source.read()
+    match = re.search(r' --bind (0\.0\.0\.0|::) --port ([0-9]+) ', text)
+    if not match:
+        raise ValueError('Unrecognized Agent system service')
+    if text != service_text(identity, int(match[2]), match[1]):
+        raise ValueError("Agent system service definition differs")
+    if action == 'start':
+        run('/usr/bin/systemctl', 'enable', '--now', unit)
+    else:
+        run('/usr/bin/systemctl', 'disable', '--now', unit)
+        state = run('/usr/bin/systemctl', 'show', '--property=ActiveState', '--value', unit,
+                    capture_output=True, text=True).stdout.strip()
+        if state not in ('inactive', 'failed'):
+            raise ValueError('Agent system service has not stopped')
+        if action == 'remove':
+            file.unlink()
+            sync_directory(file.parent)
+            run('/usr/bin/systemctl', 'daemon-reload')
 
 
 def initialize(arguments):
@@ -190,7 +230,7 @@ def initialize(arguments):
             ssh_file.unlink()
             sync_directory(ssh_file.parent)
         raise
-    put_once(Path('/etc/sudoers.d/asterion-host'), policy, 0o440)
+    put_once(Path('/etc/sudoers.d/asterion_host'), policy, 0o440)
     run('/usr/sbin/visudo', '-c', stdout=subprocess.DEVNULL)
     # Verify the active unit before reloading it; do not start or enable global services.
     for unit in ('ssh.service', 'sshd.service'):

@@ -6,8 +6,9 @@
 
 namespace asterion::tasks {
 
-// Owned by the task I/O thread. Two worker completions retain their own capacity; a public result
-// read cannot occupy either slot. Reject excess/duplicate work before loading owned inputs.
+// Owned by the task I/O thread. Two task completions retain their own capacity; a public result
+// read cannot occupy either slot. Internal executions can wait before acquiring a slot;
+// no owned input is loaded while waiting. Public excess work is rejected.
 class VerificationSlots
 {
 public:
@@ -52,6 +53,11 @@ public:
             throw Error(ErrorCode::resource_exhausted, "task verification capacity is busy");
         lease.owner_ = this;
         return lease;
+    }
+
+    bool completion_available() const
+    {
+        return completions_.size() < 2;
     }
 
 private:

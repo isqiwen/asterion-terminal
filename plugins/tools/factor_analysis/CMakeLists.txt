@@ -1,0 +1,4 @@
+add_library(asterion_factor_analysis STATIC evaluation.cpp walk_forward.cpp universe.cpp)
+target_include_directories(asterion_factor_analysis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_factor_analysis PUBLIC Asterion::Domain)
+asterion_target_defaults(asterion_factor_analysis)

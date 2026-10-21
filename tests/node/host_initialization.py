@@ -20,7 +20,7 @@ class HostInitialization(unittest.TestCase):
         output = io.StringIO()
         with patch.object(host, 'account'), contextlib.redirect_stdout(output), patch.object(host, 'run') as run:
             host.manage(['check'])
-        self.assertEqual(output.getvalue(), 'asterion-host\n')
+        self.assertEqual(output.getvalue(), 'asterion_host\n')
         run.assert_not_called()
 
     def test_failed_file_flush_does_not_publish_partial_administrative_configuration(self):
@@ -79,7 +79,7 @@ class HostInitialization(unittest.TestCase):
         self.assertIn('User=asterion\nGroup=asterion\n', unit)
         self.assertIn('NoNewPrivileges=yes\n', unit)
         self.assertIn('CapabilityBoundingSet=\n', unit)
-        self.assertIn('/var/lib/asterion/nodes/node-1/asterion-node-agent', unit)
+        self.assertIn('/var/lib/asterion/nodes/node-1/asterion_node_agent', unit)
         for identity, port, bind in [('../escape', 7442, '::'), ('x\nUser=root', 7442, '::'), ('x', 22, '::'), ('x', 65536, '::'), ('x', 7442, '::\nUser=root')]:
             with self.assertRaises(ValueError):
                 host.service_text(identity, port, bind)

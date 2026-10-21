@@ -35,8 +35,6 @@ const service = (id: string, kind: Service["kind"]): Service => ({
   kind,
   task_service: kind === "data" ? "task" : "",
   data_service: kind === "task" ? "historical-data" : "",
-  active_workers: 0,
-  resource_request: { cpu_slots: 1, memory_mib: 256, io_slots: 1 },
   plugin_artifacts: [],
   id,
   artifact: "a".repeat(64),
@@ -98,12 +96,6 @@ export function readySnapshot(): Snapshot {
       subscriptions: [],
     },
     ssh_key: null,
-    agent_program: {
-      state: "current",
-      expected_digest: "a".repeat(64),
-      installed_digest: "a".repeat(64),
-      bundled_digest: "a".repeat(64),
-    },
     firewall_plan: null,
     nodes: [
       {
@@ -119,8 +111,7 @@ export function readySnapshot(): Snapshot {
           phase: "ready",
           failure: null,
           execution,
-          worker_capacity: { limit: 4, owned: 0, reserved: 0 },
-          resource_budget: null,
+          host_resources: null,
           maintenance: false,
           pid: 1,
           os: "linux",
@@ -146,6 +137,7 @@ export function readySnapshot(): Snapshot {
     native_plugins: { directory: "", items: [] },
     plugins: [],
     diagnostics: {
+      log_directory: "/test-node/logs",
       succeeded: 0,
       failed: 0,
       log_failures: 0,

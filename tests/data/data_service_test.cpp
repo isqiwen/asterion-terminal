@@ -1,3 +1,5 @@
+#include "support/task_wait.hpp"
+#include "support/task_wait.hpp"
 #include "data_store.hpp"
 #include "data/history_requests.hpp"
 #include "download_budget.hpp"
@@ -368,7 +370,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
             "tasks-one",
             "--endpoint",
             endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             worker
         },
         false,
@@ -478,7 +480,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
             "tasks-one",
             "--endpoint",
             restored_endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             (sockets.path / "restored.workers").string(),
             "--plugin-directory",
             empty_plugins.path.string()},
@@ -534,7 +536,7 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
     EXPECT_TRUE(data.archive().datasets({}).empty());
 }
 
-TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataStartupDependency)
+TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutDataStartupDependency)
 {
     using namespace std::chrono_literals;
     Folder tasks, warehouse, sockets;
@@ -578,14 +580,15 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     const auto data_workers = (sockets.path / "data.workers").string();
     ChildProcess coordinator(
         ASTERION_TASK_SERVICE_PATH,
-        {"--directory",
+        {"--config",
+            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
+                .string(),
+            "--directory",
             tasks.path.string(),
             "--session",
             "tasks-one",
             "--endpoint",
             task_endpoint,
-            "--worker-endpoint",
-            task_workers,
             "--data-instance",
             "data-one",
             "--data-endpoint",
@@ -628,9 +631,6 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     task::proto::TaskRequest cancel;
     cancel.mutable_cancel()->set_id(id);
     EXPECT_EQ(call(cancel).task().state(), task::proto::PUBLISHING);
-    task::proto::TaskRequest dispatch;
-    dispatch.mutable_dispatch()->set_launch_slots(2);
-    EXPECT_EQ(call(dispatch, true).launches().launches_size(), 0);
     // Data can start later. No claim, heartbeat, redownload, or new decision is sent.
     auto data_process = std::make_unique<ChildProcess>(
         ASTERION_DATA_SERVICE_PATH,
@@ -643,7 +643,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
             "tasks-one",
             "--endpoint",
             data_endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             data_workers
         },
         false,
@@ -655,7 +655,6 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
         && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(20ms);
     ASSERT_EQ(call(get).task().state(), task::proto::SUCCEEDED);
-    ASSERT_EQ(call(dispatch, true).launches().launches_size(), 1);
     ASSERT_EQ(call(get).task().publication().SerializeAsString(), decision.SerializeAsString());
     protocol::DataClient data(data_workers, "data-one");
     data::proto::DataRequest published;
@@ -672,7 +671,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     EXPECT_EQ(call(result).minutes().manifest_sha256(), dataset_id);
 }
 
-TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
+TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
 {
     using namespace std::chrono_literals;
     Folder tasks, warehouse, sockets;
@@ -701,19 +700,20 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
             "tasks-one",
             "--endpoint",
             data_endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             data_workers
         });
     ChildProcess task_process(
         ASTERION_TASK_SERVICE_PATH,
-        {"--directory",
+        {"--config",
+            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
+                .string(),
+            "--directory",
             tasks.path.string(),
             "--session",
             "tasks-one",
             "--endpoint",
             task_endpoint,
-            "--worker-endpoint",
-            task_endpoint + ".workers",
             "--data-instance",
             "data-one",
             "--data-endpoint",
@@ -795,32 +795,15 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData)
     factor->set_full_sample(true);
     ASSERT_EQ(call(submit).task().kind(), task::proto::FACTOR);
 
-    // A mismatched executable must not consume the queued factor attempt.
-    {
-        ChildProcess wrong(
-            ASTERION_BACKTEST_PATH,
-            {"--endpoint",
-                task_endpoint + ".workers",
-                "--session",
-                "tasks-one",
-                "--task",
-                "factor"});
-        ASSERT_TRUE(wrong.wait(10s));
-        EXPECT_NE(wrong.exit_code(), 0);
-        task::proto::TaskRequest get;
-        get.mutable_get()->set_id("factor");
-        EXPECT_EQ(call(get).task().state(), task::proto::QUEUED);
-        EXPECT_EQ(call(get).task().attempt(), 0U);
-    }
-    for (const auto& [program, id] :
-        {std::pair{ASTERION_BACKTEST_PATH, "backtest"},
-            std::pair{ASTERION_FACTOR_PATH, "factor"}}) {
-        ChildProcess worker(
-            program,
-            {"--endpoint", task_endpoint + ".workers", "--session", "tasks-one", "--task", id});
-        ASSERT_TRUE(worker.wait(15s));
-        ASSERT_EQ(worker.exit_code(), 0);
-    }
+    for (const auto* id : {"backtest", "factor"})
+        ASSERT_EQ(
+            testing_support::wait_task(
+                [&](auto request) {
+                    return call(request);
+                },
+                id)
+                .state(),
+            task::proto::SUCCEEDED);
     data_process.reset();
     fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
     task::proto::TaskRequest get;
@@ -883,7 +866,7 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput)
             "task",
             "--endpoint",
             endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             worker,
             "--file-workers",
             "1"});

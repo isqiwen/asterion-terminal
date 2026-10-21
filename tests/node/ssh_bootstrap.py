@@ -17,6 +17,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
     known=root/'known_hosts'; known.write_text('test fixture, never passed to real ssh\n')
     with socket.socket() as listener:
         listener.bind(('127.0.0.1',0)); port=listener.getsockname()[1]
+    (root/'local').mkdir()
     resources=make_bundle(root/'resources',Path(sys.argv[2]).resolve().parent)
     env=dict(os.environ,ASTERION_REMOTE_RESOURCES=str(resources),ASTERION_NODE_DIRECTORY=str(root/'local'),ASTERION_SSH_TOOL_DIRECTORY=str(tools),ASTERION_SSH_FIXTURE=str(remote))
     host=subprocess.Popen([sys.argv[1]],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
@@ -74,13 +75,19 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         (remote/'fail_install').unlink(); (remote/'fail_file_sync').touch()
         assert 'error' in call('node.bootstrap',request)
         deployed=remote/'deployed'
-        assert not (deployed/'asterion-node-agent').exists(), 'failed file flush published an executable'
+        assert not (deployed/'asterion_node_agent').exists(), 'failed file flush published an executable'
         assert not (deployed/'install.json').exists(), 'failed prerequisites committed an installation'
         assert not list(deployed.glob('.asterion-publish-*'))
         (remote/'fail_file_sync').unlink(); (remote/'fail_publish_sync').touch()
         assert 'error' in call('node.bootstrap',request)
-        executable=deployed/'asterion-node-agent'
+        executable=deployed/'asterion_node_agent'
         assert executable.is_file() and not (deployed/'install.json').exists()
+        policy = deployed / 'state/config/task.json'
+        assert json.loads(policy.read_text()) == {"task_concurrency": 2}
+        assert json.loads((deployed / 'state/config/logging.json').read_text())["level"] == "info"
+        policy.write_text('{"task_concurrency":5}\n')
+        original_policy = policy.read_bytes()
+        original_mtime = policy.stat().st_mtime_ns
         before=executable.stat()
         (remote/'fail_publish_sync').unlink()
         result=call('node.bootstrap',request)
@@ -88,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         after=executable.stat()
         assert (before.st_ino,before.st_mtime_ns)==(after.st_ino,after.st_mtime_ns), 'retry rewrote the published program'
         assert (deployed/'install.json').is_file()
+        assert policy.read_bytes() == original_policy and policy.stat().st_mtime_ns == original_mtime
         assert (enrollment/'client.key').read_bytes()==fingerprint
         assert not (enrollment/'ca.key').exists()
         assert not list(remote.glob('.asterion-install-*'))

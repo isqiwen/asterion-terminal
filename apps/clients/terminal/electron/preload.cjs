@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld(
     },
     request: request => ipcRenderer.invoke("asterion:request", request),
     openSettings: category => ipcRenderer.invoke("asterion:settings", category),
+    openLogs: () => ipcRenderer.invoke("asterion:logs"),
     open: options => ipcRenderer.invoke("asterion:open", options),
     save: options => ipcRenderer.invoke("asterion:save", options),
     setTitle: title => ipcRenderer.invoke("asterion:title", title),

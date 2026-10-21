@@ -95,16 +95,16 @@ jobs:
       - run: python scripts/services/deployment_bundle.py build/Release
       - name: Verify native Linux executables
         run: |
-          ./build/Release/asterion-node-agent --version
-          ./build/Release/asterion-trading --version
-          ./build/Release/asterion-market-data --version
-          ./build/Release/asterion-data-service --version
-          ./build/Release/asterion-task-service --version
-          ./build/Release/asterion-backtest --version
-          ./build/Release/asterion-factor --version
-          ./build/Release/asterion-data-pipeline --version
-          ldd build/Release/asterion-node-agent
-          ldd build/Release/asterion-trading
+          ./build/Release/asterion_node_agent --version
+          ./build/Release/asterion_trading --version
+          ./build/Release/asterion_market_data --version
+          ./build/Release/asterion_data_service --version
+          ./build/Release/asterion_task_service --version
+          ./build/Release/asterion_backtest --version
+          ./build/Release/asterion_factor --version
+          ./build/Release/asterion_data_pipeline --version
+          ldd build/Release/asterion_node_agent
+          ldd build/Release/asterion_trading
       - uses: actions/upload-artifact@v4
         with:
           name: remote-linux-${{ matrix.arch }}
@@ -215,7 +215,7 @@ jobs:
       - run: ctest --preset conan-release --output-on-failure
       - name: Exercise unpacked Linux desktop
         timeout-minutes: 8
-        run: xvfb-run -a python tests/desktop/electron_installer.py build/desktop-test/*.deb
+        run: xvfb-run -a python tests/desktop/electron_installer.py build/desktop-test/*.tar.gz
       - name: Upload unpacked desktop evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -227,7 +227,7 @@ jobs:
         with:
           name: terminal-test-linux
           if-no-files-found: error
-          path: build/desktop-test/*.deb
+          path: build/desktop-test/*.tar.gz
 
   core-sanitizers:
     strategy:

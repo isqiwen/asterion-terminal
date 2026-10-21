@@ -1,5 +1,5 @@
 {
-  // Setup and daily development on macOS and Linux. Release commands: docs/development.md.
+  // Development and installer packaging on macOS and Linux: docs/development.md.
   "version": "2.0.0",
   "tasks": [
     {
@@ -24,6 +24,17 @@
       "command": "pnpm desktop:check",
       "problemMatcher": ["$gcc"],
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Installer: build release",
+      "detail": "Build and verify the release installer in build/desktop; reuses matching Linux services or builds them with Docker/OrbStack; requires prepared analytics and macOS signing credentials on macOS",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["desktop:build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": "build",
+      "presentation": { "panel": "dedicated", "reveal": "always" }
     },
     {
       "label": "Check: types, lint, format",

@@ -19,16 +19,6 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByRole("button", { name: "Connections & deployment", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
   await page.getByRole("button", { name: "Machines", exact: true }).click();
-  await page.getByText("Service Manager Program", { exact: true }).click();
-  await page.getByRole("button", { name: "Check Program Updates", exact: true }).click();
-  await expect(
-    page.getByText("System installation is not managed in development", { exact: true }),
-  ).toBeVisible();
-  const denied = await page.request.post("/__asterion/api", {
-    data: { version: 1, method: "node.agent.upgrade", params: { expected_digest: "0".repeat(64) } },
-  });
-  expect((await denied.json()).error).toBeTruthy();
-
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
   await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(4);
   page = await closeSettingsWindow(page);

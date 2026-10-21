@@ -106,7 +106,7 @@ CA、服务端、管理员和业务客户端证书都只有 365 天有效期，C
 
 ### R7 常驻进程准入不保证任务有执行资源
 
-位置：`apps/services/node-agent/resource_budget.hpp:39`、`main.cpp:327`、`main.cpp:538`、`main.cpp:727`；配对部署在 `apps/clients/terminal/native/commands_node.cpp:29`。
+位置：`apps/management/node-agent/resource_budget.hpp:39`、`main.cpp:327`、`main.cpp:538`、`main.cpp:727`；配对部署在 `apps/clients/terminal/native/commands_node.cpp:29`。
 
 资源模型对每个服务分别准入，不保留 worker 的最小执行容量。以 10 CPU、足够内存的本机节点为例：文件池大小为 2，总 I/O 额度为 10；Data 占 3、Task 占 3、Market 占 1。再启动第二组的 Data 后占用正好为 10，第二个 Task 等待容量，已有 Task 的所有 worker 名额也变成 0。
 

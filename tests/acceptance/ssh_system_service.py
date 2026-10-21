@@ -47,7 +47,7 @@ def main():
     if platform.system() != 'Linux':
         parser.error('remote SSH system-service acceptance requires Linux')
     build = args.build.resolve()
-    for executable in ('asterion_terminal_dev_bridge', 'asterion-node-agent', 'asterion-trading'):
+    for executable in ('asterion_terminal_dev_bridge', 'asterion_node_agent', 'asterion_trading'):
         if not (build / executable).is_file():
             parser.error('build all native executables first')
     sudo = [] if os.getuid() == 0 else ['sudo', '-n']
@@ -113,7 +113,7 @@ def main():
                 pass
             else:
                 raise RuntimeError('dedicated asterion account already exists; use a disposable host')
-            for item in ('/var/lib/asterion', '/usr/local/sbin/asterion-host', '/etc/ssh/asterion_authorized_keys', '/etc/ssh/sshd_config.d/00-asterion.conf', '/etc/sudoers.d/asterion-host'):
+            for item in ('/var/lib/asterion', '/usr/local/sbin/asterion_host', '/etc/ssh/asterion_authorized_keys', '/etc/ssh/sshd_config.d/00-asterion.conf', '/etc/sudoers.d/asterion_host'):
                 run([*sudo, 'test', '!', '-e', item])
         try:
             terminal = launch()
@@ -183,7 +183,7 @@ def main():
             run([*sudo, 'rm', '-rf', str(installation)])
             if linux:
                 run([*sudo, 'systemctl', 'daemon-reload'])
-                run([*sudo, 'rm', '-f', '/usr/local/sbin/asterion-host', '/etc/ssh/asterion_authorized_keys', '/etc/ssh/sshd_config.d/00-asterion.conf', '/etc/sudoers.d/asterion-host'])
+                run([*sudo, 'rm', '-f', '/usr/local/sbin/asterion_host', '/etc/ssh/asterion_authorized_keys', '/etc/ssh/sshd_config.d/00-asterion.conf', '/etc/sudoers.d/asterion_host'])
                 # Exit 6: the account was never created because initialization failed earlier.
                 removed = subprocess.run([*sudo, 'userdel', '--remove', 'asterion'], timeout=30)
                 if removed.returncode not in (0, 6):

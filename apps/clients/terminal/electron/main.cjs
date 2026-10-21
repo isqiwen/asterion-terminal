@@ -27,22 +27,20 @@ const resources = app.isPackaged
   : path.join(root, "build/electron-resources");
 process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
 const variables = {
-  ASTERION_TRADING_EXECUTABLE: "asterion-trading",
-  ASTERION_NODE_AGENT_EXECUTABLE: "asterion-node-agent",
-  ASTERION_MARKET_EXECUTABLE: "asterion-market-data",
-  ASTERION_TASK_EXECUTABLE: "asterion-task-service",
-  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion-data-service",
-  ASTERION_BACKTEST_EXECUTABLE: "asterion-backtest",
-  ASTERION_FACTOR_EXECUTABLE: "asterion-factor",
-  ASTERION_DATA_PIPELINE_EXECUTABLE: "asterion-data-pipeline",
-  ASTERION_KEYCHAIN_EXECUTABLE: "asterion-keychain",
+  ASTERION_TRADING_EXECUTABLE: "asterion_trading",
+  ASTERION_NODE_MANAGER_EXECUTABLE: "asterion_node_manager",
+  ASTERION_NODE_AGENT_EXECUTABLE: "asterion_node_agent",
+  ASTERION_MARKET_EXECUTABLE: "asterion_market_data",
+  ASTERION_TASK_EXECUTABLE: "asterion_task_service",
+  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion_data_service",
+  ASTERION_KEYCHAIN_EXECUTABLE: "asterion_keychain",
 };
 for (const [key, name] of Object.entries(variables))
   process.env[key] = path.join(resources, "native", name);
 const library = process.platform === "darwin" ? ".dylib" : ".so";
 process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
 process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
-process.env.ASTERION_ANALYTICS_EXECUTABLE = path.join(resources, "analytics", "asterion-analytics");
+process.env.ASTERION_ANALYTICS_EXECUTABLE = path.join(resources, "analytics", "asterion_analytics");
 process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -314,8 +312,6 @@ app
         responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [csp] },
       });
     });
-    // Terminal core logs: one file per day, kept 30 days.
-    process.env.ASTERION_LOG_DIRECTORY ??= app.getPath("logs");
     native = require(path.join(resources, "native/asterion_terminal.node"));
     ipcMain.handle("asterion:request", async (event, body) => {
       authorized(event);
@@ -339,6 +335,19 @@ app
     ipcMain.handle("asterion:settings", async (event, category) => {
       authorized(event);
       return openSettings(category);
+    });
+    ipcMain.handle("asterion:logs", async event => {
+      authorized(event);
+      // Native owns the environment's path. The renderer cannot supply a path
+      // or substitute a remote node's directory.
+      const reply = JSON.parse(
+        await native.request(
+          JSON.stringify({ version: 1, method: "runtime.snapshot", params: {} }),
+        ),
+      );
+      if (reply.error) throw new Error(reply.error.message);
+      const failure = await shell.openPath(reply.result.diagnostics.log_directory);
+      if (failure) throw new Error(failure);
     });
     ipcMain.handle("asterion:close", event => authorized(event).close());
     ipcMain.handle("asterion:title", (event, title) => {

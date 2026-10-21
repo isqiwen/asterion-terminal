@@ -15,7 +15,8 @@ public:
     // Prepare transport resources on the calling management operation; initialization
     // and every subsequent request run asynchronously on ServiceIo.
     [[nodiscard]] static std::future<std::shared_ptr<TradingClient>>
-    open(ServiceIo&, ServiceEndpoint, Json manifest = nullptr);
+    open(ServiceIo&, ServiceEndpoint, Json manifest = nullptr, std::string expected_account = {});
+    [[nodiscard]] std::future<void> create(const Json& manifest);
     ~TradingClient();
     TradingClient(const TradingClient&) = delete;
     TradingClient& operator=(const TradingClient&) = delete;

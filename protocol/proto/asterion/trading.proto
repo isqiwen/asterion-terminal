@@ -64,10 +64,18 @@ message LivePolicyChange {
   LivePolicy policy = 1;
   string risk_artifact = 2;
 }
+
+enum TradingEnvironment {
+  UNSPECIFIED_TRADING_ENVIRONMENT = 0;
+  REAL = 1;
+  BROKER_SIMULATION = 2;
+}
+
 message LiveInput {
   LiveBroker broker = 1;
   LivePolicy policy = 2;
   string account_id = 3;
+  TradingEnvironment environment = 4;
 }
 message LiveCredentials {
   string password = 1;
@@ -418,6 +426,7 @@ message LiveSnapshot {
   string policy_revision = 20;
   string risk_artifact = 21;
   LiveStrategy strategy = 22;
+  TradingEnvironment environment = 23;
 }
 message Error {
   string code = 1;

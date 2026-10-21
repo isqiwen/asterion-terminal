@@ -67,7 +67,7 @@ message Task {
   uint32 completed = 9;
   uint32 total = 10;
   string error = 11;
-  string error_code = 29; // optional observed worker failure code; empty means unknown
+  string error_code = 29; // optional observed execution failure code; empty means unknown
   string result_digest = 12;
   string trading_day = 13;
   string instrument = 14;
@@ -104,10 +104,6 @@ message TaskList {
   uint32 failed_count = 5;
   uint32 interrupted_count = 6;
 }
-message TaskClaim {
-  string id = 1;
-  TaskKind kind = 2;
-}
 message TaskId {
   string id = 1;
 }
@@ -124,7 +120,7 @@ message TaskSubmit {
 // Small execution definition, projected from Task-owned immutable evidence.
 // Backtest contracts already follow the resolved month order. The fixed schedules
 // below replace request.series, and are those of a factor request's dominant
-// series in order: workers never select dominant months again.
+// series in order: execution never select dominant months again.
 message TaskExecution {
   string input_sha256 = 1;
   oneof parameters {
@@ -142,11 +138,6 @@ message TaskAttempt {
   string data_instance = 5;
   TaskExecution execution = 6;
 }
-message TaskProgress {
-  string id = 1;
-  string token = 2;
-  uint32 completed = 3;
-}
 message TaskFinish {
   reserved 6;
   string id = 1;
@@ -158,44 +149,7 @@ message TaskFinish {
     asterion.data.proto.TableUpdateResult table_update = 7;
   }
 }
-message TaskFailure {
-  string id = 1;
-  string token = 2;
-  string error = 3;
-  string error_code = 4;
-}
-message TaskCancelAck {
-  string id = 1;
-  string token = 2;
-}
 
-// Private Task Service -> Agent dispatch contract. The Agent reports processes;
-// Task Service owns queue ordering, task-kind mapping and concurrency policy.
-enum WorkerProgram {
-  WORKER_PROGRAM_UNSPECIFIED = 0;
-  BACKTEST_PROGRAM = 1;
-  FACTOR_PROGRAM = 2;
-  DATA_PIPELINE_PROGRAM = 3;
-}
-
-// Agent reserves node-wide capacity before dispatch. Missing allowance is invalid;
-// zero observes a full node without authorizing a worker launch.
-message TaskDispatch {
-  repeated string running = 1;
-  optional uint32 launch_slots = 2;
-}
-message TaskLaunch {
-  string task_id = 1;
-  WorkerProgram program = 2;
-  reserved 4;
-  bool minute_download = 3;
-  bool table_update = 7;
-  string provider_artifact = 5;
-  string risk_artifact = 6;
-}
-message TaskLaunches {
-  repeated TaskLaunch launches = 1;
-}
 message TaskRequest {
   uint32 version = 1;
   string service_id = 2;
@@ -208,12 +162,6 @@ message TaskRequest {
     TaskId retry = 14;
     TaskId result = 15;
     asterion.protocol.proto.Empty heartbeat = 16;
-    TaskClaim claim = 17;
-    TaskProgress progress = 18;
-    TaskFinish finish = 19;
-    TaskFailure fail = 20;
-    TaskCancelAck cancel_ack = 21;
-    TaskDispatch dispatch = 22;
     asterion.node.proto.Quiesce quiesce = 23;
     TaskId history_usage = 24;
     TaskMetadataEdit metadata_edit = 25;
@@ -242,9 +190,7 @@ message TaskResponse {
     asterion.backtest.proto.BacktestResult backtest = 12;
     TaskHealth health = 13;
     asterion.protocol.proto.Error error = 14;
-    TaskAttempt attempt = 15;
     asterion.factor.proto.FactorResult factor = 16;
-    TaskLaunches launches = 17;
     asterion.data.proto.MinuteDownloadResult minutes = 18;
     asterion.data.proto.HistoryUsage history_usage = 20;
     asterion.data.proto.TableUpdateResult table_update = 21;

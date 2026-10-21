@@ -69,6 +69,28 @@ TEST(ServiceTransport, RequiresExactlyOneCompleteTransport)
         std::invalid_argument);
 }
 
+TEST(RpcHost, RecreatesTransientSocketDirectoryForLoginServices)
+{
+    const auto root = std::filesystem::path("/tmp") / ("ast-login-" + unique_process_id());
+    const auto endpoint = root / "node.sock";
+    Progress progress;
+    {
+        service::RpcHost host(
+            {endpoint.string()},
+            [](const auto&, std::string) -> service::RpcHost::Reply {
+                return [] {
+                    return std::optional<std::string>("ready");
+                };
+            },
+            {},
+            progress);
+        EXPECT_TRUE(std::filesystem::exists(endpoint));
+        EXPECT_EQ(std::filesystem::status(root).permissions(), std::filesystem::perms::owner_all);
+    }
+    EXPECT_FALSE(std::filesystem::exists(endpoint));
+    std::filesystem::remove(root);
+}
+
 TEST(RpcHost, StreamingRepliesShareIoAndReturnToRequestsAfterTheirFinalFrame)
 {
     service::reset_stop_request();

@@ -8,8 +8,8 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv)
 {
     CLI::App app{"Asterion historical data service"};
-    app.set_version_flag("--version", "asterion-data-service " ASTERION_PRODUCT_VERSION);
-    std::string directory, service, task_instance, health_endpoint, worker_endpoint, plugins;
+    app.set_version_flag("--version", "asterion_data_service " ASTERION_PRODUCT_VERSION);
+    std::string directory, service, task_instance, health_endpoint, internal_endpoint, plugins;
     std::uint64_t owner_pid = 0;
     unsigned file_workers = 2;
     asterion::service::Transport transport;
@@ -22,7 +22,7 @@ int main(int argc, char** argv)
     app.add_option("--tls-ca", transport.tls.ca_file);
     app.add_option("--tls-cert", transport.tls.certificate_file);
     app.add_option("--tls-key", transport.tls.private_key_file);
-    app.add_option("--worker-endpoint", worker_endpoint)->required();
+    app.add_option("--internal-endpoint", internal_endpoint)->required();
     app.add_option("--health-endpoint", health_endpoint);
     app.add_option("--owner-pid", owner_pid);
     app.add_option("--file-workers", file_workers)->check(CLI::Range(1, 2));
@@ -30,6 +30,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
+        asterion::initialize_process_logging("data-service", service);
         if (!plugins.empty())
             asterion::configure_native_plugins(plugins);
         asterion::validate_id(service);
@@ -43,7 +44,7 @@ int main(int argc, char** argv)
         options.receive = 10s;
         options.send = 5s;
         options.local_endpoints.push_back(
-            {worker_endpoint,
+            {internal_endpoint,
                 [&](const Host::Peer&, std::string frame) {
                     return data.accept(std::move(frame), true);
                 },

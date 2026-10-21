@@ -1,8 +1,8 @@
 # 代码简化进度
 
-已获批的整体架构改造已完成本轮实现与隔离验收，当前结论、逐项映射与正式交付限制见
-[架构改造实施记录](architecture-implementation.md)。下文按时间保留阶段记录；其中待办与
-测试结论只对应当时工作树，不作为当前状态。
+当前需求驱动目标见[架构设计](architecture-design-review.md)，该目标尚未完成代码切换。
+实际改造、验证与限制见[架构改造实施记录](architecture-implementation.md)及本文最新条目。
+下文按时间保留阶段记录；其中“已完成”、待办与测试结论只对应当时工作树，不作为当前整体完成声明。
 
 2026-10-13 的整体架构、代码与功能复评见[项目评估](project-review-2026-10-13.md)。本轮确认三项
 P1、四项 P2，尚未修复；现有回归通过不代表这些新发现已经关闭。完整证据和验收边界见报告。
@@ -3548,7 +3548,7 @@ Release 编译时失败：终端原生层 6 个文件共 11 处 `-Werror=maybe-u
 - **分区在校验通过时就发布，不经任务服务的发布决定。** 原有下载是“候选—决定—发布”，保证
   “任务成功 ⟺ 版本可见”。分区入库是幂等的、按内容寻址的、互不依赖的，可见与否不取决于任务
   是否成功；而一次回补是几万个分区、几个小时，作为一个候选就只能全有或全无。这是对
-  [目标架构](architecture-design-review.md#历史数据-任务定义-执行尝试需要不同生命周期)的有意
+  当时的目标架构（见 Git 历史）的有意
   偏离，理由写在设计文档的“下载任务与发布语义”一节。凭据保管、共享额度、插件摘要固定、
   私有工作通道和“尝试须已被任务服务领取”都保持不变。
 - **任务进度是百分比。** 任务服务在提交时定下总工作量，恢复时只凭固定输入重新算出同一个数；
@@ -5075,7 +5075,7 @@ on 2019-01-18`），它是数据层路线里的下一项。动手之前先把全
   的拒绝指明原因（`…, apart from <月份> on its last day`）。
 - `apps/services/data-service/bar_dataset_source.{hpp,cpp}`：两条路径填最后交易日；被换下的月份的
   读取窗口合成一个函数。
-- `apps/services/backtest/engine.cpp`、`protocol/include/asterion/protocol/backtest.hpp`：换月的
+- `apps/workers/backtest/engine.cpp`、`protocol/include/asterion/protocol/backtest.hpp`：换月的
   委托和引擎版本。
 - 界面只改了一句说明（“主力连续在某个交易日没有可以持有的月份…或只有当天到期的月份成交”），
   中英文一起。
@@ -5228,7 +5228,7 @@ K 线的一天）、换月规划（月份当天没有 K 线就不能是主力）
 - **结算日程和账本**（`plugins/execution/paper/`）：结算日程不再要求每个结算日有 K 线。
   `settle_scheduled` 改为指明交易日——每天一次、按顺序、在这一天和之前的 K 线之后、之后的 K 线
   之前——原来的“最终结算”参数没有了。没有 K 线的交易日在结算之前切换当天生效的费用。
-- **回测引擎**（`apps/services/backtest/engine.cpp`，版本 `asterion.backtest.v17`）：循环按结算日
+- **回测引擎**（`apps/workers/backtest/engine.cpp`，版本 `asterion.backtest.v17`）：循环按结算日
   推进，先处理当天的 K 线，再结算；没有 K 线的交易日结算点记在当天 15:00
   （`trading_day_close_ns`，与日线 K 线的时间标签共用）。“账户换一个策略跟”时重新下达的是每个合约
   最后一根 K 线上的决定，不再只是当天有 K 线的合约的。月份接手的条件由“不是它的第一根 K 线”改为
@@ -5979,7 +5979,7 @@ Tick 图已经把来源（`stream_id`、`generation`）放进了读模型和组�
 
 - **任务服务的预留包含一个 worker 的额度**（1 CPU、1,024 MiB、1 磁盘工作额度）。它随任务服务一起
   准入：任务服务启动时要连这一份一起放得下；之后任何服务（行情、交易账户、Data、别的任务服务）
-  启动时，这些保留额度都算已占用（`Agent::committed`，`apps/services/node-agent/main.cpp`）。
+  启动时，这些保留额度都算已占用（`Agent::committed`，`apps/management/node-agent/main.cpp`）。
 - 有 worker 在运行时不重复计：占用按“正在运行的 worker 数”和“保留的份数”取大者。
 - “等待的服务在现有 worker 结束后能排进来就暂停派发”这条规则用同一个算法判断：保留额度不算
   可以让出的容量，否则等待中的服务会让 worker 一直停派，却永远排不进来。
@@ -6042,7 +6042,7 @@ Tick 图已经把来源（`stream_id`、`generation`）放进了读模型和组�
 - `ctest` Debug 601/601（328.6 秒）、Release 601/601（298.3 秒），比 R1–R5 时多 R7 的 1 个。依赖
   服务包的两个用例（`ssh_bootstrap`、`remote_resources`）在新服务包生成之后各又跑了一次，通过。
 - 服务源码指纹 `8d427f7fd91550ad14d102ae35b82754e88b406bb2de6a6c009bfe7ffe5876e6`（R7 改了
-  `apps/services/node-agent`；R6 只改 Terminal，不影响指纹）；服务包
+  `apps/management/node-agent`；R6 只改 Terminal，不影响指纹）；服务包
   `asterion-services-linux-x86_64.zip` 重建，SHA-256 为
   `693a38d997ca7c890f4e337c26a50b3f474f5bdfa678bf3fbdb83a8cfc61a6a6`。
 - `pnpm test:unit` 41/41（15 个文件，R6 新增 1 个）；类型检查、lint、两项格式检查通过。
@@ -6098,7 +6098,7 @@ R7 留下一条：第二组的 Data 自己放得下时仍会启动，即使它�
 ### 设计
 
 - **一半启动时，另一半要运行但还没有运行，就按整对申请**：自己的额度，加另一半的额度，加那一个
-  worker（`Agent::claim`，`apps/services/node-agent/main.cpp`）。放不下就整对等待。
+  worker（`Agent::claim`，`apps/management/node-agent/main.cpp`）。放不下就整对等待。
 - “要运行但还没有运行”指：已部署、运行意愿为真、还没有持有预留。Data 是先部署的一半，它的 Task
   还没部署时也算；Task 的 Data 没部署这种情况生产流程里不存在，不处理。
 - 另一半已经在运行、或者被用户停止了，只按自己的额度准入。所以“停掉 Task 只留 Data 浏览数据”
@@ -8162,3 +8162,776 @@ SSH安装与身份更换、已有CTP副本不依赖闲置源文件，以及原�
 
 `pnpm run docs:requirements:check` 通过（44文档、304功能、58UI、42旅程、1002AC，
 链接和派生覆盖有效），diff与冲突检查通过。本次远程更新仅涉及文档及其工具，未重复产品测试。
+
+## 2026-10-20：运行日志统一到所属节点目录
+
+此前 Electron 指定界面日志目录，Agent 则指定节点日志目录，开发桥没有默认文件路径。
+本轮让 Terminal Native 在创建客户端和后台线程前，复用既有节点目录规则设置
+`<节点目录>/logs/`；删除 Electron 独立路径设置和 Native 无目录时的控制台回退。
+相比在 JavaScript 再维护一套平台路径，Native 统一设置同时覆盖桌面和开发桥，
+并保留开发版、安装版、XDG 数据目录与隔离节点的既有归属。
+
+Agent、服务和开发同步沿用同一节点日志目录。`ASTERION_LOG_DIRECTORY` 仅作为内部
+进程日志设置，由 Terminal 和 Agent 按节点覆盖。现有日志留在原处，不迁移或删除；
+远程日志留在远程节点。JSON Lines 格式和公共日志器的 30 天留存不变，开发同步文本
+日志不参与该清理；构建和前端控制台不新增全量捕获。现行运行与开发文档已同步。
+
+Debug Native、开发桥、Node-API 模块及相关测试目标构建成功；5 项相关 CTest 通过
+（27.23 秒），覆盖环境隔离、初始化类型化错误、Terminal 合同和使用测试 CTP SDK
+的命令→RPC→交易记录日志关联，确认继承的独立日志路径不会拆散日志。隔离 Node-API
+桥接检查、全项目格式检查和 diff 检查通过。
+未运行交互桌面/E2E、macOS、真实远程节点或真实柜台验收；未提交或推送。
+
+## 2026-10-20：开发同步失败直接定位原因与日志
+
+同步子进程原本将具体原因写入文件，Native 却只返回“查看节点日志”。现在等待子进程退出
+（超时则由现有子进程所有者终止并回收）后，仅在失败时读取日志最后 4 KiB，提取 Agent 的
+失败行，连同本次完整日志路径返回。缺少失败行时显示实际退出码；超时明确显示 60 秒期限。
+失败保留配置、数据、清单与日志，不自动重试，不增加摘要、恢复状态或通用错误框架。
+
+启动错误直接展开同步诊断，无需再点“详情”。启动失败区和服务连接详情增加“打开本机日志
+目录”，后者显示完整目录；Native 快照提供所属本机节点的日志路径，Electron 从该快照
+调用系统文件管理器，不接受界面指定目录。本机节点是当前开发或安装环境的本机 Agent
+归属，不随远程服务选择变化。双语文本、运行文档和开发指南已同步。
+
+Debug Native、开发桥、Node-API 与相关测试目标构建通过。6 项 CTest 通过（8.53 秒），
+包含真实 Agent 子进程拒绝临时坏配置后返回原因和对应日志文件、保留配置，以及原有同步
+成功和拒绝边界。前端 126 项测试通过，覆盖原因与路径直接展示、后续启动不继续和目录
+打开失败可见；TypeScript、Node-API 桥接、格式和 diff 检查通过。
+未运行交互桌面/E2E、系统文件管理器实际打开、超时等待、macOS 或真实远程/柜台验收；
+未修改实际节点配置，未提交或推送。
+
+## 2026-10-20：确认 Node Manager 与进程日志目标
+
+用户进一步明确 Terminal 机器除 Agent 外还需独立汇总管理程序。已核对 Native 中的
+`nodes`、`NodeClient`、节点命令和快照，确认当前没有该独立进程；公共日志仍按日志器名
+分文件。将目标写入 AGENTS 和架构文档，明确 Terminal、Node Manager、各机 Agent 与
+业务服务的状态所有权，以及环境隔离、启动／退出、本机 Agent 维护和统一进程日志边界。
+
+本轮是架构决定与实施边界记录，未新增 Manager 程序、迁移持久文件或改动运行代码。
+不将之前通过的日志路径及错误展示测试作为新架构的验收。执行文档链接与 diff 检查，
+未重复运行产品测试；独立进程拆分、公共日志策略与按进程分文件仍待实施。
+
+## 2026-10-20：纠正 Manager 与 Agent 的托管关系
+
+用户指出 Manager 管理 Agent，不能反过来由 Agent 启动。此前将业务服务托管规则错误地
+套用到 Manager，会使被管理节点的故障或更新连带结束管理进程。已原位修正 AGENTS、
+架构目标和实施记录：Manager 与各 Agent 由所属机器的 OS 服务管理器独立启动和守护，
+Agent 只托管业务服务及 worker。Manager 协调 Agent 管理，自己的安装、更新和停止留在
+桌面维护与 OS 边界；开发退出由入口协调，不建立 Agent→Manager 的级联停止关系。
+
+本轮仅修正文档与工程约束，运行代码未变，未部署独立 Manager；执行 diff 和相互引用
+检查，不重复运行产品测试。此前日志相关实现及未提交工作保留。
+
+## 2026-10-20：Node Manager 独立运行与进程日志统一实现
+
+完成此前确认的管理边界：`asterion-node-manager` 独占已登记 Agent 连接、节点管理状态、
+SSH／身份／防火墙确认和服务部署。Terminal 改用 `manager.proto`，删除原有节点连接表和
+直接 Agent 管理调用；保留到行情、交易、Data／Task 的业务客户端。公共客户端、节点路径、
+插件目录及 OS 服务机制抽至 `apps/common/control/`。架构链接检查同时拒绝 Terminal 链接
+Manager 实现、Manager 链接 Terminal 应用或 Agent 监督层。
+
+本机 Manager／Agent 分别注册 systemd 用户服务或 launchd；Manager 不属于 Agent 的托管
+服务。桌面首个节点操作完成启动引导；已有 Manager 复用连接，重启时恢复已有登记的观察。
+开发入口清理遗留会话，新会话同步程序；退出先停本机 Agent 和业务服务，再由入口停止
+Manager 并移除两个开发注册。远程节点、业务资料和登记路径保留，未迁移用户文件。
+安装版关闭界面保留后台进程。开发资源原子替换后，Linux 的运行程序路径会带 `(deleted)`，
+停止检查按内核路径表示去掉该标记，同时继续核对精确服务定义、OS MainPID 与程序路径；
+没有新增程序副本、哈希或兼容实现。
+
+所有模块共用所属进程的日志 sink，文件为 `logs/<程序>-<PID>_YYYY-MM-DD.log`。`process`
+记录程序、PID、服务／任务实例及启动时间，模块／操作为 `module`／`event`。公共配置为
+节点根目录可选的 `logging.json`（缺省 info、30 天），Agent 启动清理当前命名的过期进程
+日志。旧命名文件原位保留。开发同步使用临时 Agent 的 JSON Lines 日志，不再维护独立
+`development-programs-*.log` 捕获；同步及 Manager 启动失败均可返回原因与日志位置，界面
+直接展开这类启动诊断。
+
+验证：
+
+- Linux Debug 全量构建通过，包含新 Manager、桌面原生模块、全部服务与测试目标。
+- 61 项相关 CTest 全部通过（95.66 秒），包含节点生命周期、Agent 监督／维护、插件管理、
+  原生 API、SSH 密钥／登记／证书更新、真实 mTLS 部署／任务更新、公共日志与架构负例。
+- 首轮 SSH 回归发现显式连接误用了旧在线缓存；修正为实际刷新远程 Agent 后，证书更新
+  中断／显式重试及其余回归通过。未增加管理操作自动重试。
+- 独立 systemd 验收使用唯一的 `me.asterion.acceptance.*` 单元及临时目录，验证独立启动、
+  任一方停止不影响另一方、运行程序被原子替换后仍能正确停止；测试注册清理完毕。
+- 126 项前端测试通过；新增 Manager 启动诊断后复验 17 项相关组件测试通过。TypeScript、
+  隔离 Node-API 桥接、需求文档检查、格式与 diff 检查通过。
+
+证据：`build/reviews/node-manager-final-build.log`、`node-manager-regression.log`、
+`node-manager-systemd.log`、`node-manager-ui-tests.log`、`node-manager-ui-diagnostics.log`、
+`node-manager-bridge.log`、`node-manager-docs.log`。
+
+未运行 macOS／launchd、真实远程 SSH 主机、真实柜台、完整交互桌面／E2E 或安装包验收；
+现有用户节点和业务状态未用于测试。Linux 发行服务包需在发布前按开发指南重建。
+未创建分支、提交或推送。
+
+## 2026-10-20：主机资源观测与业务直连
+
+在当前独立 Manager／Agent 实现上继续落实：业务流量直接连接拥有业务状态的服务，
+不能借道 Agent 或 Manager。现有业务客户端无需增加或替换传输路径；AGENTS 与架构
+文档已写明禁止中转，并区分健康探测、端点发现、部署及 worker 管理。Manager 加入
+禁止链接业务算法的构建约束。
+
+Agent 使用已有工作池，每 5 秒读取主机 CPU 计数、可用内存和节点根目录文件系统
+available 空间；已完成快照通过 node Status 和 Manager 汇总到设置页。无新增线程、
+依赖、哈希、目录扫描或启动门禁。CPU 首次采样为空；采样失败发布带 ErrorCode 的
+诊断，保持服务监督与准入预算不变。界面中英同步，明确区分观测和预算，显示采样时间、
+目录及离线状态。Linux 的主机 MemAvailable 与 macOS free＋inactive 估计均不等同于
+cgroup 剩余配额；只观测节点目录所在磁盘，不覆盖自定义业务目录的其他卷。
+
+验证基线为主 checkout `/home/qiwen/Code/quant/asterion-terminal` 的 main 工作树，
+进程测试使用本次 `build/Debug` 构建及隔离测试目录，未启动用户实际桌面或节点：
+
+- Linux Debug 全量构建通过。已有 tasks 测试的格式截断与 nodiscard 编译警告未在本轮处理。
+- 25 项资源、监督、慢请求、Manager 生命周期和远程部署 CTest 通过（83.36 秒），另
+  2 项架构 CTest 通过。隔离测试暂时移开 Agent 目录，确认采样失败不改变 ready 与预算。
+- 远程部署测试使用本机真实 mTLS 进程，同时 SIGSTOP Manager 与远程 Agent，直接
+  读取回测／因子结果成功；finally 恢复两者，测试资源随后清理。
+- 128 项前端测试、TypeScript、format:check、需求文档与 diff 检查通过。
+
+证据：`build/reviews/node-resources-build.log`、`node-resources-tests.log`、
+`node-resources-architecture-tests.log`、`node-resources-ui.log`、`node-resources-types.log`、
+`node-resources-format-check.log`、`node-resources-docs.log`。
+
+macOS 主机采样与 launchd、真实远程 SSH 机器、完整交互桌面及安装包未验收；本轮未做
+长期稳定性压测。服务构建输入已变化，发行前需重建 Linux 服务包。未提交或推送。
+
+## 2026-10-20：清理资源预算、配置 worker 并发与运行配置目录
+
+删除固定 CPU／内存／磁盘工作准入预算和宿主容量启动探测，连同服务成对预留、
+等待容量、让位、预留账本恢复逻辑、协议字段、UI 和仅保护旧行为的测试一并移除。
+不再依赖 `ASTERION_TEST_HOST_CAPACITY`。已有用户文件不迁移、不删除。
+
+Agent 启动读取 `<node>/config/agent.json`，缺省文件通过 durable_file 写入
+`worker_concurrency: 2`；正整数配置决定所有 Task 实例共享的 worker 并发上限。
+修改后重启生效，无效文件明确失败并保留原文。Task 删除内部重复的两条并发限制，
+只使用 Agent 授予的新增名额；输入准备和结果复核各保留两个处理槽，worker 在现有
+请求期限内等候，不提前加载大输入。通信、线程池、交易风控及领域校验保持原边界。
+
+公共日志配置位于 `<node>/config/logging.json`；Manager 启动配置由桌面引导写入
+`<node>/config/manager.pb`，Manager 的运行目录为 `<node>/manager`。生产者、读取者、
+隔离测试与 systemd 验收脚本同步当前路径。运行配置按职责分文件，服务部署状态、
+业务账本与任务记录不并入公共配置。已有原位置文件不自动复制或覆盖；无旧路径回退。
+
+验证仍在主 checkout 的 main 工作树、`build/Debug` 与隔离测试目录进行：
+
+- Linux 全量构建通过；已有 tasks 测试的编译警告未扩展处理。
+- 预算清理后 68 项节点、TaskStore、架构及资源回归通过（69.74 秒）。
+- 配置目录更新后 27 项节点、Manager 生命周期、升级、日志和架构回归通过（68.26 秒）。
+- 实际 worker 名额改为 3 后验证多 Task 公平共享及退出释放；远程 mTLS 隔离节点配置 3，
+  提交三个回测任务均完成。业务读取在 Manager／Agent 暂停时仍可进行。
+- 128 项前端测试、TypeScript、格式、需求文档与 diff 检查通过。
+
+证据位于 `build/reviews/worker-config-build-final.log`、`worker-config-tests.log`、
+`worker-config-ui.log`、`worker-config-types.log`、`config-directory-build.log`、
+`config-directory-tests.log`、`config-directory-format-check.log`、`config-directory-docs.log`。
+
+尚未实现仓库默认模板到安装／远程包的复制链路；当前 Agent 默认配置为启动生成，
+Manager 配置为桌面引导生成，插件参数由宿主传入。该项与本轮运行路径统一有区别。
+macOS、真实远程机器、完整桌面及安装包未验收，未重跑真实 systemd 验收，未重建 Linux
+发行服务包。未提交或推送。
+
+## 2026-10-20：默认配置随部署安装，服务启动只读
+
+纠正上轮运行时生成默认配置的职责划分：节点默认配置现维护在仓库根目录
+`config/agent.json`、`config/logging.json`。CMake 使用 COPYONLY 携带到构建目录，桌面
+资源清单包含 `native/config/`；首次本机引导在发布 Manager 身份前复制，远程 SSH 安装
+在注册 Agent 服务前上传并持久发布。已有配置原文与修改时间保持，普通重启与升级不补写。
+Agent 加载配置不创建目录、不写默认文件，必需文件缺失或内容无效时报告具体路径并停止
+初始化；日志策略仍可省略使用 info／30 天，已有日志配置无效时报告路径，不自动改写。
+
+删除 Manager Configuration 协议及 `config/manager.pb` 的生产者、读取者。登记目录、
+环境与隔离模式改为启动参数，OS 服务定义保存参数以支持独立启动。程序及插件复用现有
+安装目录解析，远程资源从相邻 `remote-linux/` 解析；隔离测试继承显式资源环境。
+没有新增路径映射配置、哈希或兼容读取，用户原有生成文件留在原处，不自动删除。
+
+AGENTS 与架构／开发文档记录仓库→打包→部署→读取链路、配置和状态边界，以及插件
+默认配置随插件、实例配置归所属服务的放置规则。当前插件没有独立静态配置需求，继续
+由宿主传入参数，不创建空配置文件或通用加载框架；账户、风控和任务参数保留领域所有权。
+
+验证使用主 checkout 的 main 工作树与 `build/Debug`，节点均为隔离测试目录：
+
+- Linux Debug 全量构建通过。
+- 39 项 CTest 全部通过（69.38 秒），包括只读文件启动与重启、缺失／无效 Agent 配置
+  不回填、重复部署保留人工修改、本地 Manager 生命周期、真实 mTLS 任务部署、SSH
+  安装脚本发布及重试、日志策略、资源打包和服务升级。
+- 临时独立 systemd 服务验收通过：参数启动、任一方停止不影响另一方、运行程序被
+  原子替换后的停止与所有权验证；测试注册随后清理。
+- 128 项前端测试、TypeScript、格式、需求文档及 diff 检查通过。
+
+证据：`build/reviews/readonly-config-build-final.log`、`readonly-config-tests.log`、
+`readonly-config-systemd.log`、`readonly-config-packaging.log`、`readonly-config-ui.log`、
+`readonly-config-types.log`、`readonly-config-format-check.log`、`readonly-config-docs.log`。
+未运行 macOS／launchd、真实远程 SSH 机器、完整交互桌面／安装包验收，未重建 Linux
+发行服务包。未修改实际用户节点的配置或数据，未提交或推送。
+
+## 2026-10-20：独立图形安装维护程序（当前用户）
+
+按用户确认的当前用户范围，实现独立 Asterion Installer：安装、停机升级、卸载分别选择并
+确认，显示应用／数据位置、已安装与包版本、实际阶段、具体失败原因及日志入口，中英文同步。
+Electron 窗口仅提供受限维护 IPC；原生 `asterion-maintenance` 执行应用发布与系统服务注册。
+复用现有 Electron、CLI11、durable_file、进程锁和 OS 服务机制，没有新增安装框架或内容哈希。
+
+安装默认复制缺少的配置并创建本机身份；程序与节点数据分开。升级整体发布应用目录，复用
+Agent 离线程序准备模式更新已有本机服务引用；同步不再限定“开发环境”，仍归 Agent 进程日志。
+安装登记记录唯一的未完成操作；失败后由用户明确继续，普通启动拒绝未完成安装。卸载删除
+程序、Linux 应用菜单入口及 Agent／Manager 注册，保留配置、身份、账户、任务、账本和凭据。
+
+安装器通过已安装执行器检查其自身 Manager；业务仍运行时拒绝停止后台进程，不强制结束
+交易或任务。Manager 和 Agent 分别注册为用户服务，注册阶段不启动程序，打开 Terminal 时
+才启动使用。Terminal 删除原来的 Agent 检查／自动升级及设置页升级入口、对应 Manager 协议
+与本机协调升级实现；开发环境停止后的程序替换机制保留。没有新旧程序长期混用、兼容读写
+或降级路径，也没有修改远程节点。
+
+安装责任写入需求、架构与 AGENTS。构建先组装完整 Terminal，再嵌入独立安装器；Linux 分发
+改为图形安装器 tar.gz，macOS 为包含安装器应用的 DMG，CI 和提取验收入口随之更新。
+Linux 系统运行库清单随包携带，安装时不申请 sudo、不自动下载依赖。RPC 监听端在启动时
+创建缺失的私有 socket 目录，支持重启清空 /tmp 后先由 OS 启动服务。
+
+验证使用主 checkout/main、`build/Debug` 和独立临时数据目录：
+
+- Linux Debug 全量构建通过；36 项 CTest 通过（20.79 秒），覆盖安装／升级／卸载数据保留、
+  中断后显式继续、运行进程和非自有目录阻止发布、程序准备、当前开发替换、Manager 生命周期、
+  Terminal API、日志、资源打包和 RPC 临时目录重建。
+- 47 个前端测试文件、128 项测试通过；TypeScript/Vite 构建通过。
+- 实际 Electron 安装器窗口和打包后的安装器窗口均在临时 HOME 下完成只读检查；确认包内
+  执行器可调用、版本与路径返回正确，renderer 不暴露 Node.js；保存界面截图。
+- 唯一命名的真实 systemd 用户服务验收通过：注册不启动、显式启动、任一方停止不影响另一方；
+  测试结束清理注册。没有安装、升级、卸载用户实际的生产或开发节点。
+- 格式、需求文档和 diff 检查通过。
+
+证据位于 `build/reviews/installer-build-final.log`、`installer-tests-final.log`、
+`installer-ui-tests.log`、`installer-window.log`、`installer-window-packaged.log`、
+`installer-window-packaged.png`、`installer-systemd.log`、`installer-package-final.log`、
+`installer-archive.log`、
+`installer-format-check.log`、`installer-docs-check.log`。
+
+本机安装器组装使用 Debug 程序，仅为测试产物；不能视为正式发行验收。未完成 macOS／launchd、
+签名公证、真实用户完整安装维护流程或远程机器升级验收；Linux 发行服务包尚未重建，
+正式打包仍须通过现有来源与资源校验。未提交或推送。
+
+Linux 测试安装器归档已生成：
+`build/desktop-test/Asterion-Installer-TEST-0.1.0-linux-x64.tar.gz`；归档可读取且包含完整桌面、
+维护执行器、Agent／Manager、配置和分析运行时。测试压缩级别为 1，发行级别为 9，
+避免验收包承担最高压缩成本；文件内容与安装行为不因此变化。
+
+## 2026-10-20：安装维护入口按状态禁用
+
+修正安装器仅禁止底部执行、左侧入口仍可选择的问题。入口与执行按钮复用现有可用条件：
+未安装时升级／卸载置灰，安装后安装置灰；卸载后按当前状态恢复安装入口。缺包时安装／
+升级不可用但允许卸载；未完成操作仅允许继续自身。沿用公共 disabled 样式和原生操作边界，
+不增加状态存储、版本门槛或校验。安装需求已同步。
+
+4 项安装器组件测试通过，覆盖安装完成后的入口切换、卸载与刷新、运行进程阻塞、失败继续；
+TypeScript/Vite 构建、相关文件格式、需求文档检查及 diff 检查通过。证据为
+`build/reviews/installer-availability-tests.log`、`installer-availability-build.log`。
+本轮未重新打包；已打开的测试安装器仍使用先前包内界面，需重新打包后才能体现此修改。
+
+## 2026-10-20：按安装状态进入安装、升级或维护模式
+
+用户选择借鉴 Windows Installer 的维护模式。比较始终展示全部操作与按安装状态提供操作后，
+采用后者：首次仅安装，同版本修复／卸载，新版本升级／卸载，旧安装包禁止修复和降级但
+保留卸载。没有可选组件，因此没有“修改组件”入口；未引入 Windows 客户端或 MSI 依赖。
+
+原生执行器按 CMake 三段数字发行版本提供 `deployment_action`，界面不实现另一套版本比较。
+执行时持有安装锁重新判定，避免检查后状态变化导致错误覆盖。修复复用完整应用发布、Agent
+离线程序准备及独立服务注册，保留配置、身份与业务资料，不新增哈希、扫描、备份或迁移路径。
+安装登记拥有安装状态，程序文件缺失时仍可同版本修复或卸载。未完成操作锁定目标版本和
+操作类别，升级发布后失败不会误判为修复；换版本继续会明确失败，需用户使用对应版本的包。
+同一开发版本可以显式修复，不再把同版本覆盖叫作升级。需求、架构、开发指南和 AGENTS 同步。
+
+主 checkout/main 验证：
+
+- `asterion-maintenance` 和安装器原生测试目标构建通过；6 项 Installation CTest 通过，覆盖
+  安装／升级／卸载、缺失文件修复、资料保留、数字版本排序、拒绝降级和错误操作、中断继续。
+- 6 项安装器组件测试通过；TypeScript/Vite 构建通过；格式、需求文档与 diff 检查通过。
+- Linux 打包后的真实窗口在临时 HOME 下完成只读检查；实际执行器检查未安装状态及模拟
+  安装登记，确认界面从安装切换为修复／卸载，保留 renderer 隔离；未执行实际用户维护操作。
+- 测试归档可读取且包含 GUI、完整 Terminal 和新原生执行器。证据为
+  `build/reviews/installer-maintenance-{build,native-tests,ui-tests,ui-build,window,package,archive,format-check,docs}.log`，
+  维护界面截图为 `build/reviews/installer-window-maintenance.png`。
+
+新测试包：`build/installer-maintenance-test/Asterion-Installer-TEST-0.1.0-linux-x64.tar.gz`。
+当前打开的旧测试安装器未被替换或中断。此包复用本机 Debug 资源，仅为本机测试产物；未完成
+真实用户安装／修复／卸载、macOS／launchd、签名发行与跨发行版本验收；远程 Linux 发行包
+仍需重建。未提交或推送。
+
+## 2026-10-20：卸载资料保留可选，默认勾选
+
+用户明确选择仅卸载提供资料保留选项，安装／升级／修复始终保留。界面默认勾选“保留配置
+与业务数据”；取消后显示本机节点及连接登记目录和永久删除范围，改变选项会清除旧的执行
+确认，用户须按新范围重新确认。调用链将选择传给原生执行器，其他操作拒绝删除参数。
+
+明确选择删除时移除本机配置、身份及连接密钥、账户设置、业务资料和连接登记，不跟随资料
+中的符号链接删除外部文件，不操作远程机器、系统钥匙串或外部导出文件。保留诊断日志与
+持有中的锁文件，避免删除锁文件导致另一个进程重新取得互斥所有权。未完成卸载记录保留本次
+选择，继续时不得变更；部分删除不会回滚或冒充保留成功。服务注册已移除时不再读取已删除
+的 IPC 身份，支持资料删除中断后的显式继续。完成后移除安装登记，保留的日志可继续定位。
+
+当前 main 工作树验证：7 项 Installation CTest、8 项组件测试、原生执行器构建及
+TypeScript/Vite 构建通过；隔离执行器验证拒绝非卸载删除参数，并在程序和 IPC 身份已删除
+后继续卸载成功。Linux 打包窗口在临时 HOME 中验证默认勾选、取消后展示范围、未确认不能
+执行；实际删除测试仅使用临时夹具，未操作真实用户系统服务或资料。格式、需求文档及 diff
+检查通过，测试归档可读取且具备新界面与执行器。
+
+证据：`build/reviews/installer-retention-{build,native-tests,ui-tests,ui-build,executor,window,package,archive,format-check,docs}.log`，
+截图 `build/reviews/installer-window-uninstall.png`；新测试包为
+`build/installer-retention-test/Asterion-Installer-TEST-0.1.0-linux-x64.tar.gz`。
+当前打开的旧安装器未替换。此包复用本机 Debug 资源，未完成真实用户整套维护流程、macOS
+或正式发行验收；远程 Linux 发行服务包仍需重建。未提交或推送。
+
+## 2026-10-20：本地安装包生成入口
+
+VS Code 新增 `Installer: build release`、`Installer: build test` 和
+`Services: build Linux bundle`，显式以工作区根目录执行现有构建脚本；默认日常构建任务
+仍为 Desktop 检查。新增 `pnpm desktop:package-test` 对应既有 `package-test` 模式，正式
+入口保持 `pnpm desktop:build`。不增加第二套打包实现，不隐式发布或自动重建 Linux 服务包。
+
+开发指南明确每个平台只交付一个安装包、内置 Terminal 与服务资源、平台分别构建、
+正式输出 `build/desktop/`、测试输出 `build/desktop-test/`，以及依赖、分析资源、匹配服务包
+和 macOS 签名公证要求。此前评审的 `build/installer-*-test/` 目录仅是临时测试产物。
+
+任务 JSONC、命令映射、工作区目录和脚本路径检查通过；两个 pnpm 入口的 `--help`、
+Node 语法、相关文件 Prettier 和 diff 检查通过。本轮仅补入口及文档，未重新构建安装包，
+未执行 Docker 服务编译、正式签名或发行验收。未提交或推送。
+
+## 2026-10-20：单一安装包任务，按需准备服务资源
+
+按用户确认，VS Code 只保留 `Installer: build release` 安装包入口，测试打包命令留给专项
+验收与 CI，删除测试包和 Linux 服务包的独立任务。正式／测试打包共用已有资源校验：匹配包
+直接准备，缺包、发行版本或源码不匹配时调用既有容器脚本构建一次，再校验并发布新资源。
+损坏包及内容校验错误直接失败，构建失败不重试、不继续使用旧包；开发启动与本机检查不
+触发容器构建。没有新增摘要、重复预检扫描或第二套构建实现。
+
+容器脚本支持 `ASTERION_LINUX_BUNDLES` 输出目录，缺少 Docker 或当前用户无法连接 daemon
+时在清理构建工作目录之前报告明确原因，不自动安装系统软件。开发指南同步单入口流程。
+
+`desktop_resources` 与 `remote_resources` 两项 CTest 通过，覆盖匹配复用、缺包／过期构建、
+定制输出目录、内容损坏和构建失败；容器构建调用由测试替身替代，资源校验与暂存真实执行。
+相邻测试同步缺包错误类型，并创建 Native 生命周期锁所需的临时节点目录。隔离命令验证
+Docker 缺失与 daemon 不可用的提示。任务 JSONC、Python／Bash 语法、Prettier、需求文档及
+diff 检查通过。证据：`build/reviews/installer-entry-tests.log`、`installer-entry-ctest.log`、
+`installer-entry-docs.log`。未执行真实 Docker 服务编译或重新生成发行包，未提交或推送。
+
+## 2026-10-20：远程节点维护方案（待实现）
+
+按用户要求，将远程安装、升级和卸载纳入安装与配置需求，替换“远程另行安排更新”的范围
+描述。方案复用 Manager 唯一登记与 SSH 管理能力：远程准备与安全停机在本机替换之前
+完成，远程新 Agent 暂停启动，更新本机后由新 Manager 完成启动和确认。明确首次远程
+主机管理员准备、逐节点维护进度、离线阻止整体升级、中断后同目标显式继续，以及联合
+卸载先远程后本机、保留管理密钥的责任。首期不引入滚动升级、任意协议兼容或自动回滚。
+
+本轮仅形成需求方案，未修改执行代码或操作实际节点。核对发现现有远程主机工具只提供
+检查与安装，现有图形安装器尚不能完成远程升级和卸载；不得将设计视为功能交付。实现
+范围与真实 SSH／systemd 验收要求见[安装与配置](../requirements/modules/system/setup.md#远程节点安装升级与卸载方案)。
+
+## 2026-10-20：远程节点安装、升级与卸载接入
+
+安装器复用已安装发行的原生执行器与 Manager 协议，新增远程节点清单、SSH 公钥准备和
+连接配置、Agent 安装、指定节点卸载、联合卸载及逐节点进度。SSH 元数据保存到原有节点
+登记目录；粘贴的私钥只保留于安装器会话，通过标准输入和本机 IPC 传递，不写入配置或日志。
+整体升级先检查全部节点与本机业务状态，再上传、冻结、停止并发布远程程序，最后替换本机
+并由新 Manager 确认远程启动。预检失败保留正常节点连接，不能继续执行本机替换。
+
+Manager 维护计划、Agent 冻结状态及远程发布结果分别持久保存在各自边界。上传发生在
+计划登记后，失败的上传归属同一计划；重启后显式继续同目标操作。受限主机工具只控制固定
+节点 systemd 单元，停止时禁用开机启动；上传的发布脚本不以 root 运行。Agent 离线准备
+复用现有实现并支持远程服务端口，不改变配置策略、业务资料或服务的停止意图。
+
+联合卸载先远程后本机，默认保留资料；删除范围明确确认，保留诊断日志与主机共享设施。
+仍有已安装远程节点或未完成维护时，不能先删除本机管理身份。保留资料卸载后重装会结束
+已完成的卸载维护状态；中断删除固定原保留选择。版本确认使用实际 Agent 发行版本。
+同版本修复仅修复本机，避免远程离线阻止修复；同发行安装包可以提供缺失的维护执行器。
+已开始的本机发布直接按安装登记继续，不重复执行远程前置操作或依赖已删除的执行器。
+
+验证通过：17 项相关 CTest（安装、Agent 维护、既有 SSH 部署、Manager 生命周期、远程
+维护、受限主机工具及安装器调用顺序），10 项安装器组件测试，C++ 构建、TypeScript/Vite、
+格式、需求文档及 diff 检查。远程测试使用真实 Manager、Agent、mTLS、业务服务配置和
+文件发布；SSH 与 systemd 为隔离替身。覆盖运行中服务拒绝维护、离线预检、发布失败后
+重启 Manager 再继续、保留配置与服务端口、卸载保留／删除、保留资料重装，以及远程失败
+不得继续本机替换／卸载。既有 SSH 测试补建 Terminal 生命周期锁所需的隔离节点目录。
+
+证据：`build/reviews/remote-maintenance-{build,tests,ui,ui-build,format,docs}.log`。
+未操作实际用户安装、真实远程主机或系统服务；未完成真实 SSH／systemd、macOS 和完整
+发行包验收。本轮没有重新打包；Linux 服务包需要随当前代码重建。未提交或推送。
+
+## 2026-10-20：首次安装完成立即启动管理服务
+
+首次本机安装在程序准备、服务注册和安装登记完成后释放 Agent／Manager 进程锁，再通过
+既有系统服务管理器依次请求启动 Agent 与 Manager；保留安装互斥直到启动请求结束。
+登录自启与立即启动使用相同服务定义，关闭安装器不停止后台服务。升级、修复仍保持原有
+停机协调顺序。界面新增中英文启动进度。启动失败向界面报告，不发送完成进度；已经完成
+的程序发布和安装登记保留，不自动回滚或重复发布，可由 Terminal 请求启动或明确修复。
+
+10 项安装与调用顺序 CTest、8 项安装器组件测试通过；新增验证启动前安装已完成且进程锁
+可获取，启动失败不误报完成、不撤销安装，也不改变修复的停机行为。构建、类型、格式和
+需求文档检查记录在 `build/reviews/installer-start-*.log`。未运行真实用户安装或 macOS／
+launchd 验收，未重新生成安装包，未操作实际系统服务，未提交或推送。
+
+## 2026-10-20：升级后启动本机管理服务
+
+本机升级完成程序准备、服务注册和安装登记后，释放两个进程锁并通过系统服务管理器
+启动本机 Agent 与新 Manager，随后沿用既有 FINISH 流程启动并确认远程 Agent。
+复用首次安装的启动回调与界面进度，不新增启动入口或状态。业务服务保持升级前用户
+明确停止的运行意愿，不恢复交易授权、订单或任务；同版本修复仍是本机停机维护。
+本机启动失败向安装器报错，不继续远程收尾，远程维护进度保留供显式继续。
+
+11 项相关 CTest（含远程维护与安装器调用顺序）、8 项安装器组件测试、C++ 构建、
+TypeScript、格式、需求文档与 diff 检查通过。原生测试验证升级启动回调在安装登记完成、
+进程锁释放后执行；调用顺序测试验证本机升级失败不执行 FINISH。远程维护测试使用真实
+管理进程和 mTLS，SSH／systemd 为隔离替身。证据：`build/reviews/upgrade-start-*.log`。
+未操作真实安装或系统服务，未验收 macOS／launchd，未重新打包，未提交或推送。
+
+## 2026-10-20：管理与客户端工程归属整理
+
+将安装器原生代码和发行描述模板从 `apps/installer/` 归入
+`apps/clients/installer/`，与 Electron 宿主同属一个应用目录。Terminal 行情客户端、
+快照与展示历史从公共控制目录归回 Terminal native；`asterion_node_control` 不再编译
+行情展示代码或公开依赖图表指标库。CMake、测试引用、AGENTS、架构和开发指南同步更新。
+没有增加兼容目录、抽象层或新的构建工具；安装器 React 页面仍复用现有前端工程。
+
+Linux Debug 的 Manager、Agent、维护执行器、Terminal 和相关测试目标构建通过；27 项
+CTest 通过，覆盖架构约束、行情快照／展示历史、远程行情、本机 Manager 生命周期、
+安装与远程维护、安装器流程及资源打包。生成的 Ninja 链接依赖确认 Manager 和安装器
+均不再链接图表指标或 Terminal 实现。格式、需求文档、旧路径引用及 diff 检查通过。
+证据：`build/reviews/project-layout-{build,tests,dependencies,format,docs}.log`。
+测试初次枚举恰逢测试程序链接，产生暂时的 permission denied；等待构建完成后的完整
+相关测试通过，未为此添加恢复分支。远程测试的 SSH／systemd 使用隔离替身；未修改真实
+用户安装或服务。未验收 macOS、真实远程主机或重新打包；发行前需重建 Linux 服务包。
+未提交或推送。
+
+## 2026-10-20：落实 management／services／workers 工程组织
+
+Manager 和 Agent 从业务服务目录移动到 `apps/management/`；回测、因子和数据管道移动到
+`apps/workers/`；`apps/services/` 只保留常驻业务服务。构建按职责加载目录，输出文件、
+运行目录、系统服务名称和协议保持原样。同步 CMake、测试源码入口、文档引用和工程规则，
+不保留旧路径或转发别名。现有 Linux 服务源码输入清单及 CMake 变更监听加入 management、
+workers 和 common，资源测试验证这些目录的源码变更能使旧服务包失效，没有另建校验流程。
+
+`node_paths` 不再承担 CTP 账户路径与钥匙串辅助程序定位：分别移入 Terminal 的现有
+`ctp_connections` 和 `keychain_store` 实现及对应头文件，调用行为和保存路径不变。
+common 保留共享节点配置部署、节点／登记目录及控制机制，不新增泛化路径层或状态。
+
+Linux Debug 的管理进程、三个 worker、维护执行器、Terminal 开发桥接及相关测试目标
+构建通过。37 项 CTest 通过，覆盖架构边界、账户／凭据、Agent 维护、安装、工作进程
+生命周期、程序参数、本机 Manager 生命周期、桌面和远程资源、远程维护与安装器编排。
+格式、需求文档、源码输入覆盖、旧源码目录／引用及 diff 检查通过。
+证据：`build/reviews/app-organization-{build,tests,layout,format,docs}.log`。
+远程维护使用真实 Manager／Agent 与 mTLS，但 SSH／systemd 为隔离替身。未修改真实
+用户安装或系统服务，未验收 macOS／真实远程主机，未重新生成发行安装包或 Linux 服务包；
+发行前需重建。未提交或推送。
+
+## 2026-10-20：层级 CMake 与目标所有权
+
+根 CMakeLists 从集中声明目标改为 60 行项目配置与模块组合。core、protocol、plugins、
+apps、bindings 逐层使用 add_subdirectory；管理进程、业务服务、worker、客户端及实际
+插件模块各自声明源码和依赖。公共告警策略由目标所属目录调用小函数，移除根目录的跨
+模块目标清单。测试使用目标级包含路径，维持 tests/CMakeLists 的统一登记责任。
+
+Terminal 原生实现目标 `asterion_terminal_application` 与 bindings/c 的 C ABI 封装
+`asterion_terminal_api` 分离，bindings/node 拥有 Node-API 模块。Manager 的链接边界
+同步覆盖原生实现目标，负例验证直接依赖会被拒绝。现有服务源码输入跟踪包含新增的
+apps 与 clients 构建入口，未新增校验流程。程序、插件及生成资源的发行路径不变。
+
+桌面 Debug 配置及关闭测试／未提供 Electron SDK 的独立配置均通过；完整 Debug 默认
+目标构建通过，Python 分析协议生成目标通过。82 项相关 CTest 通过，覆盖架构约束、
+C ABI、Node-API 生命周期、行情快照、账户与凭据、回测／因子、Agent 和 Manager 生命周期、
+安装、远程维护、资源打包与程序参数。检查 C ABI 静态库仅含封装对象，生成资源及程序
+仍位于预期位置。格式、需求文档、diff 检查通过。
+
+证据：`build/reviews/cmake-hierarchy-{configure,service-configure,build,tests,links,generated,artifacts,format,docs}.log`。
+远程维护测试使用隔离 SSH／systemd 替身；未运行真实主机维护、macOS 或发行安装包验收。
+关闭测试配置仅验证 CMake 配置生成，未单独编译该目录。未重新打包或重建 Linux 发行服务包，
+未提交或推送。
+
+## 2026-10-20：安装执行器与管理进程实现解耦
+
+检查发现安装执行器仅为调用 Agent 离线程序准备而链接整个 Manager 实现库。比较让
+安装器直接复用管理实现与共享已有部署机制两种方式，选择后者：`prepare_local_programs`
+从 Manager 本机节点文件移至公共 `service_programs` 模块，继续启动独立 Agent 子进程，
+保留原有准备、退出状态及错误日志定位行为。安装器只依赖安装发布和共享控制库，通过
+Manager 协议协调远程节点，不嵌入 Manager 登记、连接或 Agent 监督实现。
+
+CMake 架构约束禁止维护执行器链接 Manager／Agent 实现库，并通过实际目标图负例验证。
+AGENTS、架构和安装需求明确：管理进程应精简稳定，但首次部署和自身停机替换仍需独立
+维护入口，不以“永不更新”作为可靠性前提，不移除安装器或新增第二套管理路径。
+
+受影响目标构建及 22 项相关 CTest 通过，覆盖安装、离线程序准备及具体失败原因／日志、
+Agent 维护冻结、Manager 生命周期、远程维护和安装器编排。实际生成的链接依赖确认维护
+执行器不再引入 Manager／Agent 实现。格式、需求文档生成／检查与 diff 检查通过。
+证据：`build/reviews/management-boundary-{build,tests,link,format,docs}.log`。
+远程测试的 SSH／systemd 为隔离替身；未操作真实用户服务，未验证 macOS 或真实主机，
+未重新打包或重建 Linux 发行服务包。未提交或推送。
+
+## 2026-10-20：移除额外架构构建守卫
+
+按用户要求，撤销此前将内部职责约定编码为构建限制的做法。删除 CMake 传递依赖图扫描、
+核心 include／JSON 源码扫描，以及只验证这些限制会报错的 CMake 负例测试；同时移除
+根构建调用和两个 CTest 登记。没有改成另一套守卫、扫描脚本或替代测试。
+资源包源码输入测试改用现存编译选项文件作为构建输入样例，不再引用已删除的规则文件。
+
+架构职责继续通过目录、目标依赖、文档和评审表达。AGENTS 明确禁止默认添加此类内部
+依赖／源码组织扫描和规则执行测试，开发指南与现行架构同步去掉运行这些检查的说明。
+正常编译链接、平台与 SDK 可用性、依赖锁、插件 ABI 和真实领域／输入校验保留。
+本记录取代前面关于自动架构守卫仍在执行的现状描述；历史验证记录不代表当前测试清单。
+
+CMake 重新配置及相关管理、安装、Terminal 目标构建通过；16 项安装、程序准备和资源
+相关 CTest 通过。原架构测试的 CTest 查询结果为 0；格式、需求文档及 diff 检查通过。
+证据：`build/reviews/remove-architecture-guards-{configure,build,registration,tests,format,docs}.log`。
+未运行真实用户维护、macOS 或发行安装包验收；未重新打包、提交或推送。
+
+## 2026-10-20：安装启动就绪确认与默认本机部署
+
+此前首次安装和升级只确认 OS 启动命令成功，不能证明 Manager 可响应或本机 Agent 已就绪。
+比较直接连接 Agent 与读取 Manager 快照两种做法，采用后者以保留唯一 Agent 连接拥有者。
+安装执行器在启动后最多等待 30 秒，确认 Manager 响应及本机 Agent 在线、READY；节点尚未
+恢复或 Agent 初始化中继续只读观察，初始化失败立即报告，超时显示最后原因与日志目录，
+已知 PID 时附实际进程日志路径。协议错误直接失败，不重放管理命令、不修改运行配置。
+只有确认成功才发送完成进度；失败保留已发布应用和安装登记。修复仍保持停机行为。
+
+默认安装只部署本机。安装器删除新增节点、生成 SSH 公钥及远程首次安装入口，原生请求也
+仅接受远程维护；用户在 Terminal 中新增机器和部署业务服务。安装器保留已有节点清单、
+维护凭据输入、升级和卸载。节点登记和 SSH 非秘密资料由 Manager 持久化，服务实例及运行
+意愿由各 Agent 持久化，升级／卸载读取这些记录；不创建第二份拓扑配置。现有持久化路径
+已核对，未改写用户文件。需求、架构、开发指南及 AGENTS 同步记录责任与目录。
+
+Linux Debug 维护执行器和安装测试构建通过，15 项 CTest 通过（安装、四项就绪行为、
+Manager 生命周期与安装器编排），11 项安装器组件测试通过。覆盖延迟 socket、本机 Agent
+初始化过程、远程就绪不能替代本机就绪、明确失败及日志、超时、错误协议，以及已有 SSH
+连接维护。TypeScript、格式、需求文档生成／检查及 diff 检查通过。
+证据：`build/reviews/installer-readiness-{build,ctest,ui,types,format,docs}.log`。
+
+未运行真实用户安装、systemd／launchd 服务注册或真实远程主机验收；未重建发行安装包。
+本次增加的是本机安装／升级就绪等待；远程启动确认沿用现有 Manager 维护流程。
+未提交或推送。
+
+## 2026-10-20：默认单机完整业务能力
+
+按用户确认明确默认拓扑：本机包含 Terminal、Manager、Agent、全部业务服务、三类 Worker
+和所需插件，远程节点是可选扩展。核对本机资源清单、程序选择、Manager 的本机服务创建
+与 Terminal 工作台准备，既有实现已经支持本机完整链路，本轮不新增第二套部署逻辑或
+运行配置。本机服务通过 Unix Socket 通信，不读取远程 Linux 包；默认管理服务立即启动，
+工作台准备行情、数据和任务服务，已有交易记录可恢复进程但不自动登录或授权交易，Worker
+按已接受任务运行。AGENTS、架构、安装需求与开发指南同步明确，安装器中英文说明同步更新。
+
+扩充既有 Manager 生命周期测试，在远程资源目录不存在且无远程登记时，通过 Terminal
+启动本机行情、数据和任务服务，验证固定配对、本机端口、空闲时无 Worker、服务记录落盘，
+并确认 Agent／Manager 分别重启后恢复原部署且不改写配置。没有新增构建约束、源文件扫描
+或额外运行时完整性检查。
+
+Linux Debug 本机服务与 Terminal 测试桥构建通过。在不存在的远程资源路径下运行的 5 项
+CTest 通过：行情进程、交易进程、回测／因子任务恢复、Manager／Agent 生命周期和本机
+资源打包。18 项工作台启动及安装器组件测试、格式与需求文档检查通过。
+证据：`build/reviews/local-complete-{build,process,ui,docs,format}.log`。
+行情／交易使用专用测试 SDK，任务使用测试数据；未进行真实柜台、macOS 或发行安装包
+验收，未重新打包，未操作真实用户服务，未提交或推送。
+
+## 2026-10-20：统一程序与库产物的下划线命名
+
+按用户最终确认，项目自有 CMake 目标、可执行程序和生成库文件统一使用下划线。普通目标
+使用默认产物名，移除多余 `OUTPUT_NAME`；仅 Node 原生模块与公开插件文件名确实不同于
+内部目标的场合保留显式名称。核心静态库、业务服务、Manager／Agent、开发桥、测试程序、
+插件、Terminal／Installer 的 Electron 可执行文件、冻结分析助手和远程主机辅助程序同步。
+加载路径、系统服务执行路径、部署脚本、资源清单、签名检查、测试夹具及现行文档一并更新。
+第三方 CTP 库、包标识、产品身份、系统服务登记名称和用户数据目录保持既有契约，不增加
+旧名称别名、自动迁移或命名守卫。AGENTS 与开发指南记录最终规则。
+
+Linux Debug 完整构建通过，清理该构建目录中已被新产物取代的旧文件；重新生成冻结分析
+助手，并重新暂存、验证本机桌面资源。35 项安装／插件／管理与业务进程／远程部署维护／
+打包资源 CTest，以及 6 项 QuantStats／Polars／skfolio 冻结助手 CTest 全部通过。实际
+`asterion_terminal.node` 加载测试、TypeScript、Python／Electron 主脚本语法、格式、
+需求文档与 diff 检查通过。沿用既有行为测试，没有新增只检查命名规则的测试。
+证据：`build/reviews/underscore-names-{build,tests,node,analytics,analytics-tests,types,docs,format}.log`。
+
+远程 SSH／systemd 测试使用隔离替身，交易使用测试 SDK；未操作真实用户服务或远程主机。
+未验收 macOS，也未重建发行安装包或 Linux 远程服务包。旧发行资源需要通过现有打包流程
+重新生成，现有主机未在本次代码修改中被自动重命名或迁移。未提交或推送。
+
+## 2026-10-21：明确服务自有任务与 Core 机制边界
+
+按“先明确任务归属与公共机制，再判断是否合并进程”的决定完成
+[设计记录](service-owned-tasks-design.md)。核对 TaskHost／Store、DataHost、Agent 派发和
+Terminal 客户端，确认下载发布决定、固定 Task／Data 配对和单 TaskClient 都需要随归属
+变化一起调整。选择 Data 拥有下载、Research 拥有计算、Core 复用机制的方案；保持两个
+业务进程，不承诺减少进程数，不新增中央任务数据库或泛化任务框架。
+
+列明任务作用域、节点共享 Worker 名额、发布与失败语义、旧文件保留、涉及的协议／运行／
+UI／打包边界及行为验收。现行架构与任务文档链接到目标设计，并保留当前实现说明。
+本轮完成的是设计决策；未改动生产服务、协议、Core 或用户数据，运行实现尚未切换。
+验证仅为文档链接与 diff 检查，不将之前的进程测试算作新方案验收。未提交或推送。
+
+## 2026-10-21：任务并发归所属服务，删除 Agent 节点额度
+
+按用户修正后的决定，将任务并发控制归还业务服务。当前 Task 实例读取
+`<node>/config/services/<实例>/task.json` 的 `worker_concurrency`，按本服务尚未退出的
+worker 数决定启动列表。Agent 只报告该服务的进程、执行已部署角色的启动并监督退出，
+删除节点总上限、预留计数、轮转授予和 `TaskDispatch.launch_slots`；删除节点额度状态、
+界面和相应诊断。安装器继续用各服务的运行意愿、PID 和存活 worker 判断维护条件。
+任务完成但进程未退出仍占本服务并发，不影响其他服务的调度。
+
+默认模板从 `config/agent.json` 改为 `config/task.json`，本机安装和远程 SSH 安装原样复制；
+Agent 部署新 Task 实例时复制实例策略，已有配置原文保留。服务启动必须显式传入配置路径，
+只读、不补齐、不热更新；修改策略需重启该服务，不需重启 Agent。旧开发目录中的
+`agent.json` 不再读取，已有文件不转换、不删除；缺少实例策略会报告路径。同步 AGENTS、
+现行架构／任务／部署文档及目标设计记录，没有增加节点资源预算或通用调度框架。
+
+Linux Debug 完整构建通过。51 项不同的 CTest 最终通过，覆盖服务实例配置生效、进程退出
+前占用并发、跨服务独立派发与同名任务隔离、迟到回复、下载发布、任务恢复、独立管理进程
+重启及配置保留、远程部署／维护、安装保留策略、私有通道和退出。16 项界面测试、TypeScript、
+格式、Python 语法、需求文档生成／检查及 diff 检查通过。一轮测试与重新链接并行导致
+可执行文件暂不可用，构建完成后重跑通过；另修正数据发布测试仅允许一次派发一个任务的
+过时假设，保留目标任务启动许可与数据冲突断言。证据：
+`build/reviews/service-concurrency-{build,supervision,tests,process,final,ui,types,format,format-check,docs}.log`。
+
+本次实现的是服务实例并发边界；下载仍在当前 Task 账本，Data／Research 任务归属拆分及
+公共任务机制提取尚未完成，不将其计为交付。未操作真实用户配置或远程节点；远程测试使用
+隔离 SSH／系统服务替身。未验收 macOS，未重建发行安装器或 Linux 远程服务包，未提交或推送。
+
+## 2026-10-21：服务主动请求 worker，Agent 只管理进程
+
+按用户指定的执行流程，当前 Task 服务依据自己的实例策略、任务队列和存活 worker，主动
+通过 Agent 私有本机 `worker-control.sock` 请求启动。Agent 返回启动结果和进程状态，
+不再轮询任务队列或请求派发列表；删除 `TaskDispatch`、`TaskLaunches` 及旧派发 RPC。
+worker 继续直接向所属服务领取任务、报告进度和结果，Agent／Manager 不转发业务载荷。
+服务启动由 Agent 传入 `--agent-endpoint`，没有新增配置文件或第二套节点登记。
+
+Agent 保留已退出进程，所属服务先持久确认任务状态，再以已有任务尝试编号和 PID 确认
+清除该记录。启动回复丢失后先观察进程，避免盲目重启；重复启动同一已有尝试返回原进程。
+明确启动失败或领取前退出记为失败并计入一次尝试，执行中无结果退出记为中断，均需用户
+显式重试；迟到退出不能覆盖已完成结果。服务独立控制并发，领取前和完成后仍存活的
+worker 继续占本服务名额。升级时暂停新启动，保持观察和退出确认，排空后停止服务。
+普通管理入口及远程 TCP 入口不接受私有 worker 控制。
+
+Linux Debug 完整构建通过；61 项不同的 CTest 通过，覆盖服务配置与并发、启动回复丢失、
+进程退出确认、真实 Agent／worker 执行与恢复、任务持久化、下载发布、私有通道、升级
+停机、Manager 生命周期和隔离节点部署。TypeScript、1 项诊断文案测试、格式检查、修改
+脚本的 Python 语法及 diff 检查通过。证据：
+`build/reviews/service-push-{build,focused-final,process,store,types,ui,format-check}.log`。
+
+本次交付执行控制方向的调整；下载、回测和因子仍在当前 Task 服务，Data／Research
+任务归属拆分与公共任务机制提取尚未完成。未操作真实用户配置或远程节点，未验收 macOS，
+未重建发行安装器或 Linux 远程服务包。未提交或推送。
+
+## 2026-10-21：按完整产品需求重新设计架构与工程组织
+
+基于当前需求总纲、八模块/23子模块的功能目标与输入约束、共同契约、有限交付范围、
+UI导航、旅程和NFR，并对照本工作树的服务/worker/协议/配置/插件与Terminal实现，
+重写[目标架构设计](architecture-design-review.md)。原文的旧平台/提交和缺少质量目标的
+判断不再作为当前目标；历史取舍仍可由Git查阅。当前运行文档继续标明未切换。
+
+选择五类业务服务：Data、Market、Intelligence、Research、Trading，另保留独立Manager、
+Agent和Installer。Research内部按分析、策略、回测、评估组织；任务由各服务拥有，按Data、
+Intelligence、Research设计三类按次worker。定时计划采用服务内复用机制，任务中心只聚合；
+管理进程不代理业务流量。明确Core/插件/应用、common运行与管理机制、协议/前端、
+配置/业务状态/秘密的归属，以及资料引用、情报发布、研究谱系、交易证据与实施阶段。
+
+新增[304项FR责任映射](requirements-architecture-map.md)，每项链接需求唯一正文；
+58项UI与42条JRN继续复用原需求追踪，不复制产品规格。发现并列明当前默认并发2/允许任意
+正整数与需求默认1/最多2的差异，以及日志1GiB容量、扫描件/OCR范围、桌面分析助手与持久
+任务所有权等问题。本轮不改动需求方法范围、不修改生产代码、不预建空目录或配置文件。
+
+需求检查通过：44份正文、65个REQ、304个FR、58个UI、42个JRN、10个NFR、1002条验收，
+派生阅读版及链接一致；新增映射304项无遗漏或重复，目标文档相对链接/显式锚点与diff检查通过。
+证据：`build/reviews/requirements-architecture-check.log`。本轮仅设计与文档检查，未运行C++、
+UI或端到端行为测试；先前测试不作为新架构验收。未操作真实节点、运行配置或用户数据，未提交或推送。
+
+## 2026-10-21：移除独立worker，任务改为服务内部执行
+
+本次按新的执行边界替换此前“服务请求Agent启动worker”的实现。Data／Research职责拆分仍待实施，
+当前下载、回测和因子任务继续由Task拥有；本条记录不宣称五类业务服务目标已交付。
+
+- 删除`apps/workers/`、三个任务可执行入口、公共task_client执行器，以及Agent的WorkerControl、
+  进程退出确认、worker制品字段、计数及私有通道。更新Manager、安装器、Electron、部署清单和测试。
+- 回测、因子引擎作为库链接到Task，下载及固定输入解析成为服务内模块。已有Kernel ThreadPool
+  执行计算，服务状态/I/O线程持久确认进度、取消、结果和发布，不通过本机RPC回报自身。
+- 删除任务领取/进度/完成/失败/取消确认RPC及心跳租约。执行计入并发直到计算和结果确认结束；
+  协作取消、升级冻结及排空、服务重启中断与显式重试保持明确。风险计算使用任务捕获的插件副本。
+- `config/task.json`改为`task_concurrency`默认1、允许1–2；启动只读。旧策略字段及旧worker部署
+  登记不作兼容读取或自动迁移，已有用户配置和业务资料未改动。
+- AGENTS、目标设计、304条FR责任映射、现行架构、运行/部署说明及安装需求同步更新。
+
+验证：Linux Debug完整构建通过；分批执行共102项不同CTest通过，覆盖真实服务内部执行/取消/升级
+排空、任务持久化、Data发布、节点部署恢复、Manager/Agent生命周期、安装维护、TLS及打包资源。
+初次运行的测试假设/配置问题已修正并定向复测；日志以最终定向复测结论为准。
+6项前端单测、TypeScript、Python语法、format:check、需求检查及git diff --check通过。
+日志在`build/reviews/remove-workers-*.log`。
+
+未验证：macOS、真实远程机器/柜台、桌面E2E及重新生成的发行安装包/Linux服务包。
+真实开发环境验收脚本因缺少显式managed-development标志在启动前拒绝，未继续操作用户环境，
+不计入通过测试。旧的worker心跳/进程启动测试删除，由真实服务执行与并发/取消测试替代。
+
+## 2026-10-21：更新服务内执行后的目标架构
+
+更新[架构设计](architecture-design-review.md)，将已落地的服务内执行与待实施的五类业务服务、
+七模块界面和工程目录调整明确分开。补充任务取消、失败、重启中断、升级排空及安装维护的责任。
+当前Task仍混合下载和研究，Data/Task固定配对仍在；默认并发1、允许1–2已落实，删除过时的差异描述。
+
+核对实际调用方后，明确目标公共层：ServiceIo/端点接线由Terminal与Manager共用，归应用runtime；
+节点路径、OS服务、程序包及管理转换归management/common；展示转换归Terminal。同步说明Manager
+当前对节点JSON映射的调用也须调整，不把现有整个control库简单搬名或新建通用服务宿主。
+本轮仅修改设计与进度文档，未移动源码、配置或用户资料。
+
+验证：304条FR映射无遗漏/重复，设计相对链接和锚点有效；需求检查通过（304 FR、58 UI、42 JRN、
+10 NFR、1002条验收），git diff --check通过。未重新运行编译或行为测试，未将既有测试计为目标架构验收。
+
+## 2026-10-21：统一目标服务命名
+
+目标设计的服务目录统一为market-data、data、intelligence、research、trading，去掉不一致的
+-service后缀；目标程序统一为asterion_加职责名，使用下划线。明确当前Data/Task路径和程序名
+尚未切换，后续须同时更新构建、部署、打包及调用方，不能保留别名或自动改名用户资料。
+本轮仅更新架构设计和记录；304项FR映射、设计链接及git diff --check通过，未运行行为测试。
+
+## 2026-10-21：确定交易核心复用与数据模块部署边界
+
+目标设计明确回测、本地实时模拟与实盘复用适用的交易领域机制和策略/风控插件，账户、订单、
+账本及额度实例隔离；历史推进与柜台执行分别实现。当前只部分共用，不能以设计原则代替实现验收。
+补充单Data进程与Market/Data双进程的比较：两者属于同一数据模块，当前保留独立进程用于行情
+连接与仓库维护的生命周期隔离；仅有线程池差异不足以证明必须拆进程。明确实时/历史状态所有者，
+不承诺共享主机资源隔离或未经验证的性能。
+
+本轮仅更新设计文档与记录。304项FR映射、文档链接、需求一致性及git diff --check通过；
+未执行代码重构、运行行为或性能测试，未操作用户环境。
+
+## 2026-10-21：明确行情与数据服务命名
+
+目标行情目录及程序改为`market/`、`asterion_market`，与Market服务称呼一致；`data/`负责
+数据仓库、采集和加工。更新目录职责注释及目标程序表，保留当前market-data源码和程序名的
+准确说明。本轮仅修改设计与记录，未移动源码；文档链接、304项FR映射及diff检查通过。
+
+## 2026-10-21：固定三种交易环境的运行边界
+
+目标架构明确共用交易核心代码与独立运行状态：实盘和本地实时模拟分别启动独立Trading进程，
+可共用可执行文件；回测在Research执行池内为每次实验创建独立核心实例，不恢复任务worker。
+同步进程图、程序表及工程目录注释，明确实例环境、账本、授权、日志和停止边界，并补充隔离验收。
+本轮仅更新设计及记录；304项FR映射、设计链接、需求检查及git diff --check通过。
+交易核心整合、独立实时模拟运行及进程隔离的完整行为验收仍待实施，本轮未运行行为测试。
+
+## 2026-10-21：实现柜台交易的跨节点实例绑定
+
+按本次确认的范围，实现真实柜台与柜台仿真共用`asterion_trading`、按服务实例部署和管理。
+本地实时模拟撮合不在本轮范围。
+
+- 运行与部署页面支持本机/远程CTP交易实例；Agent为显式部署实例创建自己的账本目录。
+  Manager新增按既有实例启动并等待健康端点就绪的操作，复用现有节点登记和Agent连接。
+- 交易创建页选择节点、已部署实例及柜台环境；本机仍支持自动创建。账户连接记录只保存
+  `trading.node/service`引用，不复制部署登记。创建业务记录前持久保存绑定，结果不明时
+  查询原实例并由用户明确继续，禁止切换位置或同实例绑定另一账户。打开账户直连目标服务。
+- `LiveInput/LiveSnapshot`增加明确柜台环境，由交易记录持久保存；窗口不能修改服务环境。
+  创建/打开并不登录或授权。绑定后柜台身份不可改，连接登记不可直接删除；名称仍可修改。
+- 节点管理页面按节点和实例查找账户展示，避免两节点同名实例混淆。端点使用本机Unix Socket
+  或远程TCP+mTLS，管理进程不转发交易业务。远程账户不创建本机账本。
+- 远程自动策略当前仍未接入；客户端明确提示限制，后端拒绝将本机行情socket传给远程交易服务。
+  自动策略仍要求本机行情与交易服务；远程柜台连接、查询及授权下的手动执行沿用现有交易协议。
+- 更新架构设计、现行架构、交易说明、协议生产者/消费者、测试夹具和中英文界面。
+  旧开发交易记录缺少环境字段会明确拒绝；未增加兼容读取、迁移或改写已有用户资料。
+
+验证：Linux Debug构建通过；11项账户连接/交易进程测试、50项Live领域测试、原有live_process
+及新增trading_remote_instances共63项CTest通过。1项既有性能测量测试为Disabled，未计通过。
+跨节点测试使用隔离目录、回环TCP+mTLS与测试专用CTP SDK，覆盖两节点同名交易实例、不同环境、
+独立授权、测试柜台远程下单成交与其他账户无订单、错误账户绑定拒绝、远程账本位置、停止隔离、
+重启与重新打开Terminal后的绑定恢复。
+拆分创建步骤后健康快照停留在初始化前的问题已修正，原有进程测试定向复测通过。
+3项前端定向测试、TypeScript、format:check、需求/设计链接及git diff --check通过。
+证据：`build/reviews/trading-instances-*.log`。未运行桌面E2E、真实券商/真实远程主机、macOS
+或重新生成发行包；已有E2E/验收调用参数同步更新但不计为运行通过。未提交或推送。

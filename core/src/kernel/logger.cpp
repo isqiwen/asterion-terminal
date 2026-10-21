@@ -11,11 +11,54 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <fstream>
+#include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/owner.hpp>
 
 namespace asterion {
 namespace {
 
 std::atomic<std::uint64_t> log_failures{0};
+std::mutex process_mutex;
+std::string process_program, process_instance;
+const auto process_started = SystemClock{}.utc_now();
+
+LoggerOptions logging_policy(const std::filesystem::path& directory)
+{
+    LoggerOptions options;
+    options.stderr_sink = false;
+    const auto file = directory.parent_path() / "config" / "logging.json";
+    if (!std::filesystem::exists(file))
+        return options;
+    std::ifstream input(file);
+    if (!input)
+        throw Error(
+            ErrorCode::invalid_request,
+            "cannot read node logging configuration: " + file.string());
+    const auto config = Json::parse(input, nullptr, false);
+    if (!config.is_object() || config.size() != 2 || !config.contains("level")
+        || !config.contains("retention_days") || !config.at("retention_days").is_number_unsigned()
+        || !config.at("level").is_string())
+        throw Error(
+            ErrorCode::invalid_request,
+            "invalid node logging configuration: " + file.string());
+    const std::map<std::string, LogLevel> levels{
+        {"debug", LogLevel::debug},
+        {"info", LogLevel::info},
+        {"warning", LogLevel::warning},
+        {"error", LogLevel::error},
+        {"off", LogLevel::off}
+    };
+    const auto level = levels.find(config.at("level").get<std::string>());
+    const auto days = config.at("retention_days").get<std::uint64_t>();
+    if (level == levels.end() || days < 1 || days > 366)
+        throw Error(
+            ErrorCode::invalid_request,
+            "invalid node logging configuration: " + file.string());
+    options.level = level->second;
+    options.retention_days = static_cast<unsigned>(days);
+    return options;
+}
 
 void record_log_failure() noexcept
 {
@@ -128,6 +171,43 @@ std::uint64_t process_log_failures() noexcept
     return log_failures.load(std::memory_order_relaxed);
 }
 
+void initialize_process_logging(std::string program, std::string instance)
+{
+    validate_id(program);
+    if (!instance.empty())
+        validate_id(instance);
+    std::lock_guard lock(process_mutex);
+    process_program = std::move(program);
+    process_instance = std::move(instance);
+}
+
+std::filesystem::path process_log_file(
+    const std::filesystem::path& directory,
+    std::string_view program,
+    std::uint64_t pid)
+{
+    const auto now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    char date[16];
+    std::strftime(date, sizeof date, "%Y-%m-%d", &local);
+    return directory / (std::string(program) + "-" + std::to_string(pid) + "_" + date + ".log");
+}
+
+void prune_process_logs(const std::filesystem::path& directory)
+{
+    const auto days = logging_policy(directory).retention_days;
+    const auto limit = std::filesystem::file_time_type::clock::now() - std::chrono::days(days);
+    const std::regex pattern(R"([A-Za-z0-9._-]+-[0-9]+_[0-9]{4}-[0-9]{2}-[0-9]{2}\.log)");
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.is_symlink() || !entry.is_regular_file()
+            || !std::regex_match(entry.path().filename().string(), pattern))
+            continue;
+        if (entry.last_write_time() < limit)
+            std::filesystem::remove(entry.path());
+    }
+}
+
 std::shared_ptr<Logger> process_logger(const std::string& name)
 {
     const auto directory = environment_path("ASTERION_LOG_DIRECTORY");
@@ -135,26 +215,55 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
         return nullptr;
     validate_id(name);
 
-    struct Cached
+    struct ProcessLog
     {
         std::filesystem::path directory;
-        std::shared_ptr<Logger> logger;
+        std::string program, instance;
+        LoggerOptions policy;
+        spdlog::sink_ptr sink;
+        std::map<std::string, std::shared_ptr<Logger>> modules;
     };
 
-    static std::mutex mutex;
-    static std::map<std::string, Cached> cache;
-    std::lock_guard lock(mutex);
-    const auto found = cache.find(name);
-    if (found != cache.end() && found->second.directory == *directory)
-        return found->second.logger;
-    if (found == cache.end() && cache.size() >= 32)
+    static ProcessLog current;
+    std::lock_guard lock(process_mutex);
+    const auto program =
+        process_program.empty() ? current_executable().filename().string() : process_program;
+    if (!current.sink || current.directory != *directory || current.program != program
+        || current.instance != process_instance) {
+        if (!directory->is_absolute())
+            throw Error(ErrorCode::invalid_request, "invalid log file or retention");
+        ProcessLog next;
+        next.directory = *directory;
+        next.program = program;
+        next.instance = process_instance;
+        next.policy = logging_policy(*directory);
+        std::filesystem::create_directories(*directory);
+        const auto base =
+            *directory / (program + "-" + std::to_string(current_process_id()) + ".log");
+        next.sink = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+            base.string(),
+            0,
+            0,
+            false,
+            static_cast<std::uint16_t>(next.policy.retention_days));
+        current = std::move(next);
+    }
+    if (const auto found = current.modules.find(name); found != current.modules.end())
+        return found->second;
+    if (current.modules.size() >= 32)
         throw Error(ErrorCode::resource_exhausted, "process logger capacity exhausted");
-    LoggerOptions options;
-    options.name = name;
-    options.stderr_sink = false;
-    options.file = *directory / (name + ".log");
-    auto logger = std::make_shared<Logger>(options);
-    cache.insert_or_assign(name, Cached{*directory, logger});
+    auto backend = std::make_shared<spdlog::logger>(name, current.sink);
+    backend->set_level(native_level(current.policy.level));
+    backend->flush_on(spdlog::level::warn);
+    auto logger = std::make_shared<Logger>(
+        std::move(backend),
+        Json{
+            {"program", program},
+            {"pid", current_process_id()},
+            {"instance", process_instance},
+            {"started_ns", std::to_string(process_started)}
+        });
+    current.modules.emplace(name, logger);
     return logger;
 }
 
@@ -246,8 +355,9 @@ Logger::Logger(const LoggerOptions& options)
     configure_errors();
 }
 
-Logger::Logger(std::shared_ptr<spdlog::logger> backend)
-    : backend_(std::move(backend))
+Logger::Logger(std::shared_ptr<spdlog::logger> backend, Json process)
+    : backend_(std::move(backend)),
+      process_(std::move(process))
 {
     if (!backend_)
         throw Error(ErrorCode::invalid_request, "null logger backend");
@@ -279,7 +389,8 @@ bool Logger::write(LogLevel level, std::string_view event, Json fields) noexcept
                 std::string(
                     spdlog::level::to_string_view(native).data(),
                     spdlog::level::to_string_view(native).size())},
-            {"logger", backend_->name()},
+            {"module", backend_->name()},
+            {"process", process_},
             {"timestamp_ns", std::to_string(SystemClock{}.utc_now())},
             {"fields", std::move(fields)}
         }.dump();

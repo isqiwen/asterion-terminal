@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <set>
 #include <string_view>
 
 namespace asterion::tasks {
@@ -218,8 +219,11 @@ public:
         const std::filesystem::path& directory,
         Identity identity,
         const std::string& dataset_id);
-    task::proto::TaskLaunches
-    dispatch(const task::proto::TaskDispatch& processes, bool data_available = true) const;
+    [[nodiscard]] Change fail_start(
+        const std::string& id,
+        unsigned attempt,
+        const std::string& error,
+        const std::string& code);
     [[nodiscard]] Change claim(const std::string& id);
     [[nodiscard]] Change claim(const InputRead&);
     [[nodiscard]] Change

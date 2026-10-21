@@ -16,7 +16,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import { readableCtpConnection } from "../../src/bridge/client";
-import type { CtpConnection, LiveSession } from "../../src/bridge/client";
+import type { CtpConnection, LiveSession, Snapshot } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 
@@ -118,6 +118,9 @@ export function LivePanel(context: TerminalContext) {
           </nav>
           {account && (
             <div className="ctp-account-panel" key={account.id}>
+              {account.trading && (
+                <p className="subtle">{t("运行实例：{node} / {service}", account.trading)}</p>
+              )}
               {/* A refused command is reported in the panel of its account. */}
               {error && (
                 <p className="alert" role="alert">
@@ -133,9 +136,7 @@ export function LivePanel(context: TerminalContext) {
                   busy={busy}
                   run={runFor(account.id)}
                 />
-              ) : entry ? (
-                <p className="alert">{t("交易服务尚未初始化。")}</p>
-              ) : account.trading_record ? (
+              ) : !entry && account.trading_record ? (
                 <div className="workflow-empty">
                   <p>
                     {account.name} · {account.broker_id} · {account.user_id}
@@ -197,6 +198,18 @@ function CreateLive({
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
   const [choice, setChoice] = useState("");
+  const [target, setTarget] = useWorkspaceDraft(`live-target:${account.id}`, {
+    node: "local",
+    service: "",
+  });
+  const placement = account.trading ?? target;
+  const [environment, setEnvironment] = useWorkspaceDraft<"" | "real" | "simulation">(
+    `live-create-environment:${account.id}`,
+    "",
+  );
+  const nodes = snapshot?.nodes ?? [];
+  const selectedNode = nodes.find(item => item.id === placement.node);
+  const services = selectedNode?.health?.services.filter(item => item.kind === "live") ?? [];
   const catalog = snapshot?.market?.catalog;
   const listed = catalog?.phase === "ready" ? catalog.contracts : [];
   return (
@@ -221,8 +234,11 @@ function CreateLive({
             setStep(1);
             return;
           }
+          if (!environment) return;
           void run("live.create", {
             ...limits,
+            ...placement,
+            environment,
             contracts: contracts.map(item => {
               const [venue, ...symbol] = item.split(".");
               return { venue, symbol: symbol.join(".") };
@@ -234,6 +250,67 @@ function CreateLive({
       >
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
+            <div className="futures-fields">
+              <label>
+                {t("运行节点")}
+                <select
+                  value={placement.node}
+                  disabled={!!account.trading}
+                  onChange={event => setTarget({ node: event.target.value, service: "" })}
+                >
+                  <option value="local">{t("本机")}</option>
+                  {nodes
+                    .filter(item => item.id !== "local")
+                    .map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.id}
+                      </option>
+                    ))}
+                  {account.trading && placement.node !== "local" && !selectedNode && (
+                    <option value={placement.node}>{placement.node}</option>
+                  )}
+                </select>
+              </label>
+              <label>
+                {t("交易服务实例")}
+                <select
+                  value={placement.service}
+                  required={placement.node !== "local"}
+                  disabled={!!account.trading}
+                  onChange={event => setTarget({ ...target, service: event.target.value })}
+                >
+                  <option value="">
+                    {t(placement.node === "local" ? "自动创建本机实例" : "请选择已部署的交易实例")}
+                  </option>
+                  {services.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.id}
+                    </option>
+                  ))}
+                  {account.trading && !services.some(item => item.id === placement.service) && (
+                    <option value={placement.service}>{placement.service}</option>
+                  )}
+                </select>
+              </label>
+              <label>
+                {t("柜台环境")}
+                <select
+                  required
+                  value={environment}
+                  onChange={event => setEnvironment(event.target.value as typeof environment)}
+                >
+                  <option value="">{t("请选择并核对")}</option>
+                  <option value="simulation">{t("CTP 仿真")}</option>
+                  <option value="real">{t("真实资金")}</option>
+                </select>
+              </label>
+            </div>
+            <p className="subtle">
+              {t("远程实例请先在运行与部署中创建；绑定后不会自动切换节点。")}
+            </p>
+            <button type="button" onClick={() => openSettings("connections")}>
+              {t("管理运行节点")}
+            </button>
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
               {catalog?.phase !== "ready" ? (
@@ -390,6 +467,13 @@ function CreateLive({
                   </span>
                   <span>{connection.trade_front}</span>
                 </dd>
+                <dt>{t("运行节点")}</dt>
+                <dd>
+                  {placement.node === "local" ? t("本机") : placement.node} /{" "}
+                  {placement.service || t("自动创建本机实例")}
+                </dd>
+                <dt>{t("柜台环境")}</dt>
+                <dd>{t(environment === "real" ? "真实资金" : "CTP 仿真")}</dd>
                 <dt>{t("可交易合约")}</dt>
                 <dd>{contracts.join(" + ")}</dd>
                 <dt>{t("委托与持仓限制")}</dt>
@@ -430,7 +514,7 @@ function LiveAccount({
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   account: CtpConnection;
   live: LiveSession;
-  connection: { session: string; host?: string; port?: number; state: string };
+  connection: Snapshot["live"][string]["connection"];
   run: Run;
 }) {
   const [credentials, setCredentials] = useState({ password: "", auth_code: "" });
@@ -443,15 +527,12 @@ function LiveAccount({
     live.broker.broker_id,
     live.broker.user_id,
   ]);
-  const [environment, setEnvironment] = useWorkspaceDraft<"unknown" | "simulation" | "real">(
-    `ctp-environment:${identity}`,
-    "unknown",
-  );
+  const environment = live.environment;
   const [environmentConfirmed, setEnvironmentConfirmed] = useWorkspaceDraft(
     `ctp-environment-confirmed:${identity}`,
     false,
   );
-  const environmentReady = environment !== "unknown" && environmentConfirmed;
+  const environmentReady = environmentConfirmed;
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
   const confirmed = confirmedPolicy === live.policy_revision;
@@ -522,26 +603,13 @@ function LiveAccount({
     <div className="environment-check">
       <label>
         {t("柜台环境")}
-        <select
-          aria-label={t("柜台环境")}
-          required
-          value={environment === "unknown" ? "" : environment}
-          onChange={e => {
-            setEnvironment((e.target.value || "unknown") as typeof environment);
-            setEnvironmentConfirmed(false);
-          }}
-        >
-          <option value="">{t("请选择并核对")}</option>
-          <option value="simulation">{t("CTP 仿真")}</option>
-          <option value="real">{t("真实资金")}</option>
-        </select>
+        <span>{t(environment === "real" ? "真实资金" : "CTP 仿真")}</span>
       </label>
       <label className="checkbox">
         <input
           type="checkbox"
           required
           checked={environmentConfirmed}
-          disabled={environment === "unknown"}
           onChange={e => setEnvironmentConfirmed(e.target.checked)}
         />
         {t("我已核对账户与柜台环境")}
@@ -799,20 +867,29 @@ function LiveAccount({
           </button>
         </div>
       )}
-      {stage === "trade" && !controlled && origin === "strategy" && (
-        <StrategyStart
-          live={live}
-          busy={busy}
-          onStart={params =>
-            void run("live.strategy.start", {
-              request_id: crypto.randomUUID(),
-              account_id: live.account_id,
-              policy_revision: live.policy_revision,
-              ...params,
-            })
-          }
-        />
-      )}
+      {stage === "trade" &&
+        !controlled &&
+        origin === "strategy" &&
+        connection.transport !== "local" && (
+          <p className="subtle">{t("远程交易实例暂不支持自动策略，请使用手动交易。")}</p>
+        )}
+      {stage === "trade" &&
+        !controlled &&
+        origin === "strategy" &&
+        connection.transport === "local" && (
+          <StrategyStart
+            live={live}
+            busy={busy}
+            onStart={params =>
+              void run("live.strategy.start", {
+                request_id: crypto.randomUUID(),
+                account_id: live.account_id,
+                policy_revision: live.policy_revision,
+                ...params,
+              })
+            }
+          />
+        )}
       {stage === "trade" && !controlled && origin === "manual" && (
         <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
           <fieldset disabled={busy}>

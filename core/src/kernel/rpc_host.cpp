@@ -44,6 +44,11 @@ struct LocalListener
     {
         if (endpoint.empty() || endpoint.front() != '/' || endpoint.find('\0') != std::string::npos)
             throw std::invalid_argument("invalid local socket path");
+        // Login services must recreate their transient socket directory after reboot,
+        // including launchd starts that happen before a Terminal window opens.
+        const auto parent = std::filesystem::path(endpoint).parent_path();
+        if (::mkdir(parent.c_str(), 0700) != 0 && errno != EEXIST)
+            throw Error(ErrorCode::unavailable, "cannot create IPC socket directory");
         acceptor.open();
         acceptor.bind(Local::endpoint(endpoint));
         try {

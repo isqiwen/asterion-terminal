@@ -64,26 +64,35 @@ std::shared_ptr<Application::Impl::LiveAccount> Application::Impl::live_account(
 void Application::Impl::register_live_commands()
 {
     command("live.create", [this](const json& p) -> PolledTask<Response> {
-        fields_with_risk(p, {"account", "max_price_deviation", "contracts"});
+        fields_with_risk(
+            p,
+            {"account", "max_price_deviation", "contracts", "node", "service", "environment"});
         const auto account = text(p, "account");
-        if (live.contains(account))
-            throw std::invalid_argument("this CTP account is already open");
+        if (const auto found = live.find(account); found != live.end()) {
+            if (found->second->busy || found->second->controls
+                || found->second->client->owner_view().session)
+                throw std::invalid_argument("this CTP account is already open");
+            live.erase(found);
+        }
         // Validated before the braced initializer (GCC < 13 PR66139 leak).
         const auto risk = risk_parameters(p);
         const auto connection = (co_await settings<CtpConnection>([&] {
             return ctp_connections.get(account);
         }));
-        if ((co_await service_io.admin<bool>([&] {
-                return std::filesystem::exists(ctp_record_directory(account) / "journal.sqlite");
-            })))
+        const auto node_id = text(p, "node");
+        const auto service = text(p, "service", true);
+        if (connection.trading && *connection.trading != TradingBinding{node_id, service})
             throw Error(
                 ErrorCode::conflict,
-                "this CTP account already has a trading record; open it");
+                "trading account is already bound to another service instance");
+        if (node_id != "local" && service.empty())
+            throw std::invalid_argument("choose a deployed trading service instance");
         auto contracts =
             policy_contracts(market ? market->owner_read().catalog : nullptr, p.at("contracts"));
         json manifest{
             {"account_id", account},
             {"type", "live_ctp"},
+            {"environment", text(p, "environment")},
             {"broker",
                 {{"front", connection.trade_front},
                     {"broker_id", connection.broker_id},
@@ -95,24 +104,32 @@ void Application::Impl::register_live_commands()
                     {"contracts", std::move(contracts)}}}
         };
         (void)protocol::encode_live_input(manifest);
-        auto awaited =
-            (co_await manage<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
-                [&, existing = existing_local_node()]()
-                    -> PolledTask<
-                        std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>> {
-                    auto node = (co_await local_node_client(existing));
-                    auto client =
-                        std::make_shared<LiveAccount>((co_await PollFuture{TradingClient::open(
-                            service_io,
-                            (co_await PollFuture{node->local_session(
-                                co_await service_io.admin<std::filesystem::path>([&] {
-                                    return ctp_account_directory(account, true);
-                                }))}),
-                            manifest)}));
-                    co_return std::pair{std::move(node), std::move(client)};
-                }));
-        auto& [node, next] = awaited;
-        nodes.try_emplace("local", std::move(node));
+        auto next = co_await manage<std::shared_ptr<LiveAccount>>(
+            [&]() -> PolledTask<std::shared_ptr<LiveAccount>> {
+                auto node = manager.node(node_id);
+                ServiceEndpoint endpoint;
+                if (service.empty()) {
+                    endpoint = co_await PollFuture{node->local_session(
+                        co_await service_io.admin<std::filesystem::path>([&] {
+                            return ctp_account_directory(account, true);
+                        }))};
+                } else {
+                    endpoint = co_await PollFuture{node->trading_session(service)};
+                }
+                auto client = co_await PollFuture{
+                    TradingClient::open(service_io, endpoint, nullptr, account)
+                };
+                // Persist the selected execution location before a creation request can have
+                // an unknown outcome. A failed reply never permits a second-node fallback.
+                co_await settings<void>([&] {
+                    ctp_connections.bind_trading(
+                        account,
+                        connection.revision,
+                        {node_id, endpoint.session});
+                });
+                co_await PollFuture{client->create(manifest)};
+                co_return std::make_shared<LiveAccount>(std::move(client));
+            });
         if (!live.try_emplace(account, std::move(next)).second)
             throw Error(ErrorCode::conflict, "another window opened this CTP account meanwhile");
         co_return snapshot();
@@ -122,28 +139,23 @@ void Application::Impl::register_live_commands()
         const auto account = text(p, "account");
         if (live.contains(account))
             co_return snapshot();
-        static_cast<void>((co_await settings<CtpConnection>([&] {
+        const auto connection = co_await settings<CtpConnection>([&] {
             return ctp_connections.get(account);
-        })));
-        const auto directory = ctp_record_directory(account);
-        if (!(co_await service_io.admin<bool>([&] {
-                return std::filesystem::exists(directory / "journal.sqlite");
-            })))
-            throw std::invalid_argument("this CTP account has no trading record yet");
-        auto awaited =
-            (co_await manage<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
-                [&, existing = existing_local_node()]()
-                    -> PolledTask<
-                        std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>> {
-                    auto node = (co_await local_node_client(existing));
-                    auto client =
-                        std::make_shared<LiveAccount>((co_await PollFuture{TradingClient::open(
-                            service_io,
-                            (co_await PollFuture{node->local_session(directory)}))}));
-                    co_return std::pair{std::move(node), std::move(client)};
-                }));
-        auto& [node, next] = awaited;
-        nodes.try_emplace("local", std::move(node));
+        });
+        if (!connection.trading)
+            throw std::invalid_argument("this CTP account has no trading instance binding");
+        auto next = co_await manage<std::shared_ptr<LiveAccount>>(
+            [&]() -> PolledTask<std::shared_ptr<LiveAccount>> {
+                auto node = manager.node(connection.trading->node);
+                const auto endpoint =
+                    co_await PollFuture{node->trading_session(connection.trading->service)};
+                auto client = co_await PollFuture{
+                    TradingClient::open(service_io, endpoint, nullptr, account)
+                };
+                // An interrupted creation can leave an empty but reserved instance. Opening
+                // it makes that state visible; the user explicitly completes creation there.
+                co_return std::make_shared<LiveAccount>(std::move(client));
+            });
         live.try_emplace(account, std::move(next));
         co_return snapshot();
     });
@@ -203,10 +215,11 @@ void Application::Impl::register_live_commands()
                 "symbol",
                 "strategy"});
         const auto source = market ? market->endpoint() : ServiceEndpoint{};
-        if (source.endpoint.empty())
+        const auto trading = live_account(p)->client->endpoint();
+        if (source.endpoint.empty() || trading.endpoint.empty())
             throw Error(
                 ErrorCode::unavailable,
-                "a strategy reads the market service on this machine; attach it first");
+                "strategy execution currently requires local market and trading services");
         auto command = p;
         command.erase("account");
         command["action"] = "strategy_start";

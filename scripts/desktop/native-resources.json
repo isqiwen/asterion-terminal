@@ -1,21 +1,25 @@
 {
   "programs": [
-    "asterion-trading",
-    "asterion-node-agent",
-    "asterion-market-data",
-    "asterion-data-service",
-    "asterion-task-service",
-    "asterion-backtest",
-    "asterion-factor",
-    "asterion-data-pipeline",
-    "asterion-keychain",
-    "asterion_terminal.node"
+    "asterion_trading",
+    "asterion_node_agent",
+    "asterion_node_manager",
+    "asterion_market_data",
+    "asterion_data_service",
+    "asterion_task_service",
+    "asterion_keychain",
+    "asterion_terminal.node",
+    "asterion_maintenance"
   ],
   "libraries": [
     "ctp-md",
     "ctp-trader",
-    "plugins/asterion-tushare",
-    "plugins/asterion-shfe",
-    "plugins/asterion-order-limits"
+    "plugins/asterion_tushare",
+    "plugins/asterion_shfe",
+    "plugins/asterion_order_limits"
+  ],
+  "configuration": [
+    "config/task.json",
+    "config/logging.json",
+    "product.json"
   ]
 }

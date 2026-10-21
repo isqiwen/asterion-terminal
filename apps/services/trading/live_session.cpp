@@ -97,6 +97,8 @@ LiveAccountState::LiveAccountState(
         validate_header(header_);
         manifest = manifest_from_header(header_);
     }
+    environment_ = manifest.at("environment") == "real" ? protocol::proto::REAL
+                                                        : protocol::proto::BROKER_SIMULATION;
     const auto& broker = manifest.at("broker");
     broker_id_ = broker.at("broker_id");
     investor_id_ = broker.at("user_id");
@@ -1107,6 +1109,7 @@ protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
     broker->set_front(trade_front_);
     broker->set_app_id(app_id_);
     result.set_account_id(account_id_);
+    result.set_environment(environment_);
     result.set_policy_revision(policy_->revision);
     result.set_risk_artifact(policy_->algorithm.artifact());
     auto* risk = result.mutable_risk();

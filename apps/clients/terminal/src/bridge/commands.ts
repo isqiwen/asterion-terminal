@@ -67,8 +67,6 @@ export type ComparisonMatrix = {
 
 export type CommandParams = {
   "runtime.snapshot": Record<string, never>;
-  "node.agent.upgrade": { expected_digest: string };
-  "node.agent.inspect": Record<string, never>;
   "data.download.budget.configure": {
     source: string;
     token: string;
@@ -281,6 +279,9 @@ export type CommandParams = {
   "node.service_firewall": { id: string; service: string; action: string; token: string };
   "live.create": RiskParameters & {
     account: string;
+    node: string;
+    service: string;
+    environment: "real" | "simulation";
     max_price_deviation: string;
     contracts: InstrumentKey[];
   };

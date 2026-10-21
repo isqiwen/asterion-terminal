@@ -1056,12 +1056,16 @@ Json decode_live_policy(const proto::LivePolicy& policy)
 
 proto::LiveInput encode_live_input(const Json& m)
 {
-    require_fields(m, {"type", "account_id", "broker", "policy"});
+    require_fields(m, {"type", "account_id", "broker", "policy", "environment"});
     if (m.at("type") != "live_ctp")
         throw std::invalid_argument("invalid live input");
     validate_id(m.at("account_id").get<std::string>());
     proto::LiveInput result;
     result.set_account_id(m.at("account_id"));
+    const auto environment = m.at("environment").get<std::string>();
+    if (environment != "real" && environment != "simulation")
+        throw std::invalid_argument("choose the trading account environment");
+    result.set_environment(environment == "real" ? proto::REAL : proto::BROKER_SIMULATION);
     const auto broker = live_broker(m.at("broker"));
     result.mutable_broker()->set_front(broker.at("front"));
     result.mutable_broker()->set_broker_id(broker.at("broker_id"));
@@ -1076,6 +1080,8 @@ Json decode_live_input(const proto::LiveInput& input)
     if (!input.has_broker() || !input.has_policy())
         throw std::invalid_argument("live input requires a broker and policy");
     validate_id(input.account_id());
+    if (input.environment() != proto::REAL && input.environment() != proto::BROKER_SIMULATION)
+        throw std::invalid_argument("choose the trading account environment");
     auto broker = live_broker(
         {{"front", input.broker().front()},
             {"broker_id", input.broker().broker_id()},
@@ -1084,6 +1090,7 @@ Json decode_live_input(const proto::LiveInput& input)
     auto policy = decode_live_policy(input.policy());
     return {
         {"account_id", input.account_id()},
+        {"environment", input.environment() == proto::REAL ? "real" : "simulation"},
         {"type", "live_ctp"},
         {"broker", std::move(broker)},
         {"policy", std::move(policy)}
@@ -1108,6 +1115,7 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
     auto input = decode_live_input([&] {
         proto::LiveInput value;
         value.set_account_id(s.account_id());
+        value.set_environment(s.environment());
         *value.mutable_broker() = s.broker();
         *value.mutable_policy()->mutable_risk() = s.risk();
         *value.mutable_policy()->mutable_max_price_deviation() = s.max_price_deviation();
@@ -1128,6 +1136,7 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
         throw std::invalid_argument("invalid live phase");
     Json result{
         {"mode", "live"},
+        {"environment", input.at("environment")},
         {"account_id", s.account_id()},
         {"policy_revision", s.policy_revision()},
         {"risk_artifact", s.risk_artifact()},

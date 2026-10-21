@@ -34,7 +34,7 @@ async function main() {
   const definition = local.definition("me.asterion.node-agent.dev");
   const protectedFiles = [
     local.definition("me.asterion.node-agent"),
-    path.join(production, "bin/asterion-node-agent"),
+    path.join(production, "bin/asterion_node_agent"),
     path.join(production, "ipc-id"),
     path.join(production, "agent.pid"),
   ];

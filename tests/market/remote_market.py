@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-market-tls-', ignore_cleanup_e
     subprocess.run([str(build/('asterion_test_certificates')),folder],check=True)
     with socket.socket() as probe:
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
-    server=subprocess.Popen([str(build/('asterion-market-data')),'--session','market.test','--directory',folder,'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(root/'ca.crt'),'--tls-cert',str(root/'server.crt'),'--tls-key',str(root/'server.key'),'--ctp-library',str(build/sdk)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    server=subprocess.Popen([str(build/('asterion_market_data')),'--session','market.test','--directory',folder,'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(root/'ca.crt'),'--tls-cert',str(root/'server.crt'),'--tls-key',str(root/'server.key'),'--ctp-library',str(build/sdk)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     try:
         for _ in range(100):
             try:

@@ -30,10 +30,59 @@ if (root/'reject').exists():
 if Path(sys.argv[0]).name == 'sftp':
     for line in Path(args[args.index('-b')+1]).read_text().splitlines():
         operation, source, target = shlex.split(line)
+        if target.startswith('/var/lib/asterion/.maintenance-'):
+            destination = root / target.removeprefix('/var/lib/asterion/')
+            shutil.copyfile(source, destination)
+            if destination.name == 'programs.pb':
+                subprocess.run([os.environ['ASTERION_TEST_MANAGER_RPC'], 'translate', str(destination),
+                                '/var/lib/asterion', str(root)], check=True)
+            continue
         assert operation == 'put' and re.fullmatch(r'\.asterion-install-[a-f0-9]{32}/[a-z.]+',target)
         shutil.copyfile(source,root/target)
     sys.exit(0)
 command=args[-1]
+if ' --manage capabilities' in command:
+    print(json.dumps(['install', 'stop', 'start', 'remove']))
+    sys.exit(0)
+if command.startswith('umask 077; mkdir -p '):
+    (root / shlex.split(command)[-1].removeprefix('/var/lib/asterion/')).mkdir(parents=True, exist_ok=True)
+    sys.exit(0)
+if command.startswith('python3 '):
+    parts = shlex.split(command)
+    parts[0] = sys.executable
+    parts[1] = str(root / parts[1].removeprefix('/var/lib/asterion/'))
+    parts[2] = str(root / 'deployed')
+    parts[3] = str(root / parts[3].removeprefix('/var/lib/asterion/'))
+    if (root / 'fail_maintenance').exists(): sys.exit(1)
+    sys.exit(subprocess.run(parts).returncode)
+if command.startswith('sudo -n /usr/local/sbin/asterion_host --manage '):
+    action = shlex.split(command)[4]
+    if action in ('stop', 'remove'):
+        if (root/'pid').exists():
+            pid = int((root/'pid').read_text())
+            try: os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError: pass
+            deadline = time.monotonic() + 30
+            while Path(f'/proc/{pid}').exists() and 'zombie' not in Path(f'/proc/{pid}/status').read_text().lower():
+                assert time.monotonic() < deadline
+                time.sleep(.05)
+            (root/'pid').unlink()
+    elif action == 'start':
+        if not (root/'pid').exists():
+            deployed = root/'deployed'
+            config = json.loads((deployed/'install.json').read_text())
+            process = subprocess.Popen([str(deployed/'asterion_node_agent'), '--bind', '127.0.0.1',
+                '--port', str(config['port']), '--directory', str(deployed/'state'),
+                '--tls-ca', str(deployed/'ca.crt'), '--tls-cert', str(deployed/'server.crt'),
+                '--tls-key', str(deployed/'server.key')], stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            (root/'pid').write_text(str(process.pid))
+            time.sleep(.3)
+    else: raise AssertionError(action)
+    sys.exit(0)
+if command.startswith('rm -rf -- ') and '/var/lib/asterion/.maintenance-' in command:
+    shutil.rmtree(root / shlex.split(command)[-1].removeprefix('/var/lib/asterion/'), ignore_errors=True)
+    sys.exit(0)
 if command.startswith("sh -c "):
     script=shlex.split(command)[2]
     if 'uname -m' in script and '"arch"' in script:
@@ -51,7 +100,7 @@ if command.startswith("sh -c "):
     sys.exit(0)
 if command.startswith('test "$(uname -s)"'):
     assert 'id -u' in command
-    assert 'test "$(sudo -n /usr/local/sbin/asterion-host --manage check)" = asterion-host' in command
+    assert 'test "$(sudo -n /usr/local/sbin/asterion_host --manage check)" = asterion_host' in command
     if (root/'old-helper').exists():
         sys.exit(1)
 elif command.startswith('umask 077; mkdir '):
@@ -63,7 +112,7 @@ elif re.fullmatch(r"sh '\.asterion-install-[a-f0-9]{32}/replace'",command):
     stage=replace.parent; script=replace.read_text(); deployed=root/'deployed'
     assert "<<'ASTERION_PUBLISH'\n" in script
     # The account does everything itself except start the fixed unit.
-    assert script.count('sudo')==1 and 'sudo -n /usr/local/sbin/asterion-host --manage install' in script
+    assert script.count('sudo')==1 and 'sudo -n /usr/local/sbin/asterion_host --manage install' in script
     assert 'systemctl show --property MainPID' in script and 'kill -TERM "$pid"' in script
     # The shell around the body is not run here; it must at least be a script.
     subprocess.run(['/bin/sh','-n',str(replace)],check=True)
@@ -87,7 +136,7 @@ elif re.fullmatch(r"sh '\.asterion-install-[a-f0-9]{32}/replace'",command):
         assert time.monotonic()<deadline, 'Agent did not stop'
         time.sleep(0.1)
     port=int(re.search(r"--manage install '[^']+' (\d+)",script)[1])
-    process=subprocess.Popen([str(deployed/'asterion-node-agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    process=subprocess.Popen([str(deployed/'asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
     (root/'pid').write_text(str(process.pid))
     # The node has taken the identity, but the session ends before saying so.
     if (root/'lose_reply').exists():
@@ -98,7 +147,7 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
     script=install.read_text(); service=(stage/'service').read_text() if (stage/'service').exists() else ''
     digest=hashlib.sha256((stage/'agent').read_bytes()).hexdigest()
     assert digest in script and "<<'ASTERION_PUBLISH'\n" in script
-    assert 'asterion-host --manage install' in script or 'launchctl bootstrap system' in script
+    assert 'asterion_host --manage install' in script or 'launchctl bootstrap system' in script
     if not service:
         assert command.startswith('sh ') and 'sudo -n sh' not in command
         assert 'systemctl' not in script
@@ -115,7 +164,7 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
         if (root/'fail_file_sync').exists() and stat.S_ISREG(info.st_mode):
             raise OSError('injected file sync failure')
         if ((root/'fail_publish_sync').exists() and stat.S_ISDIR(info.st_mode)
-                and (deployed/'asterion-node-agent').is_file() and info.st_ino==deployed.stat().st_ino):
+                and (deployed/'asterion_node_agent').is_file() and info.st_ino==deployed.stat().st_ino):
             raise OSError('injected publication directory sync failure')
         return original_sync(fd)
     argv=sys.argv; sys.argv=['install-publication',str(stage),str(deployed),digest]
@@ -127,7 +176,7 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
     finally:
         sys.argv=argv
     assert not list(deployed.glob('.asterion-publish-*'))
-    process=subprocess.Popen([str(deployed/'asterion-node-agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    process=subprocess.Popen([str(deployed/'asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
     (root/'pid').write_text(str(process.pid))
 elif command.startswith('rm -rf -- '):
     stage=shlex.split(command)[-1]; assert re.fullmatch(r'\.asterion-install-[a-f0-9]{32}',stage)

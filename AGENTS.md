@@ -52,21 +52,115 @@ philosophy guides implementation within those constraints.
   `asterion_domain`. Dependencies point downward only.
 - Core provides mechanisms. Providers, storage backends, strategies, and risk
   algorithms belong in `plugins/`. Plugins are trusted in-process code, not a sandbox.
-- Each service is a separate process managed by Node Agent. Closing an installed
-  Terminal window leaves services running. Exiting the single development entry
-  point stops local services and Agent, preserves data, and leaves remote nodes running.
+- A separate current-user graphical installer owns local installation, same-release repair, offline upgrade,
+  and uninstall. Installation, upgrade and repair preserve configuration and business data.
+  Uninstall defaults to preserving them; deletion requires the user to explicitly clear
+  retention and confirm the displayed local scope. Ordinary Terminal startup
+  must not install or upgrade programs. See `docs/requirements/modules/system/setup.md`.
+- Remote installation and maintenance use the same installer UI and the existing
+  Manager registry/SSH owner. Prepare remote programs before replacing the local
+  application; start and confirm remote Agents afterward. Persist maintenance
+  state across restarts, preserve existing connections on preflight failure, and
+  never discard management identities while their remote nodes remain installed.
+  Remote Agent replacement uses the restricted host service boundary; uploaded
+  maintenance code runs as the dedicated unprivileged node account.
+- Each business service is a separate process managed by Node Agent. Node Manager
+  and Node Agent are independently supervised by the OS service manager.
+  Closing an installed Terminal window leaves background processes running.
+  Exiting the single development entry point stops local development services,
+  Agent, and Manager, preserves data, and leaves remote nodes running.
 - IPC uses Protobuf from `protocol/proto/`: Unix sockets locally, TCP + mTLS remotely.
 - Terminal C++ orchestration belongs in `apps/clients/terminal/native/`;
   UI plugin contracts belong in `apps/clients/terminal/plugins/contract.ts`.
+- Management processes belong in `apps/management/`; persistent business services
+  belong in `apps/services/`. Task execution runs inside its owning service;
+  do not introduce per-task worker executables or Agent task-dispatch protocols.
+  Keep shared control mechanisms in `apps/common/control/`; account storage and
+  credential-helper paths belong to their Terminal modules.
+- Installer native code and Electron host belong in `apps/clients/installer/`.
+  The maintenance executor uses Manager IPC and an offline Agent subprocess;
+  it must not link Manager or Agent process implementations.
+  Keep Terminal business clients and presentation snapshots in Terminal, not in
+  `apps/common/control/`; shared control code must not pull chart presentation
+  dependencies into Manager or the installer.
+- Node-management boundary: every participating machine has a Node Agent
+  for its environment. The Terminal machine also runs a separate Node Manager,
+  to own registered Agent connections, aggregate node status, and coordinate
+  node-management commands. Node Manager must not be launched, supervised, or
+  stopped as an Agent-managed service. Agent failure, restart, or upgrade must
+  not terminate Manager. OS service managers own process supervision; Manager
+  coordinates Agent administration through the appropriate management boundary.
+- Default installation includes all local business services and required
+  plugins. Complete local operation must not depend on remote nodes or remote Linux
+  deployment bundles. Start management services after installation; create/start
+  business services as needed, with accounts, credentials and authorization remaining
+  under their business workflows. Tasks execute only after service admission.
+  Users add remote nodes and deploy their services in Terminal.
+  Manager persists node enrollment; each
+  Agent persists its service deployment state. Installer maintenance consumes those
+  records, without a separate topology list or rewriting runtime policy configuration.
+- Node Manager owns Agent administration; Terminal uses the Manager protocol.
+  Do not add a second registry, Agent connection owner, or competing management path.
+  Agent owns local business-service processes; business services retain their state and
+  execution authority. The boundaries and validation scope are recorded in
+  `docs/architecture.md`.
+- Business traffic must connect directly to its owning service. Neither Node
+  Manager nor Node Agent may proxy market streams, trading commands, historical
+  data, task results, or other business payloads. Endpoint discovery, deployment,
+  health probes, and service lifecycle coordination are management operations.
+  Keep business algorithms outside both management processes.
+- Agent owns periodic host resource observations; Manager aggregates their
+  snapshots. Observations are diagnostic, not service startup gates. Missing
+  or failed telemetry must be visible without stopping service supervision.
+  Each business service owns its task concurrency policy and queue decisions.
+  Services execute tasks through their own bounded thread pools or asynchronous I/O.
+  Their state owner alone confirms progress, cancellation and durable results. Agent
+  does not allocate task slots, launch task workers, or poll business queues. Concurrent
+  execution limits count tasks through completion, not subprocesses. Cancellation is
+  cooperative; a service restart interrupts unconfirmed work without automatic retry.
+  Keep a subprocess only for a concrete runtime requirement, such as the packaged
+  Python analytics runtime, not as a parallel task-dispatch mechanism.
+
+- Keep runtime configuration under `<node>/config/`, split by responsibility.
+  Keep maintained node defaults in repository-root `config/`; package and copy
+  them during initial deployment, preserving existing operator configuration.
+  Service startup reads policy only: never generate, complete, reset or overwrite
+  configuration. Missing required or invalid configuration must fail with its path.
+  Share logging policy once. Pass machine-specific Manager launch context through
+  OS service arguments, not a generated configuration file. Keep service-owned
+  durable state separate. Plugin defaults, when actually needed, belong beside
+  their plugin in `config/`; instance configuration belongs under
+  `<node>/config/services/<service>/plugins/<plugin-id>.json`. Do not invent empty
+  plugin configuration files or move domain-owned account/task state into them.
+- Process/service instance identity determines diagnostic log files. Module and
+  operation names belong in record fields, not separate output files. Manage
+  common logging policy once per node environment, without copied per-process
+  configuration files. Agent preparation/synchronization is an Agent run mode
+  and must use the same process logging mechanism.
 
 ## Implementation
 
+- Use underscores for project-owned CMake target identifiers and generated
+  executable/library basenames. Use the default target basename where possible;
+  keep `OUTPUT_NAME` only when the public module name differs. Keep dependency-owned
+  filenames, package identifiers and installed state identities unchanged. Update loaders, packaging,
+  build commands, tests and current documentation together; do not add naming guards.
 - Use C++20, RAII, and explicit ownership. Exceptions must not cross C ABI or Node-API boundaries.
 - Use `Decimal` for money and prices; binary floating point is not authoritative ledger data.
 - Use typed domain interfaces. Restrict JSON to protocol boundaries and UI presentation.
 - Core and services emit English diagnostics; cross-process errors carry `ErrorCode`.
   Register new user-facing diagnostics in `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`.
 - Write durable state and keys through `kernel/durable_file.hpp`.
+- Define CMake targets in the owning module's `CMakeLists.txt`; parent directories
+  compose modules with `add_subdirectory()`. Keep project options, dependency
+  discovery and artifact layout at the root. Declare includes,
+  compile requirements and links on targets; do not keep a root source list or
+  mutate another module's targets to share build policy.
+- Keep internal architecture rules in documentation and code review. Do not add
+  build-time dependency policing, source scans for forbidden includes or types,
+  or tests whose only purpose is enforcing those organizational rules. Ordinary
+  compiler/linker checks, required platform/SDK checks, dependency locks, plugin
+  ABI checks and domain/input validation serve separate concrete requirements.
 - Lock dependencies with Conan and pnpm. No implicit downloads or global include/link
   paths. Use spdlog, CLI11, and GoogleTest + CTest.
 - Follow `.clang-format` (clang-format 23.1.1) and Prettier. C/C++ uses four-space
@@ -157,7 +251,7 @@ philosophy guides implementation within those constraints.
   test CTP SDK. Never invoke `playwright test` directly; it can operate real
   local services.
 - Changes to service build inputs in `core/`, `protocol/`, `plugins/`,
-  `apps/services/`, or `bindings/` change the Linux service source fingerprint.
+  `apps/services/`, `apps/management/`, `apps/common/`, or `bindings/` change the Linux service source fingerprint.
   Desktop-only `plugins/tools/analytics/` is excluded. Rebuild affected service
   bundles before release following the [development guide](docs/development.md);
   `pnpm desktop` only warns in development.

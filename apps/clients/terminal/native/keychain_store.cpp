@@ -1,6 +1,7 @@
 #include "data_credentials.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/environment.hpp>
+#include <asterion/kernel/process/child.hpp>
 #include <algorithm>
 #include <cerrno>
 #include <csignal>
@@ -13,6 +14,16 @@
 #include <vector>
 
 namespace asterion::terminal {
+
+std::filesystem::path keychain_helper()
+{
+    auto executable =
+        environment_path("ASTERION_KEYCHAIN_EXECUTABLE").value_or(std::filesystem::path{});
+    if (executable.empty())
+        executable = current_executable().parent_path() / "asterion_keychain";
+    return executable;
+}
+
 namespace {
 
 struct Descriptor

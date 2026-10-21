@@ -11,9 +11,8 @@ from service_fingerprint import fingerprint
 if sys.platform != "linux":
     raise SystemExit("Remote service bundles target Linux only; desktop bundles include local native services separately")
 build = Path(sys.argv[1]).resolve()
-subprocess.run(["cmake", "--build", str(build), "--target", "asterion-node-agent", "asterion-trading",
-    "asterion-market-data", "asterion-data-service", "asterion-task-service", "asterion-backtest", "asterion-factor",
-    "asterion-data-pipeline"], check=True)
+subprocess.run(["cmake", "--build", str(build), "--target", "asterion_node_agent", "asterion_trading",
+    "asterion_market_data", "asterion_data_service", "asterion_task_service"], check=True)
 source_hash = fingerprint()
 if (build / "service-source.sha256").read_text().strip() != source_hash:
     raise SystemExit("Build directory service source does not match this checkout")
@@ -21,11 +20,11 @@ os_name = "linux"
 if platform.machine().lower() not in ('x86_64', 'amd64'):
     raise SystemExit('Linux currently supports x86_64 only')
 arch = "x86_64"
-files = [build / name for name in ("asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-data-service", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline")]
+files = [build / name for name in ("asterion_node_agent", "asterion_trading", "asterion_market_data", "asterion_data_service", "asterion_task_service")]
 if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"])
-files.append(build / "plugins/asterion-tushare.so")
-files.append(build / "plugins/asterion-shfe.so")
-files.append(build / "plugins/asterion-order-limits.so")
+files.append(build / "plugins/asterion_tushare.so")
+files.append(build / "plugins/asterion_shfe.so")
+files.append(build / "plugins/asterion_order_limits.so")
 product_version = json.loads((Path(__file__).resolve().parents[2] / "apps/clients/terminal/electron/package.json").read_text())["version"]
 manifest = {"source_sha256": source_hash, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.relative_to(build).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
 initializer = Path(__file__).resolve().parents[1] / "node/initialize-linux.py"

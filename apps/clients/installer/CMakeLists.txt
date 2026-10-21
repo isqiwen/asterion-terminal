@@ -1,0 +1,8 @@
+configure_file(product.json.in ${CMAKE_BINARY_DIR}/product.json @ONLY)
+add_library(asterion_installation STATIC native/installation.cpp native/startup.cpp)
+target_include_directories(asterion_installation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
+target_link_libraries(asterion_installation PUBLIC asterion_node_control)
+add_executable(asterion_maintenance native/main.cpp)
+target_link_libraries(asterion_maintenance PRIVATE asterion_installation CLI11::CLI11)
+asterion_target_defaults(asterion_installation)
+asterion_target_defaults(asterion_maintenance)

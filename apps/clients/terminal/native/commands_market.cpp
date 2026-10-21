@@ -24,21 +24,22 @@ void Application::Impl::register_market_commands()
     });
     command("market.local", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        if (market && nodes.contains("local"))
+        if (market && std::ranges::any_of(manager.view(), [](const auto& node) {
+                return node.id == "local";
+            }))
             co_return snapshot();
         auto awaited =
             (co_await manage<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>>(
-                [this, existing = existing_local_node()]()
+                [this]()
                     -> PolledTask<
                         std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>> {
-                    auto node = (co_await local_node_client(existing));
+                    auto node = (co_await local_node_client());
                     auto client = (co_await PollFuture{
                         MarketClient::open(service_io, (co_await PollFuture{node->local_market()}))
                     });
                     co_return std::pair{std::move(node), std::move(client)};
                 }));
         auto& [node, next] = awaited;
-        nodes.try_emplace("local", std::move(node));
         if (!market)
             market = std::move(next);
         co_return snapshot();
@@ -47,7 +48,7 @@ void Application::Impl::register_market_commands()
         fields(p, {"id", "service"});
         auto next = (co_await PollFuture{MarketClient::open(
             service_io,
-            (co_await PollFuture{nodes.at(text(p, "id"))
+            (co_await PollFuture{manager.node(text(p, "id"))
                     ->service_endpoint(text(p, "service"), asterion::node::proto::MARKET_DATA)}))});
         market = std::move(next);
         co_return snapshot();

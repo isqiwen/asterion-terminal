@@ -1,9 +1,9 @@
-// asterion-keychain: stores data-source credentials in the user's login
+// asterion_keychain: stores data-source credentials in the user's login
 // keychain. Kept deliberately small and dependency-free so its code signature
 // stays stable across Terminal builds; the keychain grants access by signature.
-//   asterion-keychain get <account>     secret on stdout; exit 3 when absent
-//   asterion-keychain set <account>     secret on stdin
-//   asterion-keychain delete <account>  succeeds when absent
+//   asterion_keychain get <account>     secret on stdout; exit 3 when absent
+//   asterion_keychain set <account>     secret on stdin
+//   asterion_keychain delete <account>  succeeds when absent
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <cstdio>

@@ -1,0 +1,263 @@
+@import "../ui/theme/tokens.css";
+@import "../ui/theme/style.css";
+body {
+  margin: 0;
+  background: #090e14;
+  color: #d5e0eb;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+.installer-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.installer-sidebar {
+  padding: 32px 25px;
+  border-right: 1px solid #22303c;
+  background: #0c131c;
+  display: flex;
+  flex-direction: column;
+}
+.installer-brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+.installer-brand small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #8c9eae;
+}
+.installer-mark {
+  display: grid;
+  place-items: center;
+  border: 1px solid #55c5e7;
+  color: #72d6ef;
+  width: 36px;
+  height: 36px;
+  font-size: 22px;
+}
+.installer-kicker {
+  color: #7a95a9;
+  font-size: 10px;
+  letter-spacing: 0.13em;
+}
+.installer-sidebar > .installer-kicker {
+  margin-top: 50px;
+}
+.installer-sidebar h1 {
+  font-size: 24px;
+  font-weight: 500;
+  margin: 8px 0;
+}
+.installer-sidebar p,
+.installer-main p {
+  line-height: 1.65;
+  color: #9eafbd;
+}
+.installer-sidebar nav {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+.installer-sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 10px;
+  text-align: left;
+}
+.installer-sidebar nav button[aria-pressed="true"] {
+  border-color: #55c5e7;
+  color: #8fe2f5;
+  background: #123040;
+}
+.installer-sidebar nav button span:first-child {
+  color: #7893a7;
+  font-size: 11px;
+}
+.installer-arrow {
+  margin-left: auto;
+}
+.installer-scope {
+  margin-top: auto;
+  padding-top: 40px;
+  font-size: 11px;
+}
+.installer-scope strong {
+  color: #75b6c8;
+}
+.installer-main {
+  padding: 24px 34px;
+}
+.installer-main header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #8c9eae;
+  margin-bottom: 30px;
+}
+.installer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.installer-heading h2 {
+  font-size: 25px;
+  font-weight: 500;
+  margin: 6px 0;
+}
+.installer-badge {
+  border: 1px solid #314757;
+  color: #a4c9db;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+.installer-card {
+  border: 1px solid #263644;
+  background: #101923;
+  padding: 18px;
+  margin-top: 18px;
+}
+.installer-version {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+.installer-version small,
+.installer-version strong {
+  display: block;
+}
+.installer-version small {
+  color: #8c9eae;
+  font-weight: normal;
+}
+.installer-version strong {
+  font-size: 21px;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.installer-card dl {
+  display: grid;
+  grid-template-columns: 85px 1fr;
+  gap: 10px;
+  border-top: 1px solid #263644;
+  padding-top: 16px;
+  margin-bottom: 0;
+}
+.installer-card dt {
+  color: #8c9eae;
+}
+.installer-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.installer-notice {
+  margin-top: 16px;
+  padding: 12px;
+  border-left: 2px solid #d3a76c;
+  background: #231d15;
+}
+.installer-inline,
+.installer-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.installer-preserve {
+  padding: 18px 0 8px;
+}
+.installer-preserve strong {
+  font-size: 12px;
+  color: #84bbcc;
+}
+.installer-preserve p {
+  margin: 6px 0;
+  font-size: 12px;
+}
+.installer-progress {
+  display: flex;
+  padding: 0;
+  list-style: none;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.installer-progress li {
+  border-top: 2px solid #263644;
+  padding-top: 8px;
+  color: #7a8e9f;
+  font-size: 11px;
+  flex: 1;
+}
+.installer-progress li[data-active="true"],
+.installer-progress li[data-done="true"] {
+  color: #75d0e5;
+  border-color: #75d0e5;
+}
+.installer-error {
+  padding: 14px;
+  background: #241b1b;
+  border: 1px solid #633d3d;
+}
+.installer-error pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.installer-main .installer-success {
+  color: #82c6c3;
+}
+.installer-main footer {
+  margin-top: 22px;
+  border-top: 1px solid #263644;
+  padding-top: 18px;
+}
+.installer-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #aab7c4;
+}
+.installer-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.installer-main code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.installer-remote {
+  margin-top: 24px;
+}
+.installer-remote details > label {
+  display: block;
+  margin: 10px 0;
+}
+.installer-remote input:not([type="checkbox"]),
+.installer-remote textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  color: #d4dde7;
+  background: #101923;
+  border: 1px solid #263644;
+  padding: 8px;
+}
+.installer-remote pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.installer-remote button {
+  margin: 8px 8px 8px 0;
+}

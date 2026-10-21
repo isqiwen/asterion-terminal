@@ -44,8 +44,9 @@ json Application::Impl::ctp_accounts() const
     auto accounts = ctp_connections.snapshot();
     for (auto& account : accounts)
         if (!account.contains("error"))
-            account["trading_record"] = std::filesystem::exists(
-                ctp_record_directory(account.at("id").get<std::string>()) / "journal.sqlite");
+            account["trading_record"] = account.contains("trading")
+                || std::filesystem::exists(
+                    ctp_record_directory(account.at("id").get<std::string>()) / "journal.sqlite");
     return accounts;
 }
 

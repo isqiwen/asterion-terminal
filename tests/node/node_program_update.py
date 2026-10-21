@@ -17,19 +17,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     root = Path(folder).resolve()
     (root / "bin").mkdir()
     installed = root / "bin" / agent.name
-    def inspect(source=agent):
-        result = subprocess.run(
-            [str(fixture), "--operation", "inspect", "--executable", str(installed),
-             "--root", str(root), "--endpoint", "unused", "--name", "me.asterion.acceptance.inspect",
-             "--source", str(source)], capture_output=True, text=True, timeout=20)
-        assert result.returncode == 0, result.stderr
-        return json.loads(result.stdout)
-    initial = sorted(str(p.relative_to(root)) for p in root.rglob("*"))
-    assert inspect()["state"] == "not_installed"
-    assert sorted(str(p.relative_to(root)) for p in root.rglob("*")) == initial
     shutil.copy2(agent, installed)
-    assert inspect()["state"] == "current"
-    assert inspect(revision)["state"] == "update_available"
     before, after = digest(agent), digest(revision)
     data = root / "services" / "account" / "ledger"
     data.mkdir(parents=True)
@@ -67,14 +55,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     journal = root / "agent-upgrade.json"
     pending = root / "agent-upgrade.pending"
     staged = root / "bin" / "agent-upgrade.staged"
-    for name in ["agent-service-upgrade.json", "agent-service-upgrade.pending"]:
-        retained = root / name
-        retained.write_text("{")
-        assert inspect()["state"] == "recovery_required"
-        assert retained.read_text() == "{"
-        retained.unlink()  # Explicit test-owned fixture cleanup.
     pending.write_text("{")
-    assert inspect()["state"] == "recovery_required"
     assert replace().returncode != 0 and pending.read_text() == "{"
     pending.unlink()  # Explicit test-owned fault cleanup.
     staged.write_bytes(b"incomplete candidate")

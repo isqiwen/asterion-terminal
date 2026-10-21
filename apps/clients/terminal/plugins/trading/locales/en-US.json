@@ -186,5 +186,14 @@
   "空 {n} 手": "Short {n} lots",
   "多 {n} 手": "Long {n} lots",
   "{venue} · {symbol} · {rule} · {size} · {sides}": "{venue} · {symbol} · {rule} · {size} · {sides}",
-  "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "A position the contract already holds on one side is taken over. The strategy reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts."
+  "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "A position the contract already holds on one side is taken over. The strategy reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts.",
+  "运行实例：{node} / {service}": "Instance: {node} / {service}",
+  "运行节点": "Node",
+  "本机": "Local machine",
+  "交易服务实例": "Trading service instance",
+  "自动创建本机实例": "Create a local instance automatically",
+  "请选择已部署的交易实例": "Select a deployed trading instance",
+  "远程实例请先在运行与部署中创建；绑定后不会自动切换节点。": "Deploy remote instances in Node Management first. Bound accounts never switch nodes automatically.",
+  "管理运行节点": "Manage nodes",
+  "远程交易实例暂不支持自动策略，请使用手动交易。": "Automated strategies are not yet supported on remote trading instances. Use manual trading."
 }

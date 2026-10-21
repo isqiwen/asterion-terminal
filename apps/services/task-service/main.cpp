@@ -1,4 +1,5 @@
 #include "task_host.hpp"
+#include "task_configuration.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
@@ -10,17 +11,13 @@ using namespace std::chrono_literals;
 
 int main(int argc, char** argv)
 {
-    CLI::App app{"Asterion durable task service (Agent-dispatched backtest workers)"};
-    app.set_version_flag("--version", "asterion-task-service " ASTERION_PRODUCT_VERSION);
-    std::string directory, service, health_endpoint, worker_endpoint, data_instance, data_endpoint;
-    unsigned worker_timeout = 30;
+    CLI::App app{"Asterion durable task service (service-owned execution)"};
+    app.set_version_flag("--version", "asterion_task_service " ASTERION_PRODUCT_VERSION);
+    std::string directory, service, health_endpoint, data_instance, data_endpoint;
+    std::string configuration;
+    app.add_option("--config", configuration, "Service instance task policy")->required();
     unsigned file_workers = 2;
     app.add_option("--file-workers", file_workers)->check(CLI::Range(1, 2));
-    app.add_option(
-           "--worker-timeout",
-           worker_timeout,
-           "Seconds without worker progress before interruption")
-        ->check(CLI::Range(1, 300));
     std::uint64_t owner_pid = 0;
     asterion::service::Transport transport;
     app.add_option("--directory", directory)->check(CLI::ExistingDirectory);
@@ -31,7 +28,6 @@ int main(int argc, char** argv)
     app.add_option("--tls-ca", transport.tls.ca_file);
     app.add_option("--tls-cert", transport.tls.certificate_file);
     app.add_option("--tls-key", transport.tls.private_key_file);
-    app.add_option("--worker-endpoint", worker_endpoint, "Private same-machine worker IPC");
     app.add_option("--data-instance", data_instance)->required();
     app.add_option("--data-endpoint", data_endpoint)->required();
     app.add_option("--health-endpoint", health_endpoint);
@@ -42,10 +38,11 @@ int main(int argc, char** argv)
     CLI11_PARSE(app, argc, argv);
     if (argc == 1) {
         std::cerr
-            << "asterion-task-service: supply --session, --directory and a " "private endpoint or TLS listener.\n";
+            << "asterion_task_service: supply --session, --directory and a " "private endpoint or TLS listener.\n";
         return 3;
     }
     try {
+        asterion::initialize_process_logging("task-service", service);
         if (!plugin_directory.empty())
             asterion::configure_native_plugins(plugin_directory);
         asterion::validate_id(service);
@@ -64,8 +61,8 @@ int main(int argc, char** argv)
                 service,
                 data_instance,
                 data_endpoint,
-                std::chrono::seconds(worker_timeout),
-                file_workers});
+                file_workers,
+                asterion::tasks::load_task_concurrency(configuration)});
         Host::Options options;
         options.owner_pid = owner_pid;
         options.connections = 12;
@@ -74,16 +71,6 @@ int main(int argc, char** argv)
         options.send = 3s;
         options.request_bytes = asterion::ipc::Channel::max_frame;
         options.payload_bytes = 128 * 1024 * 1024;
-        if (!worker_endpoint.empty())
-            options.local_endpoints.push_back(
-                {worker_endpoint,
-                    [&](const Host::Peer&, std::string frame) {
-                        return tasks.accept(std::move(frame), TaskHost::Lane::worker);
-                    },
-                    8,
-                    false,
-                    asterion::ipc::Channel::max_frame,
-                    128 * 1024 * 1024});
         if (!health_endpoint.empty())
             options.local_endpoints.push_back(
                 {health_endpoint,

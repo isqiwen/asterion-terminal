@@ -1,10 +1,10 @@
-// asterion-keychain: stores data-source credentials in the user's login
+// asterion_keychain: stores data-source credentials in the user's login
 // keyring through the desktop's Secret Service. libsecret belongs to the
 // desktop, so it is loaded when the helper runs rather than linked; without
 // it or without an unlocked keyring every command fails.
-//   asterion-keychain get <account>     secret on stdout; exit 3 when absent
-//   asterion-keychain set <account>     secret on stdin
-//   asterion-keychain delete <account>  succeeds when absent
+//   asterion_keychain get <account>     secret on stdout; exit 3 when absent
+//   asterion_keychain set <account>     secret on stdin
+//   asterion_keychain delete <account>  succeeds when absent
 #include <cstdio>
 #include <dlfcn.h>
 #include <iostream>

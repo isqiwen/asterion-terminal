@@ -195,7 +195,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
             time.sleep(1)
         if not step("contract catalog", phase == "ready", phase):
             raise RuntimeError("the contract catalog did not load")
-        call("live.create", {"account": ACCOUNT, "max_order_quantity": "1",
+        call("live.create", {"account": ACCOUNT, "node": "local", "service": "", "environment": "simulation", "max_order_quantity": "1",
                              "max_gross_quantity": "1", "max_working_orders": "1",
                              "max_price_deviation": args.deviation, "contracts": [contract]})
         live = wait(lambda s: s["phase"] == "disconnected")

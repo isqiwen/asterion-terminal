@@ -13,18 +13,26 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/services"))
 from service_fingerprint import fingerprint
 ARCHES = ('x86_64',)
+
+
+class BundleNeedsBuild(ValueError):
+    """The requested build output is missing or belongs to another source/release."""
+
+
 def files_for(arch):
     if arch not in ARCHES:
         raise ValueError('Linux currently supports x86_64 only')
-    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-data-service', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-shfe.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
+    return ('asterion_node_agent', 'asterion_trading', 'asterion_market_data', 'asterion_data_service', 'asterion_task_service', 'initialize-linux.py', 'plugins/asterion_tushare.so', 'plugins/asterion_shfe.so', 'plugins/asterion_order_limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
 
 
 def validate(manifest, files, arch):
     version = json.loads((ROOT/'apps/clients/terminal/electron/package.json').read_text())['version']
-    if set(manifest) != {'product_version','source_sha256','os','arch','files'} or manifest['product_version'] != version or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
+    if set(manifest) != {'product_version','source_sha256','os','arch','files'} or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
         raise ValueError('Linux service manifest/version/architecture mismatch')
+    if manifest['product_version'] != version:
+        raise BundleNeedsBuild('Linux service product version differs from this desktop version')
     if manifest['source_sha256'] != fingerprint():
-        raise ValueError('Linux service source differs from this desktop source; rebuild the remote bundle')
+        raise BundleNeedsBuild('Linux service source differs from this desktop source; rebuild the remote bundle')
     for name in files_for(arch):
         data = files[name]
         if hashlib.sha256(data).hexdigest() != manifest['files'][name]:
@@ -37,7 +45,11 @@ def validate(manifest, files, arch):
 
 
 def read_archive(path, arch):
-    with zipfile.ZipFile(path) as archive:
+    try:
+        archive = zipfile.ZipFile(path)
+    except FileNotFoundError as error:
+        raise BundleNeedsBuild(f'Missing Linux service bundle: {path}') from error
+    with archive:
         expected = {*files_for(arch), 'manifest.json'}
         if len(archive.infolist()) != len(expected) or set(archive.namelist()) != expected:
             raise ValueError('Unexpected archive members; no paths or extra entries allowed')

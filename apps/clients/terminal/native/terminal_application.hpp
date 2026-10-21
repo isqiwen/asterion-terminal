@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <asterion/kernel/process/file_lock.hpp>
 #include <future>
 #include <functional>
 #include <exception>
@@ -28,6 +29,7 @@ public:
 private:
     friend struct ApplicationTestAccess;
     struct Impl;
+    std::unique_ptr<FileLock> installation_use_;
     std::unique_ptr<Impl> impl_;
 };
 

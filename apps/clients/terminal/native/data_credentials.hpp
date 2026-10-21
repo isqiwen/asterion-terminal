@@ -47,8 +47,10 @@ public:
     virtual void erase(const std::string& account) = 0;
 };
 
+std::filesystem::path keychain_helper();
+
 // The login keychain (macOS) or Secret Service keyring (Linux) through the
-// asterion-keychain helper. Null when the helper is missing or the Linux
+// asterion_keychain helper. Null when the helper is missing or the Linux
 // session has no Secret Service; credentials then cannot be remembered.
 // Pipe I/O and helper completion share a deadline of at most 30 seconds.
 std::shared_ptr<CredentialStore> keychain_store(

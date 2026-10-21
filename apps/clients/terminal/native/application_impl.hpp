@@ -7,7 +7,7 @@
 #include "node_client.hpp"
 #include "ctp_connections.hpp"
 #include "data_credentials.hpp"
-#include "node_enrollment.hpp"
+#include "plugin_catalog.hpp"
 #include "remote_bundle.hpp"
 #include "task_client.hpp"
 #include "data_client.hpp"
@@ -202,11 +202,8 @@ struct Application::Impl
         co_await io(*account->client);
     }
 
-    // Shared so long node I/O can keep its client while the map changes.
-    std::map<std::string, std::shared_ptr<NodeClient>> nodes;
-    json firewall_plan = nullptr, firewall_parameters = nullptr, ssh_key = nullptr,
-         agent_program = nullptr;
-    std::chrono::steady_clock::time_point firewall_expiry{};
+    ManagerClient manager{service_io};
+    json firewall_plan = nullptr, ssh_key = nullptr;
     // UI commands belong to this Native boundary; registration is constructor-only.
     using Command = std::function<PolledTask<Response>(const json&)>;
     std::map<std::string, Command> commands;
@@ -214,10 +211,7 @@ struct Application::Impl
     PolledTask<Response> invoke(const std::string& method, const json& params);
     IdSequence request_ids{"terminal." + unique_process_id()};
     std::uint64_t succeeded = 0, failed = 0;
-    std::shared_ptr<Logger> logger = [] {
-        auto file = process_logger("terminal");
-        return file ? file : std::make_shared<Logger>();
-    }();
+    std::shared_ptr<Logger> logger = process_logger("terminal");
 
     // Coroutine factories retain their captures until their child operation finishes.
     template <class T, class F>
@@ -240,20 +234,9 @@ struct Application::Impl
         co_return co_await work();
     }
 
-    PolledTask<std::shared_ptr<NodeClient>> local_node_client(std::shared_ptr<NodeClient> existing)
+    PolledTask<std::shared_ptr<NodeClient>> local_node_client()
     {
-        if (existing)
-            co_return existing;
-        auto endpoint = co_await service_io.admin<NodeEndpoint>([this] {
-            return local_node(service_io);
-        });
-        co_return co_await PollFuture{NodeClient::open(service_io, std::move(endpoint))};
-    }
-
-    std::shared_ptr<NodeClient> existing_local_node() const
-    {
-        const auto found = nodes.find("local");
-        return found == nodes.end() ? nullptr : found->second;
+        co_return manager.node("local");
     }
 
     // Settings files and the keychain are used by one admitted management job.

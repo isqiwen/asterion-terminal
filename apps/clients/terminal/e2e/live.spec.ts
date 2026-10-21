@@ -58,6 +58,7 @@ test(
         await panel.getByLabel(label, { exact: true }).fill(value);
       await panel.getByLabel("添加合约", { exact: true }).fill("SHFE.rb2610");
       await panel.getByRole("button", { name: "添加", exact: true }).click();
+      await panel.getByLabel("柜台环境", { exact: true }).selectOption("simulation");
       await panel.getByRole("button", { name: "下一步", exact: true }).click();
       await panel.getByRole("button", { name: "创建 CTP 账户", exact: true }).click();
       await expect(panel.getByTestId("live-phase")).toHaveText("未连接", { timeout: 20000 });
@@ -70,8 +71,7 @@ test(
       // Only the current step is offered: no order ticket before the counter
       // connection and the permission to send.
       await expect(order).toHaveCount(0);
-      await expect(panel.getByLabel("我已核对账户与柜台环境", { exact: true })).toBeDisabled();
-      await panel.getByLabel("柜台环境", { exact: true }).selectOption("simulation");
+      await expect(panel.getByRole("combobox", { name: "柜台环境", exact: true })).toHaveCount(0);
       await panel.getByLabel("我已核对账户与柜台环境", { exact: true }).check();
       await panel.getByLabel("交易密码", { exact: true }).fill(password);
       await panel.getByLabel("授权码", { exact: true }).fill("auth-code");

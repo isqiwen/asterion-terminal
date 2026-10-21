@@ -65,8 +65,7 @@ function ServicePlugins({
   const [saved, setSaved] = useState(false);
   const selected = draft?.hashes ?? service.plugin_artifacts;
   const stale = draft !== null && draft.revision !== service.revision;
-  const stopped =
-    service.state === "stopped" && !service.desired_running && service.active_workers === 0;
+  const stopped = service.state === "stopped" && !service.desired_running;
   const editable = stopped && online && !maintenance && !busy && !stale;
   const options = availableDataTaskPlugins(items);
   const required = requiredPluginIds(items);

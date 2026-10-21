@@ -8,11 +8,8 @@ message ProgramSources {
   string executable = 2;
   string provider = 3;
   string catalog = 4;
-  string worker = 5;
-  string factor = 6;
-  string data = 7;
 }
-message DevelopmentPrograms {
+message ServicePrograms {
   uint32 version = 1;
   repeated ProgramSources services = 2;
   repeated string bundled_plugins = 3;
@@ -48,9 +45,6 @@ message Deploy {
   string directory = 4;
   ServiceKind kind = 5;
   string provider_artifact = 6;
-  string worker_artifact = 7;
-  string factor_artifact = 8;
-  string data_artifact = 9;
   string catalog_artifact = 10;
   repeated string plugin_artifacts = 11;
   string task_service = 12;
@@ -61,9 +55,6 @@ message Update {
   string expected_revision = 2;
   string artifact = 3;
   string provider_artifact = 4;
-  string worker_artifact = 5;
-  string factor_artifact = 6;
-  string data_artifact = 7;
   string catalog_artifact = 8;
   repeated string plugin_artifacts = 9;
 }
@@ -117,6 +108,7 @@ message Maintenance {
   string operation_id = 2;
   bool enter = 3;
 }
+
 message Request {
   uint32 version = 1;
   string correlation_id = 2;
@@ -148,30 +140,21 @@ message Service {
   string endpoint = 11;
   string directory = 12;
   ServiceKind kind = 13;
-  uint32 active_workers = 14;
   string revision = 15;
   repeated string plugin_artifacts = 16;
   string task_service = 17;
   string data_service = 18;
   asterion.runtime.proto.ExecutionHealth execution = 19;
-  ResourceUse resource_request = 20;
 }
-// Static admission reservations; these are not measured CPU/RSS/I/O usage.
-message ResourceUse {
-  uint32 cpu_slots = 1;
-  uint64 memory_mib = 2;
-  uint32 io_slots = 3;
-}
-message ResourceBudget {
-  ResourceUse limit = 1;
-  ResourceUse committed = 2;
-  uint32 file_workers = 3;
-}
-// Owned includes children still exiting; reserved includes dispatch and spawn preparation.
-message WorkerCapacity {
-  uint32 limit = 1;
-  uint32 owned = 2;
-  uint32 reserved = 3;
+// Diagnostic host observations. CPU requires
+// two samples. A failed sample has failure set and no usable metric values.
+message HostResources {
+  int64 sampled_at_ms = 1;
+  optional double cpu_usage_percent = 2;
+  uint64 memory_available_bytes = 3;
+  uint64 disk_available_bytes = 4;
+  string disk_path = 5;
+  Error failure = 6;
 }
 message Status {
   string instance_id = 1;
@@ -194,8 +177,7 @@ message Status {
   Phase phase = 10;
   Error failure = 11;
   asterion.runtime.proto.ExecutionHealth execution = 12;
-  WorkerCapacity worker_capacity = 13;
-  ResourceBudget resource_budget = 14;
+  HostResources host_resources = 15;
 }
 message Error {
   string message = 1;

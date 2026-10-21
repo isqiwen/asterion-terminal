@@ -1,3 +1,4 @@
+#include "support/task_wait.hpp"
 #include "../plugins/data/tushare/margin_definition.hpp"
 #include <asterion/domain/account.hpp>
 #include "data_store.hpp"
@@ -969,18 +970,19 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             "table-tasks",
             "--endpoint",
             data_endpoint,
-            "--worker-endpoint",
+            "--internal-endpoint",
             data_workers});
     ChildProcess task_process(
         ASTERION_TASK_SERVICE_PATH,
-        {"--directory",
+        {"--config",
+            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
+                .string(),
+            "--directory",
             tasks.path.string(),
             "--session",
             "table-tasks",
             "--endpoint",
             task_endpoint,
-            "--worker-endpoint",
-            task_endpoint + ".workers",
             "--data-instance",
             "table-data",
             "--data-endpoint",
@@ -1036,11 +1038,14 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     // Each series begins on the second day: 44 shared observations.
     EXPECT_EQ(submitted.task().total(), 44U);
     // The worker is handed what to read, not the rows, and reads the same from Data.
-    ChildProcess worker(
-        ASTERION_FACTOR_PATH,
-        {"--endpoint", task_endpoint + ".workers", "--session", "table-tasks", "--task", "across"});
-    ASSERT_TRUE(worker.wait(20s));
-    ASSERT_EQ(worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "across")
+            .state(),
+        task::proto::SUCCEEDED);
     task::proto::TaskRequest read;
     read.mutable_result()->set_id("across");
     const auto result = call(read);
@@ -1080,16 +1085,14 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     repeat.mutable_submit()->mutable_factor_request()->set_expected_dataset_revision(
         input.dataset_revision());
     ASSERT_TRUE(call(repeat).has_task());
-    ChildProcess repeated_worker(
-        ASTERION_FACTOR_PATH,
-        {"--endpoint",
-            task_endpoint + ".workers",
-            "--session",
-            "table-tasks",
-            "--task",
-            "fixed-reuse"});
-    ASSERT_TRUE(repeated_worker.wait(20s));
-    ASSERT_EQ(repeated_worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "fixed-reuse")
+            .state(),
+        task::proto::SUCCEEDED);
     read.mutable_result()->set_id("fixed-reuse");
     const auto repeated = call(read);
     ASSERT_EQ(repeated.result_task().state(), task::proto::SUCCEEDED);

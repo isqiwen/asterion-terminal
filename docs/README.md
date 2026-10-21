@@ -12,6 +12,7 @@
 | 目标界面、字段按钮、交互行为与操作流程    | [目标界面浏览](requirements/prototype.html)、[交互规格](requirements/common/screens.md)、[操作旅程](requirements/workflows/README.md)             |
 | 项目范围、首次启动                        | [项目首页](../README.md)、[开发指南](development.md)                                                                                              |
 | 层次、进程、状态归属、插件方式            | [架构](architecture.md)                                                                                                                           |
+| 按需求重组模块、进程、配置与工程目录 | [目标架构设计](reviews/architecture-design-review.md)、[逐功能责任映射](reviews/requirements-architecture-map.md) |
 | 已实现能力、限制与下一步                  | [现状](status.md)                                                                                                                                 |
 | 界面、UI 贡献与命令                       | [Terminal](terminal.md)                                                                                                                           |
 | 原生 SDK、安装、版本选择与任务绑定        | [原生插件](native-plugins.md)                                                                                                                     |

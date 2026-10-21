@@ -51,6 +51,7 @@ test("log loss stays visible while a failed background refresh can recover", () 
   expect(indicator().textContent).toBe("● 服务待确认");
   fireEvent.click(indicator());
   const panel = screen.getByRole("region", { name: "服务连接详情" });
+  expect(panel.textContent).toContain("/test-node/logs");
   expect(panel.textContent).toContain("后台状态刷新失败");
   expect(panel.textContent).toContain("本次运行有日志写入失败");
   view.rerender(report(false, 3));

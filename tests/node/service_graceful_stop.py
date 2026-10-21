@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp", ignore_cleanup_
         "trading": ["--session", "stop", "--directory", str(root / "data"),
                     "--ctp-library", trader_sdk],
         "market": ["--session", "stop", "--directory", str(root / "data")],
-        "task": ["--session", "stop", "--directory", str(root / "data"),
+        "task": ["--config", str(Path(executable).parent / "config/task.json"), "--session", "stop", "--directory", str(root / "data"),
                  "--data-instance", "history", "--data-endpoint", str(root / "history.sock")],
     }[kind]
     if kind == "trading":

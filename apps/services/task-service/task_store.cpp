@@ -274,6 +274,7 @@ void transition(
 {
     const auto a = before.state(), b = after.state();
     const bool start = a == wire::QUEUED && b == wire::RUNNING;
+    const bool launch_failed = a == wire::QUEUED && b == wire::FAILED;
     const bool retry =
         (a == wire::FAILED || a == wire::INTERRUPTED || a == wire::CANCELLED) && b == wire::QUEUED;
     const bool running = a == wire::RUNNING
@@ -282,9 +283,10 @@ void transition(
     const bool cancelling = a == wire::CANCEL_REQUESTED
         && (b == wire::CANCEL_REQUESTED || b == wire::CANCELLED || b == wire::INTERRUPTED);
     if (!(start || retry || running || cancelling || (a == wire::PUBLISHING && b == wire::SUCCEEDED)
-            || (a == wire::QUEUED && b == wire::CANCELLED)))
+            || (a == wire::QUEUED && (b == wire::CANCELLED || b == wire::FAILED))))
         throw std::invalid_argument("invalid durable task transition");
-    if (after.attempt() > 100 || after.attempt() != before.attempt() + (start ? 1U : 0U)
+    if (after.attempt() > 100
+        || after.attempt() != before.attempt() + (start || launch_failed ? 1U : 0U)
         || after.completed() > after.total())
         throw std::invalid_argument("invalid task attempt or progress");
     if (start || retry) {
@@ -1652,54 +1654,23 @@ wire::TaskList Store::list(unsigned limit, unsigned before_sequence) const
     return result;
 }
 
-wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes, bool data_available) const
+Store::Change Store::fail_start(
+    const std::string& id,
+    unsigned attempt,
+    const std::string& error,
+    const std::string& code)
 {
-    impl_->writable();
-    protocol::validate_message(processes);
-    if (!processes.has_launch_slots() || processes.launch_slots() > 2)
-        throw std::invalid_argument("task dispatch requires an explicit allowance of 0..2 workers");
-    std::set<std::string> running;
-    for (const auto& id : processes.running()) {
-        validate_id(id);
-        if (!running.insert(id).second)
-            throw std::invalid_argument("duplicate running task identity");
-    }
-    wire::TaskLaunches result;
-    constexpr std::size_t concurrency = 2;
-    if (running.size() >= concurrency)
-        return result;
-    const auto queue = active_tasks();
-    for (const auto& task : queue) {
-        if (static_cast<unsigned>(result.launches_size()) >= processes.launch_slots()
-            || running.size() + static_cast<std::size_t>(result.launches_size()) >= concurrency)
-            break;
-        if (task.state() != wire::QUEUED || running.contains(task.id()) || !data_available)
-            continue;
-        auto* launch = result.add_launches();
-        launch->set_task_id(task.id());
-        switch (task.kind()) {
-            case wire::BACKTEST:
-                launch->set_program(wire::BACKTEST_PROGRAM);
-                launch->set_risk_artifact(task.risk_artifact());
-                break;
-            case wire::FACTOR:
-                launch->set_program(wire::FACTOR_PROGRAM);
-                break;
-            case wire::MINUTE_DOWNLOAD:
-                launch->set_program(wire::DATA_PIPELINE_PROGRAM);
-                launch->set_provider_artifact(task.provider_artifact());
-                launch->set_minute_download(true);
-                break;
-            case wire::TABLE_UPDATE:
-                launch->set_program(wire::DATA_PIPELINE_PROGRAM);
-                launch->set_provider_artifact(task.provider_artifact());
-                launch->set_table_update(true);
-                break;
-            default:
-                throw std::invalid_argument("unsupported queued task kind");
-        }
-    }
-    return result;
+    auto entry = impl_->find(id);
+    const auto state = entry.task.state();
+    const bool before_claim = state == wire::QUEUED && entry.task.attempt() + 1 == attempt;
+    if (!before_claim)
+        return impl_->unchanged(std::move(entry));
+    auto next = summary(entry.task);
+    next.set_state(wire::FAILED);
+    next.set_attempt(attempt);
+    next.set_error(error);
+    next.set_error_code(code);
+    return impl_->change(entry, std::move(next), "");
 }
 
 Store::Change Store::claim(const std::string& id)

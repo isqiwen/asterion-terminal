@@ -1,6 +1,6 @@
 #include "node_program.hpp"
 #include "node_service.hpp"
-#include "node_client.hpp"
+#include "agent_client.hpp"
 #include "market_client.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -15,16 +15,18 @@ int main(int argc, char** argv)
     CLI::App app{"Native user-service control acceptance"};
     std::string operation, executable, root, endpoint, name, source, expected, provider;
     std::uint64_t pid = 0;
+    std::string enrollment;
+    app.add_option("--enrollment-directory", enrollment);
     app.add_option("--operation", operation)
         ->required()
         ->check(
             CLI::IsMember(
                 {"install",
+                    "register",
+                    "start",
                     "bootstrap",
                     "stop",
                     "replace",
-                    "upgrade",
-                    "inspect",
                     "verify-stopped",
                     "deploy-market",
                     "deploy-task",
@@ -42,6 +44,9 @@ int main(int argc, char** argv)
     CLI11_PARSE(app, argc, argv);
     try {
         asterion::terminal::ServiceIo io;
+        std::vector<std::string> arguments;
+        if (!enrollment.empty())
+            arguments = {"--enrollment-directory", enrollment};
         if (name.rfind("me.asterion.acceptance.", 0) != 0)
             throw std::invalid_argument("test requires an isolated acceptance service name");
         auto path = [](const std::string& value) {
@@ -50,7 +55,7 @@ int main(int argc, char** argv)
         if (operation == "deploy-market" || operation == "deploy-task"
             || operation == "market-status" || operation == "status") {
             auto client =
-                asterion::terminal::NodeClient::open(io, {"local", "localhost", 0, {}, endpoint})
+                asterion::terminal::AgentClient::open(io, {"local", "localhost", 0, {}, endpoint})
                     .get();
             if (operation == "deploy-task") {
                 const auto isolated = asterion::environment_path("ASTERION_NODE_DIRECTORY");
@@ -129,23 +134,8 @@ int main(int argc, char** argv)
                 path(executable),
                 path(root),
                 endpoint,
-                name);
-        else if (operation == "inspect")
-            std::cout << asterion::terminal::inspect_node_program(
-                path(source),
-                path(executable),
-                path(root))
-                             .dump()
-                      << '\n';
-        else if (operation == "upgrade")
-            asterion::terminal::upgrade_node_service(
-                io,
-                path(source),
-                path(executable),
-                path(root),
-                endpoint,
-                expected,
-                name);
+                name,
+                arguments);
         else if (operation == "replace")
             asterion::terminal::replace_node_program(
                 path(source),
@@ -155,16 +145,30 @@ int main(int argc, char** argv)
         else if (operation == "bootstrap") {
             asterion::FileLock owner(path(root), "bootstrap.lock");
             asterion::terminal::install_node_program(path(source), path(executable), path(root));
-            asterion::terminal::install_node_service(path(executable), path(root), endpoint, name);
-        } else if (operation == "install")
-            asterion::terminal::install_node_service(path(executable), path(root), endpoint, name);
+            asterion::terminal::install_node_service(
+                path(executable),
+                path(root),
+                endpoint,
+                name,
+                arguments);
+        } else if (operation == "start")
+            asterion::terminal::start_node_service(name);
+        else if (operation == "install" || operation == "register")
+            asterion::terminal::install_node_service(
+                path(executable),
+                path(root),
+                endpoint,
+                name,
+                arguments,
+                operation == "install");
         else
             asterion::terminal::stop_node_service(
                 path(executable),
                 path(root),
                 endpoint,
                 pid,
-                name);
+                name,
+                arguments);
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
         return 1;

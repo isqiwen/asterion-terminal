@@ -307,12 +307,6 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult)
     {
         tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
         auto task = tasks::submit(store, "factor", input());
-        wire::TaskDispatch allowance;
-        allowance.set_launch_slots(1);
-        const auto launches = store.dispatch(allowance);
-        ASSERT_EQ(launches.launches_size(), 1);
-        EXPECT_EQ(launches.launches(0).program(), wire::FACTOR_PROGRAM);
-
         EXPECT_EQ(task.kind(), wire::FACTOR);
         EXPECT_EQ(tasks::submit(store, "factor", input()).id(), task.id());
         EXPECT_FALSE(store.list().tasks(0).has_factor());

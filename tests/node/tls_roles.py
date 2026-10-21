@@ -9,6 +9,7 @@ import socket
 import ssl
 import struct
 import subprocess
+import shutil
 import sys
 import tempfile
 import time
@@ -102,6 +103,7 @@ def free_port():
 with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "agent").mkdir()
+    shutil.copytree(Path(agent).parent / "config", root / "agent/config")
     (root / "ledger").mkdir()
     subprocess.run([certificates, folder], check=True)
     tls = ["--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"),

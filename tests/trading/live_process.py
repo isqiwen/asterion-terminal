@@ -83,6 +83,8 @@ def stop(process):
 
 
 with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder:
+    # The application owns the log path; inherited logger settings cannot split
+    # Terminal events from its isolated Agent and services.
     env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
     process = launch()
     try:
@@ -97,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         call(process, "market.catalog", dict(account="catalog", password="catalog-only",
                                              auth_code=AUTH))
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
-        create = dict(
+        create = dict(node="local", service="", environment="simulation",
                       max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
                       max_price_deviation="0.02")
         refused = trade(process, "live.create",
@@ -195,16 +197,19 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         trade(process, "live.close")
     finally:
         stop(process)
+    logs = Path(os.environ["ASTERION_NODE_DIRECTORY"]) / "logs"
+    assert not (Path(folder) / "terminal-logs").exists()
+    assert list(logs.glob("terminal-*.log")), "Terminal logs missing from node directory"
+    assert list(logs.glob("agent-*.log")), "Agent logs missing from node directory"
     records = []
-    for root in (Path(folder) / "terminal-logs", Path(os.environ["ASTERION_NODE_DIRECTORY"])):
-        for path in root.rglob("*.log"):
-            for line in path.read_text(errors="replace").splitlines():
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(record, dict) and "event" in record and "fields" in record:
-                    records.append(record)
+    for path in logs.glob("*.log"):
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and "event" in record and "fields" in record:
+                records.append(record)
     committed = next(r["fields"] for r in records if r["event"] == "journal.committed"
                      and r["fields"].get("request_id") == "submit.filled")
     rpc = next(r["fields"] for r in records if r["event"] == "rpc.completed"

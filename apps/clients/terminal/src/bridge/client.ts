@@ -152,6 +152,7 @@ export type BacktestAccount = {
 // A live CTP session; the broker reports the account, the session owns the
 // execution chain (authorization, allowed contracts, risk, order records).
 export type LiveSession = {
+  environment: "real" | "simulation";
   mode: "live";
   account_id: string;
   policy_revision: string;
@@ -309,11 +310,13 @@ export type NodeStatus = {
     phase: "initializing" | "ready" | "recovery_required";
     failure: null | { code: string; message: string };
     execution: ExecutionHealth;
-    worker_capacity: { limit: number; owned: number; reserved: number };
-    resource_budget: null | {
-      limit: { cpu_slots: number; memory_mib: number; io_slots: number };
-      committed: { cpu_slots: number; memory_mib: number; io_slots: number };
-      file_workers: number;
+    host_resources: null | {
+      sampled_at_ms: number;
+      cpu_usage_percent: number | null;
+      memory_available_bytes: number;
+      disk_available_bytes: number;
+      disk_path: string;
+      failure: null | { code: string; message: string };
     };
     maintenance: boolean;
     pid: number;
@@ -326,8 +329,6 @@ export type NodeStatus = {
       kind: "live" | "market" | "task" | "data";
       task_service: string;
       data_service: string;
-      active_workers: number;
-      resource_request: { cpu_slots: number; memory_mib: number; io_slots: number };
       plugin_artifacts: string[];
       id: string;
       artifact: string;
@@ -562,6 +563,7 @@ export type CtpConnection = {
   revision: string;
   // Whether this account has its trading record; its counter details are then fixed.
   trading_record: boolean;
+  trading?: { node: string; service: string };
 };
 export type CtpConnectionEntry = CtpConnection | UnreadableCtpConnection;
 export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
@@ -1556,12 +1558,6 @@ export type Snapshot = {
     id: string;
     public_key: string;
   } | null;
-  agent_program: null | {
-    state: "isolated" | "not_installed" | "current" | "update_available" | "recovery_required";
-    expected_digest: string;
-    installed_digest: string;
-    bundled_digest: string;
-  };
   firewall_plan: FirewallPlan | null;
   nodes: NodeStatus[];
   protocol: 1;
@@ -1586,6 +1582,7 @@ export type Snapshot = {
     state: string;
   }[];
   diagnostics: {
+    log_directory: string;
     succeeded: number;
     failed: number;
     log_failures: number;

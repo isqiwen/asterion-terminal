@@ -40,7 +40,7 @@ function localCore(): Plugin {
             ...process.env,
             ASTERION_ANALYTICS_EXECUTABLE: resolve(
               root,
-              "build/electron-resources/analytics/asterion-analytics",
+              "build/electron-resources/analytics/asterion_analytics",
             ),
             ASTERION_ENVIRONMENT: "development",
             ASTERION_REMOTE_RESOURCES:
@@ -226,6 +226,15 @@ function localCore(): Plugin {
 }
 export default defineConfig({
   root: resolve(root, "apps/clients/terminal"),
+  base: "./",
+  build: {
+    rollupOptions: {
+      input: {
+        terminal: resolve(root, "apps/clients/terminal/index.html"),
+        installer: resolve(root, "apps/clients/terminal/installer.html"),
+      },
+    },
+  },
   plugins: [react(), ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()])],
   resolve: {
     alias: {

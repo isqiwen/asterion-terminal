@@ -1,0 +1,7 @@
+add_library(asterion_sqlite STATIC sqlite_database.cpp sqlite_journal.cpp)
+target_link_libraries(asterion_sqlite PUBLIC Asterion::Kernel PRIVATE SQLite::SQLite3)
+target_include_directories(asterion_sqlite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(asterion_task_events STATIC task_events.cpp)
+target_link_libraries(asterion_task_events PUBLIC asterion_sqlite asterion_protocol)
+asterion_target_defaults(asterion_sqlite)
+asterion_target_defaults(asterion_task_events)

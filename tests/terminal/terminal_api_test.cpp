@@ -232,10 +232,10 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
 
 TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput)
 {
-    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
+    const char* value = std::getenv("ASTERION_NODE_DIRECTORY");
     const std::optional<std::string> saved =
         value ? std::optional<std::string>(value) : std::nullopt;
-    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
+    ASSERT_EQ(::setenv("ASTERION_NODE_DIRECTORY", "relative", 1), 0);
     char* failure = nullptr;
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> rejected(
         asterion_terminal_create(&failure),
@@ -244,14 +244,14 @@ TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput)
         failure,
         asterion_terminal_free);
     if (saved)
-        ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
+        ::setenv("ASTERION_NODE_DIRECTORY", saved->c_str(), 1);
     else
-        ::unsetenv("ASTERION_LOG_DIRECTORY");
+        ::unsetenv("ASTERION_NODE_DIRECTORY");
     ASSERT_EQ(rejected, nullptr);
     ASSERT_NE(detail, nullptr);
     const auto response = json::parse(detail.get());
     EXPECT_EQ(response.at("error").at("code"), "invalid_request");
-    EXPECT_EQ(response.at("error").at("message"), "invalid log file or retention");
+    EXPECT_EQ(response.at("error").at("message"), "invalid local node directory");
     failure = detail.get(); // The successful call must clear, not retain, this pointer.
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
         asterion_terminal_create(&failure),
@@ -304,6 +304,9 @@ TEST(TerminalApi, Contracts)
         asterion_terminal_create(nullptr),
         asterion_terminal_destroy);
     EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
+    EXPECT_EQ(
+        call(runtime.get(), request("runtime.snapshot"))["result"]["diagnostics"]["log_directory"],
+        (std::filesystem::path(std::getenv("ASTERION_NODE_DIRECTORY")) / "logs").string());
     EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
         << "no invented dataset";
     {
@@ -535,7 +538,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations)
         else
             EXPECT_EQ(datasets[0]["count"], 20000);
         const auto command_started = std::chrono::steady_clock::now();
-        const auto inspect = call(runtime.get(), request("node.agent.inspect"));
+        const auto inspect = call(runtime.get(), request("native.plugins.inspect"));
         EXPECT_LT(
             std::chrono::steady_clock::now() - command_started,
             asterion::testing_support::bound(std::chrono::milliseconds(500)));
@@ -699,10 +702,12 @@ public:
 
     ~IsolatedNode()
     {
-        std::ifstream pidfile(path_ / "agent.pid");
-        if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
-            for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        for (const auto& file : {path_ / "agent.pid", path_ / "manager/manager.pid"}) {
+            std::ifstream pidfile(file);
+            if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
+                for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
         // The Agent's services stop writing within their supervisor grace period.
         std::error_code ignored;
         for (int i = 0; i < 6; ++i) {

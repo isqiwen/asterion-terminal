@@ -1,0 +1,6 @@
+add_subdirectory(tools)
+add_subdirectory(data)
+add_subdirectory(storage)
+add_subdirectory(risk)
+add_subdirectory(execution)
+add_subdirectory(strategy)

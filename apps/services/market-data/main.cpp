@@ -33,6 +33,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
+        asterion::initialize_process_logging("market-data", service);
         validate_id(service);
         transport.validate();
         const auto instance = unique_process_id();

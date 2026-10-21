@@ -1,4 +1,4 @@
-// Terminal development runs on macOS and Linux; installers are built on macOS.
+// Terminal development and installer packaging run on macOS and Linux.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 if (!["darwin", "linux"].includes(process.platform)) {

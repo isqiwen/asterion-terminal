@@ -1,7 +1,6 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
-import type { Snapshot } from "../src/bridge/client";
 
 test("opening connection settings only reads the monitor established by startup", async ({
   page,
@@ -33,108 +32,6 @@ test("opening connection settings only reads the monitor established by startup"
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   }
   expect(commands).toEqual([]);
-  await closeSettingsWindow(settings);
-});
-
-for (const state of ["update_available", "recovery_required"] as const) {
-  test(`settings coordinates ${state} without manually stopping running services`, async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const settings = await openSettingsWindow(page);
-    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
-    await settings.getByRole("button", { name: "机器管理", exact: true }).click();
-    await settings.getByText("服务管理器程序", { exact: true }).click();
-    let inspected: Snapshot | undefined;
-    // What the test has the core say about the Agent program. The core keeps
-    // reporting what it found, so every snapshot from then on says the same:
-    // a poll may arrive at any moment, before or after a command's reply.
-    let program: Snapshot["agent_program"] | undefined;
-    const calls: string[] = [];
-    await settings.route("**/__asterion/api", async route => {
-      const request = route.request().postDataJSON();
-      calls.push(request.method);
-      if (request.method === "node.agent.upgrade") {
-        expect(request.params).toEqual({ expected_digest: "1".repeat(64) });
-        expect(inspected).toBeDefined();
-        program = {
-          state: "current",
-          expected_digest: "",
-          installed_digest: "2".repeat(64),
-          bundled_digest: "2".repeat(64),
-        };
-        return route.fulfill({ json: { result: { ...inspected, agent_program: program } } });
-      }
-      if (request.method !== "node.agent.inspect" && request.method !== "runtime.snapshot")
-        return route.continue();
-      const response = await route.fetch();
-      const data = (await response.json()) as { result?: Snapshot | { unchanged: true } };
-      if (!data.result || "unchanged" in data.result) return route.fulfill({ response });
-      if (request.method === "node.agent.inspect") {
-        expect(data.result.nodes[0].health?.services.some(service => service.desired_running)).toBe(
-          true,
-        );
-        program = {
-          state,
-          expected_digest: "1".repeat(64),
-          installed_digest: "1".repeat(64),
-          bundled_digest: "2".repeat(64),
-        };
-        inspected = data.result;
-      }
-      if (program) data.result.agent_program = program;
-      return route.fulfill({ response, json: data });
-    });
-    await settings.getByRole("button", { name: "检查程序更新", exact: true }).click();
-    await expect(settings.getByText(/更新会等待服务安全停止/)).toBeVisible();
-    const upgrade = settings.getByRole("button", {
-      name: state === "recovery_required" ? "继续恢复" : "升级服务管理器",
-      exact: true,
-    });
-    await expect(upgrade).toBeEnabled();
-    await upgrade.click();
-    await expect(settings.getByText("已安装程序与安装包一致", { exact: true })).toBeVisible();
-    expect(calls.filter(method => method === "node.agent.upgrade")).toHaveLength(1);
-    expect(calls).not.toContain("node.action");
-    await closeSettingsWindow(settings);
-  });
-}
-
-test("settings shows a busy command without automatically retrying or losing drafts", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await openView(page, "history");
-  await page.getByLabel("每分钟请求上限").fill("17");
-  const settings = await openSettingsWindow(page);
-  await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
-  await settings.getByRole("button", { name: "机器管理", exact: true }).click();
-  await settings.getByText("服务管理器程序", { exact: true }).click();
-  let inspections = 0;
-  await settings.route("**/__asterion/api", route => {
-    if (route.request().postDataJSON().method === "node.agent.inspect" && ++inspections === 1) {
-      return route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({
-          error: {
-            code: "conflict",
-            message: "another Terminal operation is in progress; retry after it completes",
-          },
-        }),
-      });
-    }
-    return route.continue();
-  });
-  const inspect = settings.getByRole("button", { name: "检查程序更新", exact: true });
-  await inspect.click();
-  await expect(settings.getByRole("alert")).toContainText("已有操作正在进行，请完成后重试");
-  await expect(inspect).toBeEnabled();
-  expect(inspections).toBe(1);
-  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("17");
-  await inspect.click();
-  await expect(settings.getByRole("alert")).toHaveCount(0);
-  expect(inspections).toBe(2);
   await closeSettingsWindow(settings);
 });
 

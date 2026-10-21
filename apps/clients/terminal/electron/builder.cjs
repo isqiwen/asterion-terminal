@@ -10,9 +10,6 @@ if (
   (!process.env.CSC_NAME || process.env.CSC_NAME === "-" || !process.env.APPLE_KEYCHAIN_PROFILE)
 )
   throw new Error("Distribution requires Developer ID signing and a local notarization profile");
-// desktop.py derives what a Debian package depends on from the programs it ships.
-if (!mac && !process.env.ASTERION_DEB_DEPENDS)
-  throw new Error("Use desktop.py to analyze the package's runtime dependencies");
 const electronExecutable = require("../../../../scripts/desktop/electron-path.cjs")();
 const electronDist = mac
   ? electronExecutable.slice(0, electronExecutable.indexOf("/Electron.app/"))
@@ -25,16 +22,24 @@ const nativeFiles = [
 module.exports = {
   appId: "me.asterion.terminal",
   productName: "Asterion Terminal",
-  executableName: "asterion-terminal",
+  executableName: "asterion_terminal",
   directories: {
     app: "apps/clients/terminal/electron",
-    output: distribution ? "build/desktop" : "build/desktop-test",
+    output: "build/terminal-package",
     buildResources: "apps/clients/terminal/electron/assets",
   },
   files: ["main.cjs", "preload.cjs", "package.json", { from: "../dist", to: "dist" }],
   extraResources: [
     { from: "build/electron-resources/analytics", to: "analytics", filter: ["**/*"] },
-    { from: "build/electron-resources/native", to: "native", filter: nativeFiles },
+    {
+      from: "build/electron-resources/native",
+      to: "native",
+      filter: [
+        ...nativeFiles,
+        ...native.configuration,
+        ...(!mac ? ["runtime-requirements.json"] : []),
+      ],
+    },
     { from: "build/electron-resources/remote-linux", to: "remote-linux", filter: ["**/*"] },
   ],
   asar: true,
@@ -46,7 +51,7 @@ module.exports = {
     : "Asterion-Terminal-TEST-${version}-${os}-${arch}.${ext}",
   forceCodeSigning: mac && distribution,
   mac: {
-    target: ["dmg"],
+    target: ["dir"],
     category: "public.app-category.finance",
     minimumSystemVersion: "13.0",
     type: "distribution",
@@ -54,7 +59,7 @@ module.exports = {
     notarize: distribution,
     binaries: [
       ...nativeFiles.map(name => "Contents/Resources/native/" + name),
-      "Contents/Resources/analytics/asterion-analytics",
+      "Contents/Resources/analytics/asterion_analytics",
     ],
     hardenedRuntime: true,
     entitlements: path.join(__dirname, "entitlements.mac.plist"),
@@ -62,17 +67,10 @@ module.exports = {
   },
   dmg: { sign: distribution },
   linux: {
-    target: ["deb"],
+    target: ["dir"],
     category: "Finance",
     synopsis: "Futures trading terminal",
     maintainer: "Asterion <build@example.invalid>",
     syncDesktopName: true,
   },
-  deb: mac
-    ? {}
-    : {
-        depends: JSON.parse(process.env.ASTERION_DEB_DEPENDS),
-        // Only remembering credentials needs the desktop's Secret Service.
-        recommends: ["libsecret-1-0"],
-      },
 };

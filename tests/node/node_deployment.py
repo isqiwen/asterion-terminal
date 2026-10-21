@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
 import shutil
 import socket
 import ssl
@@ -20,9 +21,11 @@ if sys.platform != "linux":
     raise SystemExit(77)
 
 bridge, node, trading, certificates = map(str, sys.argv[1:])
-def call(process, method, params=None, error=False):
+def call(process, method, params=None, error=False, timeout=None):
     process.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
     process.stdin.flush()
+    if timeout is not None:
+        assert select.select([process.stdout], [], [], timeout)[0], "business reply waited on management"
     response = json.loads(process.stdout.readline())
     assert ("error" in response) == error, response
     return response if error else response["result"]
@@ -46,11 +49,13 @@ def stop(p):
         print(diagnostic, file=sys.stderr)
 with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); state = root / "node"; state.mkdir()
+    (state / "config").mkdir()
+    (state / "config/task.json").write_text(json.dumps({"task_concurrency": 2}))
     subprocess.run([certificates, folder], check=True)
     management, trade_port = port(), port()
     while trade_port == management:
         trade_port = port()
-    transport_log = state / "logs/transport.log"
+    transport_log = state / "logs/agent.log"
     args = [node, "--bind", "127.0.0.1", "--port", str(management), "--directory", str(state), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
     def launch_node():
         p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -135,19 +140,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         while task_port in {management, trade_port}:
             task_port = port()
         call(terminal, "node.deploy", {"id": "task", "kind": "task", "service": "task", "port": str(task_port)})
-        # Task startup does not read unused workers. Each dispatch validates its program.
-        call(terminal, "node.action", {"id": "task", "service": "task", "action": "stop"})
-        task_config=json.loads((state/"services/task/service.json").read_text())
-        factor_binary=state/"artifacts"/(task_config["factor_artifact"]+".bin")
-        with factor_binary.open("ab") as file: file.write(b"corrupt fixture")
-        try:
-            call(terminal, "node.action", {"id": "task", "service": "task", "action": "start"})
-            wait(lambda: any(s["id"]=="task" and s["state"]=="running"
-                 for n in call(terminal,"runtime.snapshot")["nodes"]
-                 for s in n["health"]["services"]))
-        finally:
-            with factor_binary.open("r+b") as file:
-                file.truncate(factor_binary.stat().st_size-len(b"corrupt fixture"))
         history = str(Path(bridge).resolve().parent / "asterion_test_history")
         def seed(prices, identity):
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "stop"})
@@ -213,11 +205,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         # Task results survive a program update of the stopped service.
         call(terminal, "data.dataset.clear")
         call(terminal, "data.dataset.select", seed([100, 101, 102, 101, 104, 103, 102, 103], "remote-backtest"))
-        call(terminal, "backtest.submit", {"id": "remote-backtest", "strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None, "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        backtest_request = {"id": "remote-backtest", "strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None, "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"}
+        for task_id in ("remote-backtest", "parallel-one", "parallel-two"):
+            call(terminal, "backtest.submit", {**backtest_request, "id": task_id})
         def task_done(task_id):
             tasks = [task for task in call(terminal, "runtime.snapshot")["task_service"]["tasks"] if task["id"] == task_id]
             return tasks and tasks[0]["state"] == "succeeded"
-        wait(lambda: task_done("remote-backtest"))
+        for task_id in ("remote-backtest", "parallel-one", "parallel-two"):
+            wait(lambda task_id=task_id: task_done(task_id))
         result = call(terminal, "task.result", {"id": "remote-backtest"})["task_result"]
         assert result["kind"] == "backtest" and result["result"]["settlements"], result
         call(terminal, "data.dataset.clear")
@@ -228,6 +223,19 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert factor_result["kind"] == "factor" and len(factor_result["result"]["samples"]) == 78, factor_result
         assert len(factor_result["result"]["folds"]) == 2, factor_result
         assert factor_result["experiment"]["evaluation"] == {"mode": "walk_forward", "training_events": 80, "validation_events": 40}, factor_result
+        # Business replies come directly from the service even while both
+        # management processes are suspended. No management command runs here.
+        manager_pid = int((root / "local/manager/manager.pid").read_text())
+        suspended = []
+        try:
+            for pid in (manager_pid, agent.pid):
+                os.kill(pid, signal.SIGSTOP)
+                suspended.append(pid)
+            assert call(terminal, "task.result", {"id": "remote-backtest"}, timeout=5)["task_result"] == result
+            assert call(terminal, "task.result", {"id": "remote-factor"}, timeout=5)["task_result"] == factor_result
+        finally:
+            for pid in suspended:
+                os.kill(pid, signal.SIGCONT)
         stopped=call(terminal,"node.action",{"id":"task","service":"task","action":"stop"})
         current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="task")
         call(terminal,"node.update",{"id":"task","service":"task","revision":current["revision"]})
@@ -241,7 +249,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
     finally:
         failed = sys.exc_info()[0] is not None
         stop(terminal); stop(agent)
-        transport_logs = sorted(transport_log.parent.glob(f"{transport_log.stem}_*{transport_log.suffix}"))
+        transport_logs = sorted(transport_log.parent.glob(f"{transport_log.stem}-*{transport_log.suffix}"))
         if failed and transport_logs:
             print("Agent transport diagnostics (bounded tail):", file=sys.stderr)
             print("\n".join(transport_logs[-1].read_text().splitlines()[-100:]), file=sys.stderr)

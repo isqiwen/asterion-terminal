@@ -57,6 +57,30 @@ test("Agent initialization failure stays on the Agent step and exposes its cause
   expect(sent(calls, "market.local")).toEqual([]);
 });
 
+test("synchronization failure immediately shows its cause and log without starting services", async () => {
+  const file = "/test-node/logs/agent-123_2026-10-20.log";
+  const calls = serveCore(({ method }) =>
+    method === "node.local"
+      ? {
+          error: {
+            code: "operation_failed",
+            message:
+              "service program synchronization failed: Node failed: invalid managed service configuration\nLog file: " +
+              file,
+          },
+        }
+      : readySnapshot(),
+  );
+  start();
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("服务程序同步失败");
+  expect(alert.textContent).toContain("invalid managed service configuration");
+  expect(alert.textContent).toContain(file);
+  expect(within(alert).queryByRole("button", { name: "详情" })).toBeNull();
+  expect(failedStep()).toBe("服务管理器");
+  expect(sent(calls, "market.local")).toEqual([]);
+});
+
 test("startup lists unloadable plugins and interrupted tasks without blocking entry", async () => {
   serveCore(() => {
     const snapshot = readySnapshot();
@@ -200,32 +224,12 @@ test("startup reports the failing step, retries and opens the workbench once eve
   expect(workbench()).toBeNull();
 });
 
-for (const state of ["update_available", "recovery_required"] as const)
-  test(`Agent ${state} is resolved automatically before service startup`, async () => {
-    let upgraded = false;
-    const calls = serveCore(({ method }) => {
-      if (method === "node.agent.upgrade") upgraded = true;
-      const snapshot = readySnapshot();
-      snapshot.agent_program = {
-        state: upgraded ? "current" : state,
-        expected_digest: "a".repeat(64),
-        installed_digest: "a".repeat(64),
-        bundled_digest: "b".repeat(64),
-      };
-      return snapshot;
-    });
-    start();
-    await waitFor(() => expect(workbench()).not.toBeNull());
-    expect(sent(calls, "node.agent.upgrade", ...serviceStarts)).toEqual([
-      "node.agent.upgrade",
-      "node.local",
-      "market.local",
-      "node.data_tasks.local.open",
-    ]);
-    expect(calls.find(call => call.method === "node.agent.upgrade")!.params).toEqual({
-      expected_digest: "a".repeat(64),
-    });
-  });
+test("ordinary startup never upgrades installed programs", async () => {
+  const calls = serveCore(() => readySnapshot());
+  start();
+  await waitFor(() => expect(workbench()).not.toBeNull());
+  expect(calls.some(call => call.method === "node.agent.upgrade")).toBe(false);
+});
 
 test("a service that went offline after every start fails its own step", async () => {
   let started = false;
@@ -258,35 +262,3 @@ test("a service that never reports online fails its own step when the wait ends"
   expect(failedStep()).toBe("任务服务");
   expect(workbench()).toBeNull();
 });
-
-for (const [diagnostic, summary, english] of [
-  [
-    "Agent upgrade is waiting for a recoverable service boundary: market: connected feed",
-    "更新正在等待后台工作安全结束，请稍后重试",
-    "The update is waiting for background work to finish safely. Retry later.",
-  ],
-  [
-    "Agent upgrade validate: service lacks an automatic upgrade recovery boundary: paper.local",
-    "正在运行的服务尚不支持自动更新，请保留当前工作并稍后重试",
-    "A running service does not yet support automatic updates. Keep your current work running and retry later.",
-  ],
-])
-  test(`startup explains safe update deferral: ${diagnostic}`, async () => {
-    const calls = serveCore(({ method }) => {
-      if (method === "node.agent.upgrade")
-        return { error: { code: "unavailable", message: diagnostic } };
-      const snapshot = readySnapshot();
-      snapshot.agent_program!.state = "update_available";
-      return snapshot;
-    });
-    start();
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(summary);
-    expect(alert.textContent).not.toContain(diagnostic);
-    fireEvent.click(within(alert).getByRole("button", { name: "详情" }));
-    expect(alert.textContent).toContain(diagnostic);
-    fireEvent.change(screen.getByRole("combobox", { name: "语言" }), { target: { value: "en" } });
-    expect(alert.textContent).toContain(english);
-    expect(sent(calls, "node.agent.upgrade", ...serviceStarts)).toEqual(["node.agent.upgrade"]);
-    expect(screen.getByRole("button", { name: "RETRY" })).toHaveProperty("disabled", false);
-  });

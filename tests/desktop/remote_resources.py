@@ -31,7 +31,13 @@ with tempfile.TemporaryDirectory() as folder:
  protocol.write_text('schema 1');assert fingerprint(root)==before
  extra=root/'protocol/extra.proto';extra.write_text('new schema');assert fingerprint(root)!=before
  extra.unlink();assert fingerprint(root)==before
- rule=root/"cmake/Architecture.cmake";rule.parent.mkdir();rule.write_text("link rules")
+ # Moved management/service and shared-control inputs still invalidate bundles.
+ for name in ('apps/management/node-agent/main.cpp', 'apps/services/task-service/backtest/engine.cpp',
+              'apps/common/control/service_io.cpp'):
+  changed=root/name; changed.parent.mkdir(parents=True,exist_ok=True)
+  changed.write_text('source input'); assert fingerprint(root)!=before
+  changed.unlink(); assert fingerprint(root)==before
+ rule=root/"cmake/CompilerOptions.cmake";rule.parent.mkdir();rule.write_text("compiler options")
  assert fingerprint(root)!=before
  rule.unlink();assert fingerprint(root)==before
 
@@ -82,9 +88,11 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  # No partial staging when an architecture is missing.
  (archives/'asterion-services-linux-x86_64.zip').unlink()
  try: resources.stage(archives,root/'incomplete')
- except FileNotFoundError: pass
+ except resources.BundleNeedsBuild: pass
  else: raise AssertionError('missing architecture accepted')
  assert not (root/'incomplete').exists()
+ # The native bridge takes its Terminal lifetime lock in the supplied node directory.
+ (root/'state').mkdir()
  app=subprocess.Popen([sys.argv[1]],env=dict(os.environ,ASTERION_NODE_DIRECTORY=str(root/'state'),ASTERION_REMOTE_RESOURCES=str(target)),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding="utf-8")
  def call(path):
   app.stdin.write(json.dumps(dict(version=1,method='node.initializer.export',params=dict(path=str(path))))+'\n');app.stdin.flush()
@@ -99,7 +107,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   data['product_version']='wrong';manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
   data=json.loads(original);data['source_sha256']='0'*64;manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
   # Exporting the initializer does not scan unrelated service programs.
-  binary=target/'x86_64/asterion-node-agent'; data=binary.read_bytes();binary.write_bytes(data+b'corruption')
+  binary=target/'x86_64/asterion_node_agent'; data=binary.read_bytes();binary.write_bytes(data+b'corruption')
   assert call('')['result']['initializer']['content']==expected
   try: resources.verify(target)
   except ValueError: pass

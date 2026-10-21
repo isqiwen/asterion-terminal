@@ -17,6 +17,5 @@ cmake --preset conan-release
 CMAKE_BUILD_PARALLEL_LEVEL=4 python3 scripts/services/deployment_bundle.py build/Release
 mkdir -p /output
 cp build/Release/deployment/asterion-services-linux-x86_64.zip /output/
-./build/Release/asterion-factor --version
-./build/Release/asterion-data-service --version
-./build/Release/asterion-task-service --version
+./build/Release/asterion_data_service --version
+./build/Release/asterion_task_service --version

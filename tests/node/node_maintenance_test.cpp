@@ -1,4 +1,5 @@
-#include "node_client.hpp"
+#include "agent_client.hpp"
+#include "node_paths.hpp"
 #include "support/local_listener.hpp"
 #include "service_configuration.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
@@ -10,8 +11,11 @@
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/environment.hpp>
 #include <asterion/node.pb.h>
 #include <future>
+#include <fstream>
+#include <map>
 #include <gtest/gtest.h>
 #include <thread>
 using namespace asterion;
@@ -25,7 +29,7 @@ class NodeProgramPublication : public testing::Test
 {
 protected:
     fs::path root = fs::temp_directory_path() / ("ast-publication-" + unique_process_id());
-    fs::path installed = root / "bin/asterion-node-agent";
+    fs::path installed = root / "bin/asterion_node_agent";
     fs::path staged = root / "bin/agent-upgrade.staged";
     fs::path journal = root / "agent-upgrade.json";
     std::string before, after;
@@ -57,6 +61,22 @@ protected:
 };
 
 } // namespace
+
+TEST_F(NodeProgramPublication, ConfigurationDeploymentPreservesOperatorEdits)
+{
+    const auto defaults = fs::path(ASTERION_AGENT_PATH).parent_path() / "config";
+    install_node_configuration(root, defaults);
+    const auto file = root / "config/task.json";
+    std::ifstream input(file);
+    EXPECT_EQ(Json::parse(input).at("task_concurrency"), 2);
+    const std::string edited = R"({"task_concurrency":5})";
+    replace_file_durably(file, edited);
+    const auto timestamp = fs::last_write_time(file);
+    install_node_configuration(root, defaults);
+    std::ifstream preserved(file);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(preserved), {}), edited);
+    EXPECT_EQ(fs::last_write_time(file), timestamp);
+}
 
 TEST_F(NodeProgramPublication, DirectorySyncFailureKeepsRecoveryIntentUntilAnExplicitRetrySyncs)
 {
@@ -127,6 +147,9 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     const auto root = fs::temp_directory_path() / ("ast-maint-" + unique_process_id().substr(0, 8));
     fs::create_directories(root / "ledger");
     fs::create_directories(root / "agent");
+    install_node_configuration(
+        root / "agent",
+        fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
 
     struct Cleanup
     {
@@ -144,11 +167,11 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
         ASTERION_AGENT_PATH,
         {"--directory", (root / "agent").string(), "--endpoint", endpoint});
     NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
-    std::shared_ptr<NodeClient> client;
+    std::shared_ptr<AgentClient> client;
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     while (!client) {
         try {
-            client = NodeClient::open(io, config).get();
+            client = AgentClient::open(io, config).get();
         } catch (const std::exception&) {
             ASSERT_FALSE(agent.exited());
             ASSERT_LT(std::chrono::steady_clock::now(), deadline);
@@ -179,7 +202,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     client->maintenance(true, "upgrade.test",
               instance).get(); // Exact retry is idempotent.
     EXPECT_THROW(client->maintenance(true, "other", instance).get(), std::exception);
-    auto second = NodeClient::open(io, config).get();
+    auto second = AgentClient::open(io, config).get();
     EXPECT_TRUE(second->status().get().at("health").at("maintenance").get<bool>());
     EXPECT_EQ(second->status().get().at("health").at("pid").get<std::uint64_t>(), agent.id());
     EXPECT_THROW(second->action("account", "start").get(), std::exception);
@@ -246,7 +269,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
         const auto enter_error = enter.get(), start_error = start.get();
         const bool entered = enter_error.empty(), started = start_error.empty();
         ASSERT_NE(entered, started) << "maintenance: " << enter_error << "; start: " << start_error;
-        auto observed = NodeClient::open(io, config).get();
+        auto observed = AgentClient::open(io, config).get();
         const auto health = observed->status().get().at("health");
         EXPECT_EQ(health.at("maintenance").get<bool>(), entered);
         EXPECT_EQ(health.at("services").at(0).at("desired_running").get<bool>(), started);
@@ -291,7 +314,6 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
                     EXPECT_TRUE(request.has_status());
                     auto* status = response.mutable_status();
                     status->set_phase(asterion::node::proto::Status::READY);
-                    status->mutable_resource_budget()->set_file_workers(1);
                     status->set_instance_id("test-instance");
                     status->set_os("test-os");
                     status->set_arch("test-arch");
@@ -309,7 +331,7 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
             }
         });
         auto client =
-            NodeClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+            AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
         if (maintenance)
             EXPECT_NO_THROW(client->maintenance(true, "operation", "test-instance").get());
         else
@@ -355,12 +377,13 @@ TEST(NodeMaintenance, SilentPeerAndBusyAdministrationLeaveStatusAndReadsAvailabl
     } cleanup{root};
 
     const auto endpoint = (root / "agent.sock").string();
+    install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
     ChildProcess agent(ASTERION_AGENT_PATH, {"--directory", root.string(), "--endpoint", endpoint});
     NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
         try {
-            auto ready = NodeClient::open(io, config).get();
+            auto ready = AgentClient::open(io, config).get();
             break;
         } catch (const Error&) {
             ASSERT_FALSE(agent.exited());
@@ -369,8 +392,8 @@ TEST(NodeMaintenance, SilentPeerAndBusyAdministrationLeaveStatusAndReadsAvailabl
         }
     }
     auto silent = ipc::Channel::connect(endpoint, 1s);
-    std::shared_ptr<NodeClient> healthy;
-    ASSERT_NO_THROW(healthy = NodeClient::open(io, config).get());
+    std::shared_ptr<AgentClient> healthy;
+    ASSERT_NO_THROW(healthy = AgentClient::open(io, config).get());
     EXPECT_EQ(healthy->status().get().at("state"), "online");
     EXPECT_EQ(healthy->status().get().at("health").at("pid").get<std::uint64_t>(), agent.id());
     auto work = [&](std::stop_token) -> PolledTask<void> {
@@ -430,6 +453,9 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
     const auto root =
         fs::temp_directory_path() / ("ast-upgrade-" + unique_process_id().substr(0, 8));
     fs::create_directories(root / "agent");
+    install_node_configuration(
+        root / "agent",
+        fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
     fs::create_directories(root / "running");
     fs::create_directories(root / "stopped");
 
@@ -447,7 +473,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
     const auto endpoint = (root / "node.sock").string();
     const NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
     std::unique_ptr<ChildProcess> agent;
-    std::shared_ptr<NodeClient> client;
+    std::shared_ptr<AgentClient> client;
     auto start = [&] {
         fs::remove(endpoint);
         agent = std::make_unique<ChildProcess>(
@@ -461,7 +487,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             try {
-                client = NodeClient::open(io, config).get();
+                client = AgentClient::open(io, config).get();
                 break;
             } catch (const std::exception&) {
                 if (agent->exited() || std::chrono::steady_clock::now() > deadline)
@@ -547,11 +573,11 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
 
 namespace {
 
-class DevelopmentPrograms : public testing::Test
+class ProgramPreparation : public testing::Test
 {
 protected:
     fs::path root = fs::temp_directory_path() / ("ast-dev-programs-" + unique_process_id());
-    node::proto::DevelopmentPrograms manifest;
+    node::proto::ServicePrograms manifest;
 
     void SetUp() override
     {
@@ -609,7 +635,7 @@ protected:
                 ASTERION_AGENT_PATH,
                 "--directory",
                 root.string(),
-                "--prepare-development",
+                "--prepare-programs",
                 (root / "programs.pb").string()},
             false,
             root / ("preparation-" + unique_process_id() + ".log"),
@@ -622,7 +648,7 @@ protected:
 
 } // namespace
 
-TEST_F(DevelopmentPrograms, SynchronizesBeforeStartupAndPreservesIntentAndLedgers)
+TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers)
 {
     // What an earlier start loaded the market service's plugins from.
     fs::create_directories(root / "services/market/plugins/earlier");
@@ -664,7 +690,7 @@ TEST_F(DevelopmentPrograms, SynchronizesBeforeStartupAndPreservesIntentAndLedger
 
 // A kind of service this node does not have is not staged: one deployed later
 // brings its own programs, and a copy nothing runs would stay behind.
-TEST_F(DevelopmentPrograms, StagesOnlyWhatAServiceHereRuns)
+TEST_F(ProgramPreparation, StagesOnlyWhatAServiceHereRuns)
 {
     fs::remove_all(root / "services/trading");
     ASSERT_EQ(prepare(), 0);
@@ -672,7 +698,7 @@ TEST_F(DevelopmentPrograms, StagesOnlyWhatAServiceHereRuns)
     EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_TRADE_PATH))));
 }
 
-TEST_F(DevelopmentPrograms, RejectsRunningAgentAndInvalidSelectionWithoutChangingConfiguration)
+TEST_F(ProgramPreparation, RejectsRunningAgentAndInvalidSelectionWithoutChangingConfiguration)
 {
     const auto before = sha256_file(root / "services/market/service.json");
     {
@@ -683,4 +709,55 @@ TEST_F(DevelopmentPrograms, RejectsRunningAgentAndInvalidSelectionWithoutChangin
     EXPECT_NE(prepare(), 0);
     EXPECT_EQ(sha256_file(root / "services/market/service.json"), before);
     EXPECT_FALSE(fs::exists(root / "agent.pid"));
+}
+
+TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
+{
+    struct Environment
+    {
+        std::map<std::string, std::optional<std::string>> saved;
+
+        void set(const char* name, const std::string& value)
+        {
+            saved.emplace(name, environment_variable(name));
+            ::setenv(name, value.c_str(), 1);
+        }
+
+        ~Environment()
+        {
+            for (const auto& [name, value] : saved) {
+                if (value)
+                    ::setenv(name.c_str(), value->c_str(), 1);
+                else
+                    ::unsetenv(name.c_str());
+            }
+        }
+    } environment;
+
+    environment.set("ASTERION_ENVIRONMENT", "development");
+    environment.set("ASTERION_NODE_DIRECTORY", root.string());
+    fs::create_directory(root / "bundled-plugins");
+    environment.set("ASTERION_PLUGIN_DIRECTORY", (root / "bundled-plugins").string());
+    const auto invalid = Json{{"kind", static_cast<int>(node::proto::MARKET_DATA)}}.dump();
+    replace_file_durably(root / "services/market/service.json", invalid);
+    try {
+        prepare_local_programs(root, ASTERION_AGENT_PATH);
+        FAIL() << "invalid service configuration must reject synchronization";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::operation_failed);
+        const std::string diagnostic = error.what();
+        EXPECT_TRUE(diagnostic.starts_with("service program synchronization failed: "));
+        EXPECT_NE(diagnostic.find("invalid managed service configuration"), std::string::npos);
+        const auto marker = diagnostic.find("\nLog file: ");
+        ASSERT_NE(marker, std::string::npos);
+        const fs::path log = diagnostic.substr(marker + std::string("\nLog file: ").size());
+        EXPECT_EQ(log.parent_path(), root / "logs");
+        EXPECT_TRUE(log.filename().string().starts_with("agent-"));
+        std::ifstream input(log);
+        const std::string contents{std::istreambuf_iterator<char>(input), {}};
+        EXPECT_NE(contents.find("invalid managed service configuration"), std::string::npos);
+    }
+    EXPECT_FALSE(fs::exists(root / "agent.pid"));
+    std::ifstream input(root / "services/market/service.json");
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), invalid);
 }

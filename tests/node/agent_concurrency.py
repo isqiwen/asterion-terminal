@@ -6,14 +6,15 @@ import socket
 import ssl
 import struct
 import subprocess
+import shutil
 import sys
 import tempfile
 import time
 
 
 def daily(path):
-    """The Agent writes the transport log as <stem>_YYYY-MM-DD<suffix>."""
-    return next(path.parent.glob(f"{path.stem}_????-??-??{path.suffix}"))
+    """Transport is a module in the owning Agent process log."""
+    return next(path.parent.glob("agent-*_????-??-??.log"))
 
 agent_path, certificates, mode = sys.argv[1:]
 assert mode in ("handshake", "frame", "overload")
@@ -54,6 +55,7 @@ def fields(data):
 
 with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); (root / "state").mkdir()
+    shutil.copytree(Path(agent_path).parent / "config", root / "state/config")
     subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:
         reserve.bind(("127.0.0.1", 0)); port = reserve.getsockname()[1]

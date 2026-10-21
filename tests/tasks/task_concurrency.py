@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="ast-backtest-factor-concurrency-", igno
     subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:
         reserve.bind(("127.0.0.1", 0)); port = reserve.getsockname()[1]
-    process = subprocess.Popen([agent_path, "--session", "task", "--data-instance", "history", "--data-endpoint", str(root / "history.sock"), "--directory", str(root / "state"), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    process = subprocess.Popen([agent_path, "--config", str(Path(agent_path).parent / "config/task.json"), "--session", "task", "--data-instance", "history", "--data-endpoint", str(root / "history.sock"), "--directory", str(root / "state"), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     context = ssl.create_default_context(cafile=str(root / "ca.crt"))
     context.load_cert_chain(str(root / "client.crt"), str(root / "client.key"))
     context.minimum_version = ssl.TLSVersion.TLSv1_3

@@ -1,12 +1,22 @@
 #!/bin/bash
-# Rebuilds build/linux-bundles/asterion-services-linux-x86_64.zip from the
+# Rebuilds the Linux service bundle (ASTERION_LINUX_BUNDLES or build/linux-bundles) from the
 # current checkout in an Ubuntu 24.04 x86_64 container (Docker/OrbStack).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK="$ROOT/build/linux-service-work"
 IMAGE=${ASTERION_LINUX_IMAGE:-ubuntu:24.04}
+BUNDLES=${ASTERION_LINUX_BUNDLES:-$ROOT/build/linux-bundles}
+if [[ "$BUNDLES" != /* ]]; then BUNDLES="$ROOT/$BUNDLES"; fi
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Linux service bundle build requires Docker (or OrbStack on macOS). Install and start it, then rerun installer packaging." >&2
+  exit 1
+fi
+if ! docker info >/dev/null; then
+  echo "Docker is unavailable to the current user. Start Docker/OrbStack and check access, then rerun installer packaging." >&2
+  exit 1
+fi
 rm -rf "$WORK/input" "$WORK/output"
-mkdir -p "$WORK/input" "$WORK/output" "$ROOT/build/linux-bundles"
+mkdir -p "$WORK/input" "$WORK/output" "$BUNDLES"
 cd "$ROOT"
 # macOS tar metadata would become ._* files on Linux and change the fingerprint.
 # GNU tar on a Linux host has no such metadata and no flag for it.
@@ -20,5 +30,5 @@ git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/
 docker run --rm --platform linux/amd64 \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
   -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
-cp "$WORK/output/asterion-services-linux-x86_64.zip" "$ROOT/build/linux-bundles/"
-echo "Linux services bundle updated: build/linux-bundles/asterion-services-linux-x86_64.zip"
+cp "$WORK/output/asterion-services-linux-x86_64.zip" "$BUNDLES/"
+echo "Linux services bundle updated: $BUNDLES/asterion-services-linux-x86_64.zip"

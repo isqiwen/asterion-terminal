@@ -47,7 +47,6 @@ export function serviceStatus(node: NodeStatus, service: Service) {
   if (service.state === "stopping") return t("停止中");
   if (service.state === "stopped") return t("已停止");
   if (service.state === "failed") return t("启动失败");
-  if (service.state === "waiting_capacity") return t("等待节点容量");
   if (service.state === "starting") return t("启动中");
   return t(
     (

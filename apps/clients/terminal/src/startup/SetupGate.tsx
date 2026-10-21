@@ -5,6 +5,7 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
+import { LocalLogsButton } from "../host/components/LocalLogsButton";
 import { readableCtpConnection, request } from "../bridge/client";
 import "./setup.css";
 import { defaultDataTaskPlugins } from "../host/native-plugins";
@@ -39,16 +40,6 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setNotices([]);
       const core = await request("runtime.snapshot");
       if (core.protocol !== 1 || core.phase !== "ready") throw new Error(t("本机核心尚未就绪"));
-      const inspected = await request("node.agent.inspect");
-      const program = inspected.agent_program;
-      if (!program) throw new Error(t("无法检查本机服务管理器 程序"));
-      if (program.state === "update_available" || program.state === "recovery_required") {
-        if (!program.expected_digest) throw new Error(t("后台组件更新状态异常，请查看详情"));
-        await request("node.agent.upgrade", { expected_digest: program.expected_digest });
-        const verified = await request("node.agent.inspect");
-        if (verified.agent_program?.state !== "current")
-          throw new Error(t("后台组件更新尚未完成，请重试启动"));
-      }
       await request("node.local");
       for (const deadline = Date.now() + 20000; ;) {
         const status = await request("runtime.snapshot");
@@ -242,7 +233,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
           )}
           {error && (
             <p className="setup-error" role="alert">
-              <ErrorNotice error={error} namespace="host" />
+              <ErrorNotice error={error} namespace="host" /> <LocalLogsButton />
             </p>
           )}
           <button

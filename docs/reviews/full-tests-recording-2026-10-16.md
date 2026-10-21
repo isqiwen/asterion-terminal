@@ -53,7 +53,7 @@ HTML 报告仅覆盖第二段；`summary.json` 合并 99 个不同场景，不�
    界面显示“应用自带的插件必须保持启用”，随后等待工作台超时。
    [前端插件筛选](../../apps/clients/terminal/src/host/native-plugins.ts) 只接受 history.v3 和 risk，
    遗漏 history.tables.v1；[SHFE 插件](../../plugins/data/shfe/native_plugin.cpp) 仅提供表格及原文能力，
-   而[原生选择边界](../../apps/clients/terminal/native/plugin_catalog.cpp) 要求启用所有随包数据插件。
+   而[原生选择边界](../../apps/common/control/plugin_catalog.cpp) 要求启用所有随包数据插件。
    浏览器 E2E 的初始化夹具提前选择全部可用内置插件，不能用这些浏览器场景通过来否定桌面故障。
    录像截图 `desktop-failure.png`、`native-archive-startup.png` 和深度测试日志记录了相同提示。
 2. **截面成员列的旧断言。**

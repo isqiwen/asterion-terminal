@@ -17,7 +17,7 @@ import { RemoteMachine, loadMachineProfiles, type MachineProfile } from "./Remot
 import { NodeIdentity } from "./NodeIdentity";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { FirewallPreview } from "./FirewallPreview";
-import { AgentProgram } from "./AgentProgram";
+import { NodeResources } from "./NodeResources";
 type Action = "stop" | "restart" | "use" | "update";
 type Pending = { node: string; service: string; revision: string; action: Action };
 const actionLabels: Record<Action, string> = {
@@ -26,7 +26,7 @@ const actionLabels: Record<Action, string> = {
   use: "切换运行位置",
   update: "更新服务程序",
 };
-// Trading runs one service per CTP account and is managed on the Trading page.
+// Trading has per-account placement, so the single-location summary excludes it.
 const kinds: ServiceKind[] = ["market", "data", "task"];
 export function NodeServices({
   snapshot,
@@ -244,7 +244,7 @@ export function NodeServices({
             <summary>{t("本机运行说明")}</summary>
             <p>
               {t(
-                "本机 Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。打开 CTP 交易账户时，交易服务由本机服务管理器按需启动。",
+                "本机 Terminal 使用当前系统账户运行服务管理器，无需 SSH。交易服务按账户绑定的节点和实例启动；默认在本机创建。",
               )}
             </p>
             <button disabled={disabled} onClick={() => void run("node.local")}>
@@ -333,13 +333,6 @@ export function NodeServices({
               {node.state !== "online" && (
                 <p role="alert">{t("节点失联，以下是最后确认的状态。不会自动切换或重发命令。")}</p>
               )}
-              {node.id === "local" && (
-                <AgentProgram
-                  agentProgram={snapshot?.agent_program ?? null}
-                  busy={disabled}
-                  run={run}
-                />
-              )}
               <details>
                 <summary>{t("机器详情")}</summary>
                 <p>
@@ -376,10 +369,12 @@ export function NodeServices({
                     <legend>{t("部署到 {machine}", { machine: node.id })}</legend>
                     <p className="subtle">
                       {t(
-                        "数据服务保管历史数据，任务服务调度下载、回测和因子任务；两个服务拥有固定配对的独立目录。",
+                        deployment.kind === "live"
+                          ? "每个交易实例拥有独立进程和账本；部署后在交易页面绑定账户，不会自动登录或授权。"
+                          : "数据服务保管历史数据，任务服务调度下载、回测和因子任务；两个服务拥有固定配对的独立目录。",
                       )}
                     </p>
-                    {node.id === "local" && (
+                    {node.id === "local" && deployment.kind === "task" && (
                       <p>
                         {t(
                           "新增实例拥有独立数据和任务。已有实例完整保留，部署后需显式切换；已有任务不会复制或重跑。",
@@ -394,6 +389,7 @@ export function NodeServices({
                         onChange={e => setDeployment({ ...deployment, kind: e.target.value })}
                       >
                         <option value="task">{t("数据与任务服务")}</option>
+                        <option value="live">{t("CTP 交易")}</option>
                         {node.id !== "local" && <option value="market">{t("实时行情")}</option>}
                       </select>
                     </label>
@@ -439,39 +435,19 @@ export function NodeServices({
                 </form>
               )}
               <div className="managed-services" role="list" aria-label={t("服务列表")}>
-                {node.health && (
-                  <p className="subtle">
-                    {t(
-                      "节点工作进程额度：{owned} 已占用 · {reserved} 启动预留 · 上限 {limit}",
-                      node.health.worker_capacity,
-                    )}
-                  </p>
-                )}
-                {node.health?.resource_budget && (
-                  <p className="subtle">
-                    {t(
-                      "节点准入预算：CPU {cpu}/{cpuLimit} · 内存 {memory}/{memoryLimit} MiB · 磁盘工作 {io}/{ioLimit}",
-                      {
-                        cpu: node.health.resource_budget.committed.cpu_slots,
-                        cpuLimit: node.health.resource_budget.limit.cpu_slots,
-                        memory: node.health.resource_budget.committed.memory_mib,
-                        memoryLimit: node.health.resource_budget.limit.memory_mib,
-                        io: node.health.resource_budget.committed.io_slots,
-                        ioLimit: node.health.resource_budget.limit.io_slots,
-                      },
-                    )}
-                  </p>
-                )}
+                <NodeResources node={node} />
                 {(node.health?.services ?? []).map(service => {
                   const active = matches(binding(snapshot, service.kind), node, service);
                   const unavailable =
                     disabled || node.state !== "online" || !!node.health?.maintenance;
                   // A trading service is named after the account it serves,
                   // when this Terminal has that account open.
-                  const owner = Object.entries(snapshot?.live ?? {}).find(
-                    ([, entry]) => entry.connection.session === service.id,
-                  )?.[0];
-                  const account = snapshot?.ctp_connections?.find(item => item.id === owner)?.name;
+                  const account = snapshot?.ctp_connections?.find(
+                    item =>
+                      !("error" in item) &&
+                      item.trading?.node === node.id &&
+                      item.trading.service === service.id,
+                  )?.name;
                   return (
                     <section
                       className="managed-service"
@@ -500,7 +476,6 @@ export function NodeServices({
                               disabled={
                                 unavailable ||
                                 service.state === "running" ||
-                                service.state === "waiting_capacity" ||
                                 service.state === "starting"
                               }
                               onClick={() =>
@@ -544,7 +519,6 @@ export function NodeServices({
                       </div>
                       <details>
                         <summary>{t("管理服务")}</summary>
-                        <p>{t("运行中的工作进程：{count}", { count: service.active_workers })}</p>
                         <details>
                           <summary>{t("程序更新")}</summary>
                           <p>
@@ -678,9 +652,6 @@ export function NodeServices({
               ) : (
                 <>
                   <p>{t("此服务的连接会中断，运行中的任务可能中断。其他机器不会被停止。")}</p>
-                  <p>
-                    {t("当前工作进程：{count}", { count: pendingService?.active_workers ?? 0 })}
-                  </p>
                   {tasks.length > 0 && (
                     <p>
                       {t("当前可见的未完成任务：{tasks}", {

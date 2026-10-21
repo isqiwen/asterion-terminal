@@ -24,6 +24,32 @@ const errors: Record<string, string> = {
 // These messages carry operation-specific evidence after a stable prefix.
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
 const prefixedDiagnostics = [
+  ["management startup timed out: ", "management startup timed out"],
+  ["local Agent startup failed: ", "local Agent startup failed"],
+  ["invalid node maintenance record: ", "invalid node maintenance record"],
+  [
+    "candidate Linux resource verification failed: ",
+    "candidate Linux resource verification failed",
+  ],
+  ["selected remote node is not installed: ", "selected remote node is not installed"],
+  [
+    "stop business services before remote maintenance: ",
+    "stop business services before remote maintenance",
+  ],
+  ["remote host operation failed: ", "remote host operation failed"],
+  ["cannot prepare remote maintenance directory: ", "cannot prepare remote maintenance directory"],
+  ["remote maintenance failed: ", "remote maintenance failed"],
+  ["remote Agent target version differs: ", "remote Agent target version differs"],
+  ["remote program preparation is incomplete: ", "remote program preparation is incomplete"],
+
+  ["invalid node logging configuration: ", "invalid node logging configuration"],
+  ["cannot read node logging configuration: ", "cannot read node logging configuration"],
+  ["invalid node Agent configuration: ", "invalid node Agent configuration"],
+  ["cannot read node Agent configuration: ", "cannot read node Agent configuration"],
+  ["cannot read node configuration template: ", "cannot read node configuration template"],
+  ["cannot sample node resources: ", "cannot sample node resources"],
+  ["node manager startup failed: ", "node manager startup failed"],
+  ["service program synchronization failed: ", "service program synchronization failed"],
   [
     "Agent initialization failed; inspect node logs: ",
     "Agent initialization failed; inspect node logs",
@@ -163,16 +189,24 @@ export function ErrorNotice({
         : summary === text
           ? ""
           : text;
+  const immediateDiagnostic =
+    error instanceof BackendError &&
+    (error.diagnostic.startsWith("service program synchronization failed: ") ||
+      error.diagnostic.startsWith("node manager startup failed: "));
   return (
     <span>
       {summary}
       {diagnostic && (
         <>
           {" "}
-          <button type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
-            {translate("host", "详情")}
-          </button>
-          {details && <span className="error-diagnostic">{diagnostic}</span>}
+          {!immediateDiagnostic && (
+            <button type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
+              {translate("host", "详情")}
+            </button>
+          )}
+          {(details || immediateDiagnostic) && (
+            <span className="error-diagnostic">{diagnostic}</span>
+          )}
         </>
       )}
     </span>

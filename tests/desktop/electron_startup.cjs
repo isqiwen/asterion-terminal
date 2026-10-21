@@ -9,5 +9,5 @@ async function enterWorkbench(page, timeout = 60000) {
 }
 // What marks a node as a test fixture. It states its capacity, so what its
 // Agent admits does not depend on the machine running the test.
-const testNode = { ASTERION_TEST_NODE_ISOLATED: "1", ASTERION_TEST_HOST_CAPACITY: "10,16384" };
+const testNode = { ASTERION_TEST_NODE_ISOLATED: "1" };
 module.exports = { enterWorkbench, testNode };

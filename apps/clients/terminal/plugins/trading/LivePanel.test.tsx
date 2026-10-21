@@ -13,6 +13,7 @@ registerTerminalPlugins([plugin]);
 // One counter account, logged in and allowed to send orders, with nothing on it.
 const session: LiveSession = {
   mode: "live",
+  environment: "simulation",
   account_id: "record",
   policy_revision: "policy",
   risk_artifact: "a".repeat(64),
@@ -123,4 +124,38 @@ test("a revoke is sent while another command of the window is in flight", async 
   expect(button("撤销授权").disabled).toBe(true);
   answer();
   await waitFor(() => expect(button("撤销授权").disabled).toBe(false));
+});
+
+test("reopens the bound remote instance and displays the service-owned environment", async () => {
+  const account = {
+    ...snapshot.ctp_connections![0],
+    trading: { node: "machine-b", service: "account-b" },
+  };
+  const sent: unknown[] = [];
+  const context: TerminalContext = {
+    snapshot: { ...snapshot, ctp_connections: [account], live: {} },
+    busy: false,
+    error: "",
+    query: async () => snapshot,
+    navigate: () => {},
+    openSettings: () => {},
+    trade: async (...args) => {
+      sent.push(args);
+    },
+  };
+  const view = render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="remote">
+      <LivePanel {...context} />
+    </WorkspaceDraftScope>,
+  );
+  expect(screen.getByText("运行实例：machine-b / account-b")).toBeTruthy();
+  fireEvent.click(button("启动交易服务"));
+  await waitFor(() => expect(sent).toEqual([["live.open", { account: "account" }]]));
+  view.rerender(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="remote">
+      <LivePanel {...context} snapshot={{ ...snapshot, ctp_connections: [account] }} />
+    </WorkspaceDraftScope>,
+  );
+  expect(screen.queryByRole("combobox", { name: "柜台环境" })).toBeNull();
+  expect(screen.getByText("CTP 仿真")).toBeTruthy();
 });

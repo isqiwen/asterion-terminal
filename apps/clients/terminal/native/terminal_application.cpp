@@ -219,17 +219,13 @@ Application::Impl::Publication Application::Impl::capture()
     const auto data = data_client ? data_client->owner_status() : json(nullptr);
     if (market)
         next.market = market->owner_read();
-    for (const auto& [id, node] : nodes) {
-        (void)id;
-        next.nodes.push_back(node->owner_view());
-    }
+    next.nodes = manager.view();
     next.metadata = {
         {"task_service", nullptr},
         {"data", data},
         {"credential_verification", credential_verification},
         {"history_page", nullptr},
         {"ssh_key", ssh_key},
-        {"agent_program", agent_program},
         {"firewall_plan", firewall_plan},
         {"protocol", 1},
         {"product", "Asterion Terminal"},
@@ -271,6 +267,7 @@ Application::Impl::Publication Application::Impl::capture()
             }()},
         {"diagnostics",
             {{"succeeded", succeeded},
+                {"log_directory", (local_node_directory() / "logs").string()},
                 {"failed", failed},
                 {"log_failures", process_log_failures()},
                 {"refresh_failures", refresh_failures},
@@ -540,8 +537,21 @@ std::vector<json> Application::Impl::selection_costs(const json& members) const
 }
 
 Application::Application()
-    : impl_(std::make_unique<Impl>())
-{}
+{
+    // Resolve the environment once, before clients or background work can log.
+    // Agent uses the same node directory and passes this path to its children.
+    const auto node = local_node_directory();
+    if (!node.is_absolute())
+        throw std::invalid_argument("invalid local node directory");
+    const auto logs = node / "logs";
+    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
+    initialize_process_logging("terminal");
+    installation_use_ = std::make_unique<FileLock>(
+        local_node_directory(),
+        "terminal.lock",
+        FileLock::Access::shared);
+    impl_ = std::make_unique<Impl>();
+}
 
 Application::~Application() = default;
 

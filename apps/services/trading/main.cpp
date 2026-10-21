@@ -72,6 +72,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
+        asterion::initialize_process_logging("trading", session_id);
         if (!plugin_directory.empty())
             asterion::configure_native_plugins(
                 std::filesystem::path(

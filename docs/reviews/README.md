@@ -4,6 +4,10 @@
 
 ## 本轮与总体记录
 
+- [2026-10-21 需求驱动架构与工程设计](architecture-design-review.md)：八模块、23子模块、五类业务服务、三类worker、状态与配置归属、实施顺序；[304项FR责任映射](requirements-architecture-map.md)。目标设计，未切换生产代码。
+
+- [2026-10-21 按业务服务归属管理任务](service-owned-tasks-design.md)：数据／研究职责、Core 复用与服务实例并发；主动启动流程已实现，任务归属仍待切换。
+
 - [2026-10-20 开发前需求与交互设计修订](requirements-specification-2026-10-20.md)：目标功能、逐页字段与操作、跨模块规则、设计图和派生阅读版的一致性。
 
 - [2026-10-20 开发节点插件选择修复](development-plugin-repair-2026-10-20.md)：处理入口改名后旧开发插件引用阻断同步，保留数据并验证真实本机启动与关闭。
@@ -34,7 +38,7 @@
 - [2026-10-16 架构收敛](architecture-convergence-2026-10-16.md)：获批方案、实施和验证。
 - [2026-10-16 插件比较](plugin-mechanisms-comparison-2026-10-16.md)：NMR 对比与本轮设计来源。
 - [审计进度](audit-progress.md)：按时间记录修复与验收。
-- [原架构设计](architecture-design-review.md)、[历史实施](architecture-implementation.md)：早期改造基线和取舍。
+- [实施记录](architecture-implementation.md)：按日期记录实际改造、验证与未完成事项。
 - [2026-10-05 至 06 验收](current-acceptance.md)、[发布候选推进](release-candidate.md)：历史平台/安装证据，不代表当前发布包。
 
 ## 专项记录

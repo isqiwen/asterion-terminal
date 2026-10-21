@@ -1,3 +1,4 @@
+#include "support/task_wait.hpp"
 #include <asterion/protocol/data_client.hpp>
 #include "tasks/paper_input.hpp"
 #include "performance.hpp"
@@ -19,10 +20,11 @@
 #include "bar_dataset_source.hpp"
 #include "task_store.hpp"
 #include "task_host.hpp"
+#include "task_configuration.hpp"
 #include "tasks/task_store_support.hpp"
 #include "support/timing.hpp"
 #include "verification_slots.hpp"
-#include <asterion/protocol/task_client.hpp>
+
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -1132,12 +1134,8 @@ TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions
     EXPECT_EQ(earlier.next_before_sequence(), 0);
     EXPECT_EQ(earlier.failed_count(), 1);
     EXPECT_EQ(earlier.active_tasks_size(), 2);
-    task::proto::TaskDispatch allowance;
-    allowance.set_launch_slots(2);
-    const auto launches = store.dispatch(allowance);
-    ASSERT_EQ(launches.launches_size(), 2);
-    EXPECT_EQ(launches.launches(0).task_id(), "first");
-    EXPECT_EQ(launches.launches(1).task_id(), "new-arrival");
+    std::set<std::string> allowance;
+
     EXPECT_THROW(store.list(0), std::invalid_argument);
     EXPECT_THROW(store.list(201), std::invalid_argument);
 }
@@ -1173,50 +1171,23 @@ TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
     EXPECT_THROW(store.commit(store.retry("job1")).task(), std::invalid_argument);
 }
 
-TEST(TaskStore, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch)
+TEST(TaskStore, PreparationFailureRequiresExplicitRetryAndCannotOverwriteCompletedResults)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    for (const auto* id : {"z-first", "a-second", "m-third"})
-        tasks::submit(store, id, input());
-    task::proto::TaskDispatch processes;
-    EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
-    processes.set_launch_slots(0);
-    EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
-    processes.set_launch_slots(1);
-    ASSERT_EQ(store.dispatch(processes).launches_size(), 1);
-    EXPECT_EQ(store.dispatch(processes).launches(0).task_id(), "z-first");
-    processes.set_launch_slots(2);
-    auto launches = store.dispatch(processes);
-    ASSERT_EQ(launches.launches_size(), 2);
-    EXPECT_EQ(launches.launches(0).task_id(), "z-first");
-    EXPECT_EQ(launches.launches(1).task_id(), "a-second");
-    EXPECT_EQ(launches.launches(0).program(), task::proto::BACKTEST_PROGRAM);
-
-    EXPECT_EQ(store.dispatch(processes, false).launches_size(), 0);
-    EXPECT_EQ(store.get("z-first").state(), task::proto::QUEUED);
-    EXPECT_EQ(store.get("z-first").attempt(), 0U);
-    // An OS process may be running before it claims its attempt.
-    processes.add_running("z-first");
-    launches = store.dispatch(processes);
-    ASSERT_EQ(launches.launches_size(), 1);
-    EXPECT_EQ(launches.launches(0).task_id(), "a-second");
-    processes.add_running("a-second");
-    EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
-    processes.clear_running();
-    store.commit(store.cancel("z-first")).task();
-    const auto token = store.commit(store.claim("a-second")).token();
-    launches = store.dispatch(processes);
-    ASSERT_EQ(launches.launches_size(), 1);
-    EXPECT_EQ(launches.launches(0).task_id(), "m-third");
-    store.commit(store.interrupt("a-second", token, "test worker exited"));
-    EXPECT_EQ(store.dispatch(processes).launches_size(), 1);
-    store.commit(store.retry("a-second")).task();
-    launches = store.dispatch(processes);
-    EXPECT_EQ(launches.launches(0).task_id(), "a-second");
-    processes.add_running("a-second");
-    processes.add_running("a-second");
-    EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
+    tasks::Store store(directory.path, {"task", "historical-data"});
+    tasks::submit(store, "queued", input());
+    store.commit(store.fail_start("queued", 1, "input preparation failed", "operation_failed"));
+    EXPECT_EQ(store.get("queued").state(), task::proto::FAILED);
+    EXPECT_EQ(store.get("queued").attempt(), 1);
+    store.commit(store.retry("queued"));
+    store.commit(store.fail_start("queued", 1, "late exit", "operation_failed"));
+    EXPECT_EQ(store.get("queued").state(), task::proto::QUEUED);
+    auto token = store.commit(store.claim("queued")).token();
+    store.commit(store.fail_start("queued", 1, "old exit", "operation_failed"));
+    EXPECT_EQ(store.get("queued").state(), task::proto::RUNNING);
+    store.commit(tasks::finish(store, "queued", token, backtest::run(input())));
+    store.commit(store.fail_start("queued", 3, "late preparation failure", "operation_failed"));
+    EXPECT_EQ(store.get("queued").state(), task::proto::SUCCEEDED);
 }
 
 TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
@@ -1622,13 +1593,14 @@ TEST(TaskStore, ResultReadOwnsItsSnapshotAndChecksFilesBeforeCacheConfirmation)
     EXPECT_THROW(store.confirm_result(std::move(cached)), std::invalid_argument);
 }
 
-TEST(TaskStore, VerificationAdmissionReservesBothWorkersAndReleasesAfterFailure)
+TEST(TaskStore, VerificationAdmissionReservesBothCompletionsAndReleasesAfterFailure)
 {
     tasks::VerificationSlots slots;
     {
         auto read = slots.acquire(false, "read");
         auto first = slots.acquire(true, "first");
         auto second = slots.acquire(true, "second");
+        EXPECT_FALSE(slots.completion_available());
         EXPECT_THROW(slots.acquire(false, "another-read"), Error);
         EXPECT_THROW(slots.acquire(true, "third"), Error);
         auto moved = std::move(second);
@@ -1640,6 +1612,7 @@ TEST(TaskStore, VerificationAdmissionReservesBothWorkersAndReleasesAfterFailure)
             throw std::runtime_error("verification failed");
         },
         std::runtime_error);
+    EXPECT_TRUE(slots.completion_available());
     EXPECT_NO_THROW(slots.acquire(false, "next-read"));
     auto first = slots.acquire(true, "first");
     EXPECT_THROW(slots.acquire(true, "first"), Error);
@@ -1691,7 +1664,6 @@ struct TaskProcess : testing::Test
     std::unique_ptr<ChildProcess> service, data_service;
     std::filesystem::path sockets;
     std::string endpoint;
-    unsigned lease_seconds = 2;
 
     void SetUp() override
     {
@@ -1699,6 +1671,7 @@ struct TaskProcess : testing::Test
         std::filesystem::create_directory(sockets);
         std::filesystem::permissions(sockets, std::filesystem::perms::owner_all);
         endpoint = (sockets / "task.sock").string();
+        replace_file_durably(sockets / "task.json", R"({"task_concurrency":2})");
         start();
     }
 
@@ -1747,7 +1720,7 @@ struct TaskProcess : testing::Test
                 "task",
                 "--endpoint",
                 endpoint + ".data",
-                "--worker-endpoint",
+                "--internal-endpoint",
                 endpoint + ".data-workers",
                 "--file-workers",
                 "1"
@@ -1773,18 +1746,17 @@ struct TaskProcess : testing::Test
     void launch()
     {
         std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
-        std::filesystem::remove(endpoint + ".worker");
         std::filesystem::remove(endpoint + ".health");
         const auto directory_utf8 = directory.path.u8string();
         service = std::make_unique<ChildProcess>(
             ASTERION_TASK_SERVICE_PATH,
             std::vector<std::string>{
+                "--config",
+                (sockets / "task.json").string(),
                 "--directory",
                 std::string(directory_utf8.begin(), directory_utf8.end()),
                 "--endpoint",
                 endpoint,
-                "--worker-endpoint",
-                endpoint + ".worker",
                 "--health-endpoint",
                 endpoint + ".health",
                 "--session",
@@ -1793,8 +1765,6 @@ struct TaskProcess : testing::Test
                 "historical-data",
                 "--data-endpoint",
                 endpoint + ".data-workers",
-                "--worker-timeout",
-                std::to_string(lease_seconds),
                 "--file-workers",
                 "1"
             });
@@ -1869,14 +1839,17 @@ struct TaskProcess : testing::Test
 
 } // namespace
 
-TEST_F(TaskProcess, WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart)
+TEST_F(TaskProcess, ServiceRunsWithoutSubmittingClientAndResultSurvivesRestart)
 {
     submit("run1"); // Every request closes its connection; no UI client remains.
-    ChildProcess worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "run1"});
-    ASSERT_TRUE(worker.wait(15s));
-    ASSERT_EQ(worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "run1")
+            .state(),
+        task::proto::SUCCEEDED);
     task_wire::TaskRequest result;
     result.mutable_result()->set_id("run1");
     EXPECT_EQ(
@@ -1947,11 +1920,14 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
     *backtest->mutable_risk() = input().paper().risk();
     *backtest->add_strategies() = input().strategies(0);
     EXPECT_EQ(call(submit).task().state(), task_wire::QUEUED);
-    ChildProcess worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "product"});
-    ASSERT_TRUE(worker.wait(15s));
-    ASSERT_EQ(worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "product")
+            .state(),
+        task::proto::SUCCEEDED);
     task_wire::TaskRequest get;
     get.mutable_get()->set_id("product");
     const auto task = call(get).task();
@@ -2003,11 +1979,14 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
     const auto digest = sha256_bytes(original_bytes);
     EXPECT_THROW(reuse("stale", false, "", std::string(64, 'f')), std::runtime_error);
     EXPECT_EQ(reuse("fixed", false, "", digest).task().state(), task_wire::QUEUED);
-    ChildProcess fixed(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "fixed"});
-    ASSERT_TRUE(fixed.wait(15s));
-    ASSERT_EQ(fixed.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "fixed")
+            .state(),
+        task::proto::SUCCEEDED);
     result.mutable_result()->set_id("fixed");
     const auto fixed_result = call(result);
     EXPECT_EQ(fixed_result.result_task().input().SerializeAsString(), original_bytes);
@@ -2023,11 +2002,14 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
     EXPECT_EQ(
         reuse("revised", true, revised.at("snapshot").get<std::string>(), digest).task().state(),
         task_wire::QUEUED);
-    ChildProcess revised_worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "revised"});
-    ASSERT_TRUE(revised_worker.wait(15s));
-    ASSERT_EQ(revised_worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "revised")
+            .state(),
+        task::proto::SUCCEEDED);
     result.mutable_result()->set_id("revised");
     const auto revised_result = call(result);
     const auto& revised_input = revised_result.result_task().input();
@@ -2053,7 +2035,7 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
         original_result.backtest().SerializeAsString());
 }
 
-TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput)
+TEST_F(TaskProcess, ExecutionRejectsDataEvidenceDifferentFromTheAcceptedInput)
 {
     auto spec = process_input();
     auto* evidence =
@@ -2065,11 +2047,14 @@ TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput)
         tasks::submit(store, "different-evidence", spec);
     }
     start();
-    ChildProcess worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "different-evidence"});
-    ASSERT_TRUE(worker.wait(15s));
-    EXPECT_NE(worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "different-evidence")
+            .state(),
+        task::proto::FAILED);
     task_wire::TaskRequest get;
     get.mutable_get()->set_id("different-evidence");
     const auto task = call(get).task();
@@ -2138,11 +2123,14 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
     EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
     EXPECT_EQ(call(get).task().total(), admitted);
     // The invalid attempt fails once and leaves the queue.
-    ChildProcess worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "other-rules"});
-    ASSERT_TRUE(worker.wait(15s));
-    EXPECT_NE(worker.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "other-rules")
+            .state(),
+        task::proto::FAILED);
     const auto refused = call(get).task();
     EXPECT_EQ(refused.state(), task_wire::FAILED);
     EXPECT_EQ(refused.attempt(), 1U);
@@ -2153,11 +2141,14 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
     usage.mutable_history_usage()->set_id(
         spec.paper().contracts(0).dataset().source_dataset_ids(0));
     EXPECT_THROW(call(usage), std::runtime_error);
-    ChildProcess unreadable(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "other-messages"});
-    ASSERT_TRUE(unreadable.wait(15s));
-    EXPECT_NE(unreadable.exit_code(), 0);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "other-messages")
+            .state(),
+        task::proto::FAILED);
     // Asking for the task with its input is refused for the same reason; the
     // list, which reads the index, shows how its attempt ended.
     get.mutable_get()->set_id("other-messages");
@@ -2169,47 +2160,10 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
     ASSERT_NE(listed, tasks.end());
     EXPECT_EQ(listed->state(), task_wire::FAILED);
     EXPECT_EQ(listed->error(), "unknown Protobuf field");
-    task_wire::TaskRequest dispatch;
-    dispatch.mutable_dispatch()->set_launch_slots(2);
-    EXPECT_EQ(call(dispatch, endpoint + ".worker").launches().launches_size(), 0);
     service.reset();
     start();
     get.mutable_get()->set_id("other-rules");
     EXPECT_EQ(call(get).task().SerializeAsString(), refused.SerializeAsString());
-}
-
-TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled)
-{
-    submit("interrupted");
-    task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_kind(task::proto::BACKTEST);
-    claim.mutable_claim()->set_id("interrupted");
-    const auto attempt = call(claim, endpoint + ".worker").attempt();
-    EXPECT_FALSE(attempt.task().has_input());
-    EXPECT_TRUE(attempt.has_execution());
-    EXPECT_LT(attempt.ByteSizeLong(), 4096U);
-    EXPECT_EQ(attempt.data_instance(), "historical-data");
-    const auto token = attempt.token();
-    service.reset();
-    start();
-    task_wire::TaskRequest get;
-    get.mutable_get()->set_id("interrupted");
-    EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
-    task_wire::TaskRequest finish;
-    auto* f = finish.mutable_finish();
-    f->set_id("interrupted");
-    f->set_token(token);
-    *f->mutable_result() = backtest::run(process_input());
-    EXPECT_THROW(call(finish, endpoint + ".worker"), std::runtime_error);
-    submit("cancelled");
-    task_wire::TaskRequest cancel;
-    cancel.mutable_cancel()->set_id("cancelled");
-    EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
-    ChildProcess worker(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "cancelled"});
-    ASSERT_TRUE(worker.wait(10s));
-    EXPECT_NE(worker.exit_code(), 0);
 }
 
 TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership)
@@ -2222,109 +2176,60 @@ TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership)
     EXPECT_THROW(testing_support::LocalListener duplicate(endpoint), Error);
 }
 
-TEST_F(TaskProcess, WorkerLeaseExpiryInterruptsWithoutAutomaticRetry)
+TEST_F(TaskProcess, ServiceOwnsConcurrencyCancellationAndUpgradeDrain)
 {
-    submit("lost");
-    task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_kind(task::proto::BACKTEST);
-    claim.mutable_claim()->set_id("lost");
-    const auto token = call(claim, endpoint + ".worker").attempt().token();
-    task_wire::TaskRequest get;
-    get.mutable_get()->set_id("lost");
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
-    while (call(get).task().state() == task_wire::RUNNING
-        && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(50ms);
-    EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
-    EXPECT_EQ(call(get).task().attempt(), 1U);
-    task_wire::TaskRequest progress;
-    progress.mutable_progress()->set_id("lost");
-    progress.mutable_progress()->set_token(token);
-    progress.mutable_progress()->set_completed(1);
-    EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
-}
-
-TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation)
-{
-    for (const bool cancel : {false, true}) {
-        const auto id = cancel ? "cancel-initializing" : "initializing";
-        submit(id);
-        std::promise<void> entered;
-        auto ready = entered.get_future();
-        auto worker = std::async(std::launch::async, [&] {
-            return protocol::run_task_worker(
-                endpoint + ".worker",
-                "",
-                0,
-                {},
-                "task",
-                id,
-                task::proto::BACKTEST,
-                [&](const auto& attempt, std::stop_token stop, const auto&) {
-                    entered.set_value();
-                    // No engine progress for longer than this service's two-second lease.
-                    const auto deadline = std::chrono::steady_clock::now() + 3500ms;
-                    while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
-                        std::this_thread::sleep_for(10ms);
-                    if (stop.stop_requested())
-                        throw std::runtime_error("initialization cancelled");
-                    task::proto::TaskFinish result;
-                    *result.mutable_result() = backtest::run(attempt.task().input());
-                    return result;
-                },
-                0);
-        });
-        ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
-        std::this_thread::sleep_for(2500ms);
-        task_wire::TaskRequest get;
-        get.mutable_get()->set_id(id);
-        ASSERT_EQ(call(get).task().state(), task::proto::RUNNING);
-        if (cancel) {
-            task_wire::TaskRequest request;
-            request.mutable_cancel()->set_id(id);
-            EXPECT_EQ(call(request).task().state(), task::proto::CANCEL_REQUESTED);
-        }
-        ASSERT_EQ(worker.wait_for(5s), std::future_status::ready);
-        EXPECT_EQ(worker.get(), cancel ? 2 : 0);
-        EXPECT_EQ(
-            call(get).task().state(),
-            cancel ? task::proto::CANCELLED : task::proto::SUCCEEDED);
-    }
-}
-
-TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation)
-{
-    submit("lost-service");
-    std::promise<void> entered;
-    auto ready = entered.get_future();
-    auto worker = std::async(std::launch::async, [&] {
-        return protocol::run_task_worker(
-            endpoint + ".worker",
-            "",
-            0,
-            {},
-            "task",
-            "lost-service",
-            task::proto::BACKTEST,
-            [&](const auto&, std::stop_token stop, const auto&) -> task::proto::TaskFinish {
-                entered.set_value();
-                const auto deadline = std::chrono::steady_clock::now() + 10s;
-                while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
-                    std::this_thread::sleep_for(10ms);
-                if (!stop.stop_requested())
-                    throw std::runtime_error("worker did not notice lost liveness");
-                throw std::runtime_error("runner stopped after losing service");
-            },
-            0);
-    });
-    ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
     service.reset();
+    replace_file_durably(sockets / "task.json", R"({"task_concurrency":1})");
+    auto spec = maximum_factor_input();
+    *factor_bars(spec) =
+        published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "pool-input");
+    spec.set_dataset_revision(spec.series(0).bars().revision());
+    {
+        tasks::Store store(directory.path, {"task", "historical-data"});
+        tasks::submit(store, "first", spec);
+        tasks::submit(store, "second", spec);
+    }
     start();
-    ASSERT_EQ(worker.wait_for(10s), std::future_status::ready);
-    EXPECT_THROW(static_cast<void>(worker.get()), std::exception);
     task_wire::TaskRequest get;
-    get.mutable_get()->set_id("lost-service");
-    EXPECT_EQ(call(get).task().state(), task::proto::INTERRUPTED);
+    get.mutable_metadata_get()->set_id("first");
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (call(get).task().state() == task_wire::QUEUED) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(call(get).task().state(), task_wire::RUNNING);
+    get.mutable_metadata_get()->set_id("second");
+    ASSERT_EQ(call(get).task().state(), task_wire::QUEUED);
+    task_wire::TaskRequest freeze;
+    freeze.mutable_quiesce();
+    ASSERT_TRUE(call(freeze, endpoint + ".health").has_health());
+    task_wire::TaskRequest stop;
+    stop.mutable_quiesce()->set_stop(true);
+    EXPECT_THROW(call(stop, endpoint + ".health"), std::runtime_error);
+    task_wire::TaskRequest cancel;
+    cancel.mutable_cancel()->set_id("first");
+    ASSERT_EQ(call(cancel).task().state(), task_wire::CANCEL_REQUESTED);
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "first")
+            .state(),
+        task_wire::CANCELLED);
+    EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
+    ASSERT_TRUE(call(stop, endpoint + ".health").has_health());
+    ASSERT_TRUE(service->wait(10s));
+    ASSERT_EQ(service->exit_code(), 0);
+    start();
+    EXPECT_EQ(
+        testing_support::wait_task(
+            [&](auto request) {
+                return call(request);
+            },
+            "second")
+            .state(),
+        task_wire::SUCCEEDED);
 }
 
 TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable)
@@ -2339,45 +2244,16 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
         tasks::submit(store, "maximum", spec);
         tasks::submit(store, "other", input());
     }
-    lease_seconds = 30; // The production lease, independent of verification time.
     start(testing_support::bound(10s));
-    // Diagnostics must stay outside the strictly owned task-store contents.
-    const auto worker_log = std::filesystem::temp_directory_path()
-        / ("asterion-maximum-worker-" + unique_process_id() + ".log");
-    ChildProcess worker(
-        ASTERION_FACTOR_PATH,
-        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "maximum"},
-        false,
-        worker_log,
-        true);
-    const auto worker_deadline =
-        std::chrono::steady_clock::now() + protocol::task_verification_timeout + 30s;
-    unsigned worker_observations = 0;
-    std::chrono::steady_clock::duration worker_longest{};
-    while (!worker.wait(20ms) && std::chrono::steady_clock::now() < worker_deadline) {
-        task_wire::TaskRequest list;
-        list.mutable_list()->set_limit(200);
-        const auto begin = std::chrono::steady_clock::now();
-        EXPECT_EQ(call(list).tasks().tasks_size(), 2);
-        worker_longest = std::max(worker_longest, std::chrono::steady_clock::now() - begin);
-        ++worker_observations;
-    }
-    ASSERT_TRUE(worker.exited());
-    EXPECT_GT(worker_observations, 0U);
-    EXPECT_LT(worker_longest, testing_support::bound(1s));
-    RecordProperty("worker_status_observations", worker_observations);
-    RecordProperty(
-        "worker_longest_status_ms",
-        std::chrono::duration_cast<std::chrono::milliseconds>(worker_longest).count());
-    if (worker.exit_code() != 0) {
-        std::ifstream log(worker_log);
-        const std::string diagnostic{std::istreambuf_iterator<char>(log), {}};
-        task_wire::TaskRequest list;
-        list.mutable_list()->set_limit(200);
-        std::filesystem::remove(worker_log);
-        FAIL() << diagnostic << '\n' << call(list).tasks().DebugString();
-    }
-    std::filesystem::remove(worker_log);
+    const auto completed = testing_support::wait_task(
+        [&](auto request) {
+            const auto begin = std::chrono::steady_clock::now();
+            auto response = call(request);
+            EXPECT_LT(std::chrono::steady_clock::now() - begin, testing_support::bound(1s));
+            return response;
+        },
+        "maximum");
+    ASSERT_EQ(completed.state(), task_wire::SUCCEEDED) << completed.error();
     service.reset();
     start(testing_support::bound(10s));
     // The first read after restart validates saved result evidence without running the engine.
@@ -2406,7 +2282,7 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
         protocol::decode_factor_result(spec, response.factor()).dump().size());
     task_wire::TaskRequest cancel;
     cancel.mutable_cancel()->set_id("other");
-    EXPECT_EQ(call(cancel).task().state(), task::proto::CANCELLED);
+    EXPECT_TRUE(call(cancel).has_task());
     RecordProperty("concurrent_status_observations", observations);
     RecordProperty(
         "longest_status_ms",
@@ -2524,9 +2400,7 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
             const auto list = store.list();
             ASSERT_EQ(list.tasks_size(), 1);
             EXPECT_EQ(list.tasks(0).SerializeAsString(), expected.SerializeAsString());
-            task::proto::TaskDispatch allowance;
-            allowance.set_launch_slots(1);
-            EXPECT_EQ(store.dispatch(allowance).launches_size(), 1);
+            std::set<std::string> allowance;
         }
         RecordProperty(
             "metadata_128_polls_us",
@@ -2539,9 +2413,8 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
         for (unsigned completed = 1; completed <= 50; ++completed)
             store.commit(store.progress("large", token, completed));
         EXPECT_EQ(store.list().tasks(0).completed(), 50U);
-        task::proto::TaskDispatch allowance;
-        allowance.set_launch_slots(1);
-        EXPECT_EQ(store.dispatch(allowance).launches_size(), 0);
+        std::set<std::string> allowance;
+
         EXPECT_EQ(
             store.commit(store.cancel("large")).task().state(),
             task::proto::CANCEL_REQUESTED);
@@ -2780,7 +2653,7 @@ TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions)
             break;
         ++recovering;
         task_wire::TaskRequest dispatch;
-        dispatch.mutable_dispatch()->set_launch_slots(2);
+        dispatch.mutable_list()->set_limit(1);
         EXPECT_THROW(call(dispatch, endpoint + ".health"), std::runtime_error);
         std::this_thread::sleep_for(20ms);
     }
@@ -2995,40 +2868,6 @@ TEST_F(TaskProcess, SilentExternalPeerDoesNotBlockQueriesAndCancellation)
     task_wire::TaskRequest cancel;
     cancel.mutable_cancel()->set_id("cancel-me");
     EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
-}
-
-TEST_F(TaskProcess, SilentWorkerPeerDoesNotBlockWorkerControl)
-{
-    submit("claim-me");
-    auto silent = ipc::Channel::connect(endpoint + ".worker", 2s);
-    task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_id("claim-me");
-    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-    EXPECT_EQ(call(claim, endpoint + ".worker").attempt().task().state(), task_wire::RUNNING);
-}
-
-TEST_F(TaskProcess, ExternalSaturationPreservesWorkerControlAndLeaseExpiry)
-{
-    submit("expired");
-    task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_id("expired");
-    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-    const auto token = call(claim, endpoint + ".worker").attempt().token();
-    std::vector<ipc::Channel> silent;
-    for (unsigned i = 0; i < 20; ++i)
-        silent.push_back(ipc::Channel::connect(endpoint, 2s));
-    task_wire::TaskRequest get;
-    get.mutable_get()->set_id("expired");
-    const auto deadline = std::chrono::steady_clock::now() + 4s;
-    while (call(get, endpoint + ".worker").task().state() == task_wire::RUNNING
-        && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(30ms);
-    EXPECT_EQ(call(get, endpoint + ".worker").task().state(), task_wire::INTERRUPTED);
-    task_wire::TaskRequest progress;
-    progress.mutable_progress()->set_id("expired");
-    progress.mutable_progress()->set_token(token);
-    progress.mutable_progress()->set_completed(1);
-    EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
 }
 
 TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvidence)
@@ -3311,41 +3150,6 @@ TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
         tasks::result(restored, "multiday").SerializeAsString(),
         expected.SerializeAsString());
     EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
-}
-
-TEST_F(TaskProcess, UpgradeFreezesAdmissionsWaitsForCompletionAndPreservesQueuedWork)
-{
-    submit("active");
-    submit("queued");
-    task_wire::TaskRequest claim;
-    claim.mutable_claim()->set_id("active");
-    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-    const auto attempt = call(claim, endpoint + ".worker").attempt();
-    task_wire::TaskRequest freeze;
-    freeze.mutable_quiesce();
-    EXPECT_THROW(call(freeze), std::runtime_error);
-    EXPECT_TRUE(call(freeze, endpoint + ".health").has_health());
-    task_wire::TaskRequest blocked;
-    blocked.mutable_submit()->set_id("blocked");
-    EXPECT_THROW(call(blocked), std::runtime_error);
-    task_wire::TaskRequest stop;
-    stop.mutable_quiesce()->set_stop(true);
-    EXPECT_THROW(call(stop, endpoint + ".health"), std::runtime_error);
-    ASSERT_FALSE(service->exited());
-    task_wire::TaskRequest finish;
-    finish.mutable_finish()->set_id("active");
-    finish.mutable_finish()->set_token(attempt.token());
-    *finish.mutable_finish()->mutable_result() = backtest::run(process_input());
-    call(finish, endpoint + ".worker");
-    EXPECT_TRUE(call(stop, endpoint + ".health").has_health());
-    ASSERT_TRUE(service->wait(15s));
-    EXPECT_EQ(service->exit_code(), 0);
-    start();
-    task_wire::TaskRequest get;
-    get.mutable_get()->set_id("active");
-    EXPECT_EQ(call(get).task().state(), task_wire::SUCCEEDED);
-    get.mutable_get()->set_id("queued");
-    EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
 }
 
 TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm)
@@ -4450,75 +4254,6 @@ TEST(TaskStore, ForeignStoreIsRejectedBeforeCreatingTaskSchema)
     EXPECT_EQ(tables.integer(0), 1);
 }
 
-TEST_F(TaskProcess, WorkerAttemptJoinsServiceDiagnosticsWithoutItsFenceToken)
-{
-    service.reset();
-    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
-    const std::optional<std::string> saved =
-        value ? std::optional<std::string>(value) : std::nullopt;
-
-    struct Restore
-    {
-        const std::optional<std::string>& saved;
-
-        ~Restore()
-        {
-            if (saved)
-                ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
-            else
-                ::unsetenv("ASTERION_LOG_DIRECTORY");
-        }
-    } restore{saved};
-
-    const auto logs = directory.path / "logs";
-    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1), 0);
-    submit("traced-task");
-    {
-        ChildProcess worker(
-            ASTERION_BACKTEST_PATH,
-            {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "traced-task"});
-        ASSERT_TRUE(worker.wait(asterion::testing_support::bound(15s)));
-        ASSERT_EQ(worker.exit_code(), 0);
-    }
-    service.reset();
-    std::vector<Json> records;
-    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
-        std::ifstream stream(entry.path());
-        std::string line;
-        while (std::getline(stream, line)) {
-            const auto record = Json::parse(line);
-            const auto& fields = record.at("fields");
-            EXPECT_FALSE(fields.contains("token"));
-            EXPECT_FALSE(fields.contains("provider_token"));
-            EXPECT_FALSE(fields.contains("input"));
-            records.push_back(record);
-        }
-    }
-    const auto claimed = std::find_if(records.begin(), records.end(), [](const Json& record) {
-        return record.at("event") == "task.claimed";
-    });
-    ASSERT_NE(claimed, records.end());
-    EXPECT_EQ(claimed->at("fields").at("task_id"), "traced-task");
-    EXPECT_EQ(claimed->at("fields").at("attempt"), 1);
-    const auto trace = claimed->at("fields").at("trace_id");
-    unsigned linked = 0;
-    for (const auto& record : records) {
-        const auto& fields = record.at("fields");
-        if (record.at("logger") != "task-service" || record.at("event") != "rpc.completed"
-            || (fields.at("operation") != "claim" && fields.at("operation") != "finish"))
-            continue;
-        EXPECT_EQ(fields.at("task_id"), "traced-task");
-        EXPECT_EQ(fields.at("attempt"), 1);
-        EXPECT_EQ(fields.at("success"), true);
-        EXPECT_TRUE(std::any_of(records.begin(), records.end(), [&](const Json& link) {
-            return link.at("event") == "rpc.started" && link.at("fields").at("trace_id") == trace
-                && link.at("fields").at("correlation_id") == fields.at("correlation_id");
-        }));
-        ++linked;
-    }
-    EXPECT_EQ(linked, 2U);
-}
-
 TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTasks)
 {
     TaskDirectory directory, warehouse;
@@ -4856,67 +4591,6 @@ TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
     }
 }
 
-TEST_F(TaskProcess, PublicClientsCannotClaimOrReportWorkerExecution)
-{
-    service.reset();
-    {
-        tasks::Store store(directory.path, {"task", "historical-data"});
-        for (const auto* id : {"outside-a", "outside-b", "outside-c"})
-            tasks::submit(store, id, input());
-    }
-    lease_seconds = 30;
-    start(); // No Agent or Data is running.
-    const auto refused = [&](const task::proto::TaskRequest& request) {
-        try {
-            call(request);
-            ADD_FAILURE() << "public execution was accepted";
-        } catch (const std::runtime_error& error) {
-            EXPECT_STREQ(error.what(), "task execution requires the private worker channel");
-        }
-    };
-    task::proto::TaskRequest request;
-    for (const auto* id : {"outside-a", "outside-b", "outside-c"}) {
-        request.mutable_claim()->set_id(id);
-        request.mutable_claim()->set_kind(task::proto::BACKTEST);
-        refused(request);
-    }
-    const auto attempt = call(request, endpoint + ".worker").attempt();
-    const auto id = attempt.task().id();
-    request.mutable_dispatch()->set_launch_slots(2);
-    refused(request);
-    auto* progress = request.mutable_progress();
-    progress->set_id(id);
-    progress->set_token(attempt.token());
-    progress->set_completed(1);
-    refused(request);
-    auto* finish = request.mutable_finish();
-    finish->set_id(id);
-    finish->set_token(attempt.token());
-    *finish->mutable_result() = backtest::run(input());
-    refused(request);
-    auto* failure = request.mutable_fail();
-    failure->set_id(id);
-    failure->set_token(attempt.token());
-    failure->set_error("fixture failure");
-    failure->set_error_code("operation_failed");
-    refused(request);
-    request.mutable_cancel()->set_id(id);
-    EXPECT_EQ(call(request).task().state(), task::proto::CANCEL_REQUESTED);
-    auto* ack = request.mutable_cancel_ack();
-    ack->set_id(id);
-    ack->set_token(attempt.token());
-    refused(request);
-    EXPECT_EQ(call(request, endpoint + ".worker").task().state(), task::proto::CANCELLED);
-    request.mutable_list()->set_limit(200);
-    const auto listed = call(request).tasks();
-    ASSERT_EQ(listed.tasks_size(), 3);
-    for (const auto& task : listed.tasks())
-        if (task.id() != id) {
-            EXPECT_EQ(task.state(), task::proto::QUEUED);
-            EXPECT_EQ(task.attempt(), 0U);
-        }
-}
-
 TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
 {
     service::reset_stop_request();
@@ -4927,7 +4601,10 @@ TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
     }
     {
         tasks::TaskHost host(
-            {directory.path, "task", "historical-data", "/unused-review-data.sock"});
+            {.directory = directory.path,
+                .service = "task",
+                .data_instance = "historical-data",
+                .data_endpoint = "/unused-review-data.sock"});
         host.open();
         const auto operation = [&](task::proto::TaskRequest request) {
             request.set_version(1);
@@ -5241,7 +4918,7 @@ TEST(Backtest, SettlementMarginRejectsAmbiguousScheduleAndMismatchedEvidence)
     EXPECT_THROW(protocol::validate_backtest_result(input, changed), std::invalid_argument);
 }
 
-TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndWorkerProjection)
+TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndExecutionProjection)
 {
     TaskDirectory directory;
     const auto snapshot = test::seed_shfe_margins(directory.path);
@@ -5297,4 +4974,24 @@ TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndWorkerProjection)
         protocol::decode_historical_margins(fixed));
     input.mutable_settlement_margins(1)->mutable_rate()->set_units(d("0.18").raw());
     EXPECT_THROW(protocol::decode_backtest(input), std::invalid_argument);
+}
+
+TEST(TaskConfiguration, ReadsPolicyWithoutOverwritingMissingOrInvalidFiles)
+{
+    TaskDirectory directory;
+    const auto file = directory.path / "task.json";
+    EXPECT_THROW(tasks::load_task_concurrency(file), std::runtime_error);
+    EXPECT_FALSE(std::filesystem::exists(file));
+    replace_file_durably(file, R"({"task_concurrency":2})");
+    EXPECT_EQ(tasks::load_task_concurrency(file), 2U);
+    const std::string invalid = R"({"task_concurrency":0})";
+    replace_file_durably(file, invalid);
+    try {
+        tasks::load_task_concurrency(file);
+        FAIL() << "invalid concurrency accepted";
+    } catch (const std::invalid_argument& error) {
+        EXPECT_NE(std::string(error.what()).find(file.string()), std::string::npos);
+    }
+    std::ifstream input(file);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), invalid);
 }

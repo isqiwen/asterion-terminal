@@ -155,6 +155,7 @@ Json manifest(std::uint64_t working_orders = 1, const char* deviation = "0.02")
     return {
         {"account_id", "fixture-account"},
         {"type", "live_ctp"},
+        {"environment", "simulation"},
         {"broker",
             {{"front", "tcp://127.0.0.1:41205"},
                 {"broker_id", "9999"},

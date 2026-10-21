@@ -1,7 +1,8 @@
 """Exercise the installer's application with disposable UI/Agent data.
 
 macOS copies the DMG application into an isolated directory, never /Applications.
-Linux unpacks the Debian package into an isolated directory and never installs it.
+Linux unpacks the installer archive into an isolated directory.
+This tests the embedded Terminal; service registration has a separate test.
 """
 import argparse
 import hashlib
@@ -12,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,7 +45,7 @@ def main():
     parser.add_argument("installer", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "build/installed-desktop")
     args = parser.parse_args()
-    expected = {"darwin": ".dmg", "linux": ".deb"}.get(sys.platform)
+    expected = {"darwin": ".dmg", "linux": ".gz"}.get(sys.platform)
     if expected is None:
         parser.error("Installed Terminal acceptance requires macOS or Linux")
     installer = args.installer.resolve(strict=True)
@@ -71,14 +73,17 @@ def main():
                     run(["hdiutil", "detach", mount])
                 # Verify and launch the copied app after unmount, not the build tree.
                 run(["codesign", "--verify", "--deep", "--strict", installed])
-                exercise(installed / "Contents/MacOS/asterion-terminal",
+                installed = installed / "Contents/Resources/terminal.app"
+                exercise(installed / "Contents/MacOS/asterion_terminal",
                          installed / "Contents/Resources", output)
             else:
-                run(["dpkg-deb", "--extract", installer, folder / "root"])
-                apps = [path for path in (folder / "root/opt").iterdir() if path.is_dir()]
+                with tarfile.open(installer) as archive:
+                    archive.extractall(folder, filter="data")
+                apps = list(folder.rglob("asterion_installer"))
                 if len(apps) != 1:
-                    raise RuntimeError("Debian package must contain exactly one application")
-                exercise(apps[0] / "asterion-terminal", apps[0] / "resources", output)
+                    raise RuntimeError("Archive must contain exactly one installer")
+                installed = apps[0].parent / "resources/terminal"
+                exercise(installed / "asterion_terminal", installed / "resources", output)
     except Exception as error:
         report.write_text(json.dumps({"status": "failed", "installer": str(installer),
                                       "error": str(error)}, indent=2) + "\n")
@@ -102,7 +107,7 @@ def main():
                    "Agent survives desktop exit"],
         "limits": ["disposable test profile", "no live market credentials",
                    "dialog adapter mocked; not manual native picker acceptance",
-                   *(["unpacked, not installed: package maintainer scripts not exercised"]
+                   *(["unpacked payload; OS service registration requires separate acceptance"]
                      if sys.platform == "linux" else [])],
     }, indent=2) + "\n")
     print(f"Installed desktop acceptance passed: {report}")

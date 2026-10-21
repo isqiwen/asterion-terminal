@@ -3,7 +3,8 @@ const path = require("node:path");
 process.env.ASTERION_ENVIRONMENT = "development";
 if (process.env.ASTERION_NODE_DIRECTORY) process.exit(0);
 const resources = path.resolve(__dirname, "../../build/electron-resources/native");
-process.env.ASTERION_NODE_AGENT_EXECUTABLE = path.join(resources, "asterion-node-agent");
+process.env.ASTERION_NODE_MANAGER_EXECUTABLE = path.join(resources, "asterion_node_manager");
+process.env.ASTERION_NODE_AGENT_EXECUTABLE = path.join(resources, "asterion_node_agent");
 const native = require(path.join(resources, "asterion_terminal.node"));
 (async () => {
   const response = JSON.parse(
