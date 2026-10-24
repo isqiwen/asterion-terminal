@@ -8,6 +8,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_tables.h>
+#include <asterion/plugin/material.h>
 #include <asterion/plugin/risk.h>
 #include <algorithm>
 #include <map>
@@ -21,6 +22,8 @@ bool PluginCatalogEntry::selectable_for_data_tasks() const
         && std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
                return (capability.id == AST_HISTORY && capability.version == 3)
                    || (capability.id == AST_HISTORY_TABLES && capability.version == 1)
+                   || (capability.id == AST_MATERIAL && capability.version == 1
+                       && capability.kind == "data")
                    || (capability.id == AST_RISK && capability.version == 1
                        && capability.kind == "risk");
            });

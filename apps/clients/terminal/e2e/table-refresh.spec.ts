@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -39,7 +40,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
       candidate.sha256,
     ],
   });
-  await rpc(page.request, "node.data_tasks.local.open");
+  await rpc(page.request, "node.data.local.open");
   const days = Array.from({ length: 56 }, (_, i) =>
     new Date(Date.UTC(2024, 2, 1 + i)).toISOString().slice(0, 10),
   ).filter(day => ![0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay()));
@@ -81,13 +82,15 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (task: { id: string }) => task.id === "f07-old-factor",
         )?.state,
       { timeout: 30000 },
     )
     .toBe("succeeded");
-  const old = (await rpc(page.request, "task.result.read", { id: "f07-old-factor" })).task_result;
+  const old = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "f07-old-factor" })
+  ).task_result;
   const oldHead = (await rpc(page.request, "data.tables.coverage")).table_coverage.snapshot;
   const pageQuery = {
     table: "futures.daily",
@@ -124,7 +127,8 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   const newHead = (await rpc(page.request, "data.tables.coverage")).table_coverage.snapshot;
   expect(newHead).not.toBe(oldHead);
   expect(
-    (await rpc(page.request, "task.result.read", { id: "f07-old-factor" })).task_result,
+    (await taskRpc(page.request, "research", "task.result.read", { id: "f07-old-factor" }))
+      .task_result,
   ).toEqual(old);
   await refresh.getByRole("button", { name: "读取当前分区", exact: true }).click();
   refresh = partition.getByRole("region", { name: "重新获取此日分区", exact: true });
@@ -223,7 +227,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
     refresh.getByRole("status").filter({ hasText: "重新获取完成：内容未变，未新增修订" }),
   ).toBeVisible({ timeout: 30000 });
   expect((await rpc(page.request, "data.tables.coverage")).table_coverage.snapshot).toBe(newHead);
-  const completed = (await rpc(page.request, "runtime.snapshot")).task_service.tasks.filter(
+  const completed = (await rpc(page.request, "runtime.snapshot")).data.tasks.filter(
     (task: { table_refresh?: unknown }) => task.table_refresh,
   );
   expect(completed).toHaveLength(2);
@@ -243,6 +247,56 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   expect(secondObservation.revision.snapshot).toBe(newHead);
   expect(secondObservation.response_sha256).toBe(firstObservation.response_sha256);
   expect(secondPage.response_evidence).toEqual(evidence);
+  const firstAcquisition = completed.find(
+    (task: { table_refresh?: { previous_snapshot: string } }) =>
+      task.table_refresh?.previous_snapshot === oldPage.revision.snapshot,
+  );
+  expect(firstAcquisition).toBeTruthy();
+  const heldSnapshot = (
+    await rpc(page.request, "data.tables.retirement.preview", { id: oldPage.revision.snapshot })
+  ).table_retirement;
+  expect(heldSnapshot.state).toBe("blocked");
+  expect(heldSnapshot.acquisitions).toContain(firstAcquisition.id);
+  expect(
+    (
+      await rpc(page.request, "data.tables.retirement.execute", {
+        id: oldPage.revision.snapshot,
+        preview_digest: heldSnapshot.preview_digest,
+      })
+    ).table_retirement.state,
+  ).toBe("blocked");
+  const researchHold = (await rpc(page.request, "data.tables.retirement.preview", { id: oldHead }))
+    .table_retirement;
+  expect(researchHold.state).toBe("blocked");
+  expect(
+    researchHold.consumers.some((consumer: { id: string }) => consumer.id === "f07-old-factor"),
+  ).toBe(true);
+  await refresh.getByRole("button", { name: "维护采集记录", exact: true }).click();
+  const maintenance = refresh.getByRole("region", { name: "采集记录维护", exact: true });
+  await expect(maintenance).toContainText("采集记录可退役");
+  const retiredId = await maintenance.locator("code").innerText();
+  expect(completed.some((task: { id: string }) => task.id === retiredId)).toBe(true);
+  const originalAcquisition = (
+    await taskRpc(page.request, "data", "task.result.read", { id: retiredId })
+  ).task_result;
+  await expect(
+    maintenance.getByRole("button", { name: "确认采集退役", exact: true }),
+  ).toBeDisabled();
+  await maintenance.getByRole("checkbox", { name: "确认退役采集记录并禁止重试" }).check();
+  await maintenance.getByRole("button", { name: "确认采集退役", exact: true }).click();
+  await expect(maintenance).toContainText("采集记录已退役");
+  const retiredAcquisition = (
+    await taskRpc(page.request, "data", "task.result.read", { id: retiredId })
+  ).task_result;
+  expect(retiredAcquisition.task.retired).toBe(true);
+  expect(retiredAcquisition.task.result_digest).toBe(originalAcquisition.task.result_digest);
+  expect(retiredAcquisition.table_update).toEqual(originalAcquisition.table_update);
+  await taskRpc(page.request, "data", "task.retirement.execute", { id: firstAcquisition.id });
+  expect(
+    (await rpc(page.request, "data.tables.retirement.preview", { id: oldPage.revision.snapshot }))
+      .table_retirement.acquisitions,
+  ).toHaveLength(0);
+  expect((await rpc(page.request, "data.tables.coverage")).table_coverage.snapshot).toBe(newHead);
   await refresh.getByRole("button", { name: "读取当前分区", exact: true }).click();
   await partition.getByText("独立重取观测", { exact: true }).click();
   const observed = partition.getByRole("region", { name: "独立重取观测", exact: true });
@@ -270,7 +324,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
     service: beforeRestart.data.service,
     action: "stop",
   });
-  await rpc(page.request, "node.data_tasks.local.open");
+  await rpc(page.request, "node.data.local.open");
   await expect
     .poll(async () => !!(await rpc(page.request, "runtime.snapshot")).data?.online, {
       timeout: 30000,
@@ -281,12 +335,17 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   ).toEqual(evidence);
 
   expect(
+    (await taskRpc(page.request, "data", "task.retirement.preview", { id: retiredId }))
+      .task_retirement.state,
+  ).toBe("retired");
+  expect(
     (await rpc(page.request, "data.tables.page", pageQuery)).table_page.response_review,
   ).toEqual(quality);
   expect(
     (await rpc(page.request, "data.tables.page", pageQuery)).table_page.latest_refresh_observation,
   ).toEqual(secondObservation);
   expect(
-    (await rpc(page.request, "task.result.read", { id: "f07-old-factor" })).task_result,
+    (await taskRpc(page.request, "research", "task.result.read", { id: "f07-old-factor" }))
+      .task_result,
   ).toEqual(old);
 });

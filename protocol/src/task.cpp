@@ -1,11 +1,153 @@
 #include <asterion/protocol/task.hpp>
+#include <asterion/protocol/research_project.hpp>
+#include <asterion/protocol/research_strategy.hpp>
+#include <asterion/protocol/research_variable.hpp>
+#include <asterion/protocol/research_statistics.hpp>
+#include <asterion/protocol/research_evaluation.hpp>
+#include <asterion/protocol/research_sample.hpp>
+#include <asterion/protocol/research_logic.hpp>
+#include <asterion/protocol/research_model.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/account_review.hpp>
+#include <asterion/protocol/notice_review.hpp>
+#include <asterion/protocol/material.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/domain/trading_days.hpp>
 #include <stdexcept>
+#include <map>
 
 namespace asterion::protocol {
+
+Json decode_task_retirement(
+    const task::proto::TaskRetirement& value,
+    const std::string& id,
+    const std::string& service,
+    std::string_view domain)
+{
+    namespace wire = task::proto;
+    const char* expected_kind = nullptr;
+    if (domain == "research") {
+        if (value.task().kind() == wire::BACKTEST)
+            expected_kind = "backtest";
+        if (value.task().kind() == wire::FACTOR)
+            expected_kind = "factor";
+        if (value.task().kind() == wire::ACCOUNT_REVIEW)
+            expected_kind = "account_review";
+        if (value.task().kind() == wire::NOTICE_REVIEW)
+            expected_kind = "notice_review";
+        if (value.task().kind() == wire::EVENT_SET_REVIEW)
+            expected_kind = "event_set_review";
+        if (value.task().kind() == wire::STATISTICS)
+            expected_kind = "statistics";
+        if (value.task().kind() == wire::PERFORMANCE_EVALUATION)
+            expected_kind = "performance_evaluation";
+        if (value.task().kind() == wire::SAMPLE)
+            expected_kind = "sample";
+        if (value.task().kind() == wire::LOGIC_TRIAL)
+            expected_kind = "logic_trial";
+        if (value.task().kind() == wire::MODEL_TRAINING)
+            expected_kind = "model_training";
+        if (value.task().kind() == wire::MODEL_TIME_VALIDATION)
+            expected_kind = "model_time_validation";
+    } else if (domain == "data") {
+        if (value.task().kind() == wire::MINUTE_DOWNLOAD)
+            expected_kind = "minutes";
+        if (value.task().kind() == wire::TABLE_UPDATE)
+            expected_kind = "table_update";
+        if (value.task().kind() == wire::MATERIAL_ACQUISITION)
+            expected_kind = "material_acquisition_task";
+    }
+    const auto& object = value.object();
+    const auto state = value.state();
+    if (object.id() != id || value.task().id() != object.id()
+        || object.owner().service_id() != service || object.owner().domain() != domain
+        || object.version().size() != 64
+        || object.version().find_first_not_of("0123456789abcdef") != std::string::npos
+        || value.consumers_size() > 257 || !expected_kind || object.kind() != expected_kind
+        || state < wire::TaskRetirement::AVAILABLE || state > wire::TaskRetirement::RETIRED
+        || (state == wire::TaskRetirement::AVAILABLE
+            && (value.active() || value.admission_busy() || value.consumers_size()))
+        || (state == wire::TaskRetirement::RETIRED
+            && value.task().retirement().SerializeAsString() != object.SerializeAsString()))
+        throw Error(ErrorCode::unavailable, "invalid task retirement response");
+    validate_id(object.owner().node_id());
+    Json consumers = Json::array();
+    for (const auto& id : value.consumers()) {
+        validate_id(id);
+        consumers.push_back(id);
+    }
+    return Json{
+        {"id", object.id()},
+        {"node", object.owner().node_id()},
+        {"service", object.owner().service_id()},
+        {"version", object.version()},
+        {"state",
+            state == wire::TaskRetirement::AVAILABLE     ? "available"
+                : state == wire::TaskRetirement::BLOCKED ? "blocked"
+                                                         : "retired"},
+        {"active", value.active()},
+        {"admission_busy", value.admission_busy()},
+        {"consumers", std::move(consumers)},
+        {"task", protocol::decode_task(value.task())},
+        {"source_release_confirmed", value.source_release_confirmed()},
+        {"release_error",
+            value.has_release_error()
+                ? Json{{"code", value.release_error().code()}, {"message", value.release_error().message()}}
+                : Json(nullptr)}
+    };
+}
+
+Json decode_task_page(const task::proto::TaskList& list, unsigned before)
+{
+    const auto& usage = list.capacity();
+    if (!list.has_capacity() || !usage.active_limit() || usage.active_used() > usage.active_limit()
+        || usage.active_used() > usage.retained_tasks() || usage.active_reserved() > 1
+        || usage.active_reserved() > usage.active_limit() - usage.active_used())
+        throw std::invalid_argument("invalid task capacity");
+    Json storage{
+        {"retained_tasks", usage.retained_tasks()},
+        {"active_used", usage.active_used()},
+        {"active_reserved", usage.active_reserved()},
+        {"uncommitted", usage.uncommitted()},
+        {"active_limit", usage.active_limit()}
+    };
+    if (list.tasks_size() > 200 || list.active_tasks_size() != static_cast<int>(usage.active_used())
+        || (list.next_before_sequence()
+            && (list.tasks().empty()
+                || list.next_before_sequence() != list.tasks(0).submission_sequence())))
+        throw std::invalid_argument("invalid task page response");
+    std::map<unsigned, Json> ordered;
+    unsigned previous = 0;
+    for (const auto& task : list.tasks()) {
+        if (task.submission_sequence() <= previous
+            || (before && task.submission_sequence() >= before))
+            throw std::invalid_argument("invalid task page response");
+        previous = task.submission_sequence();
+        ordered.emplace(previous, decode_task(task));
+    }
+    for (const auto& task : list.active_tasks()) {
+        if (task.state() != task::proto::QUEUED && task.state() != task::proto::RUNNING
+            && task.state() != task::proto::CANCEL_REQUESTED
+            && task.state() != task::proto::PUBLISHING)
+            throw std::invalid_argument("invalid task page response");
+        auto value = decode_task(task);
+        const auto [found, added] = ordered.emplace(task.submission_sequence(), value);
+        if (!added && found->second != value)
+            throw std::invalid_argument("invalid task page response");
+    }
+    Json values = Json::array();
+    for (auto& [sequence, value] : ordered)
+        values.push_back(std::move(value));
+    return Json{
+        {"capacity", std::move(storage)},
+        {"before_sequence", before},
+        {"next_before_sequence", list.next_before_sequence()},
+        {"failed_count", list.failed_count()},
+        {"interrupted_count", list.interrupted_count()},
+        {"tasks", std::move(values)}
+    };
+}
 
 Json decode_task(const task::proto::Task& task)
 {
@@ -44,14 +186,31 @@ Json decode_task(const task::proto::Task& task)
             throw std::invalid_argument("invalid task state");
     }
     if (task.kind() != task::proto::BACKTEST && task.kind() != task::proto::FACTOR
-        && task.kind() != task::proto::MINUTE_DOWNLOAD && task.kind() != task::proto::TABLE_UPDATE)
+        && task.kind() != task::proto::MINUTE_DOWNLOAD && task.kind() != task::proto::TABLE_UPDATE
+        && task.kind() != task::proto::ACCOUNT_REVIEW && task.kind() != task::proto::NOTICE_REVIEW
+        && task.kind() != task::proto::EVENT_SET_REVIEW && task.kind() != task::proto::STATISTICS
+        && task.kind() != task::proto::SAMPLE && task.kind() != task::proto::LOGIC_TRIAL
+        && task.kind() != task::proto::MATERIAL_ACQUISITION
+        && task.kind() != task::proto::MODEL_TRAINING
+        && task.kind() != task::proto::MODEL_TIME_VALIDATION
+        && task.kind() != task::proto::PERFORMANCE_EVALUATION)
         throw std::invalid_argument("invalid task kind");
     Json output = {
         {"kind",
-            task.kind() == task::proto::MINUTE_DOWNLOAD    ? "minute_download"
-                : task.kind() == task::proto::TABLE_UPDATE ? "table_update"
-                : task.kind() == task::proto::FACTOR       ? "factor"
-                                                           : "backtest"},
+            task.kind() == task::proto::MINUTE_DOWNLOAD              ? "minute_download"
+                : task.kind() == task::proto::TABLE_UPDATE           ? "table_update"
+                : task.kind() == task::proto::FACTOR                 ? "factor"
+                : task.kind() == task::proto::ACCOUNT_REVIEW         ? "account_review"
+                : task.kind() == task::proto::NOTICE_REVIEW          ? "notice_review"
+                : task.kind() == task::proto::EVENT_SET_REVIEW       ? "event_set_review"
+                : task.kind() == task::proto::STATISTICS             ? "statistics"
+                : task.kind() == task::proto::PERFORMANCE_EVALUATION ? "performance_evaluation"
+                : task.kind() == task::proto::SAMPLE                 ? "sample"
+                : task.kind() == task::proto::LOGIC_TRIAL            ? "logic_trial"
+                : task.kind() == task::proto::MODEL_TRAINING         ? "model_training"
+                : task.kind() == task::proto::MODEL_TIME_VALIDATION  ? "model_time_validation"
+                : task.kind() == task::proto::MATERIAL_ACQUISITION   ? "material_acquisition"
+                                                                     : "backtest"},
         {"id", task.id()},
         {"metadata",
             {{"revision", task.metadata().revision()},
@@ -65,6 +224,7 @@ Json decode_task(const task::proto::Task& task)
 
         {"provider_artifact", task.provider_artifact()},
         {"risk_artifact", task.risk_artifact()},
+        {"program_artifact", task.program_artifact()},
         {"state", state},
         {"attempt", task.attempt()},
         {"completed", task.completed()},
@@ -80,8 +240,26 @@ Json decode_task(const task::proto::Task& task)
         {"submitted_at_ms", task.submitted_at_ms()},
         {"updated_at_ms", task.updated_at_ms()}
     };
+    if (task.kind() == task::proto::MODEL_TRAINING) {
+        validate_strategy_object(task.model_plan(), "model_plan");
+        output["model_plan"] = decode_strategy_object(task.model_plan());
+    } else if (task.has_model_plan())
+        throw std::invalid_argument("unexpected model task plan");
+    if (task.kind() == task::proto::MODEL_TIME_VALIDATION) {
+        validate_strategy_object(task.model_time_plan(), "model_time_plan");
+        output["model_time_plan"] = decode_strategy_object(task.model_time_plan());
+    } else if (task.has_model_time_plan())
+        throw std::invalid_argument("unexpected model time task plan");
+    if (task.has_research_plan())
+        output["research_plan"] = decode_project_binding(task.research_plan());
+    if (task.has_strategy_use())
+        output["strategy_use"] = decode_strategy_use(task.strategy_use());
+    if (task.has_variable_definition())
+        output["variable_definition"] = decode_variable_reference(task.variable_definition());
     if (!task.error_code().empty())
         output["error_code"] = task.error_code();
+    if (task.has_material())
+        output["material_request"] = decode_material_request(task.material().request());
     if (task.has_table_refresh()) {
         const auto& ref = task.table_refresh();
         output["table_refresh"] = {
@@ -101,6 +279,16 @@ Json decode_task(const task::proto::Task& task)
         if (interval < 1 || interval > 1440)
             throw std::invalid_argument("invalid minute dataset page response");
         output["minute_interval_minutes"] = interval;
+    }
+    if (task.has_retirement())
+        output["retired"] = true;
+    if (task.metadata().derivation().has_batch()) {
+        const auto& origin = task.metadata().derivation();
+        validate_strategy_object(origin.batch(), "backtest_batch");
+        if (task.kind() != task::proto::BACKTEST || origin.data_choice() != "fixed"
+            || origin.source_instance() != origin.batch().owner().service_id())
+            throw std::invalid_argument("invalid fixed batch member derivation");
+        output["metadata"]["batch"] = decode_strategy_object(origin.batch());
     }
     return output;
 }
@@ -141,6 +329,13 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         && response.has_table_update()) {
         envelope["result"] = decode_table_update_result(response.table_update());
         envelope["experiment"] = decode_table_update(task.table_update());
+    } else if (task.kind() == task::proto::MATERIAL_ACQUISITION && task.has_material()
+        && response.has_material()) {
+        validate_material_result(task.material(), response.material());
+        if (sha256_bytes(response.material().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("material result digest mismatch");
+        envelope["experiment"] = decode_material_request(task.material().request());
+        envelope["result"] = decode_material_receipt(response.material());
     } else if (task.kind() == task::proto::BACKTEST && task.has_input()
         && response.has_backtest()) {
         envelope["input_sha256"] = sha256_bytes(task.input().SerializeAsString());
@@ -156,6 +351,78 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
     } else if (task.kind() == task::proto::FACTOR && task.has_factor() && response.has_factor()) {
         envelope["experiment"] = decode_factor(task.factor(), DatasetView::metadata);
         envelope["result"] = decode_factor_result(task.factor(), response.factor());
+    } else if (task.kind() == task::proto::LOGIC_TRIAL && task.has_logic_trial()
+        && response.has_logic_trial()) {
+        if (sha256_bytes(response.logic_trial().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("logic trial result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.logic_trial().SerializeAsString());
+        envelope["experiment"] = decode_logic_trial_input(task.logic_trial());
+        envelope["result"] = decode_logic_trial_result(task.logic_trial(), response.logic_trial());
+    } else if (task.kind() == task::proto::SAMPLE && task.has_sample() && response.has_sample()) {
+        if (sha256_bytes(response.sample().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("sample result differs from its fixed input");
+        envelope["input_sha256"] = sha256_bytes(task.sample().SerializeAsString());
+        envelope["experiment"] = decode_sample_input(task.sample());
+        envelope["result"] = decode_sample_result(task.sample(), response.sample());
+    } else if (task.kind() == task::proto::MODEL_TRAINING && task.has_model_training()
+        && response.has_model_training()) {
+        if (sha256_bytes(response.model_training().SerializeAsString()) != task.result_digest()
+            || task.model_plan().SerializeAsString()
+                != model_plan_object(task.model_training().plan()).SerializeAsString()
+            || task.program_artifact() != task.model_training().plan().program_artifact())
+            throw std::invalid_argument("model result differs from its fixed task evidence");
+        envelope["input_sha256"] = sha256_bytes(task.model_training().SerializeAsString());
+        envelope["experiment"] = decode_model_training_input(task.model_training());
+        envelope["result"] =
+            decode_model_training_result(task.model_training(), response.model_training());
+    } else if (task.kind() == task::proto::MODEL_TIME_VALIDATION && task.has_model_time()
+        && response.has_model_time()) {
+        if (sha256_bytes(response.model_time().SerializeAsString()) != task.result_digest()
+            || task.model_time_plan().SerializeAsString()
+                != model_time_plan_object(task.model_time().plan()).SerializeAsString()
+            || task.program_artifact() != task.model_time().plan().recipe().program_artifact())
+            throw std::invalid_argument("model result differs from its fixed task evidence");
+        envelope["input_sha256"] = sha256_bytes(task.model_time().SerializeAsString());
+        envelope["experiment"] = decode_model_time_input(task.model_time());
+        envelope["result"] = decode_model_time_result(task.model_time(), response.model_time());
+    } else if (task.kind() == task::proto::PERFORMANCE_EVALUATION && task.has_evaluation()
+        && response.has_evaluation()) {
+        if (sha256_bytes(response.evaluation().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("evaluation result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.evaluation().SerializeAsString());
+        envelope["experiment"] = decode_evaluation_input(task.evaluation());
+        envelope["result"] = decode_evaluation_result(task.evaluation(), response.evaluation());
+    } else if (task.kind() == task::proto::STATISTICS && task.has_statistics()
+        && response.has_statistics()) {
+        if (sha256_bytes(response.statistics().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("statistics result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.statistics().SerializeAsString());
+        envelope["experiment"] = decode_statistics_input(task.statistics());
+        envelope["result"] = decode_statistics_result(task.statistics(), response.statistics());
+    } else if (task.kind() == task::proto::EVENT_SET_REVIEW && task.has_event_set_review()
+        && response.has_event_set_review()) {
+        if (sha256_bytes(response.event_set_review().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("event set review result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.event_set_review().SerializeAsString());
+        envelope["experiment"] = decode_event_set_review_input(task.event_set_review());
+        envelope["result"] =
+            decode_event_set_review_result(task.event_set_review(), response.event_set_review());
+    } else if (task.kind() == task::proto::NOTICE_REVIEW && task.has_notice_review()
+        && response.has_notice_review()) {
+        if (sha256_bytes(response.notice_review().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("notice review result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.notice_review().SerializeAsString());
+        envelope["experiment"] = decode_notice_review_input(task.notice_review());
+        envelope["result"] =
+            decode_notice_review_result(task.notice_review(), response.notice_review());
+    } else if (task.kind() == task::proto::ACCOUNT_REVIEW && task.has_account_review()
+        && response.has_account_review()) {
+        if (sha256_bytes(response.account_review().SerializeAsString()) != task.result_digest())
+            throw std::invalid_argument("account review result digest mismatch");
+        envelope["input_sha256"] = sha256_bytes(task.account_review().SerializeAsString());
+        envelope["experiment"] = decode_account_review_input(task.account_review());
+        envelope["result"] =
+            decode_account_review_result(task.account_review(), response.account_review());
     } else {
         throw std::invalid_argument("task input and result kind mismatch");
     }

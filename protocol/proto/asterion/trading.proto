@@ -4,6 +4,7 @@ package asterion.protocol.proto;
 
 import "asterion/domain.proto";
 import "asterion/data.proto";
+import "asterion/resource.proto";
 
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs {
@@ -166,6 +167,18 @@ message CrossRank {
   Decimal notional = 6;
   uint32 volatility = 7;
 }
+// Explicit all-daily offline portfolio policy; signed weights fix direction.
+message FixedWeightPortfolio {
+  message Member {
+    string venue = 1;
+    string symbol = 2;
+    Decimal weight = 3;
+  }
+  repeated Member members = 1;
+  Decimal gross_weight_limit = 2;
+  Decimal net_weight_limit = 3;
+  uint32 rebalance = 4;
+}
 // What a strategy trades by: one rule, the lots it holds while the rule takes
 // a side, and the sides it may hold; it is flat on a side it may not hold and
 // while the rule takes none. A rule over several contracts sizes each by its
@@ -179,6 +192,7 @@ message Strategy {
     Momentum momentum = 5;
     BandReversion reversion = 6;
     CrossRank cross = 7;
+    FixedWeightPortfolio fixed_weights = 8;
   }
 }
 
@@ -257,6 +271,7 @@ message Request {
     LiveCredentials live_connect = 17;
     Empty live_disconnect = 18;
     Empty live_costs = 19;
+    TradingFactsQuery facts = 20;
   }
 }
 message ContractState {
@@ -427,6 +442,62 @@ message LiveSnapshot {
   string risk_artifact = 21;
   LiveStrategy strategy = 22;
   TradingEnvironment environment = 23;
+  // One observed broker state, not an atomic funds/positions/trades cut.
+  // Sequence is scoped to this process and connection generation.
+  uint64 broker_sequence = 24;
+  uint64 connection_generation = 25;
+  bool positions_reconciled = 26;
+}
+// A deliberately selected factual projection: no broker connection settings,
+// credential fields, authorization permission or executable strategy state.
+message TradingFacts {
+  asterion.resource.proto.Owner source = 1;
+  string account_id = 2;
+  TradingEnvironment environment = 3;
+  string instance = 4;
+  string id = 5;
+  int64 captured_at_ms = 6;
+  uint64 broker_sequence = 7;
+  uint64 connection_generation = 8;
+  int64 synchronized_ms = 9;
+  string phase = 10;
+  string trading_day = 11;
+  bool positions_reconciled = 12;
+  LiveFunds funds = 13;
+  repeated LivePosition positions = 14;
+  repeated LiveOrder orders = 15;
+  repeated LiveTrade trades = 16;
+  repeated UnconfirmedOrder unconfirmed = 17;
+  bool recovery_required = 18;
+  string policy_revision = 19;
+  string risk_artifact = 20;
+  int32 error_code = 21;
+}
+message TradingFactsCapture {
+  asterion.resource.proto.Object reference = 1;
+  TradingFacts facts = 2;
+}
+message TradingFactsReceipt {
+  enum State {
+    UNSPECIFIED = 0;
+    ADMITTED = 1;
+    PUBLISHED = 2;
+  }
+  asterion.resource.proto.Object reference = 1;
+  State state = 2;
+  int64 admitted_at_ms = 3;
+  int64 published_at_ms = 4;
+}
+message TradingFactsStatus {
+  TradingFactsReceipt operation = 1;
+  TradingFactsCapture capture = 2;
+}
+message TradingFactsQuery {
+  oneof operation {
+    string capture = 1;
+    asterion.resource.proto.Object read = 2;
+    string status = 3;
+  }
 }
 message Error {
   string code = 1;
@@ -450,5 +521,6 @@ message Response {
     Empty uninitialized = 12;
     Health health = 13;
     LiveSnapshot live = 14;
+    TradingFactsStatus facts = 15;
   }
 }

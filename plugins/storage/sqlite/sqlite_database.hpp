@@ -19,7 +19,8 @@ public:
     enum class Access
     {
         writer,
-        read_only
+        read_only,
+        cold_read_only // Caller holds the stopped domain ownership lock.
     };
     // Existing-store validation runs before enabling writer pragmas or creating
     // a journal. Callers also perform read-only preflight before taking ownership.

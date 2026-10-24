@@ -17,7 +17,7 @@ import {
   type FactorSeriesEvidence,
   type TaskResult,
 } from "../../src/bridge/client";
-import { factorNames, factorWords, t } from "./shared";
+import { factorLabel, variableUnit, factorWords, t } from "./shared";
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
 type Roll = { trading_day: string; symbol: string; factor: string };
@@ -179,7 +179,23 @@ function Fields({ rows }: { rows: Rows }) {
 }
 export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   const experiment = evidence.experiment;
-  const rows: Rows = [];
+  const rows: Rows = [
+    ["执行程序标识", evidence.task.program_artifact || t("未记录，不能证明原执行程序")],
+  ];
+  if (evidence.kind === "backtest" && evidence.task.strategy_use) {
+    const use = evidence.task.strategy_use;
+    const identity = (value: typeof use.package) =>
+      `${value.node}/${value.service}/${value.id} / ${value.version}`;
+    rows.push(
+      ["接纳时固定策略候选", identity(use.package)],
+      ["接纳时固定交付草稿", identity(use.delivery)],
+    );
+  }
+  if (evidence.kind === "factor")
+    rows.push([
+      "逐行证据",
+      t(evidence.experiment.retain_observations ? "已保存实际观察序列" : "未选择保存逐行证据"),
+    ]);
   // Already in the reader's language: the strategy names its own fields.
   let strategyFacts: Rows = [];
   let contracts: Block[];
@@ -213,7 +229,15 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     ];
     // A rolling comparison follows several strategies in turn: it lists them
     // all below instead of the fields of one.
-    if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
+    if (evidence.experiment.model_replay) {
+      const fixed = evidence.experiment.model_replay;
+      rows.push(
+        ["固定逐折映射", fixed.mapping.object.id],
+        ["模拟原折", fixed.fold_index + 1],
+        ["目标手数", fixed.quantity],
+        ["模型处理延迟（bar）", fixed.processing_delay_bars],
+      );
+    } else if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
     rows.push(
       ["初始资金", paper.deposit],
       ["单笔数量上限", paper.risk.max_order_quantity],
@@ -239,7 +263,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           : tableRows(input),
     );
     rows.push(
-      ["因子", t(factorNames[evidence.experiment.factor])],
+      ["因子", factorLabel(evidence.experiment.factor)],
       [words.candidates, lookbacks.join(", ")],
       [words.horizon, horizon],
       [
@@ -253,6 +277,17 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
         ),
       ],
     );
+    if (evidence.experiment.variable_definition) {
+      const variable = evidence.experiment.variable_definition;
+      rows.push(
+        ["原变量定义", `${variable.object.id} / ${variable.object.version}`],
+        ["变量名称", variable.name],
+        ["研究用途", variable.purpose],
+        ["表达式", variable.expression],
+        ["输出单位", variableUnit(variable.price_power)],
+        ["实际预热观察数", variable.required_history],
+      );
+    }
     if (evaluation.mode === "walk_forward")
       rows.push(
         [words.training, evaluation.training_events],

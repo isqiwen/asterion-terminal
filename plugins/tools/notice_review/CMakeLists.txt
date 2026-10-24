@@ -1,0 +1,4 @@
+add_library(asterion_notice_review STATIC availability.cpp)
+target_include_directories(asterion_notice_review PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_notice_review PUBLIC Asterion::Domain)
+asterion_target_defaults(asterion_notice_review)

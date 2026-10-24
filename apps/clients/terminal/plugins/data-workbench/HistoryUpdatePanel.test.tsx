@@ -105,3 +105,27 @@ test("unblocked whole-day preview retains its explicit manual action and unknown
   ).toBe(true);
   expect(ctx.trade).not.toHaveBeenCalled();
 });
+
+test("Data can preview and execute with Research offline", async () => {
+  const ctx = context({ ...plan, conflicts: [], missing_days: ["2026-09-24"] });
+  ctx.snapshot.research_service!.online = false;
+  ctx.snapshot.data!.sources[0].credential_required = false;
+  const view = render(
+    <HistoryUpdatePanel context={ctx} item={item} daily={daily} onClose={() => {}} />,
+  );
+  const preview = screen.getByRole("button", { name: "预览下载范围" });
+  expect((preview.closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false);
+  fireEvent.click(preview);
+  await screen.findByText("待核对 1 个交易日：2026-09-24");
+  const submit = () => screen.getByRole("button", { name: "开始下载此范围" }) as HTMLButtonElement;
+  expect(submit().disabled).toBe(false);
+  expect(ctx.trade).not.toHaveBeenCalled();
+  ctx.snapshot = {
+    ...ctx.snapshot,
+    research_service: { ...ctx.snapshot.research_service!, online: true },
+  };
+  view.rerender(<HistoryUpdatePanel context={ctx} item={item} daily={daily} onClose={() => {}} />);
+  expect(submit().disabled).toBe(false);
+  expect(ctx.query).toHaveBeenCalledTimes(1);
+  expect(ctx.trade).not.toHaveBeenCalled();
+});

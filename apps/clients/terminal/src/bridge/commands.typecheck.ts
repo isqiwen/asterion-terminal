@@ -8,7 +8,11 @@ export function commandContractExamples(
   account: AccountRun,
 ) {
   void send("market.local");
-  void send("task.action", { id: "task", action: "cancel" });
+  void send("task.action", {
+    owner: { kind: "research", node_id: "local", service: "research", connection_id: "test" },
+    id: "task",
+    action: "cancel",
+  });
   void context.query("data.minutes.evidence", { dataset_id: "data", offset: 0, limit: 20 });
   void account("live.open");
   // @ts-expect-error a panel-bound command cannot supply a different account
@@ -25,8 +29,11 @@ export function commandContractExamples(
   void send("live.open");
   // @ts-expect-error pagination is a number, not a UI input string
   void context.query("data.minutes.evidence", { dataset_id: "data", offset: "0", limit: 20 });
-  // @ts-expect-error parameters belong to their command
-  void send("task.action", { account: "account" });
+  void send("task.action", {
+    owner: { kind: "research", node_id: "local", service: "research", connection_id: "test" },
+    // @ts-expect-error parameters belong to their command
+    account: "account",
+  });
   // @ts-expect-error a query callback cannot send an order or change authorization
   void context.query("live.open", { account: "account" });
   // @ts-expect-error no parameters are accepted by the catalog inspection command

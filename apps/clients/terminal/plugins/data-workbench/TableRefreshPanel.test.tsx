@@ -88,7 +88,7 @@ function context(task?: TaskRecord) {
       credential_required: false,
     },
   ];
-  if (task) snapshot.task_service!.tasks = [task];
+  if (task) snapshot.data!.tasks = [task];
   return {
     snapshot,
     busy: false,
@@ -109,7 +109,7 @@ test("selects one fixed existing partition, previews without trade, then require
       onReadCurrent={() => {}}
     />,
   );
-  expect(ctx.query).not.toHaveBeenCalled();
+  expect(ctx.query).not.toHaveBeenCalledWith("data.tables.refresh.tasks", {});
   expect(ctx.trade).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "预览重新获取" }));
   await screen.findByRole("button", { name: "确认重新获取此分区" });
@@ -138,6 +138,12 @@ test("running and failed attempts expose only the existing explicit cancel and r
   fireEvent.click(screen.getByRole("button", { name: "停止重新获取" }));
   await waitFor(() =>
     expect(ctx.trade).toHaveBeenCalledWith("task.action", {
+      owner: {
+        kind: "data",
+        node_id: ctx.snapshot.data!.node_id,
+        service: ctx.snapshot.data!.service,
+        connection_id: ctx.snapshot.data!.connection_id,
+      },
       id: "tracked-refresh",
       action: "cancel",
     }),
@@ -154,6 +160,12 @@ test("running and failed attempts expose only the existing explicit cancel and r
   fireEvent.click(screen.getByRole("button", { name: "重试此任务" }));
   await waitFor(() =>
     expect(failed.trade).toHaveBeenCalledWith("task.action", {
+      owner: {
+        kind: "data",
+        node_id: ctx.snapshot.data!.node_id,
+        service: ctx.snapshot.data!.service,
+        connection_id: ctx.snapshot.data!.connection_id,
+      },
       id: "tracked-refresh",
       action: "retry",
     }),
@@ -193,7 +205,15 @@ test("reopening a partition finds its persisted refresh target and exact unchang
   );
   await screen.findByText("重新获取完成：内容未变，未新增修订");
   expect(screen.getByText(/tracked-refresh/)).toBeTruthy();
-  expect(ctx.query).toHaveBeenCalledWith("task.result.read", { id: task.id });
+  expect(ctx.query).toHaveBeenCalledWith("task.result.read", {
+    owner: {
+      kind: "data",
+      node_id: ctx.snapshot.data!.node_id,
+      service: ctx.snapshot.data!.service,
+      connection_id: ctx.snapshot.data!.connection_id,
+    },
+    id: task.id,
+  });
   expect(ctx.trade).not.toHaveBeenCalled();
 });
 
@@ -209,7 +229,7 @@ test("declared exchange exclusion blocks submission without inventing a historic
   );
   expect(screen.getByRole("alert").textContent).toContain("当前来源声明不支持所选交易所");
   expect(screen.getByRole("button", { name: "预览重新获取" })).toHaveProperty("disabled", true);
-  expect(ctx.query).not.toHaveBeenCalled();
+  expect(ctx.query).not.toHaveBeenCalledWith("data.tables.refresh.tasks", {});
   expect(ctx.trade).not.toHaveBeenCalled();
 });
 test("empty response preserves unknown coverage and offers read then preview rather than retrying a succeeded task", async () => {
@@ -273,9 +293,37 @@ test.each([
     fireEvent.click(screen.getByRole("button", { name: "重试此任务" }));
     await waitFor(() =>
       expect(ctx.trade).toHaveBeenCalledWith("task.action", {
+        owner: {
+          kind: "data",
+          node_id: ctx.snapshot.data!.node_id,
+          service: ctx.snapshot.data!.service,
+          connection_id: ctx.snapshot.data!.connection_id,
+        },
         id: "tracked-refresh",
         action: "retry",
       }),
     );
   },
 );
+
+test("stored partition preview belongs to Data even while Research is offline", async () => {
+  const ctx = context();
+  ctx.snapshot.research_service!.online = false;
+  render(
+    <TableRefreshPanel
+      context={ctx}
+      source={source}
+      revision={revision}
+      onReadCurrent={() => {}}
+    />,
+  );
+  const preview = screen.getByRole("button", { name: "预览重新获取" }) as HTMLButtonElement;
+  expect(preview.disabled).toBe(false);
+  fireEvent.click(preview);
+  await screen.findByText("原分区修订", { exact: false });
+  expect(
+    (screen.getByRole("button", { name: "确认重新获取此分区" }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(ctx.trade).not.toHaveBeenCalled();
+  expect(ctx.query).not.toHaveBeenCalledWith("data.tables.refresh.tasks", {});
+});

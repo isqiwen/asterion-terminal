@@ -30,9 +30,9 @@ const variables = {
   ASTERION_TRADING_EXECUTABLE: "asterion_trading",
   ASTERION_NODE_MANAGER_EXECUTABLE: "asterion_node_manager",
   ASTERION_NODE_AGENT_EXECUTABLE: "asterion_node_agent",
-  ASTERION_MARKET_EXECUTABLE: "asterion_market_data",
-  ASTERION_TASK_EXECUTABLE: "asterion_task_service",
-  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion_data_service",
+  ASTERION_MARKET_EXECUTABLE: "asterion_market",
+  ASTERION_RESEARCH_EXECUTABLE: "asterion_research",
+  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion_data",
   ASTERION_KEYCHAIN_EXECUTABLE: "asterion_keychain",
 };
 for (const [key, name] of Object.entries(variables))

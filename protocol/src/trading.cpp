@@ -109,7 +109,8 @@ proto::Strategy encode_strategy(const Json& value)
     const auto kind = rule.at("kind").get<std::string>();
     // A rule over several contracts carries its own size and takes no quantity.
     const bool ranks = kind.starts_with(cross_prefix);
-    if (ranks)
+    const bool portfolio = kind == "fixed_weights";
+    if (ranks || portfolio)
         require_fields(value, {"sides", "rule"});
     else
         require_fields(value, {"quantity", "sides", "rule"});
@@ -119,7 +120,7 @@ proto::Strategy encode_strategy(const Json& value)
         return Decimal::parse(text.get<std::string>()).raw();
     };
     proto::Strategy result;
-    if (!ranks)
+    if (!ranks && !portfolio)
         result.mutable_quantity()->set_units(amount(value.at("quantity")));
     result.set_sides(encode_position_sides(value.at("sides")));
     const auto window = [&](const char* name) {
@@ -127,7 +128,26 @@ proto::Strategy encode_strategy(const Json& value)
             throw std::invalid_argument("strategy windows are whole bars up to 10000");
         return rule.at(name).get<unsigned>();
     };
-    if (kind == "moving_average") {
+    if (portfolio) {
+        require_fields(
+            rule,
+            {"kind", "members", "gross_weight_limit", "net_weight_limit", "rebalance"});
+        if (!rule.at("members").is_array() || rule.at("members").size() < 2
+            || rule.at("members").size() > 20)
+            throw std::invalid_argument(
+                "fixed-weight policy requires 2 to 20 explicit contract weights");
+        auto* target = result.mutable_fixed_weights();
+        target->set_rebalance(window("rebalance"));
+        target->mutable_gross_weight_limit()->set_units(amount(rule.at("gross_weight_limit")));
+        target->mutable_net_weight_limit()->set_units(amount(rule.at("net_weight_limit")));
+        for (const auto& member : rule.at("members")) {
+            require_fields(member, {"venue", "symbol", "weight"});
+            auto* fixed = target->add_members();
+            fixed->set_venue(member.at("venue").get<std::string>());
+            fixed->set_symbol(member.at("symbol").get<std::string>());
+            fixed->mutable_weight()->set_units(amount(member.at("weight")));
+        }
+    } else if (kind == "moving_average") {
         require_fields(rule, {"kind", "fast", "slow"});
         result.mutable_moving_average()->set_fast(window("fast"));
         result.mutable_moving_average()->set_slow(window("slow"));
@@ -189,6 +209,24 @@ Json decode_strategy(const proto::Strategy& strategy)
                 {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}
             };
             break;
+        case proto::Strategy::kFixedWeights: {
+            Json members = Json::array();
+            for (const auto& m : strategy.fixed_weights().members())
+                members.push_back(
+                    {{"venue", m.venue()},
+                        {"symbol", m.symbol()},
+                        {"weight", Decimal::from_raw(m.weight().units()).str()}});
+            rule = {
+                {"kind", "fixed_weights"},
+                {"rebalance", strategy.fixed_weights().rebalance()},
+                {"gross_weight_limit",
+                    Decimal::from_raw(strategy.fixed_weights().gross_weight_limit().units()).str()},
+                {"net_weight_limit",
+                    Decimal::from_raw(strategy.fixed_weights().net_weight_limit().units()).str()},
+                {"members", std::move(members)}
+            };
+            break;
+        }
         case proto::Strategy::kCross:
             rule = {
                 {"kind", std::string(cross_prefix) + factor_name(strategy.cross().factor())},
@@ -207,7 +245,7 @@ Json decode_strategy(const proto::Strategy& strategy)
         {"sides", position_sides_name(position_sides(strategy.sides()))},
         {"rule", std::move(rule)}
     };
-    if (!strategy.has_cross())
+    if (!strategy.has_cross() && !strategy.has_fixed_weights())
         result["quantity"] = Decimal::from_raw(strategy.quantity().units()).str();
     return result;
 }
@@ -215,6 +253,33 @@ Json decode_strategy(const proto::Strategy& strategy)
 void validate_strategy(const proto::Strategy& strategy, Decimal quantity_increment)
 {
     static_cast<void>(position_sides(strategy.sides()));
+    if (strategy.has_fixed_weights()) {
+        const auto& rule = strategy.fixed_weights();
+        if (strategy.has_quantity() || strategy.sides() != proto::LONG_AND_SHORT
+            || quantity_increment != Decimal::parse("1") || !rule.rebalance()
+            || rule.rebalance() > 10000 || rule.members_size() < 2 || rule.members_size() > 20
+            || !rule.has_gross_weight_limit() || !rule.has_net_weight_limit()
+            || rule.gross_weight_limit().units() < 0 || rule.net_weight_limit().units() < 0)
+            throw std::invalid_argument(
+                "fixed-weight policy requires explicit budgets, both signed directions, whole-lot contracts and a rebalance of 1..10000 bars");
+        std::set<std::pair<std::string, std::string>> identities;
+        Decimal gross, net;
+        for (const auto& m : rule.members()) {
+            if (m.venue().empty() || m.symbol().empty() || !m.has_weight()
+                || !identities.emplace(m.venue(), m.symbol()).second)
+                throw std::invalid_argument(
+                    "fixed-weight policy requires unique actual contracts and explicit weights");
+            const auto weight = Decimal::from_raw(m.weight().units());
+            gross = gross + (weight < Decimal{} ? Decimal{} - weight : weight);
+            net = net + weight;
+        }
+        if (gross > Decimal::from_raw(rule.gross_weight_limit().units())
+            || (net < Decimal{} ? Decimal{} - net : net)
+                > Decimal::from_raw(rule.net_weight_limit().units()))
+            throw std::invalid_argument(
+                "fixed-weight targets exceed the declared gross or net nominal budget");
+        return;
+    }
     if (strategy.has_cross()) {
         const auto& rule = strategy.cross();
         if (strategy.has_quantity() || rule.factor() == proto::FACTOR_UNSPECIFIED
@@ -260,6 +325,7 @@ void validate_strategy(const proto::Strategy& strategy, Decimal quantity_increme
                     "reversion requires a window of 2..10000 bars and a width above 0 up to 10");
             return;
         }
+        case proto::Strategy::kFixedWeights:
         case proto::Strategy::kCross:
         case proto::Strategy::RULE_NOT_SET:
             break;
@@ -278,6 +344,8 @@ std::size_t strategy_warmup(const proto::Strategy& strategy)
             return strategy.momentum().lookback() + 1;
         case proto::Strategy::kReversion:
             return strategy.reversion().window();
+        case proto::Strategy::kFixedWeights:
+            return 1;
         case proto::Strategy::kCross:
             // Momentum compares with the bar a lookback earlier and volatility reads
             // a lookback of returns; the term structure averages over the lookback
@@ -770,6 +838,66 @@ Json decode_command(const proto::Command& c)
     return result;
 }
 
+proto::Position encode_position(const PositionLot& p)
+{
+    proto::Position result;
+    auto* item = &result;
+    item->set_venue(p.instrument.venue);
+    item->set_symbol(p.instrument.symbol);
+    item->set_side(p.side == Side::buy ? proto::BUY : proto::SELL);
+    item->set_today(p.today);
+    item->mutable_quantity()->set_units(p.quantity.raw());
+    item->mutable_basis()->set_units(p.price.raw());
+    return result;
+}
+
+proto::Order encode_order(const AccountSnapshot::OrderView& o)
+{
+    proto::Order result;
+    auto* item = &result;
+    item->set_id(o.request.id);
+    item->set_venue(o.request.instrument.venue);
+    item->set_symbol(o.request.instrument.symbol);
+    item->set_side(o.request.side == Side::buy ? proto::BUY : proto::SELL);
+    switch (o.offset) {
+        case Offset::open:
+            item->set_offset(proto::OPEN);
+            break;
+        case Offset::close_today:
+            item->set_offset(proto::CLOSE_TODAY);
+            break;
+        case Offset::close_yesterday:
+            item->set_offset(proto::CLOSE_YESTERDAY);
+            break;
+        case Offset::close:
+            item->set_offset(proto::CLOSE);
+            break;
+    }
+    item->mutable_quantity()->set_units(o.request.quantity.raw());
+    item->mutable_limit_price()->set_units(o.request.limit_price.raw());
+    item->mutable_filled()->set_units(o.filled.raw());
+    switch (o.state) {
+        case OrderState::accepted:
+            item->set_state(proto::ACCEPTED);
+            break;
+        case OrderState::partially_filled:
+            item->set_state(proto::PARTIALLY_FILLED);
+            break;
+        case OrderState::filled:
+            item->set_state(proto::FILLED);
+            break;
+        case OrderState::cancelled:
+            item->set_state(proto::CANCELLED);
+            break;
+        case OrderState::rejected:
+            item->set_state(proto::REJECTED);
+            break;
+        case OrderState::pending:
+            throw std::logic_error("account observation contains an unaccepted order");
+    }
+    return result;
+}
+
 proto::Snapshot encode_snapshot(const FuturesAccount& account, const proto::PaperInput& input)
 {
     const auto s = account.snapshot();
@@ -799,58 +927,10 @@ proto::Snapshot encode_snapshot(const FuturesAccount& account, const proto::Pape
     VALUE(realized);
     VALUE(unrealized);
 #undef VALUE
-    for (const auto& p : s.positions) {
-        auto* item = result.add_positions();
-        item->set_venue(p.instrument.venue);
-        item->set_symbol(p.instrument.symbol);
-        item->set_side(p.side == Side::buy ? proto::BUY : proto::SELL);
-        item->set_today(p.today);
-        item->mutable_quantity()->set_units(p.quantity.raw());
-        item->mutable_basis()->set_units(p.price.raw());
-    }
-    for (const auto& o : s.orders) {
-        auto* item = result.add_orders();
-        item->set_id(o.request.id);
-        item->set_venue(o.request.instrument.venue);
-        item->set_symbol(o.request.instrument.symbol);
-        item->set_side(o.request.side == Side::buy ? proto::BUY : proto::SELL);
-        switch (o.offset) {
-            case Offset::open:
-                item->set_offset(proto::OPEN);
-                break;
-            case Offset::close_today:
-                item->set_offset(proto::CLOSE_TODAY);
-                break;
-            case Offset::close_yesterday:
-                item->set_offset(proto::CLOSE_YESTERDAY);
-                break;
-            case Offset::close:
-                item->set_offset(proto::CLOSE);
-                break;
-        }
-        item->mutable_quantity()->set_units(o.request.quantity.raw());
-        item->mutable_limit_price()->set_units(o.request.limit_price.raw());
-        item->mutable_filled()->set_units(o.filled.raw());
-        switch (o.state) {
-            case OrderState::accepted:
-                item->set_state(proto::ACCEPTED);
-                break;
-            case OrderState::partially_filled:
-                item->set_state(proto::PARTIALLY_FILLED);
-                break;
-            case OrderState::filled:
-                item->set_state(proto::FILLED);
-                break;
-            case OrderState::cancelled:
-                item->set_state(proto::CANCELLED);
-                break;
-            case OrderState::rejected:
-                item->set_state(proto::REJECTED);
-                break;
-            case OrderState::pending:
-                throw std::logic_error("account observation contains an unaccepted order");
-        }
-    }
+    for (const auto& p : s.positions)
+        *result.add_positions() = encode_position(p);
+    for (const auto& o : s.orders)
+        *result.add_orders() = encode_order(o);
     for (const auto& f : s.fills) {
         auto* item = result.add_fills();
         item->set_id(f.execution.execution_id);
@@ -862,6 +942,31 @@ proto::Snapshot encode_snapshot(const FuturesAccount& account, const proto::Pape
         item->mutable_fee()->set_units(f.fee.raw());
     }
     return result;
+}
+
+Json decode_position(const proto::Position& p)
+{
+    auto item = instrument_fields(p.venue(), p.symbol());
+    item.update(
+        {{"side", side(p.side())},
+            {"bucket", p.today() ? "today" : "yesterday"},
+            {"quantity", get(p.quantity())},
+            {"basis", get(p.basis())}});
+    return item;
+}
+
+Json decode_order(const proto::Order& o)
+{
+    auto item = instrument_fields(o.venue(), o.symbol());
+    item.update(
+        {{"id", o.id()},
+            {"side", side(o.side())},
+            {"offset", offset(o.offset())},
+            {"quantity", get(o.quantity())},
+            {"limit_price", get(o.limit_price())},
+            {"filled", get(o.filled())},
+            {"state", state(o.state())}});
+    return item;
 }
 
 Json decode_snapshot(const proto::Snapshot& s)
@@ -912,27 +1017,10 @@ Json decode_snapshot(const proto::Snapshot& s)
     result["fills"] = Json::array();
     // Enum decoding rejects unknown values; it runs before each braced
     // initializer (GCC < 13 PR66139 leak).
-    for (const auto& p : s.positions()) {
-        auto item = instrument_fields(p.venue(), p.symbol());
-        item.update(
-            {{"side", side(p.side())},
-                {"bucket", p.today() ? "today" : "yesterday"},
-                {"quantity", get(p.quantity())},
-                {"basis", get(p.basis())}});
-        result["positions"].push_back(std::move(item));
-    }
-    for (const auto& o : s.orders()) {
-        auto item = instrument_fields(o.venue(), o.symbol());
-        item.update(
-            {{"id", o.id()},
-                {"side", side(o.side())},
-                {"offset", offset(o.offset())},
-                {"quantity", get(o.quantity())},
-                {"limit_price", get(o.limit_price())},
-                {"filled", get(o.filled())},
-                {"state", state(o.state())}});
-        result["orders"].push_back(std::move(item));
-    }
+    for (const auto& p : s.positions())
+        result["positions"].push_back(decode_position(p));
+    for (const auto& o : s.orders())
+        result["orders"].push_back(decode_order(o));
     Decimal fill_fees;
     for (const auto& f : s.fills()) {
         if (!f.has_fee() || f.fee().units() < 0)
@@ -1149,6 +1237,9 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
         {"error_code", s.error_code()},
         {"trading_day", s.trading_day()},
         {"synchronized_ms", s.synchronized_ms()},
+        {"broker_sequence", std::to_string(s.broker_sequence())},
+        {"connection_generation", std::to_string(s.connection_generation())},
+        {"positions_reconciled", s.positions_reconciled()},
         {"funds", nullptr},
         {"positions", Json::array()},
         {"orders", Json::array()},

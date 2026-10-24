@@ -1,3 +1,4 @@
+#include "node_storage_identity.hpp"
 #include "agent_client.hpp"
 #include "node_paths.hpp"
 #include "support/local_listener.hpp"
@@ -66,10 +67,10 @@ TEST_F(NodeProgramPublication, ConfigurationDeploymentPreservesOperatorEdits)
 {
     const auto defaults = fs::path(ASTERION_AGENT_PATH).parent_path() / "config";
     install_node_configuration(root, defaults);
-    const auto file = root / "config/task.json";
+    const auto file = root / "config/research.json";
     std::ifstream input(file);
-    EXPECT_EQ(Json::parse(input).at("task_concurrency"), 2);
-    const std::string edited = R"({"task_concurrency":5})";
+    EXPECT_EQ(Json::parse(input).at("task_concurrency"), 1);
+    const std::string edited = R"({"task_concurrency":2})";
     replace_file_durably(file, edited);
     const auto timestamp = fs::last_write_time(file);
     install_node_configuration(root, defaults);
@@ -760,4 +761,126 @@ TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
     EXPECT_FALSE(fs::exists(root / "agent.pid"));
     std::ifstream input(root / "services/market/service.json");
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), invalid);
+}
+
+namespace {
+
+struct NodeIdentityDirectory
+{
+    fs::path root = fs::temp_directory_path() / ("ast-node-identity-" + unique_process_id());
+
+    NodeIdentityDirectory()
+    {
+        fs::create_directory(root);
+    }
+
+    ~NodeIdentityDirectory()
+    {
+        std::error_code ignored;
+        fs::remove_all(root, ignored);
+    }
+};
+
+} // namespace
+
+TEST(NodeStorageIdentity, PersistsAcrossProcessGenerationsAndCompletesUncertainCreation)
+{
+    NodeIdentityDirectory directory;
+    fail_next_directory_syncs_for_testing(1);
+    EXPECT_THROW(agent::node_storage_identity(directory.root), std::runtime_error);
+    fail_next_directory_syncs_for_testing(0);
+    const auto original = agent::node_storage_identity(directory.root);
+    EXPECT_FALSE(original.empty());
+    EXPECT_NE(original, unique_process_id());
+    fs::create_directory(directory.root / "services");
+    fs::create_directory(directory.root / "services" / "warehouse");
+    EXPECT_EQ(agent::node_storage_identity(directory.root), original);
+    EXPECT_EQ(agent::node_storage_identity(directory.root), original);
+}
+
+TEST(NodeStorageIdentity, MissingOrInvalidIdentityCannotReidentifyExistingData)
+{
+    NodeIdentityDirectory directory;
+    fs::create_directories(directory.root / "services" / "warehouse");
+    const auto evidence = directory.root / "services" / "warehouse" / "evidence";
+    write_file_durably(evidence, "preserve this fixture");
+    EXPECT_THROW(agent::node_storage_identity(directory.root), std::invalid_argument);
+    EXPECT_FALSE(fs::exists(directory.root / "node.json"));
+    write_file_durably(
+        directory.root / "node.json",
+        "{\"node_id\":\"original\",\"unexpected\":true}");
+    EXPECT_THROW(agent::node_storage_identity(directory.root), std::invalid_argument);
+    std::ifstream stream(evidence);
+    std::string value;
+    std::getline(stream, value);
+    EXPECT_EQ(value, "preserve this fixture");
+    std::ifstream identity(directory.root / "node.json");
+    std::getline(identity, value);
+    EXPECT_EQ(value, "{\"node_id\":\"original\",\"unexpected\":true}");
+}
+
+TEST(NodeStorageIdentity, DiscoveryKeepsNodeIdentityAndRefusesAdministrativeRequests)
+{
+    NodeIdentityDirectory directory;
+    const auto endpoint = (directory.root / "agent.sock").string();
+    const auto start = [&] {
+        return std::make_unique<ChildProcess>(
+            ASTERION_AGENT_PATH,
+            std::vector<std::string>{
+                "--directory",
+                directory.root.string(),
+                "--endpoint",
+                endpoint
+            });
+    };
+    auto process = start();
+    const auto query = [&](const std::string& address, bool mutation = false) {
+        node::proto::Request request;
+        request.set_version(1);
+        request.set_correlation_id(unique_process_id());
+        if (mutation)
+            request.mutable_deploy()->set_service_id("must-not-be-created");
+        else
+            request.mutable_status();
+        auto channel = ipc::Channel::connect(address, 200ms);
+        channel.send(request.SerializeAsString(), 2s);
+        node::proto::Response response;
+        if (!response.ParseFromString(channel.receive(2s)))
+            throw std::runtime_error("invalid fixture reply");
+        EXPECT_EQ(response.correlation_id(), request.correlation_id());
+        return response;
+    };
+    const auto ready = [&] {
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            try {
+                const auto response = query(endpoint);
+                if (response.has_error())
+                    throw std::runtime_error(response.error().message());
+                if (response.status().phase() == node::proto::Status::READY)
+                    return response.status();
+            } catch (const Error&) {
+                if (process->exited() || std::chrono::steady_clock::now() >= deadline)
+                    throw;
+            }
+            if (std::chrono::steady_clock::now() >= deadline)
+                throw std::runtime_error("isolated Agent did not become ready");
+            std::this_thread::sleep_for(10ms);
+        }
+    };
+    const auto original = ready();
+    ASSERT_FALSE(original.node_id().empty());
+    ASSERT_FALSE(original.discovery_endpoint().empty());
+    EXPECT_EQ(query(original.discovery_endpoint()).status().node_id(), original.node_id());
+    const auto denied = query(original.discovery_endpoint(), true);
+    ASSERT_TRUE(denied.has_error());
+    EXPECT_EQ(denied.error().code(), "permission_denied");
+    EXPECT_TRUE(fs::is_empty(directory.root / "services"));
+    process.reset();
+    process = start();
+    const auto restarted = ready();
+    EXPECT_EQ(restarted.node_id(), original.node_id());
+    EXPECT_NE(restarted.instance_id(), original.instance_id());
+    EXPECT_NE(restarted.discovery_endpoint(), original.discovery_endpoint());
+    EXPECT_EQ(query(restarted.discovery_endpoint()).status().node_id(), original.node_id());
 }

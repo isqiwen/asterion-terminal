@@ -9,6 +9,7 @@ import tempfile
 
 with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_errors=True) as folder:
     root=Path(folder)
+    (root/'state').mkdir()
     tools=root/'tools'; tools.mkdir()
     remote=root/'remote'; remote.mkdir()
     for name in ('ssh','sftp'):

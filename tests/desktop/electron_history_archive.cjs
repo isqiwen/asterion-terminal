@@ -53,22 +53,25 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       return response.result;
     };
     await enterWorkbench(page);
-    await call("node.data_tasks.local.open");
+    await call("node.research.local.open");
     // The fixture seeds the daily table under the sources the installed data
     // source offers: those are the ones the Terminal's pages read.
     const offered = (await call("data.tables.coverage")).table_coverage.sources;
     const table = offered.find(item => item.table === "futures.daily");
     const source = name =>
       offered.find(item => item.table === name && item.plugin_id === table.plugin_id).source;
-    const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
-    await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+    const stopped = await call("node.action", {
+      id: "local",
+      service: "historical-data",
+      action: "stop",
+    });
     const service = stopped.nodes
       .find(n => n.id === "local")
-      .health.services.find(s => s.id === "task");
+      .health.services.find(s => s.id === "historical-data");
     const root = await fs.realpath(`${temp}/node`);
     assert.equal(
       path.relative(root, await fs.realpath(service.directory)),
-      path.join("services", "task", "ledger"),
+      path.join("services", "historical-data", "ledger"),
     );
     await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
@@ -92,13 +95,12 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
         timeout: 15000,
       },
     );
-    await call("node.data_tasks.local.open");
+    await call("node.data.local.open");
     await expect
       .poll(
         async () =>
-          (await call("runtime.snapshot")).task_service?.tasks.find(
-            t => t.id === "native-queued-minutes",
-          )?.state,
+          (await call("runtime.snapshot")).data?.tasks.find(t => t.id === "native-queued-minutes")
+            ?.state,
         { timeout: 30000 },
       )
       .toBe("succeeded");
@@ -137,8 +139,8 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await fs.mkdir("build/history-archive", { recursive: true });
     await page.screenshot({ path: "build/history-archive/native-archive.png" });
     assert.deepEqual(errors, []);
-    // Historical versions belong to Data and remain readable while Task is stopped.
-    await call("node.action", { id: "local", service: "task", action: "stop" });
+    // Historical versions belong to Data and remain readable while Research is stopped.
+    await call("node.action", { id: "local", service: "research", action: "stop" });
     const filter = {
       venue: "",
       product: "",
@@ -148,10 +150,10 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     assert.equal((await call("data.datasets", filter)).history_datasets[0].id, minute.id);
     const stoppedTask = (await call("runtime.snapshot")).nodes
       .find(node => node.id === "local")
-      .health.services.find(item => item.id === "task");
+      .health.services.find(item => item.id === "research");
     assert.equal(stoppedTask.state, "stopped");
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
-    await call("node.data_tasks.local.open");
+    await call("node.data.local.open");
     await expect.poll(async () => (await call("runtime.snapshot")).data?.online).toBe(true);
     assert.deepEqual((await call("data.datasets", filter)).history_datasets, [minute]);
     assert.deepEqual(errors, []);

@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -13,9 +14,9 @@ test("research chain integration @joint: fixed evidence through revision recover
   expect(control).toBeTruthy();
   const records: Record<string, unknown> = {};
   const result = async (id: string) =>
-    (await rpc(page.request, "task.result.read", { id })).task_result;
+    (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   const state = async () => rpc(page.request, "runtime.snapshot");
-  const tasks = async () => (await state()).task_service.tasks;
+  const tasks = async () => (await state()).research_service.tasks;
   async function wait(id: string, expected = "succeeded") {
     await expect
       .poll(async () => (await tasks()).find((t: { id: string }) => t.id === id)?.state, {
@@ -86,7 +87,7 @@ test("research chain integration @joint: fixed evidence through revision recover
         revision: service.revision,
         plugins: [...plugins, candidate.sha256],
       });
-      await rpc(page.request, "node.data_tasks.local.open");
+      await rpc(page.request, "node.research.local.open");
       for (const [i, product] of ["rb", "cu", "al"].entries()) {
         const seeded = await seedHistory(
           page.request,
@@ -284,7 +285,7 @@ test("research chain integration @joint: fixed evidence through revision recover
     });
     await test.step("有限滑点变体保持同一完整输入", async () => {
       const workspace = await openResearch("backtest", "joint-backtest");
-      const panel = workspace.getByRole("region", { name: "固定数据滑点敏感性", exact: true });
+      const panel = workspace.getByRole("region", { name: "固定数据成本敏感性", exact: true });
       await panel.getByLabel("滑点变体（1–2个整数，以逗号分隔）", { exact: true }).fill("1,2");
       await panel.getByRole("button", { name: "核对滑点变体", exact: true }).click();
       await panel.getByRole("button", { name: "确认创建滑点变体", exact: true }).click();
@@ -308,9 +309,9 @@ test("research chain integration @joint: fixed evidence through revision recover
         expect(n).toEqual(baseline.experiment);
         expect(v.result.account.equity).not.toBe(baseline.result.account.equity);
       }
-      await panel.getByRole("button", { name: "读取滑点敏感性结果", exact: true }).click();
+      await panel.getByRole("button", { name: "读取成本敏感性结果", exact: true }).click();
       await expect(
-        panel.getByRole("table", { name: "滑点敏感性结果", exact: true }).locator("tbody tr"),
+        panel.getByRole("table", { name: "成本敏感性结果", exact: true }).locator("tbody tr"),
       ).toHaveCount(3);
       records.slippage_ids = variants.map((t: { id: string }) => t.id);
       await screenshot("03-slippage-sensitivity");
@@ -415,7 +416,7 @@ test("research chain integration @joint: fixed evidence through revision recover
     await test.step("服务重启后重读全部结果、档案与修订", async () => {
       const before = await state();
       const snapshots = await Promise.all((await tasks()).map((t: { id: string }) => result(t.id)));
-      const services = [before.data.service, before.task_service.service];
+      const services = [before.data.service, before.research_service.service];
       const pids = before.nodes
         .find((n: { id: string }) => n.id === "local")
         .health.services.filter((s: { id: string }) => services.includes(s.id))
@@ -424,12 +425,12 @@ test("research chain integration @joint: fixed evidence through revision recover
         await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
       for (const service of services)
         await rpc(page.request, "node.action", { id: "local", service, action: "start" });
-      await rpc(page.request, "node.data_tasks.local.open");
+      await rpc(page.request, "node.research.local.open");
       await expect
         .poll(
           async () => {
             const v = await state();
-            return !!v.data?.online && !!v.task_service?.online;
+            return !!v.data?.online && !!v.research_service?.online;
           },
           { timeout: 30000 },
         )

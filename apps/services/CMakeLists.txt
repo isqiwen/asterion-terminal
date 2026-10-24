@@ -1,4 +1,6 @@
 add_subdirectory(market-data)
 add_subdirectory(trading)
+add_subdirectory(task-runtime)
 add_subdirectory(data-service)
-add_subdirectory(task-service)
+add_subdirectory(research-service)
+add_subdirectory(intelligence)

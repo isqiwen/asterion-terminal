@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { test, expect } from "./test";
@@ -94,8 +95,9 @@ test("a product's months backtest as its dominant series and roll at real prices
   // settled at 220. The day's last bar asks to go flat; a target survives
   // the day end, so the first bar of 2026-09-28 sells at 225: 50 + 30 - 12
   // in fees. The gross limit of one lot was never exceeded.
-  const task = (await rpc(page.request, "runtime.snapshot")).task_service.tasks.at(-1);
-  const result = (await rpc(page.request, "task.result", { id: task.id })).task_result.result;
+  const task = (await rpc(page.request, "runtime.snapshot")).research_service.tasks.at(-1);
+  const result = (await taskRpc(page.request, "research", "task.result", { id: task.id }))
+    .task_result.result;
   expect(result.account.fills.map((fill: { price: string }) => fill.price)).toEqual([
     "105",
     "110",
@@ -112,8 +114,8 @@ test("a product's months backtest as its dominant series and roll at real prices
   ).toBeVisible();
   // Reattaching the same store keeps the series; switching stores must not
   // retain month identities from the original archive.
-  const originalService = state.task_service!.service;
-  const reattached = await rpc(page.request, "node.data_tasks.attach", {
+  const originalService = state.research_service!.service;
+  const reattached = await rpc(page.request, "node.research.attach", {
     id: "local",
     service: originalService,
   });
@@ -127,16 +129,16 @@ test("a product's months backtest as its dominant series and roll at real prices
     port: "0",
   });
   expect(deployed.dataset_series).toEqual(state.dataset_series);
-  const switched = await rpc(page.request, "node.data_tasks.attach", { id: "local", service });
+  const switched = await rpc(page.request, "node.research.attach", { id: "local", service });
   checkSnapshot("new store after dominant series", switched);
   expect(switched.datasets).toEqual([]);
   expect(switched.dataset_series).toEqual([]);
-  const restored = await rpc(page.request, "node.data_tasks.attach", {
+  const restored = await rpc(page.request, "node.research.attach", {
     id: "local",
     service: originalService,
   });
   expect(restored.dataset_series).toEqual([]);
-  expect((await rpc(page.request, "task.result", { id: task.id })).task_result.result).toEqual(
-    result,
-  );
+  expect(
+    (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result.result,
+  ).toEqual(result);
 });

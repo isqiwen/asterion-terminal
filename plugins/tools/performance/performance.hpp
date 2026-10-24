@@ -1,11 +1,39 @@
 #pragma once
 #include <asterion/foundation/decimal.hpp>
 #include <chrono>
+#include <cstdint>
+#include <string_view>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <vector>
 
 namespace asterion {
+
+// Missing assumptions remain missing; source boundaries are original account observations.
+struct PerformanceContext
+{
+    std::optional<std::int64_t> begin_ns, end_ns;
+    std::optional<double> annual_periods;
+    bool explicitly_zero_risk_free = false;
+    bool opening_is_full_period = false;
+};
+
+enum class PerformanceUnavailable
+{
+    none,
+    missing_time,
+    non_positive_duration,
+    insufficient_periods,
+    non_positive_equity,
+    missing_annual_periods,
+    missing_risk_free,
+    zero_deviation,
+    zero_drawdown,
+    numerical_overflow
+};
+std::string_view performance_unavailable_name(PerformanceUnavailable);
+inline constexpr long double performance_year_seconds = 31556952.0L; // 365.2425 days
 
 // What a day-by-day equity record says about a strategy. These are statistics
 // for judging a result, not ledger values.
@@ -18,11 +46,15 @@ struct Performance
     double max_drawdown;
     // The share of days that ended above the day before.
     double winning_days;
-    // A year's worth, scaled by the calendar time the days span. Absent with
-    // fewer than 20 trading days or once equity is not positive: a few days say
-    // nothing about a year. `sharpe` takes a zero risk-free rate and is also
-    // absent when the days do not vary; `calmar` when there was no drawdown.
     std::optional<double> annual_return, annual_volatility, sharpe, calmar;
+    PerformanceContext context;
+    std::size_t return_periods = 0;
+    bool short_calendar_span = false;
+    PerformanceUnavailable annual_return_reason = PerformanceUnavailable::missing_time;
+    PerformanceUnavailable annual_volatility_reason =
+        PerformanceUnavailable::missing_annual_periods;
+    PerformanceUnavailable sharpe_reason = PerformanceUnavailable::missing_risk_free;
+    PerformanceUnavailable calmar_reason = PerformanceUnavailable::missing_time;
 };
 
 struct EquityDay
@@ -33,8 +65,11 @@ struct EquityDay
 
 // `days` ascend and follow a positive `deposit`; `marks` is every equity
 // observation in order, settlements included, and decides the drawdown.
-Performance
-performance(Decimal deposit, std::span<const EquityDay> days, std::span<const Decimal> marks);
+Performance performance(
+    Decimal deposit,
+    std::span<const EquityDay> days,
+    std::span<const Decimal> marks,
+    const PerformanceContext& context = {});
 
 // Fixed day-end account evidence. Fees are cumulative since the initial deposit.
 struct SettlementDay
@@ -112,5 +147,42 @@ struct TradedFill
 // through flat to the other side is refused: closing and opening are
 // separate orders.
 Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multipliers);
+
+enum class DrawdownUnavailable
+{
+    none,
+    fewer_than_two_observations,
+    non_positive_equity
+};
+
+struct DailyDrawdownPoint
+{
+    std::size_t peak_index;
+    Decimal peak_equity, loss;
+    std::optional<double> fraction;
+};
+
+struct DailyDrawdownEpisode
+{
+    std::size_t peak_index, trough_index, observed_end_index;
+    std::optional<std::size_t> recovery_index;
+};
+
+struct DailyDrawdown
+{
+    std::vector<DailyDrawdownPoint> points;
+    std::vector<DailyDrawdownEpisode> episodes;
+    Decimal max_loss;
+    std::size_t max_loss_index = 0;
+    std::optional<double> max_fraction;
+    std::optional<std::size_t> max_fraction_index;
+    DrawdownUnavailable unavailable = DrawdownUnavailable::none;
+};
+
+// Original day-end observations only: no deposit, missing days or intraday
+// peaks are inserted. All indices refer to this fixed observation sequence.
+// A missing recovery is still underwater; durations use index differences,
+// not an inferred calendar or exchange-session count.
+DailyDrawdown daily_drawdown(std::span<const EquityDay>, std::stop_token = {});
 
 } // namespace asterion

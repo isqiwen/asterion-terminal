@@ -1,6 +1,13 @@
 import { translate, type MessageValues } from "../i18n";
-import type { PositionSides, StrategyDefinition } from "../bridge/client";
+import type {
+  PositionSides,
+  StrategyDefinition,
+  FixedWeightStrategyDefinition,
+} from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
+const isFixedWeights = (
+  definition: StrategyDefinition,
+): definition is FixedWeightStrategyDefinition => definition.rule.kind === "fixed_weights";
 
 // The rules a strategy can trade by: what each is called, the windows it
 // takes, and what it does with them.
@@ -125,7 +132,9 @@ const several = (text: string) =>
     .filter(Boolean);
 // Every combination of the values a draft gives its rule's windows, in the
 // order written; combinations the rule cannot work with are left out.
-function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
+function combinations(
+  draft: StrategyDraft,
+): Exclude<StrategyDefinition, FixedWeightStrategyDefinition>["rule"][] {
   const values = (
     name:
       | "fast"
@@ -198,6 +207,11 @@ export function strategyOf(draft: StrategyDraft): StrategyDefinition {
 
 /** A strategy's rule with its windows, as one reads it in a heading. */
 export function strategyRule(definition: StrategyDefinition): string {
+  if (isFixedWeights(definition))
+    return t("固定权重组合 · {n} 个合约，每 {bars} 个共同边界调仓", {
+      n: definition.rule.members.length,
+      bars: definition.rule.rebalance,
+    });
   const rule = definition.rule;
   const windows =
     "rebalance" in rule
@@ -215,13 +229,25 @@ export function strategyRule(definition: StrategyDefinition): string {
 }
 export const strategySides = (value: PositionSides) => t(sides[value]);
 /** What a strategy holds on a side, as one reads it in a summary. */
-export const strategySize = (definition: StrategyDefinition) =>
-  "quantity" in definition
+export const strategySize = (definition: StrategyDefinition) => {
+  if (isFixedWeights(definition)) return t("按当时权益分配，整数手数向零取整");
+  return "quantity" in definition
     ? t("{n} 手", { n: definition.quantity })
     : t("每个合约 {n}", { n: definition.rule.notional });
+};
 
 /** A strategy's fields as labelled rows, for showing what was submitted. */
 export function strategyRows(definition: StrategyDefinition): [string, string | number][] {
+  if (isFixedWeights(definition))
+    return [
+      [t("策略"), t("固定权重组合")],
+      [t("共同边界调仓间隔"), definition.rule.rebalance],
+      [t("总绝对名义权重预算"), definition.rule.gross_weight_limit],
+      [t("净名义权重预算"), definition.rule.net_weight_limit],
+      ...definition.rule.members.map(
+        m => [`${m.venue}/${m.symbol} · ${t("名义权重")}`, m.weight] as [string, string],
+      ),
+    ];
   const rule = definition.rule;
   const values = rule as unknown as Record<string, string | number>;
   return [

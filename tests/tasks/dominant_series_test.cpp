@@ -383,7 +383,7 @@ void month(
 {
     // A data directory begins as the store's; the tables are seeded into it.
     {
-        data::Store created(root, "historical-data", "task");
+        data::Store created(root, "historical-data");
     }
     std::vector<test::DailyRow> days;
     for (const auto& row : rows)
@@ -422,7 +422,7 @@ data::DominantSeries series_of(
     const std::string& begin,
     const std::string& end)
 {
-    data::Store store(root, "historical-data", "task");
+    data::Store store(root, "historical-data");
     return data::resolve_product_series(store.tables(), product_bars(store, product, begin, end));
 }
 
@@ -434,12 +434,12 @@ TEST(DominantSeries, PersistedRollingResultSurvivesRestart)
     const auto input = rolling();
     const auto expected = backtest::run(input);
     {
-        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::Store store(directory.path, tasks::Identity{"task"});
         tasks::submit(store, "rolling", input);
         const auto token = store.commit(store.claim("rolling")).token();
         store.commit(tasks::finish(store, "rolling", token, expected));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::Store restored(directory.path, tasks::Identity{"task"});
     EXPECT_EQ(restored.get("rolling").state(), task::proto::SUCCEEDED);
     EXPECT_EQ(restored.get("rolling").input().SerializeAsString(), input.SerializeAsString());
     EXPECT_EQ(tasks::result(restored, "rolling").SerializeAsString(), expected.SerializeAsString());
@@ -529,7 +529,7 @@ TEST(DominantSeries, AMonthIsLeftOnItsLastTradingDayAtTheOpen)
 {
     Directory directory;
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     const auto day = [](int index) {
         return daily_bar(index).trading_day;
@@ -639,7 +639,7 @@ TEST(DominantSeries, AMonthOfMinuteBarsIsDominantByTheTableNotByItsDownload)
         directory.path,
         "SHFE/rb/2027-01",
         {{days[2], 100, 500, test::DailyTrade{100, 200, 90, 110, 10000}}});
-    data::Store store(directory.path, "historical-data", "task");
+    data::Store store(directory.path, "historical-data");
     const auto series =
         [&](const std::string& product, const std::vector<Json>& months, const Json& daily) {
             std::vector<data::BarDatasetSources> inputs;
@@ -686,7 +686,7 @@ TEST(DominantSeries, AMonthThatDoesNotTradeOnADayStaysDominantAndIsSettled)
 {
     Directory directory;
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     const auto day = [](int index) {
         return daily_bar(index).trading_day;
@@ -747,7 +747,7 @@ TEST(DominantSeries, AMonthLeftOnADayItDoesNotTradeIsClosedOnItsNextBar)
 {
     Directory directory;
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     const auto day = [](int index) {
         return daily_bar(index).trading_day;
@@ -824,7 +824,7 @@ TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement)
 {
     Directory directory;
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     const auto day = [](int index) {
         return daily_bar(index).trading_day;
@@ -840,7 +840,7 @@ TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement)
                 test::DailyTrade{price, price + 2, price - 2, price, 100}});
     }
     const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
-    data::Store store(directory.path, "historical-data", "task");
+    data::Store store(directory.path, "historical-data");
     data::proto::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
     request.set_contract("SHFE/rb/2026-10");
@@ -871,7 +871,7 @@ TEST(DailyBars, ABacktestCrossesAChangeOfThePriceIncrement)
 {
     Directory directory;
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     const auto day = [](int index) {
         return daily_bar(index).trading_day;
@@ -887,7 +887,7 @@ TEST(DailyBars, ABacktestCrossesAChangeOfThePriceIncrement)
             {day(i), close, 100, test::DailyTrade{open, open + 2 * step, open - step, close, 100}});
     }
     const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
-    data::Store store(directory.path, "historical-data", "task");
+    data::Store store(directory.path, "historical-data");
     data::proto::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
     request.set_contract("SHFE/rb/2026-10");
@@ -1011,7 +1011,7 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
     // A worker reads each fixed month again by itself, over the days it speaks
     // of, and must get the same bytes; a daily bar is of the table's source and
     // of no archive version.
-    data::Store store(directory.path, "historical-data", "task");
+    data::Store store(directory.path, "historical-data");
     for (const auto& dataset : series.datasets) {
         EXPECT_EQ(dataset.interval_minutes(), 0U);
         EXPECT_EQ(dataset.source(), "fixture.daily.v1");
@@ -1036,7 +1036,7 @@ TEST(DominantSeries, ResolutionFailsWhereItWouldHaveToGuess)
     // rb2610 settles on the day rb2701 takes over and on the next, and trades
     // on neither: what is held of it could not be closed.
     {
-        data::Store created(directory.path, "historical-data", "task");
+        data::Store created(directory.path, "historical-data");
     }
     (void)test::seed_daily_table(
         directory.path,
@@ -1176,6 +1176,9 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
                         {"count", 1},
                         {"notional", "30000"},
                         {"volatility", 0}}}});
+    request.mutable_performance_assumptions()->set_annual_periods(252);
+    request.mutable_performance_assumptions()->set_risk_free(
+        backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
     request.mutable_walk_forward()->set_training_days(20);
     request.mutable_walk_forward()->set_validation_days(10);
     protocol::set_backtest_strategies(input, request);
@@ -1239,7 +1242,7 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
     }
     // The Task service accepts this result as that of the input and keeps it.
     {
-        tasks::Store kept(directory.path / "tasks", tasks::Identity{"task", "historical-data"});
+        tasks::Store kept(directory.path / "tasks", tasks::Identity{"task"});
         tasks::submit(kept, "daily", input);
         const auto token = kept.commit(kept.claim("daily")).token();
         kept.commit(tasks::finish(kept, "daily", token, result));

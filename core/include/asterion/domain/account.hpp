@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/order.hpp>
 #include <optional>
+#include <stdexcept>
 #include <memory>
 #include <set>
 #include <string>
@@ -9,6 +10,15 @@
 #include <vector>
 
 namespace asterion {
+
+// A normal account admission refusal, distinct from malformed orders or ledger failures.
+class InsufficientAvailableFunds final : public std::invalid_argument
+{
+public:
+    InsufficientAvailableFunds()
+        : std::invalid_argument("insufficient available funds")
+    {}
+};
 
 // close lets the exchange assign the order to today's/yesterday's positions;
 // close_today/close_yesterday name the bucket explicitly.

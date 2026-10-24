@@ -1,3 +1,11 @@
+#include <asterion/protocol/task_execution.hpp>
+#include "data/history_fixture.hpp"
+#include "tasks/paper_input.hpp"
+#include "support/task_wait.hpp"
+#include "task_store.hpp"
+#include "research_data.hpp"
+#include <asterion/research.pb.h>
+#include <asterion/intelligence.pb.h>
 #include "agent_client.hpp"
 #include "node_paths.hpp"
 #include "support/local_listener.hpp"
@@ -78,6 +86,10 @@ protected:
     {
         client.reset();
         agent.reset();
+        if (HasFailure()) {
+            std::cerr << "Retained isolated Node supervision evidence: " << root << '\n';
+            return;
+        }
         std::error_code ec;
         fs::remove_all(root, ec);
     }
@@ -107,15 +119,14 @@ protected:
 
     void deploy_fixture(bool task, const std::string& name)
     {
-        const auto kind = task ? node::proto::TASK_SERVICE : node::proto::MARKET_DATA;
+        const auto kind = task ? node::proto::RESEARCH : node::proto::MARKET_DATA;
         client
             ->deploy(
                 {.service = name,
                     .kind = kind,
                     .platform = current_platform(),
                     .programs = local_service_programs(kind),
-                    .plugins = std::vector<PluginArtifact>{},
-                    .data_service = kind == node::proto::TASK_SERVICE ? name + "-data" : ""})
+                    .plugins = std::vector<PluginArtifact>{}})
             .get();
     }
 
@@ -263,7 +274,7 @@ TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWith
     unsigned initializing = 0;
     while (std::chrono::steady_clock::now() < deadline) {
         auto held = listener->accept(6s);
-        task::proto::TaskRequest request;
+        research::proto::ResearchRequest request;
         ASSERT_TRUE(request.ParseFromString(held.receive(1s)));
         ASSERT_TRUE(request.has_heartbeat());
         task::proto::TaskResponse reply;
@@ -271,7 +282,6 @@ TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWith
         reply.set_service_id(request.service_id());
         reply.set_correlation_id(request.correlation_id());
         reply.mutable_health()->set_instance_id(request.service_id());
-        reply.mutable_health()->set_data_instance("observed-data");
         ready_sent = std::chrono::steady_clock::now() - begin >= 11s;
         reply.mutable_health()->set_initialized(ready_sent);
         held.send(reply.SerializeAsString(), 1s);
@@ -296,7 +306,7 @@ TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWith
     EXPECT_EQ(state().at("pid"), original);
 }
 
-TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart)
+TEST_F(NodeSupervision, DataInstanceRunsIndependentlyWithoutReverseBinding)
 {
     client
         ->deploy(
@@ -304,8 +314,7 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart
                 .kind = node::proto::DATA_SERVICE,
                 .platform = current_platform(),
                 .programs = local_service_programs(node::proto::DATA_SERVICE),
-                .plugins = std::vector<PluginArtifact>{},
-                .task_service = "tasks-one"})
+                .plugins = std::vector<PluginArtifact>{}})
         .get();
     auto ready = [&] {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
@@ -320,7 +329,7 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart
     };
     auto first = ready();
     EXPECT_EQ(first.at("kind"), "data");
-    EXPECT_EQ(first.at("task_service"), "tasks-one");
+    EXPECT_FALSE(first.contains("task_service"));
     protocol::DataClient data(first.at("endpoint").get<std::string>(), "data-one");
     data::proto::DataRequest heartbeat;
     heartbeat.mutable_heartbeat();
@@ -331,24 +340,25 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart
     const auto after = data.call(heartbeat).health();
     EXPECT_EQ(after.instance_id(), before.instance_id());
     EXPECT_NE(after.process_id(), before.process_id());
-    EXPECT_EQ(state("data-one").at("task_service"), "tasks-one");
+    EXPECT_FALSE(state("data-one").contains("task_service"));
 }
 
-TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
+TEST_F(NodeSupervision, ResearchStartsWithoutDataAndKeepsIndependentOwnershipAcrossRestart)
 {
-    client
-        ->deploy(
-            {.service = "tasks-one",
-                .kind = node::proto::TASK_SERVICE,
-                .platform = current_platform(),
-                .programs = local_service_programs(node::proto::TASK_SERVICE),
-                .plugins = std::vector<PluginArtifact>{},
-                .data_service = "data-one"})
-        .get();
-    auto ready = [&] {
+    const auto deploy = [&](const std::string& name, node::proto::ServiceKind kind) {
+        client
+            ->deploy(
+                {.service = name,
+                    .kind = kind,
+                    .platform = current_platform(),
+                    .programs = local_service_programs(kind),
+                    .plugins = std::vector<PluginArtifact>{}})
+            .get();
+    };
+    const auto ready = [&](const std::string& name) {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
-            const auto service = state("tasks-one");
+            const auto service = state(name);
             if (service.at("health") == "ready")
                 return service;
             if (std::chrono::steady_clock::now() >= deadline)
@@ -356,61 +366,55 @@ TEST_F(NodeSupervision, TaskBindingSurvivesRestartWithoutADataProcess)
             std::this_thread::sleep_for(20ms);
         }
     };
-    const auto endpoint = ready().at("endpoint").get<std::string>();
-    auto call = [&](task::proto::TaskRequest request) {
+    deploy("tasks-one", node::proto::RESEARCH);
+    const auto first = ready("tasks-one");
+    EXPECT_FALSE(first.contains("data_service"));
+    EXPECT_EQ(health().at("services").size(), 1U);
+    auto endpoint = client->service_endpoint("tasks-one", node::proto::RESEARCH).get();
+    EXPECT_FALSE(endpoint.owner_node_id.empty());
+    const auto call = [&](research::proto::ResearchRequest request) {
         request.set_version(1);
         request.set_service_id("tasks-one");
         request.set_correlation_id(unique_process_id());
-        auto channel = ipc::Channel::connect(endpoint, 2s);
+        auto channel = ipc::Channel::connect(endpoint.endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
         task::proto::TaskResponse reply;
         if (!reply.ParseFromString(channel.receive(2s)) || reply.has_error())
-            throw std::runtime_error("task fixture request failed");
+            throw std::runtime_error("research fixture request failed");
         return reply;
     };
-    task::proto::TaskRequest heartbeat;
+    research::proto::ResearchRequest heartbeat;
     heartbeat.mutable_heartbeat();
     const auto before = call(heartbeat).health();
     EXPECT_EQ(before.instance_id(), "tasks-one");
-    EXPECT_EQ(before.data_instance(), "data-one");
-    task::proto::TaskRequest list;
+    research::proto::ResearchRequest list;
     list.mutable_list()->set_limit(200);
     EXPECT_EQ(call(list).tasks().tasks_size(), 0);
     client->action("tasks-one", "restart").get();
-    EXPECT_EQ(ready().at("data_service"), "data-one");
+    (void)ready("tasks-one");
     const auto after = call(heartbeat).health();
     EXPECT_EQ(after.instance_id(), before.instance_id());
     EXPECT_NE(after.process_id(), before.process_id());
-    EXPECT_EQ(after.data_instance(), before.data_instance());
-    EXPECT_THROW(
-        client
-            ->deploy(
-                {.service = "data-one",
-                    .kind = node::proto::DATA_SERVICE,
-                    .platform = current_platform(),
-                    .programs = local_service_programs(node::proto::DATA_SERVICE),
-                    .plugins = std::vector<PluginArtifact>{},
-                    .task_service = "another-task"})
-            .get(),
-        std::exception);
-    client
-        ->deploy(
-            {.service = "data-one",
-                .kind = node::proto::DATA_SERVICE,
-                .platform = current_platform(),
-                .programs = local_service_programs(node::proto::DATA_SERVICE),
-                .plugins = std::vector<PluginArtifact>{},
-                .task_service = "tasks-one"})
-        .get();
-    const auto pair = client->data_task_endpoints("tasks-one").get();
-    EXPECT_EQ(pair.task.endpoint, endpoint);
-    EXPECT_EQ(pair.data.session, "data-one");
-    EXPECT_FALSE(pair.data.endpoint.empty());
-    client->action("data-one", "stop").get();
-    client->action("tasks-one", "stop").get();
-    const auto stopped = client->data_task_endpoints("tasks-one").get();
-    EXPECT_TRUE(same_service_endpoint(pair.task, stopped.task));
-    EXPECT_TRUE(same_service_endpoint(pair.data, stopped.data));
+    deploy("research-two", node::proto::RESEARCH);
+    (void)ready("research-two");
+    EXPECT_EQ(health().at("services").size(), 2U);
+    for (const auto* id : {"data-one", "data-two"}) {
+        deploy(id, node::proto::DATA_SERVICE);
+        (void)ready(id);
+        client->action(id, "stop").get();
+    }
+    // Discovery candidates do not become deployment dependencies.
+    client->action("tasks-one", "restart").get();
+    (void)ready("tasks-one");
+    EXPECT_EQ(call(list).tasks().tasks_size(), 0);
+    restart();
+    (void)ready("tasks-one");
+    const auto restored = client->service_endpoint("tasks-one", node::proto::RESEARCH).get();
+    EXPECT_EQ(restored.owner_node_id, endpoint.owner_node_id);
+    EXPECT_EQ(restored.session, endpoint.session);
+    EXPECT_NE(restored.endpoint, endpoint.endpoint);
+    endpoint = restored; // A locator must be discovered again after Agent restart.
+    EXPECT_EQ(call(list).tasks().tasks_size(), 0);
 }
 
 TEST_F(NodeSupervision, SlowProcessReleaseKeepsStatusAndConfirmedStopIntentVisible)
@@ -555,4 +559,289 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
     EXPECT_EQ(agent->exit_code(), 0);
     EXPECT_EQ(sha256_file(config), digest);
     EXPECT_TRUE(fs::exists(pending));
+}
+
+TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAcceptedReferences)
+{
+    const auto deploy = [&](const std::string& name, node::proto::ServiceKind kind) {
+        client
+            ->deploy(
+                {.service = name,
+                    .kind = kind,
+                    .platform = current_platform(),
+                    .programs = local_service_programs(kind),
+                    .plugins = kind == node::proto::RESEARCH
+                        ? std::nullopt
+                        : std::optional{std::vector<PluginArtifact>{}}})
+            .get();
+    };
+    const auto ready = [&](const std::string& name) {
+        const auto until = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            const auto observed = state(name);
+            if (observed.at("health") == "ready")
+                return observed;
+            if (std::chrono::steady_clock::now() >= until)
+                throw std::runtime_error(observed.dump());
+            std::this_thread::sleep_for(20ms);
+        }
+    };
+    deploy("data-one", node::proto::DATA_SERVICE);
+    const auto data_root = fs::path(ready("data-one").at("directory").get<std::string>());
+    client->action("data-one", "stop").get();
+    const auto selected = test::seed_history(
+        data_root,
+        {100, 101, 102, 101, 100, 101, 103},
+        "retained-source",
+        {"2026-09-25"},
+        {},
+        "rb",
+        1,
+        110,
+        "test.confirmed.v1",
+        "2026-10",
+        100,
+        "data-one");
+    client->action("data-one", "start").get();
+    (void)ready("data-one");
+    auto data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    protocol::DataClient data(data_address.endpoint, "data-one");
+    data::proto::DataRequest dataset;
+    auto* selection = dataset.mutable_bar_dataset();
+    selection->set_contract("SHFE/rb/2026-10");
+    *selection->mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
+    for (const auto& version : selected.at("source_dataset_ids"))
+        selection->add_source_dataset_ids(version.get<std::string>());
+    auto input = testing_support::backtest_input(data.call(dataset).bar_dataset());
+    input.mutable_data_owner()->set_node_id(data_address.owner_node_id);
+    input.mutable_data_owner()->set_service_id("data-one");
+    deploy("research-one", node::proto::RESEARCH);
+    const auto research_root = fs::path(ready("research-one").at("directory").get<std::string>());
+    client->action("research-one", "stop").get();
+    data::proto::DataRetention retention;
+    {
+        tasks::Store store(research_root, {"research-one"});
+        auto draft = store.submission("pending-release", input);
+        store.admit_submission(draft);
+        draft.prepare_files();
+        tasks::ResearchDataRoute route{
+            input.data_owner(),
+            data_address.endpoint,
+            data_address.owner_node_id
+        };
+        retention =
+            tasks::research_retention(draft.execution(), route, "research-one", "pending-release");
+        tasks::save_research_retention(research_root / "pending-release", retention);
+        data::proto::DataRequest prepare;
+        *prepare.mutable_retention()->mutable_prepare() = retention;
+        EXPECT_EQ(
+            data.call(prepare).retention().phase(),
+            data::proto::DataRetentionRecord::PREPARED);
+    }
+    client->action("research-one", "start").get();
+    (void)ready("research-one");
+    auto research_address = client->service_endpoint("research-one", node::proto::RESEARCH).get();
+    const auto research = [&](research::proto::ResearchRequest request) {
+        request.set_version(1);
+        request.set_service_id("research-one");
+        request.set_correlation_id(unique_process_id());
+        auto peer = ipc::Channel::connect(research_address.endpoint, 2s);
+        peer.send(request.SerializeAsString(), 2s);
+        task::proto::TaskResponse response;
+        if (!response.ParseFromString(peer.receive(10s)))
+            throw std::runtime_error("invalid Research fixture response");
+        protocol::validate_message(response);
+        if (response.has_error())
+            throw_remote_error(response.error().code(), response.error().message());
+        return response;
+    };
+    data::proto::DataRequest release;
+    *release.mutable_retention()->mutable_release() = retention.consumer();
+    EXPECT_THROW(
+        data.call(release, 10s),
+        Error); // Absence of an admitted task is not a release decision.
+    client->action("research-one", "stop").get();
+    EXPECT_THROW(data.call(release, 10s), Error); // Lost contact keeps the source held.
+    data::proto::DataRequest get;
+    *get.mutable_retention()->mutable_get() = retention.consumer();
+    EXPECT_EQ(data.call(get).retention().phase(), data::proto::DataRetentionRecord::PREPARED);
+    client->action("research-one", "start").get();
+    (void)ready("research-one");
+    research::proto::ResearchRequest abandon;
+    abandon.mutable_abandon_preparation()->set_id("pending-release");
+    EXPECT_EQ(
+        research(abandon).release_decision().state(),
+        resource::proto::ReleaseDecision::RELEASED);
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    research::proto::ResearchRequest recover;
+    recover.mutable_recover_submission()->set_id("pending-release");
+    EXPECT_THROW(research(recover), Error);
+    client->action("research-one", "stop").get();
+    fs::remove_all(
+        research_root
+        / "pending-release"); // Only this isolated draft payload, never its SQLite decision.
+    client->action("research-one", "start").get();
+    (void)ready("research-one");
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    research::proto::ResearchRequest submit;
+    submit.mutable_submit()->set_id("accepted-keep");
+    *submit.mutable_submit()->mutable_data_owner() = input.data_owner();
+    task::proto::Task fixed;
+    *fixed.mutable_input() = input;
+    *submit.mutable_submit()->mutable_backtest() = protocol::task_execution(fixed, "").backtest();
+    EXPECT_EQ(research(submit).task().state(), task::proto::QUEUED);
+    EXPECT_EQ(
+        testing_support::wait_task(research, "accepted-keep").state(),
+        task::proto::SUCCEEDED);
+    research::proto::ResearchRequest inspect;
+    inspect.mutable_get()->set_id("accepted-keep");
+    const auto accepted = research(inspect).task();
+    tasks::ResearchDataRoute route{
+        accepted.input().data_owner(),
+        data_address.endpoint,
+        data_address.owner_node_id
+    };
+    const auto held = tasks::research_retention(
+        protocol::task_execution(accepted, sha256_bytes(accepted.input().SerializeAsString())),
+        route,
+        "research-one",
+        "accepted-keep");
+    *release.mutable_retention()->mutable_release() = held.consumer();
+    EXPECT_THROW(data.call(release, 10s), Error);
+    abandon.mutable_abandon_preparation()->set_id("accepted-keep");
+    EXPECT_THROW(research(abandon), Error);
+    *get.mutable_retention()->mutable_get() = held.consumer();
+    EXPECT_EQ(data.call(get).retention().phase(), data::proto::DataRetentionRecord::CONFIRMED);
+    data::proto::DataRequest heartbeat;
+    heartbeat.mutable_heartbeat();
+    EXPECT_FALSE(data.call(heartbeat).health().recovery_required());
+    const auto node = data_address.owner_node_id;
+    restart();
+    (void)ready("data-one");
+    (void)ready("research-one");
+    data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    EXPECT_EQ(data_address.owner_node_id, node);
+    data = protocol::DataClient(data_address.endpoint, "data-one");
+    research_address = client->service_endpoint("research-one", node::proto::RESEARCH).get();
+    *release.mutable_retention()->mutable_release() = retention.consumer();
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    EXPECT_EQ(data.call(get).retention().phase(), data::proto::DataRetentionRecord::CONFIRMED);
+    research::proto::ResearchRequest retire;
+    retire.mutable_retirement()->set_id("accepted-keep");
+    EXPECT_EQ(research(retire).retirement().state(), task::proto::TaskRetirement::AVAILABLE);
+    retire.mutable_retirement()->set_execute(true);
+    const auto retired = research(retire).retirement();
+    ASSERT_EQ(retired.state(), task::proto::TaskRetirement::RETIRED);
+    EXPECT_TRUE(retired.task().has_retirement());
+    EXPECT_TRUE(retired.source_release_confirmed());
+    EXPECT_FALSE(retired.has_release_error());
+    *release.mutable_retention()->mutable_release() = held.consumer();
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    EXPECT_EQ(research(retire).retirement().task().updated_at_ms(), retired.task().updated_at_ms());
+    restart();
+    (void)ready("data-one");
+    (void)ready("research-one");
+    data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    data = protocol::DataClient(data_address.endpoint, "data-one");
+    research_address = client->service_endpoint("research-one", node::proto::RESEARCH).get();
+    EXPECT_EQ(research(retire).retirement().state(), task::proto::TaskRetirement::RETIRED);
+    EXPECT_EQ(
+        data.call(release, 10s).retention().phase(),
+        data::proto::DataRetentionRecord::RELEASED);
+    submit.mutable_submit()->set_id("offline-retire");
+    EXPECT_EQ(research(submit).task().state(), task::proto::QUEUED);
+    EXPECT_EQ(
+        testing_support::wait_task(research, "offline-retire").state(),
+        task::proto::SUCCEEDED);
+    client->action("data-one", "stop").get();
+    retire.mutable_retirement()->set_id("offline-retire");
+    const auto offline = research(retire).retirement();
+    EXPECT_EQ(offline.state(), task::proto::TaskRetirement::RETIRED);
+    EXPECT_FALSE(offline.source_release_confirmed());
+    EXPECT_TRUE(offline.has_release_error());
+    client->action("data-one", "start").get();
+    (void)ready("data-one");
+    const auto replayed = research(retire).retirement();
+    EXPECT_EQ(replayed.state(), task::proto::TaskRetirement::RETIRED);
+    EXPECT_TRUE(replayed.source_release_confirmed());
+    EXPECT_FALSE(replayed.has_release_error());
+    EXPECT_EQ(replayed.task().updated_at_ms(), offline.task().updated_at_ms());
+}
+
+TEST_F(NodeSupervision, UnknownServiceActionDoesNotCreateAServiceOrChangeDesiredState)
+{
+    for (const auto* action : {"start", "stop", "restart"}) {
+        try {
+            client->action("not-deployed", action).get();
+            FAIL() << "unknown service action was accepted";
+        } catch (const Error& error) {
+            EXPECT_EQ(error.code(), ErrorCode::not_found);
+        }
+    }
+    EXPECT_TRUE(health().at("services").empty());
+    EXPECT_FALSE(fs::exists(root / "agent/services/not-deployed"));
+}
+
+TEST_F(NodeSupervision, IntelligenceStartsWithoutDataAndKeepsStableOwnerAcrossAgentRestart)
+{
+    auto address = client->local_intelligence().get();
+    const auto stable_owner = address.owner_node_id;
+    ASSERT_FALSE(address.owner_node_id.empty());
+    EXPECT_EQ(address.session, "intelligence");
+    const auto ready = [&] {
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        while (state("intelligence").at("health") != "ready") {
+            if (std::chrono::steady_clock::now() >= deadline)
+                throw std::runtime_error("managed Intelligence readiness timed out");
+            std::this_thread::sleep_for(20ms);
+        }
+    };
+    ready();
+    EXPECT_EQ(health().at("services").size(), 1U);
+    EXPECT_EQ(state("intelligence").at("kind"), "intelligence");
+    const auto call = [&](bool heartbeat) {
+        intelligence::proto::IntelligenceRequest q;
+        q.set_version(1);
+        q.set_service_id(address.session);
+        q.set_correlation_id(unique_process_id());
+        if (heartbeat)
+            q.mutable_heartbeat();
+        else
+            q.mutable_list()->set_limit(64);
+        auto channel = ipc::Channel::connect(address.endpoint, 2s);
+        channel.send(q.SerializeAsString(), 2s);
+        intelligence::proto::IntelligenceResponse r;
+        if (!r.ParseFromString(channel.receive(3s)) || r.has_error()
+            || r.correlation_id() != q.correlation_id() || r.service_id() != q.service_id())
+            throw std::runtime_error("managed Intelligence request failed");
+        return r;
+    };
+    const auto before = call(true).health();
+    EXPECT_TRUE(before.initialized());
+    EXPECT_EQ(call(false).records().items_size(), 0);
+    EXPECT_EQ(client->local_intelligence().get().session, address.session);
+    ready();
+    EXPECT_EQ(health().at("services").size(), 1U);
+    client->action("intelligence", "restart").get();
+    ready();
+    const auto after = call(true).health();
+    EXPECT_EQ(after.instance_id(), before.instance_id());
+    EXPECT_NE(after.process_id(), before.process_id());
+    restart();
+    ready();
+    address = client->service_endpoint("intelligence", node::proto::INTELLIGENCE).get();
+    EXPECT_EQ(address.owner_node_id, stable_owner);
+    EXPECT_EQ(call(false).records().items_size(), 0);
+    EXPECT_EQ(health().at("services").size(), 1U);
 }

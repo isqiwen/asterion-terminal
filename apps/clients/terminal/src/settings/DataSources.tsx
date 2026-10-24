@@ -87,7 +87,7 @@ export function DataSources({
         <div className="settings-card">
           <p role="status">{t("数据服务未连接，无法读取数据源。")}</p>
           <footer>
-            <button disabled={busy} onClick={() => void run("node.data_tasks.local.open")}>
+            <button disabled={busy} onClick={() => void run("node.research.local.open")}>
               {t("重新连接")}
             </button>
           </footer>

@@ -56,7 +56,7 @@ protected:
         replace_file_durably(
             native / "product.json",
             R"({"product":"asterion-terminal","version":"0.1.0"})");
-        replace_file_durably(native / "config/task.json", R"({"task_concurrency":2})");
+        replace_file_durably(native / "config/research.json", R"({"task_concurrency":2})");
         replace_file_durably(
             native / "config/logging.json",
             R"({"level":"info","retention_days":30})");
@@ -78,7 +78,7 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     EXPECT_EQ(registered, 1);
     EXPECT_EQ(started, 1);
     const auto identity = contents(layout.node / "ipc-id");
-    replace_file_durably(layout.node / "config/task.json", R"({"task_concurrency":7})");
+    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":7})");
     replace_file_durably(layout.node / "ledger", "operator data");
     create_directories_durably(layout.enrollment);
     replace_file_durably(layout.enrollment / "connection", "local connection settings");
@@ -89,7 +89,7 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     deploy(layout, Deployment::upgrade, services, progress);
     EXPECT_EQ(started, 2);
     EXPECT_EQ(inspect(layout).at("version"), "0.2.0");
-    EXPECT_EQ(contents(layout.node / "config/task.json"), R"({"task_concurrency":7})");
+    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":7})");
     EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
     EXPECT_EQ(prepared, 2);
     uninstall(layout, true, services, progress);
@@ -168,7 +168,7 @@ TEST_F(Installation, RepairRestoresMissingProgramsAndPreservesUserState)
 {
     deploy(layout, Deployment::install, services, progress);
     const auto identity = contents(layout.node / "ipc-id");
-    replace_file_durably(layout.node / "config/task.json", R"({"task_concurrency":7})");
+    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":7})");
     replace_file_durably(layout.node / "ledger", "operator data");
     fs::remove_all(layout.destination);
     EXPECT_TRUE(inspect(layout).at("installed"));
@@ -179,7 +179,7 @@ TEST_F(Installation, RepairRestoresMissingProgramsAndPreservesUserState)
     EXPECT_EQ(started, 1);
     EXPECT_EQ(removed, 1);
     EXPECT_EQ(prepared, 2);
-    EXPECT_EQ(contents(layout.node / "config/task.json"), R"({"task_concurrency":7})");
+    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":7})");
     EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
     EXPECT_EQ(contents(layout.node / "ledger"), "operator data");
 }
@@ -245,10 +245,10 @@ TEST_F(Installation, FailedRegistrationRequiresExplicitResumeAndPreservesConfigu
     EXPECT_THROW(deploy(layout, Deployment::install, failing, progress), std::runtime_error);
     EXPECT_EQ(inspect(layout).at("pending"), "install");
     EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
-    replace_file_durably(layout.node / "config/task.json", R"({"task_concurrency":9})");
+    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":9})");
     deploy(layout, Deployment::install, services, progress);
     EXPECT_EQ(inspect(layout).at("pending"), "");
-    EXPECT_EQ(contents(layout.node / "config/task.json"), R"({"task_concurrency":9})");
+    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":9})");
 }
 
 TEST_F(Installation, RunningTerminalAndForeignDestinationAreNotModified)

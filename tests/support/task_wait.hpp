@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/research.pb.h>
 #include <asterion/task.pb.h>
 #include <chrono>
 #include <thread>
@@ -13,7 +14,7 @@ task::proto::Task wait_task(
     std::chrono::seconds timeout = std::chrono::seconds(60))
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
-    task::proto::TaskRequest request;
+    research::proto::ResearchRequest request;
     request.mutable_metadata_get()->set_id(id);
     for (;;) {
         const auto response = call(request);
@@ -25,7 +26,7 @@ task::proto::Task wait_task(
             && task.state() != task::proto::PUBLISHING)
             return task;
         if (std::chrono::steady_clock::now() >= deadline)
-            throw std::runtime_error("task did not finish: " + id);
+            throw std::runtime_error("task did not finish: " + id + " " + task.ShortDebugString());
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }

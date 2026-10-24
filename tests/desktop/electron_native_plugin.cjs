@@ -81,11 +81,11 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await expect
       .poll(async () => service(await call("runtime.snapshot"), "historical-data").plugin_artifacts)
       .toEqual([hash]);
-    await call("node.data_tasks.local.open");
+    await call("node.research.local.open");
     await expect
       .poll(async () => (await call("runtime.snapshot")).data?.sources.map(item => item.id))
       .toEqual(["fixture.minutes"]);
-    assert.deepEqual(service(await call("runtime.snapshot"), "task").plugin_artifacts, []);
+    assert.deepEqual(service(await call("runtime.snapshot"), "research").plugin_artifacts, []);
     // This value is a test fixture token, never a real provider credential.
     const credential = "fixture-session-secret";
     await call("data.credentials.save", {
@@ -100,7 +100,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       token: "",
       requests_per_minute: 30,
     });
-    const tasks = state => state.task_service.tasks;
+    const tasks = state => state.data.tasks;
     const succeeded = async id =>
       await expect
         .poll(
@@ -160,7 +160,10 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     assert.equal(table.rows[0][table.columns.indexOf("close")], "72000.5");
     const current = await call("runtime.snapshot");
     assert.ok(!JSON.stringify(current).includes(credential));
-    const taskDirectory = service(current, "task").directory;
+    const taskDirectory = path.join(
+      service(current, "historical-data").directory,
+      "acquisition-tasks",
+    );
     await assert.rejects(fs.access(path.join(taskDirectory, id, "provider.credential")), {
       code: "ENOENT",
     });
@@ -180,7 +183,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
         })
       ).history_page;
     assert.equal((await readMinutes()).bars[0].close, "2");
-    await call("node.action", { id: "local", service: "task", action: "stop" });
+    await call("node.action", { id: "local", service: "research", action: "stop" });
     assert.equal((await readMinutes()).id, minute.id);
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
     // Removing the upload cannot remove the service's or submitted task's pinned bytes.
@@ -199,7 +202,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       console.error("Restored services:", JSON.stringify((await call("runtime.snapshot")).nodes));
       throw error;
     }
-    await call("node.data_tasks.local.open");
+    await call("node.data.local.open");
     await expect.poll(async () => (await call("runtime.snapshot")).data?.sources.length).toBe(1);
     const restored = await call("runtime.snapshot");
     assert.deepEqual(service(restored, "historical-data").plugin_artifacts, [hash]);

@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 
 namespace asterion::sqlite {
 
@@ -77,7 +78,32 @@ struct TableCoverage
 class TableStore final
 {
 public:
-    explicit TableStore(std::filesystem::path root);
+    enum class Access
+    {
+        writer,
+        read_only,
+        cold_read_only // Caller holds the stopped domain ownership lock.
+    };
+    explicit TableStore(std::filesystem::path root, Access = Access::writer);
+    // Current schema, every historical snapshot link, object and raw response.
+    // Cold backup adapters hold Data's ownership lock while verifying and copying.
+    void verify_history(std::stop_token = {}) const;
+
+    struct Retirement
+    {
+        std::string snapshot;
+        std::uint64_t sequence = 0;
+        std::vector<std::string> objects;
+        bool complete = false;
+    };
+
+    std::optional<Retirement> retirement(const std::string&) const;
+    std::vector<Retirement> retirements() const;
+    Retirement preview_retirement(const std::string&, std::stop_token = {}) const;
+    void begin_retirement(const Retirement&);
+    void clean_retirement(const std::string&, std::stop_token = {});
+    void finish_retirement(const std::string&);
+    std::uint64_t retirement_bytes(const Retirement&) const;
     ~TableStore();
     // The revision a partition currently holds.
     std::optional<TableRevision>
@@ -119,12 +145,15 @@ public:
         const SourceResponse&,
         std::int64_t recorded_at_ns,
         bool unchanged);
+    std::vector<TableObservationContext>
+    snapshot_observers(const std::string&, std::stop_token = {}) const;
     std::optional<TableRefreshObservation> latest_refresh_observation(
         const TableSeries&,
         const std::string& exchange,
         const std::string& period) const;
     // The snapshot after the last entry; empty for an empty ledger.
     std::string head() const;
+    std::vector<TableRevision> snapshot_catalogue(const std::string& after, unsigned limit) const;
     std::vector<TableCoverage> coverage() const;
     // Periods of one exchange that hold a revision, ascending, within [first, last].
     std::vector<std::string> periods(
@@ -156,11 +185,16 @@ public:
         const std::function<void(std::size_t, std::vector<TableCell>&)>& visit) const;
 
 private:
+    std::vector<Retirement> retirements_unlocked() const;
+    std::vector<std::string> reclaimable_unlocked(const std::string&, std::stop_token = {}) const;
+    void check_publishable_unlocked(const std::string&) const;
     std::optional<TableRevision> revision_unlocked(const std::string& snapshot) const;
     TableRefreshObservation
     observation_unlocked(const std::string& id, const std::string& operation) const;
     std::filesystem::path object_path(const std::string& object) const;
     std::filesystem::path root_;
+    Access access_;
+    void writable() const;
     mutable std::mutex mutex_;
     std::unique_ptr<sqlite::Database> ledger_;
 };

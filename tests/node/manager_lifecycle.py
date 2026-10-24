@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         pids.update([manager_pid, agent_pid])
         assert manager_pid != agent_pid
         assert not (root / "config/manager.pb").exists()
-        policy = root / "config/task.json"
+        policy = root / "config/research.json"
         assert json.loads(policy.read_text()) == {"task_concurrency": 1}
         policy.chmod(0o400)
         original_policy = policy.read_bytes()
@@ -84,14 +84,17 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         # no remote node or cross-built Linux deployment resources are present.
         assert not Path(env["ASTERION_REMOTE_RESOURCES"]).exists()
         call(first, "market.local")
-        call(first, "node.data_tasks.local.open")
+        call(first, "node.data.local.open")
+        independent = call(first, "runtime.snapshot")["nodes"][0]["health"]["services"]
+        assert {item["kind"] for item in independent} == {"market", "data"}, independent
+        call(first, "node.research.local.open")
 
         def local_services(process):
             snapshot = call(process, "runtime.snapshot")
             assert [node["id"] for node in snapshot["nodes"]] == ["local"], snapshot
             health = snapshot["nodes"][0]["health"]
             services = {item["id"]: item for item in health["services"]}
-            expected = {"market-data", "historical-data", "task"}
+            expected = {"market-data", "historical-data", "research"}
             if set(services) != expected or any(
                 item["health"] not in {"ready", "awaiting_input"} or not item["pid"] for item in services.values()
             ):
@@ -100,9 +103,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
             return services
 
         services = wait(lambda: local_services(first))
-        assert services["task"]["data_service"] == "historical-data"
-        assert services["historical-data"]["task_service"] == "task"
-        instance_policy = root / "config/services/task/task.json"
+        assert "data_service" not in services["research"]
+        assert "task_service" not in services["historical-data"]
+        instance_policy = root / "config/services/research/research.json"
         assert instance_policy.read_bytes() == original_policy
         # Operator policy belongs to the instance and survives both supervisors.
         instance_policy.write_text('{"task_concurrency":2}\n')

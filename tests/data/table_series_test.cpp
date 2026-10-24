@@ -1,3 +1,5 @@
+#include "support/data_discovery.hpp"
+#include <asterion/research.pb.h>
 #include "support/task_wait.hpp"
 #include "../plugins/data/tushare/margin_definition.hpp"
 #include <asterion/domain/account.hpp>
@@ -920,7 +922,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     Folder warehouse("ast-tf-"), tasks("ast-tt-"), sockets("ast-tk-");
     // The data service's own directory layout, then the tables as an update leaves them.
     {
-        data::Store layout(warehouse.path, "table-data", "table-tasks");
+        data::Store layout(warehouse.path, "table-data");
     }
     std::string snapshot;
     std::vector<std::string> open;
@@ -966,16 +968,20 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             warehouse.path.string(),
             "--session",
             "table-data",
-            "--task-instance",
-            "table-tasks",
+            "--node-id",
+            "fixture-node",
             "--endpoint",
             data_endpoint,
             "--internal-endpoint",
             data_workers});
+    testing_support::DataDiscovery discovery(
+        task_endpoint + ".discovery",
+        "table-data",
+        data_endpoint);
     ChildProcess task_process(
-        ASTERION_TASK_SERVICE_PATH,
+        ASTERION_RESEARCH_PATH,
         {"--config",
-            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
+            (std::filesystem::path(ASTERION_RESEARCH_PATH).parent_path() / "config/research.json")
                 .string(),
             "--directory",
             tasks.path.string(),
@@ -983,11 +989,10 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             "table-tasks",
             "--endpoint",
             task_endpoint,
-            "--data-instance",
-            "table-data",
-            "--data-endpoint",
-            data_workers});
-    const auto call = [&](task::proto::TaskRequest request) {
+            "--discovery-endpoint",
+            task_endpoint + ".discovery"});
+    discovery.research("table-tasks", task_process.id(), sha256_file(ASTERION_RESEARCH_PATH));
+    const auto call = [&](research::proto::ResearchRequest request) {
         request.set_version(1);
         request.set_service_id("table-tasks");
         request.set_correlation_id(unique_process_id());
@@ -1000,7 +1005,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
     };
     for (const auto deadline = std::chrono::steady_clock::now() + 10s;;) {
         try {
-            task::proto::TaskRequest ping;
+            research::proto::ResearchRequest ping;
             ping.mutable_heartbeat();
             data::proto::DataRequest data_ping;
             data_ping.mutable_heartbeat();
@@ -1015,7 +1020,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         }
         std::this_thread::sleep_for(20ms);
     }
-    task::proto::TaskRequest submit;
+    research::proto::ResearchRequest submit;
     submit.mutable_submit()->set_id("across");
     auto* factor = submit.mutable_submit()->mutable_factor_request();
     *factor->add_series()->mutable_tables() = request(
@@ -1046,7 +1051,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             "across")
             .state(),
         task::proto::SUCCEEDED);
-    task::proto::TaskRequest read;
+    research::proto::ResearchRequest read;
     read.mutable_result()->set_id("across");
     const auto result = call(read);
     ASSERT_EQ(result.result_task().state(), task::proto::SUCCEEDED) << result.DebugString();
@@ -1072,7 +1077,7 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         << "observations are shown by trading day";
     const auto original_input = sha256_file(tasks.path / "across/input.pb");
     const auto original_result = sha256_file(tasks.path / "across/results/1.pb");
-    task::proto::TaskRequest repeat;
+    research::proto::ResearchRequest repeat;
     repeat.mutable_submit()->set_id("bad-reuse");
     *repeat.mutable_submit()->mutable_factor_request() = *factor;
     repeat.mutable_submit()->mutable_factor_request()->set_expected_dataset_revision(

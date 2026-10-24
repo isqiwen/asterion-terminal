@@ -1,17 +1,20 @@
 add_library(asterion_terminal_application STATIC
   native/market_snapshot.cpp
   native/market_client.cpp
-  native/task_client.cpp
+  native/research_client.cpp
   native/data_client.cpp
+  native/intelligence_call.cpp
+  native/commands_intelligence.cpp
   native/terminal_application.cpp
   native/commands_live.cpp
   native/commands_node.cpp
+  native/commands_backup.cpp
   native/commands_data.cpp
   native/commands_task.cpp
   native/analytics.cpp
   native/commands_backtest.cpp
   native/commands_factor.cpp
-  native/commands_node_data_tasks.cpp
+  native/commands_node_workspaces.cpp
   native/commands_history_usage.cpp
   native/commands_connections.cpp
   native/data_credentials.cpp
@@ -25,7 +28,7 @@ add_library(asterion_terminal_application STATIC
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_application PUBLIC asterion_node_control asterion_chart_indicators asterion_node_firewall asterion_protocol PRIVATE asterion_performance asterion_data_client asterion_task_store asterion_sqlite nlohmann_json::nlohmann_json OpenSSL::Crypto)
-add_dependencies(asterion_terminal_application asterion_node_manager asterion_trading asterion_node_agent asterion_market_data)
+add_dependencies(asterion_terminal_application asterion_node_manager asterion_trading asterion_node_agent asterion_market)
 if(APPLE)
   # Kept free of project libraries so its code signature, which the keychain
   # uses to grant access, only changes when this file does.
@@ -40,6 +43,13 @@ endif()
 add_dependencies(asterion_terminal_application asterion_keychain)
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
-add_dependencies(asterion_terminal_application asterion_data_service asterion_task_service)
+add_dependencies(asterion_terminal_application asterion_data asterion_research asterion_intelligence)
 asterion_target_defaults(asterion_terminal_application)
 asterion_target_defaults(asterion_terminal_dev_bridge)
+
+add_library(asterion_domain_backup STATIC native/domain_backup.cpp)
+target_include_directories(asterion_domain_backup PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
+target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup asterion_trading_backup asterion_intelligence_backup)
+asterion_target_defaults(asterion_domain_backup)
+
+target_link_libraries(asterion_terminal_application PRIVATE asterion_domain_backup)

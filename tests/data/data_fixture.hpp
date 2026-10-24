@@ -42,7 +42,7 @@ data::proto::HistoryRecord publish_download(
     data::proto::DownloadAllocation allocation;
     auto* identity = allocation.mutable_identity();
     identity->set_data_instance(store.instance());
-    identity->set_task_instance("task");
+    identity->set_task_instance(store.instance());
     identity->set_task_id(id);
     identity->set_attempt(1);
     *allocation.mutable_minutes() = input;

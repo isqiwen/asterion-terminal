@@ -71,8 +71,8 @@ test("chart panes retain intervals and indicators across contracts without subst
         quote: null,
       })),
     };
-    data.result.task_service = {
-      ...data.result.task_service!,
+    data.result.data = {
+      ...data.result.data!,
       tasks: datasets.map(({ symbol, period, version }, index) => ({
         id: `${symbol}-${period}${version ? `-v${version}` : ""}`,
         history_dataset_id: `${symbol}-${period}${version ? `-v${version}` : ""}`,

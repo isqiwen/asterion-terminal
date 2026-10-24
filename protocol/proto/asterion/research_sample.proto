@@ -1,0 +1,54 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/data.proto";
+import "asterion/resource.proto";
+
+// An explicit research selection, separate from Data's named portfolios and
+// from successful factor calculations. No client-supplied market rows or paths.
+message SampleRequest {
+  asterion.data.proto.BarDatasetRequest selection = 1;
+  string use_scope = 2;
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    POST_HOC = 1; // Current Data does not establish historical knowable times.
+  }
+
+  Mode mode = 3;
+  oneof evaluation {
+    bool full_sample = 4;
+    uint32 development_end = 5; // First held-out actual observation, zero-based.
+  }
+}
+message SampleInput {
+  asterion.resource.proto.Owner owner = 1;
+  asterion.data.proto.DataOwner data_owner = 2;
+  SampleRequest request = 3;
+  asterion.data.proto.BarDataset dataset = 4;
+}
+// Reconstruct only from the same Data selection when a prepared input is
+// missing. The task's fixed input digest confirms the reconstructed body.
+message SampleExecution {
+  asterion.resource.proto.Owner owner = 1;
+  SampleRequest request = 2;
+}
+message SampleRow {
+  enum Role {
+    ROLE_UNSPECIFIED = 0;
+    FULL_SAMPLE = 1;
+    DEVELOPMENT = 2;
+    HOLDOUT = 3;
+  }
+
+  uint32 event_index = 1;
+  int64 observed_ns = 2;
+  string trading_day = 3;
+  Role role = 4;
+}
+message SampleResult {
+  asterion.resource.proto.Owner owner = 1;
+  string dataset_revision = 2;
+  // Values remain in the immutable owned input. Result reads project the
+  // original close by this index; they never recalculate or expose held-out values.
+  repeated SampleRow rows = 3;
+}

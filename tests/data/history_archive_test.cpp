@@ -231,7 +231,7 @@ TEST(HistoryArchive, RejectsUnconfirmedSourceAndPartialDataset)
 TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks)
 {
     Folder root;
-    data::Store store(root.path, "historical-data", "task");
+    data::Store store(root.path, "historical-data");
     history_files::Archive archive(root.path / "history");
     AlternateMinutes provider;
     const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "first");
@@ -329,4 +329,41 @@ TEST(HistoryArchive, ReadOnlyInspectionCannotCreateOrPublishState)
         history_files::Archive(root.path / "missing", history_files::Archive::Access::read_only),
         std::invalid_argument);
     EXPECT_FALSE(std::filesystem::exists(root.path / "missing"));
+}
+
+TEST(HistoryArchive, IndependentCopyResolvesOwnedLocationWithoutRewritingPublicationEvidence)
+{
+    Folder source, destination;
+    const auto history = source.path / "history";
+    data::proto::HistoryRecord original;
+    {
+        history_files::Archive archive(history);
+        AlternateMinutes provider;
+        original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "restorable");
+    }
+    const auto id = original.minute_result().manifest_sha256();
+    const auto index = history / "index" / (id + ".pb");
+    const auto before = sha256_file(index);
+    const auto restored_root = destination.path / "history";
+    std::filesystem::copy(history, restored_root, std::filesystem::copy_options::recursive);
+    std::filesystem::rename(
+        history,
+        source.path / "original-preserved"); // Old absolute locator is unavailable.
+    history_files::Archive restored(restored_root, history_files::Archive::Access::read_only);
+    const auto record = restored.get(id);
+    EXPECT_EQ(record.minutes().SerializeAsString(), original.minutes().SerializeAsString());
+    EXPECT_NE(record.minute_result().directory(), original.minute_result().directory());
+    EXPECT_TRUE(std::filesystem::is_directory(record.minute_result().directory()));
+    std::uint64_t rows = 0;
+    history_files::read_minutes(record.minute_result().directory(), [&](const HistoricalBar&) {
+        ++rows;
+    });
+    EXPECT_EQ(rows, record.minute_result().rows());
+    EXPECT_EQ(sha256_file(restored_root / "index" / (id + ".pb")), before);
+    EXPECT_EQ(sha256_file(source.path / "original-preserved" / "index" / (id + ".pb")), before);
+    auto corrupted = original;
+    corrupted.mutable_minute_result()->set_directory(
+        (restored_root / "wrong-source" / "restorable").string());
+    replace_file_durably(restored_root / "index" / (id + ".pb"), corrupted.SerializeAsString());
+    EXPECT_THROW(restored.get(id), std::invalid_argument);
 }

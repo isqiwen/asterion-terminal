@@ -22,6 +22,9 @@ if sys.platform != "linux":
 
 bridge, node, trading, certificates = map(str, sys.argv[1:])
 def call(process, method, params=None, error=False, timeout=None):
+    if method.startswith("task."):
+        owner = call(process, "runtime.snapshot")["research_service"]
+        params = dict(params or {}, owner=dict(kind="research", **{key: owner[key] for key in ("node_id", "service", "connection_id")}))
     process.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
     process.stdin.flush()
     if timeout is not None:
@@ -50,7 +53,7 @@ def stop(p):
 with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); state = root / "node"; state.mkdir()
     (state / "config").mkdir()
-    (state / "config/task.json").write_text(json.dumps({"task_concurrency": 2}))
+    (state / "config/research.json").write_text(json.dumps({"task_concurrency": 2}))
     subprocess.run([certificates, folder], check=True)
     management, trade_port = port(), port()
     while trade_port == management:
@@ -139,7 +142,11 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         task_port = port()
         while task_port in {management, trade_port}:
             task_port = port()
-        call(terminal, "node.deploy", {"id": "task", "kind": "task", "service": "task", "port": str(task_port)})
+        data_port = port()
+        while data_port in {management, trade_port, task_port}:
+            data_port = port()
+        call(terminal, "node.deploy", {"id": "task", "kind": "data", "service": "task-data", "port": str(data_port)})
+        call(terminal, "node.deploy", {"id": "task", "kind": "research", "service": "task", "port": str(task_port)})
         history = str(Path(bridge).resolve().parent / "asterion_test_history")
         def seed(prices, identity):
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "stop"})
@@ -151,7 +158,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
                 capture_output=True, text=True)
             assert seeded.returncode == 0, seeded.stderr
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "start"})
-            call(terminal, "node.data_tasks.attach", {"id": "task", "service": "task"})
+            call(terminal, "node.data.attach", {"id": "task", "service": "task-data"})
+            call(terminal, "node.research.attach", {"id": "task", "service": "task"})
             wait(lambda: call(terminal, "runtime.snapshot")["data"]["online"])
             # What data.dataset.select takes of what the fixture program prints.
             return {key: value for key, value in json.loads(seeded.stdout).items()
@@ -209,7 +217,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         for task_id in ("remote-backtest", "parallel-one", "parallel-two"):
             call(terminal, "backtest.submit", {**backtest_request, "id": task_id})
         def task_done(task_id):
-            tasks = [task for task in call(terminal, "runtime.snapshot")["task_service"]["tasks"] if task["id"] == task_id]
+            tasks = [task for task in call(terminal, "runtime.snapshot")["research_service"]["tasks"] if task["id"] == task_id]
             return tasks and tasks[0]["state"] == "succeeded"
         for task_id in ("remote-backtest", "parallel-one", "parallel-two"):
             wait(lambda task_id=task_id: task_done(task_id))
@@ -236,11 +244,17 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         finally:
             for pid in suspended:
                 os.kill(pid, signal.SIGCONT)
-        stopped=call(terminal,"node.action",{"id":"task","service":"task","action":"stop"})
-        current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="task")
+        call(terminal, "node.action", {"id": "task", "service": "task", "action": "stop"})
+        def stopped_research():
+            snapshot = call(terminal, "runtime.snapshot")
+            service = next(s for n in snapshot["nodes"] for s in n["health"]["services"] if s["id"] == "task")
+            return service if service["state"] == "stopped" and not service["desired_running"] and not service["pid"] else None
+        # A stop acknowledgement precedes final process exit and its health observation.
+        # Upgrade uses the final stopped revision, never the intermediate response.
+        current = wait(stopped_research)
         call(terminal,"node.update",{"id":"task","service":"task","revision":current["revision"]})
         call(terminal,"node.action",{"id":"task","service":"task","action":"start"})
-        call(terminal, "node.data_tasks.attach", {"id": "task", "service": "task"})
+        call(terminal, "node.research.attach", {"id": "task", "service": "task"})
         assert call(terminal, "task.result", {"id": "remote-backtest"})["task_result"] == result
         assert call(terminal, "task.result", {"id": "remote-factor"})["task_result"] == factor_result
         call(terminal, "node.action", {"id": "task", "service": "task", "action": "stop"})

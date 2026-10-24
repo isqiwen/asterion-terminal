@@ -24,6 +24,7 @@ const errors: Record<string, string> = {
 // These messages carry operation-specific evidence after a stable prefix.
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
 const prefixedDiagnostics = [
+  ["feature expression at byte ", "feature expression validation failed"],
   ["management startup timed out: ", "management startup timed out"],
   ["local Agent startup failed: ", "local Agent startup failed"],
   ["invalid node maintenance record: ", "invalid node maintenance record"],

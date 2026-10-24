@@ -30,8 +30,8 @@ const usedBy = (dataset: string, roles: HistoryReference["roles"]): Snapshot => 
     dataset_id: dataset,
     references: [{ kind: "saved_dataset", id: "saved-1", name: "引用核对组合", roles }],
     selected_roles: [],
-    disconnected_nodes: { names: [] },
-    other_data_services: [],
+    consumers: [],
+    state: "blocked",
   };
   return { ...readySnapshot(), history_usage: usage };
 };
@@ -83,5 +83,25 @@ test("a failed check shows its error and neither an earlier result nor an all-cl
   expect(screen.queryByRole("table")).toBeNull();
   expect(screen.getByRole("region", { name: "使用情况" }).textContent).not.toContain(
     "未发现关联记录",
+  );
+});
+
+test("offline prepared and confirmed consumers remain visible in the owner ledger", async () => {
+  const value = usedBy("minute", ["market"]);
+  value.history_usage!.consumers = ["prepared", "confirmed"].map((phase, index) => ({
+    node: "offline-node",
+    service: "research",
+    domain: "research",
+    kind: "backtest",
+    id: `run-${index}`,
+    version: "a".repeat(64),
+    phase: phase as "prepared" | "confirmed",
+  }));
+  render(panel(async () => value, "minute"));
+  await screen.findByRole("table", { name: "跨域保留引用" });
+  expect(screen.getByText("准备中的引用仍保留")).toBeTruthy();
+  expect(screen.getByText("正式引用仍保留")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "使用情况" }).textContent).toContain(
+    "找到 3 条关联记录",
   );
 });

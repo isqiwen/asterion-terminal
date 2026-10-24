@@ -9,7 +9,7 @@
 #include "data_credentials.hpp"
 #include "plugin_catalog.hpp"
 #include "remote_bundle.hpp"
-#include "task_client.hpp"
+#include "research_client.hpp"
 #include "data_client.hpp"
 #include "trading_client.hpp"
 #include "service_io.hpp"
@@ -94,12 +94,52 @@ struct Application::Impl
     std::uint64_t refresh_failures = 0;
     bool refresh_failed = false, settings_failed = false;
     void record_refresh_failure(ErrorCode code) noexcept;
-    std::shared_ptr<TaskClient> task_client;
+    std::shared_ptr<ResearchClient> research_client;
     std::shared_ptr<DataClient> data_client;
+    std::optional<ServiceEndpoint> intelligence_endpoint;
+    json intelligence_state = nullptr;
+    std::uint64_t intelligence_generation = 0;
     std::uint64_t data_task_generation = 0;
-    // Adopts a prepared connection on the I/O owner. Draft datasets
-    // belong to one service; reconnecting that service preserves them.
-    void adopt_data_tasks(std::shared_ptr<TaskClient> next, std::shared_ptr<DataClient> next_data);
+
+    bool task_owner_is_data(const json& p) const
+    {
+        const auto& owner = p.at("owner");
+        fields(owner, {"kind", "node_id", "service", "connection_id"});
+        const auto kind = text(owner, "kind");
+        json current;
+        if (kind == "data" && data_client)
+            current = data_client->owner_status();
+        else if (kind == "research" && research_client)
+            current = research_client->owner_view().connection;
+        else
+            throw Error(
+                ErrorCode::conflict,
+                "task owner selection changed; inspect the original service");
+        for (const auto* field : {"node_id", "service", "connection_id"})
+            if (current.at(field) != text(owner, field))
+                throw Error(
+                    ErrorCode::conflict,
+                    "task owner selection changed; inspect the original service");
+        return kind == "data";
+    }
+
+    data::proto::DataOwner research_data_owner() const
+    {
+        if (!data_client || !research_client)
+            throw Error(ErrorCode::unavailable, "select data and research services");
+        const auto data = data_client->endpoint();
+        const auto research = research_client->endpoint();
+        if (data.owner_node_id.empty() || research.owner_node_id.empty()
+            || data.owner_node_id != research.owner_node_id)
+            throw Error(ErrorCode::conflict, "cross-node data access requires a remote resolver");
+        data::proto::DataOwner owner;
+        owner.set_node_id(data.owner_node_id);
+        owner.set_service_id(data.session);
+        return owner;
+    }
+
+    void adopt_data(std::shared_ptr<DataClient> next);
+    void adopt_research(std::shared_ptr<ResearchClient> next);
     std::shared_ptr<const json> native_plugins;
     // Remembered credentials live in the keychain; the helper is found next to
     // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
@@ -118,7 +158,7 @@ struct Application::Impl
     PolledTask<std::string> source_credential(const std::string& source, std::string typed);
     // The credential typed for this request, else the one saved for the provider.
     PolledTask<std::string> provider_credential(const std::string& provider, std::string typed);
-    std::shared_ptr<const json> task_result;
+    std::shared_ptr<const json> task_result, notice_custody;
     // One dataset per portfolio contract, in selection order.
     std::vector<DatasetSelection> selections;
     std::vector<DatasetSeries> dataset_series;
@@ -287,9 +327,9 @@ struct Application::Impl
         std::vector<NodeSnapshot> nodes;
         Settings settings;
         std::map<std::string, TradingClient::Read> live;
-        std::optional<TaskClient::Read> tasks;
+        std::optional<ResearchClient::Read> tasks;
         MarketProjection market;
-        std::shared_ptr<const json> task_result, plugins;
+        std::shared_ptr<const json> task_result, notice_custody, plugins;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;
         bool same_state(const Publication&) const;
@@ -309,7 +349,9 @@ struct Application::Impl
     // Commands are registered once during construction, before dispatch is possible.
     void register_live_commands();
     void register_node_commands();
+    void register_backup_commands();
     void register_data_commands();
+    void register_intelligence_commands();
     void register_task_commands();
     void register_backtest_commands();
     void register_factor_commands();

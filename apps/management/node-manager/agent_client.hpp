@@ -38,7 +38,6 @@ struct ServiceDeployment
     std::string directory;
     // nullopt uses the bundled catalog; an empty vector explicitly disables all plugins.
     std::optional<std::vector<PluginArtifact>> plugins;
-    std::string task_service, data_service;
 };
 
 struct ServiceUpdate
@@ -71,9 +70,6 @@ public:
     maintenance(bool enter, const std::string& operation, const std::string& instance);
     [[nodiscard]] std::future<ServiceEndpoint>
     service_endpoint(const std::string& service, node::proto::ServiceKind kind);
-    // Resolves the configured pair even if either process is offline.
-    [[nodiscard]] std::future<DataTaskEndpoints> data_task_endpoints(
-        const std::string& task_service);
     [[nodiscard]] std::future<void> deploy(const ServiceDeployment& deployment);
     [[nodiscard]] std::future<void> update(const ServiceUpdate& update);
     // The service of one CTP trading account record.
@@ -81,7 +77,9 @@ public:
         const std::filesystem::path& directory);
     [[nodiscard]] std::future<ServiceEndpoint> trading_session(const std::string& service);
     [[nodiscard]] std::future<ServiceEndpoint> local_market();
-    [[nodiscard]] std::future<ServiceEndpoint> local_data_tasks(
+    [[nodiscard]] std::future<ServiceEndpoint> local_data();
+    [[nodiscard]] std::future<ServiceEndpoint> local_intelligence();
+    [[nodiscard]] std::future<ServiceEndpoint> local_research(
         const std::optional<std::vector<std::string>>& selected_plugins = std::nullopt);
     [[nodiscard]] std::future<Json>
     firewall(const std::string& service, const std::string& action, const std::string& token = {});

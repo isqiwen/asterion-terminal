@@ -21,6 +21,27 @@ export async function rpc(
   return body.result;
 }
 
+// Test setup names the actual owner explicitly; production never infers it from an id.
+export async function taskRpc(
+  request: APIRequestContext,
+  kind: "data" | "research",
+  method: string,
+  params: Record<string, unknown> = {},
+) {
+  const snapshot = await rpc(request, "runtime.snapshot");
+  const selected = kind === "data" ? snapshot.data : snapshot.research_service;
+  expect(selected).toBeTruthy();
+  return rpc(request, method, {
+    ...params,
+    owner: {
+      kind,
+      node_id: selected.node_id,
+      service: selected.service,
+      connection_id: selected.connection_id,
+    },
+  });
+}
+
 type Service = { id: string; directory: string };
 type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 
@@ -40,6 +61,7 @@ export async function seedHistory(
     dailyDays = [],
     tablesOnly = false,
     dailyPrices = false,
+    dailyVolume = 10000,
     shfeMargins = false,
     month = "2026-10",
     openInterest = 100,
@@ -53,6 +75,7 @@ export async function seedHistory(
     dailyDays?: string[];
     tablesOnly?: boolean;
     dailyPrices?: boolean;
+    dailyVolume?: number;
     shfeMargins?: boolean;
     month?: string;
     openInterest?: number;
@@ -62,7 +85,7 @@ export async function seedHistory(
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
   if (!keep) await rpc(request, "data.dataset.clear");
-  await rpc(request, "node.data_tasks.local.open");
+  await rpc(request, "node.data.local.open");
   // The daily table is seeded under the sources the installed data source
   // offers: those are the ones the Terminal's pages read.
   const offered: { table: string; source: string; plugin_id: string }[] = (
@@ -109,6 +132,8 @@ export async function seedHistory(
       ...(dailyDays.length ? ["--daily-days", ...dailyDays] : []),
       ...(tablesOnly ? ["--tables-only"] : []),
       ...(dailyPrices ? ["--daily-prices"] : []),
+      "--daily-volume",
+      String(dailyVolume),
       ...(shfeMargins ? ["--shfe-margins"] : []),
       "--month",
       month,
@@ -120,7 +145,7 @@ export async function seedHistory(
     ],
     { encoding: "utf8" },
   );
-  await rpc(request, "node.data_tasks.local.open");
+  await rpc(request, "node.data.local.open");
   await expect
     .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
     .toBe(true);
@@ -146,6 +171,7 @@ export async function seedDataset(
   options: Parameters<typeof seedHistory>[3] = {},
 ) {
   const selection = await seedHistory(request, prices, id, options);
+  await rpc(request, "node.research.local.open");
   return rpc(request, "data.dataset.select", selection);
 }
 

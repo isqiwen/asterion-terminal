@@ -28,18 +28,19 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
   await expect(usage).not.toContainText("本窗口回测与因子草稿");
   await usage.getByText("检查范围与保留说明", { exact: true }).click();
-  await expect(usage).toContainText("未检查停止的远程数据服务");
+  await expect(usage).toContainText("不通过进程清单推断引用");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
 });
 
-// Explicit UI fixture: real mTLS inventory and failures are covered by native tests.
-test("other data services retain known references and disclose stopped or failed inspections", async ({
+// UI-only reply shaping: durable retention and release are covered by real service tests.
+test("owner ledger retains offline consumers and an unavailable authority is never an all-clear", async ({
   page,
 }) => {
-  const seeded = await seedHistory(page.request, [100, 101, 102], "remote-groups", {
+  const seeded = await seedHistory(page.request, [100, 101, 102], "owner-ledger-ui", {
     product: "zn",
   });
+  let unavailable = false;
   await page.route("**/__asterion/api", async route => {
     if (route.request().postDataJSON().method !== "data.history.usage") {
       await route.continue();
@@ -47,35 +48,20 @@ test("other data services retain known references and disclose stopped or failed
     }
     const response = await route.fetch();
     const body = await response.json();
-    body.result.history_usage.other_data_services = [
-      {
-        node: "测试节点 A",
-        service: "backtest-factor-a",
-        checked: true,
-        references: [
-          {
-            kind: "saved_dataset",
-            id: "saved",
-            name: "跨服务输入",
-            roles: ["market"],
-          },
-        ],
-      },
-      {
-        node: "测试节点 B",
-        service: "backtest-factor-b",
-        checked: false,
-        references: [],
-        error: "data/task service is not running; references were not inspected",
-      },
-      {
-        node: "测试节点 C",
-        service: "",
-        checked: false,
-        references: [],
-        error: "historical service inspection timed out",
-      },
-    ];
+    if (unavailable) {
+      delete body.result;
+      body.error = { code: "unavailable", message: "retention authority unavailable" };
+    } else {
+      body.result.history_usage.consumers = ["prepared", "confirmed"].map((phase, index) => ({
+        node: "offline-consumer-node",
+        service: "stopped-research",
+        domain: "research",
+        kind: "backtest",
+        id: `retained-run-${index}`,
+        version: "a".repeat(64),
+        phase,
+      }));
+    }
     await route.fulfill({ response, json: body });
   });
   await page.goto("/");
@@ -86,32 +72,26 @@ test("other data services retain known references and disclose stopped or failed
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "使用情况", exact: true })
     .click();
-  const taskService = archive.getByRole("region", { name: "其他数据服务", exact: true });
-  await expect(taskService.getByRole("table")).toContainText("跨服务输入");
-  await expect(taskService.getByRole("table")).toContainText("行情输入");
-  await expect(taskService.getByRole("alert")).toHaveCount(2);
-  const stopped = taskService.getByRole("region", {
-    name: "测试节点 B / backtest-factor-b",
-    exact: true,
-  });
-  await stopped.getByText("未完成检查的详情", { exact: true }).click();
-  await expect(stopped).toContainText("数据或任务服务未运行，未检查引用");
+  const usage = archive.getByRole("region", { name: "使用情况", exact: true });
+  const references = usage.getByRole("table", { name: "跨域保留引用", exact: true });
+  await expect(references).toContainText("准备中的引用仍保留");
+  await expect(references).toContainText("正式引用仍保留");
+  await expect(references).toContainText("offline-consumer-node");
   await page.setViewportSize({ width: 1024, height: 768 });
-  await taskService.scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: "build/history-cross-backtest-factor-browser.png",
-    fullPage: true,
-  });
   expect(
     await page.locator(".terminal-business").evaluate(el => el.scrollWidth <= el.clientWidth + 1),
   ).toBe(true);
-  await page.screenshot({ path: "build/history-remote-groups-browser.png", fullPage: true });
+  unavailable = true;
+  await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
+  await expect(usage.getByRole("alert")).toBeVisible();
+  await expect(usage.getByRole("table")).toHaveCount(0);
+  await expect(usage).not.toContainText("未登记保留引用");
 });
 
-test("registered disconnected nodes are disclosed without reading identities or connecting", async ({
+test("unconnected node registrations do not replace Data reference authority or trigger connection", async ({
   page,
 }) => {
-  const { mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { mkdir, writeFile, readFile, rm } = await import("node:fs/promises");
   const { join } = await import("node:path");
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   const directory = join(
@@ -121,7 +101,8 @@ test("registered disconnected nodes are disclosed without reading identities or 
   );
   const seeded = await seedHistory(page.request, [100, 101, 102], "offline-ui", { product: "ni" });
   await mkdir(directory, { recursive: true });
-  await writeFile(join(directory, "enrollment.json"), "not parsed by the read-only name inventory");
+  const marker = "synthetic registration must remain unread and unchanged";
+  await writeFile(join(directory, "enrollment.json"), marker);
   try {
     await page.goto("/");
     await page
@@ -134,17 +115,17 @@ test("registered disconnected nodes are disclosed without reading identities or 
       .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
       .getByRole("button", { name: "使用情况", exact: true })
       .click();
-    const offline = archive.getByRole("region", { name: "未连接的节点", exact: true });
-    await expect(offline).toContainText("offline-inspection-fixture");
-    await expect(offline).toContainText("本次未检查");
-    await expect(offline.getByRole("alert")).toHaveCount(0);
+    const usage = archive.getByRole("region", { name: "使用情况", exact: true });
+    await expect(usage).toContainText("当前拥有者未登记保留引用");
+    await expect(usage.getByRole("alert")).toHaveCount(0);
+    await usage.getByText("检查范围与保留说明", { exact: true }).click();
+    await expect(usage).toContainText("不通过进程清单推断引用");
+    expect(await readFile(join(directory, "enrollment.json"), "utf8")).toBe(marker);
     expect(
       (await rpc(page.request, "runtime.snapshot")).nodes.some(
         (node: { id: string }) => node.id === "offline-inspection-fixture",
       ),
     ).toBe(false);
-    await offline.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: "build/history-offline-nodes-browser.png", fullPage: true });
   } finally {
     await rm(directory, { recursive: true });
   }

@@ -6,7 +6,7 @@ PolledTask<std::string>
 Application::Impl::source_credential(const std::string& source, std::string typed)
 {
     if (!data_client)
-        throw std::invalid_argument("connect the data and task services first");
+        throw std::invalid_argument("connect the data service first");
     if (!typed.empty())
         co_return typed;
     const auto provider = (co_await PollFuture{data_client->source(source)}).plugin_id();
@@ -92,7 +92,7 @@ void Application::Impl::register_connection_commands()
     command("data.credentials.save", [this](const json& params) -> PolledTask<Response> {
         fields(params, {"provider", "credential", "remember", "requests_per_minute"});
         if (!data_client)
-            throw std::invalid_argument("connect the data and task services first");
+            throw std::invalid_argument("connect the data service first");
         const auto sources =
             (co_await PollFuture{data_client->provider_sources(text(params, "provider"))});
         if (sources.empty())
@@ -137,7 +137,7 @@ void Application::Impl::register_connection_commands()
         fields(params, {"provider"});
         const auto client = data_client;
         if (!client)
-            throw std::invalid_argument("connect the data and task services first");
+            throw std::invalid_argument("connect the data service first");
         const auto provider = text(params, "provider");
         const auto sources = (co_await PollFuture{client->provider_sources(provider)});
         if (sources.empty())
@@ -198,6 +198,7 @@ void Application::Impl::register_connection_commands()
                     text(params, "app_id"),
                     text(params, "trade_front"),
                     text(params, "market_front"),
+                    {},
                     {}},
                 text(params, "revision", true));
         });

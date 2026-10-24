@@ -6,7 +6,8 @@ export type ServiceKind = Service["kind"];
 export const kindLabels: Record<ServiceKind, string> = {
   market: "实时行情",
   data: "历史数据服务",
-  task: "任务服务",
+  research: "研究服务",
+  intelligence: "情报服务",
   live: "CTP 交易",
 };
 export type Binding = {
@@ -22,8 +23,21 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
     const value = snapshot.market;
     return value && { ...value, online: value.transport_online };
   }
-  if (kind === "task") return snapshot.task_service;
+  if (kind === "research") return snapshot.research_service;
   if (kind === "data") return snapshot.data;
+  if (kind === "intelligence") {
+    const selected = snapshot.intelligence_service;
+    if (!selected) return null;
+    const node = snapshot.nodes.find(n => n.id === selected.node_id);
+    const service = node?.health?.services.find(
+      s => s.id === selected.service && s.kind === "intelligence",
+    );
+    return {
+      ...selected,
+      online:
+        node?.state === "online" && service?.state === "running" && service.health === "ready",
+    };
+  }
   // Trading runs one service per CTP account; there is no single location.
   return null;
 }

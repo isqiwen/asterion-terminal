@@ -1,7 +1,7 @@
 import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { useEffect, useState } from "react";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
-import type { NodeStatus, Snapshot, TerminalCommand } from "../bridge/client";
+import type { NodeStatus, Snapshot } from "../bridge/client";
 import {
   binding,
   kindLabels,
@@ -27,7 +27,7 @@ const actionLabels: Record<Action, string> = {
   update: "更新服务程序",
 };
 // Trading has per-account placement, so the single-location summary excludes it.
-const kinds: ServiceKind[] = ["market", "data", "task"];
+const kinds: ServiceKind[] = ["market", "data", "intelligence", "research"];
 export function NodeServices({
   snapshot,
   busy,
@@ -46,7 +46,11 @@ export function NodeServices({
   const [saved, setSaved] = useState<MachineProfile[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [deploying, setDeploying] = useState(false);
-  const [deployment, setDeployment] = useState({ kind: "task", service: "", port: "" });
+  const [deployment, setDeployment] = useState({
+    kind: "research",
+    service: "",
+    port: "",
+  });
   const [deployed, setDeployed] = useState<{ node: string; service: string } | null>(null);
   const nodes = snapshot?.nodes ?? [];
   const node = nodes.find(n => n.id === selected);
@@ -96,12 +100,10 @@ export function NodeServices({
     if (pending.action === "use") {
       const kind = pendingService.kind;
       if (kind === "live") return;
-      const method: TerminalCommand =
-        kind === "market" ? "market.attach" : "node.data_tasks.attach";
-      success = await run(method, {
-        ...params,
-        service: kind === "data" ? pendingService.task_service : pending.service,
-      });
+      if (kind === "market") success = await run("market.attach", params);
+      else if (kind === "data") success = await run("node.data.attach", params);
+      else if (kind === "intelligence") success = await run("node.intelligence.attach", params);
+      else success = await run("node.research.attach", params);
     } else if (pending.action === "update")
       success = await run("node.update", { ...params, revision: pending.revision });
     else success = await run("node.action", { ...params, action: pending.action });
@@ -109,7 +111,12 @@ export function NodeServices({
   }
   async function deploy() {
     if (!node || node.state !== "online" || node.health?.maintenance) return;
-    if (await run("node.deploy", { id: node.id, ...deployment })) {
+    if (
+      await run("node.deploy", {
+        id: node.id,
+        ...deployment,
+      })
+    ) {
       setDeployed({ node: node.id, service: deployment.service });
       setDeploying(false);
     }
@@ -118,12 +125,12 @@ export function NodeServices({
     const target = nodes.find(item => item.id === targetId);
     const services = target?.health?.services ?? [];
     let suffix = 1;
-    while (services.some(s => s.id === `backtest-factor-${suffix}`)) suffix++;
+    while (services.some(s => s.id === `work-${suffix}`)) suffix++;
     let port = 7443;
     while (port === target?.port || services.some(s => s.port === port)) port++;
     setDeployment({
-      kind: "task",
-      service: `backtest-factor-${suffix}`,
+      kind: "research",
+      service: `work-${suffix}`,
       port: targetId === "local" ? "0" : String(port),
     });
     setDeploying(true);
@@ -133,8 +140,11 @@ export function NodeServices({
   const watched =
     pendingNode && pendingService && matches(pendingActive, pendingNode, pendingService);
   const tasks =
-    watched && pendingService?.kind === "task"
-      ? (snapshot?.task_service?.tasks.filter(task =>
+    watched && (pendingService?.kind === "research" || pendingService?.kind === "data")
+      ? ((pendingService?.kind === "data"
+          ? snapshot?.data
+          : snapshot?.research_service
+        )?.tasks.filter(task =>
           ["queued", "running", "cancel_requested", "publishing"].includes(task.state),
         ) ?? [])
       : [];
@@ -371,10 +381,10 @@ export function NodeServices({
                       {t(
                         deployment.kind === "live"
                           ? "每个交易实例拥有独立进程和账本；部署后在交易页面绑定账户，不会自动登录或授权。"
-                          : "数据服务保管历史数据，任务服务调度下载、回测和因子任务；两个服务拥有固定配对的独立目录。",
+                          : "数据服务执行取数并保管数据；研究服务执行回测和因子计算，需显式选择已部署的数据服务。",
                       )}
                     </p>
-                    {node.id === "local" && deployment.kind === "task" && (
+                    {node.id === "local" && deployment.kind === "research" && (
                       <p>
                         {t(
                           "新增实例拥有独立数据和任务。已有实例完整保留，部署后需显式切换；已有任务不会复制或重跑。",
@@ -388,7 +398,8 @@ export function NodeServices({
                         value={deployment.kind}
                         onChange={e => setDeployment({ ...deployment, kind: e.target.value })}
                       >
-                        <option value="task">{t("数据与任务服务")}</option>
+                        <option value="research">{t("研究服务")}</option>
+                        <option value="data">{t("数据服务")}</option>
                         <option value="live">{t("CTP 交易")}</option>
                         {node.id !== "local" && <option value="market">{t("实时行情")}</option>}
                       </select>

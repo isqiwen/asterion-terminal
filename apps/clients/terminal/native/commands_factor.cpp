@@ -1,5 +1,6 @@
 #include "application_impl.hpp"
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/research_project.hpp>
 
 namespace asterion::terminal {
 
@@ -22,15 +23,15 @@ void Application::Impl::register_factor_commands()
         if ((mode != "fixed" && mode != "snapshot")
             || (mode == "fixed" ? !selected.empty() : selected.empty()))
             throw std::invalid_argument("explicit experiment data choice required");
-        if (!task_client)
-            throw std::invalid_argument("task service is not connected");
-        const auto client = task_client;
+        if (!research_client)
+            throw std::invalid_argument("research service is not connected");
+        const auto client = research_client;
         const auto generation = data_task_generation;
         const auto source = co_await PollFuture{client->result(text(p, "source_id"))};
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; " "inspect the original services before retrying");
+                "data/research service selection changed during operation; " "inspect the original services before retrying");
         if (source.at("kind") != "factor"
             || source.at("task").at("result_digest") != p.at("source_result_digest")
             || source.at("experiment") != p.at("experiment"))
@@ -45,16 +46,23 @@ void Application::Impl::register_factor_commands()
         derivation.set_source_result_digest(text(p, "source_result_digest"));
         derivation.set_data_choice(mode);
         derivation.set_snapshot(selected);
-        co_await PollFuture{client->submit(text(p, "id"), request, derivation)};
+        co_await PollFuture{client->submit(
+            text(p, "id"),
+            request,
+            mode == "snapshot" ? research_data_owner() : data::proto::DataOwner{},
+            derivation)};
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; " "inspect the original services before retrying");
+                "data/research service selection changed during operation; " "inspect the original services before retrying");
         co_return snapshot();
     });
     command("factor.submit", [this](const json& p) -> PolledTask<Response> {
         auto required = p;
         required.erase("liquidity");
+        required.erase("retain_observations");
+        required.erase("research_plan");
+        required.erase("variable_definition");
         fields(required, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
         validate_id(text(p, "id"));
         // A factor reads the bars this window has selected, or instruments of the
@@ -113,16 +121,25 @@ void Application::Impl::register_factor_commands()
         };
         if (p.contains("liquidity"))
             parameters["liquidity"] = p.at("liquidity");
+        if (p.contains("retain_observations"))
+            parameters["retain_observations"] = p.at("retain_observations");
+        if (p.contains("variable_definition"))
+            parameters["variable_definition"] = p.at("variable_definition");
         const auto request = protocol::encode_factor_request(parameters);
-        if (!task_client)
-            throw std::invalid_argument("task service is not connected");
-        const auto client = task_client;
+        if (!research_client)
+            throw std::invalid_argument("research service is not connected");
+        const auto client = research_client;
         const auto generation = data_task_generation;
-        (co_await PollFuture{client->submit(text(p, "id"), request)});
+        research::proto::ProjectBinding plan;
+        if (p.contains("research_plan"))
+            plan = protocol::encode_project_binding(p.at("research_plan"));
+        (co_await PollFuture{
+            client->submit(text(p, "id"), request, research_data_owner(), {}, plan)
+        });
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; inspect the " "original services before retrying");
+                "data/research service selection changed during operation; inspect the " "original services before retrying");
         co_return snapshot();
     });
 }

@@ -34,13 +34,39 @@ Database::Database(
 {
     if (!file.is_absolute() || std::filesystem::is_symlink(file))
         throw std::invalid_argument("database requires an absolute regular file path");
-    // No shared cache, no URI parsing and no extension loading: the path is data.
-    if (access == Access::read_only && !std::filesystem::is_regular_file(file))
+    // Cold readers must not create WAL/shared-memory sidecars inside a published
+    // backup. Only the stopped-domain ownership cut permits immutable SQLite I/O.
+    const bool reading = access != Access::writer;
+    std::string filename = file.string();
+    if (access == Access::cold_read_only) {
+        for (const auto* suffix : {"-wal", "-journal"}) {
+            const std::filesystem::path journal(filename + suffix);
+            if (std::filesystem::is_symlink(journal)
+                || (std::filesystem::exists(journal) && std::filesystem::file_size(journal)))
+                throw std::invalid_argument("cold database requires owner journal recovery");
+        }
+        std::string encoded = "file:";
+        constexpr char hex[] = "0123456789ABCDEF";
+        for (const unsigned char c : filename) {
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                || c == '/' || c == '-' || c == '_' || c == '.')
+                encoded += static_cast<char>(c);
+            else {
+                encoded += '%';
+                encoded += hex[c >> 4];
+                encoded += hex[c & 15];
+            }
+        }
+        filename = encoded + "?immutable=1";
+    }
+    // Ordinary live readers retain normal WAL visibility. User paths are encoded
+    // before the cold-only URI is constructed; they cannot inject URI options.
+    if (reading && !std::filesystem::is_regular_file(file))
         throw std::invalid_argument("database requires an existing regular file");
-    const auto flags = (access == Access::read_only ? SQLITE_OPEN_READONLY
-                                                    : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
-        | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_PRIVATECACHE;
-    if (sqlite3_open_v2(file.string().c_str(), &handle_, flags, nullptr) != SQLITE_OK) {
+    const auto flags = (reading ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
+        | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_PRIVATECACHE
+        | (access == Access::cold_read_only ? SQLITE_OPEN_URI : 0);
+    if (sqlite3_open_v2(filename.c_str(), &handle_, flags, nullptr) != SQLITE_OK) {
         sqlite3_close(handle_);
         handle_ = nullptr;
         throw std::runtime_error("cannot open database");
@@ -49,7 +75,7 @@ Database::Database(
         sqlite3_extended_result_codes(handle_, 1);
         sqlite3_busy_timeout(handle_, 0);
         execute("PRAGMA trusted_schema=OFF");
-        if (access == Access::read_only) {
+        if (reading) {
             execute("PRAGMA query_only=ON");
             return;
         }

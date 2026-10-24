@@ -1,0 +1,277 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+import "asterion/backtest.proto";
+import "asterion/domain.proto";
+
+message EvaluationStressScenario {
+  enum FundsModel {
+    FUNDS_MODEL_UNSPECIFIED = 0;
+    PAPER_BALANCE_EQUITY_MINIMUM = 1;
+  }
+
+  string purpose = 1;
+  asterion.protocol.proto.Decimal price = 2;
+  asterion.protocol.proto.Decimal margin_rate = 3;
+  FundsModel funds_model = 4;
+}
+message EvaluationStaticStress {
+  asterion.protocol.proto.Decimal mark_change = 1;
+  asterion.protocol.proto.Decimal equity = 2;
+  asterion.protocol.proto.Decimal margin = 3;
+  asterion.protocol.proto.Decimal available = 4;
+  asterion.protocol.proto.Decimal gap = 5;
+}
+message EvaluationLedgerCheck {
+  string metric = 1;
+  asterion.protocol.proto.Decimal expected = 2;
+  asterion.protocol.proto.Decimal recorded = 3;
+  asterion.protocol.proto.Decimal residual = 4;
+}
+message EvaluationLedgerFill {
+  string id = 1;
+  string order_id = 2;
+  bool buy = 3;
+  asterion.protocol.proto.Decimal quantity = 4;
+  asterion.protocol.proto.Decimal price = 5;
+  asterion.protocol.proto.Decimal fee = 6;
+}
+message EvaluationLedgerDay {
+  uint32 source_index = 1;
+  string trading_day = 2;
+  int64 timestamp_ns = 3;
+  asterion.protocol.proto.Decimal opening_quantity = 4;
+  asterion.protocol.proto.Decimal quantity_change = 5;
+  asterion.protocol.proto.Decimal closing_quantity = 6;
+  asterion.protocol.proto.Decimal opening_balance = 7; // Expected, not substituted recorded cash.
+  asterion.protocol.proto.Decimal gross = 8;
+  asterion.protocol.proto.Decimal fees = 9;
+  asterion.protocol.proto.Decimal expected_balance = 10;
+  asterion.protocol.proto.Decimal recorded_balance = 11;
+  asterion.protocol.proto.Decimal recorded_equity = 12;
+  asterion.protocol.proto.Decimal cumulative_residual = 13;
+  repeated EvaluationLedgerFill fills = 14;
+  repeated EvaluationLedgerCheck checks = 15;
+}
+message EvaluationLedger {
+  string venue = 1;
+  string symbol = 2;
+  asterion.protocol.proto.Decimal multiplier = 3;
+  asterion.protocol.proto.Decimal deposit = 4;
+  asterion.protocol.proto.Decimal gross = 5;
+  asterion.protocol.proto.Decimal fees = 6;
+  asterion.protocol.proto.Decimal explained_net = 7;
+  asterion.protocol.proto.Decimal recorded_net = 8;
+  asterion.protocol.proto.Decimal residual = 9;
+  asterion.protocol.proto.Decimal closing_net_quantity = 10;
+  asterion.protocol.proto.Decimal closing_gross_quantity = 11;
+  repeated EvaluationLedgerDay days = 12;
+  repeated EvaluationLedgerCheck final_checks = 13;
+  bool reconciled = 14; // Arithmetic checks only; never an investment conclusion.
+}
+message EvaluationContributionRow {
+  uint32 source_index = 1;
+  string trading_day = 2;
+  int64 timestamp_ns = 3;
+  asterion.protocol.proto.Decimal settlement = 4;
+  asterion.protocol.proto.Decimal opening_quantity = 5;
+  asterion.protocol.proto.Decimal quantity_change = 6;
+  asterion.protocol.proto.Decimal closing_quantity = 7;
+  asterion.protocol.proto.Decimal gross = 8;
+  asterion.protocol.proto.Decimal fees = 9;
+  repeated EvaluationLedgerFill fills = 10;
+  repeated EvaluationLedgerCheck checks = 11;
+}
+message EvaluationContractContribution {
+  string venue = 1;
+  string symbol = 2;
+  asterion.protocol.proto.Decimal multiplier = 3;
+  asterion.protocol.proto.Decimal gross = 4;
+  asterion.protocol.proto.Decimal fees = 5;
+  asterion.protocol.proto.Decimal net = 6;
+  repeated EvaluationContributionRow days = 7;
+  EvaluationLedgerCheck final_position = 8;
+}
+message EvaluationContributionDay {
+  uint32 source_index = 1;
+  string trading_day = 2;
+  int64 timestamp_ns = 3;
+  asterion.protocol.proto.Decimal gross = 4;
+  asterion.protocol.proto.Decimal fees = 5;
+  asterion.protocol.proto.Decimal expected_balance = 6;
+  asterion.protocol.proto.Decimal recorded_balance = 7;
+  asterion.protocol.proto.Decimal recorded_equity = 8;
+  asterion.protocol.proto.Decimal cumulative_residual = 9;
+  repeated EvaluationLedgerCheck checks = 10;
+}
+message EvaluationContributions {
+  asterion.protocol.proto.Decimal deposit = 1;
+  asterion.protocol.proto.Decimal gross = 2;
+  asterion.protocol.proto.Decimal fees = 3;
+  asterion.protocol.proto.Decimal explained_net = 4;
+  asterion.protocol.proto.Decimal recorded_net = 5;
+  asterion.protocol.proto.Decimal residual = 6;
+  repeated EvaluationContractContribution contracts = 7;
+  repeated EvaluationContributionDay days = 8;
+  repeated EvaluationLedgerCheck final_checks = 9;
+  bool reconciled = 10;
+}
+message EvaluationRequest {
+  enum Scope {
+    SCOPE_UNSPECIFIED = 0;
+    FULL_ACCOUNT = 1;
+    DEVELOPMENT = 2;
+    HOLDOUT = 3;
+    OUT_OF_SAMPLE = 4;
+  }
+
+  asterion.resource.proto.Object source = 1; // Exact same-Research backtest_result.
+  string question = 2;
+  Scope scope = 3;
+  asterion.backtest.proto.PerformanceAssumptions method = 4;
+  bool include_exposure = 6; // Original last settlement of the fixed range.
+  EvaluationStressScenario static_stress =
+    7; // Explicit optional new report, fixed original holdings.
+  bool include_ledger = 8; // Explicit full-account single-contract daily ledger bridge.
+  bool include_contributions = 9; // Explicit full-account all-daily original contract contributions.
+  bool include_daily_drawdown = 5; // Explicit new report section; never appended to an old result.
+}
+// Captured from verified ResultRead; never accepted as client-authored provenance.
+message EvaluationSource {
+  string input_sha256 = 1;
+  uint64 input_bytes = 2;
+  uint32 attempt = 3;
+  string program_artifact = 4; // Original producer, distinct from the evaluation Task program.
+  uint32 settlements = 5;
+  uint32 first_settlement = 6;
+  uint32 end_settlement = 7; // Fixed half-open range of original settlements.
+}
+message EvaluationInput {
+  EvaluationRequest request = 1;
+  EvaluationSource source = 2;
+}
+message EvaluationMetric {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    AVAILABLE = 1;
+    SOURCE_TIME_NOT_RECORDED = 2;
+    NON_POSITIVE_OBSERVATION_DURATION = 3;
+    FEWER_THAN_TWO_COMPLETE_RETURNS = 4;
+    NON_POSITIVE_EQUITY_PATH = 5;
+    ANNUAL_PERIODS_NOT_CONFIGURED = 6;
+    RISK_FREE_NOT_CONFIGURED = 7;
+    CONSTANT_RETURNS = 8;
+    NO_DRAWDOWN = 9;
+    NON_FINITE_STATISTIC = 10;
+    FEWER_THAN_TWO_OBSERVATIONS = 11;
+    GROSS_NOT_RECORDED = 12;
+    MARGIN_NOT_RECORDED = 13;
+    ZERO_GROSS_NOTIONAL = 14;
+  }
+
+  State state = 1;
+  optional double value = 2;
+}
+message EvaluationLossPoint {
+  uint32 source_index = 1; // Original settlement index, not a calendar-day counter.
+  string trading_day = 2;
+  int64 timestamp_ns = 3; // Original observation; zero means not recorded.
+  asterion.protocol.proto.Decimal equity = 4;
+  uint32 peak_source_index = 5;
+  asterion.protocol.proto.Decimal peak_equity = 6;
+  asterion.protocol.proto.Decimal loss = 7;
+  EvaluationMetric fraction = 8;
+}
+message EvaluationLossEpisode {
+  uint32 peak_source_index = 1;
+  uint32 trough_source_index = 2;
+  optional uint32 recovery_source_index = 3;
+  uint32 observed_end_source_index = 4;
+  uint32 peak_to_trough_intervals = 5;
+  optional uint32 peak_to_recovery_intervals = 6;
+  uint32 observed_intervals = 7;
+}
+message EvaluationDailyDrawdown {
+  repeated EvaluationLossPoint points = 1;
+  repeated EvaluationLossEpisode episodes = 2;
+  asterion.protocol.proto.Decimal max_loss = 3;
+  uint32 max_loss_source_index = 4;
+  EvaluationMetric max_fraction = 5;
+  optional uint32 max_fraction_source_index = 6;
+}
+message EvaluationExposurePosition {
+  uint32 source_contract_index = 1; // Row in the original selected settlement.
+  string venue = 2;
+  string symbol = 3;
+  string product = 4;
+  string delivery_month = 5;
+  asterion.protocol.proto.Decimal price = 6;
+  asterion.protocol.proto.Decimal multiplier = 7;
+  asterion.protocol.proto.Decimal quantity_increment = 8;
+  asterion.protocol.proto.Decimal net_quantity = 9;
+  asterion.protocol.proto.Decimal gross_quantity = 10; // Absent stays unknown.
+  asterion.protocol.proto.Decimal margin = 11; // Original observed amount, not a rate.
+  asterion.protocol.proto.Decimal long_quantity = 12; // Derived from original gross/net.
+  asterion.protocol.proto.Decimal short_quantity = 13;
+  asterion.protocol.proto.Decimal net_notional = 14;
+  asterion.protocol.proto.Decimal gross_notional = 15;
+  EvaluationMetric net_to_equity = 16;
+  EvaluationMetric gross_to_equity = 17;
+  EvaluationMetric margin_to_equity = 18;
+  EvaluationMetric covered_gross_share = 19;
+}
+message EvaluationExposure {
+  uint32 source_index = 1;
+  string trading_day = 2;
+  int64 timestamp_ns = 3;
+  asterion.protocol.proto.Decimal balance = 4;
+  asterion.backtest.proto.SettlementOccupancy funds = 5; // No reconstruction when absent.
+  repeated EvaluationExposurePosition positions = 6;
+  asterion.protocol.proto.Decimal covered_net_notional = 7;
+  asterion.protocol.proto.Decimal covered_gross_notional = 8;
+  EvaluationMetric net_to_equity = 9;
+  EvaluationMetric gross_to_equity = 10;
+  EvaluationMetric margin_to_equity = 11;
+}
+message EvaluationResult {
+  string first_day = 1;
+  string last_day = 2;
+  int64 begin_ns = 3;
+  int64 end_ns = 4;
+  asterion.protocol.proto.Decimal opening_equity = 5;
+  asterion.protocol.proto.Decimal closing_equity = 6;
+  asterion.protocol.proto.Decimal fees = 7; // Actual cumulative-fee difference for this window.
+  asterion.protocol.proto.Decimal net_profit = 8;
+  string currency = 9;
+  uint32 trading_days = 10;
+  uint32 complete_return_periods = 11;
+  bool opening_is_full_period = 12;
+  bool short_calendar_span = 13;
+  double calendar_year_days = 14;
+  EvaluationMetric total_return = 15;
+  EvaluationMetric max_drawdown = 16;
+  EvaluationMetric winning_days = 17; // Positive settlement days, not closed-trade win rate.
+  EvaluationMetric annual_return = 18;
+  EvaluationMetric annual_volatility = 19;
+  EvaluationMetric sharpe = 20;
+  EvaluationMetric calmar = 21;
+
+  enum Limitation {
+    LIMITATION_UNSPECIFIED = 0;
+    CASH_FLOWS_NOT_EVALUATED = 1;
+    BENCHMARK_NOT_EVALUATED = 2;
+    RISK_AND_STRESS_NOT_EVALUATED = 3;
+    INDEPENDENCE_NOT_ESTABLISHED = 4;
+    HISTORICAL_AVAILABILITY_NOT_VERIFIED = 5;
+    HUMAN_CONCLUSION_NOT_RECORDED = 6;
+    RISK_AND_STRESS_INCOMPLETE =
+      7; // Only explicitly requested partial risk sections are evaluated.
+  }
+
+  repeated Limitation limitations = 22;
+  EvaluationDailyDrawdown daily_drawdown = 23;
+  EvaluationExposure exposure = 24;
+  EvaluationStaticStress static_stress = 25;
+  EvaluationLedger ledger = 26;
+  EvaluationContributions contributions = 27;
+}

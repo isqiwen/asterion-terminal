@@ -1,6 +1,10 @@
 #include "data_client.hpp"
+#include <asterion/protocol/observation.hpp>
+#include <asterion/protocol/material.hpp>
+#include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/backtest.hpp>
+#include <asterion/protocol/task.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/trace.hpp>
@@ -12,6 +16,63 @@ namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = data::proto;
 
+namespace {
+
+Json retirement_status(const wire::MinuteRetirement& value)
+{
+    const char* state = nullptr;
+    switch (value.state()) {
+        case wire::MinuteRetirement::AVAILABLE:
+            state = "available";
+            break;
+        case wire::MinuteRetirement::BLOCKED:
+            state = "blocked";
+            break;
+        case wire::MinuteRetirement::PENDING:
+            state = "pending";
+            break;
+        case wire::MinuteRetirement::REMOVED:
+            state = "removed";
+            break;
+        default:
+            throw Error(ErrorCode::unavailable, "invalid minute retirement state");
+    }
+    Json result{
+        {"id", value.id()},
+        {"state", state},
+        {"payload_bytes",
+            value.has_payload_bytes() ? Json(std::to_string(value.payload_bytes()))
+                                      : Json(nullptr)},
+        {"references", Json::array()},
+        {"consumers", Json::array()}
+    };
+    if (value.has_internal_usage()) {
+        if (value.internal_usage().dataset_id() != value.id())
+            throw Error(ErrorCode::unavailable, "minute retirement reference identity mismatch");
+        result["references"] =
+            protocol::decode_history_usage(value.internal_usage()).at("references");
+    }
+    for (const auto& hold : value.holds()) {
+        const auto& consumer = hold.retention().consumer();
+        if (hold.phase() != wire::DataRetentionRecord::PREPARED
+            && hold.phase() != wire::DataRetentionRecord::CONFIRMED)
+            throw Error(ErrorCode::unavailable, "invalid minute retirement hold");
+        result["consumers"].push_back(
+            {{"node", consumer.owner().node_id()},
+                {"service", consumer.owner().service_id()},
+                {"domain", consumer.owner().domain()},
+                {"kind", consumer.kind()},
+                {"id", consumer.id()},
+                {"version", consumer.version()},
+                {"phase",
+                    hold.phase() == wire::DataRetentionRecord::PREPARED ? "prepared"
+                                                                        : "confirmed"}});
+    }
+    return result;
+}
+
+} // namespace
+
 struct DataClient::Impl : std::enable_shared_from_this<Impl>
 {
     ServiceIo& io;
@@ -20,19 +81,31 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
     enum class Channel
     {
         request,
-        observation
+        observation,
+        read
     };
-    std::array<std::unique_ptr<ipc::RpcClient>, 2> transports;
+    std::array<std::unique_ptr<ipc::RpcClient>, 3> transports;
     std::stop_source lifetime;
     Json sources = Json::array();
     std::vector<data::proto::HistorySource> typed_sources;
+    Json task_page{
+        {"capacity", nullptr},
+        {"before_sequence", 0},
+        {"next_before_sequence", 0},
+        {"failed_count", 0},
+        {"interrupted_count", 0},
+        {"tasks", Json::array()}
+    };
+    unsigned before_sequence = 0;
     bool online = false;
     std::string error;
 
     Json status() const
     {
-        return Json{
+        Json result{
             {"connection_id", connection_id},
+            {"node_id", endpoint.node_id},
+            {"owner_node_id", endpoint.owner_node_id},
             {"service", endpoint.session},
             {"port", endpoint.port},
             {"host", endpoint.endpoint.empty() ? endpoint.host : "localhost"},
@@ -41,6 +114,8 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
             {"error", error},
             {"sources", sources}
         };
+        result.update(task_page);
+        return result;
     }
 
     Impl(ServiceIo& owner, ServiceEndpoint value)
@@ -49,11 +124,12 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
     {
         validate_id(endpoint.session);
         // Prepare TLS files on the creating management operation before handoff to I/O.
-        constexpr std::array<std::size_t, 2> slots{8, 1};
+        constexpr std::array<std::size_t, 3> slots{8, 1, 4};
         for (std::size_t i = 0; i < transports.size(); ++i) {
             auto budget = io.payload_budget(
-                i == static_cast<std::size_t>(Channel::request) ? ServiceIo::PayloadLane::data
-                                                                : ServiceIo::PayloadLane::control);
+                i == static_cast<std::size_t>(Channel::observation)
+                    ? ServiceIo::PayloadLane::control
+                    : ServiceIo::PayloadLane::data);
             transports[i] = endpoint.endpoint.empty() ? std::make_unique<ipc::RpcClient>(
                                                             io.reactor(),
                                                             endpoint.host,
@@ -111,6 +187,11 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
         std::chrono::steady_clock::time_point deadline =
             std::chrono::steady_clock::time_point::max())
     {
+        const auto lane = request.has_observation() || request.has_resources()
+                || request.has_table_retirement() || request.has_table_retirements()
+                || request.has_minute_retirement() || request.has_minute_retirements()
+            ? Channel::read
+            : Channel::request;
         deadline = std::min(deadline, std::chrono::steady_clock::now() + timeout);
         return io.submit<T>(
             [state = shared_from_this(),
@@ -118,7 +199,8 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
                 decode = std::move(decode),
                 large_reply,
                 timeout,
-                deadline](std::stop_token stop) mutable -> PolledTask<T> {
+                deadline,
+                lane](std::stop_token stop) mutable -> PolledTask<T> {
                 state->identify(request);
                 std::string encoded;
                 if (request.has_save_dataset())
@@ -128,7 +210,8 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
                     });
                 else
                     encoded = request.SerializeAsString();
-                auto bytes = co_await state->exchange(std::move(encoded), timeout, stop, deadline);
+                auto bytes =
+                    co_await state->exchange(std::move(encoded), timeout, stop, deadline, lane);
                 auto process = [&]() -> T {
                     auto response = protocol::decode_data_response(request, *bytes);
                     return decode(request, response);
@@ -186,6 +269,20 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl>
                                       source.connection().requests_per_minute_max()}}
                             : Json(nullptr)}});
         }
+        wire::DataRequest tasks;
+        tasks.mutable_acquisition_task()->mutable_list()->set_limit(200);
+        tasks.mutable_acquisition_task()->mutable_list()->set_before_sequence(before_sequence);
+        identify(tasks);
+        auto task_bytes = co_await exchange(
+            tasks.SerializeAsString(),
+            5s,
+            stop,
+            std::chrono::steady_clock::now() + 5s,
+            Channel::observation);
+        auto observed = protocol::decode_data_response(tasks, *task_bytes);
+        task_page = co_await io.read<Json>([&] {
+            return protocol::decode_task_page(observed.acquisition_task().tasks(), before_sequence);
+        });
         sources = std::move(declared);
         typed_sources.assign(
             response.sources().sources().begin(),
@@ -283,6 +380,198 @@ std::future<void> DataClient::configure_download_budget(
         [](const wire::DataRequest&, wire::DataResponse&) -> void {},
         false,
         120s);
+}
+
+std::future<wire::AcquisitionTaskResponse> DataClient::acquisition_task(
+    wire::AcquisitionTaskRequest operation)
+{
+    wire::DataRequest request;
+    *request.mutable_acquisition_task() = std::move(operation);
+    return impl_->invoke<wire::AcquisitionTaskResponse>(
+        std::move(request),
+        [](const wire::DataRequest&, wire::DataResponse& response) {
+            return response.acquisition_task();
+        });
+}
+
+std::future<void>
+DataClient::submit_download(const std::string& id, const std::string& authorization)
+{
+    wire::DataRequest request;
+    request.mutable_acquisition_task()->mutable_submit()->set_id(id);
+    request.mutable_acquisition_task()->mutable_submit()->set_authorization(authorization);
+    return impl_->invoke<void>(
+        std::move(request),
+        [id](const wire::DataRequest&, wire::DataResponse& response) {
+            if (!response.acquisition_task().has_task()
+                || response.acquisition_task().task().id() != id)
+                throw std::invalid_argument("acquisition response identity mismatch");
+        });
+}
+
+std::future<Json> DataClient::material_sources()
+{
+    wire::DataRequest request;
+    request.mutable_material_sources();
+    return impl_->invoke<Json>(
+        std::move(request),
+        [](const wire::DataRequest&, wire::DataResponse& response) {
+            Json result = Json::array();
+            for (const auto& source : response.material_sources().items())
+                result.push_back(
+                    {{"id", source.id()},
+                        {"name", source.name()},
+                        {"usage", source.usage()},
+                        {"plugin_id", source.plugin_id()},
+                        {"provider_artifact", source.provider_artifact()},
+                        {"max_bytes", source.max_bytes()},
+                        {"credential_required", source.credential_required()},
+                        {"no_additional_fee", source.no_additional_fee()}});
+            return result;
+        });
+}
+
+std::future<Json> DataClient::submit_material(const wire::MaterialRequest& material)
+{
+    protocol::validate_material_request(material);
+    wire::DataRequest request;
+    *request.mutable_acquisition_task()->mutable_material_submit() = material;
+    return impl_->invoke<Json>(
+        std::move(request),
+        [id = material.id()](const wire::DataRequest&, wire::DataResponse& response) {
+            const auto& record = response.acquisition_task().task();
+            if (record.id() != id || record.kind() != task::proto::MATERIAL_ACQUISITION)
+                throw Error(
+                    ErrorCode::unavailable,
+                    "material admission response identity mismatch");
+            return protocol::decode_task(record);
+        });
+}
+
+std::future<Json> DataClient::material_read(const std::string& id)
+{
+    validate_id(id);
+    wire::DataRequest request;
+    request.mutable_material_read()->set_id(id);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [node = impl_->endpoint.owner_node_id](
+            const wire::DataRequest&,
+            wire::DataResponse& response) {
+            const auto& read = response.material_read();
+            if (read.receipt().reference().owner().node_id() != node)
+                throw Error(
+                    ErrorCode::conflict,
+                    "material owner differs from the selected Data node");
+            const auto state = read.text().state();
+            return Json{
+                {"receipt", protocol::decode_material_receipt(read.receipt())},
+                {"reading",
+                    {{"state",
+                         state == wire::MaterialText::READABLE           ? "readable"
+                             : state == wire::MaterialText::INVALID_UTF8 ? "invalid_utf8"
+                                                                         : "unsupported_media"},
+                        {"readable_bytes", read.text().readable_bytes()}}},
+                {"text",
+                    state == wire::MaterialText::READABLE ? Json(read.original()) : Json(nullptr)}
+            };
+        });
+}
+
+std::future<void> DataClient::page(unsigned before)
+{
+    return impl_->io.submit<void>(
+        [state = impl_, before](std::stop_token stop) -> PolledTask<void> {
+            state->before_sequence = before;
+            co_await state->refresh(stop);
+        });
+}
+
+std::future<Json> DataClient::result(const std::string& id)
+{
+    wire::DataRequest request;
+    request.mutable_acquisition_task()->mutable_result()->set_id(id);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [id](const wire::DataRequest&, wire::DataResponse& response) {
+            task::proto::TaskResponse result;
+            const auto& acquisition = response.acquisition_task();
+            *result.mutable_result_task() = acquisition.task();
+            if (acquisition.has_minutes())
+                *result.mutable_minutes() = acquisition.minutes();
+            if (acquisition.has_table_update())
+                *result.mutable_table_update() = acquisition.table_update();
+            if (acquisition.has_material())
+                *result.mutable_material() = acquisition.material();
+            return protocol::decode_task_result(result, id);
+        });
+}
+
+std::future<Json> DataClient::metadata(const std::string& id)
+{
+    wire::DataRequest request;
+    request.mutable_acquisition_task()->mutable_get()->set_id(id);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [id](const wire::DataRequest&, wire::DataResponse& response) {
+            if (response.acquisition_task().task().id() != id)
+                throw std::invalid_argument("acquisition response identity mismatch");
+            return protocol::decode_task(response.acquisition_task().task());
+        });
+}
+
+std::future<void> DataClient::edit_metadata(const task::proto::TaskMetadataEdit& edit)
+{
+    wire::DataRequest request;
+    *request.mutable_acquisition_task()->mutable_metadata_edit() = edit;
+    return impl_->invoke<void>(
+        std::move(request),
+        [](const wire::DataRequest&, wire::DataResponse&) {});
+}
+
+std::future<void> DataClient::action(const std::string& id, const std::string& action)
+{
+    wire::DataRequest request;
+    if (action == "cancel")
+        request.mutable_acquisition_task()->mutable_cancel()->set_id(id);
+    else if (action == "retry")
+        request.mutable_acquisition_task()->mutable_retry()->set_id(id);
+    else
+        throw std::invalid_argument("unsupported task action");
+    return impl_->invoke<void>(
+        std::move(request),
+        [](const wire::DataRequest&, wire::DataResponse&) {});
+}
+
+std::future<Json> DataClient::retirement(const std::string& id, bool execute)
+{
+    return impl_->io.submit<Json>(
+        [state = impl_, id, execute](std::stop_token stop) -> PolledTask<Json> {
+            wire::DataRequest request;
+            request.mutable_acquisition_task()->mutable_retirement()->set_id(id);
+            request.mutable_acquisition_task()->mutable_retirement()->set_execute(execute);
+            state->identify(request);
+            auto bytes = co_await state->exchange(
+                request.SerializeAsString(),
+                15s,
+                stop,
+                std::chrono::steady_clock::now() + 15s);
+            auto result = co_await state->io.read<Json>([&] {
+                const auto response = protocol::decode_data_response(request, *bytes);
+                if (!response.acquisition_task().has_retirement())
+                    throw Error(ErrorCode::unavailable, "missing Data retirement response");
+                return protocol::decode_task_retirement(
+                    response.acquisition_task().retirement(),
+                    id,
+                    request.service_id(),
+                    "data");
+            });
+            if (result.at("node") != state->endpoint.owner_node_id)
+                throw Error(ErrorCode::unavailable, "Data retirement owner identity mismatch");
+            if (execute)
+                co_await state->refresh(stop);
+            co_return result;
+        });
 }
 
 ServiceEndpoint DataClient::endpoint() const
@@ -679,6 +968,229 @@ std::future<Json> DataClient::table_daily(const data::proto::TableDailyQuery& qu
                 || page.offset() != query.offset() || page.limit() != query.limit())
                 throw Error(ErrorCode::unavailable, "daily table chart identity mismatch");
             return protocol::decode_table_daily(page);
+        });
+}
+
+std::future<Json>
+DataClient::table_retirement(const std::string& id, bool execute, const std::string& preview_digest)
+{
+    wire::DataRequest request;
+    request.mutable_table_retirement()->set_id(id);
+    request.mutable_table_retirement()->set_execute(execute);
+    request.mutable_table_retirement()->set_preview_digest(preview_digest);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [node = impl_->endpoint.owner_node_id](
+            const wire::DataRequest& request,
+            wire::DataResponse& response) {
+            const auto& value = response.table_retirement();
+            if (value.id() != request.table_retirement().id() || value.id().size() != 64
+                || value.id().find_first_not_of("0123456789abcdef") != std::string::npos
+                || !value.sequence() || value.state() < wire::TableRetirement::AVAILABLE
+                || value.state() > wire::TableRetirement::REMOVED || value.objects_size() > 100000
+                || value.acquisitions_size() > 10000)
+                throw Error(ErrorCode::unavailable, "invalid table retirement response");
+            if ((value.state() == wire::TableRetirement::AVAILABLE
+                    || value.state() == wire::TableRetirement::PENDING)
+                && (value.preview_digest().size() != 64
+                    || value.preview_digest().find_first_not_of("0123456789abcdef")
+                        != std::string::npos))
+                throw Error(ErrorCode::unavailable, "table retirement preview scope is missing");
+            const char* state = value.state() == wire::TableRetirement::AVAILABLE ? "available"
+                : value.state() == wire::TableRetirement::BLOCKED                 ? "blocked"
+                : value.state() == wire::TableRetirement::PENDING                 ? "pending"
+                                                                                  : "removed";
+            Json result{
+                {"id", value.id()},
+                {"state", state},
+                {"sequence", std::to_string(value.sequence())},
+                {"current_head", value.current_head()},
+                {"preview_digest", value.preview_digest()},
+                {"payload_bytes",
+                    value.has_payload_bytes() ? Json(std::to_string(value.payload_bytes()))
+                                              : Json(nullptr)},
+                {"objects", Json::array()},
+                {"acquisitions", Json::array()},
+                {"references", Json::array()},
+                {"consumers", Json::array()}
+            };
+            for (const auto& id : value.objects()) {
+                if (id.size() != 64
+                    || id.find_first_not_of("0123456789abcdef") != std::string::npos)
+                    throw Error(ErrorCode::unavailable, "invalid retired table object");
+                result["objects"].push_back(id);
+            }
+            for (const auto& id : value.acquisitions()) {
+                validate_id(id);
+                result["acquisitions"].push_back(id);
+            }
+            if (value.has_named_usage()) {
+                if (value.named_usage().dataset_id() != value.id())
+                    throw Error(ErrorCode::unavailable, "table snapshot usage identity mismatch");
+                result["references"] =
+                    protocol::decode_history_usage(value.named_usage()).at("references");
+            }
+            for (const auto& hold : value.holds()) {
+                const auto& consumer = hold.retention().consumer();
+                if (hold.retention().source().node_id() != node
+                    || hold.retention().source().service_id() != request.service_id()
+                    || (hold.phase() != wire::DataRetentionRecord::PREPARED
+                        && hold.phase() != wire::DataRetentionRecord::CONFIRMED))
+                    throw Error(ErrorCode::unavailable, "table retention owner mismatch");
+                result["consumers"].push_back(
+                    {{"node", consumer.owner().node_id()},
+                        {"service", consumer.owner().service_id()},
+                        {"domain", consumer.owner().domain()},
+                        {"kind", consumer.kind()},
+                        {"id", consumer.id()},
+                        {"version", consumer.version()},
+                        {"phase",
+                            hold.phase() == wire::DataRetentionRecord::PREPARED ? "prepared"
+                                                                                : "confirmed"}});
+            }
+            if (value.state() == wire::TableRetirement::AVAILABLE
+                && (value.current_head() || value.acquisitions_size() || value.holds_size()
+                    || value.named_usage().references_size()))
+                throw Error(
+                    ErrorCode::unavailable,
+                    "table retirement availability contradicts holds");
+            return result;
+        },
+        true,
+        120s);
+}
+
+std::future<Json> DataClient::table_retirements(const std::string& after)
+{
+    wire::DataRequest request;
+    request.mutable_table_retirements()->set_id(after);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [](const wire::DataRequest& request, wire::DataResponse& response) {
+            std::string previous = request.table_retirements().id();
+            Json result{
+                {"items", Json::array()},
+                {"next_after", response.table_retirements().next_after()}
+            };
+            if (response.table_retirements().items_size() > 256)
+                throw Error(ErrorCode::unavailable, "table retirement inventory exceeds capacity");
+            for (const auto& item : response.table_retirements().items()) {
+                if (item.id() <= previous || item.id().size() != 64
+                    || item.id().find_first_not_of("0123456789abcdef") != std::string::npos
+                    || !item.sequence()
+                    || (item.state() != wire::TableRetirement::PENDING
+                        && item.state() != wire::TableRetirement::REMOVED))
+                    throw Error(ErrorCode::unavailable, "invalid table retirement inventory");
+                result["items"].push_back(
+                    {{"id", item.id()},
+                        {"sequence", std::to_string(item.sequence())},
+                        {"state",
+                            item.state() == wire::TableRetirement::PENDING ? "pending"
+                                                                           : "removed"}});
+                previous = item.id();
+            }
+            const auto& next = response.table_retirements().next_after();
+            if (!next.empty()
+                && (response.table_retirements().items_size() != 256 || next != previous))
+                throw Error(ErrorCode::unavailable, "invalid table retirement continuation");
+            return result;
+        });
+}
+
+std::future<Json> DataClient::observation(const wire::ObservationQuery& query)
+{
+    wire::DataRequest request;
+    *request.mutable_observation() = query;
+    return impl_->invoke<Json>(
+        std::move(request),
+        [node = impl_->endpoint.owner_node_id](
+            const wire::DataRequest& request,
+            wire::DataResponse& response) {
+            const auto& query = request.observation();
+            const auto id = query.has_admit() ? query.admit().id()
+                : query.has_execute()         ? query.execute()
+                                              : query.read();
+            const auto& status = response.observation();
+            const auto& operation = status.operation();
+            if (operation.id() != id || operation.source().owner().node_id() != node
+                || (query.has_admit()
+                    && operation.source().SerializeAsString()
+                        != query.admit().source().SerializeAsString())
+                || (operation.has_archive()
+                    && (operation.archive().owner().node_id() != node
+                        || operation.archive().owner().service_id() != request.service_id()))
+                || (query.has_read() && operation.state() == wire::ObservationOperation::PUBLISHED
+                    && !status.has_capture()))
+                throw Error(ErrorCode::conflict, "observation archive owner mismatch");
+            return protocol::decode_observation_status(status);
+        },
+        true,
+        20s);
+}
+
+std::future<Json> DataClient::resources(const resource::proto::CatalogueQuery& query)
+{
+    wire::DataRequest request;
+    *request.mutable_resources() = query;
+    return impl_->invoke<Json>(
+        std::move(request),
+        [node = impl_->endpoint.owner_node_id](
+            const wire::DataRequest& request,
+            wire::DataResponse& response) {
+            resource::proto::Owner owner;
+            owner.set_node_id(node);
+            owner.set_service_id(request.service_id());
+            owner.set_domain("data");
+            return protocol::decode_resource_catalogue(
+                response.resources(),
+                request.resources(),
+                owner);
+        },
+        true,
+        30s);
+}
+
+std::future<Json> DataClient::minute_retirement(const std::string& id, bool execute)
+{
+    wire::DataRequest request;
+    request.mutable_minute_retirement()->set_id(id);
+    request.mutable_minute_retirement()->set_execute(execute);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [](const wire::DataRequest& request, wire::DataResponse& response) {
+            if (response.minute_retirement().id() != request.minute_retirement().id())
+                throw Error(ErrorCode::unavailable, "minute retirement identity mismatch");
+            return retirement_status(response.minute_retirement());
+        },
+        true,
+        120s);
+}
+
+std::future<Json> DataClient::minute_retirements(const std::string& after)
+{
+    wire::DataRequest request;
+    request.mutable_minute_retirements()->set_after(after);
+    request.mutable_minute_retirements()->set_limit(64);
+    return impl_->invoke<Json>(
+        std::move(request),
+        [](const wire::DataRequest& request, wire::DataResponse& response) {
+            const auto& page = response.minute_retirements();
+            if (page.items_size() > 64)
+                throw Error(ErrorCode::unavailable, "minute retirement page exceeds capacity");
+            Json result{{"items", Json::array()}, {"next_after", page.next_after()}};
+            std::string previous = request.minute_retirements().after();
+            for (const auto& item : page.items()) {
+                if (item.id() <= previous
+                    || (item.state() != wire::MinuteRetirement::PENDING
+                        && item.state() != wire::MinuteRetirement::REMOVED))
+                    throw Error(ErrorCode::unavailable, "invalid minute retirement page");
+                result["items"].push_back(retirement_status(item));
+                previous = item.id();
+            }
+            if (!page.next_after().empty()
+                && (page.items_size() != 64 || page.next_after() != previous))
+                throw Error(ErrorCode::unavailable, "invalid minute retirement continuation");
+            return result;
         });
 }
 

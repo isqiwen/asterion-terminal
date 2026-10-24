@@ -86,8 +86,8 @@ LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion_trading", "asterion_node_agent", "asterion_node_manager", "asterion_market_data", "asterion_data_service",
-                    "asterion_task_service")
+SERVICE_PROGRAMS = ("asterion_trading", "asterion_node_agent", "asterion_node_manager", "asterion_market", "asterion_data",
+                    "asterion_research", "asterion_intelligence")
 
 def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
@@ -128,10 +128,10 @@ def exercise_packaged_programs(native):
         return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
     isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
     run([*isolated, str(ROOT / "tests/tasks/task_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
-        environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion_data_service",
-                              "ASTERION_TASK_EXECUTABLE": "asterion_task_service"}))
+        environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion_data",
+                              "ASTERION_RESEARCH_EXECUTABLE": "asterion_research"}))
     run([*isolated, str(ROOT / "tests/market/ctp_sdk_smoke.py"), str(ROOT / "build/Release")],
-        environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion_market_data",
+        environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion_market",
                               "ASTERION_CTP_LIBRARY": "ctp-md" + LIBRARY_SUFFIX,
                               "ASTERION_CTP_CATALOG_LIBRARY": "ctp-trader" + LIBRARY_SUFFIX}))
 
@@ -257,10 +257,10 @@ def verify_macos_bundle(distribution=True):
             node = app / "Contents/Resources/native/asterion_node_agent"
             run(["codesign", "--verify", "--strict", str(node)])
             run([str(node), "--version"])
-            market = app / "Contents/Resources/native/asterion_market_data"
+            market = app / "Contents/Resources/native/asterion_market"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion_data_service", "asterion_task_service"):
+            for name in ("asterion_data", "asterion_research", "asterion_intelligence"):
                 program = app / "Contents/Resources/native" / name
                 run(["codesign", "--verify", "--strict", str(program)])
                 run([str(program), "--version"])

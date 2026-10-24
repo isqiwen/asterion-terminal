@@ -337,7 +337,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         std::vector<HistoryService> result;
         const bool local = !endpoint.endpoint.empty();
         for (const auto& service : health.services()) {
-            if (service.kind() != wire::TASK_SERVICE && service.kind() != wire::DATA_SERVICE)
+            if (service.kind() != wire::RESEARCH && service.kind() != wire::DATA_SERVICE)
                 continue;
             if (result.size() >= 1000)
                 throw std::invalid_argument("historical service inspection limit exceeded");
@@ -351,11 +351,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                 local ? service.endpoint() : ""
             };
             result.push_back(
-                {service.kind(),
-                    service.directory(),
-                    service.state(),
-                    service.data_service(),
-                    std::move(address)});
+                {service.kind(), service.directory(), service.state(), std::move(address)});
         }
         co_return result;
     }
@@ -409,39 +405,11 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                     service,
                     static_cast<std::uint16_t>(s.port()),
                     endpoint.tls,
-                    s.endpoint()
+                    s.endpoint(),
+                    "local",
+                    observed.node_id()
                 };
             }
-        throw std::invalid_argument("unknown managed service");
-    }
-
-    PolledTask<DataTaskEndpoints>
-    data_task_endpoints(const std::string& task_service, std::stop_token stop)
-    {
-        const auto observed = (co_await ready(stop));
-        for (const auto& task : observed.services()) {
-            if (task.id() != task_service)
-                continue;
-            if (task.kind() != wire::TASK_SERVICE)
-                throw std::invalid_argument("service kind mismatch");
-            for (const auto& data : observed.services()) {
-                if (data.id() != task.data_service())
-                    continue;
-                if (data.kind() != wire::DATA_SERVICE || data.task_service() != task.id())
-                    throw std::invalid_argument("data and task service bindings disagree");
-                const auto address = [&](const auto& service) {
-                    return ServiceEndpoint{
-                        endpoint.host,
-                        service.id(),
-                        static_cast<std::uint16_t>(service.port()),
-                        endpoint.tls,
-                        service.endpoint()
-                    };
-                };
-                co_return DataTaskEndpoints{address(task), address(data)};
-            }
-            throw std::invalid_argument("paired data service is not deployed");
-        }
         throw std::invalid_argument("unknown managed service");
     }
 
@@ -462,8 +430,8 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             if (existing.id() == service)
                 throw std::invalid_argument(
                     "service already exists; its program and ledger are not replaced");
-        if (kind != wire::MARKET_DATA && kind != wire::TASK_SERVICE && kind != wire::LIVE_TRADING
-            && kind != wire::DATA_SERVICE)
+        if (kind != wire::MARKET_DATA && kind != wire::RESEARCH && kind != wire::LIVE_TRADING
+            && kind != wire::DATA_SERVICE && kind != wire::INTELLIGENCE)
             throw std::invalid_argument("invalid service kind");
         const auto hash = (co_await upload_artifact(path, os, arch, stop));
         const auto library = programs.provider.empty()
@@ -476,21 +444,18 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         d->set_port(deployment.port);
         d->set_directory(deployment.directory);
         d->set_kind(kind);
-        d->set_task_service(deployment.task_service);
-        d->set_data_service(deployment.data_service);
         d->set_provider_artifact(library);
         d->set_catalog_artifact(
             programs.catalog.empty()
                 ? std::string{}
                 : (co_await upload_artifact(programs.catalog, os, arch, stop)));
         const bool risk = kind == wire::LIVE_TRADING;
-        if ((kind == wire::TASK_SERVICE || kind == wire::DATA_SERVICE || risk)
-            && deployment.plugins) {
+        if ((kind == wire::RESEARCH || kind == wire::DATA_SERVICE || risk) && deployment.plugins) {
             for (const auto& artifact : *deployment.plugins) {
                 d->add_plugin_artifacts(
                     co_await upload_artifact(artifact.path, os, arch, stop, artifact.sha256));
             }
-        } else if (kind == wire::TASK_SERVICE || kind == wire::DATA_SERVICE || risk) {
+        } else if (kind == wire::RESEARCH || kind == wire::DATA_SERVICE || risk) {
             const auto paths = co_await io.admin<std::vector<std::filesystem::path>>([&] {
                 auto folder = path.parent_path() / "plugins";
                 if (os == current_platform().os && arch == current_platform().arch)
@@ -573,7 +538,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             if (item.id() == service)
                 current = &item;
         if (!current
-            || (current->kind() != wire::TASK_SERVICE && current->kind() != wire::DATA_SERVICE))
+            || (current->kind() != wire::RESEARCH && current->kind() != wire::DATA_SERVICE))
             throw std::invalid_argument("service does not support managed native plugins");
         if (current->desired_running() || current->state() != "stopped")
             throw std::invalid_argument("stop the service before configuring plugins");
@@ -613,7 +578,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             if (!directory.is_absolute() || !std::filesystem::is_directory(directory)
                 || std::filesystem::is_symlink(directory))
                 throw std::invalid_argument("choose an existing absolute trading record directory");
-            check_journal_directory(directory, {"plugins", "ctp-flow", "archives"});
+            check_journal_directory(directory, {"plugins", "ctp-flow", "archives", "facts"});
             const auto path = std::filesystem::canonical(directory).u8string();
             return std::string(path.begin(), path.end());
         });
@@ -709,65 +674,96 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         co_return (co_await service_endpoint(service, wire::MARKET_DATA, stop));
     }
 
-    PolledTask<ServiceEndpoint> local_data_tasks(
+    PolledTask<ServiceEndpoint> local_data(std::stop_token stop)
+    {
+        if (endpoint.endpoint.empty())
+            throw std::invalid_argument("local Agent required");
+        const std::string service = "historical-data";
+        const auto observed = co_await ready(stop);
+        const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
+        if (found == observed.services().end()) {
+            const auto programs = co_await io.admin<ServicePrograms>([] {
+                return local_service_programs(wire::DATA_SERVICE);
+            });
+            co_await deploy(
+                {.service = service,
+                    .kind = wire::DATA_SERVICE,
+                    .platform = current_platform(),
+                    .programs = programs},
+                stop);
+        } else {
+            if (found->kind() != wire::DATA_SERVICE)
+                throw std::invalid_argument("service kind mismatch");
+            co_await action(service, "start", stop);
+        }
+        co_return co_await service_endpoint(service, wire::DATA_SERVICE, stop);
+    }
+
+    PolledTask<ServiceEndpoint> local_intelligence(std::stop_token stop)
+    {
+        if (endpoint.endpoint.empty())
+            throw std::invalid_argument("local Agent required");
+        const std::string service = "intelligence";
+        const auto observed = co_await ready(stop);
+        const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
+        if (found == observed.services().end()) {
+            const auto programs = co_await io.admin<ServicePrograms>([] {
+                return local_service_programs(wire::INTELLIGENCE);
+            });
+            co_await deploy(
+                {.service = service,
+                    .kind = wire::INTELLIGENCE,
+                    .platform = current_platform(),
+                    .programs = programs},
+                stop);
+        } else {
+            if (found->kind() != wire::INTELLIGENCE)
+                throw std::invalid_argument("service kind mismatch");
+            co_await action(service, "start", stop);
+        }
+        co_return co_await service_endpoint(service, wire::INTELLIGENCE, stop);
+    }
+
+    PolledTask<ServiceEndpoint> local_research(
         const std::optional<std::vector<std::string>>& selected_plugins,
         std::stop_token stop)
     {
         if (endpoint.endpoint.empty())
             throw std::invalid_argument("local Agent required");
-        const std::string service = "task";
-        const std::string data_service = "historical-data";
-        bool exists = false, data_exists = false;
+        const std::string service = "research";
+        bool exists = false;
         {
             const auto observed = (co_await ready(stop));
             for (const auto& s : observed.services()) {
                 if (s.id() == service) {
-                    if (s.kind() != wire::TASK_SERVICE || s.data_service() != data_service)
-                        throw std::invalid_argument("data and task service bindings disagree");
+                    if (s.kind() != wire::RESEARCH)
+                        throw std::invalid_argument("local research service kind mismatch");
                     exists = true;
-                }
-                if (s.id() == data_service) {
-                    if (s.kind() != wire::DATA_SERVICE || s.task_service() != service)
-                        throw std::invalid_argument("data and task service bindings disagree");
-                    data_exists = true;
                 }
             }
         }
         if (exists && selected_plugins)
-            throw std::invalid_argument("local task service already exists; configure its plugins");
+            throw std::invalid_argument(
+                "local research service already exists; configure its plugins");
         std::optional<std::vector<PluginArtifact>> selection;
         if (selected_plugins) {
             selection = co_await io.admin<std::vector<PluginArtifact>>([&] {
                 return local_plugin_catalog().select_data_task_plugins(*selected_plugins).uploads;
             });
         }
-        if (!data_exists)
-            (co_await deploy(
-                {.service = data_service,
-                    .kind = wire::DATA_SERVICE,
-                    .platform = current_platform(),
-                    .programs = co_await io.admin<ServicePrograms>([] {
-                        return local_service_programs(wire::DATA_SERVICE);
-                    }),
-                    .plugins = selection,
-                    .task_service = service},
-                stop));
-        else
-            (co_await action(data_service, "start", stop));
         if (!exists) {
             (co_await deploy(
                 {.service = service,
-                    .kind = wire::TASK_SERVICE,
+                    .kind = wire::RESEARCH,
                     .platform = current_platform(),
                     .programs = co_await io.admin<ServicePrograms>([] {
-                        return local_service_programs(wire::TASK_SERVICE);
+                        return local_service_programs(wire::RESEARCH);
                     }),
-                    .plugins = selection,
-                    .data_service = data_service},
+                    .plugins = selection},
                 stop));
         } else
             (co_await action(service, "start", stop));
-        co_return (co_await service_endpoint(service, wire::TASK_SERVICE, stop));
+        co_return (co_await service_endpoint(service, wire::RESEARCH, stop));
     }
 
     PolledTask<Json> firewall(
@@ -940,15 +936,6 @@ AgentClient::service_endpoint(const std::string& service, wire::ServiceKind kind
         false);
 }
 
-std::future<DataTaskEndpoints> AgentClient::data_task_endpoints(const std::string& task_service)
-{
-    return impl_->submit<DataTaskEndpoints>(
-        [state = impl_, task_service](std::stop_token stop) {
-            return state->data_task_endpoints(task_service, stop);
-        },
-        false);
-}
-
 std::future<void> AgentClient::deploy(const ServiceDeployment& deployment)
 {
     return impl_->submit<void>(
@@ -1006,12 +993,30 @@ std::future<ServiceEndpoint> AgentClient::local_market()
         true);
 }
 
-std::future<ServiceEndpoint> AgentClient::local_data_tasks(
+std::future<ServiceEndpoint> AgentClient::local_data()
+{
+    return impl_->submit<ServiceEndpoint>(
+        [state = impl_](std::stop_token stop) {
+            return state->local_data(stop);
+        },
+        false);
+}
+
+std::future<ServiceEndpoint> AgentClient::local_intelligence()
+{
+    return impl_->submit<ServiceEndpoint>(
+        [state = impl_](std::stop_token stop) {
+            return state->local_intelligence(stop);
+        },
+        false);
+}
+
+std::future<ServiceEndpoint> AgentClient::local_research(
     const std::optional<std::vector<std::string>>& selected_plugins)
 {
     return impl_->submit<ServiceEndpoint>(
         [state = impl_, selected_plugins](std::stop_token stop) {
-            return state->local_data_tasks(selected_plugins, stop);
+            return state->local_research(selected_plugins, stop);
         },
         true);
 }

@@ -46,7 +46,7 @@ test(
     await rpc(page.request, "data.dataset.clear");
     await openView(page, "watchlist");
     await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
-    await rpc(page.request, "node.data_tasks.local.open");
+    await rpc(page.request, "node.research.local.open");
     await page.reload();
     await openView(page, "backtest");
     await page.getByRole("button", { name: "新建回测", exact: true }).click();

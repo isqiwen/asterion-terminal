@@ -8,6 +8,8 @@
 #include "paper_execution.hpp"
 #include "order_limits.hpp"
 #include "sqlite_journal.hpp"
+#include <asterion/kernel/process/file_lock.hpp>
+#include <map>
 #include <asterion/protocol/data.hpp>
 #include "data/bar_fixture.hpp"
 #include <chrono>
@@ -1425,4 +1427,114 @@ TEST(PaperExecution, SettlementMarginFailureRollsBackPnlAndSuccessfulChangeDoesN
     EXPECT_EQ(settled.account.orders.size(), filled.account.orders.size());
     engine.advance();
     EXPECT_EQ(engine.account().contracts()[0].costs.margin_rate, d("0.15"));
+}
+
+TEST(SqliteJournal, ColdInspectionPreservesOriginalFilesAndRejectsDamagedDeclaredSegments)
+{
+    Directory directory;
+    test::SmallJournalSegments budget(2);
+    const Json header{{"account", "isolated-account"}};
+    {
+        SqliteJournal writer(directory.path);
+        writer.start();
+        writer.append(header);
+        for (unsigned sequence = 1; sequence <= 5; ++sequence)
+            writer.append(
+                {{"event", sequence},
+                    {"trading_day", "20260928"},
+                    {"broker_key", "1:1:" + std::to_string(sequence)}},
+                "command." + std::to_string(sequence),
+                "order." + std::to_string(sequence));
+    }
+    std::filesystem::create_directory(directory.path / "facts");
+    {
+        FileLock initial(directory.path / "facts", "account.lock");
+    }
+    FileLock cut(directory.path / "facts", "account.lock", FileLock::Access::shared_existing);
+    const auto original_files = [&] {
+        std::map<std::filesystem::path, std::string> result;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(directory.path))
+            if (entry.is_regular_file())
+                result.emplace(
+                    entry.path().lexically_relative(directory.path),
+                    sha256_file(entry.path()));
+        return result;
+    };
+    const auto before = original_files();
+    const auto files = SqliteJournal::inspect_backup(
+        directory.path,
+        {"facts"},
+        [&](const SqliteJournal& reader, const Json& actual_header) {
+            EXPECT_EQ(actual_header, header);
+            EXPECT_EQ(reader.capacity().total_records, 6U);
+            EXPECT_EQ(reader.capacity().segment_count, 2U);
+            unsigned next = 1;
+            while (next < reader.capacity().total_records) {
+                const auto page = reader.read(next);
+                ASSERT_FALSE(page.empty());
+                for (const auto& event : page) {
+                    EXPECT_EQ(event.at("event"), next);
+                    EXPECT_EQ(reader.command_sequence("command." + std::to_string(next)), next);
+                    EXPECT_EQ(reader.order("order." + std::to_string(next)), event);
+                    ++next;
+                }
+            }
+        });
+    ASSERT_EQ(files.size(), 3U);
+    EXPECT_EQ(files.front(), "journal.sqlite");
+    EXPECT_EQ(original_files(), before);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "journal.sqlite-shm"));
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "journal.sqlite-wal"));
+    const auto index_before = sha256_file(directory.path / "journal.sqlite");
+    replace_file_durably(directory.path / files[1], "damaged-isolated-segment");
+    EXPECT_THROW(SqliteJournal::inspect_backup(directory.path, {"facts"}, {}), std::exception);
+    EXPECT_EQ(sha256_file(directory.path / "journal.sqlite"), index_before);
+}
+
+TEST(PaperExecution, TargetLimitRejectionObservesTheBarWithoutSubmittingOrChangingLedgerExposure)
+{
+    auto limits = std::make_shared<OrderLimits>(OrderLimitsConfig{d("100"), d("1"), 100});
+    limits->start();
+    PaperExecution execution(
+        d("1000"),
+        {{{instrument(), costs()},
+            {test::flat("2026-09-28", 1, "100"),
+                test::flat("2026-09-28", 2, "101"),
+                test::flat("2026-09-28", 3, "102")}}},
+        limits);
+    execution.start();
+    EXPECT_TRUE(execution.advance().allowed());
+    const auto denied = execution.advance(PaperExecution::Target{"denied", d("2"), d("100")});
+    EXPECT_EQ(denied.reason, RiskReason::gross_quantity);
+    EXPECT_EQ(execution.cursor(), 2U);
+    EXPECT_TRUE(execution.account().orders().empty());
+    EXPECT_TRUE(execution.account().fills().empty());
+    EXPECT_TRUE(execution.account().positions().empty());
+    EXPECT_EQ(execution.account().fees(), d("0"));
+    EXPECT_EQ(execution.account().balance(), d("1000"));
+    EXPECT_TRUE(execution.advance(PaperExecution::Target{"allowed", d("1"), d("102")}).allowed());
+    ASSERT_EQ(execution.account().fills().size(), 1U);
+    EXPECT_EQ(execution.account().fills()[0].execution.order_id, "allowed");
+    EXPECT_EQ(execution.account().fills()[0].execution.quantity, d("1"));
+    EXPECT_EQ(execution.account().fees(), d("2"));
+}
+
+TEST(PaperExecution, UnavailableRiskStillFailsAndRollsBackTheWholeBar)
+{
+    auto stopped = std::make_shared<OrderLimits>(OrderLimitsConfig{d("100"), d("100"), 100});
+    PaperExecution execution(
+        d("1000"),
+        {{{instrument(), costs()},
+            {test::flat("2026-09-28", 1, "100"), test::flat("2026-09-28", 2, "101")}}},
+        stopped);
+    execution.start();
+    execution.advance();
+    const auto before = execution.snapshot();
+    try {
+        (void)execution.advance(PaperExecution::Target{"unavailable", d("1"), d("100")});
+        FAIL() << "Risk dependency failure must not become a completed no-fill bar";
+    } catch (const PaperRiskRejected& rejected) {
+        EXPECT_EQ(rejected.reason(), RiskReason::unavailable);
+    }
+    EXPECT_EQ(execution.snapshot(), before);
 }

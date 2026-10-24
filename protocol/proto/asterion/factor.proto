@@ -3,6 +3,8 @@ import "asterion/domain.proto";
 import "asterion/data.proto";
 package asterion.factor.proto;
 import "asterion/trading.proto";
+import "asterion/resource.proto";
+import "asterion/research_variable.proto";
 
 // Months of one product read as its dominant series. On each trading day the
 // observations are the bars of the month the schedule names, each close
@@ -48,8 +50,13 @@ message FactorMembership {
   MembershipReason reason = 3;
 }
 message FactorInput {
+  // Exactly one algorithm: an immutable Research definition, or the built-in
+  // factor enum. Custom definitions leave the shared trading enum unspecified.
+  asterion.research.proto.VariableDefinition variable_definition = 13;
   reserved 1;
+  asterion.data.proto.DataOwner data_owner = 11;
   string dataset_revision = 2; // The revision of the series.
+  bool retain_observations = 12; // Explicit single-series evidence, including saved sample roles.
   // One series is evaluated over its own observations. Three to a hundred of
   // the same period, each a different contract or product, are evaluated
   // across them: at every observation any of them has, those that have it.
@@ -83,9 +90,12 @@ message FactorSeriesRequest {
 }
 // Client submission: Task obtains the fixed series from Data before persisting input.
 message FactorRequest {
+  // Reference only; Research resolves the owned definition before Data reads.
+  asterion.resource.proto.Object variable_definition = 11;
   LiquidityRule liquidity = 8;
   // Admission-only guard for explicit reuse of fixed data; not a new input identity.
   string expected_dataset_revision = 9;
+  bool retain_observations = 10;
   repeated FactorSeriesRequest series = 1;
   asterion.protocol.proto.Factor factor = 2;
   repeated uint32 lookbacks = 3;
@@ -123,7 +133,37 @@ message FactorMember {
   double value = 2;
   double forward_return = 3;
 }
+// Every observation, including warm-up and the unknown future tail. Optional
+// numeric fields preserve real zero separately from an undefined value.
+message FactorObservation {
+  enum FeatureState {
+    FEATURE_STATE_UNSPECIFIED = 0;
+    FEATURE_VALUE = 1;
+    FEATURE_WARMUP = 2;
+    FEATURE_ZERO_DENOMINATOR = 3;
+    FEATURE_NON_FINITE = 4;
+  }
+
+  // Present for expression features, from their actual calculation output.
+  optional FeatureState feature_state = 9;
+
+  enum Role {
+    FULL_SAMPLE = 0;
+    DEVELOPMENT = 1;
+    HOLDOUT = 2;
+  }
+
+  Role role = 7;
+  bool label_crosses_boundary = 8;
+  uint32 event_index = 1;
+  optional double value = 2;
+  optional double forward_return = 3;
+  optional uint32 label_end_index = 4;
+  bool evaluation_warmup = 5;
+  bool included = 6;
+}
 message FactorResult {
+  repeated FactorObservation observations = 16;
   repeated FactorMembership memberships = 15;
   reserved 1;
   string dataset_revision = 2;
@@ -176,6 +216,7 @@ message FactorSpread {
 }
 
 message FactorFold {
+  repeated FactorObservation observations = 8;
   uint32 training_begin = 1;
   uint32 training_end = 2;
   uint32 validation_end = 3;

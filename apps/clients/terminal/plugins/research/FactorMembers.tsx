@@ -1,5 +1,5 @@
 import { timestamp, type FactorExperiment, type FactorResult } from "../../src/bridge/client";
-import { factorNames, t } from "./shared";
+import { factorLabel, t } from "./shared";
 
 export function FactorMembers({
   experiment,
@@ -34,7 +34,7 @@ export function FactorMembers({
               <tr>
                 <th>{t("分组顺序")}</th>
                 <th>{t("品种或合约")}</th>
-                <th>{t(factorNames[experiment.factor])}</th>
+                <th>{factorLabel(experiment.factor)}</th>
                 <th>{t("未来收益")}</th>
               </tr>
             </thead>

@@ -23,10 +23,15 @@ export const emptyMetadata: Metadata = {
 export function ExperimentMetadata({
   task,
   connection,
+  owner,
   busy,
   trade,
   query,
-}: { task: TaskRecord; connection: string } & Pick<TerminalContext, "busy" | "trade" | "query">) {
+}: {
+  task: TaskRecord;
+  connection: string;
+  owner: import("../../src/bridge/client").TaskOwnerRef;
+} & Pick<TerminalContext, "busy" | "trade" | "query">) {
   const [confirmed, setConfirmed] = useState(task.metadata ?? emptyMetadata);
   const [draft, setDraft] = useWorkspaceDraft(`description:${connection}:${task.id}`, {
     name: confirmed.name,
@@ -42,6 +47,7 @@ export function ExperimentMetadata({
     setError("");
     try {
       await trade("task.metadata.edit", {
+        owner,
         id: task.id,
         expected_revision: draft.revision,
         name: draft.name,
@@ -62,7 +68,7 @@ export function ExperimentMetadata({
     setSaved(false);
     setError("");
     try {
-      const reply = await query("task.metadata.read", { id: task.id });
+      const reply = await query("task.metadata.read", { owner, id: task.id });
       const metadata = reply.task_description?.metadata ?? emptyMetadata;
       setConfirmed(metadata);
       setDraft({ ...draft, revision: metadata.revision });

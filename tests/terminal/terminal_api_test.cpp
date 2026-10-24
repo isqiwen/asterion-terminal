@@ -1,4 +1,6 @@
 #include "../apps/clients/terminal/native/research_export.hpp"
+#include "../apps/clients/terminal/native/evaluation_export.hpp"
+#include "../apps/clients/terminal/native/batch_assessment_export.hpp"
 #include "../apps/clients/terminal/native/portfolio_budget_review.hpp"
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "support/timing.hpp"
@@ -86,7 +88,8 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
             throw std::runtime_error(result.dump());
         return result.at("result");
     };
-    invoke("node.data_tasks.local.open");
+    invoke("node.research.local.open");
+    invoke("node.data.local.open");
     const auto stopped = invoke(
         "node.action",
         {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
@@ -100,7 +103,7 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
     // What the fixture says beside the selection itself.
     selection.erase("daily_sequence");
     selection.erase("daily_dataset_id");
-    invoke("node.data_tasks.local.open");
+    invoke("node.data.local.open");
     const auto deadline = std::chrono::steady_clock::now()
         + asterion::testing_support::bound(std::chrono::seconds(10));
     while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
@@ -115,8 +118,12 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
 
 TEST(ResearchComparisonExport, PreservesColumnOrderStatesAndReasonsAndRejectsUnrelatedFields)
 {
-    const json task =
-        {{"attempt", 1}, {"result_digest", std::string(64, 'a')}, {"metadata", json::object()}};
+    const json task = {
+        {"attempt", 1},
+        {"result_digest", std::string(64, 'a')},
+        {"program_artifact", std::string(64, 'b')},
+        {"metadata", json::object()}
+    };
     const json first = {
         {"id", "first"},
         {"kind", "factor"},
@@ -181,6 +188,7 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     const json task = {
         {"attempt", 1},
         {"result_digest", std::string(64, 'a')},
+        {"program_artifact", std::string(64, 'b')},
         {"metadata", {{"name", "test"}, {"note", "notes"}, {"source_id", "original"}}}
     };
     const json source = {
@@ -198,10 +206,31 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     EXPECT_EQ(document.at("experiment"), source.at("experiment"));
     EXPECT_EQ(document.at("result"), source.at("result"));
     EXPECT_EQ(document.at("description"), task.at("metadata"));
+    EXPECT_EQ(document.at("source").at("program_artifact"), task.at("program_artifact"));
     EXPECT_TRUE(document.at("source").at("input_sha256").is_null());
     EXPECT_FALSE(document.contains("settings"));
     auto backtest = source;
     backtest["kind"] = "backtest";
+    const json fixed_package = {
+        {"node", "fixture-node"},
+        {"service", "research-one"},
+        {"domain", "research"},
+        {"kind", "strategy_package"},
+        {"id", "portfolio-package"},
+        {"version", std::string(64, 'c')}
+    };
+    auto fixed_delivery = fixed_package;
+    fixed_delivery["kind"] = "strategy_delivery";
+    fixed_delivery["id"] = "portfolio-delivery";
+    fixed_delivery["version"] = std::string(64, 'd');
+    backtest["task"]["strategy_use"] = {{"package", fixed_package}, {"delivery", fixed_delivery}};
+    backtest["task"]["research_plan"] = {
+        {"project_id", "original-project"},
+        {"plan_id", "original-plan"},
+        {"definition_digest", std::string(64, 'e')},
+        {"owner",
+            {{"domain", "research"}, {"node_id", "fixture-node"}, {"service_id", "research-one"}}}
+    };
     backtest["portfolio"] = json::object();
     backtest["performance"] = json::object();
     backtest["trades"] = json::object();
@@ -209,6 +238,21 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     const auto backtest_document =
         json::parse(asterion::terminal::research_evidence_document(backtest, "research-task"));
     EXPECT_EQ(backtest_document.at("reconciliation"), backtest.at("reconciliation"));
+    EXPECT_EQ(backtest_document.at("strategy_use"), backtest.at("task").at("strategy_use"));
+    EXPECT_EQ(backtest_document.at("research_plan"), backtest.at("task").at("research_plan"));
+    const auto portfolio_path = fixture.directory / "portfolio.evidence.json";
+    const auto portfolio_content = backtest_document.dump(2) + "\n";
+    asterion::terminal::save_research_evidence(portfolio_path, portfolio_content);
+    std::ifstream portfolio_file(portfolio_path, std::ios::binary);
+    const std::string portfolio_bytes(std::istreambuf_iterator<char>(portfolio_file), {});
+    EXPECT_EQ(
+        json::parse(portfolio_bytes).at("strategy_use"),
+        backtest.at("task").at("strategy_use"));
+    auto missing_program = source;
+    missing_program["task"].erase("program_artifact");
+    EXPECT_THROW(
+        asterion::terminal::research_evidence_document(missing_program, "research-task"),
+        std::invalid_argument);
 
     EXPECT_FALSE(document.contains("nodes"));
     EXPECT_EQ(content.find("not-exported"), std::string::npos);
@@ -227,6 +271,375 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     unsupported["kind"] = "minute_download";
     EXPECT_THROW(
         asterion::terminal::research_evidence_document(unsupported, "research-task"),
+        std::invalid_argument);
+}
+
+TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntrustedText)
+{
+    const json reference = {
+        {"node", "fixture-node"},
+        {"service", "research-one"},
+        {"domain", "research"},
+        {"kind", "backtest_result"},
+        {"id", "original-account"},
+        {"version", std::string(64, 'b')}
+    };
+    json result = {
+        {"first_day", "2026-09-21"},
+        {"last_day", "2026-09-25"},
+        {"begin_ns", "1789990000000000000"},
+        {"end_ns", "1790300000000000000"},
+        {"currency", "CNY"},
+        {"trading_days", 5},
+        {"complete_return_periods", 4},
+        {"opening_is_full_period", false},
+        {"short_calendar_span", true},
+        {"calendar_year_days", 365.2425},
+        {"opening_equity", "1000"},
+        {"closing_equity", "973.5"},
+        {"fees", "2"},
+        {"net_profit", "-26.5"},
+        {"limitations",
+            {"CASH_FLOWS_NOT_EVALUATED",
+                "BENCHMARK_NOT_EVALUATED",
+                "RISK_AND_STRESS_NOT_EVALUATED",
+                "INDEPENDENCE_NOT_ESTABLISHED",
+                "HISTORICAL_AVAILABILITY_NOT_VERIFIED",
+                "HUMAN_CONCLUSION_NOT_RECORDED"}}
+    };
+    for (const auto* key :
+        {"total_return",
+            "annual_return",
+            "annual_volatility",
+            "sharpe",
+            "max_drawdown",
+            "calmar",
+            "winning_days"})
+        result[key] = {{"state", "ANNUAL_PERIODS_NOT_CONFIGURED"}, {"value", nullptr}};
+    result["total_return"] = {{"state", "AVAILABLE"}, {"value", -0.0265}};
+    result["daily_drawdown"] = nullptr;
+    result["exposure"] = nullptr;
+    result["static_stress"] = nullptr;
+    const json source = {
+        {"kind", "performance_evaluation"},
+        {"id", "evaluation-one"},
+        {"input_sha256", std::string(64, 'a')},
+        {"task",
+            {{"result_digest", std::string(64, 'c')}, {"program_artifact", std::string(64, 'd')}}},
+        {"experiment",
+            {{"request",
+                 {{"source", reference},
+                     {"question", "=cmd,<script>alert(1)</script>\n\"quoted\""},
+                     {"scope", "full_account"},
+                     {"include_daily_drawdown", false},
+                     {"include_exposure", false},
+                     {"static_stress", nullptr},
+                     {"method", {{"annual_periods", nullptr}, {"risk_free", "unconfigured"}}}}},
+                {"source",
+                    {{"input_sha256", std::string(64, 'e')},
+                        {"input_bytes", "1234"},
+                        {"attempt", 1},
+                        {"program_artifact", std::string(64, 'f')},
+                        {"settlements", 5},
+                        {"first_settlement", 0},
+                        {"end_settlement", 5}}}}},
+        {"result", result},
+        {"settings", {{"password", "must-not-export"}}},
+        {"nodes", {"must-not-export"}}
+    };
+    const auto original = source.dump();
+    const auto html = asterion::terminal::evaluation_report_document(source, nullptr, "html");
+    EXPECT_NE(html.find("&lt;script&gt;alert(1)&lt;/script&gt;"), std::string::npos);
+    EXPECT_EQ(html.find("<script>"), std::string::npos);
+    EXPECT_EQ(html.find("must-not-export"), std::string::npos);
+    EXPECT_NE(html.find("ANNUAL_PERIODS_NOT_CONFIGURED"), std::string::npos);
+    EXPECT_NE(html.find("INDEPENDENCE_NOT_ESTABLISHED"), std::string::npos);
+    EXPECT_NE(html.find("human.judgment</th><td>NOT_RECORDED"), std::string::npos);
+    EXPECT_NE(html.find("-26.5"), std::string::npos);
+    const auto csv = asterion::terminal::evaluation_report_document(source, nullptr, "csv");
+    EXPECT_NE(csv.find("\"amount.net_profit\",\"-26.5\",\"RECORDED\""), std::string::npos);
+    EXPECT_NE(csv.find("\"'=cmd,<script>"), std::string::npos);
+    EXPECT_NE(
+        csv.find("\"metric.sharpe\",\"\",\"ANNUAL_PERIODS_NOT_CONFIGURED\""),
+        std::string::npos);
+    EXPECT_EQ(source.dump(), original);
+    auto contributions = source;
+    contributions["experiment"]["request"]["include_contributions"] = true;
+    const auto check =
+        [](const char* metric, const char* expected, const char* recorded, const char* residual) {
+            return json{
+                {"metric", metric},
+                {"expected", expected},
+                {"recorded", recorded},
+                {"residual", residual}
+            };
+        };
+    const auto member =
+        [&](const char* symbol, const char* gross, const char* fee, const char* net) {
+            return json{
+                {"venue", "SHFE"},
+                {"symbol", symbol},
+                {"multiplier", "10"},
+                {"gross", gross},
+                {"fees", fee},
+                {"net", net},
+                {"final_position", check("position", "1", "1", "0")},
+                {"days",
+                    json::array(
+                        {{{"source_index", 0},
+                            {"trading_day", "2026-09-21"},
+                            {"timestamp_ns", "0"},
+                            {"settlement", "-97.00000001"},
+                            {"opening_quantity", "0"},
+                            {"quantity_change", "1"},
+                            {"closing_quantity", "1"},
+                            {"gross", gross},
+                            {"fees", fee},
+                            {"checks", json::array({check("position", "1", "1", "0")})},
+                            {"fills",
+                                json::array(
+                                    {{{"id", std::string(symbol) + "-fill"},
+                                        {"order_id", std::string(symbol) + "-order"},
+                                        {"buy", true},
+                                        {"quantity", "1"},
+                                        {"price", "-100.00000001"},
+                                        {"fee", fee}}})}}})}
+            };
+        };
+    contributions["result"]["contributions"] = {
+        {"deposit", "1000"},
+        {"gross", "40"},
+        {"fees", "6"},
+        {"explained_net", "34"},
+        {"recorded_net", "35"},
+        {"residual", "1"},
+        {"reconciled", false},
+        {"contracts", json::array({member("A", "30", "4", "26"), member("B", "10", "2", "8")})},
+        {"days",
+            json::array(
+                {{{"source_index", 0},
+                    {"trading_day", "2026-09-21"},
+                    {"timestamp_ns", "0"},
+                    {"gross", "40"},
+                    {"fees", "6"},
+                    {"expected_balance", "1034"},
+                    {"recorded_balance", "1035"},
+                    {"recorded_equity", "1035"},
+                    {"cumulative_residual", "1"},
+                    {"checks", json::array({check("balance", "1034", "1035", "1")})}}})},
+        {"final_checks", json::array({check("equity", "1034", "1035", "1")})}
+    };
+    const auto contribution_bytes = contributions.dump();
+    for (const std::string format : {"html", "csv"}) {
+        const auto document =
+            asterion::terminal::evaluation_report_document(contributions, nullptr, format);
+        const auto exact = [&](const std::string& field,
+                               const std::string& value,
+                               const std::string& state = "RECORDED") {
+            const auto needle = format == "csv"
+                ? "\"" + field + "\",\"" + value + "\",\"" + state + "\""
+                : "<th>" + field + "</th><td>" + value + "</td><td>" + state + "</td>";
+            EXPECT_NE(document.find(needle), std::string::npos) << field;
+        };
+        exact("scope", "full_account");
+        exact("report.result_sha256", std::string(64, 'c'));
+        exact("contributions.contract.0.net", "26");
+        exact("contributions.contract.1.net", "8");
+        exact("contributions.recorded_net", "35");
+        exact("contributions.residual", "1");
+        exact("contributions.contract.1.day.0.fill.0.id", "B-fill");
+        exact("contributions.contract.1.day.0.fill.0.price", "-100.00000001");
+        exact("contributions.contract.1.day.0.fill.0.fee", "2");
+        exact("contributions.day.0.cumulative_residual", "1");
+        exact("contributions.day.0.timestamp_ns", "null", "NOT_RECORDED");
+    }
+    EXPECT_EQ(contributions.dump(), contribution_bytes);
+    contributions["experiment"]["request"]["include_contributions"] = false;
+    EXPECT_THROW(
+        asterion::terminal::evaluation_report_document(contributions, nullptr, "csv"),
+        std::invalid_argument);
+    json human_reference = reference;
+    human_reference["kind"] = "performance_evaluation_result";
+    human_reference["id"] = source.at("id");
+    human_reference["version"] = source.at("task").at("result_digest");
+    json human = {
+        {"digest", std::string(64, '1')},
+        {"recorded_at_ms", 1000},
+        {"retrospective", true},
+        {"program_artifact", std::string(64, 'd')},
+        {"declaration",
+            {{"id", "human-one"},
+                {"result", human_reference},
+                {"judgment", "insufficient"},
+                {"reason", "+SUM(1,2)<img src=x>"},
+                {"previous_id", ""},
+                {"revision_reason", ""},
+                {"plan",
+                    {{"project_id", "question"},
+                        {"plan_id", "plan"},
+                        {"definition_digest", std::string(64, '2')}}}}}
+    };
+    const auto reviewed = asterion::terminal::evaluation_report_document(source, human, "html");
+    EXPECT_NE(reviewed.find("insufficient"), std::string::npos);
+    EXPECT_NE(reviewed.find("HUMAN_CONCLUSION_NOT_RECORDED"), std::string::npos);
+    EXPECT_EQ(reviewed.find("<img"), std::string::npos);
+    EXPECT_NE(
+        asterion::terminal::evaluation_report_document(source, human, "csv").find("\"'+SUM(1,2)"),
+        std::string::npos);
+    human["declaration"]["result"]["version"] = std::string(64, '3');
+    EXPECT_THROW(
+        asterion::terminal::evaluation_report_document(source, human, "html"),
+        std::invalid_argument);
+    auto with_daily = source;
+    with_daily["experiment"]["request"]["include_daily_drawdown"] = true;
+    auto& fixed = with_daily["result"];
+    fixed["trading_days"] = 2;
+    fixed["last_day"] = "2026-09-22";
+    fixed["opening_equity"] = "110";
+    fixed["closing_equity"] = "99";
+    fixed["net_profit"] = "-11";
+    fixed["total_return"] = {{"state", "AVAILABLE"}, {"value", -0.1}};
+    with_daily["experiment"]["source"]["end_settlement"] = 2;
+    fixed["limitations"][2] = "RISK_AND_STRESS_INCOMPLETE";
+    fixed["daily_drawdown"] = {
+        {"max_loss", "11"},
+        {"max_loss_source_index", 1},
+        {"max_fraction", {{"state", "AVAILABLE"}, {"value", 0.1}}},
+        {"max_fraction_source_index", 1},
+        {"points",
+            json::array(
+                {{{"source_index", 0},
+                     {"trading_day", "2026-09-21"},
+                     {"timestamp_ns", "1789990000000000000"},
+                     {"equity", "110"},
+                     {"peak_source_index", 0},
+                     {"peak_equity", "110"},
+                     {"loss", "0"},
+                     {"fraction", {{"state", "AVAILABLE"}, {"value", 0}}}},
+                    {{"source_index", 1},
+                        {"trading_day", "2026-09-22"},
+                        {"timestamp_ns", "1790076400000000000"},
+                        {"equity", "99"},
+                        {"peak_source_index", 0},
+                        {"peak_equity", "110"},
+                        {"loss", "11"},
+                        {"fraction", {{"state", "AVAILABLE"}, {"value", 0.1}}}}})},
+        {"episodes",
+            json::array(
+                {{{"peak_source_index", 0},
+                    {"trough_source_index", 1},
+                    {"recovery_source_index", nullptr},
+                    {"observed_end_source_index", 1},
+                    {"peak_to_trough_intervals", 1},
+                    {"peak_to_recovery_intervals", nullptr},
+                    {"observed_intervals", 1}}})}
+    };
+    const auto daily_html =
+        asterion::terminal::evaluation_report_document(with_daily, nullptr, "html");
+    EXPECT_NE(daily_html.find("<svg"), std::string::npos);
+    EXPECT_NE(daily_html.find("daily.point.1.loss"), std::string::npos);
+    EXPECT_NE(daily_html.find("NOT_RECOVERED"), std::string::npos);
+    const auto daily_csv =
+        asterion::terminal::evaluation_report_document(with_daily, nullptr, "csv");
+    EXPECT_NE(
+        daily_csv.find("\"daily.episode.0.recovery_source_index\",\"\",\"NOT_RECOVERED\""),
+        std::string::npos);
+    EXPECT_NE(daily_csv.find("\"daily.point.1.loss\",\"11\",\"RECORDED\""), std::string::npos);
+    auto with_exposure = source;
+    with_exposure["experiment"]["request"]["include_exposure"] = true;
+    auto& account = with_exposure["result"];
+    account["closing_equity"] = "1000";
+    account["opening_equity"] = "1000";
+    account["net_profit"] = "0";
+    account["total_return"] = {{"state", "AVAILABLE"}, {"value", 0}};
+    account["limitations"][2] = "RISK_AND_STRESS_INCOMPLETE";
+    account["exposure"] = {
+        {"source_index", 4},
+        {"trading_day", "2026-09-25"},
+        {"timestamp_ns", "1790300000000000000"},
+        {"balance", "1000"},
+        {"funds", {{"margin", "200"}, {"available", "800"}, {"frozen", "0"}}},
+        {"covered_net_notional", "0"},
+        {"covered_gross_notional", "4000"},
+        {"net_to_equity", {{"state", "AVAILABLE"}, {"value", 0}}},
+        {"gross_to_equity", {{"state", "AVAILABLE"}, {"value", 4}}},
+        {"margin_to_equity", {{"state", "AVAILABLE"}, {"value", 0.2}}},
+        {"positions",
+            json::array(
+                {{{"source_contract_index", 0},
+                    {"venue", "SHFE"},
+                    {"symbol", "rb2610"},
+                    {"product", "rb"},
+                    {"delivery_month", "2026-10"},
+                    {"price", "100"},
+                    {"multiplier", "10"},
+                    {"quantity_increment", "1"},
+                    {"net_quantity", "0"},
+                    {"gross_quantity", "4"},
+                    {"margin", "200"},
+                    {"long_quantity", "2"},
+                    {"short_quantity", "2"},
+                    {"net_notional", "0"},
+                    {"gross_notional", "4000"},
+                    {"net_to_equity", {{"state", "AVAILABLE"}, {"value", 0}}},
+                    {"gross_to_equity", {{"state", "AVAILABLE"}, {"value", 4}}},
+                    {"margin_to_equity", {{"state", "AVAILABLE"}, {"value", 0.2}}},
+                    {"covered_gross_share", {{"state", "AVAILABLE"}, {"value", 1}}}}})}
+    };
+    const auto exposure_csv =
+        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "csv");
+    EXPECT_NE(
+        exposure_csv.find("\"exposure.position.0.gross_notional\",\"4000\",\"RECORDED\""),
+        std::string::npos);
+    EXPECT_NE(
+        exposure_csv.find("\"exposure.funds.available\",\"800\",\"RECORDED\""),
+        std::string::npos);
+    with_exposure["experiment"]["request"]["static_stress"] = {
+        {"purpose", "Explicit synthetic funding gap"},
+        {"price", "80"},
+        {"margin_rate", "0.4"},
+        {"funds_model", "paper_balance_equity_minimum"}
+    };
+    account["static_stress"] = {
+        {"mark_change", "-400"},
+        {"equity", "600"},
+        {"margin", "640"},
+        {"available", "-40"},
+        {"gap", "40"}
+    };
+    const auto stress_csv =
+        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "csv");
+    EXPECT_NE(
+        stress_csv.find("\"stress.result.available\",\"-40\",\"RECORDED\""),
+        std::string::npos);
+    EXPECT_NE(
+        stress_csv.find("\"stress.scenario.funds_model\",\"paper_balance_equity_minimum\""),
+        std::string::npos);
+    const auto stress_html =
+        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "html");
+    EXPECT_NE(stress_html.find("stress.result.gap</th><td>40"), std::string::npos);
+    with_exposure["experiment"]["request"]["static_stress"] = nullptr;
+    account["static_stress"] = nullptr;
+    auto& missing = account["exposure"];
+    missing["funds"] = nullptr;
+    missing["covered_gross_notional"] = nullptr;
+    missing["gross_to_equity"] = {{"state", "GROSS_NOT_RECORDED"}, {"value", nullptr}};
+    missing["margin_to_equity"] = {{"state", "MARGIN_NOT_RECORDED"}, {"value", nullptr}};
+    for (auto& row : missing["positions"]) {
+        for (const auto* key :
+            {"gross_quantity", "margin", "long_quantity", "short_quantity", "gross_notional"})
+            row[key] = nullptr;
+        for (const auto* key : {"gross_to_equity", "covered_gross_share"})
+            row[key] = {{"state", "GROSS_NOT_RECORDED"}, {"value", nullptr}};
+        row["margin_to_equity"] = {{"state", "MARGIN_NOT_RECORDED"}, {"value", nullptr}};
+    }
+    const auto missing_html =
+        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "html");
+    EXPECT_NE(missing_html.find("GROSS_NOT_RECORDED"), std::string::npos);
+    EXPECT_NE(missing_html.find("MARGIN_NOT_RECORDED"), std::string::npos);
+    EXPECT_NE(missing_html.find("exposure.funds.state</th><td>NOT_RECORDED"), std::string::npos);
+    EXPECT_THROW(
+        asterion::terminal::evaluation_report_document(source, nullptr, "pdf"),
         std::invalid_argument);
 }
 
@@ -394,16 +807,36 @@ TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions)
                         return item;
         throw std::runtime_error("fixture data service not found");
     };
-    const auto stopped = service(invoke(
+    const auto heartbeat = [](const json& snapshot) {
+        for (const auto& node : snapshot.at("nodes"))
+            if (node.at("id") == "local")
+                return node.at("last_heartbeat_ms").get<std::int64_t>();
+        throw std::runtime_error("fixture local Agent observation is missing");
+    };
+    const auto acknowledged = invoke(
         "node.action",
-        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}}));
+        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+    auto inspected = acknowledged;
+    auto stopped = service(inspected);
+    const auto stop_deadline = std::chrono::steady_clock::now()
+        + asterion::testing_support::bound(std::chrono::seconds(10));
+    // STOP acknowledgement does not promise a stopped process or a fresh
+    // Terminal snapshot. Inspect a later Agent observation before using its revision.
+    while (heartbeat(inspected) <= heartbeat(acknowledged) || stopped.at("state") != "stopped"
+        || stopped.at("desired_running").get<bool>()) {
+        ASSERT_LT(std::chrono::steady_clock::now(), stop_deadline) << stopped.dump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        inspected = invoke("runtime.snapshot");
+        stopped = service(inspected);
+    }
     const auto updated = service(invoke(
         "node.update",
         {{"id", "local"}, {"service", "historical-data"}, {"revision", stopped.at("revision")}}));
     EXPECT_EQ(updated.at("state"), "stopped");
-    EXPECT_EQ(updated.at("task_service"), stopped.at("task_service"));
+    EXPECT_FALSE(updated.contains("task_service"));
+    EXPECT_EQ(updated.at("kind"), "data");
     EXPECT_EQ(updated.at("directory"), stopped.at("directory"));
-    invoke("node.data_tasks.local.open");
+    invoke("node.data.local.open");
     const auto deadline = std::chrono::steady_clock::now()
         + asterion::testing_support::bound(std::chrono::seconds(10));
     while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
@@ -429,7 +862,8 @@ TEST(TerminalApi, ARefusedMinuteSeriesIsAnError)
             throw std::runtime_error(response.dump());
         return response.at("result");
     };
-    invoke("node.data_tasks.local.open");
+    invoke("node.research.local.open");
+    invoke("node.data.local.open");
     const auto stopped = invoke(
         "node.action",
         {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
@@ -453,7 +887,7 @@ TEST(TerminalApi, ARefusedMinuteSeriesIsAnError)
                 110,
                 "test.confirmed.v1",
                 month));
-    invoke("node.data_tasks.local.open");
+    invoke("node.data.local.open");
     const auto deadline = std::chrono::steady_clock::now()
         + asterion::testing_support::bound(std::chrono::seconds(10));
     while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
@@ -928,4 +1362,149 @@ TEST(
         "unknown");
     EXPECT_TRUE(review.at("settlement_summary").at("margin").at("exceeded_points").is_null());
     EXPECT_EQ(source.dump(), original);
+}
+
+TEST(TerminalApi, FixedBatchAssessmentExportKeepsAllMissingStatesOriginalConditionsAndSafeNarrative)
+{
+    const json original = {
+        {"id", "baseline"},
+        {"state", "succeeded"},
+        {"attempt", 1},
+        {"retired", false},
+        {"error", ""},
+        {"input_sha256", std::string(64, 'e')},
+        {"result_sha256", std::string(64, 'd')},
+        {"program_artifact", std::string(64, 'a')},
+        {"risk_artifact", std::string(64, 'b')},
+        {"account",
+            {{"currency", "CNY"},
+                {"first_day", "2026-09-21"},
+                {"last_day", "2026-09-22"},
+                {"settlement_days", 2},
+                {"deposit", "100"},
+                {"closing_equity", "98"},
+                {"fees", "6"},
+                {"net_profit", "-2"}}}
+    };
+    auto failed = original;
+    failed["id"] = "failed-member";
+    failed["state"] = "failed";
+    failed["result_sha256"] = nullptr;
+    failed["account"] = nullptr;
+    failed["error"] = "=SUM(1+1)";
+    json fixed;
+    fixed["object"] = {
+        {"node", "fixture-node"},
+        {"service", "research-one"},
+        {"domain", "research"},
+        {"kind", "backtest_batch_assessment"},
+        {"id", "fixed-assessment"},
+        {"version", std::string(64, 'f')}
+    };
+    fixed["program_artifact"] = std::string(64, 'c');
+    fixed["recorded_at_ms"] = "3";
+    fixed["declaration"] = {
+        {"question", "<script>run()</script>"},
+        {"scope", "All declared scenarios"},
+        {"judgment", "insufficient"},
+        {"reason", "Missing and adverse evidence"},
+        {"selected_task_id", ""},
+        {"selection_reason", "No candidate selected"},
+        {"unselected_reason", "Do not replace failures with zero"},
+        {"validation_information_used", true},
+        {"information_use", "Already observed"},
+        {"previous_id", ""},
+        {"revision_reason", ""},
+        {"expected_snapshot", std::string(64, 'a')}
+    };
+    fixed["snapshot"]["source"] = original;
+    fixed["snapshot"]["members"] = json::array({failed});
+    auto& batch = fixed["snapshot"]["batch"];
+    batch["definition"] = {
+        {"object", {{"id", "finite-batch"}, {"version", std::string(64, 'b')}}},
+        {"name", "Synthetic costs"},
+        {"purpose", "Retrospective evidence"},
+        {"limitations", "Not independent"},
+        {"run_budget", 2},
+        {"time_budget_seconds", 30},
+        {"source_input_sha256", std::string(64, 'e')},
+        {"program_artifact", std::string(64, 'a')},
+        {"risk_artifact", std::string(64, 'b')},
+        {"members",
+            json::array(
+                {{{"task_id", "failed-member"}, {"slippage_ticks", 1}},
+                    {{"task_id", "unknown-member"}, {"slippage_ticks", 2}}})}
+    };
+    batch["phase"] = "stopped";
+    batch["started_at_ms"] = 1;
+    batch["stopped_at_ms"] = 2;
+    batch["elapsed_ms"] = nullptr;
+    batch["reason"] = "Explicit stop";
+    batch["members"] = json::array(
+        {{{"task_id", "failed-member"},
+             {"admission", "admitted"},
+             {"input_sha256", std::string(64, 'e')},
+             {"error", nullptr}},
+            {{"task_id", "unknown-member"},
+                {"admission", "pending"},
+                {"input_sha256", std::string(64, 'f')},
+                {"error", nullptr}}});
+    const json contract = {
+        {"venue", "SHFE"},
+        {"symbol", "rb2610"},
+        {"product", "rb"},
+        {"delivery_month", "2026-10"},
+        {"currency", "CNY"},
+        {"price_increment", "1"},
+        {"quantity_increment", "1"},
+        {"multiplier", "10"}
+    };
+    const json cost = {
+        {"effective_from", "1970-01-01"},
+        {"source", "Synthetic fixture only"},
+        {"values",
+            {{"margin_per_lot", "100"},
+                {"margin_rate", "0.2"},
+                {"open_fee", "1"},
+                {"close_today_fee", "2"},
+                {"close_yesterday_fee", "3"},
+                {"open_fee_rate", "0"},
+                {"close_today_fee_rate", "0"},
+                {"close_yesterday_fee_rate", "0"}}}
+    };
+    json source;
+    source["kind"] = "backtest";
+    source["id"] = "baseline";
+    source["input_sha256"] = std::string(64, 'e');
+    source["task"] = {
+        {"result_digest", std::string(64, 'd')},
+        {"program_artifact", std::string(64, 'a')},
+        {"risk_artifact", std::string(64, 'b')}
+    };
+    source["experiment"]["paper"]["risk"] =
+        {{"max_order_quantity", "1"}, {"max_gross_quantity", "2"}, {"max_working_orders", 4}};
+    source["experiment"]["paper"]["contracts"] = json::array(
+        {{{"dataset", {{"contract", contract}, {"revision", std::string(64, 'b')}}},
+            {"slippage_ticks", 0},
+            {"cost_schedule", json::array({cost})}}});
+    source["connection_configuration"] = "NOT_A_REPORT_FIELD";
+    const auto csv = asterion::terminal::batch_assessment_document(fixed, source, "csv");
+    EXPECT_NE(csv.find("\"selection.state\",\"NO_SELECTION\""), std::string::npos);
+    EXPECT_NE(csv.find("\"source.account.net_profit\",\"-2\",\"RECORDED\""), std::string::npos);
+    EXPECT_NE(
+        csv.find("\"member.0.observed.account.net_profit\",\"null\",\"NOT_RECORDED\""),
+        std::string::npos);
+    EXPECT_NE(csv.find("\"member.1.observed.state\",\"null\",\"NOT_RECORDED\""), std::string::npos);
+    EXPECT_NE(csv.find("\"member.1.admission.admission\",\"pending\""), std::string::npos);
+    EXPECT_NE(csv.find("\"'=SUM(1+1)\""), std::string::npos);
+    EXPECT_NE(csv.find("\"source.contract.0.cost.0.margin_rate\",\"0.2\""), std::string::npos);
+    EXPECT_EQ(csv.find("NOT_A_REPORT_FIELD"), std::string::npos);
+    const auto html = asterion::terminal::batch_assessment_document(fixed, source, "html");
+    EXPECT_EQ(html.find("<script>"), std::string::npos);
+    EXPECT_NE(html.find("&lt;script&gt;run()&lt;/script&gt;"), std::string::npos);
+    EXPECT_NE(html.find("NOT_ESTABLISHED"), std::string::npos);
+    source["task"]["result_digest"] = std::string(64, 'a');
+    EXPECT_THROW(
+        asterion::terminal::batch_assessment_document(fixed, source, "html"),
+        std::invalid_argument);
 }

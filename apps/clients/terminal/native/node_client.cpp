@@ -179,12 +179,14 @@ std::future<ServiceEndpoint> NodeClient::endpoint(wire::NodeCommand command)
     wire::Request request;
     *request.mutable_node() = std::move(command);
     return manager_.io_.submit<ServiceEndpoint>(
-        [state = manager_.impl_, request = std::move(request)](
+        [state = manager_.impl_, node_id = id_, request = std::move(request)](
             std::stop_token stop) mutable -> PolledTask<ServiceEndpoint> {
             auto response = co_await state->call(std::move(request), stop);
             if (!response.has_endpoint())
                 throw Error(ErrorCode::unavailable, "invalid node manager response");
-            co_return decode(response.endpoint());
+            auto address = decode(response.endpoint());
+            address.node_id = node_id;
+            co_return address;
         });
 }
 
@@ -218,35 +220,31 @@ std::future<ServiceEndpoint> NodeClient::local_market()
     return endpoint(std::move(command));
 }
 
-std::future<ServiceEndpoint> NodeClient::local_data_tasks(
+std::future<ServiceEndpoint> NodeClient::local_data()
+{
+    wire::NodeCommand command;
+    command.mutable_local_data();
+    return endpoint(std::move(command));
+}
+
+std::future<ServiceEndpoint> NodeClient::local_intelligence()
+{
+    wire::NodeCommand command;
+    command.mutable_local_intelligence();
+    return endpoint(std::move(command));
+}
+
+std::future<ServiceEndpoint> NodeClient::local_research(
     const std::optional<std::vector<std::string>>& plugins)
 {
     wire::NodeCommand command;
     if (plugins) {
-        auto& selection = *command.mutable_create_data_tasks();
+        auto& selection = *command.mutable_create_research();
         for (const auto& hash : *plugins)
             selection.add_hashes(hash);
     } else
-        command.mutable_local_data_tasks();
+        command.mutable_local_research();
     return endpoint(std::move(command));
-}
-
-std::future<DataTaskEndpoints> NodeClient::data_task_endpoints(const std::string& name)
-{
-    wire::Request request;
-    request.mutable_node()->set_id(id_);
-    request.mutable_node()->set_data_tasks(name);
-    return manager_.io_.submit<DataTaskEndpoints>(
-        [state = manager_.impl_, request = std::move(request)](
-            std::stop_token stop) mutable -> PolledTask<DataTaskEndpoints> {
-            auto response = co_await state->call(std::move(request), stop);
-            if (!response.has_data_tasks())
-                throw Error(ErrorCode::unavailable, "invalid node manager response");
-            co_return DataTaskEndpoints{
-                decode(response.data_tasks().task()),
-                decode(response.data_tasks().data())
-            };
-        });
 }
 
 std::future<std::vector<HistoryService>> NodeClient::history_inventory()
@@ -255,7 +253,7 @@ std::future<std::vector<HistoryService>> NodeClient::history_inventory()
     request.mutable_node()->set_id(id_);
     request.mutable_node()->mutable_history();
     return manager_.io_.submit<std::vector<HistoryService>>(
-        [state = manager_.impl_, request = std::move(request)](
+        [state = manager_.impl_, node_id = id_, request = std::move(request)](
             std::stop_token stop) mutable -> PolledTask<std::vector<HistoryService>> {
             auto response = co_await state->call(std::move(request), stop);
             if (!response.has_history())
@@ -266,7 +264,6 @@ std::future<std::vector<HistoryService>> NodeClient::history_inventory()
                     {service.kind(),
                         service.directory(),
                         service.state(),
-                        service.data_service(),
                         decode(service.address())});
             co_return result;
         });
@@ -279,7 +276,7 @@ std::future<void> NodeClient::action(const std::string& service, const std::stri
     request.mutable_node()->mutable_action()->set_service(service);
     request.mutable_node()->mutable_action()->set_action(operation);
     return manager_.io_.submit<void>(
-        [state = manager_.impl_, request = std::move(request)](
+        [state = manager_.impl_, node_id = id_, request = std::move(request)](
             std::stop_token stop) mutable -> PolledTask<void> {
             co_await state->call(std::move(request), stop);
         });

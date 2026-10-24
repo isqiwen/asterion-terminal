@@ -60,15 +60,14 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (!data.result.task_service || !data.result.data)
-      return route.fulfill({ response, json: data });
+    if (!data.result.data || !data.result.data) return route.fulfill({ response, json: data });
     data.result.data.online = online;
     data.result.history_page = request.method === "data.minutes.page" ? viewed : null;
     if (request.method === "data.minutes.page" && mismatchNext && data.result.history_page) {
       data.result.history_page = { ...data.result.history_page, id: "different-dataset" };
       mismatchNext = false;
     }
-    data.result.task_service!.tasks = [
+    data.result.data!.tasks = [
       {
         kind: "minute_download",
         data_source: "tushare.ft_mins",

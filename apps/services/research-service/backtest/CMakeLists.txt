@@ -1,0 +1,4 @@
+add_library(asterion_backtest_engine STATIC engine.cpp model_strategy.cpp)
+target_include_directories(asterion_backtest_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_backtest_engine PUBLIC asterion_protocol asterion_model_regression PRIVATE asterion_risk_providers asterion_strategies asterion_paper asterion_performance)
+asterion_target_defaults(asterion_backtest_engine)

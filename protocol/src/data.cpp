@@ -901,6 +901,9 @@ Json decode_history_usage(const data::proto::HistoryUsage& value)
             case data::proto::HISTORY_SAVED_DATASET:
                 kind = "saved_dataset";
                 break;
+            case data::proto::HISTORY_SAMPLE:
+                kind = "sample";
+                break;
             default:
                 throw std::invalid_argument("invalid historical usage response");
         }

@@ -1,4 +1,6 @@
 #include "factor_engine.hpp"
+#include "feature_expression.hpp"
+#include <asterion/protocol/research_variable.hpp>
 #include "data/bar_fixture.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
@@ -200,6 +202,110 @@ TEST(Factor, AlignmentTailExclusionAndNoFutureInputs)
     EXPECT_EQ(result.SerializeAsString(), factor::run(input()).SerializeAsString());
 }
 
+TEST(Factor, RetainedObservationsSeparateKnownZeroWarmupAndUnknownFutureWithoutChangingStatistics)
+{
+    auto spec = input();
+    spec.set_retain_observations(true);
+    spec.set_horizon(2);
+    for (int i = 0; i < 3; ++i)
+        bars(spec).mutable_bars(i)->mutable_close()->set_units(d("100").raw());
+    revision(spec);
+    const auto result = factor::run(spec);
+    ASSERT_EQ(result.observations_size(), 40);
+    ASSERT_EQ(result.samples_size(), 36);
+    EXPECT_TRUE(result.observations(0).evaluation_warmup());
+    EXPECT_FALSE(result.observations(0).has_value());
+    EXPECT_TRUE(result.observations(0).has_forward_return());
+    EXPECT_DOUBLE_EQ(result.observations(0).forward_return(), 0.0);
+    const auto& zero = result.observations(2);
+    ASSERT_TRUE(zero.has_value());
+    EXPECT_DOUBLE_EQ(zero.value(), 0.0);
+    EXPECT_TRUE(zero.included());
+    EXPECT_EQ(zero.label_end_index(), 4U);
+    const auto& tail = result.observations(39);
+    EXPECT_TRUE(tail.has_value());
+    EXPECT_FALSE(tail.has_forward_return());
+    EXPECT_FALSE(tail.has_label_end_index());
+    EXPECT_FALSE(tail.included());
+    const auto decoded = protocol::decode_factor_result(spec, result);
+    EXPECT_EQ(decoded.at("observations").at(2).at("value"), 0.0);
+    EXPECT_TRUE(decoded.at("observations").at(39).at("label").is_null());
+    EXPECT_TRUE(decoded.at("observations").at(39).at("forward_return").is_null());
+    auto summary = result;
+    summary.clear_observations();
+    auto summary_spec = spec;
+    summary_spec.set_retain_observations(false);
+    EXPECT_EQ(summary.SerializeAsString(), factor::run(summary_spec).SerializeAsString());
+    auto bad = result;
+    bad.mutable_observations(39)->set_forward_return(0);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    bad = result;
+    bad.mutable_observations(2)->set_value(0.5);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    auto unsupported = spec;
+    unsupported.set_holdout_start(20);
+    EXPECT_THROW(protocol::validate_factor_input(unsupported), std::invalid_argument);
+    task::proto::Task task;
+    task.set_kind(task::proto::FACTOR);
+    *task.mutable_factor() = spec;
+    const auto execution = protocol::task_execution(task, sha256_bytes(spec.SerializeAsString()));
+    EXPECT_TRUE(execution.factor().retain_observations());
+    EXPECT_TRUE(protocol::factor_input(execution.factor()).retain_observations());
+}
+
+TEST(Factor, RetainedHoldoutRowsKeepKnownCrossBoundaryLabelsExcludedAndNeverReadFutureFeatures)
+{
+    auto spec = search_input();
+    spec.clear_lookbacks();
+    spec.add_lookbacks(2);
+    spec.set_horizon(2);
+    spec.set_retain_observations(true);
+    const auto result = factor::run(spec);
+    protocol::validate_factor_result(spec, result);
+    ASSERT_EQ(result.observations_size(), 100);
+    EXPECT_EQ(result.purged_count(), 2U);
+    const auto& crossed = result.observations(48);
+    EXPECT_TRUE(crossed.has_value());
+    EXPECT_TRUE(crossed.has_forward_return());
+    EXPECT_EQ(crossed.label_end_index(), 50U);
+    EXPECT_TRUE(crossed.label_crosses_boundary());
+    EXPECT_FALSE(crossed.included());
+    EXPECT_EQ(crossed.role(), factor::proto::FactorObservation::DEVELOPMENT);
+    EXPECT_EQ(result.observations(50).role(), factor::proto::FactorObservation::HOLDOUT);
+    EXPECT_TRUE(result.observations(50).included());
+    EXPECT_FALSE(result.observations(99).has_forward_return());
+    EXPECT_FALSE(result.observations(99).label_crosses_boundary());
+    auto plain = spec;
+    plain.set_retain_observations(false);
+    auto summary = result;
+    summary.clear_observations();
+    EXPECT_EQ(summary.SerializeAsString(), factor::run(plain).SerializeAsString());
+    auto changed = spec;
+    for (int i = 50; i < bars(changed).bars_size(); ++i)
+        bars(changed).mutable_bars(i)->mutable_close()->set_units(d("500").raw());
+    revision(changed);
+    const auto later = factor::run(changed);
+    for (int i = 0; i < 50; ++i)
+        EXPECT_EQ(result.observations(i).value(), later.observations(i).value());
+    EXPECT_EQ(result.partitions(0).SerializeAsString(), later.partitions(0).SerializeAsString());
+    auto bad = result;
+    bad.mutable_observations(48)->set_included(true);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    bad = result;
+    bad.mutable_observations(48)->set_label_crosses_boundary(false);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    bad = result;
+    bad.mutable_observations(50)->set_role(factor::proto::FactorObservation::DEVELOPMENT);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    const auto decoded = protocol::decode_factor_result(spec, result);
+    EXPECT_EQ(decoded.at("observations").at(48).at("role"), "development");
+    EXPECT_TRUE(decoded.at("observations").at(48).at("label_crosses_boundary"));
+    spec.add_lookbacks(5);
+    const auto selected = factor::run(spec);
+    EXPECT_EQ(selected.candidates_size(), 2);
+    EXPECT_EQ(selected.observations_size(), 100);
+}
+
 TEST(Factor, InvalidOrderingInsufficientSamplesAndCancellation)
 {
     auto value = input();
@@ -266,6 +372,36 @@ struct FactorTasks : testing::Test
 
 } // namespace
 
+TEST_F(FactorTasks, RetainedRowsPersistAcrossRestartAndCancelledRowsNeverBecomeFormalResults)
+{
+    auto spec = input();
+    spec.set_retain_observations(true);
+    const auto expected = factor::run(spec);
+    {
+        tasks::Store store(root, {"factor-tests"});
+        tasks::submit(store, "retained", spec);
+        const auto token = store.commit(store.claim("retained")).token();
+        auto incomplete = expected;
+        incomplete.mutable_observations()->RemoveLast();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "retained", token, incomplete)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "retained", token, expected));
+        tasks::submit(store, "cancelled-rows", spec);
+        const auto cancelled = store.commit(store.claim("cancelled-rows")).token();
+        store.commit(store.cancel("cancelled-rows"));
+        store.commit(tasks::finish(store, "cancelled-rows", cancelled, expected));
+        EXPECT_EQ(store.describe("cancelled-rows").state(), task::proto::CANCELLED);
+        EXPECT_TRUE(store.describe("cancelled-rows").result_digest().empty());
+    }
+    tasks::Store restored(root, {"factor-tests"});
+    EXPECT_TRUE(restored.get("retained").factor().retain_observations());
+    EXPECT_EQ(
+        tasks::factor_result(restored, "retained").SerializeAsString(),
+        expected.SerializeAsString());
+    EXPECT_TRUE(restored.describe("cancelled-rows").result_digest().empty());
+}
+
 TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingAlgorithm)
 {
     auto spec = input();
@@ -286,7 +422,7 @@ TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingA
     result.mutable_samples(0)->set_value(std::nextafter(result.samples(0).value(), 1.0));
     EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         tasks::submit(store, "accepted", spec);
         store.commit(
             tasks::finish(
@@ -295,7 +431,7 @@ TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingA
                 store.commit(store.claim("accepted")).token(),
                 result));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store restored(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(restored, "accepted").SerializeAsString(),
         result.SerializeAsString());
@@ -305,7 +441,7 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult)
 {
     asterion::factor::proto::FactorResult expected = factor::run(input());
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         auto task = tasks::submit(store, "factor", input());
         EXPECT_EQ(task.kind(), wire::FACTOR);
         EXPECT_EQ(tasks::submit(store, "factor", input()).id(), task.id());
@@ -333,7 +469,7 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult)
         EXPECT_THROW(tasks::result(store, "factor"), std::invalid_argument);
     }
     {
-        tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store recovered(root, tasks::Identity{"factor-tests"});
         EXPECT_EQ(
             tasks::factor_result(recovered, "factor").SerializeAsString(),
             expected.SerializeAsString());
@@ -427,7 +563,7 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery)
     const auto value = holdout_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         tasks::submit(store, "holdout", value);
         auto changed = value;
         changed.set_holdout_start(51);
@@ -445,7 +581,7 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery)
             std::invalid_argument);
         store.commit(tasks::finish(store, "holdout", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "holdout").SerializeAsString(),
         expected.SerializeAsString());
@@ -562,7 +698,7 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
     const auto value = search_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         EXPECT_EQ(tasks::submit(store, "search", value).total(), 250U);
         const auto token = store.commit(store.claim("search")).token();
         auto bad = expected;
@@ -577,7 +713,7 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
             std::invalid_argument);
         store.commit(tasks::finish(store, "search", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "search").SerializeAsString(),
         expected.SerializeAsString());
@@ -586,7 +722,7 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
 TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration)
 {
     const auto spec = search_input();
-    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store store(root, tasks::Identity{"factor-tests"});
     tasks::submit(store, "factor", spec);
     store.commit(
         tasks::finish(
@@ -699,6 +835,88 @@ TEST(Factor, RollingSelectionNeverReadsValidationOrLaterFolds)
         EXPECT_EQ(third.samples(i).SerializeAsString(), baseline.samples(i).SerializeAsString());
 }
 
+TEST(Factor, RetainedSelectionAndRollingRowsRespectEachTrainingBoundaryAndOriginalStatistics)
+{
+    auto spec = rolling_input();
+    spec.set_retain_observations(true);
+    const auto result = factor::run(spec);
+    protocol::validate_factor_result(spec, result);
+    ASSERT_EQ(result.folds_size(), 2);
+    EXPECT_TRUE(result.observations().empty());
+    for (const auto& fold : result.folds()) {
+        ASSERT_EQ(fold.observations_size(), 120);
+        EXPECT_EQ(fold.observations(0).event_index(), fold.training_begin());
+        const auto& crossed = fold.observations(77);
+        EXPECT_TRUE(crossed.has_forward_return());
+        EXPECT_TRUE(crossed.label_crosses_boundary());
+        EXPECT_FALSE(crossed.included());
+        EXPECT_FALSE(fold.observations(119).has_forward_return());
+        EXPECT_FALSE(fold.observations(119).label_crosses_boundary());
+        EXPECT_TRUE(fold.observations(80).included());
+        EXPECT_EQ(fold.observations(80).role(), factor::proto::FactorObservation::HOLDOUT);
+    }
+    auto changed = spec;
+    for (int i = 80; i < bars(changed).bars_size(); ++i)
+        bars(changed).mutable_bars(i)->mutable_close()->set_units(
+            d(std::to_string(900 + i % 31).c_str()).raw());
+    revision(changed);
+    const auto later = factor::run(changed);
+    EXPECT_EQ(result.folds(0).lookback(), later.folds(0).lookback());
+    EXPECT_EQ(
+        result.folds(0).development().SerializeAsString(),
+        later.folds(0).development().SerializeAsString());
+    for (int i = 0; i < 80; ++i) {
+        EXPECT_EQ(result.folds(0).observations(i).value(), later.folds(0).observations(i).value());
+        EXPECT_EQ(
+            result.folds(0).observations(i).has_value(),
+            later.folds(0).observations(i).has_value());
+    }
+    auto plain = spec;
+    plain.set_retain_observations(false);
+    auto summary = result;
+    for (auto& fold : *summary.mutable_folds())
+        fold.clear_observations();
+    EXPECT_EQ(summary.SerializeAsString(), factor::run(plain).SerializeAsString());
+    auto bad = result;
+    bad.mutable_folds(0)->mutable_observations(119)->set_forward_return(0);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    bad = result;
+    bad.mutable_folds(1)->mutable_observations(80)->set_value(0.99);
+    EXPECT_THROW(protocol::validate_factor_result(spec, bad), std::invalid_argument);
+    const auto decoded = protocol::decode_factor_result(spec, result);
+    EXPECT_FALSE(decoded.contains("observations"));
+    EXPECT_EQ(decoded.at("folds").at(1).at("observations").size(), 120U);
+    EXPECT_EQ(decoded.at("folds").at(1).at("observations").at(0).at("event_index"), 40);
+}
+
+TEST_F(FactorTasks, RetainedFoldEvidencePersistsAndCancelledWorkDoesNotPublish)
+{
+    auto spec = rolling_input();
+    spec.set_retain_observations(true);
+    const auto expected = factor::run(spec);
+    {
+        tasks::Store store(root, {"factor-tests"});
+        tasks::submit(store, "rolling-rows", spec);
+        const auto token = store.commit(store.claim("rolling-rows")).token();
+        auto bad = expected;
+        bad.mutable_folds(0)->mutable_observations()->RemoveLast();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "rolling-rows", token, bad)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "rolling-rows", token, expected));
+        tasks::submit(store, "cancelled-fold-rows", spec);
+        const auto cancelled = store.commit(store.claim("cancelled-fold-rows")).token();
+        store.commit(store.cancel("cancelled-fold-rows"));
+        store.commit(tasks::finish(store, "cancelled-fold-rows", cancelled, expected));
+        EXPECT_TRUE(store.describe("cancelled-fold-rows").result_digest().empty());
+    }
+    tasks::Store restored(root, {"factor-tests"});
+    EXPECT_EQ(
+        tasks::factor_result(restored, "rolling-rows").SerializeAsString(),
+        expected.SerializeAsString());
+    EXPECT_EQ(restored.describe("cancelled-fold-rows").state(), task::proto::CANCELLED);
+}
+
 TEST(Factor, RollingRejectsPartialWindowsTimestampSplitsAndHonoursCancellation)
 {
     auto value = rolling_input();
@@ -732,7 +950,7 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
     const auto value = rolling_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         EXPECT_EQ(tasks::submit(store, "rolling", value).total(), 720U);
         const auto token = store.commit(store.claim("rolling")).token();
         auto bad = expected;
@@ -747,7 +965,7 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
             std::invalid_argument);
         store.commit(tasks::finish(store, "rolling", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "rolling").SerializeAsString(),
         expected.SerializeAsString());
@@ -829,6 +1047,11 @@ Json tables_request(Json instruments = Json::array({"SHFE/cu/2024-03"}))
 TEST(Factor, TableSeriesKeepsTradingDatesAndPurgesHoldoutLabels)
 {
     auto input = table_input();
+    const auto clocks = protocol::factor_observation_clocks(input);
+    ASSERT_EQ(clocks.size(), 80U);
+    EXPECT_EQ(clocks[2].trading_day, "2023-01-03");
+    for (const auto& clock : clocks)
+        EXPECT_FALSE(clock.timestamp_ns);
     const auto result = factor::run(input);
     EXPECT_EQ(result.input_count(), 80U);
     EXPECT_EQ(result.purged_count(), 2U);
@@ -1304,7 +1527,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore)
     check_members(holdout, selected);
     check_members(rolling, folds);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         const auto task = tasks::submit(store, "selected", holdout);
         EXPECT_EQ(task.instrument(), "SHFE/rb2610 + SHFE/rb2611 + SHFE/rb2612");
         store.commit(
@@ -1317,7 +1540,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore)
         store.commit(
             tasks::finish(store, "rolling", store.commit(store.claim("rolling")).token(), folds));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store restored(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(restored, "selected").SerializeAsString(),
         selected.SerializeAsString());
@@ -1422,6 +1645,11 @@ TEST(Factor, ADominantSeriesReadsEachDayFromItsDominantMonthAtTheLatestLevel)
     const auto read = protocol::factor_observations(value);
     // Three days of rb2610 and three of rb2701; rb2610's fourth day is not read.
     ASSERT_EQ(read.order.size(), 48U);
+    const auto clocks = protocol::factor_observation_clocks(value);
+    ASSERT_EQ(clocks.size(), read.order.size());
+    for (std::size_t i = 0; i < clocks.size(); ++i)
+        EXPECT_EQ(clocks[i].timestamp_ns, read.order[i]);
+    EXPECT_EQ(clocks[24].trading_day, value.series(0).dominant().schedule().rolls(1).trading_day());
     ASSERT_EQ(read.closes.size(), 1U);
     EXPECT_EQ(read.closes[0][0], d("150")); // 100 x 1.5
     EXPECT_EQ(read.closes[0][1], d("152")); // 101 x 1.5 = 151.5, back on the price grid
@@ -1971,7 +2199,7 @@ TEST_F(FactorTasks, FixedLiquidityRuleAndMemberEvidenceSurviveRecoveryAndExecuti
     const auto spec = liquidity_input();
     const auto result = factor::run(spec);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+        tasks::Store store(root, tasks::Identity{"factor-tests"});
         const auto admitted = tasks::submit(store, "eligible", spec);
         const auto execution =
             protocol::task_execution(admitted, sha256_bytes(spec.SerializeAsString()));
@@ -1988,7 +2216,7 @@ TEST_F(FactorTasks, FixedLiquidityRuleAndMemberEvidenceSurviveRecoveryAndExecuti
                 store.commit(store.claim("eligible")).token(),
                 result));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::Store restored(root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         restored.get("eligible").factor().liquidity().SerializeAsString(),
         spec.liquidity().SerializeAsString());
@@ -2121,4 +2349,230 @@ TEST(FactorReuse, AWindowVariantChangesOnlyTheAllowedParameterAndKeepsFixedEvide
     auto other = experiment;
     other["factor"] = "volatility";
     EXPECT_THROW(protocol::reuse_daily_factor(other, "", Json::array({5})), std::invalid_argument);
+}
+
+namespace {
+
+research::proto::VariableDefinition fixed_variable(std::string source, unsigned window = 2)
+{
+    const FeatureExpression expression(source);
+    research::proto::VariableDefinition value;
+    value.set_id("fixture-expression");
+    value.mutable_owner()->set_node_id("fixture-node");
+    value.mutable_owner()->set_service_id("task");
+    value.mutable_owner()->set_domain("research");
+    value.set_name("Synthetic declared expression");
+    value.set_purpose("Completed-close predictor for isolated tests, not a future label");
+    value.set_expression(source);
+    value.set_window(window);
+    value.set_price_power(expression.price_power());
+    value.set_required_history(static_cast<unsigned>(expression.history(window)));
+    value.set_recorded_at_ms(1);
+    value.set_digest(protocol::variable_digest(value));
+    return value;
+}
+
+factor::proto::FactorInput expression_input(const std::string& source)
+{
+    auto value = input();
+    value.set_factor(protocol::proto::FACTOR_UNSPECIFIED);
+    value.set_retain_observations(true);
+    *value.mutable_variable_definition() = fixed_variable(source);
+    return value;
+}
+
+factor::proto::FactorInput expression_holdout(const std::string& source)
+{
+    auto value = expression_input(source);
+    for (int i = 40; i < 90; ++i) {
+        auto* row = bars(value).add_bars();
+        row->set_timestamp_ns(1790298000000000000LL + static_cast<std::int64_t>(i) * 1000000000);
+        row->mutable_close()->set_units((100 + i + i % 3) * 100000000LL);
+        row->mutable_volume()->set_units(d("1").raw());
+    }
+    value.set_horizon(3);
+    value.set_holdout_start(45);
+    revision(value);
+    return value;
+}
+
+} // namespace
+
+TEST(FactorExpressions, ActualDefinitionProducesKnownValuesWarmupAndIndependentFutureLabels)
+{
+    auto value = expression_input("close / lag(close,window) - 1");
+    const int first[] = {100, 102, 101, 103};
+    for (int i = 0; i < 4; ++i)
+        bars(value).mutable_bars(i)->mutable_close()->set_units(
+            Decimal::from_raw(first[i] * 100000000LL).raw());
+    revision(value);
+    const auto result = factor::run(value);
+    protocol::validate_factor_result(value, result);
+    ASSERT_EQ(result.observations_size(), 40);
+    EXPECT_EQ(result.evaluation_warmup(), 2U);
+    EXPECT_EQ(result.partitions(0).sample_count(), 37U);
+    EXPECT_EQ(
+        result.observations(0).feature_state(),
+        factor::proto::FactorObservation::FEATURE_WARMUP);
+    EXPECT_FALSE(result.observations(1).has_value());
+    EXPECT_NEAR(result.observations(2).value(), 0.01, 1e-12);
+    EXPECT_NEAR(result.observations(3).value(), 103.0 / 102 - 1, 1e-12);
+    EXPECT_TRUE(result.observations(39).has_value());
+    EXPECT_FALSE(result.observations(39).has_forward_return());
+    EXPECT_FALSE(result.observations(39).included());
+    const auto decoded = protocol::decode_factor(value, protocol::DatasetView::metadata);
+    EXPECT_EQ(decoded.at("factor"), "expression");
+    EXPECT_EQ(
+        decoded.at("variable_definition").at("object").at("version"),
+        value.variable_definition().digest());
+    const auto rows = protocol::decode_factor_result(value, result).at("observations");
+    EXPECT_EQ(rows.at(2).at("feature_state"), "FEATURE_VALUE");
+    auto wrong = result;
+    wrong.mutable_observations(2)->set_feature_state(
+        factor::proto::FactorObservation::FEATURE_ZERO_DENOMINATOR);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_partitions(0)->set_sample_count(38);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+}
+
+TEST(FactorExpressions, UndefinedArithmeticIsRetainedAndExcludedFromActualStatisticalSamples)
+{
+    auto value = expression_input("1 / (close - lag(close,window))");
+    for (int i = 0; i < 40; ++i)
+        bars(value).mutable_bars(i)->mutable_close()->set_units((100 + i / 3) * 100000000LL);
+    revision(value);
+    const auto result = factor::run(value);
+    protocol::validate_factor_result(value, result);
+    EXPECT_EQ(
+        result.observations(2).feature_state(),
+        factor::proto::FactorObservation::FEATURE_ZERO_DENOMINATOR);
+    EXPECT_FALSE(result.observations(2).has_value());
+    EXPECT_FALSE(result.observations(2).included());
+    EXPECT_TRUE(result.observations(2).has_forward_return());
+    EXPECT_EQ(result.samples_size(), 24);
+    EXPECT_EQ(result.partitions(0).sample_count(), 24U);
+    for (const auto& row : result.samples())
+        EXPECT_NE(row.event_index() % 3, 2U);
+    auto fabricated = result;
+    fabricated.mutable_observations(2)->set_value(0);
+    fabricated.mutable_observations(2)->set_feature_state(
+        factor::proto::FactorObservation::FEATURE_VALUE);
+    fabricated.mutable_observations(2)->set_included(true);
+    EXPECT_THROW(protocol::validate_factor_result(value, fabricated), std::invalid_argument);
+}
+
+TEST(FactorExpressions, ScopeAndRecordedHistoryMustMatchTheRealDefinition)
+{
+    auto value = expression_input("mean(return(close,2),3)");
+    const auto result = factor::run(value);
+    EXPECT_EQ(result.evaluation_warmup(), 4U);
+    EXPECT_FALSE(result.observations(3).has_value());
+    EXPECT_TRUE(result.observations(4).has_value());
+    auto mismatch = value;
+    mismatch.mutable_variable_definition()->set_required_history(2);
+    mismatch.mutable_variable_definition()->set_digest(
+        protocol::variable_digest(mismatch.variable_definition()));
+    EXPECT_THROW(factor::run(mismatch), std::invalid_argument);
+    mismatch = value;
+    mismatch.set_retain_observations(false);
+    EXPECT_THROW(factor::run(mismatch), std::invalid_argument);
+    mismatch = value;
+    mismatch.set_holdout_start(20);
+    EXPECT_THROW(factor::run(mismatch), std::invalid_argument);
+    mismatch = value;
+    mismatch.set_factor(protocol::proto::PRICE_MOMENTUM);
+    EXPECT_THROW(factor::run(mismatch), std::invalid_argument);
+    task::proto::Task task;
+    task.set_kind(task::proto::FACTOR);
+    *task.mutable_factor() = value;
+    *task.mutable_variable_definition() = protocol::variable_object(value.variable_definition());
+    const auto execution = protocol::task_execution(task, sha256_bytes(value.SerializeAsString()));
+    EXPECT_EQ(
+        execution.variable_definition().SerializeAsString(),
+        value.variable_definition().SerializeAsString());
+    EXPECT_EQ(
+        execution.factor().variable_definition().SerializeAsString(),
+        task.variable_definition().SerializeAsString());
+}
+
+TEST(FactorExpressions, HoldoutUsesOriginalCausalValuesAndPurgesOnlyCrossingDevelopmentLabels)
+{
+    auto value = expression_holdout("close / lag(close,window) - 1");
+    const auto result = factor::run(value);
+    protocol::validate_factor_result(value, result);
+    ASSERT_EQ(result.partitions_size(), 2);
+    EXPECT_EQ(result.partitions(0).name(), "development");
+    EXPECT_EQ(result.partitions(0).sample_count(), 40U);
+    EXPECT_EQ(result.partitions(1).name(), "holdout");
+    EXPECT_EQ(result.partitions(1).sample_count(), 42U);
+    EXPECT_EQ(result.samples_size(), 82);
+    EXPECT_EQ(result.purged_count(), 3U);
+    for (unsigned i = 0; i < 90; ++i) {
+        const auto& row = result.observations(static_cast<int>(i));
+        EXPECT_EQ(
+            row.role(),
+            i < 45 ? factor::proto::FactorObservation::DEVELOPMENT
+                   : factor::proto::FactorObservation::HOLDOUT);
+        EXPECT_EQ(row.label_crosses_boundary(), i >= 42 && i < 45);
+        EXPECT_EQ(row.included(), i >= 2 && i < 87 && !(i >= 42 && i < 45));
+    }
+    auto future = value;
+    for (int i = 45; i < 90; ++i)
+        bars(future).mutable_bars(i)->mutable_close()->set_units((800 + i) * 100000000LL);
+    revision(future);
+    const auto later = factor::run(future);
+    EXPECT_EQ(later.partitions(0).SerializeAsString(), result.partitions(0).SerializeAsString());
+    for (int i = 0; i < 45; ++i) {
+        EXPECT_EQ(later.observations(i).has_value(), result.observations(i).has_value());
+        EXPECT_DOUBLE_EQ(later.observations(i).value(), result.observations(i).value());
+    }
+    auto wrong = result;
+    wrong.mutable_observations(42)->set_label_crosses_boundary(false);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_observations(45)->set_role(factor::proto::FactorObservation::DEVELOPMENT);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_partitions(1)->set_sample_count(43);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.set_purged_count(0);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    task::proto::Task task;
+    task.set_kind(task::proto::FACTOR);
+    *task.mutable_factor() = value;
+    *task.mutable_variable_definition() = protocol::variable_object(value.variable_definition());
+    const auto execution = protocol::task_execution(task, sha256_bytes(value.SerializeAsString()));
+    EXPECT_EQ(execution.factor().holdout_start(), 45U);
+    EXPECT_EQ(execution.variable_definition().digest(), value.variable_definition().digest());
+}
+
+TEST(FactorExpressions, HoldoutRetainsActualNestedHistoryAndUndefinedBoundaryFeatures)
+{
+    auto nested = expression_holdout("mean(return(close,2),3)");
+    const auto result = factor::run(nested);
+    protocol::validate_factor_result(nested, result);
+    EXPECT_EQ(result.evaluation_warmup(), 4U);
+    EXPECT_FALSE(result.observations(3).has_value());
+    EXPECT_TRUE(result.observations(4).has_value());
+    EXPECT_EQ(result.partitions(0).sample_count(), 38U);
+    EXPECT_EQ(result.partitions(1).sample_count(), 42U);
+    auto undefined = expression_holdout("1 / (close - lag(close,window))");
+    for (int i = 0; i < 90; ++i)
+        bars(undefined).mutable_bars(i)->mutable_close()->set_units((100 + i / 3) * 100000000LL);
+    revision(undefined);
+    const auto sparse = factor::run(undefined);
+    protocol::validate_factor_result(undefined, sparse);
+    EXPECT_EQ(sparse.partitions(0).sample_count(), 26U);
+    EXPECT_EQ(sparse.partitions(1).sample_count(), 28U);
+    EXPECT_EQ(sparse.samples_size(), 54);
+    EXPECT_EQ(sparse.purged_count(), 3U);
+    const auto& crossing = sparse.observations(44);
+    EXPECT_TRUE(crossing.label_crosses_boundary());
+    EXPECT_EQ(crossing.feature_state(), factor::proto::FactorObservation::FEATURE_ZERO_DENOMINATOR);
+    EXPECT_FALSE(crossing.has_value());
+    EXPECT_FALSE(crossing.included());
+    EXPECT_TRUE(sparse.observations(45).included());
+    EXPECT_FALSE(sparse.observations(89).has_forward_return());
 }

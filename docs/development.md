@@ -221,8 +221,8 @@ Terminal 工作台准备本机行情及配对的数据／任务服务，交易�
 
 | 文件 / 位置 | 内容与拥有者 |
 | --- | --- |
-| `<node>/config/task.json` | 部署新任务服务实例时复制的默认策略 |
-| `<node>/config/services/<实例>/task.json` | 该实例自己的任务并发策略；任务服务启动只读 |
+| `<node>/config/research.json` | 部署新研究服务实例时复制的默认策略 |
+| `<node>/config/services/<实例>/research.json` | 该实例自己的任务并发策略；研究服务启动只读 |
 | `<node>/config/logging.json` | 全节点公共日志策略；可选，默认 info、保留 30 天 |
 | `<node>/services/<实例>/service.json` | Agent 持久化的部署状态（程序、插件、运行意愿），由管理操作修改；不是人工运行配置 |
 | `<enrollments>/<id>/enrollment.json`、`ssh.json` | Manager 持久化的节点登记与非秘密 SSH 连接资料；安装版登记根目录为 `~/.asterion/nodes`，开发版为 `<node>/enrollments` |
@@ -230,13 +230,13 @@ Terminal 工作台准备本机行情及配对的数据／任务服务，交易�
 | 服务自己的数据目录 | 任务、行情来源、账户及风险等业务配置和状态，仍由对应业务服务管理 |
 | Electron 界面配置目录（上表） | 语言、窗口等界面偏好；不承载节点调度配置 |
 
-仓库根目录的 `config/task.json` 和 `config/logging.json` 是维护中的默认配置。
+仓库根目录的 `config/research.json` 和 `config/logging.json` 是维护中的默认配置。
 CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/config/`。
 安装器（开发环境为首次引导）在创建 Manager 身份前，将它们复制到 `<node>/config/`；远程 SSH 安装在注册
 Agent 系统服务前，将同一套默认文件上传并复制到 `/var/lib/asterion/nodes/<节点 ID>/state/config/`。
 已有目标文件保持原文，程序升级与普通重启不补写、不重置配置。配置复制属于部署，
-Agent 部署任务服务时将 `<node>/config/task.json` 原样复制到
-`<node>/config/services/<实例>/task.json`，保留已有实例配置。服务启动通过 `--config`
+Agent 部署研究服务时将 `<node>/config/research.json` 原样复制到
+`<node>/config/services/<实例>/research.json`，保留已有实例配置。服务启动通过 `--config`
 读取自己的实例文件。Agent不解释并发策略，也不在重启时补齐配置。默认内容为：
 
 ```json
@@ -252,10 +252,10 @@ Agent 部署任务服务时将 `<node>/config/task.json` 原样复制到
 OS 服务启动参数传入。配置不热更新，必需配置缺失或无效时明确报告文件路径，保留原文件。
 
 Linux 开发环境实例配置通常为
-`~/.local/share/asterion-development/node/config/services/<实例>/task.json`，安装环境为
-`~/.local/share/asterion/node/config/services/<实例>/task.json`；`XDG_DATA_HOME` 和
+`~/.local/share/asterion-development/node/config/services/<实例>/research.json`，安装环境为
+`~/.local/share/asterion/node/config/services/<实例>/research.json`；`XDG_DATA_HOME` 和
 `ASTERION_NODE_DIRECTORY` 可改变节点根目录。远程实例配置为
-`/var/lib/asterion/nodes/<节点 ID>/state/config/services/<实例>/task.json`。
+`/var/lib/asterion/nodes/<节点 ID>/state/config/services/<实例>/research.json`。
 原来的 `config/agent.json` 节点并发策略不再读取或发布；已有文件保留，不自动删除或转换。
 已有开发部署若缺少当前实例配置，需在停止服务后明确复制当前模板到所需实例路径并编辑，
 普通启动和升级不生成该文件。不自动迁移旧资源预算或用户资料。

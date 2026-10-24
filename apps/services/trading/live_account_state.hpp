@@ -48,6 +48,13 @@ public:
         AccountRequest request,
         std::uint64_t admitted_control);
     protocol::proto::LiveSnapshot snapshot() const;
+    AccountCommand capture_facts(
+        resource::proto::Owner,
+        std::string instance,
+        std::string id,
+        protocol::proto::TradingFactsStatus&);
+    AccountCommand
+    inspect_facts(resource::proto::Owner, std::string id, protocol::proto::TradingFactsStatus&);
 
     bool waiting_for_sdk() const
     {

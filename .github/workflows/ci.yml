@@ -97,12 +97,9 @@ jobs:
         run: |
           ./build/Release/asterion_node_agent --version
           ./build/Release/asterion_trading --version
-          ./build/Release/asterion_market_data --version
-          ./build/Release/asterion_data_service --version
-          ./build/Release/asterion_task_service --version
-          ./build/Release/asterion_backtest --version
-          ./build/Release/asterion_factor --version
-          ./build/Release/asterion_data_pipeline --version
+          ./build/Release/asterion_market --version
+          ./build/Release/asterion_data --version
+          ./build/Release/asterion_research --version
           ldd build/Release/asterion_node_agent
           ldd build/Release/asterion_trading
       - uses: actions/upload-artifact@v4

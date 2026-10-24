@@ -70,7 +70,7 @@ data::proto::HistoryRecord publish(const std::filesystem::path& root, Minutes& s
     input.set_begin_ns(parse_shanghai_time("2026-08-06 00:00:00"));
     input.set_end_ns(parse_shanghai_time("2026-09-09 23:59:59"));
     input.set_requests_per_minute(60);
-    data::Store store(root, "historical-data", "task");
+    data::Store store(root, "historical-data");
     return test::publish_download(store, "evidence", input, source);
 }
 

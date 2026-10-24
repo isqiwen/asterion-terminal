@@ -13,6 +13,7 @@ message Endpoint {
   string ca_file = 5;
   string certificate_file = 6;
   string private_key_file = 7;
+  string owner_node_id = 8;
 }
 
 message Node {
@@ -39,6 +40,7 @@ message Deployment {
   string service = 1;
   node.proto.ServiceKind kind = 2;
   uint32 port = 3;
+  reserved 4;
 }
 message Update {
   string service = 1;
@@ -64,17 +66,19 @@ message NodeCommand {
     Empty disconnect = 3;
     Empty history = 4;
     Service endpoint = 5;
-    string data_tasks = 6;
+
     string local_session = 7;
     Empty local_market = 8;
-    Plugins create_data_tasks = 9;
-    Empty local_data_tasks = 10;
+    Plugins create_research = 9;
+    Empty local_research = 10;
     ConfigurePlugins configure_plugins = 11;
     Deployment deploy = 12;
     Update update = 13;
     Action action = 14;
     Action firewall = 15;
     string trading_session = 16;
+    Empty local_data = 17;
+    Empty local_intelligence = 18;
   }
 }
 
@@ -133,15 +137,11 @@ message Request {
     Maintenance maintenance = 17;
   }
 }
-message DataTasks {
-  Endpoint task = 1;
-  Endpoint data = 2;
-}
 message HistoryService {
   node.proto.ServiceKind kind = 1;
   string directory = 2;
   string state = 3;
-  string data_service = 4;
+  reserved 4;
   Endpoint address = 5;
 }
 message History {
@@ -154,7 +154,7 @@ message Response {
   oneof result {
     Snapshot snapshot = 10;
     Endpoint endpoint = 11;
-    DataTasks data_tasks = 12;
+
     History history = 13;
     // UI projections of SSH/firewall/update results; never used for service routing.
     string presentation = 14;

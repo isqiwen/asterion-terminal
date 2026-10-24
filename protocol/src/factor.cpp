@@ -1,6 +1,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/research_variable.hpp>
 #include <cmath>
 #include <charconv>
 #include <algorithm>
@@ -113,12 +114,17 @@ struct Observed
     std::vector<Decimal> closes, terms;
 };
 
-Observed observed(const factor::proto::FactorSeries& data, proto::Factor factor)
+Observed observed(
+    const factor::proto::FactorSeries& data,
+    proto::Factor factor,
+    std::vector<FactorObservationClock>* clocks = nullptr)
 {
     Observed result;
-    const auto add = [&](std::int64_t when, Decimal close) {
+    const auto add = [&](std::int64_t when, Decimal close, const std::string& trading_day) {
         result.order.push_back(when);
         result.closes.push_back(close);
+        if (clocks)
+            clocks->push_back({trading_day, data.has_table() ? std::nullopt : std::optional(when)});
     };
     if (factor == proto::TERM_STRUCTURE && !data.has_dominant() && !table_product(data))
         throw std::invalid_argument("the term structure is read of dominant series");
@@ -149,12 +155,13 @@ Observed observed(const factor::proto::FactorSeries& data, proto::Factor factor)
                 add(std::chrono::sys_days(parse_trading_date(close.trading_day()))
                         .time_since_epoch()
                         .count(),
-                    multiply(Decimal::from_raw(close.close().units()), scale, Rounding::half_up));
+                    multiply(Decimal::from_raw(close.close().units()), scale, Rounding::half_up),
+                    close.trading_day());
             }
         }
     } else if (data.has_bars()) {
         for (const auto& bar : data.bars().bars())
-            add(bar.timestamp_ns(), Decimal::from_raw(bar.close().units()));
+            add(bar.timestamp_ns(), Decimal::from_raw(bar.close().units()), bar.trading_day());
     } else {
         const auto& schedule = data.dominant().schedule();
         const auto& rolls = schedule.rolls();
@@ -187,7 +194,8 @@ Observed observed(const factor::proto::FactorSeries& data, proto::Factor factor)
                     result.terms.push_back(term->second);
                 }
                 add(bar.timestamp_ns(),
-                    dominant_price(Decimal::from_raw(bar.close().units()), scale, increment));
+                    dominant_price(Decimal::from_raw(bar.close().units()), scale, increment),
+                    bar.trading_day());
             }
         }
     }
@@ -205,13 +213,21 @@ factor::proto::FactorRequest encode_factor_request(const Json& input)
 {
     auto required = input;
     required.erase("liquidity");
+    required.erase("retain_observations");
+    required.erase("variable_definition");
     require_fields(required, {"series", "factor", "lookbacks", "horizon", "evaluation"});
     factor::proto::FactorRequest result;
     const auto& series = input.at("series");
     if (!series.is_array() || series.empty()
         || series.size() > static_cast<std::size_t>(max_factor_series))
         throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
-    result.set_factor(encode_factor(input.at("factor")));
+    if (input.contains("variable_definition")) {
+        if (input.at("factor") != "expression")
+            throw std::invalid_argument("variable definition requires the expression factor");
+        *result.mutable_variable_definition() =
+            encode_variable_reference(input.at("variable_definition"));
+    } else
+        result.set_factor(encode_factor(input.at("factor")));
     for (const auto& source : series) {
         if (!source.is_object() || source.size() != 1)
             throw std::invalid_argument("invalid factor series");
@@ -262,7 +278,6 @@ factor::proto::FactorRequest encode_factor_request(const Json& input)
         rule->set_minimum_volume(lots("minimum_volume"));
         rule->set_minimum_open_interest(lots("minimum_open_interest"));
     }
-    (void)factor_input(result);
     const auto& windows = input.at("lookbacks");
     if (!windows.is_array() || windows.empty() || windows.size() > 32)
         throw std::invalid_argument("factor requires 1..32 explicit lookback windows");
@@ -302,6 +317,9 @@ factor::proto::FactorRequest encode_factor_request(const Json& input)
     } else {
         throw std::invalid_argument("unsupported factor evaluation mode");
     }
+    if (input.contains("retain_observations"))
+        result.set_retain_observations(input.at("retain_observations").get<bool>());
+    (void)factor_input(result);
     return result;
 }
 
@@ -430,6 +448,8 @@ reuse_daily_factor(const Json& experiment, const std::string& snapshot, const Js
     };
     if (!experiment.at("liquidity").is_null())
         parameters["liquidity"] = experiment.at("liquidity");
+    if (experiment.contains("retain_observations"))
+        parameters["retain_observations"] = experiment.at("retain_observations");
     std::optional<std::vector<unsigned>> windows;
     if (!lookbacks.is_null()) {
         if (!lookbacks.is_array() || lookbacks.empty() || lookbacks.size() > 32)
@@ -460,7 +480,24 @@ factor::proto::FactorInput factor_input(const factor::proto::FactorRequest& requ
         count += source.has_tables() ? source.tables().instruments_size() : 1;
     if (count != 1 && (count < 3 || count > max_factor_series))
         throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
+    if (request.has_variable_definition()) {
+        validate_variable_reference(request.variable_definition());
+        if (request.factor() != proto::FACTOR_UNSPECIFIED || count != 1 || request.has_liquidity()
+            || request.lookbacks_size() != 1
+            || !(
+                request.has_holdout_start() || (request.has_full_sample() && request.full_sample()))
+            || !request.retain_observations())
+            throw std::invalid_argument(
+                "expression factor requires one series, one fixed window, retained observations and full-sample or holdout evaluation");
+    }
+    if (request.retain_observations()
+        && (count != 1 || request.has_liquidity()
+            || (!request.has_variable_definition() && request.factor() != proto::PRICE_MOMENTUM
+                && request.factor() != proto::VOLATILITY)))
+        throw std::invalid_argument(
+            "observation evidence requires one price momentum or volatility series");
     factor::proto::FactorInput input;
+    input.set_retain_observations(request.retain_observations());
     if (request.has_liquidity()) {
         validate_liquidity(request.liquidity());
         if (count < 3
@@ -585,6 +622,16 @@ FactorObservations factor_observations(const factor::proto::FactorInput& input)
     return read_observations(input, input.factor());
 }
 
+std::vector<FactorObservationClock> factor_observation_clocks(
+    const factor::proto::FactorInput& input)
+{
+    if (input.series_size() != 1)
+        throw std::invalid_argument("source clocks require one fixed series");
+    std::vector<FactorObservationClock> clocks;
+    (void)observed(input.series(0), input.factor(), &clocks);
+    return clocks;
+}
+
 FactorObservations factor_daily_observations(const factor::proto::FactorInput& input)
 {
     if (std::ranges::any_of(input.series(), [](const auto& series) {
@@ -599,6 +646,22 @@ namespace {
 Json factor_definition(const factor::proto::FactorInput& input, unsigned count)
 {
     validate_message(input);
+    if (input.has_variable_definition()) {
+        validate_variable_definition(input.variable_definition());
+        if (input.factor() != proto::FACTOR_UNSPECIFIED || input.series_size() != 1
+            || input.has_liquidity() || input.lookbacks_size() != 1
+            || input.lookbacks(0) != input.variable_definition().window()
+            || !(input.has_holdout_start() || (input.has_full_sample() && input.full_sample()))
+            || !input.retain_observations())
+            throw std::invalid_argument(
+                "expression factor requires one series, one fixed window, retained observations and full-sample or holdout evaluation");
+    }
+    if (input.retain_observations()
+        && (input.series_size() != 1 || input.has_liquidity()
+            || (!input.has_variable_definition() && input.factor() != proto::PRICE_MOMENTUM
+                && input.factor() != proto::VOLATILITY)))
+        throw std::invalid_argument(
+            "observation evidence requires one price momentum or volatility series");
     if (input.has_liquidity()) {
         validate_liquidity(input.liquidity());
         if (input.series_size() < 3 || std::ranges::any_of(input.series(), [](const auto& series) {
@@ -606,7 +669,8 @@ Json factor_definition(const factor::proto::FactorInput& input, unsigned count)
             }))
             throw std::invalid_argument("liquidity filtering requires a daily cross-section");
     }
-    const std::string factor = factor_name(input.factor());
+    const std::string factor =
+        input.has_variable_definition() ? "expression" : factor_name(input.factor());
     if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1
         || input.lookbacks_size() > 32)
         throw std::invalid_argument("invalid factor windows");
@@ -631,6 +695,10 @@ Json factor_definition(const factor::proto::FactorInput& input, unsigned count)
         {"horizon", input.horizon()},
         {"liquidity", input.has_liquidity() ? liquidity_definition(input.liquidity()) : Json()}
     };
+    if (input.retain_observations())
+        result["retain_observations"] = true;
+    if (input.has_variable_definition())
+        result["variable_definition"] = decode_variable_definition(input.variable_definition());
     if (input.has_full_sample() && input.full_sample())
         result["evaluation"] = {{"mode", "full_sample"}};
     else if (input.has_holdout_start() && input.holdout_start() > 0
@@ -657,6 +725,10 @@ Json result_structure(const factor::proto::FactorResult& result)
     for (const auto& row : result.samples())
         if (!std::isfinite(row.value()) || !std::isfinite(row.forward_return()))
             throw std::invalid_argument("non-finite factor result");
+    for (const auto& row : result.observations())
+        if ((row.has_value() && !std::isfinite(row.value()))
+            || (row.has_forward_return() && !std::isfinite(row.forward_return())))
+            throw std::invalid_argument("non-finite factor observation");
     auto statistic = [](bool present, double value) -> Json {
         if (!present)
             return nullptr;
@@ -822,7 +894,9 @@ FactorObservations validate_factor_input(const factor::proto::FactorInput& input
         for (const auto close : series)
             if (close && *close <= Decimal{})
                 throw std::invalid_argument("factor analysis requires positive closes");
-    const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
+    const auto warmup = input.has_variable_definition()
+        ? input.variable_definition().required_history()
+        : input.lookbacks(input.lookbacks_size() - 1);
     if (count < warmup + input.horizon() + 30)
         throw std::invalid_argument(
             "factor analysis requires at least 30 labelled " "observations after warmup and tail exclusion");
@@ -871,6 +945,65 @@ void validate_factor_result(
     const auto reject = [] {
         throw std::invalid_argument("factor result evidence does not match its input");
     };
+    if (input.has_variable_definition()) {
+        const auto history = input.variable_definition().required_history();
+        const auto horizon = input.horizon();
+        const bool holdout = input.has_holdout_start();
+        const auto split = holdout ? input.holdout_start() : count;
+        if (result.dataset_revision() != input.dataset_revision() || result.input_count() != count
+            || result.lookback() != input.variable_definition().window()
+            || result.horizon() != horizon || result.evaluation_warmup() != history
+            || result.selection_rule() != "fixed" || result.partitions_size() != (holdout ? 2 : 1)
+            || result.folds_size() || result.candidates_size() || result.cross_sections_size()
+            || result.memberships_size() || result.purged_count() != (holdout ? horizon : 0)
+            || result.observations_size() != static_cast<int>(count))
+            reject();
+        int cursor = 0;
+        unsigned development_count = 0;
+        for (unsigned i = 0; i < count; ++i) {
+            const auto& row = result.observations(static_cast<int>(i));
+            const auto state = row.feature_state();
+            const bool label = i + horizon < count;
+            const bool warmup = i < history;
+            const bool crossed = holdout && i < split && label && i + horizon >= split;
+            const auto role = !holdout ? factor::proto::FactorObservation::FULL_SAMPLE
+                : i < split            ? factor::proto::FactorObservation::DEVELOPMENT
+                                       : factor::proto::FactorObservation::HOLDOUT;
+            const bool included = !warmup && row.has_value() && label && !crossed;
+            if (!row.has_feature_state() || state < factor::proto::FactorObservation::FEATURE_VALUE
+                || state > factor::proto::FactorObservation::FEATURE_NON_FINITE
+                || row.has_value() != (state == factor::proto::FactorObservation::FEATURE_VALUE)
+                || (state == factor::proto::FactorObservation::FEATURE_WARMUP) != warmup
+                || row.event_index() != i || row.evaluation_warmup() != warmup
+                || row.has_forward_return() != label || row.has_label_end_index() != label
+                || (label && row.label_end_index() != i + horizon) || row.included() != included
+                || row.role() != role || row.label_crosses_boundary() != crossed)
+                reject();
+            if (included) {
+                development_count += i < split;
+                if (cursor >= result.samples_size())
+                    reject();
+                const auto& sample = result.samples(cursor++);
+                if (sample.event_index() != i || sample.value() != row.value()
+                    || sample.forward_return() != row.forward_return())
+                    reject();
+            }
+        }
+        if (cursor != result.samples_size())
+            reject();
+        for (int index = 0; index < result.partitions_size(); ++index) {
+            const auto& part = result.partitions(index);
+            const auto name = !holdout ? "full_sample" : index ? "holdout" : "development";
+            const auto samples =
+                index ? static_cast<unsigned>(cursor) - development_count : development_count;
+            if (part.name() != name || part.begin_index() != (index ? split : 0)
+                || part.end_index() != (holdout && !index ? split : count)
+                || part.sample_count() != samples || part.spreads_size() || part.has_pearson_ratio()
+                || part.has_spearman_ratio())
+                reject();
+        }
+        return;
+    }
     std::map<std::string, std::set<unsigned>> eligible;
     int membership = 0;
     if (input.has_liquidity()) {
@@ -910,7 +1043,9 @@ void validate_factor_result(
                 reject();
         }
     }
-    const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
+    const auto warmup = input.has_variable_definition()
+        ? input.variable_definition().required_history()
+        : input.lookbacks(input.lookbacks_size() - 1);
     const auto horizon = input.horizon();
     const bool search = input.lookbacks_size() > 1;
     if (result.dataset_revision() != input.dataset_revision() || result.input_count() != count
@@ -990,6 +1125,68 @@ void validate_factor_result(
         }
     }
     if (cursor != rows)
+        reject();
+    int retained_sample = 0;
+    const auto evidence = [&](const auto& entries,
+                              unsigned begin,
+                              unsigned end,
+                              unsigned split,
+                              unsigned window,
+                              bool validation_only) {
+        if (!input.retain_observations()) {
+            if (!entries.empty())
+                reject();
+            return;
+        }
+        if (entries.size() != static_cast<int>(end - begin))
+            reject();
+        for (unsigned i = begin; i < end; ++i) {
+            const auto& row = entries.Get(static_cast<int>(i - begin));
+            const bool label = i + horizon < end;
+            const bool crossed = split < end && i < split && label && i + horizon >= split;
+            const bool included = i >= begin + warmup && label && !crossed;
+            const auto role = split == end ? factor::proto::FactorObservation::FULL_SAMPLE
+                : i < split                ? factor::proto::FactorObservation::DEVELOPMENT
+                                           : factor::proto::FactorObservation::HOLDOUT;
+            if (row.event_index() != i || row.evaluation_warmup() != (i < begin + warmup)
+                || row.has_value() != (i >= begin + window) || row.has_forward_return() != label
+                || row.has_label_end_index() != label
+                || (label && row.label_end_index() != i + horizon) || row.included() != included
+                || row.role() != role || row.label_crosses_boundary() != crossed
+                || (row.has_value() && !std::isfinite(row.value()))
+                || (label && !std::isfinite(row.forward_return())))
+                reject();
+            if (included && (!validation_only || i >= split)) {
+                if (retained_sample >= result.samples_size())
+                    reject();
+                const auto& sample = result.samples(retained_sample++);
+                if (sample.event_index() != i || sample.value() != row.value()
+                    || sample.forward_return() != row.forward_return())
+                    reject();
+            }
+        }
+    };
+    if (input.has_walk_forward()) {
+        if (!result.observations().empty())
+            reject();
+        for (const auto& fold : result.folds())
+            evidence(
+                fold.observations(),
+                fold.training_begin(),
+                fold.validation_end(),
+                fold.training_end(),
+                fold.lookback(),
+                true);
+    } else {
+        evidence(
+            result.observations(),
+            0,
+            count,
+            input.has_holdout_start() ? input.holdout_start() : count,
+            result.lookback(),
+            false);
+    }
+    if (input.retain_observations() && retained_sample != result.samples_size())
         reject();
 }
 
@@ -1075,6 +1272,42 @@ Json decode_factor_result(
     decoded["memberships"] = std::move(memberships);
     decoded["samples"] = std::move(samples);
     decoded["cross_sections"] = std::move(sections);
+    const auto retained_rows = [&](const auto& entries) {
+        Json retained = Json::array();
+        for (const auto& row : entries) {
+            retained.push_back(
+                {{"event_index", row.event_index()},
+                    {"observed", when(row.event_index())},
+                    {"value", row.has_value() ? Json(row.value()) : Json(nullptr)},
+                    {"forward_return",
+                        row.has_forward_return() ? Json(row.forward_return()) : Json(nullptr)},
+                    {"label_end_index",
+                        row.has_label_end_index() ? Json(row.label_end_index()) : Json(nullptr)},
+                    {"label",
+                        row.has_label_end_index() ? Json(when(row.label_end_index()))
+                                                  : Json(nullptr)},
+                    {"evaluation_warmup", row.evaluation_warmup()},
+                    {"role",
+                        row.role() == factor::proto::FactorObservation::FULL_SAMPLE ? "full_sample"
+                            : row.role() == factor::proto::FactorObservation::DEVELOPMENT
+                            ? "development"
+                            : "holdout"},
+                    {"label_crosses_boundary", row.label_crosses_boundary()},
+                    {"included", row.included()}});
+            if (row.has_feature_state())
+                retained.back()["feature_state"] =
+                    factor::proto::FactorObservation::FeatureState_Name(row.feature_state());
+        }
+        return retained;
+    };
+    if (input.retain_observations()) {
+        if (input.has_walk_forward()) {
+            for (int i = 0; i < result.folds_size(); ++i)
+                decoded["folds"].at(static_cast<std::size_t>(i))["observations"] =
+                    retained_rows(result.folds(i).observations());
+        } else
+            decoded["observations"] = retained_rows(result.observations());
+    }
     return decoded;
 }
 

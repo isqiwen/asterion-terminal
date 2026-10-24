@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
@@ -71,11 +72,11 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await rpc(page.request, "data.dataset.clear");
   await openView(page, "watchlist");
   await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
-  await rpc(page.request, "node.data_tasks.local.open");
+  await rpc(page.request, "node.research.local.open");
   await rpc(page.request, "data.dataset.use", { id: saved.id });
   expect((await rpc(page.request, "runtime.snapshot")).datasets).toEqual(selected);
   await expect
-    .poll(async () => (await rpc(page.request, "runtime.snapshot")).task_service?.online)
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).research_service?.online)
     .toBe(true);
   await rpc(page.request, "backtest.submit", {
     id: "composed-backtest",
@@ -115,13 +116,14 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (item: { id: string }) => item.id === "composed-backtest",
         )?.state,
     )
     .toBe("succeeded");
-  const evidence = (await rpc(page.request, "task.result", { id: "composed-backtest" }))
-    .task_result;
+  const evidence = (
+    await taskRpc(page.request, "research", "task.result", { id: "composed-backtest" })
+  ).task_result;
   expect(evidence.experiment.paper.contracts[0].dataset.source_dataset_ids).toEqual(
     selected[0].source_dataset_ids,
   );

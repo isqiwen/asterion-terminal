@@ -1,0 +1,4 @@
+add_library(asterion_account_review STATIC coverage.cpp)
+target_include_directories(asterion_account_review PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_account_review PUBLIC Asterion::Domain)
+asterion_target_defaults(asterion_account_review)

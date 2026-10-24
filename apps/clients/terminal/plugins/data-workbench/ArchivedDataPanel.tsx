@@ -1,4 +1,5 @@
 import "./data.css";
+import { MinuteRetirementPanel, MinuteRetirementList } from "./MinuteRetirementPanel";
 import { HistoryUsagePanel } from "./HistoryUsagePanel";
 import { HistoryUpdatePanel } from "./HistoryUpdatePanel";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -26,6 +27,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
   // Minute versions are checked against the market-wide daily table.
   const table = useDailyTable(context.snapshot, context.query);
   const held = table.held?.table;
+  const [maintenance, setMaintenance] = useState<string | null>(null);
   const [usage, setUsage] = useState<HistoryDatasetRecord | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [loading, setLoading] = useState(false);
@@ -88,6 +90,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
   }, []);
   useEffect(() => {
     setFilter({ venue: "", product: "", contract_id: "", source: "" });
+    setMaintenance(null);
     setItems([]);
     setCoverage(null);
     setSelected(null);
@@ -99,11 +102,29 @@ export function ArchivedDataPanel(context: TerminalContext) {
   return (
     <section className="futures-data data-archive" aria-label={t("历史数据仓库")}>
       <h2>{t("历史数据仓库")}</h2>
+      <MinuteRetirementList
+        key={`retirements:${connection}`}
+        context={context}
+        onOpen={setMaintenance}
+      />
+      {maintenance && (
+        <MinuteRetirementPanel
+          key={`${connection}:${maintenance}`}
+          context={context}
+          id={maintenance}
+          onClose={() => setMaintenance(null)}
+          onRemoved={() => {
+            setItems(current => current.filter(item => item.id !== maintenance));
+            setSelected(null);
+            setUsage(null);
+            setUpdate(null);
+            setCoverage(null);
+          }}
+        />
+      )}
+
       {!online && (
-        <button
-          disabled={context.busy}
-          onClick={() => void context.trade("node.data_tasks.local.open")}
-        >
+        <button disabled={context.busy} onClick={() => void context.trade("node.data.local.open")}>
           {t("连接数据服务")}
         </button>
       )}
@@ -198,12 +219,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                     <td>
                       {row.uncovered > 0 && (
                         <button
-                          disabled={
-                            context.busy ||
-                            loading ||
-                            !online ||
-                            context.snapshot?.task_service?.remote
-                          }
+                          disabled={context.busy || loading || !online}
                           onClick={() => {
                             const item = items.find(item => item.id === row.minute_dataset_id);
                             if (item && held) {
@@ -244,6 +260,9 @@ export function ArchivedDataPanel(context: TerminalContext) {
               </p>
             </div>
             <div className="archive-actions">
+              <button disabled={!online || context.busy} onClick={() => setMaintenance(item.id)}>
+                {t("维护此版本")}
+              </button>
               <button
                 aria-pressed={usage?.id === item.id}
                 disabled={!online || context.busy}
@@ -268,7 +287,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
               </button>
               <button
                 aria-pressed={update?.item.id === item.id}
-                disabled={!online || context.busy || context.snapshot?.task_service?.remote}
+                disabled={!online || context.busy}
                 onClick={() => {
                   setUpdate({ item });
                   setUsage(null);

@@ -1,8 +1,13 @@
 syntax = "proto3";
 package asterion.data.proto;
 import "asterion/data.proto";
+import "asterion/resource.proto";
 import "asterion/trading.proto";
 import "asterion/node.proto";
+import "asterion/task.proto";
+import "asterion/market.proto";
+import "asterion/material.proto";
+import "asterion/intelligence.proto";
 
 message DataId {
   string id = 1;
@@ -18,7 +23,7 @@ message DataHealth {
   uint64 uptime_ms = 4;
   bool initialized = 5;
   bool recovery_required = 6;
-  string task_instance = 7;
+  reserved 7;
 }
 // Configured share for this Data instance, not an inferred provider entitlement.
 message DownloadBudgetPolicy {
@@ -35,121 +40,154 @@ message DownloadPermit {
   bool granted = 1;
   uint32 retry_after_ms = 2;
 }
-// Captured by Data before a download is submitted to Task. Secrets never form
-// part of the public authorization or immutable task definition.
-message DownloadAuthorizationRequest {
-  string task_instance = 1;
-  string task_id = 2;
-  string credential = 3;
-  reserved 5;
-  oneof definition {
-    MinuteDownload minutes = 4;
-    TableUpdate table_update = 6;
+// Data owns this single-partition acquisition path; task structures are observations only.
+message AcquisitionSubmit {
+  string id = 1;
+  string authorization = 2;
+}
+message AcquisitionTaskRequest {
+  oneof operation {
+    AcquisitionSubmit submit = 1;
+    DataId get = 2;
+    DataId cancel = 3;
+    DataId retry = 4;
+    DataId result = 5;
+    asterion.task.proto.TaskListQuery list = 6;
+    asterion.task.proto.TaskMetadataEdit metadata_edit = 7;
+    DataId history_usage = 8;
+    asterion.task.proto.TaskRetirementRequest retirement = 9;
+    DataId active_history_usage = 10;
+    MaterialRequest material_submit = 11;
   }
 }
-message DownloadAuthorization {
-  reserved 1;
-  string id = 2;
-  string data_instance = 3;
-  string task_instance = 4;
-  string task_id = 5;
-  string provider_artifact = 6;
-  string provider_id = 7;
-  reserved 9;
-  oneof definition {
-    MinuteDownload minutes = 8;
-    TableUpdate table_update = 10;
+message AcquisitionTaskResponse {
+  asterion.task.proto.Task task = 1;
+  asterion.task.proto.TaskList tasks = 2;
+  TableUpdateResult table_update = 3;
+  MinuteDownloadResult minutes = 4;
+  HistoryUsage history_usage = 5;
+  asterion.task.proto.TaskRetirement retirement = 6;
+  MaterialReceipt material = 7;
+}
+// Data is the authority for retention of its immutable published versions.
+message DataVersion {
+  enum Kind {
+    UNSPECIFIED = 0;
+    MINUTE_VERSION = 1;
+    TABLE_SNAPSHOT = 2;
   }
-}
-// Private on-disk representation. Never returned through DataResponse.
-message StoredDownloadAuthorization {
-  DownloadAuthorization authorization = 1;
-  string credential = 2;
-}
-// A candidate has one task coordinator and one attempt. This identity survives
-// response loss; callers may confirm this same operation, never invent another.
-message DownloadIdentity {
-  string data_instance = 1;
-  string task_instance = 2;
-  string task_id = 3;
-  uint32 attempt = 4;
-}
-message DownloadCredentials {
-  DownloadIdentity identity = 1;
-  string authorization_id = 2;
-  string credential = 3;
-}
-message DownloadAllocation {
-  string authorization_id = 1;
-  DownloadIdentity identity = 2;
-  reserved 4;
-  oneof definition {
-    MinuteDownload minutes = 3;
-    TableUpdate table_update = 5;
-  }
-}
-message DownloadDirectory {
-  string directory = 1;
-}
-message AllocatedDownload {
-  DownloadAllocation request = 1;
-  string directory = 2;
-}
-message DownloadPreparation {
-  DownloadIdentity identity = 1;
-  HistoryRecord record = 2;
-}
-message PreparedDownload {
-  DownloadIdentity identity = 1;
-  string candidate_digest = 2;
-  string dataset_id = 3;
-}
-// The task coordinator persists this decision before requesting publication.
-message DownloadPublication {
-  DownloadIdentity identity = 1;
-  string candidate_digest = 2;
-  string publication_id = 3;
-}
-message PublishedDownload {
-  DownloadPublication decision = 1;
-  HistoryRecord record = 2;
-}
 
-// What a table update still has to read, in order. It is planned in steps,
-// each from what the step before stored: the contract lists say when an
-// exchange began, its calendar from that year on which days it was open, and
-// those days are read last.
-enum TablePlanStep {
-  TABLE_PLAN_STEP_UNSPECIFIED = 0;
-  TABLE_PLAN_CONTRACTS = 1;
-  TABLE_PLAN_CALENDAR = 2;
-  TABLE_PLAN_DAYS = 3;
+  Kind kind = 1;
+  string version = 2;
 }
-
-message TablePlanQuery {
-  DownloadIdentity identity = 1;
-  TablePlanStep step = 2;
+message DataRetention {
+  DataOwner source = 1;
+  asterion.resource.proto.Object consumer = 2;
+  repeated DataVersion versions = 3;
 }
-message TableUpdatePlan {
-  repeated TablePartitionKey partitions = 1;
-  repeated string waiting = 2;
-}
-// One partition as the source delivered it. The reply is the revision the
-// partition now holds, or why its rows cannot be stored; a rejection is an
-// answer about the data, not a failed request.
-message TablePartitionRows {
-  DownloadIdentity identity = 1;
-  TablePartitionKey partition = 2;
-  repeated TableRow rows = 3;
-  SourceResponse response = 4;
-}
-message TablePartitionReceipt {
-  oneof outcome {
-    TableRevision revision = 1;
-    string rejection = 2;
+message DataRetentionRecord {
+  enum Phase {
+    UNSPECIFIED = 0;
+    PREPARED = 1;
+    CONFIRMED = 2;
+    RELEASED = 3;
   }
-  bool unchanged = 3;
-  TableRefreshObservation observation = 4;
+
+  DataRetention retention = 1;
+  Phase phase = 2;
+}
+message DataRetentionRequest {
+  oneof operation {
+    DataRetention prepare = 1;
+    DataRetention confirm = 2;
+    asterion.resource.proto.Object get = 3;
+    asterion.resource.proto.Object release = 4;
+  }
+}
+message MinuteRetirementRequest {
+  string id = 1;
+  bool execute = 2; // false is a read-only preview, never permission to delete later.
+}
+message MinuteRetirement {
+  enum State {
+    UNSPECIFIED = 0;
+    AVAILABLE = 1;
+    BLOCKED = 2;
+    PENDING = 3;
+    REMOVED = 4;
+  }
+
+  string id = 1;
+  State state = 2;
+  HistoryUsage internal_usage = 3;
+  repeated DataRetentionRecord holds = 4;
+  optional uint64 payload_bytes = 5; // allocated payload bytes observed during this preview
+}
+message MinuteRetirementsQuery {
+  string after = 1;
+  uint32 limit = 2;
+}
+message MinuteRetirements {
+  repeated MinuteRetirement items = 1;
+  string next_after = 2;
+}
+message TableRetirementRequest {
+  string id = 1;
+  bool execute = 2;
+  string preview_digest = 3;
+}
+message TableRetirement {
+  enum State {
+    UNSPECIFIED = 0;
+    AVAILABLE = 1;
+    BLOCKED = 2;
+    PENDING = 3;
+    REMOVED = 4;
+  }
+
+  string id = 1;
+  State state = 2;
+  uint64 sequence = 3;
+  bool current_head = 4;
+  repeated string acquisitions = 5;
+  HistoryUsage named_usage = 6;
+  repeated DataRetentionRecord holds = 7;
+  optional uint64 payload_bytes = 8;
+  repeated string objects = 9;
+  string preview_digest = 10;
+}
+message TableRetirements {
+  repeated TableRetirement items = 1;
+  string next_after = 2;
+}
+message ObservationAdmission {
+  string id = 1;
+  asterion.resource.proto.Object source = 2;
+}
+message ObservationOperation {
+  enum State {
+    UNSPECIFIED = 0;
+    ADMITTED = 1;
+    PUBLISHED = 2;
+  }
+
+  string id = 1;
+  asterion.resource.proto.Object source = 2;
+  asterion.resource.proto.Object archive = 3;
+  State state = 4;
+  int64 admitted_at_ms = 5;
+  int64 published_at_ms = 6;
+}
+message ObservationQuery {
+  oneof action {
+    ObservationAdmission admit = 1;
+    string execute = 2;
+    string read = 3;
+  }
+}
+message ObservationStatus {
+  ObservationOperation operation = 1;
+  asterion.market.proto.ObservationCapture capture = 2;
 }
 message DataRequest {
   reserved 13, 18, 20, 26;
@@ -194,6 +232,22 @@ message DataRequest {
     MinuteRangeQuery minute_range = 48;
     TableRefreshQuery table_refresh_plan = 49;
     HistoricalMarginQuery historical_margins = 50;
+    AcquisitionTaskRequest acquisition_task = 51;
+    DataRetentionRequest retention = 52;
+    MinuteRetirementRequest minute_retirement = 53;
+    MinuteRetirementsQuery minute_retirements = 54;
+    TableRetirementRequest table_retirement = 55;
+    DataId table_retirements = 56;
+    asterion.resource.proto.CatalogueQuery resources = 57;
+    ObservationQuery observation = 58;
+    asterion.protocol.proto.Empty material_sources = 59;
+    MaterialReadQuery material_read = 60;
+    asterion.resource.proto.Object intelligence_save = 61;
+    asterion.resource.proto.Object intelligence_read = 62;
+    asterion.resource.proto.Object intelligence_change_save = 63;
+    asterion.resource.proto.Object intelligence_change_read = 64;
+    asterion.resource.proto.Object intelligence_set_save = 65;
+    asterion.resource.proto.Object intelligence_set_read = 66;
   }
 }
 message DataResponse {
@@ -236,5 +290,19 @@ message DataResponse {
     MinuteRangeEvidence minute_range = 44;
     TableRefreshPlan table_refresh_plan = 45;
     HistoricalMargins historical_margins = 46;
+    AcquisitionTaskResponse acquisition_task = 47;
+    DataRetentionRecord retention = 48;
+    MinuteRetirement minute_retirement = 49;
+    MinuteRetirements minute_retirements = 50;
+    TableRetirement table_retirement = 51;
+    TableRetirements table_retirements = 52;
+    asterion.resource.proto.Catalogue resources = 53;
+    ObservationStatus observation = 54;
+    MaterialSources material_sources = 55;
+    MaterialRead material_read = 56;
+    asterion.intelligence.proto.NoticeStorageReceipt intelligence_saved = 57;
+    asterion.intelligence.proto.NoticeStoredContent intelligence_content = 58;
+    asterion.intelligence.proto.NoticeStoredChange intelligence_change_content = 59;
+    asterion.intelligence.proto.NoticeStoredSet intelligence_set_content = 60;
   }
 }

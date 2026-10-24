@@ -54,8 +54,8 @@ export function HistoryUpdatePanel({
   const [submitted, setSubmitted] = useState(false);
   const [view, setView] = useState(false);
   const ticket = useRef({ value: 0 });
-  const enabled =
-    !!context.snapshot?.task_service?.online && !!context.snapshot?.data?.online && !!source;
+  const enabled = !!context.snapshot?.data?.online && !!source;
+  const executionReady = enabled;
   useEffect(() => {
     const generation = ticket.current;
     ++generation.value;
@@ -68,7 +68,7 @@ export function HistoryUpdatePanel({
       ++generation.value;
     };
   }, [end, rate, saved?.requests_per_minute]);
-  const task = context.snapshot?.task_service?.tasks.find(task => task.id === id);
+  const task = context.snapshot?.data?.tasks.find(task => task.id === id);
   const accepted = submitted || !!task;
   const params: CommandParams["data.download.update.plan"] = {
     dataset_id: item.id,
@@ -314,7 +314,7 @@ export function HistoryUpdatePanel({
                 type="button"
                 className="primary"
                 disabled={
-                  !enabled ||
+                  !executionReady ||
                   working ||
                   context.busy ||
                   (!!source?.credential_required && !saved && !token)

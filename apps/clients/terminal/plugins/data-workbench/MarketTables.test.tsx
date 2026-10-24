@@ -127,7 +127,7 @@ test("with nothing stored the first download needs a start date", async () => {
 
 test("an update started before the page was opened is still shown", async () => {
   const snapshot = ready(state => {
-    state.task_service!.tasks = [
+    state.data!.tasks = [
       {
         ...update("tables-earlier", 3),
         state: "failed",
@@ -168,7 +168,7 @@ test("an update keeps its identity until it is accepted, then reports partition 
   const id = submitted[0].id as string;
   const task: TaskRecord = { ...update(id, 1), completed: 100, result_digest: "d".repeat(64) };
   const finished = ready(snapshot => {
-    snapshot.task_service!.tasks = [task];
+    snapshot.data!.tasks = [task];
     snapshot.task_result = {
       id,
       kind: "table_update",
@@ -203,7 +203,15 @@ test("an update keeps its identity until it is accepted, then reports partition 
   expect((await screen.findAllByRole("status")).map(item => item.textContent)).toContain(
     "更新完成：新入库 41 个分区，12 个没有变化。",
   );
-  expect(trade).toHaveBeenCalledWith("task.result", { id });
+  expect(trade).toHaveBeenCalledWith("task.result", {
+    id,
+    owner: {
+      kind: "data",
+      node_id: finished.data!.node_id,
+      service: finished.data!.service,
+      connection_id: finished.data!.connection_id,
+    },
+  });
   const rejected = screen.getByRole("table", { name: "未能入库的分区" });
   expect(rejected.textContent).toContain("日线 DCE 2026-09-18");
   expect(rejected.textContent).toContain('column amount: "1.5e3" is not a plain decimal number');

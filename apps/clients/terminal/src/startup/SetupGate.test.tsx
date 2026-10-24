@@ -26,8 +26,8 @@ const retry = () => fireEvent.click(screen.getByRole("button", { name: "重试�
 const serviceStarts = [
   "node.local",
   "market.local",
-  "node.data_tasks.local.open",
-  "node.data_tasks.local.create",
+  "node.research.attach",
+  "node.research.local.create",
 ];
 const sent = (calls: CoreCall[], ...methods: string[]) =>
   calls.map(call => call.method).filter(method => methods.includes(method));
@@ -94,7 +94,7 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
       state: "invalid",
       error: "plugin entry point is missing",
     });
-    snapshot.task_service!.interrupted_count = 1;
+    snapshot.research_service!.interrupted_count = 1;
     return snapshot;
   });
   start();
@@ -107,7 +107,7 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   expect(workbench()).not.toBeNull();
 });
 
-test("a Data/Task pair the Agent reports late is opened again, not created", async () => {
+test("existing Research is restored after inventory recovery without creating services", async () => {
   // The Agent answers the first attachment before it has recovered its
   // service inventory.
   const calls = serveCore(({ method }) => {
@@ -121,14 +121,14 @@ test("a Data/Task pair the Agent reports late is opened again, not created", asy
   });
   start();
   await waitFor(() => expect(workbench()).not.toBeNull());
-  expect(sent(calls, "node.data_tasks.local.open", "node.data_tasks.local.create")).toEqual([
-    "node.data_tasks.local.open",
+  expect(sent(calls, "node.research.attach", "node.research.local.create")).toEqual([
+    "node.research.attach",
   ]);
 });
 
 for (const [kind, id, label] of [
-  ["data", "historical-data", "数据服务"],
-  ["task", "task", "任务服务"],
+  ["data", "historical-data", "恢复已有工作区"],
+  ["research", "research", "恢复已有工作区"],
 ] as const)
   test(`startup waits for the ${kind} heartbeat and reports its own failure`, async () => {
     let health: "starting" | "ready" | "failed" = "starting";
@@ -149,9 +149,9 @@ for (const [kind, id, label] of [
     const launch = start();
     // Each service needs its own heartbeat before its step completes.
     await waitFor(() => expect(status(label)).toBe("进行中"));
-    expect(screen.getAllByRole("progressbar")).toHaveLength(5);
+    expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     expect(status("行情服务")).toBe("完成");
-    if (kind === "task") expect(status("数据服务")).toBe("完成");
+
     expect(workbench()).toBeNull();
     health = "ready";
     await waitFor(() => expect(workbench()).not.toBeNull());
@@ -167,7 +167,7 @@ test("startup reports the failing step, retries and opens the workbench once eve
   const failing = new Map([
     ["node.local", "Agent start failed"],
     ["market.local", "Market start failed"],
-    ["node.data_tasks.local.open", "Data/Task preparation failed"],
+    ["node.research.attach", "Data/Task preparation failed"],
   ]);
   const calls = serveCore(({ method }) =>
     failing.has(method) ? { error: { message: failing.get(method)! } } : readySnapshot(),
@@ -190,8 +190,8 @@ test("startup reports the failing step, retries and opens the workbench once eve
   await waitFor(() => expect(failedStep()).toBe("行情服务"));
   failing.delete("market.local");
   retry();
-  await waitFor(() => expect(failedStep()).toBe("数据服务"));
-  failing.delete("node.data_tasks.local.open");
+  await waitFor(() => expect(failedStep()).toBe("恢复已有工作区"));
+  failing.delete("node.research.attach");
   retry();
   await waitFor(() => expect(workbench()).not.toBeNull());
   // Every attempt starts again from the first step.
@@ -201,10 +201,10 @@ test("startup reports the failing step, retries and opens the workbench once eve
     "market.local",
     "node.local",
     "market.local",
-    "node.data_tasks.local.open",
+    "node.research.attach",
     "node.local",
     "market.local",
-    "node.data_tasks.local.open",
+    "node.research.attach",
   ]);
   // A later launch checks the services again before it opens the workbench.
   calls.length = 0;
@@ -214,7 +214,7 @@ test("startup reports the failing step, retries and opens the workbench once eve
   expect(sent(calls, ...serviceStarts)).toEqual([
     "node.local",
     "market.local",
-    "node.data_tasks.local.open",
+    "node.research.attach",
   ]);
   // Having opened before never skips the check of actual service health.
   failing.set("node.local", "Agent start failed");
@@ -235,7 +235,7 @@ test("a service that went offline after every start fails its own step", async (
   let started = false;
   let online = false;
   serveCore(({ method }) => {
-    if (method === "node.data_tasks.local.open") started = true;
+    if (method === "node.research.attach") started = true;
     const snapshot = readySnapshot();
     if (started) snapshot.market!.transport_online = online;
     return snapshot;
@@ -251,14 +251,121 @@ test("a service that went offline after every start fails its own step", async (
 test("a service that never reports online fails its own step when the wait ends", async () => {
   serveCore(() => {
     const snapshot = readySnapshot();
-    snapshot.task_service!.online = false;
+    snapshot.research_service!.online = false;
     return snapshot;
   });
   vi.useFakeTimers();
   start();
   await act(() => vi.advanceTimersByTimeAsync(19000));
-  expect(status("任务服务")).toBe("进行中");
+  expect(status("恢复已有工作区")).toBe("进行中");
   await act(() => vi.advanceTimersByTimeAsync(2000));
-  expect(failedStep()).toBe("任务服务");
+  expect(failedStep()).toBe("恢复已有工作区");
   expect(workbench()).toBeNull();
+});
+
+test("Research restores without a Data deployment or connection", async () => {
+  const calls = serveCore(() => {
+    const snapshot = readySnapshot();
+    snapshot.data = null;
+    const health = localHealth(snapshot);
+    health.services = health.services.filter(service => service.kind !== "data");
+    return snapshot;
+  });
+  start();
+  await waitFor(() => expect(workbench()).not.toBeNull());
+  expect(sent(calls, "node.research.attach")).toEqual(["node.research.attach"]);
+  expect(sent(calls, "node.data.attach", "node.data.local.open")).toEqual([]);
+});
+
+test("an explicitly stopped local Market preserves intent and permits independent Data and Research work", async () => {
+  const calls = serveCore(() => {
+    const snapshot = readySnapshot();
+    const market = localService(snapshot, "market-data");
+    market.state = "stopped";
+    market.desired_running = false;
+    market.health = "offline";
+    snapshot.market = null;
+    return snapshot;
+  });
+  start();
+  const notices = await screen.findByRole("list", { name: "进入前请留意" });
+  expect(notices.textContent).toContain("本机行情服务按已保存意图保持停止");
+  expect(sent(calls, "market.local", "node.action")).toEqual([]);
+  expect(sent(calls, "node.data.attach", "node.research.attach")).toEqual([
+    "node.data.attach",
+    "node.research.attach",
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "进入工作台" }));
+  expect(workbench()).not.toBeNull();
+});
+
+test("restoring account windows preserves explicit local and remote Trading stops", async () => {
+  const calls = serveCore(() => {
+    const snapshot = readySnapshot();
+    const local = snapshot.nodes[0];
+    const base = local.health!.services[0];
+    local.health!.services.push(
+      {
+        ...base,
+        id: "stopped-trading",
+        kind: "live",
+        state: "stopped",
+        desired_running: false,
+        pid: 0,
+        health: "offline",
+      },
+      {
+        ...base,
+        id: "shared-service-id",
+        kind: "live",
+        state: "running",
+        desired_running: true,
+        pid: 10,
+        health: "ready",
+      },
+    );
+    snapshot.nodes.push({
+      ...local,
+      id: "remote",
+      host: "fixture-remote",
+      port: 7443,
+      health: {
+        ...local.health!,
+        services: [
+          {
+            ...base,
+            id: "shared-service-id",
+            kind: "live",
+            state: "stopped",
+            desired_running: false,
+            pid: 0,
+            health: "offline",
+          },
+        ],
+      },
+    });
+    snapshot.ctp_connections = [
+      ["local-stopped", "local", "stopped-trading"],
+      ["local-running", "local", "shared-service-id"],
+      ["remote-stopped", "remote", "shared-service-id"],
+    ].map(([id, node, service]) => ({
+      id,
+      name: id,
+      broker_id: "9999",
+      user_id: "fixture-user",
+      app_id: "test-app",
+      trade_front: "tcp://127.0.0.1:41205",
+      market_front: "tcp://127.0.0.1:41213",
+      revision: "revision",
+      trading_record: true,
+      trading: { node, service },
+    }));
+    return snapshot;
+  });
+  start();
+  await waitFor(() => expect(workbench()).not.toBeNull());
+  expect(
+    calls.filter(call => call.method === "live.open").map(call => call.params.account),
+  ).toEqual(["local-running"]);
+  expect(sent(calls, "node.action")).toEqual([]);
 });

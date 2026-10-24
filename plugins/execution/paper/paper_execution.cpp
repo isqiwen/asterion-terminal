@@ -128,9 +128,12 @@ void PaperExecution::submit(LimitOrder order, Offset offset)
         throw std::invalid_argument("replay has finished; no new orders accepted");
     const auto decision = assess_order(*risk_, account_, order, offset);
     if (!decision.allowed())
-        throw std::invalid_argument(
-            "pre-trade risk rejected: " + std::string(risk_reason_name(decision.reason)));
-    account_.submit(std::move(order), offset);
+        throw PaperRiskRejected(decision.reason);
+    try {
+        account_.submit(std::move(order), offset);
+    } catch (const InsufficientAvailableFunds&) {
+        throw PaperRiskRejected(RiskReason::insufficient_funds);
+    }
     ++revision_;
 }
 
@@ -161,7 +164,7 @@ std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar
 
 } // namespace
 
-void PaperExecution::advance(const std::optional<Target>& target)
+RiskDecision PaperExecution::advance(const std::optional<Target>& target)
 {
     require_running();
     if (cursor_ == size())
@@ -185,16 +188,35 @@ void PaperExecution::advance(const std::optional<Target>& target)
         account_.mark(instrument, bar.close);
         ++cursor_;
         ++revision_;
-        return;
+        return {RiskReason::allowed};
     }
+    RiskDecision result{RiskReason::allowed};
     const auto previous_revision = revision_;
     auto batch = account_.transaction();
     try {
         auto& next = account_;
         if (new_terms)
             enter_day(bar.trading_day);
-        if (target)
-            reconcile_target(target->order_id, instrument, target->quantity, target->limit_price);
+        if (target) {
+            try {
+                reconcile_target(
+                    target->order_id,
+                    instrument,
+                    target->quantity,
+                    target->limit_price);
+            } catch (const PaperRiskRejected& rejection) {
+                switch (rejection.reason()) {
+                    case RiskReason::order_quantity:
+                    case RiskReason::gross_quantity:
+                    case RiskReason::working_orders:
+                    case RiskReason::insufficient_funds:
+                        result.reason = rejection.reason();
+                        break;
+                    default:
+                        throw;
+                }
+            }
+        }
         auto sequence = execution_sequence_;
         auto liquidity = quantize(
             multiply(bar.volume, paper_bar_participation, Rounding::floor),
@@ -230,6 +252,7 @@ void PaperExecution::advance(const std::optional<Target>& target)
         revision_ = previous_revision;
         throw;
     }
+    return result;
 }
 
 bool PaperExecution::changes_terms() const

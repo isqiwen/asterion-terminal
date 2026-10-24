@@ -11,7 +11,7 @@ struct ServiceConfiguration
     node::proto::ServiceKind kind = node::proto::UNSPECIFIED_SERVICE;
     std::string artifact, provider_artifact, catalog_artifact;
     std::vector<std::string> plugin_artifacts;
-    std::string directory, task_service, data_service;
+    std::string directory;
     unsigned short port = 0;
     bool desired = true;
 

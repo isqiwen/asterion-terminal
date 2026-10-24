@@ -8,7 +8,7 @@ export function useHistoryDatasets(snapshot: Snapshot | null, query: HistoryQuer
   ref.current = query;
   const connection = snapshot?.data?.connection_id;
   const online = !!snapshot?.data?.online;
-  const completed = (snapshot?.task_service?.tasks ?? [])
+  const completed = (snapshot?.data?.tasks ?? [])
     .filter(task => task.history_dataset_id)
     .map(task => task.history_dataset_id)
     .join(",");

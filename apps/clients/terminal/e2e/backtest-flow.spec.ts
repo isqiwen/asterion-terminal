@@ -1,6 +1,9 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 
 test(
   "a downloaded dataset reaches a fixed backtest result without reselecting its source",
@@ -81,12 +84,100 @@ test(
     await evaluation.getByRole("button", { name: "读取评估来源" }).click();
     await expect(evaluation.getByRole("region", { name: "绩效", exact: true })).toBeVisible();
     await expect(evaluation).toContainText("无风险利率取 0");
-    const evidence = (await rpc(page.request, "task.result.read", { id })).task_result;
+    const evidence = (await taskRpc(page.request, "research", "task.result.read", { id }))
+      .task_result;
     await expect(evaluation.getByText(evidence.task.result_digest, { exact: true })).toBeVisible();
+    expect(evidence.task.program_artifact).toMatch(/^[0-9a-f]{64}$/);
     await evaluation.getByRole("button", { name: "查看原始实验" }).click();
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "回测", exact: true }),
     ).toHaveAttribute("aria-current", "page");
+    await page
+      .getByRole("region", { name: "回测进度", exact: true })
+      .getByRole("button", { name: "查看结果", exact: true })
+      .click();
+    const reuse = page.getByRole("region", { name: "按此回测创建", exact: true });
+    await reuse.getByRole("radio", { name: "沿用原固定快照", exact: true }).check();
+    await reuse.getByRole("button", { name: "创建独立回测任务", exact: true }).click();
+    const child = await reuse.getByRole("status").locator("code").innerText();
+    await expect
+      .poll(
+        async () =>
+          (await taskRpc(page.request, "research", "task.retirement.preview", { id: child }))
+            .task_retirement.task.state,
+        { timeout: 20000 },
+      )
+      .toBe("succeeded");
+    const derivedEvidence = (
+      await taskRpc(page.request, "research", "task.result.read", { id: child })
+    ).task_result;
+    expect(derivedEvidence.task.program_artifact).toBe(evidence.task.program_artifact);
+    const referenceState = await rpc(page.request, "runtime.snapshot");
+    const researchRoot = referenceState.nodes
+      .find((node: { id: string }) => node.id === "local")
+      .health.services.find(
+        (service: { id: string }) => service.id === referenceState.research_service.service,
+      ).directory;
+    expect(researchRoot.startsWith(process.env.ASTERION_NODE_DIRECTORY + "/")).toBe(true);
+    expect(
+      statSync(join(researchRoot, "programs", evidence.task.program_artifact)).size,
+    ).toBeGreaterThan(0);
+    const originalFile = statSync(join(researchRoot, id, "input.pb"));
+    const referencedFile = statSync(join(researchRoot, child, "input.pb"));
+    expect(referencedFile.dev).toBe(originalFile.dev);
+    expect(referencedFile.ino).toBe(originalFile.ino);
+    expect(referencedFile.nlink).toBeGreaterThanOrEqual(2);
+    const held = (
+      await rpc(page.request, "data.history.usage", { id: selected.source_dataset_ids[0] })
+    ).history_usage;
+    expect(held.consumers).toHaveLength(2);
+    await page.getByRole("button", { name: "返回回测记录", exact: true }).click();
+    const childRecord = page
+      .getByRole("region", { name: "研究任务", exact: true })
+      .getByRole("row")
+      .filter({ has: page.locator("td > details > code").filter({ hasText: child }) });
+    await childRecord.getByRole("button", { name: "维护研究记录", exact: true }).click();
+    const childMaintenance = childRecord.getByRole("region", { name: "研究记录维护", exact: true });
+    await expect(childMaintenance).toContainText("可退役");
+    const parentBlocked = await taskRpc(page.request, "research", "task.retirement.preview", {
+      id,
+    });
+    expect(parentBlocked.task_retirement.state).toBe("blocked");
+    expect(parentBlocked.task_retirement.consumers).toContain(child);
+    await childMaintenance
+      .getByRole("checkbox", { name: "确认退役此记录，禁止重试和新增派生" })
+      .check();
+    await childMaintenance.getByRole("button", { name: "确认退役", exact: true }).click();
+    await expect(childMaintenance).toContainText("Data 已确认解除源保留");
+    expect(
+      (await rpc(page.request, "data.history.usage", { id: selected.source_dataset_ids[0] }))
+        .history_usage.consumers,
+    ).toHaveLength(1);
+    const record = page
+      .getByRole("region", { name: "研究任务", exact: true })
+      .getByRole("row")
+      .filter({ has: page.locator("td > details > code").filter({ hasText: id }) });
+    await record.getByRole("button", { name: "维护研究记录", exact: true }).click();
+    const maintenance = record.getByRole("region", { name: "研究记录维护", exact: true });
+    await expect(maintenance).toContainText("可退役");
+    await expect(maintenance.getByRole("button", { name: "确认退役", exact: true })).toBeDisabled();
+    await maintenance.getByRole("checkbox", { name: "确认退役此记录，禁止重试和新增派生" }).check();
+    await maintenance.getByRole("button", { name: "确认退役", exact: true }).click();
+    await expect(maintenance).toContainText("Data 已确认解除源保留");
+    const retired = await taskRpc(page.request, "research", "task.retirement.preview", { id });
+    expect(retired.task_retirement.state).toBe("retired");
+    expect(retired.task_retirement.source_release_confirmed).toBe(true);
+    const usage = await rpc(page.request, "data.history.usage", {
+      id: selected.source_dataset_ids[0],
+    });
+    expect(usage.history_usage.consumers).toHaveLength(0);
+    const retained = (await taskRpc(page.request, "research", "task.result.read", { id }))
+      .task_result;
+    expect(retained.task.result_digest).toBe(evidence.task.result_digest);
+    expect(retained.task.program_artifact).toBe(evidence.task.program_artifact);
+    expect(retained.task.retired).toBe(true);
+    await record.getByRole("button", { name: "查看结果", exact: true }).click();
+    await expect(page.getByText("原记录已退役，不能新增派生实验").first()).toBeVisible();
   },
 );
 
@@ -138,26 +229,29 @@ test("data/task access prepares a stopped local service once and does not replac
 }) => {
   await page.goto("/");
   await openView(page, "trading");
-  await rpc(page.request, "node.data_tasks.local.open");
-  await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
+  const opened = await rpc(page.request, "node.research.local.open");
+  await rpc(page.request, "node.action", {
+    id: "local",
+    service: opened.research_service.service,
+    action: "stop",
+  });
   let offline = true,
     remote = false,
     starts = 0,
     reads = 0;
   await page.route("**/__asterion/api", async route => {
     const method = route.request().postDataJSON().method;
-    if (method === "node.data_tasks.local.open") {
+    if (method === "node.research.local.open") {
       starts++;
       offline = false;
     }
-    if (!["runtime.snapshot", "node.data_tasks.local.open"].includes(method))
-      return route.continue();
+    if (!["runtime.snapshot", "node.research.local.open"].includes(method)) return route.continue();
     const response = await route.fetch();
     const body = await response.json();
-    if (body.result?.task_service) {
+    if (body.result?.research_service) {
       reads++;
-      if (offline) body.result.task_service.online = false;
-      body.result.task_service.remote = remote;
+      if (offline) body.result.research_service.online = false;
+      body.result.research_service.remote = remote;
     }
     await route.fulfill({ response, json: body });
   });
@@ -171,7 +265,7 @@ test("data/task access prepares a stopped local service once and does not replac
   await expect.poll(() => reads).toBeGreaterThan(0);
   await openView(page, "backtest");
   await expect(
-    page.getByText("远程数据或任务连接已断开，当前运行位置保持不变。", { exact: true }),
+    page.getByText("远程数据或研究连接已断开，当前运行位置保持不变。", { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "新建回测", exact: true })).toBeDisabled();
   expect(starts).toBe(1);
@@ -187,7 +281,7 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
     reads = 0;
   await page.route("**/__asterion/api", async route => {
     const method = route.request().postDataJSON().method;
-    if (method === "node.data_tasks.local.open") {
+    if (method === "node.research.local.open") {
       attempts++;
       if (attempts === 1)
         return route.fulfill({
@@ -198,8 +292,7 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
         });
       offline = false;
     }
-    if (!["runtime.snapshot", "node.data_tasks.local.open"].includes(method))
-      return route.continue();
+    if (!["runtime.snapshot", "node.research.local.open"].includes(method)) return route.continue();
     // Every poll is answered with the whole snapshot, whether or not the core
     // has a new revision. The page takes each as a new state, which is what
     // would start the preparation again if it looped; a poll answered with
@@ -208,10 +301,10 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
       method === "runtime.snapshot" ? { postData: { version: 1, method, params: {} } } : {},
     );
     const body = await response.json();
-    if (body.result?.task_service) {
+    if (body.result?.research_service) {
       reads++;
-      body.result.task_service.remote = false;
-      if (offline) body.result.task_service.online = false;
+      body.result.research_service.remote = false;
+      if (offline) body.result.research_service.online = false;
     }
     await route.fulfill({ response, json: body });
   });
@@ -238,7 +331,7 @@ test("archive versions remain selectable without any download tasks", async ({ p
     if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
     const response = await route.fetch();
     const body = await response.json();
-    if (body.result?.task_service) body.result.task_service.tasks = [];
+    if (body.result?.research_service) body.result.research_service.tasks = [];
     await route.fulfill({ response, json: body });
   });
   await page.reload();

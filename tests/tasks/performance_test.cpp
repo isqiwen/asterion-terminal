@@ -1,4 +1,5 @@
 #include "performance.hpp"
+#include <asterion/foundation/error.hpp>
 #include <cmath>
 #include <gtest/gtest.h>
 #include <vector>
@@ -25,7 +26,7 @@ std::vector<EquityDay> record_of(const std::vector<const char*>& equity)
 
 } // namespace
 
-TEST(Performance, AFewDaysHaveAReturnAndADrawdownButNoYearlyFigures)
+TEST(Performance, MissingContextKeepsRawReturnAndDrawdownWithoutInventingAnnualAssumptions)
 {
     const auto record = record_of({"101000", "100000", "102000"});
     const std::vector<Decimal>
@@ -40,7 +41,7 @@ TEST(Performance, AFewDaysHaveAReturnAndADrawdownButNoYearlyFigures)
         result.annual_return || result.annual_volatility || result.sharpe || result.calmar);
 }
 
-TEST(Performance, YearlyFiguresScaleByTheCalendarTimeTheDaysSpan)
+TEST(Performance, AnnualReturnUsesOriginalSecondsWhileVolatilityUsesTheExplicitPeriodCount)
 {
     // Up a quarter and back, ten times: daily returns of +25% and -20%.
     std::vector<const char*> equity;
@@ -50,8 +51,17 @@ TEST(Performance, YearlyFiguresScaleByTheCalendarTimeTheDaysSpan)
     std::vector<Decimal> marks;
     for (const auto& day : record)
         marks.push_back(day.equity);
-    auto result = performance(d("100000"), record, marks);
-    const double periods = 365.25; // 20 days spanning 20 calendar days
+    PerformanceContext context;
+    context.begin_ns =
+        duration_cast<nanoseconds>((record.front().day - days{1}).time_since_epoch()).count();
+    context.end_ns = duration_cast<nanoseconds>(record.back().day.time_since_epoch()).count();
+    context.annual_periods = 252;
+    context.explicitly_zero_risk_free = true;
+    context.opening_is_full_period =
+        true; // This fixture explicitly supplies a prior settlement boundary.
+    auto result = performance(d("100000"), record, marks, context);
+    const double periods =
+        252; // Explicit method, independent of this sample's covered calendar span.
     const double deviation = 0.225 * std::sqrt(20.0 / 19);
     EXPECT_DOUBLE_EQ(result.total_return, 0);
     EXPECT_NEAR(*result.annual_return, 0, 1e-12);
@@ -63,8 +73,12 @@ TEST(Performance, YearlyFiguresScaleByTheCalendarTimeTheDaysSpan)
     // One more day up: a quarter gained over 21 calendar days.
     record.push_back({record.back().day + std::chrono::days{1}, d("125000")});
     marks.push_back(d("125000"));
-    result = performance(d("100000"), record, marks);
-    EXPECT_NEAR(*result.annual_return, std::pow(1.25, 365.25 / 21) - 1, 1e-6);
+    context.end_ns = duration_cast<nanoseconds>(record.back().day.time_since_epoch()).count();
+    result = performance(d("100000"), record, marks, context);
+    ASSERT_TRUE(result.annual_return);
+    EXPECT_NEAR(*result.annual_return, std::pow(1.25, 365.2425 / 21) - 1, 1e-6);
+    EXPECT_EQ(result.return_periods, 21U);
+    EXPECT_TRUE(result.short_calendar_span);
     EXPECT_NEAR(*result.calmar, *result.annual_return / 0.2, 1e-9);
 }
 
@@ -73,21 +87,96 @@ TEST(Performance, UndefinedFiguresStayAbsentAndInvalidRecordsAreRefused)
     std::vector<const char*> flat(25, "100000");
     auto record = record_of(flat);
     std::vector<Decimal> marks(25, d("100000"));
-    auto result = performance(d("100000"), record, marks);
+    const auto unknown = performance(d("100000"), record, marks);
+    EXPECT_FALSE(
+        unknown.annual_return || unknown.annual_volatility || unknown.sharpe || unknown.calmar);
+    EXPECT_EQ(unknown.annual_volatility_reason, PerformanceUnavailable::missing_annual_periods);
+    PerformanceContext context;
+    context.begin_ns =
+        duration_cast<nanoseconds>((record.front().day - days{1}).time_since_epoch()).count();
+    context.end_ns = duration_cast<nanoseconds>(record.back().day.time_since_epoch()).count();
+    context.annual_periods = 252;
+    context.explicitly_zero_risk_free = true;
+    context.opening_is_full_period = true;
+    auto result = performance(d("100000"), record, marks, context);
     // Nothing varied and nothing fell: a volatility of zero, no ratio to it.
     EXPECT_DOUBLE_EQ(*result.annual_volatility, 0);
     EXPECT_FALSE(result.sharpe || result.calmar);
+    EXPECT_EQ(result.sharpe_reason, PerformanceUnavailable::zero_deviation);
+    EXPECT_EQ(result.calmar_reason, PerformanceUnavailable::zero_drawdown);
     EXPECT_DOUBLE_EQ(result.winning_days, 0);
     // An account that lost everything has no yearly rate.
     record[10].equity = d("0");
     marks[10] = d("0");
-    result = performance(d("100000"), record, marks);
+    result = performance(d("100000"), record, marks, context);
+    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::non_positive_equity);
     EXPECT_DOUBLE_EQ(result.max_drawdown, 1);
     EXPECT_FALSE(result.annual_return || result.sharpe);
     EXPECT_THROW(performance(d("0"), record, marks), std::invalid_argument);
     EXPECT_THROW(performance(d("100000"), {}, marks), std::invalid_argument);
     std::swap(record[3].day, record[4].day);
     EXPECT_THROW(performance(d("100000"), record, marks), std::invalid_argument);
+}
+
+TEST(Performance, OpeningStubIsExcludedAndAnExplicitZeroRiskFreeIsDistinctFromMissing)
+{
+    const auto record = record_of({"11000", "12100", "10890"});
+    const std::vector<Decimal> marks{d("11000"), d("12100"), d("10890")};
+    PerformanceContext context;
+    context.begin_ns =
+        duration_cast<nanoseconds>(record.front().day.time_since_epoch() + hours{9}).count();
+    context.end_ns =
+        duration_cast<nanoseconds>(record.back().day.time_since_epoch() + hours{15}).count();
+    context.annual_periods = 252;
+    const auto missing = performance(d("10000"), record, marks, context);
+    ASSERT_TRUE(missing.annual_volatility);
+    EXPECT_EQ(missing.return_periods, 2U);
+    EXPECT_NEAR(*missing.annual_volatility, std::sqrt(0.02) * std::sqrt(252.0), 1e-12);
+    EXPECT_FALSE(missing.sharpe);
+    EXPECT_EQ(missing.sharpe_reason, PerformanceUnavailable::missing_risk_free);
+    EXPECT_DOUBLE_EQ(missing.total_return, 0.089);
+    context.explicitly_zero_risk_free = true;
+    const auto zero = performance(d("10000"), record, marks, context);
+    ASSERT_TRUE(zero.sharpe);
+    EXPECT_NEAR(*zero.sharpe, 0.0, 1e-12);
+    EXPECT_EQ(zero.sharpe_reason, PerformanceUnavailable::none);
+    context.opening_is_full_period = true;
+    context.begin_ns =
+        duration_cast<nanoseconds>((record.front().day - days{1}).time_since_epoch() + hours{15})
+            .count();
+    const auto full = performance(d("10000"), record, marks, context);
+    EXPECT_EQ(full.return_periods, 3U);
+    ASSERT_TRUE(full.sharpe);
+    EXPECT_NEAR(*full.sharpe, (1.0 / 30) / std::sqrt(1.0 / 75) * std::sqrt(252.0), 1e-12);
+    context.end_ns = context.begin_ns;
+    const auto no_time = performance(d("10000"), record, marks, context);
+    EXPECT_FALSE(no_time.annual_return);
+    EXPECT_EQ(no_time.annual_return_reason, PerformanceUnavailable::non_positive_duration);
+    EXPECT_TRUE(no_time.annual_volatility);
+}
+
+TEST(Performance, InadequateCompletePeriodsAndOverflowKeepIndependentUnavailableReasons)
+{
+    const auto record = record_of({"11000"});
+    const std::vector<Decimal> marks{d("11000")};
+    PerformanceContext context;
+    context.begin_ns = 0;
+    context.end_ns = 1;
+    context.annual_periods = 252;
+    context.explicitly_zero_risk_free = true;
+    const auto result = performance(d("10000"), record, marks, context);
+    EXPECT_FALSE(result.annual_return || result.annual_volatility || result.sharpe);
+    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::numerical_overflow);
+    EXPECT_EQ(result.sharpe_reason, PerformanceUnavailable::insufficient_periods);
+    EXPECT_EQ(result.return_periods, 0U);
+    const auto small = record_of({"0.00000001"});
+    const std::vector<Decimal> small_marks{d("0.00000001")};
+    context.end_ns = static_cast<std::int64_t>(performance_year_seconds * 10 * 1000000000.0L);
+    const auto large_decline = performance(d("100000000"), small, small_marks, context);
+    ASSERT_TRUE(large_decline.annual_return);
+    EXPECT_NEAR(*large_decline.annual_return, std::pow(1e-16, 0.1) - 1, 1e-12);
+    context.annual_periods = 0;
+    EXPECT_THROW(performance(d("10000"), record, marks, context), std::invalid_argument);
 }
 
 TEST(MonthlyContributions, PartialMonthsAndYearBoundariesReconcileExactEquityAndFees)
@@ -292,4 +381,73 @@ TEST(Trades, AveragesNeedTradesOfTheirKindAndAFillNeverCrossesFlat)
         {0, false, d("2"), d("101")}
     };
     EXPECT_THROW(trades(crossing, multipliers), std::invalid_argument);
+}
+
+TEST(DailyDrawdown, OriginalFiveObservationsKeepThePeakTroughAndFirstRecovery)
+{
+    const auto rows = record_of({"100", "110", "99", "105", "112"});
+    const auto result = daily_drawdown(rows);
+    ASSERT_EQ(result.points.size(), rows.size());
+    ASSERT_EQ(result.episodes.size(), 1U);
+    EXPECT_DOUBLE_EQ(*result.max_fraction, 0.1);
+    EXPECT_EQ(*result.max_fraction_index, 2U);
+    EXPECT_EQ(result.max_loss, d("11"));
+    EXPECT_EQ(result.episodes[0].peak_index, 1U);
+    EXPECT_EQ(result.episodes[0].trough_index, 2U);
+    EXPECT_EQ(result.episodes[0].recovery_index, 4U);
+    EXPECT_EQ(result.episodes[0].observed_end_index, 4U);
+    EXPECT_EQ(result.points[2].peak_equity, d("110"));
+    EXPECT_EQ(result.points[4].peak_index, 4U);
+    EXPECT_EQ(rows[2].equity, d("99"));
+}
+
+TEST(DailyDrawdown, AnUnrecoveredPathHasNoInventedRecoveryOrZeroDuration)
+{
+    auto rows = record_of({"100", "110", "99", "105"});
+    rows[3].day += std::chrono::days{5};
+    const auto result = daily_drawdown(rows);
+    ASSERT_EQ(result.episodes.size(), 1U);
+    const auto& episode = result.episodes[0];
+    EXPECT_FALSE(episode.recovery_index);
+    EXPECT_EQ(episode.observed_end_index - episode.peak_index, 2U);
+    EXPECT_DOUBLE_EQ(*result.max_fraction, 0.1);
+    EXPECT_NEAR(*result.points[3].fraction, 5.0 / 110, 1e-12);
+}
+
+TEST(DailyDrawdown, EqualPeaksStartANewEpisodeAndEqualTroughsKeepTheirFirstObservation)
+{
+    const auto result = daily_drawdown(record_of({"100", "110", "105", "110", "99", "99", "110"}));
+    ASSERT_EQ(result.episodes.size(), 2U);
+    EXPECT_EQ(result.episodes[0].recovery_index, 3U);
+    EXPECT_EQ(result.episodes[1].peak_index, 3U);
+    EXPECT_EQ(result.episodes[1].trough_index, 4U);
+    EXPECT_EQ(result.episodes[1].recovery_index, 6U);
+    EXPECT_EQ(*result.max_fraction_index, 4U);
+}
+
+TEST(DailyDrawdown, NonpositiveEquityRetainsMoneyAndMakesIncompletePercentCoverageExplicit)
+{
+    const auto result = daily_drawdown(record_of({"100", "-10", "0", "110", "99"}));
+    EXPECT_EQ(result.points[1].loss, d("110"));
+    EXPECT_FALSE(result.points[1].fraction);
+    EXPECT_FALSE(result.points[2].fraction);
+    EXPECT_DOUBLE_EQ(*result.points[4].fraction, 0.1);
+    EXPECT_EQ(result.max_loss, d("110"));
+    EXPECT_FALSE(result.max_fraction);
+    EXPECT_FALSE(result.max_fraction_index);
+    EXPECT_EQ(result.unavailable, DrawdownUnavailable::non_positive_equity);
+    const auto single = daily_drawdown(record_of({"100"}));
+    EXPECT_FALSE(single.max_fraction);
+    EXPECT_EQ(single.unavailable, DrawdownUnavailable::fewer_than_two_observations);
+}
+
+TEST(DailyDrawdown, InvalidOrderAndCancellationCannotProduceAPartialPublishedPath)
+{
+    auto rows = record_of({"100", "110"});
+    rows[1].day = rows[0].day;
+    EXPECT_THROW(daily_drawdown(rows), std::invalid_argument);
+    EXPECT_THROW(daily_drawdown({}), std::invalid_argument);
+    std::stop_source cancellation;
+    cancellation.request_stop();
+    EXPECT_THROW(daily_drawdown(record_of({"100", "110"}), cancellation.get_token()), Error);
 }

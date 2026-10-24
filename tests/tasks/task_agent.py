@@ -15,6 +15,9 @@ def launch():
 
 
 def call(process, method, params=None):
+    if method.startswith("task."):
+        owner = call(process, "runtime.snapshot")["research_service"]
+        params = dict(params or {}, owner=dict(kind="research", **{key: owner[key] for key in ("node_id", "service", "connection_id")}))
     process.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
     process.stdin.flush()
     response = json.loads(process.stdout.readline())
@@ -33,7 +36,7 @@ def completed(process, task_id="agent-recovery"):
     deadline = time.monotonic() + 25
     while time.monotonic() < deadline:
         snapshot = call(process, "runtime.snapshot")
-        tasks = [task for task in snapshot["task_service"]["tasks"] if task["id"] == task_id]
+        tasks = [task for task in snapshot["research_service"]["tasks"] if task["id"] == task_id]
         if tasks and tasks[0]["state"] == "succeeded":
             return tasks[0]
         if tasks:
@@ -53,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         invoke=lambda method,params=None:call(process,method,params)
         selections["short"] = {k:v for k,v in seed(invoke,[100,101,102,101,104,103,102,103],"short")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
         selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
+        call(process,"node.research.local.open")
         select(process,"short")
         call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None,"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
@@ -62,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
     # Service-owned immutable history and admitted tasks survive the submitting process.
     process=launch()
     try:
-        call(process,"node.data_tasks.local.open")
+        call(process,"node.research.local.open")
         saved={}
         for identity,count in [("agent-recovery",8),("factor-recovery",160),("rolling-recovery",160)]:
             task=completed(process,identity)
@@ -79,21 +83,23 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         rolling=saved["rolling-recovery"][1]
         assert rolling["experiment"]["series"][0]["kind"]=="bars",rolling
         assert len(rolling["result"]["folds"])==2 and len(rolling["result"]["samples"])==78,rolling
-        call(process,"node.action",{"id":"local","service":"task","action":"stop"})
+        call(process,"node.action",{"id":"local","service":"research","action":"stop"})
     finally:close(process)
     process=launch()
     try:
-        call(process,"node.data_tasks.local.open")
+        call(process,"node.research.local.open")
         for identity,(task,result) in saved.items():
             assert completed(process,identity)==task
             assert call(process,"task.result",{"id":identity})["task_result"]==result
+        # Reading Research results stays independent; selecting new inputs explicitly opens Data.
+        call(process,"node.data.local.open")
         selected,=select(process,"long")["datasets"]
         assert selected["count"]==160 and selected["revision"]==factor["experiment"]["dataset_revision"]
         call(process,"factor.submit",{"id":"repeated-factor","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         completed(process,"repeated-factor")
         assert call(process,"task.result",{"id":"repeated-factor"})["task_result"]["result"]==factor["result"]
-        call(process,"node.action",{"id":"local","service":"task","action":"stop"})
-        call(process,"node.data_tasks.local.open")
+        call(process,"node.action",{"id":"local","service":"research","action":"stop"})
+        call(process,"node.research.local.open")
         assert completed(process,"agent-recovery") == saved["agent-recovery"][0]
         assert call(process,"task.result",{"id":"agent-recovery"})["task_result"]==saved["agent-recovery"][1]
     finally:close(process)

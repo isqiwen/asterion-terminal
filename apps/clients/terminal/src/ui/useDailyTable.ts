@@ -55,7 +55,7 @@ export function useDailyTable(
   ref.current = query;
   const connection = snapshot?.data?.connection_id;
   const online = !!snapshot?.data?.online;
-  const updated = (snapshot?.task_service?.tasks ?? []).filter(
+  const updated = (snapshot?.data?.tasks ?? []).filter(
     task => task.kind === "table_update" && task.state === "succeeded",
   ).length;
   const [state, setState] = useState<{

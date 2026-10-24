@@ -60,19 +60,17 @@ void store_once(const fs::path& path, const std::string& bytes)
 
 } // namespace
 
-Store::Store(fs::path root, std::string instance, std::string task_instance)
+Store::Store(fs::path root, std::string instance)
     : root_(checked_root(std::move(root))),
       instance_(std::move(instance)),
-      task_instance_(std::move(task_instance)),
       ownership_(root_, "data.lock"),
       archive_([&] {
           validate_id(instance_);
-          validate_id(task_instance_);
-          const Json identity{{"data_instance", instance_}, {"task_instance", task_instance_}};
+          const Json identity{{"data_instance", instance_}};
           const auto path = root_ / "instance.json";
           if (fs::exists(path)) {
               if (parse_json(read_bytes(path)) != identity)
-                  throw std::invalid_argument("data service instance or task binding mismatch");
+                  throw std::invalid_argument("data service instance identity mismatch");
           } else {
               for (const auto& file : fs::directory_iterator(root_))
                   if (file.path().filename() != "data.lock")
@@ -135,13 +133,15 @@ fs::path Store::authorization_path(const std::string& id) const
 }
 
 Store::VerifiedAuthorization Store::verify_authorization(
-    const proto::DownloadAuthorizationRequest& request) const
+    const proto::DownloadAuthorizationRequest& request,
+    std::stop_token stop) const
 {
     protocol::validate_message(request);
     validate_id(request.task_id());
-    if (request.task_instance() != task_instance_)
+    const auto& owner = instance_;
+    if (request.task_instance() != owner)
         throw Error(ErrorCode::conflict, "download authorization does not match task binding");
-    const auto id = sha256_bytes(instance_ + "/" + task_instance_ + "/" + request.task_id());
+    const auto id = sha256_bytes(instance_ + "/" + owner + "/" + request.task_id());
     if (fs::exists(authorization_path(id))) {
         auto existing = read_authorization(id);
         const auto& fixed = existing.authorization();
@@ -158,7 +158,7 @@ Store::VerifiedAuthorization Store::verify_authorization(
     proto::StoredDownloadAuthorization stored;
     auto* authorization = stored.mutable_authorization();
     authorization->set_data_instance(instance_);
-    authorization->set_task_instance(task_instance_);
+    authorization->set_task_instance(owner);
     authorization->set_task_id(request.task_id());
     authorization->set_id(id);
     if (request.has_minutes()) {
@@ -214,6 +214,10 @@ Store::VerifiedAuthorization Store::verify_authorization(
             authorization->set_provider_id(item.plugin_id);
             break;
         }
+    history_providers::preserve_artifact(
+        authorization->provider_artifact(),
+        root_ / "programs",
+        stop);
     stored.set_credential(request.credential());
     return VerifiedAuthorization(std::move(stored));
 }
@@ -222,8 +226,7 @@ proto::DownloadAuthorization Store::authorize(const VerifiedAuthorization& verif
 {
     const auto& stored = verified.value_;
     const auto& authorization = stored.authorization();
-    if (authorization.data_instance() != instance_
-        || authorization.task_instance() != task_instance_)
+    if (authorization.data_instance() != instance_ || authorization.task_instance() != instance_)
         throw Error(ErrorCode::conflict, "download authorization does not match task binding");
     const auto path = authorization_path(authorization.id());
     // One private atomic record is the commit point. A repeated capture must use
@@ -236,9 +239,8 @@ proto::StoredDownloadAuthorization Store::read_authorization(const std::string& 
 {
     const auto stored = read_message<proto::StoredDownloadAuthorization>(authorization_path(id));
     const auto& value = stored.authorization();
-    if (value.id() != id || value.data_instance() != instance_
-        || value.task_instance() != task_instance_
-        || sha256_bytes(instance_ + "/" + task_instance_ + "/" + value.task_id()) != id
+    if (value.id() != id || value.data_instance() != instance_ || value.task_instance() != instance_
+        || sha256_bytes(instance_ + "/" + value.task_instance() + "/" + value.task_id()) != id
         || value.provider_artifact().size() != 64
         || value.provider_artifact().find_first_not_of("0123456789abcdef") != std::string::npos)
         throw std::invalid_argument("invalid stored download authorization");
@@ -266,7 +268,7 @@ fs::path Store::operation(const proto::DownloadIdentity& identity) const
 {
     protocol::validate_message(identity);
     validate_id(identity.task_id());
-    if (identity.data_instance() != instance_ || identity.task_instance() != task_instance_
+    if (identity.data_instance() != instance_ || identity.task_instance() != instance_
         || !identity.attempt())
         throw Error(ErrorCode::conflict, "download identity does not match data binding");
     return root_ / "downloads" / sha256_bytes(identity.SerializeAsString());
@@ -306,6 +308,14 @@ Store::VerifiedDataset Store::verify_dataset(const proto::NamedDataset& value) c
 
 void Store::save(const VerifiedDataset& verified)
 {
+    for (const auto& selection : verified.value_.selections()) {
+        if (!tables_.sequence(selection.daily().snapshot()))
+            throw Error(
+                ErrorCode::conflict,
+                "named dataset table snapshot retired during preparation");
+        for (const auto& id : selection.source_dataset_ids())
+            (void)archive_.get(id);
+    }
     archive_.save_named_dataset(verified.value_);
 }
 
@@ -314,7 +324,8 @@ Store::VerifiedAllocation Store::verify_allocation(const proto::DownloadAllocati
     protocol::validate_message(request);
     const auto path = operation(request.identity());
     const auto authorized = authorization(request.authorization_id());
-    if (authorized.task_id() != request.identity().task_id()
+    if (authorized.task_instance() != request.identity().task_instance()
+        || authorized.task_id() != request.identity().task_id()
         || (authorized.has_minutes() ? !request.has_minutes()
                     || authorized.minutes().SerializeAsString()
                         != request.minutes().SerializeAsString()
@@ -366,7 +377,9 @@ proto::DownloadDirectory Store::allocate(const VerifiedAllocation& verified)
         path.filename().string());
     if (verified.directory_) {
         // The receipt owns the confirmed path. OS aliases do not allocate a new version.
-        if (!fs::equivalent(*verified.directory_, directory))
+        if (!fs::equivalent(
+                archive_.resolve_directory(request.minutes(), *verified.directory_),
+                directory))
             throw Error(
                 ErrorCode::conflict,
                 "allocated download directory does not belong to this operation");
@@ -468,6 +481,41 @@ proto::PublishedDownload Store::published(const proto::DownloadIdentity& identit
     proto::PublishedDownload result;
     *result.mutable_decision() = decision;
     *result.mutable_record() = archive_.get(dataset_id(prepared.record()));
+    return result;
+}
+
+void Store::begin_table_retirement(const history_files::TableStore::Retirement& decision)
+{
+    tables_.begin_retirement(decision);
+}
+
+void Store::clean_table_retirement(const std::string& id, std::stop_token stop)
+{
+    tables_.clean_retirement(id, stop);
+}
+
+void Store::finish_table_retirement(const std::string& id)
+{
+    tables_.finish_retirement(id);
+}
+
+proto::HistoryUsage Store::snapshot_usage(const std::string& snapshot) const
+{
+    proto::HistoryUsage result;
+    result.set_dataset_id(snapshot);
+    const auto named = archive_.named_datasets();
+    for (const auto& saved : named.items()) {
+        if (std::ranges::none_of(saved.selections(), [&](const auto& selection) {
+                return selection.daily().snapshot() == snapshot;
+            }))
+            continue;
+        auto* item = result.add_references();
+        item->set_kind(proto::HISTORY_SAVED_DATASET);
+        item->set_id(saved.id());
+        item->set_name(saved.name());
+        item->add_roles(proto::HISTORY_MARKET);
+    }
+    (void)protocol::decode_history_usage(result);
     return result;
 }
 
@@ -681,6 +729,25 @@ Store::record_partition(const VerifiedPartition& verified, std::int64_t now_ns)
         now_ns,
         verified.response_);
     return observed(recorded.revision, recorded.unchanged);
+}
+
+} // namespace asterion::data
+
+namespace asterion::data {
+
+void Store::begin_minute_retirement(const proto::HistoryRecord& record, const std::string& manifest)
+{
+    archive_.begin_retirement(record, manifest);
+}
+
+void Store::clean_minute_retirement(const std::string& id, std::stop_token stop)
+{
+    archive_.clean_retirement(id, stop);
+}
+
+void Store::finish_minute_retirement(const std::string& id)
+{
+    archive_.finish_retirement(id);
 }
 
 } // namespace asterion::data

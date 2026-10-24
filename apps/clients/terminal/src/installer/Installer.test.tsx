@@ -179,3 +179,53 @@ test("unfinished maintenance only offers explicit resume and displays executor f
   expect(api.run).toHaveBeenCalledWith("repair", false);
   expect(api.open).toHaveBeenCalledWith("logs");
 });
+
+test("failed remote inspection blocks whole-release upgrade until explicit recheck succeeds", async () => {
+  const api = bridge({ ...installed, candidate_version: "0.2.0", deployment_action: "upgrade" });
+  vi.mocked(api.remote).mockRejectedValueOnce(new Error("remote inspection unavailable"));
+  const view = render(<Installer bridge={api} />);
+  await screen.findByText("remote inspection unavailable");
+  const upgrade = () =>
+    screen.getByRole("button", { name: "确认执行 · 升级" }) as HTMLButtonElement;
+  expect(upgrade().disabled).toBe(true);
+  expect(
+    (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
+  ).toBe(true);
+  expect(api.run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+  await waitFor(() => expect(vi.mocked(api.inspect).mock.calls).toHaveLength(3));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
+    ).toBe(false),
+  );
+  // Ordinary renders cannot restart preflight or restore an old confirmation.
+  view.rerender(<Installer bridge={api} />);
+  expect(api.remote).toHaveBeenCalledTimes(2);
+  expect(upgrade().disabled).toBe(true);
+  execute("确认执行 · 升级");
+  await waitFor(() => expect(api.run).toHaveBeenCalledWith("upgrade", false));
+});
+
+test("remote inspection failure does not block explicit same-release local repair", async () => {
+  const api = bridge(installed);
+  vi.mocked(api.remote).mockRejectedValue(new Error("remote inspection unavailable"));
+  render(<Installer bridge={api} />);
+  await screen.findByText("remote inspection unavailable");
+  expect(
+    (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
+  ).toBe(false);
+  expect(api.run).not.toHaveBeenCalled();
+  execute("确认执行 · 修复");
+  await waitFor(() => expect(api.run).toHaveBeenCalledWith("repair", false));
+});
+
+test("recorded pending upgrade remains explicitly resumable without a new remote inspection", async () => {
+  const api = bridge({ ...installed, pending: "upgrade", deployment_action: "" });
+  render(<Installer bridge={api} />);
+  await screen.findByText("/applications/terminal");
+  expect(api.remote).not.toHaveBeenCalled();
+  expect(api.run).not.toHaveBeenCalled();
+  execute("继续执行 · 升级");
+  await waitFor(() => expect(api.run).toHaveBeenCalledWith("upgrade", false));
+});

@@ -4,6 +4,7 @@
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/market.hpp>
+#include <asterion/protocol/observation.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <array>
 
@@ -87,6 +88,17 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
             throw Error(ErrorCode::unavailable, "market response identity mismatch");
         if (response.has_error())
             throw_remote_error(response.error().code(), response.error().message());
+        if (request.has_observation_preview()) {
+            if (!response.has_observation())
+                throw Error(ErrorCode::unavailable, "missing market observation response");
+            protocol::validate_observation(response.observation());
+            const auto& captured = response.observation().observation().minutes().instrument();
+            if (captured.venue() != request.observation_preview().venue()
+                || captured.symbol() != request.observation_preview().symbol()
+                || response.observation().reference().owner().service_id() != request.service_id())
+                throw Error(ErrorCode::conflict, "market observation owner mismatch");
+            return {std::move(response), {}};
+        }
         if (request.has_minutes()) {
             if (!response.has_minutes()
                 || response.minutes().instrument().venue() != request.minutes().instrument().venue()
@@ -137,7 +149,8 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
 
     PolledTask<wire::Response> exchange(wire::Request request, std::stop_token stop)
     {
-        const bool command = !request.has_events() && !request.has_minutes();
+        const bool observation = request.has_observation_preview();
+        const bool command = !request.has_events() && !request.has_minutes() && !observation;
         if (command)
             co_await PollUntil{[&] {
                 return !command_busy || stopped(stop);
@@ -161,9 +174,9 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
 
         identify(request);
         auto& transport = transports
-            [request.has_events()           ? events
-                    : request.has_minutes() ? minutes
-                                            : control];
+            [request.has_events()                            ? events
+                    : (request.has_minutes() || observation) ? minutes
+                                                             : control];
         const auto generation = view.generation();
         auto reply = transport->request(request.SerializeAsString(), 3s);
         while (reply.wait_for(0ms) != std::future_status::ready) {
@@ -177,8 +190,9 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
             [raw = reply.get(), &request] {
                 return decode(*raw, request);
             },
-            request.has_events() || request.has_minutes() ? ServiceIo::ReadLane::data
-                                                          : ServiceIo::ReadLane::response);
+            request.has_events() || request.has_minutes() || observation
+                ? ServiceIo::ReadLane::data
+                : ServiceIo::ReadLane::response);
         if (response.snapshot)
             publish(std::move(*response.snapshot), generation);
         co_return std::move(response.response);
@@ -407,6 +421,25 @@ std::future<Json> MarketClient::minutes(const std::string& venue, const std::str
             auto response = co_await state->exchange(std::move(request), stop);
             co_return co_await state->io.read<Json>([response = std::move(response)] {
                 return protocol::decode_minutes(response.minutes());
+            });
+        });
+}
+
+std::future<Json> MarketClient::observation(const std::string& venue, const std::string& symbol)
+{
+    InstrumentId{venue, symbol}.validate();
+    wire::Request request;
+    request.mutable_observation_preview()->set_venue(venue);
+    request.mutable_observation_preview()->set_symbol(symbol);
+    return impl_->io.submit<Json>(
+        [state = impl_, request = std::move(request)](
+            std::stop_token stop) mutable -> PolledTask<Json> {
+            auto response = co_await state->exchange(std::move(request), stop);
+            if (response.observation().reference().owner().node_id()
+                != state->endpoint.owner_node_id)
+                throw Error(ErrorCode::conflict, "market observation owner mismatch");
+            co_return co_await state->io.read<Json>([response = std::move(response)] {
+                return protocol::decode_observation(response.observation());
             });
         });
 }

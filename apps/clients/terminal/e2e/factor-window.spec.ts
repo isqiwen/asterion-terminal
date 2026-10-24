@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -31,15 +32,16 @@ test("F05 derives a reviewed daily momentum window and cancellation leaves no ta
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (t: { id: string }) => t.id === "window-original",
         )?.state,
     )
     .toBe("succeeded");
-  const original = (await rpc(page.request, "task.result.read", { id: "window-original" }))
-    .task_result;
+  const original = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "window-original" })
+  ).task_result;
   const ids = async () =>
-    (await rpc(page.request, "runtime.snapshot")).task_service.tasks.map(
+    (await rpc(page.request, "runtime.snapshot")).research_service.tasks.map(
       (t: { id: string }) => t.id,
     );
   const before = await ids();
@@ -74,20 +76,21 @@ test("F05 derives a reviewed daily momentum window and cancellation leaves no ta
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (t: { id: string }) => t.id === id,
         )?.state,
     )
     .toBe("succeeded");
-  const derived = (await rpc(page.request, "task.result.read", { id })).task_result;
+  const derived = (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   expect(derived.experiment.lookbacks).toEqual([5]);
   expect(derived.experiment.series).toEqual(original.experiment.series);
   expect(derived.experiment.dataset_revision).toBe(original.experiment.dataset_revision);
   expect(derived.experiment.horizon).toBe(original.experiment.horizon);
   expect(derived.experiment.evaluation).toEqual(original.experiment.evaluation);
   expect(derived.task.metadata.source_id).toBe("window-original");
-  const unchanged = (await rpc(page.request, "task.result.read", { id: "window-original" }))
-    .task_result;
+  const unchanged = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "window-original" })
+  ).task_result;
   expect(unchanged.experiment).toEqual(original.experiment);
   expect(unchanged.result).toEqual(original.result);
   const comparison = workspace.getByRole("region", { name: "日线因子比较", exact: true });

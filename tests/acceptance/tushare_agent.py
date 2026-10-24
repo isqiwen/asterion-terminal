@@ -31,7 +31,7 @@ def close(process):
 
 process = launch()
 try:
-    call(process, "node.data_tasks.local.open")
+    call(process, "node.data.local.open")
     params = {"id": "tushare-invalid-token-fixture", "source": "tushare.ft_mins",
               "contract_id": "SHFE/cu/2023-10", "interval_minutes": 1, "snapshot": "0" * 64,
               "cutoff_ns": "1", "requests_per_minute": 60, "token": "asterion-invalid-token-fixture"}
@@ -59,7 +59,7 @@ try:
     assert params["token"] not in json.dumps(verification), verification
     call(process, "data.credentials.clear", {"provider": provider})
     snapshot = call(process, "runtime.snapshot")
-    assert not any(task["id"] == params["id"] for task in snapshot["task_service"]["tasks"])
+    assert not any(task["id"] == params["id"] for task in snapshot["data"]["tasks"])
     for file in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
         if file.is_file() and not file.is_symlink() and file.suffix in {".json", ".log"}:
             assert params["token"].encode() not in file.read_bytes(), file.name

@@ -8,7 +8,11 @@ export const modules = [
     title: "数据",
     icon: "data",
     sections: [
-      { id: "acquisition", title: "接入与采集", views: ["workspace.history"] },
+      {
+        id: "acquisition",
+        title: "接入与采集",
+        views: ["workspace.history", "workspace.materials"],
+      },
       { id: "quality", title: "加工与质量", views: [] },
       { id: "management", title: "管理与服务", views: ["workspace.tables", "workspace.records"] },
     ],
@@ -19,8 +23,12 @@ export const modules = [
     icon: "info",
     sections: [
       { id: "extraction", title: "信息提取", views: [] },
-      { id: "verification", title: "情报核验", views: [] },
-      { id: "events", title: "事件服务", views: [] },
+      { id: "verification", title: "情报核验", views: ["workspace.intelligence-notices"] },
+      {
+        id: "events",
+        title: "事件服务",
+        views: ["workspace.intelligence-sets", "workspace.intelligence-subscriptions"],
+      },
     ],
   },
   {
@@ -28,8 +36,22 @@ export const modules = [
     title: "分析",
     icon: "market",
     sections: [
-      { id: "exploration", title: "数据探索", views: [] },
-      { id: "features", title: "特征与因子", views: ["workspace.factor"] },
+      {
+        id: "exploration",
+        title: "数据探索",
+        views: [
+          "workspace.research-projects",
+          "workspace.research-statistics",
+          "workspace.research-samples",
+          "workspace.notice-review",
+          "workspace.event-set-review",
+        ],
+      },
+      {
+        id: "features",
+        title: "特征与因子",
+        views: ["workspace.factor", "workspace.research-variables"],
+      },
       { id: "evaluation", title: "有效性评价与筛选", views: ["workspace.factor-comparison"] },
     ],
   },
@@ -38,9 +60,13 @@ export const modules = [
     title: "策略",
     icon: "plugins",
     sections: [
-      { id: "logic", title: "策略逻辑", views: [] },
+      {
+        id: "logic",
+        title: "策略逻辑",
+        views: ["workspace.research-logic", "workspace.research-models"],
+      },
       { id: "portfolio", title: "组合与仓位", views: [] },
-      { id: "delivery", title: "策略管理与交付", views: [] },
+      { id: "delivery", title: "策略管理与交付", views: ["workspace.strategy-packages"] },
     ],
   },
   {
@@ -58,7 +84,7 @@ export const modules = [
     icon: "contract",
     sections: [
       { id: "performance", title: "绩效与归因", views: ["workspace.performance"] },
-      { id: "risk", title: "风险与压力", views: [] },
+      { id: "risk", title: "风险与压力", views: ["workspace.risk"] },
       { id: "validation", title: "稳健性与综合评价", views: ["workspace.backtest-comparison"] },
     ],
   },
@@ -73,7 +99,7 @@ export const modules = [
         views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
       },
       { id: "execution", title: "订单与成交", views: ["workspace.trading"] },
-      { id: "accounts", title: "账户与核对", views: [] },
+      { id: "accounts", title: "账户与核对", views: ["workspace.account-review"] },
     ],
   },
   {

@@ -1,0 +1,125 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+
+message StatisticsRequest
+{
+    enum Column
+    {
+        COLUMN_UNSPECIFIED = 0; FEATURE = 1; FORWARD_RETURN = 2; RAW_CLOSE = 3;
+    }
+
+    enum Role
+    {
+        ROLE_UNSPECIFIED = 0; FULL_SAMPLE = 1; DEVELOPMENT = 2;
+    }
+
+    asterion.resource.proto.Object source = 1; // Exact owned factor_result or sample_result.
+    string use_scope = 2;
+    Column column = 3;
+    Role role = 4;
+    uint32 begin_index = 5;
+    uint32 end_index = 6; // Actual observations, half-open.
+    uint32 bins = 7;
+
+    enum Grouping
+    {
+        NONE = 0; TRADING_DAY = 1;
+    }
+
+    Grouping grouping = 8;
+}
+// Captured from the owning Research authority, never supplied by a client.
+// Attempt is an owned relative locator; Owner/id/content are the identity.
+message StatisticsSource
+{
+    asterion.resource.proto.Object result = 1;
+    string input_sha256 = 2;
+    uint64 input_bytes = 3;
+    uint32 attempt = 4;
+    string program_artifact = 5;
+    uint32 observations = 6;
+    sint32 price_power = 7;
+    uint32 required_history = 8; // Factor warmup; raw-close samples use zero.
+    uint32 horizon = 9; // Factor label horizon; raw-close samples have no label.
+    oneof evaluation
+    {
+        bool full_sample = 10;
+        uint32 holdout_start = 11;
+    }
+}
+message StatisticsInput
+{
+    asterion.resource.proto.Owner owner = 1;
+    StatisticsRequest request = 2;
+    StatisticsSource source = 3;
+}
+message StatisticValue
+{
+    enum State
+    {
+        STATE_UNSPECIFIED = 0; DEFINED = 1; NO_VALID_SAMPLES = 2; INSUFFICIENT_SAMPLES = 3;
+            NON_FINITE = 4;
+    }
+
+    State state = 1;
+    optional double value = 2;
+}
+message StatisticsSummary
+{
+    uint32 total = 1;
+    uint32 allowed = 2;
+    uint32 valid = 3;
+    uint32 missing = 4;
+    StatisticValue mean = 5;
+    StatisticValue standard_deviation = 6;
+    StatisticValue minimum = 7;
+    StatisticValue q25 = 8;
+    StatisticValue median = 9;
+    StatisticValue q75 = 10;
+    StatisticValue maximum = 11;
+}
+message StatisticsRow
+{
+    enum Reason
+    {
+        REASON_UNSPECIFIED = 0; VALID = 1; WARMUP = 2; ZERO_DENOMINATOR = 3; NON_FINITE = 4;
+            UNKNOWN_LABEL = 5; CROSSED_LABEL = 6; OTHER_ROLE = 7;
+    }
+
+    uint32 event_index = 1;
+    string observed = 2; // Original timestamp/trading day, not reconstructed calendar.
+    optional double value = 3;
+    Reason reason = 4;
+    optional uint32 bin = 5;
+    string trading_day = 6; // Original Data day, never derived from observed UTC.
+}
+message StatisticsReasonCount
+{
+    StatisticsRow.Reason reason = 1;
+    uint32 count = 2;
+}
+message StatisticsBin
+{
+    double lower = 1;
+    double upper = 2;
+    uint32 count = 3;
+}
+message StatisticsGroup
+{
+    string trading_day = 1;
+    StatisticsSummary summary = 2;
+    repeated StatisticsReasonCount reasons = 3;
+    repeated uint32 bin_counts = 4; // Shared whole-report edges, including zero counts.
+}
+message StatisticsResult
+{
+    asterion.resource.proto.Owner owner = 1;
+    asterion.resource.proto.Object source = 2;
+    sint32 price_power = 3;
+    StatisticsSummary summary = 4;
+    repeated StatisticsReasonCount reasons = 5;
+    repeated StatisticsBin bins = 6;
+    repeated StatisticsRow rows = 7;
+    repeated StatisticsGroup groups = 8;
+}

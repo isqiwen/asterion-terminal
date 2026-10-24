@@ -14,8 +14,10 @@ const char* service_kind_name(wire::ServiceKind kind)
             return "market";
         case wire::DATA_SERVICE:
             return "data";
-        case wire::TASK_SERVICE:
-            return "task";
+        case wire::INTELLIGENCE:
+            return "intelligence";
+        case wire::RESEARCH:
+            return "research";
         default:
             return "unsupported";
     }
@@ -29,8 +31,10 @@ wire::ServiceKind parse_service_kind(const std::string& name)
         return wire::MARKET_DATA;
     if (name == "data")
         return wire::DATA_SERVICE;
-    if (name == "task")
-        return wire::TASK_SERVICE;
+    if (name == "intelligence")
+        return wire::INTELLIGENCE;
+    if (name == "research")
+        return wire::RESEARCH;
     throw std::invalid_argument("invalid service kind");
 }
 
@@ -58,8 +62,6 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
             services.push_back(
                 {{"id", s.id()},
                     {"kind", service_kind_name(s.kind())},
-                    {"task_service", s.task_service()},
-                    {"data_service", s.data_service()},
                     {"artifact", s.artifact()},
                     {"revision", s.revision()},
                     {"plugin_artifacts",

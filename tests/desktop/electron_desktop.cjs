@@ -194,7 +194,7 @@ async function closeDesktop(application) {
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await call("node.data_tasks.local.open");
+    await call("node.research.local.open");
     // The daily table is seeded under the sources the installed data source
     // offers: those are the ones the dataset picker reads settlement prices
     // and contract units of.
@@ -238,7 +238,7 @@ async function closeDesktop(application) {
         timeout: 15000,
       },
     );
-    await call("node.data_tasks.local.open");
+    await call("node.research.local.open");
     const historySelection = JSON.parse(seeded.stdout);
     assert.ok(historySelection.source_dataset_ids[0]);
     await call("data.dataset.clear");

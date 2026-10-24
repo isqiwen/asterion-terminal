@@ -11,6 +11,9 @@
 
 namespace asterion::trading {
 
+// Pure durable-header validation; never opens a broker or restores permission.
+Json account_manifest(const Json& header);
+
 // Account commands and journal records as types. JSON is only their durable
 // form: it is read and written here. Business operations are decoded directly
 // from Protobuf; the JSON command is retained only for journaling and deduplication.
@@ -135,7 +138,15 @@ struct CancelResult
     bool acknowledged = false;
 };
 
-using JournalRecord = std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult>;
+struct FactsDecision
+{
+    protocol::proto::TradingFactsReceipt receipt;
+};
+
+// Internal lifetime-index keys cannot collide with a validated trading request ID.
+std::string facts_decision_key(std::string_view id, protocol::proto::TradingFactsReceipt::State);
+using JournalRecord =
+    std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult, FactsDecision>;
 // Any record after the journal header. Throws for content this engine never writes.
 JournalRecord parse_record(const Json& record);
 
@@ -170,6 +181,7 @@ JournalEntry authorization_entry(
 JournalEntry entry(const OrdersTerminal& record);
 JournalEntry entry(const OrderNotSent& record);
 JournalEntry entry(const CancelResult& record);
+JournalEntry entry(const FactsDecision& record);
 
 std::string_view status_name(BrokerOrderStatus status) noexcept;
 

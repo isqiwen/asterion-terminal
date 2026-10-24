@@ -12,7 +12,7 @@ int main(int argc, char** argv)
     std::vector<int> prices;
     std::vector<std::string> minute_days, daily_days;
     std::string month = "2026-10";
-    int open_interest = 100, settlement = 110;
+    int open_interest = 100, settlement = 110, daily_volume = 10000;
     bool tables_only = false, daily_prices = false, shfe_margins = false;
     asterion::test::DailyTableSources tables;
     app.add_option("--directory", directory)->required();
@@ -23,6 +23,7 @@ int main(int argc, char** argv)
     app.add_option("--day", day, "Trading day for the isolated fixture");
     app.add_option("--minute-days", minute_days);
     app.add_option("--daily-days", daily_days);
+    app.add_option("--daily-volume", daily_volume)->check(CLI::NonNegativeNumber);
     app.add_flag(
         "--daily-prices",
         daily_prices,
@@ -45,7 +46,7 @@ int main(int argc, char** argv)
             throw std::invalid_argument("fixture requires isolated data warehouse");
         if (tables_only) {
             {
-                asterion::data::Store store(directory, data_instance, "task");
+                asterion::data::Store store(directory, data_instance);
             }
             if (shfe_margins)
                 (void)asterion::test::seed_shfe_margins(directory);
@@ -65,7 +66,7 @@ int main(int argc, char** argv)
                                 std::max(open, prices[i]) + 3,
                                 std::min(open, prices[i]) - 3,
                                 prices[i],
-                                10000
+                                daily_volume
                             }});
                 }
                 table = asterion::test::seed_daily_table(

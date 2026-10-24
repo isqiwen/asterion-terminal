@@ -20,6 +20,7 @@ public:
     {
         std::string service, instance;
         std::filesystem::path directory, sdk, catalog_sdk;
+        std::string node_id;
     };
 
     explicit Session(Configuration config);

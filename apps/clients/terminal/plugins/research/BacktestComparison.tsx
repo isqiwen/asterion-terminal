@@ -1,3 +1,4 @@
+import { taskOwner } from "../../src/bridge/client";
 import { SettlementMarginDetails } from "./SettlementMargins";
 import { ComparisonExport } from "./ComparisonExport";
 import { PortfolioReport } from "./PortfolioReport";
@@ -100,7 +101,7 @@ export function BacktestComparison({
   const [failures, setFailures] = useState<{ id: string; error: DisplayError }[]>([]);
   const [loading, setLoading] = useState(false);
   const generation = useRef({ value: 0 });
-  const connection = snapshot?.task_service?.connection_id;
+  const connection = snapshot?.research_service?.connection_id;
   useEffect(() => {
     const epoch = generation.current;
     epoch.value++;
@@ -113,7 +114,7 @@ export function BacktestComparison({
     };
   }, [connection]);
   const tasks =
-    snapshot?.task_service?.tasks.filter(
+    snapshot?.research_service?.tasks.filter(
       task => task.kind === "backtest" && task.state === "succeeded",
     ) ?? [];
   const table = useRef<HTMLTableElement>(null);
@@ -125,7 +126,10 @@ export function BacktestComparison({
     setFailures([]);
     const replies = await Promise.allSettled(
       selected.map(async id => {
-        const reply = await query("task.result.read", { id });
+        const reply = await query("task.result.read", {
+          owner: taskOwner(snapshot?.research_service, "research"),
+          id,
+        });
         const value = reply.task_result;
         if (value?.kind !== "backtest") throw new Error(t("所选任务没有回测结果"));
         return value;

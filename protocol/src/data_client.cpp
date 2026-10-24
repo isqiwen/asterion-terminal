@@ -1,9 +1,12 @@
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/data.hpp>
+#include <asterion/protocol/material.hpp>
+#include <asterion/protocol/intelligence.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/trace.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 
 namespace asterion::protocol {
 
@@ -77,6 +80,38 @@ decode_data_response(const data::proto::DataRequest& request, const std::string&
     using Response = data::proto::DataResponse;
     const auto expected = [&] {
         switch (request.operation_case()) {
+            case Request::kAcquisitionTask:
+                return Response::kAcquisitionTask;
+            case Request::kResources:
+                return Response::kResources;
+            case Request::kObservation:
+                return Response::kObservation;
+            case Request::kIntelligenceSave:
+                return Response::kIntelligenceSaved;
+            case Request::kIntelligenceRead:
+                return Response::kIntelligenceContent;
+            case Request::kIntelligenceChangeSave:
+                return Response::kIntelligenceSaved;
+            case Request::kIntelligenceChangeRead:
+                return Response::kIntelligenceChangeContent;
+            case Request::kIntelligenceSetSave:
+                return Response::kIntelligenceSaved;
+            case Request::kIntelligenceSetRead:
+                return Response::kIntelligenceSetContent;
+            case Request::kMaterialSources:
+                return Response::kMaterialSources;
+            case Request::kMaterialRead:
+                return Response::kMaterialRead;
+            case Request::kTableRetirement:
+                return Response::kTableRetirement;
+            case Request::kTableRetirements:
+                return Response::kTableRetirements;
+            case Request::kMinuteRetirements:
+                return Response::kMinuteRetirements;
+            case Request::kMinuteRetirement:
+                return Response::kMinuteRetirement;
+            case Request::kRetention:
+                return Response::kRetention;
             case Request::kHistoryUsage:
                 return Response::kHistoryUsage;
             case Request::kHeartbeat:
@@ -157,6 +192,84 @@ decode_data_response(const data::proto::DataRequest& request, const std::string&
     }();
     if (expected == Response::RESULT_NOT_SET || response.result_case() != expected)
         throw Error(ErrorCode::unavailable, "unexpected data response");
+    if (request.has_intelligence_save() || request.has_intelligence_read()) {
+        const auto& receipt = request.has_intelligence_save()
+            ? response.intelligence_saved()
+            : response.intelligence_content().receipt();
+        const auto& origin = request.has_intelligence_save() ? request.intelligence_save()
+                                                             : request.intelligence_read();
+        validate_notice_storage(receipt);
+        if (receipt.origin().SerializeAsString() != origin.SerializeAsString()
+            || receipt.content().owner().service_id() != request.service_id())
+            throw Error(ErrorCode::conflict, "intelligence Data response identity mismatch");
+        if (request.has_intelligence_read()) {
+            const auto& payload = response.intelligence_content().payload();
+            validate_notice_payload(payload);
+            const auto body = payload.SerializeAsString();
+            if (body.size() != receipt.bytes() || sha256_bytes(body) != origin.version()
+                || payload.owner().SerializeAsString() != origin.owner().SerializeAsString()
+                || payload.id() != origin.id())
+                throw Error(ErrorCode::conflict, "intelligence Data response content mismatch");
+        }
+    }
+    if (request.has_intelligence_change_save() || request.has_intelligence_change_read()) {
+        const auto& receipt = request.has_intelligence_change_save()
+            ? response.intelligence_saved()
+            : response.intelligence_change_content().receipt();
+        const auto& origin = request.has_intelligence_change_save()
+            ? request.intelligence_change_save()
+            : request.intelligence_change_read();
+        validate_notice_storage(receipt);
+        if (origin.kind() != "intelligence_change_preparation"
+            || receipt.origin().SerializeAsString() != origin.SerializeAsString()
+            || receipt.content().owner().service_id() != request.service_id())
+            throw Error(ErrorCode::conflict, "notice change Data response identity mismatch");
+        if (request.has_intelligence_change_read()) {
+            intelligence::proto::NoticeChangeIntent intent;
+            *intent.mutable_reference() = origin;
+            *intent.mutable_payload() = response.intelligence_change_content().payload();
+            *intent.mutable_data_owner() = receipt.content().owner();
+            intent.set_prepared_at_ms(intent.payload().reviewed_at_ms());
+            validate_notice_change_intent(intent);
+            if (intent.payload().ByteSizeLong() != receipt.bytes())
+                throw Error(ErrorCode::conflict, "notice change Data response size mismatch");
+        }
+    }
+    if (request.has_intelligence_set_save() || request.has_intelligence_set_read()) {
+        const auto& receipt = request.has_intelligence_set_save()
+            ? response.intelligence_saved()
+            : response.intelligence_set_content().receipt();
+        const auto& origin = request.has_intelligence_set_save() ? request.intelligence_set_save()
+                                                                 : request.intelligence_set_read();
+        validate_notice_storage(receipt);
+        if (origin.kind() != "intelligence_set_preparation"
+            || receipt.origin().SerializeAsString() != origin.SerializeAsString()
+            || receipt.content().owner().service_id() != request.service_id())
+            throw Error(ErrorCode::conflict, "event set Data response identity differs");
+        if (request.has_intelligence_set_read()) {
+            intelligence::proto::NoticeSetIntent intent;
+            *intent.mutable_reference() = origin;
+            *intent.mutable_payload() = response.intelligence_set_content().payload();
+            *intent.mutable_data_owner() = receipt.content().owner();
+            intent.set_prepared_at_ms(intent.payload().request().query().as_of_ms());
+            validate_notice_set_intent(intent);
+            if (intent.payload().ByteSizeLong() != receipt.bytes())
+                throw Error(ErrorCode::conflict, "event set Data response size differs");
+        }
+    }
+    if (request.has_material_read()) {
+        const auto& read = response.material_read();
+        if ((request.material_read().has_expected_reference()
+                && request.material_read().expected_reference().SerializeAsString()
+                    != read.receipt().reference().SerializeAsString())
+            || read.receipt().reference().id() != request.material_read().id()
+            || read.receipt().reference().owner().service_id() != request.service_id()
+            || read_material_text(read.receipt(), read.original()).SerializeAsString()
+                != read.text().SerializeAsString())
+            throw Error(
+                ErrorCode::unavailable,
+                "material response differs from its acquisition or original bytes");
+    }
     return response;
 }
 

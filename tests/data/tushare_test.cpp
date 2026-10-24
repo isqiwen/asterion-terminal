@@ -561,7 +561,7 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
     auto spec = range();
     spec.end_ns = begin + 39 * 60000000000LL;
     {
-        data::Store store(root.path, "historical-data", "task");
+        data::Store store(root.path, "historical-data");
         data::proto::MinuteDownload input;
         input.set_source("tushare.ft_mins");
         input.set_source_instrument("CU2310.SHF");
@@ -611,8 +611,6 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
             endpoint,
             "--session",
             "historical-data",
-            "--task-instance",
-            "task",
             "--internal-endpoint",
             endpoint + ".workers"});
     auto call = [&](data::proto::DataRequest request) {

@@ -50,6 +50,11 @@ inline constexpr unsigned max_slippage_ticks = 100;
 Json decode_input(const proto::PaperInput& input, DatasetView view = DatasetView::full);
 proto::Command encode_command(const Json& command);
 Json decode_command(const proto::Command& command);
+// Detached original facts, shared by full account and fixed decision observations.
+proto::Position encode_position(const PositionLot& position);
+proto::Order encode_order(const AccountSnapshot::OrderView& order);
+Json decode_position(const proto::Position& position);
+Json decode_order(const proto::Order& order);
 // Account observation encoded directly; the worker supplies replay progress.
 proto::Snapshot encode_snapshot(const FuturesAccount& account, const proto::PaperInput& input);
 Json decode_snapshot(const proto::Snapshot& snapshot);

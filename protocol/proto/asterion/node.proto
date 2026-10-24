@@ -33,9 +33,10 @@ message Finish {
 enum ServiceKind {
   UNSPECIFIED_SERVICE = 0;
   MARKET_DATA = 1;
-  TASK_SERVICE = 2;
+  RESEARCH = 2;
   LIVE_TRADING = 3;
   DATA_SERVICE = 4;
+  INTELLIGENCE = 5;
 }
 
 message Deploy {
@@ -47,8 +48,8 @@ message Deploy {
   string provider_artifact = 6;
   string catalog_artifact = 10;
   repeated string plugin_artifacts = 11;
-  string task_service = 12;
-  string data_service = 13;
+  reserved 12;
+  reserved 13;
 }
 message Update {
   string service_id = 1;
@@ -142,8 +143,8 @@ message Service {
   ServiceKind kind = 13;
   string revision = 15;
   repeated string plugin_artifacts = 16;
-  string task_service = 17;
-  string data_service = 18;
+  reserved 17;
+  reserved 18;
   asterion.runtime.proto.ExecutionHealth execution = 19;
 }
 // Diagnostic host observations. CPU requires
@@ -158,6 +159,8 @@ message HostResources {
 }
 message Status {
   string instance_id = 1;
+  string discovery_endpoint = 14; // Local read-only locator, never persistent identity.
+  string node_id = 13; // Stable environment identity; instance_id is only an Agent generation.
   string os = 2;
   string arch = 3;
   string version = 4;

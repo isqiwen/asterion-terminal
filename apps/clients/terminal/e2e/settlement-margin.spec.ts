@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -66,13 +67,13 @@ test("settlement margin stays fixed through worker execution, reuse and result e
     await expect
       .poll(
         async () =>
-          (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+          (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
             (t: { id: string }) => t.id === id,
           )?.state,
         { timeout: 20000 },
       )
       .toBe("succeeded");
-    return (await rpc(page.request, "task.result.read", { id })).task_result;
+    return (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   }
   const original = await result("settlement-margin");
   expect(original.experiment.settlement_margins).toEqual(events);

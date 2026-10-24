@@ -8,7 +8,6 @@ import { WindowFrame } from "../host/components/WindowFrame";
 import { LocalLogsButton } from "../host/components/LocalLogsButton";
 import { readableCtpConnection, request } from "../bridge/client";
 import "./setup.css";
-import { defaultDataTaskPlugins } from "../host/native-plugins";
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
@@ -19,7 +18,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setError(t("保存失败，请检查本机存储权限。"));
     }
   };
-  const steps = [t("服务管理器"), t("行情服务"), t("数据服务"), t("任务服务"), t("交易服务")];
+  const steps = [t("服务管理器"), t("行情服务"), t("恢复已有工作区"), t("交易服务")];
   // Things the user should know before entering; none of them blocks entry,
   // but the screen waits for the user while there are any.
   const [notices, setNotices] = useState<string[]>([]);
@@ -41,6 +40,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
       const core = await request("runtime.snapshot");
       if (core.protocol !== 1 || core.phase !== "ready") throw new Error(t("本机核心尚未就绪"));
       await request("node.local");
+      let managerReady = core;
       for (const deadline = Date.now() + 20000; ;) {
         const status = await request("runtime.snapshot");
         const node = status.nodes.find(n => n.id === "local");
@@ -51,16 +51,19 @@ export function SetupGate({ children }: { children: ReactNode }) {
             failure?.message ?? "Agent recovery is required",
           );
         }
-        if (node?.state === "online" && node.health?.phase === "ready") break;
+        if (node?.state === "online" && node.health?.phase === "ready") {
+          managerReady = status;
+          break;
+        }
         if (Date.now() >= deadline) throw new Error(t("本机服务管理器尚未就绪，请重试启动"));
         await new Promise(resolve => setTimeout(resolve, 300));
       }
       setStep(1);
-      // A step completes only when its service has answered its first
-      // heartbeat, so the steps move forward only and the workbench opens
-      // with everything already healthy.
+      // A declared running service completes only after its heartbeat.
+      // An explicitly stopped default Market keeps that saved intent;
+      // it must not prevent independent fixed Data/Research work.
       const healthy = ["ready", "awaiting_input"];
-      const settled = async (kind: "market" | "data" | "task", failure: string) => {
+      const settled = async (kind: "market" | "data" | "research", failure: string) => {
         for (const deadline = Date.now() + 20000; ;) {
           const status = await request("runtime.snapshot");
           const node = status.nodes.find(n => n.id === "local");
@@ -73,14 +76,14 @@ export function SetupGate({ children }: { children: ReactNode }) {
               ? status.market?.service
               : kind === "data"
                 ? status.data?.service
-                : status.task_service?.service;
+                : status.research_service?.service;
           const expected = node.health.services.find(service => service.id === selected);
           const online =
             kind === "market"
               ? !!status.market?.transport_online
               : kind === "data"
                 ? !!status.data?.online
-                : !!status.task_service?.online;
+                : !!status.research_service?.online;
           if (expected?.state === "failed") throw new Error(t(failure));
           if (
             node.health.phase === "ready" &&
@@ -93,30 +96,43 @@ export function SetupGate({ children }: { children: ReactNode }) {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
       };
-      await request("market.local");
-      const marketReady = await settled("market", "本机行情服务尚未就绪，请重试启动");
+      const defaultMarket = managerReady.nodes
+        .find(node => node.id === "local")
+        ?.health?.services.find(
+          service => service.id === "market-data" && service.kind === "market",
+        );
+      const marketStopped = defaultMarket?.state === "stopped" && !defaultMarket.desired_running;
+      let marketReady = managerReady;
+      if (!marketStopped) {
+        await request("market.local");
+        marketReady = await settled("market", "本机行情服务尚未就绪，请重试启动");
+      }
       setStep(2);
-      // Initial Agent attachment may precede recovery of its service inventory.
-      const existingTask = marketReady.nodes
-        .find(n => n.id === "local")
-        ?.health?.services.find(service => service.id === "task");
+      // Restore declared running work; new Data/Research services are prepared by their workflows.
+      const services = marketReady.nodes.find(n => n.id === "local")?.health?.services ?? [];
+      const research = services.find(
+        service => service.kind === "research" && service.desired_running,
+      );
+      const data = services.find(service => service.kind === "data" && service.desired_running);
+      if (data) {
+        await request("node.data.attach", { id: "local", service: data.id });
+        await settled("data", "本机数据服务尚未就绪，请重试启动");
+      }
+      if (research) {
+        await request("node.research.attach", { id: "local", service: research.id });
+        await settled("research", "本机研究服务尚未就绪，请重试启动");
+      }
       const plugins = (await request("native.plugins.inspect")).native_plugins?.items ?? [];
-      // A service left stopped is started again: the workbench never opens
-      // without it.
-      if (existingTask) await request("node.data_tasks.local.open");
-      else
-        await request("node.data_tasks.local.create", { plugins: defaultDataTaskPlugins(plugins) });
-      await settled("data", "本机数据服务尚未就绪，请重试启动");
-      setStep(3);
-      const status = await settled("task", "本机任务服务尚未就绪，请重试启动");
-      // Market data must still be reachable once everything is up.
-      if (!status.market?.transport_online) {
+      const status = await request("runtime.snapshot");
+      // Running Market remains required here; an explicit stop is preserved above.
+      if (!marketStopped && !status.market?.transport_online) {
         setStep(1);
         throw new Error(t("本机行情服务尚未就绪，请重试启动"));
       }
       const invalid = plugins.filter(plugin => plugin.state === "invalid");
-      const interrupted = status.task_service?.interrupted_count ?? 0;
-      setStep(4);
+      const interrupted =
+        (status.research_service?.interrupted_count ?? 0) + (status.data?.interrupted_count ?? 0);
+      setStep(3);
       // Each account that trades has its own service. Starting it only runs
       // the program: nothing logs in or reaches the counter. An account
       // whose service does not come up is reported and can be started from
@@ -124,6 +140,17 @@ export function SetupGate({ children }: { children: ReactNode }) {
       const unopened: string[] = [];
       for (const account of (status.ctp_connections ?? []).filter(readableCtpConnection)) {
         if (!account.trading_record) continue;
+        if (account.trading) {
+          const binding = account.trading;
+          const declared = status.nodes
+            .find(node => node.id === binding.node)
+            ?.health?.services.find(
+              service => service.id === binding.service && service.kind === "live",
+            );
+          // Restoring a window must not turn an explicit Agent stop into a start.
+          // Opening from the Trading page remains the user's explicit action.
+          if (declared?.desired_running === false) continue;
+        }
         try {
           await request("live.open", { account: account.id });
         } catch {
@@ -146,6 +173,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
       const pending = [
+        ...(marketStopped ? [t("本机行情服务按已保存意图保持停止，数据与研究工作区仍可使用")] : []),
         ...unopened.map(name =>
           t("账户 {p0} 的交易服务未能启动，可在交易页查看原因并重试", { p0: name }),
         ),

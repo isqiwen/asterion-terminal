@@ -24,11 +24,6 @@ Json configuration_json(const ServiceConfiguration& configuration)
     value["plugin_artifacts"] = configuration.plugin_artifacts;
     if (!configuration.catalog_artifact.empty())
         value["catalog_artifact"] = configuration.catalog_artifact;
-    if (configuration.kind == wire::TASK_SERVICE) {
-        value["data_service"] = configuration.data_service;
-    }
-    if (configuration.kind == wire::DATA_SERVICE)
-        value["task_service"] = configuration.task_service;
     return value;
 }
 
@@ -68,10 +63,8 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
     std::ifstream input(path);
     std::string raw{std::istreambuf_iterator<char>(input), {}};
     auto document = parse_json(raw, 65536);
-    if (document.size()
-            != (document.at("kind") == static_cast<int>(wire::TASK_SERVICE) ? 8U : 7U)
-                + (document.contains("catalog_artifact") ? 1U : 0U)
-                + (document.at("kind") == static_cast<int>(wire::DATA_SERVICE) ? 1U : 0U)
+    if (document.size() != 7U + (document.contains("catalog_artifact") ? 1U : 0U)
+
         || !document.at("desired").is_boolean() || !document.at("port").is_number_unsigned())
         throw std::invalid_argument("invalid managed service configuration");
     ServiceConfiguration configuration;
@@ -86,23 +79,20 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
         configuration.catalog_artifact = document.at("catalog_artifact").get<std::string>();
         validate_artifact_digest(configuration.catalog_artifact);
     }
-    if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::TASK_SERVICE
-        && configuration.kind != wire::LIVE_TRADING && configuration.kind != wire::DATA_SERVICE)
+    if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::RESEARCH
+        && configuration.kind != wire::LIVE_TRADING && configuration.kind != wire::DATA_SERVICE
+        && configuration.kind != wire::INTELLIGENCE)
         throw std::invalid_argument("unsupported service kind");
+    if (configuration.kind == wire::INTELLIGENCE && !configuration.plugin_artifacts.empty())
+        throw std::invalid_argument("intelligence does not load native provider plugins");
     if (!configuration.provider_artifact.empty()) {
         if (configuration.kind != wire::MARKET_DATA)
             throw std::invalid_argument("provider library only belongs to market data");
         validate_artifact_digest(configuration.provider_artifact);
     }
-    if (configuration.kind == wire::DATA_SERVICE) {
-        configuration.task_service = document.at("task_service").get<std::string>();
-        validate_service_id(configuration.task_service);
-    }
-    if (configuration.kind == wire::TASK_SERVICE) {
-        configuration.data_service = document.at("data_service").get<std::string>();
-        validate_service_id(configuration.data_service);
+    if (configuration.kind == wire::RESEARCH) {
         if (!configuration.provider_artifact.empty())
-            throw std::invalid_argument("task service does not load a market provider");
+            throw std::invalid_argument("research service does not load a market provider");
     }
     if (configuration.kind == wire::LIVE_TRADING && configuration.catalog_artifact.empty())
         throw std::invalid_argument("live trading requires the CTP trader library");

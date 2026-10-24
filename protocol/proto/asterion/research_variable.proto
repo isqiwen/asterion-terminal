@@ -1,0 +1,57 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+
+// Owned research semantics. The label/horizon and dataset belong to the later
+// experiment, not this causal feature definition. Never an executable script.
+message VariableDefinition {
+  string id = 1;
+  asterion.resource.proto.Owner owner = 2;
+  string name = 3;
+  string purpose = 4;
+  string expression = 5;
+  uint32 window = 6;
+  sint32 price_power = 7;
+  uint32 required_history = 8;
+  int64 recorded_at_ms = 9;
+  string digest = 10;
+}
+message VariableRegister {
+  string id = 1;
+  string name = 2;
+  string purpose = 3;
+  string expression = 4;
+  uint32 window = 5;
+}
+message VariableMutation {
+  string id = 1; // Durable operation identity, distinct from the definition ID.
+  VariableRegister registration = 2;
+}
+message VariableLookup {
+  string id = 1;
+}
+message VariableList {
+  string after = 1;
+  uint32 limit = 2;
+}
+message VariableRequest {
+  oneof operation {
+    VariableMutation mutation = 1;
+    VariableLookup get = 2;
+    VariableList list = 3;
+    VariableRegister preview = 4;
+  }
+}
+message VariablePreview {
+  bool valid = 1;
+  sint32 price_power = 2;
+  uint32 required_history = 3;
+  optional uint32 error_offset = 4;
+  string diagnostic = 5;
+}
+message VariableReply {
+  VariablePreview preview = 4;
+  VariableDefinition definition = 1;
+  repeated VariableDefinition definitions = 2;
+  string next_after = 3;
+}

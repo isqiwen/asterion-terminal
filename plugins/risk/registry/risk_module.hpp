@@ -17,6 +17,11 @@ public:
         return library_.sha256();
     }
 
+    const std::filesystem::path& path() const
+    {
+        return library_.path();
+    }
+
     void capture(const std::filesystem::path& directory) const;
     std::shared_ptr<NativeRisk> create(const OrderLimitsConfig& config) const;
 

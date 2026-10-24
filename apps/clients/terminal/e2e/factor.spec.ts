@@ -23,7 +23,7 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       await page.reload();
       await openView(page, "factor");
       const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-      await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+      await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
       await openView(page, "factor");
       await expect(workspace.getByLabel("初始资金", { exact: true })).toHaveCount(0);
       await workspace.getByLabel("回看 K 线数", { exact: true }).fill(search ? "2,5,10" : "2");
@@ -93,6 +93,7 @@ for (const mode of ["full", "holdout", "search", "rolling"])
           .locator("dd");
       await expect(parameter("候选回看 K 线数")).toHaveText(search ? "2, 5, 10" : "2");
       await expect(parameter("未来收益 K 线数")).toHaveText("1");
+      await expect(parameter("执行程序标识")).toHaveText(/^[0-9a-f]{64}$/);
       await expect(parameter("评价方式")).toHaveText(
         rolling ? "滚动验证" : holdout ? "时间留出评价" : "全样本评价",
       );
@@ -168,7 +169,7 @@ test("three contracts are compared with each other at every bar", async ({ page 
   await page.reload();
   await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
   await openView(page, "factor");
   await expect(
     workspace.getByText("多个合约 · 在每根 K 线上比较当时有数据的合约的因子值与未来收益", {
@@ -239,7 +240,7 @@ test("volatility is evaluated as the deviation of a window's returns", async ({ 
   await page.reload();
   await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
   await openView(page, "factor");
   await workspace.getByLabel("因子", { exact: true }).selectOption("volatility");
   await expect(workspace.getByText(/波动率 · 回看窗口内逐条收益率/)).toBeVisible();

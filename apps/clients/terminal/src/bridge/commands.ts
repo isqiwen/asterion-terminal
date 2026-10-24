@@ -1,7 +1,36 @@
+import type {
+  ResourceObject,
+  PerformanceAssumptions,
+  ModelReplaySelection,
+  ResearchModelSpecification,
+  ResearchModelMappingSpecification,
+  ResearchModelTimeSpecification,
+  ResearchBatchDraft,
+  ResearchBatchAssessmentDeclaration,
+  FuturesContract,
+  LogicObservation,
+  ResearchStrategyUse,
+  StatisticsRequest,
+  EvaluationRequest,
+  ResearchSampleEvaluation,
+  ResearchSampleInput,
+  ResearchProjectDefinition,
+  ResearchPlanBinding,
+  MarketObservation,
+  TradingFacts,
+  MaterialRequest,
+  NoticeCandidate,
+  NoticeChangeRequest,
+  NoticeSetRequest,
+  NoticeSubscriptionDefinition,
+  NoticeSubscriptionOffer,
+  NoticeObject,
+} from "./client";
 // The current UI-to-Native contract. JSON is encoded only by the bridge.
 // Command names and parameters stay correlated through host and component callbacks.
 import type {
   BacktestExperiment,
+  TaskOwnerRef,
   CostVersion,
   DailyTable,
   FactorExperiment,
@@ -66,6 +95,138 @@ export type ComparisonMatrix = {
 };
 
 export type CommandParams = {
+  "research.model.list": {
+    kind: "draft" | "plan" | "mapping" | "time_plan";
+    after: string;
+    limit: number;
+  };
+  "research.model.read": { kind: "draft" | "plan" | "mapping" | "time_plan"; id: string };
+  "research.model.save": {
+    id: string;
+    draft_id: string;
+    expected_digest: string;
+    specification: ResearchModelSpecification;
+  };
+  "research.model.fix": { id: string; plan_id: string; draft_id: string; expected_digest: string };
+  "research.model.train": { id: string; plan: ResourceObject };
+  "research.model.time.save": {
+    id: string;
+    plan_id: string;
+    specification: ResearchModelTimeSpecification;
+  };
+  "research.model.time.train": { id: string; plan: ResourceObject };
+  "research.model.mapping.save": {
+    id: string;
+    mapping_id: string;
+    specification: ResearchModelMappingSpecification;
+  };
+  "research.model.mapping.preview": { mapping: ResourceObject; begin: number; limit: number };
+  "research.batch.list": { after: string; limit: number };
+  "research.batch.read": { id: string };
+  "research.batch.save": { id: string; definition: ResearchBatchDraft };
+  "research.batch.start": { id: string; batch: ResourceObject };
+  "research.batch.stop": { id: string; batch: ResourceObject; reason: string };
+  "research.batch.assessment.preview": { batch: ResourceObject };
+  "research.batch.assessment.save": { id: string; definition: ResearchBatchAssessmentDeclaration };
+  "research.batch.assessment.read": { id: string };
+  "research.batch.assessment.list": { batch_id: string; after: string; limit: number };
+  "research.batch.assessment.export": {
+    object: ResourceObject;
+    format: "html" | "csv";
+    path: string;
+  };
+  "research.logic.list": { after: string; limit: number };
+  "research.logic.read": { id: string };
+  "research.logic.register": {
+    id: string;
+    definition: { id: string; name: string; purpose: string; fast: number; slow: number };
+  };
+  "research.logic.deprecate": { id: string; definition: ResourceObject; reason: string };
+  "research.logic.examples": { after: string; limit: number; definition_id: string };
+  "research.logic.example.read": { id: string };
+  "research.logic.example.save": {
+    id: string;
+    example: {
+      id: string;
+      definition: ResourceObject;
+      name: string;
+      use_scope: string;
+      fictional: true;
+      observations: LogicObservation[];
+    };
+  };
+  "research.logic.trial": { id: string; example: ResourceObject };
+  "research.strategy.list": { after: string; limit: number };
+  "research.strategy.read": { id: string };
+  "research.strategy.logic.freeze": {
+    id: string;
+    registration: {
+      id: string;
+      name: string;
+      purpose: string;
+      limitations: string;
+      source: ResourceObject;
+      contract: FuturesContract;
+      interval_minutes: number;
+      strategy: StrategyDefinition;
+    };
+  };
+  "research.strategy.freeze": {
+    id: string;
+    registration: {
+      id: string;
+      name: string;
+      purpose: string;
+      limitations: string;
+      source: ResourceObject;
+    };
+  };
+  "research.strategy.deprecate": { id: string; package: ResourceObject; reason: string };
+  "research.strategy.delivery.create": {
+    id: string;
+    delivery: { id: string; package: ResourceObject; target_task_id: string };
+  };
+  "research.strategy.delivery.read": { id: string };
+  "research.strategy.delivery.list": { after: string; limit: number; package_id: string };
+
+  "research.variable.check": { expression: string; window: number };
+  "research.variable.read": { id: string };
+  "research.variable.list": { after: string; limit: number };
+  "research.variable.register": {
+    id: string;
+    registration: { id: string; name: string; purpose: string; expression: string; window: number };
+  };
+  "research.conclusion.read": { id: string };
+  "research.conclusion.list": { project_id: string; after: string; limit: number };
+  "research.conclusion.append": {
+    id: string;
+    declaration: import("./client").ResearchConclusionWrite;
+  };
+  "research.project.list": { after: string; limit: number };
+  "research.project.read": { id: string };
+  "research.project.save": {
+    id: string;
+    project_id: string;
+    expected_digest: string;
+    definition: ResearchProjectDefinition;
+  };
+  "research.plan.list": { project_id: string; after: string; limit: number };
+  "research.plan.read": { id: string };
+  "research.plan.fix": {
+    id: string;
+    project_id: string;
+    plan_id: string;
+    expected_draft_digest: string;
+    parent_plan_id: string;
+    revision_reason: string;
+  };
+  "research.project.tasks": { project_id: string; before_sequence: number; limit: number };
+  "resource.catalogue": {
+    domain: "data" | "research" | "intelligence";
+    kind: string;
+    after: string;
+  };
+  "resource.inspect": { object: ResourceObject };
   "runtime.snapshot": Record<string, never>;
   "data.download.budget.configure": {
     source: string;
@@ -73,7 +234,7 @@ export type CommandParams = {
     requests_per_minute: number;
     provider?: string;
   };
-  "task.page": { before_sequence: number };
+  "task.page": { owner: TaskOwnerRef; before_sequence: number };
   "data.credentials.save": {
     provider: string;
     credential: string;
@@ -94,17 +255,84 @@ export type CommandParams = {
   };
   "ctp.connections.remove": { id: string; revision: string };
   "ctp.connections.market": { id: string };
-  "node.data_tasks.local.create": { plugins: string[] };
+  "node.research.local.create": { plugins: string[] };
   "native.plugins.inspect": Record<string, never>;
   "native.plugins.preview": { path: string };
   "native.plugins.install": { path: string; sha256: string };
   "native.plugins.uninstall": { file: string; sha256: string };
   "node.plugins.configure": { id: string; service: string; revision: string; plugins: string[] };
   "node.update": { id: string; service: string; revision: string };
-  "node.data_tasks.local.open": Record<string, never>;
-  "node.data_tasks.attach": { id: string; service: string };
+  "node.intelligence.local.open": Record<string, never>;
+  "node.intelligence.attach": { id: string; service: string };
+  "intelligence.submit": { candidate: NoticeCandidate };
+  "intelligence.get": { id: string };
+  "intelligence.list": { after: string };
+  "intelligence.consumers": { source: NoticeObject; after: string };
+  "intelligence.event.view": { event: NoticeObject; as_of_ms: string | null };
+  "intelligence.change": { request: NoticeChangeRequest };
+  "intelligence.set.preview": { request: NoticeSetRequest };
+  "intelligence.set.publish": { request: NoticeSetRequest };
+  "intelligence.set.get": { id: string };
+  "intelligence.subscription.preview": { definition: NoticeSubscriptionDefinition };
+  "intelligence.subscription.create": { definition: NoticeSubscriptionDefinition };
+  "intelligence.subscription.get": { id: string };
+  "intelligence.subscription.list": Record<string, never>;
+  "intelligence.subscription.control": {
+    subscription: NoticeObject;
+    revision: string;
+    active: boolean;
+    gap_through: string | null;
+  };
+  "intelligence.subscription.offer": { request: NoticeSubscriptionOffer };
+  "intelligence.subscription.batch": { subscription: NoticeObject; operation_id: string };
+  "intelligence.subscription.ack": { reference: NoticeObject; subscription: NoticeObject };
+  "intelligence.subscription.reminders": { subscription: NoticeObject; after: string };
+  "intelligence.source.inspect": { source: NoticeObject };
+  "research.sample.submit": {
+    id: string;
+    owner: TaskOwnerRef;
+    data_owner: { node_id: string; service_id: string };
+    selection: ResearchSampleInput["request"]["selection"];
+    use_scope: string;
+    mode: "post_hoc";
+    evaluation: ResearchSampleEvaluation;
+    research_plan?: ResearchPlanBinding;
+  };
+  "evaluation.submit": EvaluationRequest & { id: string; owner: TaskOwnerRef };
+  "statistics.submit": StatisticsRequest & {
+    id: string;
+    owner: TaskOwnerRef;
+    research_plan?: ResearchPlanBinding;
+  };
+  "event.set.review.submit": {
+    id: string;
+    owner: TaskOwnerRef;
+    source: NoticeObject;
+    use_scope: string;
+  };
+  "notice.source.inspect": { id: string; owner: TaskOwnerRef };
+  "intelligence.review": {
+    id: string;
+    candidate: NoticeObject;
+    operator_name: string;
+    reason: string;
+    approve: boolean;
+    checks: string[];
+  };
+  "intelligence.publish": {
+    id: string;
+    candidate: NoticeObject;
+    data_owner: Pick<ResourceObject, "node" | "service" | "domain">;
+    reason: string;
+  };
+  "intelligence.abandon": { id: string; candidate: NoticeObject; reason: string };
+  "node.research.local.open": Record<string, never>;
+  "node.data.local.open": Record<string, never>;
+  "node.data.attach": { id: string; service: string };
+  "node.research.attach": { id: string; service: string };
   "backtest.margins.preview": Record<string, never>;
   "backtest.submit": RiskParameters & {
+    performance_assumptions?: PerformanceAssumptions;
     id: string;
     deposit: string;
     strategies: StrategyDefinition[];
@@ -113,16 +341,42 @@ export type CommandParams = {
     contracts: ContractCostSelection[];
     settlement_margins?: SettlementMargin[];
     margin_snapshot?: string;
+    strategy_use?: ResearchStrategyUse;
+    research_plan?: ResearchPlanBinding;
   };
-  "backtest.reuse": ReuseParameters & { source_input_sha256: string; slippage_ticks?: number };
+  "backtest.reuse": ReuseParameters & {
+    model_replay?: ModelReplaySelection;
+    source_input_sha256: string;
+    slippage_ticks?: number;
+    fee_multiplier?: string;
+    strategy_use?: ResearchStrategyUse;
+  };
   "backtest.budget.review": {
     id: string;
     input_sha256: string;
     result_digest: string;
     limits: { margin: string | null; gross_notional: string | null };
   };
+  "notice.review.submit": {
+    id: string;
+    owner: TaskOwnerRef;
+    source: NoticeObject;
+    as_of_ms: string;
+    use_scope: string;
+  };
+  "notice.custody.reconcile": { id: string; owner: TaskOwnerRef };
+  "account.review.submit": {
+    id: string;
+    owner: TaskOwnerRef;
+    source: TradingFacts["reference"];
+    account_id: string;
+    environment: "real" | "simulation";
+  };
   "factor.submit": {
     id: string;
+    research_plan?: ResearchPlanBinding;
+    variable_definition?: import("./client").ResourceObject;
+    retain_observations?: boolean;
     series:
       | { kind: "bars" }
       | {
@@ -178,6 +432,12 @@ export type CommandParams = {
     daily: DailyTable | null;
   };
   "data.history.usage": { id: string };
+  "data.history.retirement.preview": { id: string };
+  "data.tables.retirement.preview": { id: string };
+  "data.tables.retirement.execute": { id: string; preview_digest: string };
+  "data.tables.retirements": { after: string };
+  "data.history.retirement.execute": { id: string };
+  "data.history.retirements": { after: string };
   "data.download.update.plan": HistoryUpdateQuery;
   "data.download.update.submit": {
     id: string;
@@ -188,6 +448,7 @@ export type CommandParams = {
   "data.tables.refresh.plan": TableRefreshQuery;
   "data.tables.refresh.submit": {
     id: string;
+    connection_id: string;
     query: TableRefreshQuery;
     plan_id: string;
     token: string;
@@ -231,11 +492,28 @@ export type CommandParams = {
   "data.dataset.product": DatasetRange & { product: string };
   "data.dataset.remove": { venue: string; symbol: string };
   "data.dataset.clear": Record<string, never>;
-  "task.action": { id: string; action: "cancel" | "retry" };
-  "task.result": { id: string };
-  "task.result.read": { id: string };
-  "task.metadata.read": { id: string };
-  "task.metadata.edit": { id: string; expected_revision: number; name: string; note: string };
+  "task.retirement.preview": { id: string; owner: TaskOwnerRef };
+  "task.retirement.execute": { id: string; owner: TaskOwnerRef };
+  "task.action": { owner: TaskOwnerRef; id: string; action: "cancel" | "retry" };
+  "task.result": { owner: TaskOwnerRef; id: string };
+  "task.result.read": { owner: TaskOwnerRef; id: string };
+  "task.metadata.read": { owner: TaskOwnerRef; id: string };
+  "task.metadata.edit": {
+    owner: TaskOwnerRef;
+    id: string;
+    expected_revision: number;
+    name: string;
+    note: string;
+  };
+  "evaluation.report.export": {
+    id: string;
+    owner: TaskOwnerRef;
+    version: string;
+    format: "html" | "csv";
+    conclusion_id: string;
+    conclusion_version: string;
+    path: string;
+  };
   "task.evidence.export": { id: string; path: string };
   "task.comparison.export": {
     expected: {
@@ -261,6 +539,28 @@ export type CommandParams = {
   "market.subscribe": { instruments: InstrumentKey[] };
   "market.disconnect": Record<string, never>;
   "market.minutes": { venue: string; symbol: string };
+  "market.observation.preview": { venue: string; symbol: string };
+  "data.observation.admit": { id: string; source: MarketObservation["reference"] };
+  "data.observation.execute": { id: string };
+  "data.observation.read": { id: string };
+  "data.material.sources": Record<string, never>;
+  "data.material.submit": MaterialRequest;
+  "data.material.task": { id: string };
+  "data.material.read": { id: string };
+  "live.facts.capture": { account: string; id: string };
+  "live.facts.status": { account: string; id: string };
+  "live.facts.read": { account: string; reference: TradingFacts["reference"] };
+  "system.backup.preview": { operation_id: string; services: string[]; destination: string };
+  "system.backup.save": {
+    operation_id: string;
+    services: string[];
+    destination: string;
+    preview_digest: string;
+  };
+  "system.backup.inspect": { backup: string };
+  "system.backup.resume.preview": { backup: string };
+  "system.backup.restore": { backup: string; destination: string };
+  "system.backup.cancel": Record<string, never>;
   "node.initializer.export": { path: string };
   "node.key.prepare": { id: string };
   "node.firewall.inspect": {

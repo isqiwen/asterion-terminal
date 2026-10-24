@@ -2,6 +2,8 @@
 #include "support/local_listener.hpp"
 #include "trading/journal_fixture.hpp"
 #include "live_session.hpp"
+#include "facts_archive.hpp"
+#include <asterion/protocol/trading_facts.hpp>
 #include "risk_module.hpp"
 #include <barrier>
 #include <future>
@@ -71,6 +73,26 @@ public:
             record,
             policy,
             trading::AccountRequest::from_wire(protocol::encode_command(command)));
+    }
+
+    auto begin_facts(resource::proto::Owner owner, std::string instance, std::string id)
+    {
+        return session_.capture_facts(std::move(owner), std::move(instance), std::move(id));
+    }
+
+    protocol::proto::TradingFactsStatus
+    capture_facts(resource::proto::Owner owner, std::string instance, std::string id)
+    {
+        auto operation = begin_facts(std::move(owner), std::move(instance), std::move(id));
+        operation.completed.get();
+        return *operation.result;
+    }
+
+    protocol::proto::TradingFactsStatus inspect_facts(resource::proto::Owner owner, std::string id)
+    {
+        auto operation = session_.inspect_facts(std::move(owner), std::move(id));
+        operation.completed.get();
+        return *operation.result;
     }
 
     bool recovery_required() const
@@ -784,7 +806,7 @@ TEST_F(Live, IncompleteFailedOrForeignDayQuotesNeverJournalAnOrder)
         exchange.call<void (*)(int)>("asterion_fake_trader_quote_mode", 5);
         EXPECT_NO_THROW(act(session, submit("completed", "1")));
     }
-    SqliteJournal journal(directory.path, {"plugins", "ctp-flow"});
+    SqliteJournal journal(directory.path, {"plugins", "ctp-flow", "facts"});
     journal.start();
     for (const int mode : {1, 3, 4})
         EXPECT_TRUE(journal.command("submit.quote." + std::to_string(mode)).is_null());
@@ -1216,7 +1238,7 @@ TEST_F(Live, ConcurrentRetriesHaveOneDurableIntentAndOneBrokerOrder)
     EXPECT_EQ(after.at("positions")[0].at("today"), "2");
     session.stop();
     session.stopped().get();
-    SqliteJournal journal(directory.path, {"plugins", "ctp-flow"});
+    SqliteJournal journal(directory.path, {"plugins", "ctp-flow", "facts"});
     journal.start();
     EXPECT_EQ(journal.command("submit.concurrent").at("command"), command);
     EXPECT_EQ(journal.order_sequence("concurrent"), journal.command_sequence("submit.concurrent"));
@@ -1389,7 +1411,7 @@ TEST_F(Live, ReusedBrokerKeyDoesNotConfirmAnOlderUnknownIntent)
     }
     const auto unknown = submit("z.unknown", "1");
     {
-        SqliteJournal journal(directory.path, {"plugins", "ctp-flow"});
+        SqliteJournal journal(directory.path, {"plugins", "ctp-flow", "facts"});
         journal.start();
         journal.append(
             {{"command", unknown},
@@ -1505,7 +1527,7 @@ TEST_F(Live, DurableNotSentEvidenceAcrossPagesReleasesIntentWithoutResendingOnRe
     // Recovery fixture: a committed intent followed by a definite pre-SDK refusal.
     const auto command = submit("not.sent", "3");
     {
-        SqliteJournal journal(directory.path, {"ctp-flow", "plugins", "archives"});
+        SqliteJournal journal(directory.path, {"ctp-flow", "plugins", "archives", "facts"});
         journal.start();
         // Put the intent at the end of one page and its result on the next page.
         for (std::size_t i = 1; i < SqliteJournal::page_size - 1; ++i) {
@@ -1566,7 +1588,7 @@ TEST_F(Live, MissingOrderIdentityIndexRejectsRecoveryWithoutChangingEvidence)
     }
     const auto command = submit("missing.index", "3");
     {
-        SqliteJournal journal(directory.path, {"ctp-flow", "plugins"});
+        SqliteJournal journal(directory.path, {"ctp-flow", "plugins", "facts"});
         journal.start();
         journal.append(
             {{"command", command},
@@ -2027,6 +2049,7 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     const auto disconnected = session.wire_snapshot();
     EXPECT_EQ(disconnected.phase(), "disconnected");
+    EXPECT_FALSE(disconnected.positions_reconciled());
     EXPECT_FALSE(disconnected.has_funds());
     EXPECT_FALSE(disconnected.has_authorization());
     EXPECT_FALSE(disconnected.has_strategy());
@@ -2053,6 +2076,14 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
         "filled"));
     const auto snapshot = session.wire_snapshot();
     EXPECT_EQ(snapshot.account_id(), "fixture-account");
+    EXPECT_GT(snapshot.broker_sequence(), disconnected.broker_sequence());
+    EXPECT_GE(snapshot.connection_generation(), disconnected.connection_generation());
+    const auto observation = protocol::decode_live_snapshot(snapshot);
+    EXPECT_EQ(observation.at("broker_sequence"), std::to_string(snapshot.broker_sequence()));
+    EXPECT_EQ(
+        observation.at("connection_generation"),
+        std::to_string(snapshot.connection_generation()));
+    EXPECT_EQ(observation.at("positions_reconciled"), snapshot.positions_reconciled());
     EXPECT_EQ(snapshot.risk().max_order_quantity().units(), Decimal::parse("5").raw());
     EXPECT_EQ(snapshot.max_price_deviation().units(), Decimal::parse("0.02").raw());
     ASSERT_EQ(snapshot.contracts_size(), 1);
@@ -2068,12 +2099,44 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().units(), Decimal::parse("1.5").raw());
     EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().units(), Decimal::parse("0.0001").raw());
     ASSERT_TRUE(snapshot.has_authorization());
+    resource::proto::Owner facts_owner;
+    facts_owner.set_node_id("fixture-node");
+    facts_owner.set_service_id("trading-one");
+    facts_owner.set_domain("trading");
+    const auto facts = protocol::freeze_trading_facts(
+        facts_owner,
+        "fixture-instance",
+        "observed-facts",
+        1790000000000,
+        snapshot);
+    EXPECT_EQ(facts.facts().funds().SerializeAsString(), snapshot.funds().SerializeAsString());
+    EXPECT_EQ(facts.facts().account_id(), snapshot.account_id());
+    EXPECT_EQ(facts.facts().environment(), snapshot.environment());
+    EXPECT_EQ(facts.facts().broker_sequence(), snapshot.broker_sequence());
+    EXPECT_EQ(facts.facts().risk_artifact(), snapshot.risk_artifact());
+    EXPECT_EQ(facts.SerializeAsString().find(snapshot.broker().front()), std::string::npos);
+    const auto facts_json = protocol::decode_trading_facts(facts);
+    EXPECT_FALSE(facts_json.contains("broker"));
+    EXPECT_FALSE(facts_json.contains("authorization"));
+    EXPECT_FALSE(facts_json.contains("strategy"));
+    EXPECT_FALSE(facts_json.at("complete_history").get<bool>());
+    EXPECT_FALSE(facts_json.at("atomic_ledger_cut").get<bool>());
     protocol::proto::LiveSnapshot received;
     ASSERT_TRUE(received.ParseFromString(snapshot.SerializeAsString()));
     EXPECT_EQ(protocol::decode_live_snapshot(received), protocol::decode_live_snapshot(snapshot));
     act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
     EXPECT_FALSE(session.wire_snapshot().has_authorization());
     EXPECT_TRUE(snapshot.has_authorization()) << "a published value cannot follow later mutations";
+    session.disconnect();
+    const auto after_disconnect = session.wire_snapshot();
+    EXPECT_GT(after_disconnect.connection_generation(), snapshot.connection_generation());
+    EXPECT_FALSE(after_disconnect.positions_reconciled());
+    auto large_sequence = snapshot;
+    large_sequence.set_broker_sequence(9007199254740993ULL);
+    large_sequence.set_connection_generation(9007199254740995ULL);
+    const auto exact = protocol::decode_live_snapshot(large_sequence);
+    EXPECT_EQ(exact.at("broker_sequence"), "9007199254740993");
+    EXPECT_EQ(exact.at("connection_generation"), "9007199254740995");
     EXPECT_EQ(disconnected.phase(), "disconnected");
 
     auto invalid = snapshot;
@@ -2552,4 +2615,113 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
                 {"process_peak_rss_bytes", peak_rss_bytes}});
     }
     RecordProperty("measurements", measurements.dump());
+}
+
+namespace {
+
+resource::proto::Owner facts_owner()
+{
+    resource::proto::Owner owner;
+    owner.set_node_id("fixture-node");
+    owner.set_service_id("trading-one");
+    owner.set_domain("trading");
+    return owner;
+}
+
+} // namespace
+
+TEST_F(Live, FactsCaptureIsDurableIdempotentAndIndependentOfLaterBrokerState)
+{
+    protocol::proto::TradingFactsStatus original;
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        const auto before =
+            session.snapshot().at("capacity").at("records_used").get<std::uint64_t>();
+        original = session.capture_facts(facts_owner(), "first-instance", "fixed-evidence");
+        ASSERT_TRUE(original.has_capture());
+        EXPECT_EQ(original.operation().state(), protocol::proto::TradingFactsReceipt::PUBLISHED);
+        EXPECT_EQ(original.capture().facts().phase(), "disconnected");
+        EXPECT_FALSE(original.capture().facts().has_funds());
+        EXPECT_FALSE(session.wire_snapshot().has_authorization());
+        std::vector<trading::LiveSession::FactsOperation> duplicates;
+        for (int i = 0; i < 4; ++i)
+            duplicates.push_back(
+                session.begin_facts(facts_owner(), "different-instance", "fixed-evidence"));
+        for (auto& operation : duplicates) {
+            operation.completed.get();
+            EXPECT_EQ(operation.result->SerializeAsString(), original.SerializeAsString());
+        }
+        EXPECT_EQ(
+            session.snapshot().at("capacity").at("records_used").get<std::uint64_t>(),
+            before + 2);
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        EXPECT_EQ(
+            session.capture_facts(facts_owner(), "later-instance", "fixed-evidence")
+                .SerializeAsString(),
+            original.SerializeAsString());
+        EXPECT_EQ(
+            session.inspect_facts(facts_owner(), "fixed-evidence").SerializeAsString(),
+            original.SerializeAsString());
+        EXPECT_FALSE(session.wire_snapshot().has_authorization());
+    }
+    // Direct fixed reads do not construct an account, connect an SDK or restore authorization.
+    EXPECT_EQ(
+        trading::FactsArchive::read_published(directory.path, original.operation().reference())
+            .SerializeAsString(),
+        original.SerializeAsString());
+    {
+        LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+        EXPECT_EQ(
+            recovered.inspect_facts(facts_owner(), "fixed-evidence").SerializeAsString(),
+            original.SerializeAsString());
+        EXPECT_EQ(
+            recovered.capture_facts(facts_owner(), "restarted-instance", "fixed-evidence")
+                .SerializeAsString(),
+            original.SerializeAsString());
+        EXPECT_FALSE(recovered.wire_snapshot().has_authorization());
+        EXPECT_EQ(recovered.wire_snapshot().phase(), "disconnected");
+    }
+}
+
+TEST_F(Live, FactsMissingAdmittedOriginalRemainsMissingAcrossNewObservationsAndRestart)
+{
+    protocol::proto::TradingFactsReceipt admitted;
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        fail_next_directory_syncs_for_testing(1);
+        EXPECT_THROW(
+            session.capture_facts(facts_owner(), "first-instance", "lost-original"),
+            std::runtime_error);
+        fail_next_directory_syncs_for_testing(0);
+        const auto pending = session.inspect_facts(facts_owner(), "lost-original");
+        ASSERT_EQ(pending.operation().state(), protocol::proto::TradingFactsReceipt::ADMITTED);
+        ASSERT_FALSE(pending.has_capture());
+        admitted = pending.operation();
+        EXPECT_FALSE(session.recovery_required())
+            << "evidence file failure does not poison the trading journal";
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        EXPECT_THROW(
+            session.capture_facts(facts_owner(), "later-instance", "lost-original"),
+            Error);
+        EXPECT_EQ(
+            session.inspect_facts(facts_owner(), "lost-original").operation().SerializeAsString(),
+            admitted.SerializeAsString());
+        const auto separate =
+            session.capture_facts(facts_owner(), "later-instance", "new-explicit-observation");
+        EXPECT_EQ(separate.operation().state(), protocol::proto::TradingFactsReceipt::PUBLISHED);
+        EXPECT_EQ(separate.capture().facts().phase(), "ready");
+        EXPECT_FALSE(session.wire_snapshot().has_authorization());
+    }
+    {
+        LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+        EXPECT_EQ(
+            recovered.inspect_facts(facts_owner(), "lost-original").operation().SerializeAsString(),
+            admitted.SerializeAsString());
+        EXPECT_THROW(
+            recovered.capture_facts(facts_owner(), "restarted-instance", "lost-original"),
+            Error);
+        EXPECT_EQ(
+            recovered.inspect_facts(facts_owner(), "new-explicit-observation").operation().state(),
+            protocol::proto::TradingFactsReceipt::PUBLISHED);
+    }
 }

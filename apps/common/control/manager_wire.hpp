@@ -14,6 +14,7 @@ inline void encode(manager::proto::Endpoint& out, const ServiceEndpoint& in)
     out.set_ca_file(in.tls.ca_file);
     out.set_certificate_file(in.tls.certificate_file);
     out.set_private_key_file(in.tls.private_key_file);
+    out.set_owner_node_id(in.owner_node_id);
 }
 
 inline ServiceEndpoint decode(const manager::proto::Endpoint& in)
@@ -23,7 +24,9 @@ inline ServiceEndpoint decode(const manager::proto::Endpoint& in)
         in.session(),
         static_cast<std::uint16_t>(in.port()),
         {in.ca_file(), in.certificate_file(), in.private_key_file()},
-        in.socket()
+        in.socket(),
+        "local",
+        in.owner_node_id()
     };
 }
 

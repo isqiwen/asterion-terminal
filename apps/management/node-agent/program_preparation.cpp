@@ -101,8 +101,9 @@ void prepare_service_programs(
     for (const auto& source : sources.services()) {
         const bool market = source.kind() == node::proto::MARKET_DATA;
         const bool trading = source.kind() == node::proto::LIVE_TRADING;
-        const bool task = source.kind() == node::proto::TASK_SERVICE;
-        if ((!market && !trading && !task && source.kind() != node::proto::DATA_SERVICE)
+        const bool task = source.kind() == node::proto::RESEARCH;
+        if ((!market && !trading && !task && source.kind() != node::proto::DATA_SERVICE
+                && source.kind() != node::proto::INTELLIGENCE)
             || source.executable().empty() || source.provider().empty() == market
             || source.catalog().empty() == (market || trading)
 
@@ -130,8 +131,6 @@ void prepare_service_programs(
         next.directory = config.directory;
         next.port = config.port;
         next.desired = config.desired;
-        next.task_service = config.task_service;
-        next.data_service = config.data_service;
         const auto identities = plugins.verify(config.plugin_artifacts);
         next.plugin_artifacts = config.plugin_artifacts;
         for (auto& hash : next.plugin_artifacts) {

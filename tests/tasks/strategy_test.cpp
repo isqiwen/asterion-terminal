@@ -1,4 +1,6 @@
 #include "strategy.hpp"
+#include "portfolio_targets.hpp"
+#include <asterion/foundation/error.hpp>
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <gtest/gtest.h>
@@ -425,4 +427,167 @@ TEST(Strategy, AVolatilityWindowSplitsWhatIsHeldByTheInverseOfEachUnitsVolatilit
     auto single = rule;
     single["volatility"] = 1;
     EXPECT_THROW(protocol::validate_strategy(ranking(single), d("1")), std::invalid_argument);
+}
+
+TEST(MovingAverageSignal, ActualEvidenceDistinguishesWarmupAndZeroAndKeepsEarlierClosesCausal)
+{
+    MovingAverageSignal calculation(1, 3);
+    EXPECT_EQ(calculation.observation().observations, 0U);
+    std::vector<MovingAverageObservation> original;
+    for (const auto* value : {"10", "10", "13", "7"}) {
+        calculation.push(d(value));
+        original.push_back(calculation.observation());
+    }
+    EXPECT_FALSE(original[0].direction);
+    EXPECT_FALSE(original[1].direction);
+    EXPECT_FALSE(original[1].slow_mean);
+    ASSERT_TRUE(original[2].direction);
+    EXPECT_EQ(*original[2].direction, 1);
+    EXPECT_DOUBLE_EQ(*original[2].fast_mean, 13);
+    EXPECT_DOUBLE_EQ(*original[2].slow_mean, 11);
+    EXPECT_DOUBLE_EQ(*original[2].difference, 2);
+    EXPECT_EQ(*original[3].direction, -1);
+    EXPECT_DOUBLE_EQ(*original[3].difference, -3);
+    EXPECT_EQ(
+        targets(
+            strategy({{"kind", "moving_average"}, {"fast", 1}, {"slow", 3}}),
+            {"10", "10", "13", "7"}),
+        (Targets{{}, {}, d("1"), d("-1")}));
+    calculation.reset();
+    EXPECT_FALSE(calculation.observation().direction);
+    std::size_t index = 0;
+    for (const auto* value : {"10", "10", "13", "70"}) {
+        calculation.push(d(value));
+        if (index < 3)
+            EXPECT_EQ(calculation.observation(), original[index]);
+        ++index;
+    }
+    calculation.reset();
+    calculation.push(d("0"));
+    calculation.push(d("0"));
+    ASSERT_EQ(calculation.push(d("0")), 0);
+    EXPECT_DOUBLE_EQ(*calculation.observation().difference, 0);
+    EXPECT_THROW(MovingAverageSignal invalid(0, 3), std::invalid_argument);
+    EXPECT_THROW(MovingAverageSignal invalid(3, 3), std::invalid_argument);
+}
+
+TEST(MovingAverageSignal, RoundedExplanationCannotReplaceTheExactDirection)
+{
+    MovingAverageSignal calculation(1, 3);
+    calculation.push(d("92233720368.54775806"));
+    calculation.push(d("92233720368.54775806"));
+    EXPECT_EQ(calculation.push(d("92233720368.54775807")), 1);
+    const auto evidence = calculation.observation();
+    ASSERT_TRUE(evidence.fast_mean);
+    ASSERT_TRUE(evidence.slow_mean);
+    // Display precision can tie while the original fixed-point comparison differs.
+    EXPECT_DOUBLE_EQ(*evidence.fast_mean, *evidence.slow_mean);
+    EXPECT_EQ(evidence.direction, 1);
+}
+
+TEST(PortfolioTargets, OriginalEquityWeightsProduceWholeLotsAndKeepNominalSeparateFromCash)
+{
+    const std::vector<WeightedContract> members{
+        {{"SHFE", "A"}, d("0.4"), d("1000"), d("10")},
+        {{"SHFE", "B"}, d("-0.2"), d("1000"), d("10")}
+    };
+    const auto result = fixed_weight_targets(d("100000"), members, d("0.6"), d("0.2"));
+    EXPECT_EQ(result.equity, d("100000"));
+    EXPECT_EQ(result.gross_weight, d("0.6"));
+    EXPECT_EQ(result.net_weight, d("0.2"));
+    EXPECT_EQ(result.requested_gross_notional, d("60000"));
+    EXPECT_EQ(result.requested_net_notional, d("20000"));
+    ASSERT_EQ(result.members.size(), 2U);
+    EXPECT_EQ(result.members[0].quantity, d("4"));
+    EXPECT_EQ(result.members[1].quantity, d("-2"));
+    EXPECT_EQ(result.members[0].allocated_notional, d("40000"));
+    EXPECT_EQ(result.members[1].allocated_notional, d("-20000"));
+    EXPECT_EQ(result.unallocated_nominal_budget, Decimal{});
+}
+
+TEST(PortfolioTargets, TruncationIsTowardZeroAndRemaindersAreNotRedistributed)
+{
+    std::vector<WeightedContract> members{
+        {{"SHFE", "A"}, d("0.45"), d("1000"), d("10")},
+        {{"SHFE", "B"}, d("-0.45"), d("1000"), d("10")}
+    };
+    auto result = fixed_weight_targets(d("100000"), members, d("1"), d("0"));
+    EXPECT_EQ(result.members[0].quantity, d("4"));
+    EXPECT_EQ(result.members[1].quantity, d("-4"));
+    EXPECT_EQ(result.members[0].nominal_remainder, d("5000"));
+    EXPECT_EQ(result.members[1].nominal_remainder, d("-5000"));
+    EXPECT_EQ(result.unallocated_nominal_budget, d("10000"));
+    EXPECT_EQ(result.allocated_gross_notional, d("80000"));
+    members[0].weight = d("0.09999999");
+    members[1].weight = Decimal{};
+    result = fixed_weight_targets(d("100000"), members, d("1"), d("1"));
+    EXPECT_EQ(result.members[0].quantity, Decimal{});
+    EXPECT_EQ(result.members[0].nominal_remainder, d("9999.999"));
+    EXPECT_EQ(result.members[1].quantity, Decimal{});
+}
+
+TEST(PortfolioTargets, InvalidBudgetsPricesAndUnrepresentableMoneyAreNeverSilentlyScaledOrRounded)
+{
+    std::vector<WeightedContract> members{
+        {{"SHFE", "A"}, d("0.4"), d("1000"), d("10")},
+        {{"SHFE", "B"}, d("-0.2"), d("1000"), d("10")}
+    };
+    EXPECT_THROW(
+        fixed_weight_targets(d("100000"), members, d("0.59"), d("1")),
+        std::invalid_argument);
+    EXPECT_THROW(
+        fixed_weight_targets(d("100000"), members, d("1"), d("0.19")),
+        std::invalid_argument);
+    EXPECT_THROW(fixed_weight_targets(Decimal{}, members, d("1"), d("1")), std::invalid_argument);
+    members[0].price = d("-1");
+    EXPECT_THROW(fixed_weight_targets(d("100000"), members, d("1"), d("1")), std::invalid_argument);
+    members[0].price = d("1000");
+    members[0].instrument = members[1].instrument;
+    EXPECT_THROW(fixed_weight_targets(d("100000"), members, d("1"), d("1")), std::invalid_argument);
+    members[0].instrument = {"SHFE", "A"};
+    members[0].weight = d("0.1");
+    EXPECT_THROW(fixed_weight_targets(d("0.00000001"), members, d("1"), d("1")), std::exception);
+    std::stop_source stop;
+    stop.request_stop();
+    EXPECT_THROW(
+        fixed_weight_targets(d("100000"), members, d("1"), d("1"), stop.get_token()),
+        std::runtime_error);
+}
+
+TEST(PortfolioTargets, FixedPolicyRoundTripsExplicitWeightsButCannotRunInSingleContractExecution)
+{
+    const Json rule{
+        {"kind", "fixed_weights"},
+        {"rebalance", 2},
+        {"gross_weight_limit", "0.6"},
+        {"net_weight_limit", "0.2"},
+        {"members",
+            Json::array(
+                {{{"venue", "SHFE"}, {"symbol", "A"}, {"weight", "0.4"}},
+                    {{"venue", "SHFE"}, {"symbol", "B"}, {"weight", "-0.2"}}})}
+    };
+    const auto definition = ranking(rule);
+    EXPECT_FALSE(definition.has_quantity());
+    EXPECT_NO_THROW(protocol::validate_strategy(definition, d("1")));
+    EXPECT_EQ(protocol::decode_strategy(definition), (Json{{"sides", "both"}, {"rule", rule}}));
+    EXPECT_EQ(protocol::strategy_warmup(definition), 1U);
+    EXPECT_THROW(make_strategy(definition, instrument()), std::invalid_argument);
+    auto invalid = definition;
+    invalid.set_sides(protocol::proto::LONG_ONLY);
+    EXPECT_THROW(protocol::validate_strategy(invalid, d("1")), std::invalid_argument);
+    invalid = definition;
+    invalid.mutable_quantity()->set_units(d("1").raw());
+    EXPECT_THROW(protocol::validate_strategy(invalid, d("1")), std::invalid_argument);
+    invalid = definition;
+    invalid.mutable_fixed_weights()->mutable_members(1)->set_symbol("A");
+    EXPECT_THROW(protocol::validate_strategy(invalid, d("1")), std::invalid_argument);
+    EXPECT_THROW(protocol::validate_strategy(definition, d("2")), std::invalid_argument);
+    auto missing = rule;
+    missing.erase("gross_weight_limit");
+    try {
+        (void)ranking(missing);
+        FAIL() << "a missing explicit budget must not be accepted";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::invalid_request);
+    }
 }

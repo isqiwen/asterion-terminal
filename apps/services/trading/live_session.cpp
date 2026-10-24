@@ -10,6 +10,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <asterion/protocol/trading_facts.hpp>
 #include <chrono>
 #include <set>
 #include <fstream>
@@ -56,22 +57,6 @@ std::int64_t now_ms()
         .count();
 }
 
-Json manifest_from_header(const Json& header)
-{
-    require_fields(header, {"risk_artifact", "manifest", "account_id", "policy_revision"});
-    validate_id(text(header, "account_id"));
-    validate_id(text(header, "policy_revision"));
-    auto manifest = protocol::decode_live_input(protocol::encode_live_input(header.at("manifest")));
-    if (manifest.at("account_id") != header.at("account_id"))
-        throw std::invalid_argument("live account identity differs from record header");
-    return manifest;
-}
-
-void validate_header(const Json& header)
-{
-    static_cast<void>(manifest_from_header(header));
-}
-
 } // namespace
 
 LiveAccountState::LiveAccountState(
@@ -93,9 +78,8 @@ LiveAccountState::LiveAccountState(
         if (std::filesystem::exists(directory / "journal.sqlite"))
             throw std::invalid_argument("directory already holds a session; recover it instead");
     } else {
-        header_ = read_journal_header(directory, {"plugins", "ctp-flow", "archives"});
-        validate_header(header_);
-        manifest = manifest_from_header(header_);
+        header_ = read_journal_header(directory, {"plugins", "ctp-flow", "archives", "facts"});
+        manifest = account_manifest(header_);
     }
     environment_ = manifest.at("environment") == "real" ? protocol::proto::REAL
                                                         : protocol::proto::BROKER_SIMULATION;
@@ -153,7 +137,7 @@ LiveAccountState::LiveAccountState(
     journal_ = std::make_unique<AccountJournal>(
         directory,
         [](const Json& header) {
-            validate_header(header);
+            (void)account_manifest(header);
         },
         std::move(post),
         persistence);
@@ -173,6 +157,10 @@ LiveAccountState::LiveAccountState(
                     "account record changed while acquiring execution ownership");
         },
         [&](const JournalRecord& record) {
+            // Receipt/index order was checked on the storage owner. Replaying a
+            // factual decision never mutates account execution or activates a source.
+            if (std::holds_alternative<FactsDecision>(record))
+                return;
             if (const auto* terminal = std::get_if<OrdersTerminal>(&record)) {
                 for (const auto& order : terminal->orders) {
                     const auto found = intents_.find(order.order_id);
@@ -1139,6 +1127,9 @@ protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
     result.set_error_code(state.error_code);
     result.set_trading_day(state.trading_day);
     result.set_synchronized_ms(state.synchronized_ms);
+    result.set_broker_sequence(state.sequence);
+    result.set_connection_generation(state.connection_generation);
+    result.set_positions_reconciled(state.positions_reconciled);
     result.set_recovery_required(failed_);
     result.set_segment_count(capacity_.segment_count);
     auto* capacity = result.mutable_capacity();
@@ -1231,6 +1222,68 @@ protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
         item->set_trading_day(intent->trading_day);
     }
     return result;
+}
+
+AccountCommand LiveAccountState::capture_facts(
+    resource::proto::Owner owner,
+    std::string instance,
+    std::string id,
+    protocol::proto::TradingFactsStatus& output)
+{
+    validate_id(id);
+    auto found = co_await journal_->find_facts(id);
+    protocol::proto::TradingFactsReceipt receipt;
+    if (found.facts_receipt) {
+        receipt = std::move(*found.facts_receipt);
+        if (receipt.reference().owner().SerializeAsString() != owner.SerializeAsString())
+            throw Error(
+                ErrorCode::conflict,
+                "trading facts owner differs from its original admission");
+    } else {
+        auto capture = protocol::freeze_trading_facts(owner, instance, id, now_ms(), snapshot());
+        *receipt.mutable_reference() = capture.reference();
+        receipt.set_state(protocol::proto::TradingFactsReceipt::ADMITTED);
+        receipt.set_admitted_at_ms(now_ms());
+        // Once admitted, the original digest is permanent even if writing the
+        // payload fails. A later request may never substitute a newer observation.
+        co_await append(entry(FactsDecision{receipt}));
+        co_await journal_->stage_facts(std::move(capture));
+    }
+    auto payload = co_await journal_->facts_payload(
+        receipt.reference(),
+        account_id_,
+        environment_,
+        receipt.state() == protocol::proto::TradingFactsReceipt::ADMITTED);
+    if (receipt.state() == protocol::proto::TradingFactsReceipt::ADMITTED) {
+        receipt.set_state(protocol::proto::TradingFactsReceipt::PUBLISHED);
+        receipt.set_published_at_ms(now_ms());
+        co_await append(entry(FactsDecision{receipt}));
+    }
+    // Readable publication receipt follows the authoritative journal commit.
+    // Explicit retry may reconstruct this small receipt, but never the original.
+    co_await journal_->seal_facts(receipt, account_id_, environment_);
+    *output.mutable_operation() = receipt;
+    *output.mutable_capture() = std::move(payload.facts_capture);
+}
+
+AccountCommand LiveAccountState::inspect_facts(
+    resource::proto::Owner owner,
+    std::string id,
+    protocol::proto::TradingFactsStatus& output)
+{
+    validate_id(id);
+    auto found = co_await journal_->find_facts(id);
+    if (!found.facts_receipt)
+        throw Error(ErrorCode::not_found, "trading facts operation was not admitted");
+    const auto& receipt = *found.facts_receipt;
+    if (receipt.reference().owner().SerializeAsString() != owner.SerializeAsString())
+        throw Error(ErrorCode::conflict, "trading facts owner mismatch");
+    *output.mutable_operation() = receipt;
+    if (receipt.state() == protocol::proto::TradingFactsReceipt::PUBLISHED) {
+        auto payload =
+            co_await journal_->facts_payload(receipt.reference(), account_id_, environment_, false);
+        *output.mutable_capture() = std::move(payload.facts_capture);
+    }
 }
 
 } // namespace asterion::trading

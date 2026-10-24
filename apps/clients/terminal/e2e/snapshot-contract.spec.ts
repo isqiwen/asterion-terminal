@@ -1,5 +1,5 @@
 import { removeFolder } from "./cleanup";
-import { seedDataset } from "./dataset-fixture";
+import { seedDataset, taskRpc } from "./dataset-fixture";
 import { test, expect, type APIRequestContext } from "./test";
 import { checkSnapshot, snapshotValidator } from "./snapshot-schema";
 import { mkdtemp } from "node:fs/promises";
@@ -38,11 +38,11 @@ test(
 
       const selected = await seedDataset(page.request, [100, 99], "contract");
       check("after dataset selection", selected);
-      expect(selected.task_service?.capacity!.active_limit).toBe(1000);
-      expect(selected.task_service?.capacity!.retained_tasks).toBe(0);
-      expect(selected.task_service?.capacity!.active_used).toBe(0);
-      expect(selected.task_service?.capacity!.active_reserved).toBe(0);
-      expect(selected.task_service?.capacity!.uncommitted).toBe(0);
+      expect(selected.research_service?.capacity!.active_limit).toBe(1000);
+      expect(selected.research_service?.capacity!.retained_tasks).toBe(0);
+      expect(selected.research_service?.capacity!.active_used).toBe(0);
+      expect(selected.research_service?.capacity!.active_reserved).toBe(0);
+      expect(selected.research_service?.capacity!.uncommitted).toBe(0);
 
       // Poll replies: either a full snapshot or an explicit unchanged marker.
       let revision = started.revision as number;
@@ -97,14 +97,17 @@ test(
           async () => {
             const state = await call(page.request, "runtime.snapshot");
             check("task in progress", state);
-            return state.task_service?.tasks.find(
+            return state.research_service?.tasks.find(
               (task: { id: string }) => task.id === "contract-backtest",
             )?.state;
           },
           { timeout: 30000 },
         )
         .toBe("succeeded");
-      check("task result", await call(page.request, "task.result", { id: "contract-backtest" }));
+      check(
+        "task result",
+        await taskRpc(page.request, "research", "task.result", { id: "contract-backtest" }),
+      );
 
       // Live market through the test SDK (ASTERION_CTP_LIBRARY from the e2e wrapper).
       await call(page.request, "ctp.connections.save", {

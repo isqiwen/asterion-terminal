@@ -171,7 +171,9 @@ Application::Impl::Impl()
     });
     register_live_commands();
     register_node_commands();
+    register_backup_commands();
     register_data_commands();
+    register_intelligence_commands();
     register_task_commands();
     register_backtest_commands();
     register_factor_commands();
@@ -210,19 +212,21 @@ Application::Impl::Publication Application::Impl::capture()
 {
     Publication next;
     next.task_result = task_result;
+    next.notice_custody = notice_custody;
     next.plugins = native_plugins;
     next.settings = settings_view;
     for (const auto& [id, account] : live)
         next.live.emplace(id, account->client->owner_view());
-    if (task_client)
-        next.tasks = task_client->owner_view();
+    if (research_client)
+        next.tasks = research_client->owner_view();
     const auto data = data_client ? data_client->owner_status() : json(nullptr);
     if (market)
         next.market = market->owner_read();
     next.nodes = manager.view();
     next.metadata = {
-        {"task_service", nullptr},
+        {"research_service", nullptr},
         {"data", data},
+        {"intelligence_service", intelligence_state},
         {"credential_verification", credential_verification},
         {"history_page", nullptr},
         {"ssh_key", ssh_key},
@@ -316,8 +320,9 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
         }
     }
     result["market"] = market.render(held);
-    result["task_service"] = tasks ? tasks->render() : json(nullptr);
+    result["research_service"] = tasks ? tasks->render() : json(nullptr);
     result["task_result"] = task_result ? *task_result : json(nullptr);
+    result["notice_custody"] = notice_custody ? *notice_custody : json(nullptr);
     result["native_plugins"] = plugins ? *plugins : json(nullptr);
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;

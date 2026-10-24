@@ -66,15 +66,14 @@ int main(int argc, char** argv)
         const auto root = environment_path("ASTERION_NODE_DIRECTORY");
         if (environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1" || !root
             || std::filesystem::canonical(directory)
-                != std::filesystem::canonical(*root / "services" / "task" / "ledger"))
-            throw std::invalid_argument("minute fixture requires an isolated task ledger");
+                != std::filesystem::canonical(*root / "services" / "historical-data" / "ledger"))
+            throw std::invalid_argument("minute fixture requires an isolated Data ledger");
         const auto data_directory = *root / "services" / "historical-data" / "ledger";
         {
-            data::Store warehouse(data_directory, "historical-data", "task");
+            data::Store warehouse(data_directory, "historical-data");
             tasks::Store store(
-                directory,
+                std::filesystem::path(directory) / "acquisition-tasks",
                 tasks::Identity{
-                    "task",
                     "historical-data"
                 }); // Exclusive ownership refuses a running service.
             if (store.list().tasks_size())
@@ -98,14 +97,14 @@ int main(int argc, char** argv)
             input.set_end_ns(range.end_ns);
             input.set_requests_per_minute(60);
             const std::string id = "native-minute-fixture";
-            tasks::submit(store, test::authorize_download(warehouse, "task", id, input));
+            tasks::submit(store, test::authorize_download(warehouse, "historical-data", id, input));
             task::proto::TaskAttempt attempt;
             attempt.set_token(store.commit(store.claim(id)).token());
             *attempt.mutable_task() = store.get(id);
             data::proto::DownloadAllocation allocation;
             auto* identity = allocation.mutable_identity();
             identity->set_data_instance("historical-data");
-            identity->set_task_instance("task");
+            identity->set_task_instance("historical-data");
             identity->set_task_id(id);
             identity->set_attempt(attempt.task().attempt());
             *allocation.mutable_minutes() = input;
@@ -155,7 +154,9 @@ int main(int argc, char** argv)
             queued.set_contract_id("SHFE/zn/2023-10");
             queued.set_source_instrument("ZN2310.SHF");
             const std::string queued_id = "native-queued-minutes";
-            tasks::submit(store, test::authorize_download(warehouse, "task", queued_id, queued));
+            tasks::submit(
+                store,
+                test::authorize_download(warehouse, "historical-data", queued_id, queued));
             allocation.mutable_identity()->set_task_id(queued_id);
             allocation.mutable_identity()->set_attempt(1);
             *allocation.mutable_minutes() = queued;

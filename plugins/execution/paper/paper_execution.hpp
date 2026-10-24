@@ -2,9 +2,30 @@
 #include <asterion/domain/account.hpp>
 #include <asterion/domain/risk_port.hpp>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace asterion {
+
+// A typed order decision, distinct from a broken risk dependency or account failure.
+class PaperRiskRejected final : public std::invalid_argument
+{
+public:
+    explicit PaperRiskRejected(RiskReason reason)
+        : std::invalid_argument(
+              "pre-trade risk rejected: " + std::string(risk_reason_name(reason))),
+          reason_(reason)
+    {}
+
+    RiskReason reason() const noexcept
+    {
+        return reason_;
+    }
+
+private:
+    RiskReason reason_;
+};
 
 // Fraction of each bar's volume available to all simulated orders together.
 inline const Decimal paper_bar_participation = Decimal::parse("0.1");
@@ -81,7 +102,9 @@ public:
         Decimal quantity, limit_price;
     };
 
-    void advance(const std::optional<Target>& target = {});
+    // Limit rejection submits no target but still observes this bar. Risk
+    // dependency/invalid-context and account failures propagate and roll back.
+    RiskDecision advance(const std::optional<Target>& target = {});
 
     // One price per contract, ordered as account().contracts(); a contract
     // that has no settlement price that day has none and must hold no position.

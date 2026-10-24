@@ -5,6 +5,9 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <map>
+#include <set>
+#include <algorithm>
+#include <asterion/foundation/error.hpp>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -100,11 +103,27 @@ bind_partition(Statement& statement, const TableSeries& series, const std::strin
 
 } // namespace
 
-TableStore::TableStore(fs::path root)
-    : root_(std::move(root))
+TableStore::TableStore(fs::path root, Access access)
+    : root_(std::move(root)),
+      access_(access)
 {
     if (!root_.is_absolute())
         throw std::invalid_argument("history table store requires an absolute directory");
+    if (access_ != Access::writer) {
+        if (fs::is_symlink(root_) || !fs::is_directory(root_) || fs::is_symlink(root_ / "objects")
+            || !fs::is_directory(root_ / "objects"))
+            throw std::invalid_argument("table inspection requires an existing owned layout");
+        ledger_ = std::make_unique<sqlite::Database>(
+            root_ / "ledger.sqlite",
+            access_ == Access::cold_read_only ? sqlite::Database::Access::cold_read_only
+                                              : sqlite::Database::Access::read_only);
+        supported(*ledger_);
+        Statement shape(
+            *ledger_,
+            std::string("SELECT ") + fields + " FROM table_revisions LIMIT 0");
+        (void)retirements();
+        return;
+    }
     create_directories_durably(root_ / "objects");
     ledger_ = std::make_unique<sqlite::Database>(
         root_ / "ledger.sqlite",
@@ -116,14 +135,74 @@ TableStore::TableStore(fs::path root)
     ledger_->execute(
         "CREATE INDEX IF NOT EXISTS table_revisions_partition ON " "table_revisions(dataset, schema, source, exchange, period, sequence)");
     transaction.commit();
+    (void)retirements();
 }
 
 TableStore::~TableStore() = default;
+
+void TableStore::writable() const
+{
+    if (access_ != Access::writer)
+        throw std::logic_error("history table inspection is read only");
+}
+
+void TableStore::verify_history(std::stop_token stop) const
+{
+    const auto fixed = head();
+    if (fixed.empty())
+        return;
+    const auto through = sequence(fixed);
+    if (!through)
+        throw std::invalid_argument("table snapshot is unavailable");
+    std::set<std::string> removed;
+    {
+        std::lock_guard lock(mutex_);
+        const auto allowed = reclaimable_unlocked({}, stop);
+        for (const auto& decision : retirements_unlocked())
+            for (const auto& object : decision.objects)
+                if (std::binary_search(allowed.begin(), allowed.end(), object))
+                    removed.insert(object);
+    }
+    std::uint64_t after = 0;
+    std::string previous;
+    while (after < *through) {
+        std::vector<TableRevision> page;
+        {
+            std::lock_guard lock(mutex_);
+            Statement rows(
+                *ledger_,
+                std::string("SELECT ") + fields
+                    + " FROM table_revisions WHERE sequence>? AND sequence<=? ORDER BY sequence LIMIT 256");
+            rows.bind(1, static_cast<std::int64_t>(after))
+                .bind(2, static_cast<std::int64_t>(*through));
+            while (rows.step())
+                page.push_back(revision(rows));
+        }
+        if (page.empty())
+            throw std::invalid_argument("table history is incomplete");
+        for (const auto& item : page) {
+            if (stop.stop_requested())
+                throw Error(ErrorCode::cancelled, "table history inspection interrupted");
+            if (item.sequence != after + 1)
+                throw std::invalid_argument("table history sequence is incomplete");
+            const auto raw = response(item);
+            if (!raw && sha256_bytes(snapshot_bytes(item, previous)) != item.snapshot)
+                throw std::invalid_argument("table snapshot chain is corrupt");
+            if (!removed.contains(item.object))
+                (void)rows(item);
+            previous = item.snapshot;
+            after = item.sequence;
+        }
+    }
+}
 
 fs::path TableStore::object_path(const std::string& object) const
 {
     if (!digest(object))
         throw std::invalid_argument("invalid history table object");
+    if (fs::is_symlink(root_) || fs::is_symlink(root_ / "objects")
+        || fs::is_symlink(root_ / "objects" / object.substr(0, 2)))
+        throw std::invalid_argument("table object path rejects symbolic links");
     return root_ / "objects" / object.substr(0, 2) / (object + ".parquet");
 }
 
@@ -146,12 +225,15 @@ std::optional<TableRevision> TableStore::current(
 
 TableStore::Object TableStore::write(const TablePartition& partition) const
 {
+    writable();
     if (!partition.table || partition.rows.empty() || !digest(partition.content))
         throw std::invalid_argument("history table partition has no rows");
+    std::lock_guard lock(mutex_);
     // Unique per partition and content; the owner orders writers of one partition.
     const auto incoming = root_ / "objects" / ("incoming-" + partition.content + ".parquet");
     parquet::write_table(incoming, partition);
     Object result{sha256_file(incoming), fs::file_size(incoming)};
+    check_publishable_unlocked(result.sha256);
     const auto path = object_path(result.sha256);
     create_directories_durably(path.parent_path());
     publish_file_durably(incoming, path);
@@ -166,6 +248,7 @@ TableStore::Recorded TableStore::record(
     std::int64_t acquired_at_ns,
     const std::optional<SourceResponse>& response)
 {
+    writable();
     validate(series);
     if (!partition.table || partition.table->id != series.table || partition.rows.empty()
         || !digest(partition.content) || !digest(provider_artifact) || acquired_at_ns <= 0
@@ -174,6 +257,7 @@ TableStore::Recorded TableStore::record(
         || fs::file_size(object_path(object.sha256)) != object.bytes)
         throw std::invalid_argument("invalid history table revision");
     std::lock_guard lock(mutex_);
+    check_publishable_unlocked(object.sha256);
     sqlite::Database::Transaction transaction(*ledger_);
     Statement held(
         *ledger_,
@@ -323,6 +407,24 @@ std::string TableStore::head() const
     return last.step() ? last.text(0) : std::string();
 }
 
+std::vector<TableRevision>
+TableStore::snapshot_catalogue(const std::string& after, unsigned limit) const
+{
+    if ((!after.empty() && !digest(after)) || !limit || limit > 129)
+        throw std::invalid_argument("invalid table catalogue cursor or limit");
+    std::lock_guard lock(mutex_);
+    (void)retirements_unlocked();
+    Statement rows(
+        *ledger_,
+        std::string("SELECT ") + fields
+            + " FROM table_revisions WHERE snapshot>? ORDER BY snapshot LIMIT ?");
+    rows.bind(1, after).bind(2, static_cast<std::int64_t>(limit));
+    std::vector<TableRevision> result;
+    while (rows.step())
+        result.push_back(revision(rows));
+    return result;
+}
+
 std::vector<TableCoverage> TableStore::coverage() const
 {
     std::lock_guard lock(mutex_);
@@ -367,6 +469,8 @@ std::optional<std::uint64_t> TableStore::sequence(const std::string& snapshot) c
 {
     if (!digest(snapshot))
         throw std::invalid_argument("invalid history table snapshot");
+    if (retirement(snapshot))
+        return std::nullopt;
     std::lock_guard lock(mutex_);
     Statement statement(*ledger_, "SELECT sequence FROM table_revisions WHERE snapshot = ?");
     statement.bind(1, snapshot);
@@ -384,6 +488,9 @@ std::vector<TableRevision> TableStore::revisions(
 {
     validate(series);
     std::lock_guard lock(mutex_);
+    for (const auto& decision : retirements_unlocked())
+        if (decision.sequence == until)
+            throw Error(ErrorCode::conflict, "table snapshot is retired");
     Statement statement(
         *ledger_,
         std::string("SELECT ") + fields

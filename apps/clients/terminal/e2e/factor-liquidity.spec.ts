@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { seedHistory, rpc } from "./dataset-fixture";
 import { test, expect } from "./test";
@@ -62,7 +63,7 @@ test("daily factor persists liquidity eligibility separately from evaluated memb
   expect(state.task_result.result.memberships).toHaveLength(days.length * 3);
   const id = state.task_result.id;
   await page.reload();
-  const restored = await rpc(page.request, "task.result", { id });
+  const restored = await taskRpc(page.request, "research", "task.result", { id });
   expect(restored.task_result.result.memberships).toEqual(state.task_result.result.memberships);
   expect(restored.task_result.experiment.liquidity).toEqual(state.task_result.experiment.liquidity);
 });

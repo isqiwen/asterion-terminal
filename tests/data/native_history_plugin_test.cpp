@@ -1,5 +1,8 @@
 #include "history_providers.hpp"
 #include <asterion/kernel/native_plugin.hpp>
+#include <asterion/kernel/durable_file.hpp>
+#include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <asterion/foundation/error.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
@@ -144,4 +147,36 @@ TEST(NativeHistoryPlugin, TablesArriveAsTextAndFailuresKeepThePluginsOwnWords)
     std::stop_source cancelled;
     cancelled.request_stop();
     EXPECT_THROW((void)reader->read(daily, "SHFE", "2024-03-01", cancelled.get_token()), Error);
+}
+
+TEST(NativeHistoryPlugin, RetentionRejectsChangedOriginalInsteadOfSubstitutingInstalledBytes)
+{
+    namespace fs = std::filesystem;
+    const auto root =
+        fs::temp_directory_path() / ("asterion-provider-drift-" + unique_process_id());
+    fs::create_directories(root / "plugins");
+
+    struct Cleanup
+    {
+        fs::path path;
+
+        ~Cleanup()
+        {
+            std::error_code error;
+            fs::remove_all(path, error);
+        }
+    } cleanup{root};
+
+    const auto offered = discover_native_plugins(PLUGIN_FIXTURE_DIRECTORY);
+    ASSERT_EQ(offered.size(), 1U);
+    const auto copied = root / "plugins" / offered[0].path().filename();
+    fs::copy_file(offered[0].path(), copied);
+    configure_native_plugins(root / "plugins");
+    const auto fixed = history_providers::artifact("fixture.minutes");
+    // Replace only this test-owned pathname; the loaded module's original inode survives.
+    replace_file_durably(copied, "synthetic different source program");
+    EXPECT_THROW(
+        history_providers::preserve_artifact(fixed, root / "programs"),
+        std::invalid_argument);
+    EXPECT_TRUE(fs::is_empty(root / "programs"));
 }

@@ -1,6 +1,10 @@
 #include "account_journal.hpp"
+#include "facts_archive.hpp"
+#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/foundation/error.hpp>
+#include <asterion/foundation/id.hpp>
 
 namespace asterion::trading {
 namespace {
@@ -22,6 +26,76 @@ struct Page
     std::vector<JournalRecord> records;
 };
 
+Page read_page(
+    const SqliteJournal& journal,
+    std::uint64_t first,
+    std::uint64_t total,
+    std::uint64_t& submitted)
+{
+    const auto mismatch = [] {
+        return std::invalid_argument("trading order index does not match its journal record");
+    };
+    Page page;
+    auto sequence = first;
+    for (auto& stored : journal.read(first)) {
+        if (sequence == 0) {
+            page.header = std::move(stored);
+            ++sequence;
+            continue;
+        }
+        auto record = parse_record(stored);
+        if (const auto* command = std::get_if<CommandRecord>(&record)) {
+            if (journal.command_sequence(command->request.id) != sequence)
+                throw std::invalid_argument(
+                    "trading command index does not match its journal record");
+            if (const auto* submit = command->request.as<SubmitOrder>()) {
+                ++submitted;
+                const auto index = journal.order_index(submit->order.id);
+                if (!index || index->sequence != sequence
+                    || index->trading_day != command->trading_day
+                    || index->broker_key != command->broker_key)
+                    throw mismatch();
+                if (index->excluded_by
+                    && excluded_order(parse_record(journal.record(index->excluded_by)))
+                        != submit->order.id)
+                    throw mismatch();
+            }
+        }
+        if (const auto* facts = std::get_if<FactsDecision>(&record)) {
+            const auto& r = facts->receipt;
+            if (journal.command_sequence(facts_decision_key(r.reference().id(), r.state()))
+                != sequence)
+                throw std::invalid_argument("trading facts index does not match its decision");
+            if (r.state() == protocol::proto::TradingFactsReceipt::PUBLISHED) {
+                const auto key = facts_decision_key(
+                    r.reference().id(),
+                    protocol::proto::TradingFactsReceipt::ADMITTED);
+                const auto admitted_sequence = journal.command_sequence(key);
+                if (!admitted_sequence || *admitted_sequence >= sequence)
+                    throw std::invalid_argument(
+                        "trading facts publication has no preceding admission");
+                const auto admission =
+                    std::get<FactsDecision>(parse_record(journal.command(key))).receipt;
+                if (admission.reference().SerializeAsString() != r.reference().SerializeAsString()
+                    || admission.admitted_at_ms() != r.admitted_at_ms())
+                    throw std::invalid_argument("trading facts publication changed its admission");
+            }
+        }
+        if (const auto excluded = excluded_order(record); !excluded.empty()) {
+            const auto index = journal.order_index(excluded);
+            if (!index || index->excluded_by != sequence)
+                throw mismatch();
+        }
+        page.records.push_back(std::move(record));
+        ++sequence;
+    }
+    // Unique identities plus per-record checks and equal cardinality rule out
+    // an extra index row that could otherwise claim an unrelated broker report.
+    if (sequence == total && journal.order_identity_count() != submitted)
+        throw mismatch();
+    return page;
+}
+
 } // namespace
 
 AccountJournal::AccountJournal(
@@ -29,7 +103,8 @@ AccountJournal::AccountJournal(
     std::function<void(const Json&)> validate,
     Post post,
     Progress& progress)
-    : progress_(progress),
+    : directory_(directory),
+      progress_(progress),
       post_(std::move(post))
 {
     std::promise<void> started;
@@ -39,12 +114,39 @@ AccountJournal::AccountJournal(
                                validate = std::move(validate),
                                started = std::move(started)]() mutable {
         progress_.begin();
+        std::unique_ptr<FileLock> directory_owner;
         std::unique_ptr<SqliteJournal> journal;
         try {
-            journal = std::make_unique<SqliteJournal>(
-                directory,
-                std::set<std::string>{"plugins", "ctp-flow", "archives"},
-                std::move(validate));
+            const std::set<std::string> sidecars{"plugins", "ctp-flow", "archives", "facts"};
+            if (!directory.is_absolute() || std::filesystem::is_symlink(directory)
+                || !std::filesystem::is_directory(directory))
+                throw std::invalid_argument("choose an existing trading record directory");
+            const auto facts = directory / "facts";
+            if (std::filesystem::is_symlink(facts))
+                throw std::invalid_argument("invalid journal sidecar directory");
+            const auto lease = facts / ownership_file;
+            if (std::filesystem::exists(lease) || std::filesystem::is_symlink(lease)) {
+                // A stopped cut must reject this writer before normal SQLite I/O
+                // could create WAL coordination files inside its inspected directory.
+                directory_owner = std::make_unique<FileLock>(
+                    facts,
+                    ownership_file,
+                    FileLock::Access::exclusive_existing);
+                if (std::filesystem::file_size(lease))
+                    throw std::invalid_argument("invalid account journal ownership lease");
+            } else {
+                // Existing business evidence is validated before adding a new empty
+                // coordination slot. SqliteJournal rechecks after ownership is held.
+                if (std::filesystem::exists(directory / "journal.sqlite")) {
+                    const auto header = read_journal_header(directory, sidecars);
+                    if (validate)
+                        validate(header);
+                } else
+                    check_journal_directory(directory, sidecars);
+                create_directories_durably(facts);
+                directory_owner = std::make_unique<FileLock>(facts, ownership_file);
+            }
+            journal = std::make_unique<SqliteJournal>(directory, sidecars, std::move(validate));
             journal->start();
             initial_capacity_ = journal->capacity();
         } catch (...) {
@@ -77,49 +179,7 @@ void AccountJournal::replay(
     for (std::uint64_t first = 0; first < initial_capacity_.total_records;) {
         auto task = std::make_shared<std::packaged_task<Page(SqliteJournal&)>>(
             [first, &submitted, total = initial_capacity_.total_records](SqliteJournal& journal) {
-                const auto mismatch = [] {
-                    return std::invalid_argument(
-                        "trading order index does not match its journal record");
-                };
-                Page page;
-                auto sequence = first;
-                for (auto& stored : journal.read(first)) {
-                    if (sequence == 0) {
-                        page.header = std::move(stored);
-                        ++sequence;
-                        continue;
-                    }
-                    auto record = parse_record(stored);
-                    if (const auto* command = std::get_if<CommandRecord>(&record)) {
-                        if (journal.command_sequence(command->request.id) != sequence)
-                            throw std::invalid_argument(
-                                "trading command index does not match its journal record");
-                        if (const auto* submit = command->request.as<SubmitOrder>()) {
-                            ++submitted;
-                            const auto index = journal.order_index(submit->order.id);
-                            if (!index || index->sequence != sequence
-                                || index->trading_day != command->trading_day
-                                || index->broker_key != command->broker_key)
-                                throw mismatch();
-                            if (index->excluded_by
-                                && excluded_order(parse_record(journal.record(index->excluded_by)))
-                                    != submit->order.id)
-                                throw mismatch();
-                        }
-                    }
-                    if (const auto excluded = excluded_order(record); !excluded.empty()) {
-                        const auto index = journal.order_index(excluded);
-                        if (!index || index->excluded_by != sequence)
-                            throw mismatch();
-                    }
-                    page.records.push_back(std::move(record));
-                    ++sequence;
-                }
-                // Unique identities plus per-record checks and equal cardinality rule out
-                // an extra index row that could otherwise claim an unrelated broker report.
-                if (sequence == total && journal.order_identity_count() != submitted)
-                    throw mismatch();
-                return page;
+                return read_page(journal, first, total, submitted);
             });
         auto result = task->get_future();
         if (!jobs_.try_push([task](SqliteJournal& journal) {
@@ -133,6 +193,32 @@ void AccountJournal::replay(
             apply(record);
         first += page.records.size() + (page.header ? 1 : 0);
     }
+}
+
+std::vector<std::filesystem::path> AccountJournal::inspect_backup(
+    const std::filesystem::path& directory,
+    const std::function<void(const Json&)>& header,
+    const std::function<void(const JournalRecord&)>& apply,
+    std::stop_token stop)
+{
+    return SqliteJournal::inspect_backup(
+        directory,
+        {"plugins", "ctp-flow", "archives", "facts"},
+        [&](const SqliteJournal& journal, const Json&) {
+            std::uint64_t submitted = 0;
+            const auto total = journal.capacity().total_records;
+            for (std::uint64_t first = 0; first < total;) {
+                if (stop.stop_requested())
+                    throw Error(ErrorCode::cancelled, "trading journal inspection cancelled");
+                const auto page = read_page(journal, first, total, submitted);
+                if (page.header)
+                    header(*page.header);
+                for (const auto& record : page.records)
+                    apply(record);
+                first += page.records.size() + (page.header ? 1 : 0);
+            }
+        },
+        stop);
 }
 
 SqliteJournal::Capacity AccountJournal::initialize(Json header)
@@ -289,6 +375,90 @@ AccountJournal::Write AccountJournal::retire_policy(std::unique_ptr<const Accoun
         {},
         {},
         std::move(policy)
+    };
+}
+
+AccountJournal::Write AccountJournal::find_facts(std::string id)
+{
+    validate_id(id);
+    return {
+        *this,
+        [id = std::move(id)](SqliteJournal& journal) {
+            Result result;
+            for (auto state :
+                {protocol::proto::TradingFactsReceipt::PUBLISHED,
+                    protocol::proto::TradingFactsReceipt::ADMITTED}) {
+                const auto body = journal.command(facts_decision_key(id, state));
+                if (!body.is_null()) {
+                    result.facts_receipt = std::get<FactsDecision>(parse_record(body)).receipt;
+                    break;
+                }
+            }
+            return result;
+        },
+        {},
+        {},
+        {}
+    };
+}
+
+AccountJournal::Write AccountJournal::stage_facts(protocol::proto::TradingFactsCapture capture)
+{
+    return {
+        *this,
+        [directory = directory_, capture = std::move(capture)](SqliteJournal&) {
+            const auto& f = capture.facts();
+            FactsArchive(directory, f.source(), f.account_id(), f.environment()).stage(capture);
+            return Result{};
+        },
+        {},
+        {},
+        {}
+    };
+}
+
+AccountJournal::Write AccountJournal::facts_payload(
+    resource::proto::Object ref,
+    std::string account_id,
+    protocol::proto::TradingEnvironment environment,
+    bool publish)
+{
+    return {
+        *this,
+        [directory = directory_,
+            ref = std::move(ref),
+            account_id = std::move(account_id),
+            environment,
+            publish](SqliteJournal&) {
+            FactsArchive archive(directory, ref.owner(), account_id, environment);
+            Result result;
+            result.facts_capture = publish ? archive.publish(ref) : archive.read(ref);
+            return result;
+        },
+        {},
+        {},
+        {}
+    };
+}
+
+AccountJournal::Write AccountJournal::seal_facts(
+    protocol::proto::TradingFactsReceipt receipt,
+    std::string account_id,
+    protocol::proto::TradingEnvironment environment)
+{
+    return {
+        *this,
+        [directory = directory_,
+            receipt = std::move(receipt),
+            account_id = std::move(account_id),
+            environment](SqliteJournal&) {
+            FactsArchive(directory, receipt.reference().owner(), account_id, environment)
+                .seal(receipt);
+            return Result{};
+        },
+        {},
+        {},
+        {}
     };
 }
 

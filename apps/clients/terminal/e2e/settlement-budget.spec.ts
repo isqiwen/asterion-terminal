@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile, writeFile } from "node:fs/promises";
 import { test, expect } from "./test";
@@ -75,14 +76,15 @@ test("recorded settlement budgets reveal earlier excess while the final account 
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (t: { id: string }) => t.id === "settlement-path",
         )?.state,
       { timeout: 30000 },
     )
     .toBe("succeeded");
-  const original = (await rpc(page.request, "task.result.read", { id: "settlement-path" }))
-    .task_result;
+  const original = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "settlement-path" })
+  ).task_result;
   const points = original.portfolio.settlement_path.points;
   expect(points).toHaveLength(days.length);
   expect(
@@ -99,7 +101,7 @@ test("recorded settlement budgets reveal earlier excess while the final account 
   expect(original.result.settlements.every((d: { occupancy?: unknown }) => !!d.occupancy)).toBe(
     true,
   );
-  const beforeTasks = (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+  const beforeTasks = (await rpc(page.request, "runtime.snapshot")).research_service.tasks
     .map((t: { id: string }) => t.id)
     .sort();
   await page.goto("/");
@@ -153,11 +155,11 @@ test("recorded settlement budgets reveal earlier excess while the final account 
   const exported = JSON.parse(await readFile(path, "utf8"));
   expect(exported.result).toEqual(original.result);
   expect(exported.portfolio).toEqual(original.portfolio);
-  expect((await rpc(page.request, "task.result.read", { id: original.id })).task_result).toEqual(
-    original,
-  );
   expect(
-    (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+    (await taskRpc(page.request, "research", "task.result.read", { id: original.id })).task_result,
+  ).toEqual(original);
+  expect(
+    (await rpc(page.request, "runtime.snapshot")).research_service.tasks
       .map((t: { id: string }) => t.id)
       .sort(),
   ).toEqual(beforeTasks);

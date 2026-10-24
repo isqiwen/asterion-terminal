@@ -3,6 +3,7 @@ package asterion.backtest.proto;
 import "asterion/domain.proto";
 import "asterion/trading.proto";
 import "asterion/data.proto";
+import "asterion/research_model.proto";
 
 // Explicit model parameters for the single ordinary daily contract. The source
 // is a user-supplied explanation, not a claim of verified provider provenance.
@@ -13,10 +14,23 @@ message SettlementMargin {
   string source = 3;
 }
 
+// Explicit method assumptions for daily settlement returns, not observed calendar coverage.
+message PerformanceAssumptions {
+  optional double annual_periods = 1;
+
+  enum RiskFree {
+    RISK_FREE_UNSPECIFIED = 0;
+    EXPLICIT_ZERO = 1;
+  }
+
+  RiskFree risk_free = 2;
+}
+
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
   reserved 1;
+  asterion.data.proto.DataOwner data_owner = 10;
   string dataset_revision = 2;
   asterion.protocol.proto.PaperInput paper = 3;
   // One strategy is replayed as it is. Several, up to 32 and all different,
@@ -31,6 +45,9 @@ message BacktestInput {
   BacktestWalkForward walk_forward = 7;
   repeated SettlementMargin settlement_margins = 8;
   asterion.data.proto.HistoricalMargins historical_margins = 9;
+  // Mutually exclusive with ordinary CTA strategies. Uses the same paper account/engine.
+  asterion.research.proto.ModelReplayDefinition model_replay = 11;
+  PerformanceAssumptions performance_assumptions = 12;
 }
 // A comparison that rolls forward by trading days. Each round scores the
 // strategies over `training_days` and the account follows the best of them
@@ -77,6 +94,8 @@ message BacktestReuse {
   DataChoice choice = 4;
   string snapshot = 5;
   optional uint32 slippage_ticks = 6; // fixed-data single-contract sensitivity only
+  asterion.research.proto.ModelReplaySelection model_replay = 7;
+  asterion.protocol.proto.Decimal fee_multiplier = 8; // exclusive fixed-data fee scenario
 }
 message BacktestRequest {
   repeated BacktestContract contracts = 1;
@@ -90,6 +109,7 @@ message BacktestRequest {
   BacktestWalkForward walk_forward = 7;
   repeated SettlementMargin settlement_margins = 8;
   string margin_snapshot = 9;
+  PerformanceAssumptions performance_assumptions = 10;
 }
 
 enum EquityEvent {
@@ -152,11 +172,87 @@ message BacktestFold {
   string first_day = 1;
   repeated BacktestCandidate candidates = 2;
   optional uint32 selected = 3;
+  // Inclusive scoring and validation boundaries from the fixed trading-day
+  // sequence. Scoring may retain causal strategy state from earlier history.
+  string training_first_day = 4;
+  string training_last_day = 5;
+  string last_day = 6;
+  uint32 training_days = 7;
+  uint32 validation_days = 8;
 }
-// Optional observations, recorded only for single-contract daily replays.
+// Original fill-to-trading-day observations, recorded for all-daily replays.
+// Contract identity remains the original Fill venue/symbol; absent historical
+// observations are not reconstructed from timestamps or settlement calendars.
 message BacktestFillDay {
   string fill_id = 1;
   string trading_day = 2;
+}
+// A target denied at its application bar; this is not a fill or dependency failure.
+message BacktestTargetRejection {
+  string intent_id = 1;
+  uint32 source_index = 2;
+  int64 boundary_ns = 3;
+
+  enum Reason {
+    UNSPECIFIED = 0;
+    ORDER_QUANTITY = 1;
+    GROSS_QUANTITY = 2;
+    WORKING_ORDERS = 3;
+    INSUFFICIENT_FUNDS = 4;
+  }
+
+  Reason reason = 4;
+  asterion.protocol.proto.Decimal target = 5;
+}
+// Original facts after this boundary's fills/expiry and before the new target.
+message PortfolioMemberObservation {
+  repeated asterion.protocol.proto.Position positions = 1;
+  repeated asterion.protocol.proto.Order working_orders = 2;
+}
+message PortfolioTargetMember {
+  string venue = 1;
+  string symbol = 2;
+  asterion.protocol.proto.Decimal weight = 3;
+  asterion.protocol.proto.Decimal price = 4;
+  asterion.protocol.proto.Decimal multiplier = 5;
+  asterion.protocol.proto.Decimal requested_notional = 6;
+  asterion.protocol.proto.Decimal quantity = 7;
+  asterion.protocol.proto.Decimal allocated_notional = 8;
+  asterion.protocol.proto.Decimal nominal_remainder = 9;
+  string intent_id = 10;
+  uint32 source_index = 11;
+  PortfolioMemberObservation observation = 12;
+}
+message PortfolioTargetDecision {
+  int64 boundary_ns = 1;
+  string trading_day = 2;
+  asterion.protocol.proto.Decimal equity = 3;
+  asterion.protocol.proto.Decimal gross_weight = 4;
+  asterion.protocol.proto.Decimal net_weight = 5;
+  asterion.protocol.proto.Decimal gross_limit = 6;
+  asterion.protocol.proto.Decimal net_limit = 7;
+  asterion.protocol.proto.Decimal requested_gross_notional = 8;
+  asterion.protocol.proto.Decimal requested_net_notional = 9;
+  asterion.protocol.proto.Decimal allocated_gross_notional = 10;
+  asterion.protocol.proto.Decimal allocated_net_notional = 11;
+  asterion.protocol.proto.Decimal unallocated_nominal_budget = 12;
+  repeated PortfolioTargetMember members = 13;
+  bool has_next_bar = 14; // A final-boundary target is not an executed trade.
+}
+// Actual order acceptance, distinct from the completed-bar target intent.
+message PortfolioTargetOrder {
+  string order_id = 1;
+  string intent_id = 2;
+  uint32 decision_source_index = 3;
+  uint32 source_index = 4;
+  int64 boundary_ns = 5;
+}
+message PortfolioTargetFill {
+  string fill_id = 1;
+  string intent_id = 2;
+  uint32 decision_source_index = 3;
+  uint32 source_index = 4;
+  int64 boundary_ns = 5;
 }
 message BacktestResult {
   reserved 1;
@@ -174,5 +270,12 @@ message BacktestResult {
   // With a rolling comparison instead: its rounds, and the rest of this
   // result is the one account that followed each round's strategy in turn.
   repeated BacktestFold folds = 10;
+  repeated BacktestTargetRejection target_rejections = 14;
+  repeated PortfolioTargetDecision portfolio_targets = 15;
+  repeated PortfolioTargetFill portfolio_fills = 16;
+  repeated PortfolioTargetOrder portfolio_orders = 17;
   repeated BacktestFillDay fill_days = 11; // empty means no fill-date evidence
+  asterion.research.proto.ModelReplayResult model_replay = 12;
+  BacktestCandidate model_validation =
+    13; // Validation days only; never dilute with flat training days.
 }

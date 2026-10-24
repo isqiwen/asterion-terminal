@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
 import { seedHistory, rpc } from "./dataset-fixture";
@@ -111,7 +112,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
     openInterest: 250,
   });
   await page.reload();
-  await rpc(page.request, "task.result", { id });
+  await taskRpc(page.request, "research", "task.result", { id });
   await openView(page, "factor");
   const originalRow = workspace
     .getByRole("region", { name: "研究任务", exact: true })
@@ -126,15 +127,16 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (task: { id: string }) => task.id === fixedId,
         )?.state,
     )
     .toBe("succeeded");
-  const fixed = (await rpc(page.request, "task.result", { id: fixedId })).task_result;
+  const fixed = (await taskRpc(page.request, "research", "task.result", { id: fixedId }))
+    .task_result;
   expect(fixed.experiment).toEqual(state.task_result.experiment);
   expect(fixed.result).toEqual(state.task_result.result);
-  await rpc(page.request, "task.result", { id });
+  await taskRpc(page.request, "research", "task.result", { id });
   await originalRow.getByRole("button", { name: "查看结果", exact: true }).click();
   await createFrom.getByLabel("选择当前服务的新快照", { exact: true }).check();
   await expect(
@@ -147,12 +149,12 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (task: { id: string }) => task.id === newId,
         )?.state,
     )
     .toBe("succeeded");
-  const fresh = (await rpc(page.request, "task.result", { id: newId })).task_result;
+  const fresh = (await taskRpc(page.request, "research", "task.result", { id: newId })).task_result;
   expect(fresh.experiment.liquidity).toEqual(state.task_result.experiment.liquidity);
   expect(fresh.experiment.series[0].data.snapshot).not.toBe(
     state.task_result.experiment.series[0].data.snapshot,
@@ -163,7 +165,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   );
   expect(section.series).toBe(3);
   expect(section.members).toHaveLength(3);
-  const unchanged = (await rpc(page.request, "task.result", { id })).task_result;
+  const unchanged = (await taskRpc(page.request, "research", "task.result", { id })).task_result;
   expect(unchanged.experiment).toEqual(state.task_result.experiment);
   expect(unchanged.result).toEqual(state.task_result.result);
   const comparison = workspace.getByRole("region", { name: "日线因子比较", exact: true });
@@ -235,8 +237,12 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   );
 
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(before);
-  expect((await rpc(page.request, "task.result.read", { id })).task_result).toEqual(unchanged);
-  expect((await rpc(page.request, "task.result.read", { id: newId })).task_result).toEqual(fresh);
+  expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
+    unchanged,
+  );
+  expect(
+    (await taskRpc(page.request, "research", "task.result.read", { id: newId })).task_result,
+  ).toEqual(fresh);
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(before);
   expect(fixed.task.metadata).toMatchObject({
     source_id: id,
@@ -261,7 +267,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   );
   await expect(comparisonExport.getByRole("status")).toHaveCount(0);
 
-  const edited = (await rpc(page.request, "task.result.read", { id })).task_result;
+  const edited = (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   expect(edited.task.metadata).toMatchObject({
     name: "liquidity baseline",
     note: "fixed evidence\nreviewed",
@@ -291,8 +297,11 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   expect(document.not_included).toContain("input.pb");
   expect(download.suggestedFilename()).toBe(id + ".evidence.json");
   await expect(exportPanel.getByRole("status")).toContainText(`${bytes.length} bytes`);
-  expect((await rpc(page.request, "task.result.read", { id })).task_result).toEqual(edited);
+  expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
+    edited,
+  );
   await page.reload();
-  const restored = (await rpc(page.request, "task.metadata.read", { id })).task_description;
+  const restored = (await taskRpc(page.request, "research", "task.metadata.read", { id }))
+    .task_description;
   expect(restored.metadata).toEqual(edited.task.metadata);
 });

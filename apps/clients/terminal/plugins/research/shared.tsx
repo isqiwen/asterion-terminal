@@ -1,5 +1,7 @@
+import { taskOwner, type FactorExperiment } from "../../src/bridge/client";
 import type { CommandHandler } from "../../src/bridge/commands";
 import { ExperimentMetadata } from "./ExperimentMetadata";
+import { ResearchRetirementPanel } from "./ResearchRetirementPanel";
 import { useState, type ReactNode } from "react";
 import {
   TaskPagination,
@@ -14,6 +16,15 @@ import {
 
 export const namespace = "asterion.terminal.research";
 export const t = (key: string, values?: MessageValues) => translate(namespace, key, values);
+export function retiredResearch(
+  snapshot: TerminalContext["snapshot"],
+  task: { id: string; retired?: boolean },
+) {
+  return (
+    !!task.retired ||
+    !!snapshot?.research_service?.tasks.some(item => item.id === task.id && item.retired)
+  );
+}
 export const states: Record<string, string> = {
   queued: "排队中",
   running: "运行中",
@@ -43,6 +54,11 @@ export const factorNames = {
   term_structure: "期限结构",
   volatility: "波动率",
 } as const;
+// Research expressions are separate from the built-in factor choices used by trading.
+export const factorLabel = (factor: FactorExperiment["factor"]) =>
+  factor === "expression" ? t("自定义表达式") : t(factorNames[factor]);
+export const variableUnit = (power: number) =>
+  power === 0 ? t("无量纲") : power === 1 ? t("价格单位") : t("价格单位的 {power} 次方", { power });
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
 // Series kept by provider trading dates: instruments of the market-wide daily
@@ -78,7 +94,7 @@ export const factorWords = {
   },
   tables: dated,
 } as const;
-type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_service"]>;
+type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["research_service"]>;
 export type ResearchTask = TaskService["tasks"][number];
 export type Run = CommandHandler<boolean>;
 
@@ -120,7 +136,7 @@ export function ResearchPage({
             {taskService.remote ? `${taskService.host} · ${taskService.service}` : t("本机")}
           </span>
         )}
-        <span role="status">{taskService?.online ? t("任务服务已连接") : t("任务服务未连接")}</span>
+        <span role="status">{taskService?.online ? t("研究服务已连接") : t("研究服务未连接")}</span>
       </div>
       {error && (
         <p className="alert" role="alert">
@@ -181,12 +197,21 @@ export function TaskRecords({
                       {task.metadata?.name && <strong>{task.metadata.name}</strong>}
                       <strong>{task.instrument}</strong>
                       <ExperimentMetadata
+                        owner={taskOwner(taskService, "research")}
                         key={`${taskService.connection_id}:${task.id}`}
                         task={task}
                         connection={taskService.connection_id}
                         busy={busy}
                         trade={trade}
                         query={query}
+                      />
+                      <ResearchRetirementPanel
+                        key={`retire:${taskService.connection_id}:${task.id}`}
+                        id={task.id}
+                        owner={taskOwner(taskService, "research")}
+                        busy={busy || !taskService.online}
+                        query={query}
+                        trade={trade}
                       />
                       {describe && <span className="subtle">{describe(task)}</span>}
                       <details>
@@ -229,19 +254,32 @@ export function TaskRecords({
                       {["queued", "running"].includes(task.state) && (
                         <button
                           disabled={busy || !taskService.online}
-                          onClick={() => void run("task.action", { id: task.id, action: "cancel" })}
+                          onClick={() =>
+                            void run("task.action", {
+                              owner: taskOwner(taskService, "research"),
+                              id: task.id,
+                              action: "cancel",
+                            })
+                          }
                         >
                           {t("取消")}
                         </button>
                       )}
-                      {["failed", "cancelled", "interrupted"].includes(task.state) && (
-                        <button
-                          disabled={busy || !taskService.online}
-                          onClick={() => void run("task.action", { id: task.id, action: "retry" })}
-                        >
-                          {t("重新运行")}
-                        </button>
-                      )}
+                      {!task.retired &&
+                        ["failed", "cancelled", "interrupted"].includes(task.state) && (
+                          <button
+                            disabled={busy || !taskService.online}
+                            onClick={() =>
+                              void run("task.action", {
+                                owner: taskOwner(taskService, "research"),
+                                id: task.id,
+                                action: "retry",
+                              })
+                            }
+                          >
+                            {t("重新运行")}
+                          </button>
+                        )}
                     </td>
                   </tr>
                 ))}

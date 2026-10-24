@@ -199,7 +199,8 @@ CtpConnection CtpConnections::get(const std::string& id) const
         document.at("app_id"),
         document.at("trade_front"),
         document.at("market_front"),
-        document.at("revision")
+        document.at("revision"),
+        {}
     };
     if (document.contains("trading")) {
         const auto& target = document.at("trading");

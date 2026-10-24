@@ -98,8 +98,8 @@ async function mockContracts(
         items,
       } satisfies TableContracts;
     }
-    if (identity?.connection && data.result.task_service)
-      data.result.task_service.connection_id = identity.connection;
+    if (identity?.connection && data.result.data)
+      data.result.data.connection_id = identity.connection;
     await route.fulfill({ response, json: data });
   });
 }
@@ -156,8 +156,8 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (identity.connection) data.result.task_service!.connection_id = identity.connection;
-    data.result.task_service!.tasks.push({
+    if (identity.connection) data.result.data!.connection_id = identity.connection;
+    data.result.data!.tasks.push({
       kind: "minute_download",
       data_source: "tushare.ft_mins",
       id: request.params.id,
@@ -273,8 +273,8 @@ test("completed dataset exposes provenance and honest coverage separately from a
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (!data.result.task_service) return route.fulfill({ response });
-    data.result.task_service.tasks = [task];
+    if (!data.result.data) return route.fulfill({ response });
+    data.result.data.tasks = [task];
     if (request.method === "task.result") {
       expect(request.params.id).toBe(task.id);
       opened = true;

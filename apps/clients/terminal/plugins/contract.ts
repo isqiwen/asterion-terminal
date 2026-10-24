@@ -1,9 +1,55 @@
 export type QueryCommand =
+  | "research.model.list"
+  | "research.model.read"
+  | "research.model.mapping.preview"
+  | "research.batch.list"
+  | "research.batch.read"
+  | "research.batch.assessment.preview"
+  | "research.batch.assessment.read"
+  | "research.batch.assessment.list"
+  | "research.batch.assessment.export"
+  | "research.logic.list"
+  | "research.logic.read"
+  | "research.logic.examples"
+  | "research.logic.example.read"
+  | "research.strategy.list"
+  | "research.strategy.read"
+  | "research.strategy.delivery.read"
+  | "research.strategy.delivery.list"
+  | "research.variable.check"
+  | "research.variable.read"
+  | "research.variable.list"
+  | "research.conclusion.read"
+  | "research.conclusion.list"
+  | "research.project.list"
+  | "research.project.read"
+  | "research.plan.list"
+  | "research.plan.read"
+  | "research.project.tasks"
+  | "intelligence.get"
+  | "intelligence.list"
+  | "intelligence.consumers"
+  | "intelligence.event.view"
+  | "intelligence.set.preview"
+  | "intelligence.set.get"
+  | "intelligence.subscription.preview"
+  | "intelligence.subscription.get"
+  | "intelligence.subscription.list"
+  | "intelligence.subscription.batch"
+  | "intelligence.subscription.reminders"
+  | "intelligence.source.inspect"
+  | "notice.source.inspect"
+  | "live.facts.status"
+  | "live.facts.read"
+  | "resource.catalogue"
+  | "resource.inspect"
   | "task.result.read"
   | "backtest.budget.review"
   | "backtest.margins.preview"
   | "task.metadata.read"
+  | "task.retirement.preview"
   | "task.evidence.export"
+  | "evaluation.report.export"
   | "task.comparison.export"
   | "task.quantstats.analyze"
   | "task.portfolio.analyze"
@@ -14,6 +60,10 @@ export type QueryCommand =
   | "data.dataset.saved"
   | "data.coverage"
   | "data.history.usage"
+  | "data.history.retirement.preview"
+  | "data.tables.retirement.preview"
+  | "data.tables.retirements"
+  | "data.history.retirements"
   | "data.download.update.plan"
   | "data.tables.refresh.plan"
   | "data.tables.coverage"
@@ -22,7 +72,12 @@ export type QueryCommand =
   | "data.tables.listed_contracts"
   | "data.tables.daily"
   | "data.tables.contracts"
-  | "market.minutes";
+  | "market.minutes"
+  | "market.observation.preview"
+  | "data.observation.read"
+  | "data.material.sources"
+  | "data.material.task"
+  | "data.material.read";
 import type { CommandHandler } from "../src/bridge/commands";
 export { TaskPagination } from "../src/ui/TaskPagination";
 export {
@@ -36,7 +91,11 @@ export {
   strategySize,
   type StrategyDraft,
 } from "../src/ui/StrategyFields";
-export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
+export {
+  useWorkspaceDraft,
+  useWorkspaceRequestId,
+  useWorkspaceUnsaved,
+} from "../src/host/workspace/drafts";
 export { save, nativeDesktop } from "../src/bridge/desktop";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
@@ -45,7 +104,7 @@ export { DatasetPicker } from "../src/ui/DatasetPicker";
 export { RollSchedule } from "../src/ui/RollSchedule";
 export { multipliers, priceIncrements } from "../src/ui/contractUnits";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
-export { DataTaskAccess } from "../src/ui/DataTaskAccess";
+export { WorkloadAccess } from "../src/ui/WorkloadAccess";
 export {
   CostTemplate,
   CostScheduleDetails,

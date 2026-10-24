@@ -33,8 +33,6 @@ type Service = NonNullable<NodeStatus["health"]>["services"][number];
 const service = (id: string, kind: Service["kind"]): Service => ({
   revision: "1",
   kind,
-  task_service: kind === "data" ? "task" : "",
-  data_service: kind === "task" ? "historical-data" : "",
   plugin_artifacts: [],
   id,
   artifact: "a".repeat(64),
@@ -51,7 +49,8 @@ const service = (id: string, kind: Service["kind"]): Service => ({
   directory: "",
 });
 const connection = (service: string) => ({
-  connection_id: "local",
+  node_id: "local",
+  connection_id: service + "-connection",
   port: 0,
   service,
   host: "",
@@ -68,8 +67,8 @@ export function readySnapshot(): Snapshot {
     history_page: null,
     revision: 1,
     refreshed_at_ms: Date.now(),
-    task_service: {
-      ...connection("task"),
+    research_service: {
+      ...connection("research"),
       tasks: [],
       before_sequence: 0,
       next_before_sequence: 0,
@@ -77,7 +76,16 @@ export function readySnapshot(): Snapshot {
       interrupted_count: 0,
       capacity: null,
     },
-    data: { ...connection("historical-data"), sources: [] },
+    data: {
+      ...connection("historical-data"),
+      sources: [],
+      tasks: [],
+      before_sequence: 0,
+      next_before_sequence: 0,
+      failed_count: 0,
+      interrupted_count: 0,
+      capacity: null,
+    },
     task_result: null,
     market: {
       watchlist: [],
@@ -121,7 +129,7 @@ export function readySnapshot(): Snapshot {
           services: [
             service("market-data", "market"),
             service("historical-data", "data"),
-            service("task", "task"),
+            service("research", "research"),
           ],
         },
       },

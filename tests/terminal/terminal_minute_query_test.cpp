@@ -1,3 +1,4 @@
+#include <asterion/research.pb.h>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include "node_enrollment.hpp"
@@ -14,6 +15,38 @@
 #include <spdlog/sinks/base_sink.h>
 using namespace asterion;
 using namespace std::chrono_literals;
+
+namespace {
+
+// Application now locks the installed node directory before starting clients.
+// These IPC doubles own a disposable installation root, never the user's node.
+class IsolatedTerminalEnvironment final : public testing::Environment
+{
+    std::filesystem::path root_ =
+        std::filesystem::temp_directory_path() / ("ast-terminal-query-" + unique_process_id());
+    std::optional<std::string> previous_ = environment_variable("ASTERION_NODE_DIRECTORY");
+
+    void SetUp() override
+    {
+        std::filesystem::create_directory(root_);
+        ASSERT_EQ(::setenv("ASTERION_NODE_DIRECTORY", root_.c_str(), 1), 0);
+    }
+
+    void TearDown() override
+    {
+        if (previous_)
+            ::setenv("ASTERION_NODE_DIRECTORY", previous_->c_str(), 1);
+        else
+            ::unsetenv("ASTERION_NODE_DIRECTORY");
+        std::error_code ignored;
+        std::filesystem::remove_all(root_, ignored);
+    }
+};
+
+[[maybe_unused]] const auto isolated_terminal_environment =
+    testing::AddGlobalTestEnvironment(new IsolatedTerminalEnvironment);
+
+} // namespace
 
 namespace asterion::terminal {
 
@@ -147,14 +180,28 @@ struct ApplicationTestAccess
             .get();
     }
 
+    static void data_only(Application& app, const ServiceEndpoint& endpoint)
+    {
+        auto data = DataClient::open(app.impl_->service_io, endpoint).get();
+        app.impl_->service_io
+            .submit<void>([&](std::stop_token) -> PolledTask<void> {
+                app.impl_->adopt_research({});
+                app.impl_->adopt_data(std::move(data));
+                app.impl_->publish();
+                co_return;
+            })
+            .get();
+    }
+
     static void
     attach(Application& app, const ServiceEndpoint& endpoint, const ServiceEndpoint& data_endpoint)
     {
-        auto client = TaskClient::open(app.impl_->service_io, endpoint).get();
+        auto client = ResearchClient::open(app.impl_->service_io, endpoint).get();
         auto data = DataClient::open(app.impl_->service_io, data_endpoint).get();
         app.impl_->service_io
             .submit<void>([&](std::stop_token) -> PolledTask<void> {
-                app.impl_->adopt_data_tasks(std::move(client), std::move(data));
+                app.impl_->adopt_data(std::move(data));
+                app.impl_->adopt_research(std::move(client));
                 app.impl_->publish();
                 co_return;
             })
@@ -175,8 +222,10 @@ struct MinuteService
     unsigned entered = 0;
     bool released = false;
     std::atomic<bool> wrong_identity{false}, reference{false};
-    task::proto::TaskSubmit submitted;
+    research::proto::ResearchSubmit submitted;
+    data::proto::AcquisitionSubmit acquisition;
     unsigned requested_before_sequence = 0;
+    unsigned research_cancels = 0, data_cancels = 0;
     data::proto::DownloadAuthorizationRequest captured_authorization;
     data::proto::DownloadBudgetConfiguration configured_budget;
     std::unique_ptr<testing_support::BlockingService> host;
@@ -193,7 +242,7 @@ struct MinuteService
         host = std::make_unique<testing_support::BlockingService>(
             service::Transport{endpoint, {}, 0, {}},
             [this](testing_support::Connection& connection, std::stop_token) {
-                task::proto::TaskRequest request;
+                research::proto::ResearchRequest request;
                 if (!request.ParseFromString(connection.receive(2s)))
                     throw std::runtime_error("bad request");
                 task::proto::TaskResponse response;
@@ -235,6 +284,8 @@ struct MinuteService
                     response.mutable_error()->set_code("invalid_request");
                     response.mutable_error()->set_message("task has no confirmed result");
                 } else if (request.has_cancel()) {
+                    std::lock_guard lock(mutex);
+                    ++research_cancels;
                     response.mutable_task()->set_id(request.cancel().id());
                     response.mutable_task()->set_state(task::proto::CANCEL_REQUESTED);
                 } else if (request.has_submit()) {
@@ -266,7 +317,38 @@ struct MinuteService
                 response.set_version(1);
                 response.set_service_id(request.service_id());
                 response.set_correlation_id(request.correlation_id());
-                if (request.has_configure_download_budget()) {
+                if (request.has_resources()) {
+                    {
+                        std::unique_lock lock(mutex);
+                        ++entered;
+                        condition.notify_all();
+                        if (!condition.wait_for(lock, 4s, [&] {
+                                return released;
+                            }))
+                            throw std::runtime_error("fixture catalogue was not released");
+                    }
+                    auto* page = response.mutable_resources();
+                    page->mutable_owner()->set_node_id("fixture-node");
+                    page->mutable_owner()->set_service_id(request.service_id());
+                    page->mutable_owner()->set_domain("data");
+                    page->set_kind(request.resources().kind());
+                } else if (request.has_acquisition_task()) {
+                    std::lock_guard lock(mutex);
+                    const auto& operation = request.acquisition_task();
+                    auto* result = response.mutable_acquisition_task();
+                    if (operation.has_list()) {
+                        result->mutable_tasks()->mutable_capacity()->set_active_limit(1000);
+                    } else if (operation.has_cancel()) {
+                        ++data_cancels;
+                        result->mutable_task()->set_id(operation.cancel().id());
+                        result->mutable_task()->set_state(task::proto::CANCEL_REQUESTED);
+                    } else if (operation.has_submit()) {
+                        acquisition = operation.submit();
+                        result->mutable_task()->set_id(acquisition.id());
+                    } else {
+                        throw std::runtime_error("unexpected acquisition fixture request");
+                    }
+                } else if (request.has_configure_download_budget()) {
                     std::lock_guard lock(mutex);
                     configured_budget = request.configure_download_budget();
                     auto* policy = response.mutable_download_budget();
@@ -281,7 +363,49 @@ struct MinuteService
                     authorized->set_task_instance(captured_authorization.task_instance());
                     authorized->set_task_id(captured_authorization.task_id());
                 } else if (request.has_sources()) {
-                    response.mutable_sources();
+                    auto* source = response.mutable_sources()->add_sources();
+                    source->set_id("tushare.ft_mins");
+                    source->set_name("Isolated minute fixture");
+                    source->set_plugin_id("fixture.provider");
+                    source->set_normalization("fixture.minutes");
+                    source->set_timezone("Asia/Shanghai");
+                    source->set_timestamp_semantics("bar_end");
+                    source->add_venues("SHFE");
+                    source->add_intervals(1);
+                    source->set_max_requests_per_minute(500);
+                } else if (request.has_minute_retirement()) {
+                    {
+                        std::unique_lock lock(mutex);
+                        ++entered;
+                        condition.notify_all();
+                        if (!condition.wait_for(lock, 4s, [&] {
+                                return released;
+                            }))
+                            throw std::runtime_error("fixture reference query was not released");
+                    }
+                    auto* result = response.mutable_minute_retirement();
+                    result->set_id(
+                        wrong_identity ? std::string(64, 'b') : request.minute_retirement().id());
+                    result->set_state(
+                        reference ? data::proto::MinuteRetirement::BLOCKED
+                                  : data::proto::MinuteRetirement::AVAILABLE);
+                    result->set_payload_bytes(2048);
+                    result->mutable_internal_usage()->set_dataset_id(result->id());
+                    if (reference) {
+                        for (unsigned i = 0; i < 2; ++i) {
+                            auto* hold = result->add_holds();
+                            hold->set_phase(
+                                i ? data::proto::DataRetentionRecord::CONFIRMED
+                                  : data::proto::DataRetentionRecord::PREPARED);
+                            auto* consumer = hold->mutable_retention()->mutable_consumer();
+                            consumer->mutable_owner()->set_node_id("offline-consumer-node");
+                            consumer->mutable_owner()->set_service_id("research-not-running");
+                            consumer->mutable_owner()->set_domain("research");
+                            consumer->set_kind("backtest");
+                            consumer->set_id("retained-run-" + std::to_string(i));
+                            consumer->set_version(std::string(64, 'c' + i));
+                        }
+                    }
                 } else if (request.has_history_usage()) {
                     response.mutable_history_usage()->set_dataset_id(request.history_usage().id());
                 } else if (request.has_update_plan()) {
@@ -362,12 +486,12 @@ struct MinuteService
 
     terminal::ServiceEndpoint address() const
     {
-        return {{}, "minute-fixture", 0, {}, endpoint};
+        return {{}, "minute-fixture", 0, {}, endpoint, "local", "fixture-node"};
     }
 
     terminal::ServiceEndpoint data_address() const
     {
-        return {{}, "data-fixture", 0, {}, endpoint + ".data"};
+        return {{}, "data-fixture", 0, {}, endpoint + ".data", "local", "fixture-node"};
     }
 
     bool wait(unsigned count)
@@ -496,7 +620,7 @@ TEST(TerminalServiceClients, DataQueriesAndTaskControlRemainIndependentWhenAPeer
     missing_task.endpoint += ".missing";
     terminal::ApplicationTestAccess::attach(app, missing_task, service.data_address());
     auto snapshot = app.dispatch(request("runtime.snapshot"));
-    EXPECT_FALSE(snapshot.at("task_service").at("online"));
+    EXPECT_FALSE(snapshot.at("research_service").at("online"));
     EXPECT_TRUE(snapshot.at("data").at("online"));
     EXPECT_EQ(
         app.dispatch(query("published-version")).at("history_page").at("id"),
@@ -505,9 +629,57 @@ TEST(TerminalServiceClients, DataQueriesAndTaskControlRemainIndependentWhenAPeer
     missing_data.endpoint += ".missing";
     terminal::ApplicationTestAccess::attach(app, service.address(), missing_data);
     snapshot = app.dispatch(request("runtime.snapshot"));
-    EXPECT_TRUE(snapshot.at("task_service").at("online"));
+    EXPECT_TRUE(snapshot.at("research_service").at("online"));
     EXPECT_FALSE(snapshot.at("data").at("online"));
-    EXPECT_NO_THROW(app.dispatch(request("task.action", {{"id", "task"}, {"action", "cancel"}})));
+    const auto& owner = snapshot.at("research_service");
+    EXPECT_NO_THROW(app.dispatch(request(
+        "task.action",
+        {{"id", "task"},
+            {"action", "cancel"},
+            {"owner",
+                {{"kind", "research"},
+                    {"node_id", owner.at("node_id")},
+                    {"service", owner.at("service")},
+                    {"connection_id", owner.at("connection_id")}}}})));
+}
+
+TEST(TerminalServiceClients, CollidingTaskIdsRequireTheExactSelectedOwner)
+{
+    MinuteService service;
+    service.release();
+    terminal::Application app;
+    terminal::ApplicationTestAccess::attach(app, service.address(), service.data_address());
+    const auto snapshot = app.dispatch(request("runtime.snapshot"));
+    auto owner = [&](const char* key, const char* kind) {
+        const auto& selected = snapshot.at(key);
+        return Json{
+            {"kind", kind},
+            {"node_id", selected.at("node_id")},
+            {"service", selected.at("service")},
+            {"connection_id", selected.at("connection_id")}
+        };
+    };
+    const auto research = owner("research_service", "research");
+    const auto data = owner("data", "data");
+    EXPECT_NO_THROW(app.dispatch(
+        request("task.action", {{"owner", research}, {"id", "same-id"}, {"action", "cancel"}})));
+    EXPECT_NO_THROW(app.dispatch(
+        request("task.action", {{"owner", data}, {"id", "same-id"}, {"action", "cancel"}})));
+    auto stale = data;
+    stale["connection_id"] = "obsolete-connection";
+    EXPECT_THROW(
+        app.dispatch(
+            request("task.action", {{"owner", stale}, {"id", "same-id"}, {"action", "cancel"}})),
+        Error);
+    auto wrong = data;
+    wrong["kind"] = "research";
+    EXPECT_THROW(
+        app.dispatch(
+            request("task.action", {{"owner", wrong}, {"id", "same-id"}, {"action", "cancel"}})),
+        Error);
+    std::lock_guard lock(service.mutex);
+    EXPECT_EQ(service.research_cancels, 1);
+    EXPECT_EQ(service.data_cancels, 1);
 }
 
 TEST(TerminalServiceClients, ReadPoolBackpressureLeavesTaskAndDataControlsAvailable)
@@ -520,7 +692,7 @@ TEST(TerminalServiceClients, ReadPoolBackpressureLeavesTaskAndDataControlsAvaila
     unsigned running = 0;
     std::thread::id owner;
     terminal::ServiceIo io;
-    auto client = terminal::TaskClient::open(io, service.address()).get();
+    auto client = terminal::ResearchClient::open(io, service.address()).get();
     auto data = terminal::DataClient::open(io, service.data_address()).get();
     std::vector<std::future<int>> results;
     owner = io.submit<std::thread::id>([](std::stop_token) -> PolledTask<std::thread::id> {
@@ -593,12 +765,20 @@ TEST(TerminalBacktest, ResultVerificationDoesNotBlockTaskCancellationOrSnapshots
     MinuteService source;
     terminal::Application app;
     terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
+    const auto selected = app.dispatch(request("runtime.snapshot")).at("research_service");
+    const Json owner{
+        {"kind", "research"},
+        {"node_id", selected.at("node_id")},
+        {"service", selected.at("service")},
+        {"connection_id", selected.at("connection_id")}
+    };
     auto result = std::async(std::launch::async, [&] {
-        return app.dispatch(request("task.result", {{"id", "completed"}}));
+        return app.dispatch(request("task.result", {{"id", "completed"}, {"owner", owner}}));
     });
     ASSERT_TRUE(source.wait(1));
     auto cancel = std::async(std::launch::async, [&] {
-        return app.dispatch(request("task.action", {{"id", "running"}, {"action", "cancel"}}));
+        return app.dispatch(
+            request("task.action", {{"id", "running"}, {"action", "cancel"}, {"owner", owner}}));
     });
     const auto ready = cancel.wait_for(testing_support::bound(500ms));
     const auto snapshot = app.dispatch(request("runtime.snapshot"));
@@ -788,8 +968,8 @@ TEST(TerminalMinuteDownloads, SubmissionReadsTheContractListAndSendsTypedTimesTo
         EXPECT_EQ(minutes.begin_ns(), parse_shanghai_time("2023-01-01 00:00:00"));
         EXPECT_EQ(minutes.end_ns(), cutoff);
         EXPECT_EQ(source.captured_authorization.credential(), "fixture-secret");
-        EXPECT_EQ(source.submitted.download_authorization(), std::string(64, 'a'));
-        EXPECT_EQ(source.submitted.SerializeAsString().find("fixture-secret"), std::string::npos);
+        EXPECT_EQ(source.acquisition.authorization(), std::string(64, 'a'));
+        EXPECT_EQ(source.acquisition.SerializeAsString().find("fixture-secret"), std::string::npos);
     }
     for (const auto& change : std::vector<Json>{
              {{"cutoff_ns", "0"}},
@@ -813,11 +993,11 @@ TEST(TerminalTableFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
     terminal::Application app;
     terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
     const auto first_id =
-        app.dispatch(request("runtime.snapshot")).at("task_service").at("connection_id");
+        app.dispatch(request("runtime.snapshot")).at("research_service").at("connection_id");
     EXPECT_TRUE(first_id.is_string());
     EXPECT_FALSE(first_id.get<std::string>().empty());
     EXPECT_EQ(
-        app.dispatch(request("runtime.snapshot")).at("task_service").at("connection_id"),
+        app.dispatch(request("runtime.snapshot")).at("research_service").at("connection_id"),
         first_id);
     const auto submit = request(
         "factor.submit",
@@ -842,7 +1022,7 @@ TEST(TerminalTableFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
     EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("protocol"), 1);
     terminal::ApplicationTestAccess::attach(app, replacement.address(), replacement.data_address());
     EXPECT_NE(
-        app.dispatch(request("runtime.snapshot")).at("task_service").at("connection_id"),
+        app.dispatch(request("runtime.snapshot")).at("research_service").at("connection_id"),
         first_id);
     source.release();
     try {
@@ -851,10 +1031,12 @@ TEST(TerminalTableFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
     } catch (const Error& error) {
         EXPECT_EQ(
             std::string(error.what()),
-            "data/task service selection changed during operation; " "inspect the original services before retrying");
+            "data/research service selection changed during operation; " "inspect the original services before retrying");
     }
     replacement.release();
     EXPECT_TRUE(app.dispatch(submit).contains("protocol"));
+    EXPECT_EQ(replacement.submitted.data_owner().node_id(), "fixture-node");
+    EXPECT_EQ(replacement.submitted.data_owner().service_id(), "data-fixture");
     const auto& accepted = replacement.submitted.factor_request();
     ASSERT_EQ(accepted.series_size(), 1);
     EXPECT_EQ(accepted.series(0).tables().snapshot(), std::string(64, 'b'));
@@ -873,6 +1055,36 @@ TEST(TerminalTableFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
     bad = submit;
     bad["params"]["series"] = {{"kind", "daily"}, {"dataset_id", std::string(64, 'a')}};
     EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
+}
+
+TEST(TerminalHistoryUpdate, DataPlansAndAdmissionRemainAvailableWithResearchOffline)
+{
+    MinuteService source;
+    source.release();
+    terminal::Application app;
+    auto offline = source.address();
+    offline.endpoint += ".offline";
+    terminal::ApplicationTestAccess::attach(app, offline, source.data_address());
+    const Json params = {
+        {"dataset_id", std::string(64, 'a')},
+        {"daily", nullptr},
+        {"mode", "extend"},
+        {"end_day", "2024-03-02"},
+        {"requests_per_minute", 60}
+    };
+    const auto response = app.dispatch(request("data.download.update.plan", params));
+    EXPECT_TRUE(response.at("data").at("online"));
+    EXPECT_FALSE(response.at("research_service").at("online"));
+    const auto& plan = response.at("history_update_plan");
+    EXPECT_EQ(plan.at("query").at("dataset_id"), params.at("dataset_id"));
+    const auto submit = request(
+        "data.download.update.submit",
+        {{"id", "offline-plan"}, {"query", params}, {"plan_id", plan.at("id")}, {"token", ""}});
+    EXPECT_NO_THROW(app.dispatch(submit));
+    EXPECT_EQ(source.acquisition.id(), "offline-plan");
+    EXPECT_EQ(source.acquisition.authorization(), std::string(64, 'a'));
+    EXPECT_EQ(source.captured_authorization.task_instance(), source.data_address().session);
+    EXPECT_TRUE(source.submitted.id().empty());
 }
 
 TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit)
@@ -913,7 +1125,7 @@ TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit)
     terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
     replacement.release();
     EXPECT_THROW((void)stale.get(), Error);
-    EXPECT_TRUE(replacement.submitted.id().empty());
+    EXPECT_TRUE(replacement.acquisition.id().empty());
     submit["params"]["plan_id"] = std::string(64, '0');
     EXPECT_THROW(app.dispatch(submit), std::invalid_argument);
     EXPECT_TRUE(source.submitted.id().empty());
@@ -1106,161 +1318,26 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     EXPECT_EQ(retained.get().at("nodes").at(0).at("health").at("instance_id"), "fixture");
 }
 
-TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteResults)
+TEST(TerminalHistoryUsage, DataAuthorityRetainsOfflineConsumersWithoutResearchOrNodeDiscovery)
 {
-    MinuteService source, other;
-
-    struct Environment
-    {
-        std::optional<std::string> previous = environment_variable("ASTERION_NODE_DIRECTORY");
-
-        ~Environment()
-        {
-            if (previous)
-                setenv("ASTERION_NODE_DIRECTORY", previous->c_str(), 1);
-            else
-                unsetenv("ASTERION_NODE_DIRECTORY");
-        }
-    } restore;
-
-    setenv("ASTERION_NODE_DIRECTORY", source.root.c_str(), 1);
+    MinuteService source;
     source.release();
-    other.release();
-    other.reference = true;
-    std::atomic<unsigned> mutations{0};
-    std::atomic<bool> connected{true};
-    const auto socket = manager_fixture_socket(source.root);
-    testing_support::BlockingService host(
-        {socket, {}, 0, {}},
-        [&](testing_support::Connection& connection, std::stop_token) {
-            manager::proto::Request request;
-            if (!request.ParseFromString(connection.receive(2s)))
-                throw std::runtime_error("invalid fixture request");
-            manager::proto::Response response;
-            response.set_version(1);
-            response.set_correlation_id(request.correlation_id());
-            if (request.has_snapshot())
-                response.mutable_snapshot();
-            else if (request.has_inventory())
-                response.set_presentation(terminal::registered_node_inventory().dump());
-            else if (request.node().has_history()) {
-                auto* history = response.mutable_history();
-                for (const auto& [name, endpoint, state] :
-                    std::vector<std::tuple<std::string, std::string, std::string>>{
-                        {"minute-fixture", source.endpoint, "running"},
-                        {"other", other.endpoint, "running"},
-                        {"stopped", other.endpoint + ".stopped", "stopped"},
-                        {"offline", other.endpoint + ".missing", "running"}
-                    }) {
-                    auto* entry = history->add_services();
-                    entry->set_kind(node::proto::TASK_SERVICE);
-                    entry->set_state(state);
-                    entry->mutable_address()->set_session(name);
-                    entry->mutable_address()->set_socket(endpoint);
-                }
-            } else if (request.node().has_disconnect()) {
-                connected = false;
-                response.mutable_accepted();
-            } else if (request.node().has_connect()) {
-                connected = true;
-                response.mutable_accepted();
-            } else {
-                ++mutations;
-                response.mutable_error()->set_code("invalid_request");
-                response.mutable_error()->set_message("unexpected fixture operation");
-            }
-            if (connected) {
-                auto* view =
-                    request.has_snapshot() ? response.mutable_snapshot() : response.mutable_view();
-                auto* node = view->add_nodes();
-                node->set_id("fixture");
-                node->set_online(true);
-                node->mutable_health()->set_instance_id("fixture");
-                node->mutable_health()->set_os("macos");
-                node->mutable_health()->set_arch("arm64");
-                node->mutable_health()->set_phase(node::proto::Status::READY);
-            } else
-                response.mutable_view();
-            connection.send(response.SerializeAsString(), 2s);
-        });
-    auto running = std::async(std::launch::async, [&] {
-        return host.run();
-    });
-
-    struct Stop
-    {
-        std::future<bool>& running;
-
-        ~Stop()
-        {
-            service::request_stop();
-            running.wait();
-        }
-    } stop{running};
-
+    source.reference = true;
     terminal::Application app;
-    auto node = terminal::ApplicationTestAccess::connect_node(app);
-    terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-    auto current_address = source.address();
-    current_address.host = "localhost"; // Host is irrelevant for the same IPC endpoint.
-    terminal::ApplicationTestAccess::attach(app, current_address, source.data_address());
-    terminal::ApplicationTestAccess::node(app, node);
-    const auto enrollments = source.root / "enrollments";
-    EXPECT_TRUE(terminal::registered_node_inventory().at("names").empty());
-    EXPECT_FALSE(std::filesystem::exists(enrollments));
-    std::filesystem::create_directories(enrollments / "offline");
-    std::filesystem::create_directories(enrollments / ".ssh-keys");
-    EXPECT_EQ(terminal::registered_node_inventory().at("names"), Json::array({"offline"}));
+    terminal::ApplicationTestAccess::data_only(app, source.data_address());
     const auto query = request("data.history.usage", {{"id", std::string(64, 'a')}});
-    const auto queried = app.dispatch(query).at("history_usage");
-    EXPECT_EQ(queried.at("disconnected_nodes").at("names"), Json::array({"offline"}));
-    const auto groups = queried.at("other_data_services");
-    ASSERT_EQ(groups.size(), 3U); // Current service is excluded, not inspected twice.
-    EXPECT_TRUE(groups[0].at("checked"));
-    EXPECT_EQ(groups[0].at("references")[0].at("id"), "external-task");
-    EXPECT_FALSE(groups[1].at("checked"));
-    EXPECT_EQ(
-        groups[1].at("error"),
-        "data/task service is not running; references were not inspected");
-    EXPECT_FALSE(groups[2].at("checked"));
-    other.wrong_identity = true;
-    const auto wrong = app.dispatch(query).at("history_usage").at("other_data_services")[0];
-    EXPECT_FALSE(wrong.at("checked"));
-    EXPECT_TRUE(wrong.at("references").empty());
-    other.wrong_identity = false;
-    other.reset();
-    auto pending = std::async(std::launch::async, [&] {
-        return app.dispatch(query);
-    });
-    ASSERT_TRUE(other.wait(1));
-    const auto begin = std::chrono::steady_clock::now();
-    EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("protocol"), 1);
-    terminal::ApplicationTestAccess::node(app, nullptr);
-    EXPECT_LT(std::chrono::steady_clock::now() - begin, testing_support::bound(500ms));
-    other.release();
-    try {
-        (void)pending.get();
-        FAIL() << "stale node result accepted";
-    } catch (const Error& error) {
-        EXPECT_STREQ(error.what(), "node connections changed during archive query");
-    }
-    terminal::ApplicationTestAccess::node(app, node);
-    other.reset();
-    auto registry_pending = std::async(std::launch::async, [&] {
-        return app.dispatch(query);
-    });
-    ASSERT_TRUE(other.wait(1));
-    std::filesystem::create_directory(enrollments / "new-offline");
-    other.release();
-    try {
-        (void)registry_pending.get();
-        FAIL() << "stale registration result accepted";
-    } catch (const Error& error) {
-        EXPECT_STREQ(error.what(), "registered nodes changed during archive query");
-    }
-    std::filesystem::create_directory_symlink(source.root, enrollments / "linked");
-    EXPECT_TRUE(terminal::registered_node_inventory().contains("error"));
-    EXPECT_EQ(mutations, 0U);
+    const auto result = app.dispatch(query);
+    const auto& usage = result.at("history_usage");
+    EXPECT_EQ(usage.at("dataset_id"), std::string(64, 'a'));
+    EXPECT_EQ(usage.at("state"), "blocked");
+    ASSERT_EQ(usage.at("consumers").size(), 2U);
+    EXPECT_EQ(usage.at("consumers")[0].at("node"), "offline-consumer-node");
+    EXPECT_EQ(usage.at("consumers")[0].at("phase"), "prepared");
+    EXPECT_EQ(usage.at("consumers")[1].at("phase"), "confirmed");
+    EXPECT_TRUE(result.at("research_service").is_null());
+    EXPECT_TRUE(result.at("nodes").empty());
+    source.wrong_identity = true;
+    EXPECT_THROW(app.dispatch(query), Error);
 }
 
 namespace {
@@ -1360,6 +1437,7 @@ struct LiveService
                                                     {"delivery_month", "2026-10"}}})}}}});
                         auto* snapshot = response.mutable_live();
                         snapshot->set_account_id("fixture-record");
+                        snapshot->set_environment(input.environment());
                         snapshot->set_policy_revision("fixture-policy");
                         snapshot->set_risk_artifact(std::string(64, 'a'));
                         *snapshot->mutable_broker() = input.broker();
@@ -1777,9 +1855,16 @@ TEST(TerminalTaskPages, NativeCommandSelectsHistoryWithoutChangingServiceIdentit
     {
         terminal::Application app;
         terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-        const auto before = app.dispatch(request("runtime.snapshot")).at("task_service");
+        const auto before = app.dispatch(request("runtime.snapshot")).at("research_service");
+        const Json owner{
+            {"kind", "research"},
+            {"node_id", before.at("node_id")},
+            {"service", before.at("service")},
+            {"connection_id", before.at("connection_id")}
+        };
         const auto page =
-            app.dispatch(request("task.page", {{"before_sequence", 42}})).at("task_service");
+            app.dispatch(request("task.page", {{"owner", owner}, {"before_sequence", 42}}))
+                .at("research_service");
         EXPECT_EQ(page.at("connection_id"), before.at("connection_id"));
         EXPECT_EQ(page.at("before_sequence"), 42);
         held = terminal::ApplicationTestAccess::capture(app);
@@ -1789,14 +1874,15 @@ TEST(TerminalTaskPages, NativeCommandSelectsHistoryWithoutChangingServiceIdentit
             EXPECT_EQ(source.requested_before_sequence, 42);
         }
         const auto recent =
-            app.dispatch(request("task.page", {{"before_sequence", 0}})).at("task_service");
+            app.dispatch(request("task.page", {{"owner", owner}, {"before_sequence", 0}}))
+                .at("research_service");
         EXPECT_EQ(recent.at("before_sequence"), 0);
         EXPECT_THROW(
-            app.dispatch(request("task.page", {{"before_sequence", -1}})),
+            app.dispatch(request("task.page", {{"owner", owner}, {"before_sequence", -1}})),
             std::invalid_argument);
     }
     // An in-flight renderer owns its selected page even after pagination and client release.
-    EXPECT_EQ(std::async(std::launch::async, held).get().at("task_service"), expected);
+    EXPECT_EQ(std::async(std::launch::async, held).get().at("research_service"), expected);
 }
 
 namespace {
@@ -2057,4 +2143,27 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
     close.get();
     ASSERT_EQ(minutes.wait_for(testing_support::bound(500ms)), std::future_status::ready);
     EXPECT_THROW((void)minutes.get(), Error);
+}
+
+TEST(TerminalServiceClients, SlowResourceCatalogueLeavesDataCancellationAndObservationAvailable)
+{
+    MinuteService service;
+    terminal::ServiceIo io;
+    auto data = terminal::DataClient::open(io, service.data_address()).get();
+    resource::proto::CatalogueQuery query;
+    query.set_kind("minute_version");
+    auto catalogue = data->resources(query);
+    ASSERT_TRUE(service.wait(1));
+    auto cancel = data->action("running-task", "cancel");
+    const auto ready = cancel.wait_for(testing_support::bound(500ms));
+    auto observation = data->page(0);
+    const auto observed = observation.wait_for(testing_support::bound(500ms));
+    service.release();
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_NO_THROW(cancel.get());
+    EXPECT_EQ(observed, std::future_status::ready);
+    EXPECT_NO_THROW(observation.get());
+    EXPECT_TRUE(catalogue.get().at("items").empty());
+    std::lock_guard lock(service.mutex);
+    EXPECT_EQ(service.data_cancels, 1);
 }

@@ -1,3 +1,5 @@
+import { AcquisitionRetirement } from "./AcquisitionRetirement";
+import { taskOwner } from "../../src/bridge/client";
 import { useEffect, useRef, useState } from "react";
 import {
   type TerminalContext,
@@ -49,7 +51,7 @@ export function TableRefreshPanel({
     },
     [],
   );
-  const tasks = (context.snapshot?.task_service?.tasks ?? []).filter(
+  const tasks = (context.snapshot?.data?.tasks ?? []).filter(
     task =>
       task.table_refresh?.source === revision.source &&
       task.table_refresh.partition.table === revision.table &&
@@ -66,10 +68,11 @@ export function TableRefreshPanel({
   const running = !!task && ["queued", "running", "cancel_requested"].includes(task.state);
   const unsupportedVenue = !source.venues.includes(revision.exchange);
   const enabled =
-    !unsupportedVenue &&
-    !!context.snapshot?.data?.online &&
-    !!context.snapshot?.task_service?.online &&
-    (!!connection || publicMargins);
+    !unsupportedVenue && !!context.snapshot?.data?.online && (!!connection || publicMargins);
+  const executionReady = enabled;
+  const dataConnection = context.snapshot?.data?.connection_id;
+  const owner = useRef(context.snapshot?.data);
+  owner.current = context.snapshot?.data;
   const read = useRef(context.query);
   read.current = context.query;
   useEffect(() => {
@@ -77,7 +80,7 @@ export function TableRefreshPanel({
     setReceipt(null);
     if (task?.state === "succeeded")
       void read
-        .current("task.result.read", { id: task.id })
+        .current("task.result.read", { id: task.id, owner: taskOwner(owner.current, "data") })
         .then(reply => {
           if (active && reply.task_result?.kind === "table_update")
             setReceipt(reply.task_result.result);
@@ -88,7 +91,7 @@ export function TableRefreshPanel({
     return () => {
       active = false;
     };
-  }, [task?.id, task?.state, task?.result_digest]);
+  }, [task?.id, task?.state, task?.result_digest, dataConnection]);
   async function act(action: () => Promise<void>) {
     const ticket = ++generation.current;
     setWorking(true);
@@ -128,6 +131,7 @@ export function TableRefreshPanel({
       try {
         await context.trade("data.tables.refresh.submit", {
           id,
+          connection_id: context.snapshot?.data?.connection_id ?? "",
           query: plan.query,
           plan_id: plan.id,
           token: publicMargins || saved ? "" : token,
@@ -250,7 +254,7 @@ export function TableRefreshPanel({
               </button>
               <button
                 disabled={
-                  !enabled ||
+                  !executionReady ||
                   working ||
                   context.busy ||
                   (!!connection?.credential_required && !saved && !token)
@@ -279,6 +283,14 @@ export function TableRefreshPanel({
       )}
       {task && (
         <div aria-live="polite">
+          <AcquisitionRetirement
+            key={`retire:${owner.current?.connection_id}:${task.id}`}
+            id={task.id}
+            owner={taskOwner(owner.current, "data")}
+            busy={working || context.busy || !owner.current?.online}
+            query={context.query}
+            trade={context.trade}
+          />
           <p>
             {t("任务")} {task.id} · {t("执行次数")} {task.attempt} · {task.state} · {task.completed}
             %
@@ -287,7 +299,13 @@ export function TableRefreshPanel({
             <button
               disabled={working || context.busy || task.state === "cancel_requested"}
               onClick={() =>
-                void act(() => context.trade("task.action", { id: task.id, action: "cancel" }))
+                void act(() =>
+                  context.trade("task.action", {
+                    id: task.id,
+                    action: "cancel",
+                    owner: taskOwner(owner.current, "data"),
+                  }),
+                )
               }
             >
               {t("停止重新获取")}
@@ -328,9 +346,15 @@ export function TableRefreshPanel({
                 </p>
               )}
               <button
-                disabled={working || context.busy}
+                disabled={working || context.busy || task.retired}
                 onClick={() =>
-                  void act(() => context.trade("task.action", { id: task.id, action: "retry" }))
+                  void act(() =>
+                    context.trade("task.action", {
+                      id: task.id,
+                      action: "retry",
+                      owner: taskOwner(owner.current, "data"),
+                    }),
+                  )
                 }
               >
                 {t("重试此任务")}

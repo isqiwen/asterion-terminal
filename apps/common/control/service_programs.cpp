@@ -35,18 +35,21 @@ ServicePrograms resolve_programs(node::proto::ServiceKind kind, Resolve resolve)
             programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
             break;
         case node::proto::MARKET_DATA:
-            programs.executable =
-                resolve("ASTERION_MARKET_EXECUTABLE", "asterion_market_data", false);
+            programs.executable = resolve("ASTERION_MARKET_EXECUTABLE", "asterion_market", false);
             programs.provider = resolve("ASTERION_CTP_LIBRARY", "ctp-md", true);
             programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
             break;
         case node::proto::DATA_SERVICE:
             programs.executable =
-                resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion_data_service", false);
+                resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion_data", false);
             break;
-        case node::proto::TASK_SERVICE:
+        case node::proto::INTELLIGENCE:
             programs.executable =
-                resolve("ASTERION_TASK_EXECUTABLE", "asterion_task_service", false);
+                resolve("ASTERION_INTELLIGENCE_EXECUTABLE", "asterion_intelligence", false);
+            break;
+        case node::proto::RESEARCH:
+            programs.executable =
+                resolve("ASTERION_RESEARCH_EXECUTABLE", "asterion_research", false);
             break;
         default:
             throw std::invalid_argument("unknown service kind");
@@ -82,7 +85,8 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
     for (const auto kind :
         {node::proto::MARKET_DATA,
             node::proto::DATA_SERVICE,
-            node::proto::TASK_SERVICE,
+            node::proto::RESEARCH,
+            node::proto::INTELLIGENCE,
             node::proto::LIVE_TRADING}) {
         const auto programs = local_service_programs(kind);
         auto& source = *manifest.add_services();

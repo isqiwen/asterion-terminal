@@ -13,7 +13,7 @@ SELECTION = {"source_dataset_ids", "daily", "begin_day", "end_day"}
 
 def seed(call, prices, identity="fixture"):
     assert os.environ.get("ASTERION_TEST_NODE_ISOLATED") == "1"
-    call("node.data_tasks.local.open")
+    call("node.data.local.open")
     snapshot = call("node.action", {"id":"local", "service":"historical-data", "action":"stop"})
     service = next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["id"] == "historical-data")
     root = Path(os.environ["ASTERION_NODE_DIRECTORY"]).resolve()
@@ -22,7 +22,7 @@ def seed(call, prices, identity="fixture"):
     result = subprocess.run([str(executable), "--directory", service["directory"], "--id", identity,
                              "--price", *map(str, prices)], check=True, capture_output=True, text=True)
     selection = {key: value for key, value in json.loads(result.stdout).items() if key in SELECTION}
-    call("node.data_tasks.local.open")
+    call("node.data.local.open")
     deadline = time.monotonic() + 10
     while not call("runtime.snapshot")["data"]["online"]:
         if time.monotonic() >= deadline:

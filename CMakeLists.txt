@@ -18,7 +18,7 @@ file(GLOB_RECURSE ASTERION_SERVICE_TREE CONFIGURE_DEPENDS
 file(WRITE "${CMAKE_BINARY_DIR}/service-source.sha256" "${ASTERION_SERVICE_SOURCE_SHA256}\n")
 
 # Ship the maintained defaults verbatim; services never create their own policy.
-foreach(name task logging)
+foreach(name research logging)
   configure_file(config/${name}.json config/${name}.json COPYONLY)
 endforeach()
 

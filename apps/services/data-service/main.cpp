@@ -8,15 +8,18 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv)
 {
     CLI::App app{"Asterion historical data service"};
-    app.set_version_flag("--version", "asterion_data_service " ASTERION_PRODUCT_VERSION);
-    std::string directory, service, task_instance, health_endpoint, internal_endpoint, plugins;
+    app.set_version_flag("--version", "asterion_data " ASTERION_PRODUCT_VERSION);
+    std::string directory, service, health_endpoint, internal_endpoint, local_endpoint, plugins;
+    std::string node_id, discovery_endpoint;
     std::uint64_t owner_pid = 0;
     unsigned file_workers = 2;
     asterion::service::Transport transport;
     app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
     app.add_option("--session", service)->required();
-    app.add_option("--task-instance", task_instance)->required();
+    app.add_option("--node-id", node_id, "Stable owning Agent identity for cross-domain retention");
+    app.add_option("--discovery-endpoint", discovery_endpoint, "Read-only owning Agent metadata");
     app.add_option("--endpoint", transport.endpoint);
+    app.add_option("--local-endpoint", local_endpoint);
     app.add_option("--bind", transport.bind);
     app.add_option("--port", transport.port)->check(CLI::Range(1, 65535));
     app.add_option("--tls-ca", transport.tls.ca_file);
@@ -37,7 +40,8 @@ int main(int argc, char** argv)
         transport.validate();
         asterion::service::install_stop_signals();
         using Host = asterion::service::RpcHost;
-        asterion::data::DataHost data({directory, service, task_instance, file_workers});
+        asterion::data::DataHost data(
+            {directory, service, file_workers, internal_endpoint, node_id, discovery_endpoint});
         Host::Options options;
         options.owner_pid = owner_pid;
         options.connections = 12;
@@ -52,6 +56,18 @@ int main(int argc, char** argv)
                 false,
                 1024 * 1024,
                 128 * 1024 * 1024});
+        // A TCP service also exposes its public operations to same-node Research.
+        // Acquisition-only operations retain the separate internal endpoint boundary.
+        if (!local_endpoint.empty())
+            options.local_endpoints.push_back(
+                {local_endpoint,
+                    [&](const Host::Peer&, std::string frame) {
+                        return data.accept(std::move(frame), false);
+                    },
+                    6,
+                    false,
+                    1024 * 1024,
+                    128 * 1024 * 1024});
         if (!health_endpoint.empty())
             options.local_endpoints.push_back(
                 {health_endpoint,

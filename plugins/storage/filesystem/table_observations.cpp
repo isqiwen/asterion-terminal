@@ -151,6 +151,7 @@ TableRefreshObservation TableStore::record_refresh_observation(
     std::int64_t now,
     bool unchanged)
 {
+    writable();
     std::lock_guard lock(mutex_);
     if (revision.series.table != "futures.daily" || revision.exchange != "SHFE" || !c.attempt
         || c.data_instance.empty() || c.task_instance.empty() || c.task_id.empty()
@@ -244,6 +245,37 @@ std::optional<TableRefreshObservation> TableStore::latest_refresh_observation(
         || observation.revision.period != period)
         throw std::invalid_argument(invalid);
     return observation;
+}
+
+std::vector<TableObservationContext>
+TableStore::snapshot_observers(const std::string& snapshot, std::stop_token stop) const
+{
+    if (!digest(snapshot))
+        throw std::invalid_argument("invalid table snapshot");
+    std::lock_guard lock(mutex_);
+    const auto base = root_ / "observations/partitions";
+    std::vector<TableObservationContext> result;
+    if (!fs::exists(base))
+        return result;
+    unsigned count = 0;
+    for (const auto& partition : fs::directory_iterator(base)) {
+        if (partition.is_symlink() || !partition.is_directory()
+            || !digest(partition.path().filename().string()))
+            throw std::invalid_argument(invalid);
+        for (const auto& entry : fs::directory_iterator(partition.path())) {
+            if (stop.stop_requested())
+                throw std::runtime_error("table observer inspection cancelled");
+            if (++count > 100000 || entry.is_symlink() || !entry.is_regular_file()
+                || !digest(entry.path().filename().string()))
+                throw std::invalid_argument(invalid);
+            const auto observation =
+                observation_unlocked(read(entry.path(), 64), entry.path().filename().string());
+            if (observation.context.selected_snapshot == snapshot
+                || observation.revision.snapshot == snapshot)
+                result.push_back(observation.context);
+        }
+    }
+    return result;
 }
 
 } // namespace asterion::history_files

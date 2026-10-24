@@ -1,3 +1,5 @@
+import { AcquisitionRetirement } from "./AcquisitionRetirement";
+import { taskOwner } from "../../src/bridge/client";
 import type { CommandHandler } from "../../src/bridge/commands";
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 import { useEffect, useRef, useState } from "react";
@@ -35,7 +37,7 @@ function useContractList(
   ask.current = context.query;
   const connection = context.snapshot?.data?.connection_id;
   const online = !!context.snapshot?.data?.online;
-  const updated = (context.snapshot?.task_service?.tasks ?? []).filter(
+  const updated = (context.snapshot?.data?.tasks ?? []).filter(
     task => task.kind === "table_update" && task.state === "succeeded",
   ).length;
   const [list, setList] = useState<{
@@ -140,7 +142,7 @@ function SourceDownloads({
   const saved = savedCredential(snapshot, source.id);
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");
-  const taskService = snapshot?.task_service;
+  const taskService = snapshot?.data;
   const lists = useContractList({ snapshot, query }, source, form.exchange, form.product);
   const listed = lists.contracts;
   const contracts = listed?.items ?? [];
@@ -440,7 +442,7 @@ function SourceDownloads({
         </details>
       </section>
       <section className="history-activity" aria-label={t("下载记录")}>
-        <TaskPagination taskService={taskService} busy={busy} trade={trade} />
+        <TaskPagination kind="data" taskService={taskService} busy={busy} trade={trade} />
         {error && (
           <p role="alert">
             <ErrorNotice error={error} namespace="asterion.terminal.data-workbench" />
@@ -457,6 +459,14 @@ function SourceDownloads({
               .filter(task => task.state !== "succeeded")
               .map(task => (
                 <article className="publication-row" data-task-id={task.id} key={task.id}>
+                  <AcquisitionRetirement
+                    key={`retire:${taskService?.connection_id}:${task.id}`}
+                    id={task.id}
+                    owner={taskOwner(snapshot?.data, "data")}
+                    busy={busy || !taskService?.online}
+                    query={query}
+                    trade={trade}
+                  />
                   <div className="publication-name">
                     <strong>{task.source_name}</strong>
                     <small>
@@ -472,15 +482,27 @@ function SourceDownloads({
                     {["queued", "running"].includes(task.state) && (
                       <button
                         disabled={busy || !taskService?.online}
-                        onClick={() => void run("task.action", { id: task.id, action: "cancel" })}
+                        onClick={() =>
+                          void run("task.action", {
+                            owner: taskOwner(snapshot?.data, "data"),
+                            id: task.id,
+                            action: "cancel",
+                          })
+                        }
                       >
                         {t("取消")}
                       </button>
                     )}
                     {["failed", "cancelled", "interrupted"].includes(task.state) && (
                       <button
-                        disabled={busy || !taskService?.online}
-                        onClick={() => void run("task.action", { id: task.id, action: "retry" })}
+                        disabled={busy || !taskService?.online || task.retired}
+                        onClick={() =>
+                          void run("task.action", {
+                            owner: taskOwner(snapshot?.data, "data"),
+                            id: task.id,
+                            action: "retry",
+                          })
+                        }
                       >
                         {t("继续下载")}
                       </button>
@@ -502,6 +524,14 @@ function SourceDownloads({
           .reverse()
           .map(task => (
             <article className="publication-row" data-task-id={task.id} key={task.id}>
+              <AcquisitionRetirement
+                key={`retire:${taskService?.connection_id}:${task.id}`}
+                id={task.id}
+                owner={taskOwner(snapshot?.data, "data")}
+                busy={busy || !taskService?.online}
+                query={query}
+                trade={trade}
+              />
               <div className="publication-name">
                 <strong>{task.source_name}</strong>
                 <small>
@@ -539,7 +569,9 @@ function SourceDownloads({
               )}
               <button
                 disabled={busy || !taskService?.online}
-                onClick={() => void run("task.result", { id: task.id })}
+                onClick={() =>
+                  void run("task.result", { owner: taskOwner(snapshot?.data, "data"), id: task.id })
+                }
               >
                 {t("数据集详情")}
               </button>
@@ -613,13 +645,13 @@ export function HistoricalDownloads(context: TerminalContext) {
             <span>{source.timezone}</span>
           </div>
           <SourceDownloads
-            key={JSON.stringify([source.id, context.snapshot?.task_service?.connection_id])}
+            key={JSON.stringify([source.id, context.snapshot?.data?.connection_id])}
             {...context}
             source={source}
           />
         </>
       ) : (
-        <>{context.snapshot?.task_service?.online && <p role="alert">{t("数据源不可用")}</p>}</>
+        <>{context.snapshot?.data?.online && <p role="alert">{t("数据源不可用")}</p>}</>
       )}
     </section>
   );

@@ -9,13 +9,17 @@ import {
   type TerminalContext,
 } from "../contract";
 import { namespace, t } from "./shared";
-export async function saveResearchExport(query: (path: string) => Promise<Snapshot>, name: string) {
+export async function saveResearchExport(
+  query: (path: string) => Promise<Snapshot>,
+  name: string,
+  format: "json" | "html" | "csv" = "json",
+) {
   let path = "";
   if (nativeDesktop) {
     const chosen = await save({
       title: t("导出研究证据"),
       defaultPath: name,
-      filters: [{ name: "JSON", extensions: ["json"] }],
+      filters: [{ name: format.toUpperCase(), extensions: [format] }],
     });
     if (!chosen) return null;
     path = chosen;
@@ -26,7 +30,9 @@ export async function saveResearchExport(query: (path: string) => Promise<Snapsh
   if (!nativeDesktop) {
     if (value.content === undefined) throw new Error(t("研究证据导出未返回文件内容"));
     const url = URL.createObjectURL(
-      new Blob([value.content], { type: "application/json;charset=utf-8" }),
+      new Blob([value.content], {
+        type: `${format === "html" ? "text/html" : format === "csv" ? "text/csv" : "application/json"};charset=utf-8`,
+      }),
     );
     const link = document.createElement("a");
     link.href = url;

@@ -1,5 +1,6 @@
 syntax = "proto3";
 import "asterion/node.proto";
+import "asterion/resource.proto";
 package asterion.market.proto;
 message Empty {}
 message Instrument {
@@ -64,6 +65,8 @@ message Request {
     CatalogRequest catalog = 17;
     MinuteRequest minutes = 18;
     asterion.node.proto.Quiesce quiesce = 19;
+    Instrument observation_preview = 20;
+    asterion.resource.proto.Object observation_read = 21;
   }
 }
 message DepthLevel {
@@ -170,9 +173,25 @@ message Response {
     Error error = 12;
     EventBatch events = 13;
     MinuteSeries minutes = 14;
+    ObservationCapture observation = 15;
   }
 }
 
+// Aggregate observation only: not a tick archive or a complete historical day.
+message Observation {
+  asterion.resource.proto.Owner source = 1;
+  string instance = 2;
+  string token = 3;
+  int64 captured_at_ms = 4;
+  string stream_id = 5;
+  uint64 applied_sequence = 6;
+  MinuteSeries minutes = 7;
+  string source_phase = 8;
+}
+message ObservationCapture {
+  asterion.resource.proto.Object reference = 1;
+  Observation observation = 2;
+}
 message QuoteObservation {
   Quote quote = 1;
   bool out_of_order = 2;

@@ -91,5 +91,6 @@
   "remoteAll": "Also uninstall all remote nodes (remote first, then local; data retention applies to every node)",
   "remotePreserveOption": "Preserve configuration and business data on selected remote nodes",
   "remoteConnection": "Select an existing SSH connection",
-  "remoteConnectionSettings": "SSH maintenance connection"
+  "remoteConnectionSettings": "SSH maintenance connection",
+  "remoteInspectionRequired": "Complete the remote node inspection before an upgrade or combined uninstall. Resolve the inspection error, then choose Recheck. Same-release local repair remains available."
 }

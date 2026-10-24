@@ -11,12 +11,11 @@ namespace asterion::data {
 
 // One persistent warehouse, independent of task history and process lifetimes.
 // The I/O owner orders each object through preparation and durable completion.
-// File preparation returns sealed evidence; the writer only commits that evidence. Only the bound
-// same-node task coordinator may publish downloads.
+// File preparation returns sealed evidence; the Data writer confirms acquisition and publication.
 class Store
 {
 public:
-    Store(std::filesystem::path root, std::string instance, std::string task_instance);
+    Store(std::filesystem::path root, std::string instance);
     proto::DownloadBudgetPolicy verify_budget(const proto::DownloadBudgetConfiguration&) const;
     proto::StoredDownloadAuthorization download_authorization(const proto::DownloadIdentity&) const;
 
@@ -30,7 +29,19 @@ public:
         return archive_;
     }
 
+    void begin_minute_retirement(const proto::HistoryRecord&, const std::string& manifest);
+    void clean_minute_retirement(const std::string&, std::stop_token);
+    void finish_minute_retirement(const std::string&);
+
     proto::HistoryUsage history_usage(const std::string& dataset) const;
+    proto::HistoryUsage snapshot_usage(const std::string&) const;
+    resource::proto::Catalogue resources(
+        const resource::proto::Owner&,
+        const resource::proto::CatalogueQuery&,
+        std::stop_token) const;
+    void begin_table_retirement(const history_files::TableStore::Retirement&);
+    void clean_table_retirement(const std::string&, std::stop_token);
+    void finish_table_retirement(const std::string&);
     BarDatasetSources sources(const proto::BarDatasetRequest&) const;
 
     class VerifiedAuthorization
@@ -44,7 +55,9 @@ public:
         proto::StoredDownloadAuthorization value_;
     };
 
-    VerifiedAuthorization verify_authorization(const proto::DownloadAuthorizationRequest&) const;
+    VerifiedAuthorization verify_authorization(
+        const proto::DownloadAuthorizationRequest&,
+        std::stop_token stop = {}) const;
     proto::DownloadAuthorization authorize(const VerifiedAuthorization&);
     proto::DownloadAuthorization authorization(const std::string& id) const;
 
@@ -169,7 +182,7 @@ public:
 
 private:
     std::filesystem::path root_;
-    std::string instance_, task_instance_;
+    std::string instance_;
     FileLock ownership_;
     history_files::Archive archive_;
     history_files::TableStore tables_;

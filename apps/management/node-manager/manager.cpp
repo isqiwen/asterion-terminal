@@ -1,4 +1,5 @@
 #include "manager.hpp"
+#include <asterion/foundation/serialization.hpp>
 #include "agent_client.hpp"
 #include "node_enrollment.hpp"
 #include "manager_wire.hpp"
@@ -16,79 +17,32 @@ namespace wire = manager::proto;
 
 namespace {
 
-// Pair deployment gives each process its own durable directory and fixed peer.
+// Deploy business services independently; inputs select their source owners per operation.
 PolledTask<void>
 deploy_service(ServiceIo& io, AgentClient& node, bool local, const manager::proto::Deployment& p)
 {
-    const auto status = (co_await PollFuture{node.inspect_status()});
+    const auto status = co_await PollFuture{node.inspect_status()};
     if (!status.online || !status.health)
         throw std::invalid_argument("connect the node before deployment");
     const auto kind = p.kind();
-    const auto name = p.service();
-    const auto port = local ? std::uint16_t{0} : static_cast<std::uint16_t>(p.port());
     if (local
-        && ((kind != node::proto::TASK_SERVICE && kind != node::proto::LIVE_TRADING)
-            || p.port() != 0))
-        throw std::invalid_argument(
-            "local deployment requires a task or trading service and port zero");
+        && (p.port() != 0
+            || (kind != node::proto::RESEARCH && kind != node::proto::DATA_SERVICE
+                && kind != node::proto::LIVE_TRADING && kind != node::proto::INTELLIGENCE)))
+        throw std::invalid_argument("local deployment requires a business service and port zero");
     if (!local
         && (status.health->os() != "linux" || status.health->version() != ASTERION_PRODUCT_VERSION))
-        throw std::invalid_argument(
-            "remote services require an online Linux Agent of the same version");
-    const auto platform =
-        local ? current_platform() : HostPlatform{.os = "linux", .arch = status.health->arch()};
-    const auto programs = [&](node::proto::ServiceKind type) -> PolledTask<ServicePrograms> {
-        co_return co_await io.admin<ServicePrograms>([&] {
-            return local ? local_service_programs(type)
-                         : bundled_service_programs(platform.arch, type);
-        });
-    };
-    std::string data_service;
-    if (kind == node::proto::TASK_SERVICE) {
-        data_service = name + "-data";
-        const node::proto::Service* existing = nullptr;
-        for (const auto& service : status.health->services())
-            if (service.id() == data_service)
-                existing = &service;
-        if (existing) {
-            if (existing->kind() != node::proto::DATA_SERVICE || existing->task_service() != name)
-                throw std::invalid_argument("data and task service bindings disagree");
-            (co_await PollFuture{node.action(data_service, "start")});
-        } else {
-            unsigned data_port = 0;
-            if (!local) {
-                data_port = 7443;
-                for (; data_port <= 65535; ++data_port) {
-                    const bool occupied = data_port == port || data_port == status.port
-                        || std::ranges::any_of(status.health->services(), [&](const auto& service) {
-                               return service.port() == data_port;
-                           });
-                    if (!occupied)
-                        break;
-                }
-                if (data_port > 65535)
-                    throw std::invalid_argument("no port available for data service");
-            }
-            auto data_programs = co_await programs(node::proto::DATA_SERVICE);
-            const ServiceDeployment deployment{
-                .service = data_service,
-                .kind = node::proto::DATA_SERVICE,
-                .platform = platform,
-                .programs = std::move(data_programs),
-                .port = static_cast<std::uint16_t>(data_port),
-                .task_service = name
-            };
-            co_await PollFuture{node.deploy(deployment)};
-        }
-    }
-    auto service_programs = co_await programs(kind);
+        throw std::invalid_argument("remote node requires the current Linux service programs");
+    const auto programs = co_await io.admin<ServicePrograms>([&] {
+        return local ? local_service_programs(kind)
+                     : bundled_service_programs(status.health->arch(), kind);
+    });
     const ServiceDeployment deployment{
-        .service = name,
+        .service = p.service(),
         .kind = kind,
-        .platform = platform,
-        .programs = std::move(service_programs),
-        .port = port,
-        .data_service = data_service
+        .platform = {status.health->os(), status.health->arch()},
+        .programs = programs,
+        .port = local ? std::uint16_t{0} : static_cast<std::uint16_t>(p.port())
     };
     co_await PollFuture{node.deploy(deployment)};
 }
@@ -224,7 +178,8 @@ struct NodeManager::Impl
         }
         std::shared_ptr<AgentClient> node;
         if (p.has_connect() || p.has_trading_session() || p.has_local_session()
-            || p.has_local_market() || p.has_local_data_tasks() || p.has_create_data_tasks())
+            || p.has_local_market() || p.has_local_data() || p.has_local_research()
+            || p.has_create_research() || p.has_local_intelligence())
             node = co_await connect(p.id());
         else {
             const auto found = nodes.find(p.id());
@@ -244,7 +199,6 @@ struct NodeManager::Impl
                     out.set_kind(service.kind);
                     out.set_directory(service.directory);
                     out.set_state(service.state);
-                    out.set_data_service(service.data_service);
                     encode(*out.mutable_address(), service.address);
                 }
                 break;
@@ -256,12 +210,6 @@ struct NodeManager::Impl
                         node->service_endpoint(p.endpoint().name(), p.endpoint().kind())
                     });
                 break;
-            case wire::NodeCommand::kDataTasks: {
-                auto pair = co_await PollFuture{node->data_task_endpoints(p.data_tasks())};
-                encode(*result.mutable_data_tasks()->mutable_task(), pair.task);
-                encode(*result.mutable_data_tasks()->mutable_data(), pair.data);
-                break;
-            }
             case wire::NodeCommand::kTradingSession: {
                 const auto address =
                     co_await PollFuture{node->trading_session(p.trading_session())};
@@ -270,8 +218,10 @@ struct NodeManager::Impl
             }
             case wire::NodeCommand::kLocalSession:
             case wire::NodeCommand::kLocalMarket:
-            case wire::NodeCommand::kLocalDataTasks:
-            case wire::NodeCommand::kCreateDataTasks: {
+            case wire::NodeCommand::kLocalData:
+            case wire::NodeCommand::kLocalIntelligence:
+            case wire::NodeCommand::kLocalResearch:
+            case wire::NodeCommand::kCreateResearch: {
                 if (p.id() != "local")
                     throw std::invalid_argument("local service operation requires the local node");
                 ServiceEndpoint address;
@@ -279,14 +229,18 @@ struct NodeManager::Impl
                     address = co_await PollFuture{node->local_session(p.local_session())};
                 else if (p.has_local_market())
                     address = co_await PollFuture{node->local_market()};
+                else if (p.has_local_intelligence())
+                    address = co_await PollFuture{node->local_intelligence()};
+                else if (p.has_local_data())
+                    address = co_await PollFuture{node->local_data()};
                 else {
                     std::optional<std::vector<std::string>> plugins;
-                    if (p.has_create_data_tasks())
+                    if (p.has_create_research())
                         plugins = std::vector<std::string>{
-                            p.create_data_tasks().hashes().begin(),
-                            p.create_data_tasks().hashes().end()
+                            p.create_research().hashes().begin(),
+                            p.create_research().hashes().end()
                         };
-                    address = co_await PollFuture{node->local_data_tasks(plugins)};
+                    address = co_await PollFuture{node->local_research(plugins)};
                 }
                 encode(*result.mutable_endpoint(), address);
                 break;
@@ -434,7 +388,7 @@ struct NodeManager::Impl
                 initialization.get();
             if (request.has_node()
                 && (request.node().has_history() || request.node().has_endpoint()
-                    || request.node().has_data_tasks() || request.node().has_connect())
+                    || request.node().has_connect())
                 && nodes.contains(request.node().id())
                 && (request.node().id() != "local" || nodes.at("local")->owner_view().online)) {
                 co_await node_command(request.node(), result);

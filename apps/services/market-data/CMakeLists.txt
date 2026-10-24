@@ -1,3 +1,3 @@
-add_executable(asterion_market_data main.cpp session.cpp)
-target_link_libraries(asterion_market_data PRIVATE asterion_ctp asterion_protocol CLI11::CLI11)
-asterion_target_defaults(asterion_market_data)
+add_executable(asterion_market main.cpp session.cpp)
+target_link_libraries(asterion_market PRIVATE asterion_ctp asterion_protocol CLI11::CLI11)
+asterion_target_defaults(asterion_market)

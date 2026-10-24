@@ -1,8 +1,9 @@
+import { taskOwner } from "../../src/bridge/client";
 import { ComparisonExport } from "./ComparisonExport";
 import { useEffect, useRef, useState } from "react";
 import type { FactorResult, TaskResult } from "../../src/bridge/client";
 import { ErrorNotice, asDisplayError, type DisplayError, type TerminalContext } from "../contract";
-import { factorNames, namespace, t } from "./shared";
+import { factorLabel, variableUnit, namespace, t } from "./shared";
 export type FactorEvidence = Extract<TaskResult, { kind: "factor" }>;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const daily = (value: FactorEvidence) => value.experiment.series.every(s => s.kind === "table");
@@ -120,7 +121,7 @@ export function FactorComparison({
   const [failures, setFailures] = useState<{ id: string; error: DisplayError }[]>([]);
   const [loading, setLoading] = useState(false);
   const generation = useRef({ value: 0 });
-  const connection = snapshot?.task_service?.connection_id;
+  const connection = snapshot?.research_service?.connection_id;
   useEffect(() => {
     const epoch = generation.current;
     epoch.value++;
@@ -133,7 +134,7 @@ export function FactorComparison({
     };
   }, [connection]);
   const tasks =
-    snapshot?.task_service?.tasks.filter(
+    snapshot?.research_service?.tasks.filter(
       task => task.kind === "factor" && task.state === "succeeded",
     ) ?? [];
   const table = useRef<HTMLTableElement>(null);
@@ -146,7 +147,10 @@ export function FactorComparison({
     setFailures([]);
     const replies = await Promise.allSettled(
       selected.map(async id => {
-        const reply = await query("task.result.read", { id });
+        const reply = await query("task.result.read", {
+          owner: taskOwner(snapshot?.research_service, "research"),
+          id,
+        });
         const value = reply.task_result;
         if (value?.kind !== "factor") throw new Error(t("所选任务没有因子结果"));
         return value;
@@ -321,7 +325,23 @@ export function FactorComparison({
                 )}
                 {row(
                   "因子",
-                  loaded.map(v => t(factorNames[v.experiment.factor])),
+                  loaded.map(v => factorLabel(v.experiment.factor)),
+                )}
+                {row(
+                  "原变量定义",
+                  loaded.map(v =>
+                    v.experiment.variable_definition
+                      ? `${v.experiment.variable_definition.object.id} / ${v.experiment.variable_definition.object.version}`
+                      : "—",
+                  ),
+                )}
+                {row(
+                  "输出单位",
+                  loaded.map(v =>
+                    v.experiment.variable_definition
+                      ? variableUnit(v.experiment.variable_definition.price_power)
+                      : t("比例"),
+                  ),
                 )}
                 {row(
                   "候选窗口",

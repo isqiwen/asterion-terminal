@@ -1,0 +1,70 @@
+syntax = "proto3";
+package asterion.data.proto;
+import "asterion/resource.proto";
+
+// Provider resource identity, not an upload or an arbitrary filesystem path.
+message MaterialRequest {
+  string id = 1;
+  string source_id = 2;
+  string resource_id = 3;
+  string use_scope = 4;
+  string provider_artifact = 5;
+  uint32 max_requests = 6; // Explicit upper bound, including provider metadata requests.
+  uint32 max_bytes = 7; // Exact reviewed response limit, at most 4 MiB.
+}
+message MaterialInput {
+  asterion.resource.proto.Owner owner = 1;
+  MaterialRequest request = 2;
+}
+message MaterialEvidence {
+  MaterialRequest request = 1;
+  asterion.resource.proto.Object content = 2;
+  string media_type = 3;
+  uint64 bytes = 4;
+  int64 acquired_at_ms = 5;
+  // Only a provider-supported source publication observation, never fetch time.
+  optional int64 source_published_at_ms = 6;
+}
+message MaterialReceipt {
+  asterion.resource.proto.Object reference = 1;
+  MaterialEvidence evidence = 2;
+}
+message MaterialText {
+  enum State {
+    UNSPECIFIED = 0;
+    READABLE = 1;
+    UNSUPPORTED_MEDIA = 2;
+    INVALID_UTF8 = 3;
+  }
+
+  asterion.resource.proto.Object content = 1;
+  State state = 2;
+  uint64 readable_bytes = 3;
+  // Readable text is the exact original byte range [0, readable_bytes).
+  // It is not an Intelligence candidate or a verification/publication decision.
+}
+
+message MaterialSource {
+  string id = 1;
+  string name = 2;
+  string usage = 3;
+  string plugin_id = 4;
+  string provider_artifact = 5;
+  uint32 max_bytes = 6;
+  bool credential_required = 7;
+  bool no_additional_fee = 8;
+}
+message MaterialSources {
+  repeated MaterialSource items = 1;
+}
+message MaterialRead {
+  MaterialReceipt receipt = 1;
+  bytes original = 2;
+  MaterialText text = 3;
+}
+
+// Interactive lookup may omit the reference. Fixed business consumers supply it.
+message MaterialReadQuery {
+  string id = 1;
+  asterion.resource.proto.Object expected_reference = 2;
+}

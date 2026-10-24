@@ -31,12 +31,9 @@ test("isolated one-minute replay keeps archive and observed segments explicit", 
     // The repository harness starts isolated local services. Preserve only
     // their explicit startup checks; all market/data replies below are replayed.
     if (
-      [
-        "node.local",
-        "market.local",
-        "native.plugins.inspect",
-        "node.data_tasks.local.open",
-      ].includes(request.method)
+      ["node.local", "market.local", "native.plugins.inspect", "node.data.local.open"].includes(
+        request.method,
+      )
     )
       return route.continue();
     expect([

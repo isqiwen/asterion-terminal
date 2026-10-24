@@ -75,6 +75,9 @@ void launcher(const installation::Layout& layout, bool remove)
         file,
         "[Desktop Entry]\nType=Application\nName=Asterion Terminal\nExec=\"" + executable
             + "\"\nTerminal=false\nCategories=Office;Finance;\n");
+#else
+    (void)layout;
+    (void)remove;
 #endif
 }
 

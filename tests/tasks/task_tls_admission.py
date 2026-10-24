@@ -17,8 +17,8 @@ with tempfile.TemporaryDirectory(prefix="ast-backtest-factor-admission-", ignore
         reserve.bind(("127.0.0.1", 0))
         port = reserve.getsockname()[1]
     process = subprocess.Popen([
-        executable, "--config", str(Path(executable).parent / "config/task.json"), "--directory", str(root / "tasks"), "--session", "admission",
-        "--data-instance", "history", "--data-endpoint", str(root / "history.sock"),
+        executable, "--config", str(Path(executable).parent / "config/research.json"), "--directory", str(root / "tasks"), "--session", "admission",
+        "--discovery-endpoint", str(root / "discovery.sock"),
         "--bind", "127.0.0.1", "--port", str(port),
         "--tls-ca", str(root / "ca.crt"),
         "--tls-cert", str(root / "server.crt"),

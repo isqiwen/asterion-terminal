@@ -1,3 +1,5 @@
+#include "support/data_discovery.hpp"
+#include <asterion/research.pb.h>
 #include <asterion/kernel/durable_file.hpp>
 #include "support/task_wait.hpp"
 #include "data/history_fixture.hpp"
@@ -16,6 +18,8 @@
 #include <cstdlib>
 #include <optional>
 #include <future>
+#include <set>
+#include <csignal>
 using namespace asterion;
 using namespace std::chrono_literals;
 
@@ -52,22 +56,32 @@ struct Node
     Folder warehouse{"ast-tw-"}, ledger{"ast-tl-"}, sockets{"ast-ts-"};
     const std::string endpoint = (sockets.path / "task.sock").string(),
                       data_endpoint = (sockets.path / "data.sock").string(),
-                      data_workers = (sockets.path / "data.workers").string();
-    ChildProcess data_service{
-        ASTERION_DATA_SERVICE_PATH,
-        {"--directory",
-            warehouse.path.string(),
-            "--session",
-            "fixture-data",
-            "--task-instance",
-            "table-test",
-            "--endpoint",
-            data_endpoint,
-            "--internal-endpoint",
-            data_workers,
-            "--plugin-directory",
-            PLUGIN_FIXTURE_DIRECTORY}
-    };
+                      data_workers = (sockets.path / "data.workers").string(),
+                      data_health = (sockets.path / "data.health").string();
+
+    std::unique_ptr<ChildProcess> start_data()
+    {
+        return std::make_unique<ChildProcess>(
+            ASTERION_DATA_SERVICE_PATH,
+            std::vector<std::string>{
+                "--directory",
+                warehouse.path.string(),
+                "--session",
+                "fixture-data",
+                "--node-id",
+                "fixture-node",
+                "--endpoint",
+                data_endpoint,
+                "--internal-endpoint",
+                data_workers,
+                "--health-endpoint",
+                data_health,
+                "--plugin-directory",
+                PLUGIN_FIXTURE_DIRECTORY
+            });
+    }
+
+    std::unique_ptr<ChildProcess> data_service = start_data();
     protocol::DataClient data{data_endpoint, "fixture-data"};
 
     std::string policy()
@@ -77,8 +91,13 @@ struct Node
         return path.string();
     }
 
+    testing_support::DataDiscovery discovery{
+        endpoint + ".discovery",
+        "fixture-data",
+        data_endpoint
+    };
     ChildProcess task_service{
-        ASTERION_TASK_SERVICE_PATH,
+        ASTERION_RESEARCH_PATH,
         {"--config",
             policy(),
             "--directory",
@@ -87,15 +106,13 @@ struct Node
             endpoint,
             "--session",
             "table-test",
-            "--data-instance",
-            "fixture-data",
-            "--data-endpoint",
-            data_workers,
+            "--discovery-endpoint",
+            endpoint + ".discovery",
             "--plugin-directory",
             PLUGIN_FIXTURE_DIRECTORY}
     };
 
-    task::proto::TaskResponse call(task::proto::TaskRequest request)
+    task::proto::TaskResponse task_call(research::proto::ResearchRequest request)
     {
         request.set_version(1);
         request.set_service_id("table-test");
@@ -108,12 +125,68 @@ struct Node
         return reply;
     }
 
+    std::set<std::string> refresh_ids;
+
+    task::proto::TaskResponse call(research::proto::ResearchRequest request)
+    {
+        const auto id = request.has_submit() ? request.submit().id()
+            : request.has_get()              ? request.get().id()
+            : request.has_metadata_get()     ? request.metadata_get().id()
+            : request.has_result()           ? request.result().id()
+            : request.has_cancel()           ? request.cancel().id()
+            : request.has_retry()            ? request.retry().id()
+                                             : std::string();
+        if (!refresh_ids.contains(id))
+            return task_call(std::move(request));
+        data::proto::DataRequest query;
+        auto* operation = query.mutable_acquisition_task();
+        if (request.has_get() || request.has_metadata_get())
+            operation->mutable_get()->set_id(id);
+        else if (request.has_result())
+            operation->mutable_result()->set_id(id);
+        else if (request.has_cancel())
+            operation->mutable_cancel()->set_id(id);
+        else if (request.has_retry())
+            operation->mutable_retry()->set_id(id);
+        const auto result = data.call(query).acquisition_task();
+        task::proto::TaskResponse response;
+        if (result.has_task())
+            *response.mutable_task() = result.task();
+        if (result.has_table_update()) {
+            *response.mutable_table_update() = result.table_update();
+            *response.mutable_result_task() = result.task();
+        }
+        return response;
+    }
+
+    void restart_data()
+    {
+        data_service.reset(); // ChildProcess destruction reaps this test-owned process.
+        for (const auto& endpoint : {data_endpoint, data_workers, data_health})
+            if (std::filesystem::is_socket(endpoint))
+                std::filesystem::remove(endpoint);
+        data_service = start_data();
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            try {
+                data::proto::DataRequest heartbeat;
+                heartbeat.mutable_heartbeat();
+                if (data.call(heartbeat).health().initialized())
+                    return;
+            } catch (const std::exception&) {
+                if (std::chrono::steady_clock::now() >= deadline)
+                    throw;
+            }
+            std::this_thread::sleep_for(20ms);
+        }
+    }
+
     Node()
     {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             try {
-                task::proto::TaskRequest ping;
+                research::proto::ResearchRequest ping;
                 ping.mutable_heartbeat();
                 data::proto::DataRequest data_ping;
                 data_ping.mutable_heartbeat();
@@ -143,15 +216,18 @@ struct Node
     {
         data::proto::DataRequest authorize;
         auto* request = authorize.mutable_authorize_download();
-        request->set_task_instance("table-test");
+        refresh_ids.insert(id);
+        request->set_task_instance("fixture-data");
         request->set_task_id(id);
         request->set_credential(credential);
         *request->mutable_table_update() = definition;
-        task::proto::TaskRequest submit;
-        submit.mutable_submit()->set_id(id);
-        submit.mutable_submit()->set_download_authorization(
+        data::proto::DataRequest submit;
+        submit.mutable_acquisition_task()->mutable_submit()->set_id(id);
+        submit.mutable_acquisition_task()->mutable_submit()->set_authorization(
             data.call(authorize).download_authorization().id());
-        const auto submitted = call(submit);
+        const auto observed = data.call(submit).acquisition_task();
+        task::proto::TaskResponse submitted;
+        *submitted.mutable_task() = observed.task();
         EXPECT_TRUE(submitted.has_task()) << submitted.DebugString();
         EXPECT_EQ(submitted.task().kind(), task::proto::TABLE_UPDATE);
         EXPECT_EQ(submitted.task().total(), 100U);
@@ -175,7 +251,10 @@ struct Node
         return run(id);
     }
 
-    task::proto::Task run(const std::string& id, const std::filesystem::path& cancel_control = {})
+    task::proto::Task run(
+        const std::string& id,
+        const std::filesystem::path& cancel_control = {},
+        std::chrono::seconds timeout = 60s)
     {
         if (!cancel_control.empty()) {
             const auto deadline = std::chrono::steady_clock::now() + 10s;
@@ -183,7 +262,7 @@ struct Node
                 && std::chrono::steady_clock::now() < deadline)
                 std::this_thread::sleep_for(10ms);
             EXPECT_EQ(contents(cancel_control), "waiting");
-            task::proto::TaskRequest cancel;
+            research::proto::ResearchRequest cancel;
             cancel.mutable_cancel()->set_id(id);
             EXPECT_TRUE(call(cancel).has_task());
         }
@@ -191,15 +270,16 @@ struct Node
             [&](auto request) {
                 return call(request);
             },
-            id);
-        task::proto::TaskRequest get;
+            id,
+            timeout);
+        research::proto::ResearchRequest get;
         get.mutable_get()->set_id(id);
         return call(get).task();
     }
 
     data::proto::TableUpdateResult result(const std::string& id)
     {
-        task::proto::TaskRequest request;
+        research::proto::ResearchRequest request;
         request.mutable_result()->set_id(id);
         const auto reply = call(request);
         EXPECT_TRUE(reply.has_table_update()) << reply.DebugString();
@@ -461,7 +541,7 @@ TEST(TableRefresh, TransientFailureAndCancellationCanBeExplicitlyRetriedWithTheS
     ASSERT_EQ(failed.state(), task::proto::FAILED);
     EXPECT_EQ(failed.error_code(), "unavailable");
     EXPECT_EQ(node.coverage().snapshot(), before);
-    task::proto::TaskRequest retry;
+    research::proto::ResearchRequest retry;
     retry.mutable_retry()->set_id("retry");
     ASSERT_TRUE(node.call(retry).has_task());
     const auto completed = node.run("retry");
@@ -489,9 +569,14 @@ TEST(TableRefresh, ConcurrentFixedSelectionsCannotOverwriteAnotherCorrection)
     Node node;
     ASSERT_EQ(node.update("seed", "2024-02-29").state(), task::proto::SUCCEEDED);
     const auto plan = node.preview();
+    control.set("hold-corrected");
     node.submit_definition("first", plan.update());
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (contents(control.path) != "holding" && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(10ms);
+    ASSERT_EQ(contents(control.path), "holding");
     node.submit_definition("stale", plan.update());
-    control.set("corrected");
+    control.set("release");
     ASSERT_EQ(node.run("first").state(), task::proto::SUCCEEDED);
     const auto snapshot = node.coverage().snapshot();
     const auto content = node.page().revision().content();
@@ -573,4 +658,150 @@ TEST(TableRefresh, PreviewSelectsTheExactProviderAndSourceAmongInstalledOffers)
     EXPECT_EQ(plan.update().provider(), "selected.provider");
     EXPECT_EQ(plan.update().refresh().source(), source);
     EXPECT_EQ(store.head(), daily.at("snapshot").get<std::string>());
+}
+
+TEST(TableRefreshOwnership, DataAloneOwnsCancellationRecoveryAndRepeatedSubmission)
+{
+    SourceControl control;
+    Node node;
+    ASSERT_EQ(node.update("seed", "2024-02-29").state(), task::proto::SUCCEEDED);
+    const auto before = node.coverage().snapshot();
+    const auto plan = node.preview();
+    data::proto::DataRequest authorize;
+    auto* authorization = authorize.mutable_authorize_download();
+    authorization->set_task_instance("fixture-data");
+    authorization->set_task_id("wrong-owner");
+    authorization->set_credential("fixture-table-session-secret");
+    *authorization->mutable_table_update() = plan.update();
+    research::proto::ResearchRequest wrong_owner;
+    wrong_owner.mutable_submit()->set_id("wrong-owner");
+    const auto authorization_id = node.data.call(authorize).download_authorization().id();
+    wrong_owner.mutable_submit()
+        ->GetReflection()
+        ->MutableUnknownFields(wrong_owner.mutable_submit())
+        ->AddLengthDelimited(4, authorization_id);
+    const auto refused = node.task_call(wrong_owner);
+    ASSERT_TRUE(refused.has_error());
+    EXPECT_EQ(refused.error().code(), "invalid_request");
+    // A separate Task process has no role after the seed has been prepared.
+    node.task_service.request_stop();
+    ASSERT_TRUE(node.task_service.wait(5s));
+    control.set("wait");
+    node.submit_definition("owned-cancel", plan.update());
+    ASSERT_EQ(node.run("owned-cancel", control.path).state(), task::proto::CANCELLED);
+    EXPECT_EQ(node.coverage().snapshot(), before);
+    control.set("wait");
+    node.submit_definition("owned-recovery", plan.update());
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (contents(control.path) != "waiting" && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(10ms);
+    ASSERT_EQ(contents(control.path), "waiting");
+    // Kill only the isolated child to exercise unconfirmed-attempt recovery.
+    ASSERT_EQ(::kill(static_cast<pid_t>(node.data_service->id()), SIGKILL), 0);
+    node.restart_data();
+    research::proto::ResearchRequest get;
+    get.mutable_get()->set_id("owned-recovery");
+    ASSERT_EQ(node.call(get).task().state(), task::proto::INTERRUPTED);
+    EXPECT_EQ(node.coverage().snapshot(), before);
+    control.set("corrected");
+    research::proto::ResearchRequest retry;
+    retry.mutable_retry()->set_id("owned-recovery");
+    ASSERT_TRUE(node.call(retry).has_task());
+    // Recovered source budgets deliberately enforce one quiet minute; do not bypass it.
+    ASSERT_EQ(node.run("owned-recovery", {}, 75s).state(), task::proto::SUCCEEDED);
+    const auto result = node.result("owned-recovery");
+    const auto snapshot = node.coverage().snapshot();
+    // Repeat the original accepted identity after publication: no second attempt/publication.
+    node.submit_definition("owned-recovery", plan.update());
+    EXPECT_EQ(node.run("owned-recovery").attempt(), 2);
+    EXPECT_EQ(node.result("owned-recovery").SerializeAsString(), result.SerializeAsString());
+    EXPECT_EQ(node.coverage().snapshot(), snapshot);
+    node.restart_data();
+    EXPECT_EQ(node.call(get).task().state(), task::proto::SUCCEEDED);
+    EXPECT_EQ(node.result("owned-recovery").SerializeAsString(), result.SerializeAsString());
+}
+
+TEST(TableRefreshOwnership, QuiesceDrainsOwnedProviderBeforeStopping)
+{
+    SourceControl control;
+    Node node;
+    ASSERT_EQ(node.update("seed", "2024-02-29").state(), task::proto::SUCCEEDED);
+    control.set("hold-corrected");
+    node.submit_definition("drain", node.preview().update());
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (contents(control.path) != "holding" && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(10ms);
+    ASSERT_EQ(contents(control.path), "holding");
+    protocol::DataClient health(node.data_health, "fixture-data");
+    data::proto::DataRequest stop;
+    stop.mutable_quiesce()->set_stop(true);
+    EXPECT_THROW(health.call(stop), Error);
+    EXPECT_FALSE(node.data_service->exited());
+    control.set("release");
+    ASSERT_EQ(node.run("drain").state(), task::proto::SUCCEEDED);
+    EXPECT_EQ(node.result("drain").stored(), 1);
+    EXPECT_NO_THROW(health.call(stop));
+    EXPECT_TRUE(node.data_service->wait(5s));
+}
+
+TEST(TableRefreshOwnership, InvalidControlDoesNotDegradeDataPersistence)
+{
+    Node node;
+    data::proto::DataRequest request;
+    request.mutable_acquisition_task()->mutable_retry()->set_id("unknown-refresh");
+    EXPECT_THROW(node.data.call(request), Error);
+    ASSERT_EQ(node.update("seed", "2024-02-29").state(), task::proto::SUCCEEDED);
+    node.submit_definition("valid-after-rejection", node.preview().update());
+    ASSERT_EQ(node.run("valid-after-rejection").state(), task::proto::SUCCEEDED);
+    const auto result = node.result("valid-after-rejection");
+    EXPECT_EQ(result.unchanged(), 1);
+    request.mutable_acquisition_task()->mutable_retry()->set_id("valid-after-rejection");
+    EXPECT_THROW(node.data.call(request), Error);
+    EXPECT_EQ(node.result("valid-after-rejection").SerializeAsString(), result.SerializeAsString());
+}
+
+TEST(DataAcquisition, MinutesPublishWithoutTaskServiceAndRepeatTheAcceptedIdentity)
+{
+    Node node;
+    node.task_service.request_stop();
+    ASSERT_TRUE(node.task_service.wait(5s));
+    data::proto::DataRequest authorize;
+    auto* capture = authorize.mutable_authorize_download();
+    capture->set_task_instance("fixture-data");
+    capture->set_task_id("data-minute");
+    capture->set_credential("fixture");
+    auto* minutes = capture->mutable_minutes();
+    minutes->set_source("fixture.minutes");
+    minutes->set_source_instrument("vendor/cu2403");
+    minutes->set_contract_id("SHFE/cu/2024-03");
+    minutes->set_interval_minutes(1);
+    minutes->set_requests_per_minute(60);
+    minutes->set_begin_ns(parse_shanghai_time("2024-03-01 09:00:00"));
+    minutes->set_end_ns(parse_shanghai_time("2024-03-01 09:00:00"));
+    const auto authorization = node.data.call(authorize).download_authorization();
+    data::proto::DataRequest submit;
+    submit.mutable_acquisition_task()->mutable_submit()->set_id("data-minute");
+    submit.mutable_acquisition_task()->mutable_submit()->set_authorization(authorization.id());
+    ASSERT_TRUE(node.data.call(submit).acquisition_task().has_task());
+    node.refresh_ids.insert("data-minute");
+    const auto done = node.run("data-minute");
+    ASSERT_EQ(done.state(), task::proto::SUCCEEDED) << done.error();
+    EXPECT_EQ(done.kind(), task::proto::MINUTE_DOWNLOAD);
+    EXPECT_EQ(done.history_dataset_id().size(), 64);
+    data::proto::DataRequest result;
+    result.mutable_acquisition_task()->mutable_result()->set_id("data-minute");
+    const auto evidence = node.data.call(result).acquisition_task();
+    ASSERT_TRUE(evidence.has_minutes());
+    EXPECT_EQ(evidence.minutes().rows(), 1);
+    data::proto::DataRequest usage;
+    usage.mutable_history_usage()->set_id(done.history_dataset_id());
+    const auto references = node.data.call(usage).history_usage();
+    ASSERT_EQ(references.references_size(), 1);
+    EXPECT_EQ(references.references(0).id(), "data-minute");
+
+    ASSERT_TRUE(node.data.call(submit).acquisition_task().has_task());
+    EXPECT_EQ(node.run("data-minute").attempt(), 1);
+    EXPECT_EQ(
+        node.data.call(result).acquisition_task().SerializeAsString(),
+        evidence.SerializeAsString());
 }

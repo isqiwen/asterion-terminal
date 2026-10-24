@@ -1,4 +1,5 @@
 #include "sqlite_journal.hpp"
+#include <asterion/foundation/error.hpp>
 #include "sqlite_database.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -171,6 +172,11 @@ void SqliteJournal::start()
         schema.commit();
     }
     database_ = std::move(database);
+    inspect_records();
+}
+
+void SqliteJournal::inspect_records(std::stop_token stop)
+{
     try {
         poisoned_ = false;
         first_ = 1;
@@ -179,6 +185,8 @@ void SqliteJournal::start()
             *database_,
             "SELECT first,name,digest,records,bytes FROM segments ORDER BY first");
         while (segments.step()) {
+            if (stop.stop_requested())
+                throw Error(ErrorCode::cancelled, "trading journal inspection cancelled");
             Archive archive{
                 segments.text(1),
                 segments.text(2),
@@ -214,9 +222,43 @@ void SqliteJournal::start()
         count_ = header_bytes_ ? first_ + events : 0;
         bytes_ = header_bytes_ + usage.integer(3);
     } catch (...) {
-        stop();
+        this->stop();
         throw;
     }
+}
+
+std::vector<std::filesystem::path> SqliteJournal::inspect_backup(
+    const std::filesystem::path& directory,
+    const std::set<std::string>& sidecars,
+    const std::function<void(const SqliteJournal&, const Json&)>& inspect,
+    std::stop_token stop)
+{
+    if (!directory.is_absolute() || std::filesystem::is_symlink(directory)
+        || !std::filesystem::is_directory(directory))
+        throw std::invalid_argument("choose an existing trading record directory");
+    check_journal_directory(directory, sidecars);
+    SqliteJournal reader(directory, sidecars);
+    reader.database_ = std::make_unique<sqlite::Database>(
+        directory / file_name,
+        sqlite::Database::Access::cold_read_only);
+    const auto header = read_header(*reader.database_);
+    reader.inspect_records(stop);
+    if (stop.stop_requested())
+        throw Error(ErrorCode::cancelled, "trading journal inspection cancelled");
+    if (inspect)
+        inspect(reader, header);
+    std::vector<std::filesystem::path> files{file_name};
+    sqlite::Database::Statement segments(
+        *reader.database_,
+        "SELECT name FROM segments ORDER BY first");
+    while (segments.step()) {
+        if (stop.stop_requested())
+            throw Error(ErrorCode::cancelled, "trading journal inspection cancelled");
+        if (files.size() >= 100000)
+            throw std::invalid_argument("trading backup archive count exceeds capacity");
+        files.push_back(std::filesystem::path("archives") / segments.text(0));
+    }
+    return files;
 }
 
 Json read_journal_header(

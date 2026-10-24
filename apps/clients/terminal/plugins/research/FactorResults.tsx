@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { FactorMembership } from "./FactorMembership";
+import { FactorObservations } from "./FactorObservations";
 import { FactorMembers } from "./FactorMembers";
 import { timestamp, type TaskResult } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { factorWords, t, factorNames } from "./shared";
+import { factorWords, t, factorLabel, variableUnit } from "./shared";
 
 const correlation = (value: number | null) => (value === null ? t("未定义") : value.toFixed(4));
 // What a result's statistics are called: one series is correlated over time,
@@ -56,7 +57,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
     <section className="research-result" aria-label={t("因子结果")}>
       <h3>{t("因子结果")}</h3>
       <p className="subtle">
-        {t(words.computed)} · {t(factorNames[experiment.factor])} ·{" "}
+        {t(words.computed)} · {factorLabel(experiment.factor)} ·{" "}
         {t(
           result.folds.length
             ? "滚动验证"
@@ -71,6 +72,28 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
         ) && <> · {t("主力连续")}</>}
       </p>
       <FactorMembership experiment={experiment} result={result} />
+      {(result.selection_rule === "development_abs_spearman" ||
+        result.selection_rule === "rolling_development_abs_spearman") && (
+        <p>
+          {t(
+            "选中窗口的开发或训练段历史特征是事后选参诊断，不表示当时已经选定该输入；未来标签仅用于评价。",
+          )}
+        </p>
+      )}
+      {experiment.variable_definition && (
+        <p>
+          {t("原变量定义")} · <code>{experiment.variable_definition.object.id}</code> ·{" "}
+          <code>{experiment.variable_definition.object.version}</code> ·{" "}
+          {variableUnit(experiment.variable_definition.price_power)}
+        </p>
+      )}
+      {result.observations && (
+        <FactorObservations
+          rows={result.observations}
+          kind={kind}
+          pricePower={experiment.variable_definition?.price_power}
+        />
+      )}
       {experiment.liquidity && (
         <p className="subtle">
           {t(
@@ -130,11 +153,19 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
           </div>
           <details>
             <summary>{t("逐轮选参证据")}</summary>
+            <p>
+              {t(
+                "每轮证据只使用该轮训练与验证范围；同一原观察可以在不同轮拥有不同窗口和角色，验证尾部不借后续轮数据补标签。",
+              )}
+            </p>
             {result.folds.map((fold, index) => (
               <section key={fold.training_end}>
                 <h4>
                   {t("轮次")} {index + 1}
                 </h4>
+                <p>
+                  {t(words.lookback)}: {fold.lookback}
+                </p>
                 <p>
                   {t("前段")}: {fold.development.sample_count} · {t(names.spearman)}{" "}
                   {correlation(fold.development.spearman)}
@@ -145,6 +176,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                     {correlation(c.development_spearman)}
                   </p>
                 ))}
+                {fold.observations && <FactorObservations rows={fold.observations} kind={kind} />}
               </section>
             ))}
           </details>
@@ -249,7 +281,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
               <tr>
                 <th>{t(words.observed)}</th>
                 <th>{t(words.label)}</th>
-                <th>{cross ? "IC" : t(factorNames[experiment.factor])}</th>
+                <th>{cross ? "IC" : factorLabel(experiment.factor)}</th>
                 <th>{cross ? t("秩 IC") : t("未来收益")}</th>
                 {cross && <th>{t("参与的合约数")}</th>}
                 {cross && <th>{t("截面成员证据")}</th>}
@@ -279,7 +311,11 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                       <tr key={sample.event_index}>
                         <td>{when(sample.observed)}</td>
                         <td>{when(sample.label)}</td>
-                        <td>{(sample.value * 100).toFixed(4)}%</td>
+                        <td>
+                          {experiment.variable_definition
+                            ? String(sample.value)
+                            : `${(sample.value * 100).toFixed(4)}%`}
+                        </td>
                         <td>{(sample.forward_return * 100).toFixed(4)}%</td>
                       </tr>
                     ))}

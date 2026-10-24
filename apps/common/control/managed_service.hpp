@@ -7,13 +7,8 @@ namespace asterion::terminal {
 struct HistoryService
 {
     node::proto::ServiceKind kind;
-    std::string directory, state, data_service;
+    std::string directory, state;
     ServiceEndpoint address;
-};
-
-struct DataTaskEndpoints
-{
-    ServiceEndpoint task, data;
 };
 
 } // namespace asterion::terminal

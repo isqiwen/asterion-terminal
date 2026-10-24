@@ -1,0 +1,14 @@
+syntax = "proto3";
+package asterion.task.proto;
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  QUEUED = 1;
+  RUNNING = 2;
+  CANCEL_REQUESTED = 3;
+  SUCCEEDED = 4;
+  FAILED = 5;
+  CANCELLED = 6;
+  INTERRUPTED = 7;
+  PUBLISHING = 8;
+}

@@ -41,7 +41,7 @@ export const test = base.extend<{
           );
         process.env.ASTERION_NODE_DIRECTORY = (await response.json()).node_directory;
         // Bring the environment up as the app's startup does (Agent, market
-        // and task services, each past its first heartbeat), so the first
+        // Data and Research services, each past its first heartbeat), so the first
         // test of a file meets the same ready state as the later ones.
         const call = async (method: string, params: object = {}) => {
           const reply = await request.post("/__asterion/api", {
@@ -53,12 +53,13 @@ export const test = base.extend<{
         };
         await call("node.local");
         await call("market.local");
+        await call("node.data.local.open");
         const plugins = (await call("native.plugins.inspect")).native_plugins.items
           .filter(
             (item: { selectable: boolean; managed?: boolean }) => item.selectable && !item.managed,
           )
           .map((item: { sha256: string }) => item.sha256);
-        await call("node.data_tasks.local.create", { plugins });
+        await call("node.research.local.create", { plugins });
         for (const deadline = Date.now() + 60000; ;) {
           const services = (await call("runtime.snapshot")).nodes.flatMap(
             (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>

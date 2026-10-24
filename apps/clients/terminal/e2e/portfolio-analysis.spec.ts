@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -62,7 +63,7 @@ test("verified backtests flow through Polars and skfolio into portfolio research
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.filter(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.filter(
           (v: { id: string; state: string }) => ids.includes(v.id) && v.state === "succeeded",
         ).length,
       { timeout: 20000 },
@@ -70,7 +71,8 @@ test("verified backtests flow through Polars and skfolio into portfolio research
     .toBe(2);
   const sources = [];
   for (const id of ids) {
-    const source = (await rpc(page.request, "task.result.read", { id })).task_result;
+    const source = (await taskRpc(page.request, "research", "task.result.read", { id }))
+      .task_result;
     expect(source.result.settlements).toHaveLength(60);
     sources.push({ id, result_digest: source.task.result_digest });
   }
@@ -101,10 +103,12 @@ test("verified backtests flow through Polars and skfolio into portfolio research
     },
   });
   expect((await stale.json()).error.code).toBe("conflict");
-  const after = (await rpc(page.request, "runtime.snapshot")).task_service.tasks;
+  const after = (await rpc(page.request, "runtime.snapshot")).research_service.tasks;
   expect(after).toHaveLength(2);
   for (const source of sources) {
-    const verified = (await rpc(page.request, "task.result.read", { id: source.id })).task_result;
+    const verified = (
+      await taskRpc(page.request, "research", "task.result.read", { id: source.id })
+    ).task_result;
     expect(verified.task.result_digest).toBe(source.result_digest);
   }
   await portfolio.screenshot({ path: test.info().outputPath("portfolio-research.png") });

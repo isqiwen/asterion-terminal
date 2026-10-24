@@ -31,9 +31,8 @@ std::optional<unsigned> select_lookback(std::span<const FactorCandidateScore> ca
 
 // A feature is computed from one series of values with a window. An entry
 // reads nothing after its own observation.
-using Feature = std::vector<std::optional<double>> (*)(
-    std::span<const Decimal> values,
-    std::size_t lookback);
+using Feature = std::function<
+    std::vector<std::optional<double>>(std::span<const Decimal> values, std::size_t lookback)>;
 // Price momentum: close[i] / close[i - lookback] - 1, absent for the first
 // `lookback` observations.
 std::vector<std::optional<double>> momentum(std::span<const Decimal> closes, std::size_t lookback);
@@ -105,6 +104,22 @@ struct FactorCandidate
     std::optional<double> development_spearman;
 };
 
+enum class FactorSampleRole
+{
+    full_sample,
+    development,
+    holdout
+};
+
+struct FactorObservation
+{
+    std::size_t index;
+    std::optional<double> value, forward_return;
+    bool evaluation_warmup = false, included = false;
+    FactorSampleRole role = FactorSampleRole::full_sample;
+    bool label_crosses_boundary = false;
+};
+
 struct FactorEvaluation
 {
     // The window the rows were computed with: the only one given, or the one
@@ -117,6 +132,7 @@ struct FactorEvaluation
     // One row per evaluated observation: samples of one series, cross-sections
     // of several. The other list is empty.
     std::vector<FactorSample> samples;
+    std::vector<FactorObservation> observations;
     std::vector<FactorCrossSection> cross_sections;
     // Development observations whose label would reach into the holdout.
     std::size_t purged = 0;
@@ -147,6 +163,8 @@ FactorEvaluation evaluate_factor(
     std::optional<std::size_t> split,
     std::stop_token stop = {},
     const std::function<void(std::size_t, std::size_t)>& progress = {},
-    std::span<const std::span<const std::uint8_t>> eligibility = {});
+    std::span<const std::span<const std::uint8_t>> eligibility = {},
+    bool retain_observations = false,
+    std::optional<std::size_t> evaluation_history = std::nullopt);
 
 } // namespace asterion

@@ -4,6 +4,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/backtest.hpp>
+#include <asterion/protocol/research_model.hpp>
 #include <charconv>
 #include <cmath>
 #include <set>
@@ -155,11 +156,67 @@ void apply_historical_margins(
     validate_historical_margin_input(input);
 }
 
+void validate_performance_assumptions(const backtest::proto::PerformanceAssumptions& value)
+{
+    validate_message(value);
+    if ((value.has_annual_periods()
+            && (!std::isfinite(value.annual_periods()) || value.annual_periods() <= 0
+                || value.annual_periods() > 366))
+        || (value.risk_free() != backtest::proto::PerformanceAssumptions::RISK_FREE_UNSPECIFIED
+            && value.risk_free() != backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO))
+        throw std::invalid_argument(
+            "daily performance requires explicit positive annual periods at most 366 and a supported risk-free assumption");
+}
+
+backtest::proto::PerformanceAssumptions encode_performance_assumptions(const Json& input)
+{
+    require_fields(input, {"annual_periods", "risk_free"});
+    backtest::proto::PerformanceAssumptions value;
+    if (!input.at("annual_periods").is_null()) {
+        if (!input.at("annual_periods").is_number())
+            throw std::invalid_argument(
+                "annual periods must be an explicit number or unconfigured");
+        value.set_annual_periods(input.at("annual_periods").get<double>());
+    }
+    if (input.at("risk_free") == "explicit_zero")
+        value.set_risk_free(backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
+    else if (input.at("risk_free") != "unconfigured")
+        throw std::invalid_argument("fixed non-zero risk-free sources are not implemented");
+    validate_performance_assumptions(value);
+    return value;
+}
+
+Json decode_performance_assumptions(const backtest::proto::PerformanceAssumptions& value)
+{
+    validate_performance_assumptions(value);
+    return {
+        {"annual_periods",
+            value.has_annual_periods() ? Json(value.annual_periods()) : Json(nullptr)},
+        {"risk_free",
+            value.risk_free() == backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO
+                ? "explicit_zero"
+                : "unconfigured"}
+    };
+}
+
+void require_backtest_scoring_assumptions(
+    std::size_t strategies,
+    const backtest::proto::PerformanceAssumptions& value)
+{
+    validate_performance_assumptions(value);
+    if (strategies > 1
+        && (!value.has_annual_periods()
+            || value.risk_free() != backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO))
+        throw std::invalid_argument(
+            "Sharpe-based comparison requires explicit annual periods and a zero risk-free assumption");
+}
+
 backtest::proto::BacktestRequest encode_backtest_request(const Json& input)
 {
     auto required = input;
     required.erase("settlement_margins");
     required.erase("margin_snapshot");
+    required.erase("performance_assumptions");
     require_fields(
         required,
         {"contracts", "deposit", "risk", "strategies", "series", "holdout_from", "walk_forward"});
@@ -182,6 +239,9 @@ backtest::proto::BacktestRequest encode_backtest_request(const Json& input)
         return traded.at("slippage_ticks").get<unsigned>();
     };
     backtest::proto::BacktestRequest result;
+    if (input.contains("performance_assumptions") && !input.at("performance_assumptions").is_null())
+        *result.mutable_performance_assumptions() =
+            encode_performance_assumptions(input.at("performance_assumptions"));
     if (input.contains("margin_snapshot")) {
         const auto snapshot = input.at("margin_snapshot").get<std::string>();
         if (snapshot.size() != 64
@@ -284,6 +344,12 @@ void set_backtest_strategies(
     const backtest::proto::BacktestRequest& request)
 {
     *input.mutable_strategies() = request.strategies();
+    input.clear_performance_assumptions();
+    if (request.has_performance_assumptions())
+        *input.mutable_performance_assumptions() = request.performance_assumptions();
+    require_backtest_scoring_assumptions(
+        static_cast<std::size_t>(input.strategies_size()),
+        input.performance_assumptions());
     const auto& from = request.holdout_from();
     if (input.strategies_size() < 2) {
         if (!from.empty() || request.has_walk_forward())
@@ -317,6 +383,14 @@ std::vector<BacktestRound> backtest_folds(const backtest::proto::BacktestInput& 
 
 std::size_t backtest_work_units(const backtest::proto::BacktestInput& input)
 {
+    if (input.has_model_replay())
+        return static_cast<std::size_t>(input.model_replay()
+                       .training()
+                       .plan()
+                       .specification()
+                       .folds(static_cast<int>(input.model_replay().fold_index()))
+                       .validation_end())
+            + 1;
     std::size_t bars = 0, development = 0;
     for (const auto& contract : input.paper().contracts())
         for (const auto& bar : contract.dataset().bars()) {
@@ -332,8 +406,11 @@ std::size_t backtest_work_units(const backtest::proto::BacktestInput& input)
 Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView view)
 {
     validate_message(input);
-    if (!input.has_paper() || input.strategies().empty() || input.strategies_size() > 32)
+    if (!input.has_paper() || input.strategies_size() > 32
+        || (input.has_model_replay() ? !input.strategies().empty() : input.strategies().empty()))
         throw std::invalid_argument("incomplete backtest input");
+    if (input.has_performance_assumptions())
+        validate_performance_assumptions(input.performance_assumptions());
     if (input.dataset_revision() != dataset_revision(input.paper()))
         throw std::invalid_argument("dataset revision does not match input snapshot");
     // Evaluated before the braced initializer: GCC < 13 leaks already-built
@@ -350,9 +427,81 @@ Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView vi
             throw std::invalid_argument("compared strategies must differ");
         strategies.push_back(decode_strategy(strategy));
     }
+    const bool fixed_portfolio = std::ranges::any_of(input.strategies(), [](const auto& strategy) {
+        return strategy.has_fixed_weights();
+    });
+    if (fixed_portfolio) {
+        if (input.strategies_size() != 1 || input.has_model_replay() || !input.series().empty()
+            || !input.holdout_day().empty() || input.has_walk_forward()
+            || input.paper().contracts_size() != input.strategies(0).fixed_weights().members_size())
+            throw std::invalid_argument(
+                "fixed-weight replay requires one complete ordinary daily portfolio without strategy comparison");
+        const auto& first = input.paper().contracts(0).dataset();
+        if (first.interval_minutes() != 0 || first.bars_size() < 2)
+            throw std::invalid_argument(
+                "fixed-weight replay requires at least two complete common daily boundaries");
+        std::set<std::pair<std::string, std::string>> members;
+        for (const auto& member : input.strategies(0).fixed_weights().members())
+            members.emplace(member.venue(), member.symbol());
+        for (const auto& item : input.paper().contracts()) {
+            const auto& data = item.dataset();
+            const auto& contract = data.contract();
+            if (data.interval_minutes() != 0 || data.bars_size() != first.bars_size()
+                || data.days_size() != first.days_size()
+                || contract.currency() != first.contract().currency()
+                || !members.erase({contract.venue(), contract.symbol()}))
+                throw std::invalid_argument(
+                    "fixed-weight replay requires the exact declared same-currency daily contracts");
+            for (int i = 0; i < data.bars_size(); ++i)
+                if (data.bars(i).timestamp_ns() != first.bars(i).timestamp_ns()
+                    || data.bars(i).trading_day() != first.bars(i).trading_day())
+                    throw std::invalid_argument(
+                        "fixed-weight replay cannot combine incomplete or different decision boundaries");
+            for (int i = 0; i < data.days_size(); ++i)
+                if (data.days(i).trading_day() != first.days(i).trading_day())
+                    throw std::invalid_argument(
+                        "fixed-weight replay requires common original settlement days");
+        }
+        if (!members.empty())
+            throw std::invalid_argument(
+                "fixed-weight replay requires the exact declared same-currency daily contracts");
+    }
     const auto days = backtest_trading_days(input);
     const auto holdout = std::ranges::find(days, input.holdout_day());
-    if (input.has_walk_forward()) {
+    if (input.has_model_replay()) {
+        validate_model_replay_definition(input.model_replay());
+        const auto& model = input.model_replay();
+        const auto& fold =
+            model.training().plan().specification().folds(static_cast<int>(model.fold_index()));
+        if (input.paper().contracts_size() != 1 || !input.series().empty()
+            || input.paper().contracts(0).dataset().interval_minutes() != 1
+            || input.paper().contracts(0).dataset().bars_size()
+                != static_cast<int>(model.training().plan().recipe().source().observations())
+            || !input.holdout_day().empty() || input.has_walk_forward())
+            throw std::invalid_argument(
+                "model replay requires one fixed ordinary one-minute source and no CTA comparison");
+        const auto& data = input.paper().contracts(0).dataset();
+        if (data.bars(static_cast<int>(fold.validation_begin())).trading_day()
+                == data.bars(static_cast<int>(fold.validation_begin()) - 1).trading_day()
+            || data.bars(static_cast<int>(fold.validation_end()) - 1).trading_day()
+                >= data.bars(static_cast<int>(fold.validation_end())).trading_day())
+            throw std::invalid_argument(
+                "model replay validation requires complete original trading-day boundaries");
+        for (int i = 0; i < 4; ++i) {
+            const auto& boundary =
+                model.training().plan().boundaries(static_cast<int>(model.fold_index()) * 4 + i);
+            const auto& bar = data.bars(static_cast<int>(boundary.event_index()));
+            if (bar.timestamp_ns() != boundary.timestamp_ns()
+                || bar.trading_day() != boundary.trading_day())
+                throw std::invalid_argument(
+                    "model replay source bars differ from fixed training boundaries");
+        }
+        const auto quantity = Decimal::from_raw(model.quantity().units());
+        const auto increment = Decimal::from_raw(data.contract().quantity_increment().units());
+        if (quantity.raw() % increment.raw() != 0)
+            throw std::invalid_argument(
+                "model replay quantity is not on the contract lot increment");
+    } else if (input.has_walk_forward()) {
         // Rounds score by a yearly ratio, which fewer than 20 days do not have.
         const auto& rolling = input.walk_forward();
         if (input.strategies_size() == 1 || !input.holdout_day().empty()
@@ -383,6 +532,11 @@ Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView vi
             all.push_back(decode_dominant_schedule(series));
         result["series"] = std::move(all);
     }
+    if (input.has_performance_assumptions())
+        result["performance_assumptions"] =
+            decode_performance_assumptions(input.performance_assumptions());
+    if (input.has_model_replay())
+        result["model_replay"] = decode_model_replay_definition(input.model_replay());
     if (input.has_historical_margins())
         result["historical_margins"] = decode_historical_margins(input.historical_margins());
     if (!input.settlement_margins().empty()) {
@@ -542,6 +696,13 @@ Json decode_backtest_result(const backtest::proto::BacktestResult& result)
     Json folds = Json::array();
     for (const auto& fold : result.folds()) {
         static_cast<void>(parse_trading_date(fold.first_day()));
+        static_cast<void>(parse_trading_date(fold.training_first_day()));
+        static_cast<void>(parse_trading_date(fold.training_last_day()));
+        static_cast<void>(parse_trading_date(fold.last_day()));
+        if (!fold.training_days() || !fold.validation_days()
+            || fold.training_first_day() > fold.training_last_day()
+            || fold.training_last_day() >= fold.first_day() || fold.first_day() > fold.last_day())
+            throw std::invalid_argument("invalid backtest comparison evidence");
         Json compared = Json::array();
         const auto chosen = scores(fold.candidates(), compared);
         // A round follows its best strategy, or none when none has a ratio.
@@ -550,6 +711,11 @@ Json decode_backtest_result(const backtest::proto::BacktestResult& result)
             throw std::invalid_argument("invalid backtest comparison evidence");
         folds.push_back(
             {{"first_day", fold.first_day()},
+                {"last_day", fold.last_day()},
+                {"training_first_day", fold.training_first_day()},
+                {"training_last_day", fold.training_last_day()},
+                {"training_days", fold.training_days()},
+                {"validation_days", fold.validation_days()},
                 {"candidates", std::move(compared)},
                 {"selected", chosen ? Json(*chosen) : Json(nullptr)}});
     }
@@ -563,10 +729,134 @@ Json decode_backtest_result(const backtest::proto::BacktestResult& result)
         {"settlements", settlements},
         {"max_drawdown", Decimal::from_raw(result.max_drawdown().units()).str()}
     };
+    if (!result.portfolio_targets().empty()) {
+        Json decisions = Json::array();
+        const auto money = [](const auto& v) {
+            return Decimal::from_raw(v.units()).str();
+        };
+        for (const auto& d : result.portfolio_targets()) {
+            Json members = Json::array();
+            for (const auto& m : d.members()) {
+                Json positions = Json::array(), working = Json::array();
+                for (const auto& lot : m.observation().positions())
+                    positions.push_back(decode_position(lot));
+                for (const auto& order : m.observation().working_orders())
+                    working.push_back(decode_order(order));
+                members.push_back(
+                    {{"venue", m.venue()},
+                        {"symbol", m.symbol()},
+                        {"source_index", m.source_index()},
+                        {"intent_id", m.intent_id()},
+                        {"weight", money(m.weight())},
+                        {"price", money(m.price())},
+                        {"multiplier", money(m.multiplier())},
+                        {"requested_notional", money(m.requested_notional())},
+                        {"quantity", money(m.quantity())},
+                        {"allocated_notional", money(m.allocated_notional())},
+                        {"nominal_remainder", money(m.nominal_remainder())},
+                        {"observation",
+                            {{"positions", std::move(positions)},
+                                {"working_orders", std::move(working)}}}});
+            }
+            decisions.push_back(
+                {{"boundary_ns", std::to_string(d.boundary_ns())},
+                    {"trading_day", d.trading_day()},
+                    {"has_next_bar", d.has_next_bar()},
+                    {"equity", money(d.equity())},
+                    {"gross_weight", money(d.gross_weight())},
+                    {"net_weight", money(d.net_weight())},
+                    {"gross_limit", money(d.gross_limit())},
+                    {"net_limit", money(d.net_limit())},
+                    {"requested_gross_notional", money(d.requested_gross_notional())},
+                    {"requested_net_notional", money(d.requested_net_notional())},
+                    {"allocated_gross_notional", money(d.allocated_gross_notional())},
+                    {"allocated_net_notional", money(d.allocated_net_notional())},
+                    {"unallocated_nominal_budget", money(d.unallocated_nominal_budget())},
+                    {"members", std::move(members)}});
+        }
+        shown["portfolio_targets"] = std::move(decisions);
+        Json fills = Json::array();
+        for (const auto& fill : result.portfolio_fills())
+            fills.push_back(
+                {{"fill_id", fill.fill_id()},
+                    {"intent_id", fill.intent_id()},
+                    {"decision_source_index", fill.decision_source_index()},
+                    {"source_index", fill.source_index()},
+                    {"boundary_ns", std::to_string(fill.boundary_ns())}});
+        shown["portfolio_fills"] = std::move(fills);
+        Json orders = Json::array();
+        for (const auto& order : result.portfolio_orders())
+            orders.push_back(
+                {{"order_id", order.order_id()},
+                    {"intent_id", order.intent_id()},
+                    {"decision_source_index", order.decision_source_index()},
+                    {"source_index", order.source_index()},
+                    {"boundary_ns", std::to_string(order.boundary_ns())}});
+        shown["portfolio_orders"] = std::move(orders);
+    }
+    if (result.has_model_replay() != result.has_model_validation())
+        throw std::invalid_argument("model replay validation summary is missing or unexpected");
+    if (result.has_model_replay()) {
+        shown["model_replay"] = decode_model_replay_result(result.model_replay());
+        const auto& score = result.model_validation();
+        if (!std::isfinite(score.total_return()) || !std::isfinite(score.max_drawdown())
+            || score.max_drawdown() < 0 || (score.has_sharpe() && !std::isfinite(score.sharpe())))
+            throw std::invalid_argument("invalid model replay validation summary");
+        shown["model_validation"] = {
+            {"total_return", score.total_return()},
+            {"max_drawdown", score.max_drawdown()},
+            {"sharpe", score.has_sharpe() ? Json(score.sharpe()) : Json(nullptr)}
+        };
+    }
+    if (!result.target_rejections().empty()) {
+        shown["target_rejections"] = Json::array();
+        for (const auto& rejected : result.target_rejections()) {
+            using Rejection = backtest::proto::BacktestTargetRejection;
+            std::string reason;
+            switch (rejected.reason()) {
+                case Rejection::ORDER_QUANTITY:
+                    reason = "order_quantity";
+                    break;
+                case Rejection::GROSS_QUANTITY:
+                    reason = "gross_quantity";
+                    break;
+                case Rejection::WORKING_ORDERS:
+                    reason = "working_orders";
+                    break;
+                case Rejection::INSUFFICIENT_FUNDS:
+                    reason = "insufficient_funds";
+                    break;
+                default:
+                    throw std::invalid_argument("unknown target rejection reason");
+            }
+            if (rejected.intent_id().empty() || !rejected.has_target())
+                throw std::invalid_argument("incomplete target rejection evidence");
+            shown["target_rejections"].push_back(
+                {{"intent_id", rejected.intent_id()},
+                    {"source_index", rejected.source_index()},
+                    {"boundary_ns", std::to_string(rejected.boundary_ns())},
+                    {"reason", reason},
+                    {"target", Decimal::from_raw(rejected.target().units()).str()}});
+        }
+    }
     if (!fill_days.empty())
         shown["fill_days"] = std::move(fill_days);
     return shown;
 }
+
+namespace {
+
+void require_cost_sensitivity_source(const backtest::proto::BacktestInput& original)
+{
+    if (original.paper().contracts_size() != 1 || original.series_size() != 0
+        || original.paper().contracts(0).dataset().interval_minutes() != 0
+        || original.strategies_size() != 1 || !original.strategies(0).has_momentum()
+        || !original.holdout_day().empty() || original.has_walk_forward())
+        throw std::invalid_argument(
+            "cost sensitivity requires a single-contract full-sample daily momentum backtest");
+}
+
+} // namespace
 
 backtest::proto::BacktestInput
 backtest_slippage_variant(const backtest::proto::BacktestInput& original, unsigned ticks)
@@ -574,16 +864,43 @@ backtest_slippage_variant(const backtest::proto::BacktestInput& original, unsign
     (void)decode_backtest(original);
     if (ticks > max_slippage_ticks)
         throw std::invalid_argument("slippage is 0 to 100 price increments");
-    if (original.paper().contracts_size() != 1 || original.series_size() != 0
-        || original.paper().contracts(0).dataset().interval_minutes() != 0
-        || original.strategies_size() != 1 || !original.strategies(0).has_momentum()
-        || !original.holdout_day().empty() || original.has_walk_forward())
-        throw std::invalid_argument(
-            "slippage sensitivity requires a single-contract full-sample daily momentum backtest");
+    require_cost_sensitivity_source(original);
     if (ticks == original.paper().contracts(0).slippage_ticks())
         throw std::invalid_argument("slippage variant must differ from its baseline");
     auto result = original;
     result.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(ticks);
+    return result;
+}
+
+backtest::proto::BacktestInput
+backtest_fee_variant(const backtest::proto::BacktestInput& original, Decimal multiplier)
+{
+    (void)decode_backtest(original);
+    require_cost_sensitivity_source(original);
+    if (multiplier < Decimal{} || multiplier > Decimal::parse("100"))
+        throw std::invalid_argument("fee multiplier must be between 0 and 100");
+    auto result = original;
+    bool changed = false;
+    for (auto& version : *result.mutable_paper()
+             ->mutable_contracts(0)
+             ->mutable_cost_schedule()
+             ->mutable_versions()) {
+        auto* costs = version.mutable_values();
+        for (auto* fee :
+            {costs->mutable_open_fee(),
+                costs->mutable_close_today_fee(),
+                costs->mutable_close_yesterday_fee(),
+                costs->mutable_open_fee_rate(),
+                costs->mutable_close_today_fee_rate(),
+                costs->mutable_close_yesterday_fee_rate()}) {
+            const auto scaled = Decimal::from_raw(fee->units()) * multiplier;
+            changed = changed || scaled.raw() != fee->units();
+            fee->set_units(scaled.raw());
+        }
+    }
+    if (!changed)
+        throw std::invalid_argument("fee scenario must change its original fees");
+    (void)decode_backtest(result);
     return result;
 }
 

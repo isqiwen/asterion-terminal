@@ -8,6 +8,7 @@ import {
 } from "../contract";
 import type { TaskResult } from "../../src/bridge/client";
 import { t, namespace, type Run } from "./shared";
+import { retiredResearch } from "./shared";
 type Evidence = Pick<Extract<TaskResult, { kind: "factor" }>, "id" | "task" | "experiment">;
 export function FactorReuse({
   evidence,
@@ -32,7 +33,7 @@ export function FactorReuse({
   const [created, setCreated] = useState("");
   const connection = JSON.stringify([
     snapshot?.data?.connection_id,
-    snapshot?.task_service?.connection_id,
+    snapshot?.research_service?.connection_id,
   ]);
   const [pending, setPending] = useWorkspaceRequestId(
     "factor-reuse",
@@ -112,12 +113,14 @@ export function FactorReuse({
       }
     }
   }
+  if (retiredResearch(snapshot, evidence.task))
+    return <p role="status">{t("原记录已退役，不能新增派生实验")}</p>;
   return (
     <section aria-label={t("按此日线实验创建")}>
       <h4>{t("按此日线实验创建")}</h4>
       <p className="subtle">
         {t(
-          "复制当前兼容实验的因子、窗口、评价边界及筛选规则，创建独立新任务。原任务不变；重复使用同一留出区间不等于新的样本外验证。",
+          "沿用当前兼容实验的因子、窗口、评价边界及筛选规则，创建独立新任务。同一研究服务内相同固定输入共享保存；参数或版本不同则独立保存。重复使用同一留出区间不等于新的样本外验证。",
         )}
       </p>
       <p>
@@ -268,7 +271,7 @@ export function FactorReuse({
             !mode ||
             (mode === "snapshot" && !selected) ||
             !snapshot?.data?.online ||
-            !snapshot?.task_service?.online
+            !snapshot?.research_service?.online
           }
           onClick={() => void create()}
         >

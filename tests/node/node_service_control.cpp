@@ -67,11 +67,10 @@ int main(int argc, char** argv)
                     client
                         ->deploy(
                             {.service = id,
-                                .kind = asterion::node::proto::TASK_SERVICE,
+                                .kind = asterion::node::proto::RESEARCH,
                                 .platform = asterion::current_platform(),
                                 .programs = asterion::terminal::local_service_programs(
-                                    asterion::node::proto::TASK_SERVICE),
-                                .data_service = std::string(id) + "-data"})
+                                    asterion::node::proto::RESEARCH)})
                         .get();
                 }
                 // Stop only after the task service has started once: a ledger that never

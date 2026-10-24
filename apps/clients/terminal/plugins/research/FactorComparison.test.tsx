@@ -139,7 +139,7 @@ function validationEvidence(id: string, mode: "holdout" | "walk_forward"): Facto
 
 async function compareEvidence(values: FactorEvidence[], english = false) {
   const snapshot = readySnapshot();
-  snapshot.task_service!.tasks = values.map(v => v.task);
+  snapshot.research_service!.tasks = values.map(v => v.task);
   const query = vi.fn(async (_method: string, params?: Record<string, unknown>) => ({
     ...snapshot,
     task_result: values.find(v => v.id === params?.id)!,
@@ -294,7 +294,7 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   b.result.samples = [sample];
   const original = JSON.stringify([a, b]);
   const snapshot = readySnapshot();
-  snapshot.task_service!.tasks = [a.task, b.task];
+  snapshot.research_service!.tasks = [a.task, b.task];
   const query = vi.fn(async (_method: string, params?: Record<string, unknown>) => ({
     ...snapshot,
     task_result: params?.id === a.id ? a : b,
@@ -389,7 +389,7 @@ test("failed result reads show their error without retries or writes", async () 
   const a = evidence("a"),
     b = evidence("legacy"),
     snapshot = readySnapshot();
-  snapshot.task_service!.tasks = [a.task, b.task];
+  snapshot.research_service!.tasks = [a.task, b.task];
   const query = vi.fn(async (_method: string, params?: Record<string, unknown>) => {
     if (params?.id === "legacy") throw new Error("invalid factor result");
     return { ...snapshot, task_result: a };
@@ -405,7 +405,7 @@ test("failed result reads show their error without retries or writes", async () 
 
 test("selection is limited to three experiments and can be cleared", () => {
   const snapshot = readySnapshot();
-  snapshot.task_service!.tasks = ["a", "b", "c", "d"].map(id => evidence(id).task);
+  snapshot.research_service!.tasks = ["a", "b", "c", "d"].map(id => evidence(id).task);
   render(<FactorComparison snapshot={snapshot} busy={false} query={vi.fn(async () => snapshot)} />);
   const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
   boxes.slice(0, 3).forEach(box => fireEvent.click(box));

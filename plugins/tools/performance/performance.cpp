@@ -1,4 +1,5 @@
 #include "performance.hpp"
+#include <asterion/foundation/error.hpp>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -15,15 +16,51 @@ long double change(Decimal from, Decimal to)
 
 } // namespace
 
-Performance
-performance(Decimal deposit, std::span<const EquityDay> days, std::span<const Decimal> marks)
+std::string_view performance_unavailable_name(PerformanceUnavailable reason)
+{
+    switch (reason) {
+        case PerformanceUnavailable::none:
+            return "available";
+        case PerformanceUnavailable::missing_time:
+            return "source_time_not_recorded";
+        case PerformanceUnavailable::non_positive_duration:
+            return "non_positive_observation_duration";
+        case PerformanceUnavailable::insufficient_periods:
+            return "fewer_than_two_complete_returns";
+        case PerformanceUnavailable::non_positive_equity:
+            return "non_positive_equity_path";
+        case PerformanceUnavailable::missing_annual_periods:
+            return "annual_periods_not_configured";
+        case PerformanceUnavailable::missing_risk_free:
+            return "risk_free_not_configured";
+        case PerformanceUnavailable::zero_deviation:
+            return "constant_returns";
+        case PerformanceUnavailable::zero_drawdown:
+            return "no_drawdown";
+        case PerformanceUnavailable::numerical_overflow:
+            return "non_finite_statistic";
+    }
+    throw std::logic_error("unknown performance availability reason");
+}
+
+Performance performance(
+    Decimal deposit,
+    std::span<const EquityDay> days,
+    std::span<const Decimal> marks,
+    const PerformanceContext& context)
 {
     if (deposit <= Decimal{} || days.empty())
         throw std::invalid_argument("performance needs a positive deposit and at least one day");
+    if (context.begin_ns.has_value() != context.end_ns.has_value()
+        || (context.begin_ns && (*context.begin_ns < 0 || *context.end_ns < *context.begin_ns))
+        || (context.annual_periods
+            && (!std::isfinite(*context.annual_periods) || *context.annual_periods <= 0)))
+        throw std::invalid_argument("invalid explicit performance context");
     for (std::size_t i = 1; i < days.size(); ++i)
         if (days[i].day <= days[i - 1].day)
             throw std::invalid_argument("performance days must ascend");
     Performance result{};
+    result.context = context;
     result.trading_days = days.size();
     result.total_return = static_cast<double>(change(deposit, days.back().equity));
     auto peak = deposit;
@@ -37,33 +74,90 @@ performance(Decimal deposit, std::span<const EquityDay> days, std::span<const De
     auto previous = deposit;
     bool positive = true;
     std::size_t winning = 0;
-    for (const auto& day : days) {
+    for (std::size_t i = 0; i < days.size(); ++i) {
+        const auto& day = days[i];
         winning += day.equity > previous;
-        if (positive)
+        if (positive && (i || context.opening_is_full_period))
             returns.push_back(change(previous, day.equity));
         previous = day.equity;
         positive = positive && previous > Decimal{};
     }
+    result.return_periods = returns.size();
     result.winning_days = static_cast<double>(winning) / static_cast<double>(days.size());
-    if (days.size() < 20 || !positive)
+    if (!positive) {
+        result.annual_return_reason = result.annual_volatility_reason = result.sharpe_reason =
+            result.calmar_reason = PerformanceUnavailable::non_positive_equity;
         return result;
-    const long double years =
-        static_cast<long double>((days.back().day - days.front().day).count() + 1) / 365.25L;
-    const auto periods = static_cast<long double>(returns.size()) / years;
-    long double mean = 0, squares = 0;
-    for (const auto value : returns)
-        mean += value;
-    mean /= static_cast<long double>(returns.size());
-    for (const auto value : returns)
-        squares += (value - mean) * (value - mean);
-    const auto deviation = std::sqrt(squares / static_cast<long double>(returns.size() - 1));
-    result.annual_return = static_cast<double>(
-        std::pow(1 + static_cast<long double>(result.total_return), 1 / years) - 1);
-    result.annual_volatility = static_cast<double>(deviation * std::sqrt(periods));
-    if (deviation > 0)
-        result.sharpe = static_cast<double>(mean / deviation * std::sqrt(periods));
-    if (drawdown > 0)
-        result.calmar = *result.annual_return / result.max_drawdown;
+    }
+    if (context.begin_ns) {
+        const auto elapsed = *context.end_ns - *context.begin_ns;
+        if (!elapsed)
+            result.annual_return_reason = PerformanceUnavailable::non_positive_duration;
+        else {
+            const long double years =
+                static_cast<long double>(elapsed) / 1000000000.0L / performance_year_seconds;
+            result.short_calendar_span = years < 1;
+            const auto relative = change(deposit, days.back().equity);
+            // Small changes need log1p; a very large loss must not round its positive growth to zero.
+            const auto log_growth = std::abs(relative) < 0.5L
+                ? std::log1p(relative)
+                : std::log(
+                      static_cast<long double>(days.back().equity.raw())
+                      / static_cast<long double>(deposit.raw()));
+            const auto rate = static_cast<double>(std::expm1(log_growth / years));
+            if (std::isfinite(rate)) {
+                result.annual_return = rate;
+                result.annual_return_reason = PerformanceUnavailable::none;
+            } else
+                result.annual_return_reason = PerformanceUnavailable::numerical_overflow;
+        }
+    }
+    if (returns.size() < 2)
+        result.annual_volatility_reason = result.sharpe_reason =
+            PerformanceUnavailable::insufficient_periods;
+    else if (!context.annual_periods)
+        result.annual_volatility_reason = result.sharpe_reason =
+            PerformanceUnavailable::missing_annual_periods;
+    else {
+        long double mean = 0, squares = 0;
+        for (const auto value : returns)
+            mean += value;
+        mean /= static_cast<long double>(returns.size());
+        for (const auto value : returns)
+            squares += (value - mean) * (value - mean);
+        const auto deviation = std::sqrt(squares / static_cast<long double>(returns.size() - 1));
+        const auto scaling = std::sqrt(static_cast<long double>(*context.annual_periods));
+        const auto volatility = static_cast<double>(deviation * scaling);
+        if (std::isfinite(volatility)) {
+            result.annual_volatility = volatility;
+            result.annual_volatility_reason = PerformanceUnavailable::none;
+        } else
+            result.annual_volatility_reason = PerformanceUnavailable::numerical_overflow;
+        if (!context.explicitly_zero_risk_free)
+            result.sharpe_reason = PerformanceUnavailable::missing_risk_free;
+        else if (deviation == 0)
+            result.sharpe_reason = PerformanceUnavailable::zero_deviation;
+        else {
+            const auto ratio = static_cast<double>(mean / deviation * scaling);
+            if (std::isfinite(ratio)) {
+                result.sharpe = ratio;
+                result.sharpe_reason = PerformanceUnavailable::none;
+            } else
+                result.sharpe_reason = PerformanceUnavailable::numerical_overflow;
+        }
+    }
+    if (!result.annual_return)
+        result.calmar_reason = result.annual_return_reason;
+    else if (drawdown == 0)
+        result.calmar_reason = PerformanceUnavailable::zero_drawdown;
+    else {
+        const auto ratio = *result.annual_return / result.max_drawdown;
+        if (std::isfinite(ratio)) {
+            result.calmar = ratio;
+            result.calmar_reason = PerformanceUnavailable::none;
+        } else
+            result.calmar_reason = PerformanceUnavailable::numerical_overflow;
+    }
     return result;
 }
 
@@ -167,6 +261,70 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
         result.average_loss = static_cast<double>(lost / result.losing / 100000000);
     if (result.winning && result.losing)
         result.payoff = *result.average_win / -*result.average_loss;
+    return result;
+}
+
+DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token stop)
+{
+    if (days.empty())
+        throw std::invalid_argument("daily drawdown requires an observed settlement");
+    DailyDrawdown result;
+    result.points.reserve(days.size());
+    std::size_t peak = 0;
+    std::optional<std::size_t> active;
+    double maximum = 0;
+    std::size_t maximum_index = 0;
+    bool positive_path = true;
+    for (std::size_t i = 0; i < days.size(); ++i) {
+        if (stop.stop_requested())
+            throw Error(ErrorCode::cancelled, "daily drawdown cancelled");
+        if (i && days[i].day <= days[i - 1].day)
+            throw std::invalid_argument(
+                "daily drawdown observations must ascend by original trading day");
+        if (days[i].equity >= days[peak].equity) {
+            if (active) {
+                auto& episode = result.episodes[*active];
+                episode.recovery_index = i;
+                episode.observed_end_index = i;
+                active.reset();
+            }
+            peak = i;
+        } else {
+            if (!active) {
+                active = result.episodes.size();
+                result.episodes.push_back({peak, i, i, std::nullopt});
+            }
+            auto& episode = result.episodes[*active];
+            if (days[i].equity < days[episode.trough_index].equity)
+                episode.trough_index = i;
+            episode.observed_end_index = i;
+        }
+        const auto loss = days[peak].equity - days[i].equity;
+        std::optional<double> fraction;
+        if (days[peak].equity > Decimal{} && days[i].equity > Decimal{}) {
+            fraction = static_cast<double>(
+                static_cast<long double>(loss.raw())
+                / static_cast<long double>(days[peak].equity.raw()));
+            if (*fraction > maximum) {
+                maximum = *fraction;
+                maximum_index = i;
+            }
+        } else
+            positive_path = false;
+        result.points.push_back({peak, days[peak].equity, loss, fraction});
+        if (loss > result.max_loss) {
+            result.max_loss = loss;
+            result.max_loss_index = i;
+        }
+    }
+    if (!positive_path)
+        result.unavailable = DrawdownUnavailable::non_positive_equity;
+    else if (days.size() < 2)
+        result.unavailable = DrawdownUnavailable::fewer_than_two_observations;
+    else {
+        result.max_fraction = maximum;
+        result.max_fraction_index = maximum_index;
+    }
     return result;
 }
 

@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
@@ -130,13 +131,14 @@ test("a factor reads instruments of the daily table over the range given for eac
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (task: { id: string }) => task.id === "tables-factor",
         )?.state,
       { timeout: 30000 },
     )
     .toBe("succeeded");
-  const evidence = (await rpc(page.request, "task.result", { id: "tables-factor" })).task_result;
+  const evidence = (await taskRpc(page.request, "research", "task.result", { id: "tables-factor" }))
+    .task_result;
   expect(
     evidence.experiment.series.map(
       (series: { data: { instrument: string; begin_day: string; count: number } }) => [

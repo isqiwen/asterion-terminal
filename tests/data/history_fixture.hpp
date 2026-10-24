@@ -247,7 +247,7 @@ inline Json seed_history(
     std::string bars;
     {
         // One process owns the table ledger: the store goes before the tables open.
-        data::Store store(root, data_instance, "task");
+        data::Store store(root, data_instance);
         bars = publish_download(store, id + "-bars", minute, minutes)
                    .minute_result()
                    .manifest_sha256();

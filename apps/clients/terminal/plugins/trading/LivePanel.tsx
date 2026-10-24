@@ -1,5 +1,6 @@
 import type { AccountRun, AccountMethod, CommandCall, LiveAction } from "../../src/bridge/commands";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
+import { AccountFacts } from "./AccountFacts";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { StrategyStart, StrategyStatus } from "./StrategyRun";
 import { FlowSteps } from "../../src/ui/FlowSteps";
@@ -128,14 +129,21 @@ export function LivePanel(context: TerminalContext) {
                 </p>
               )}
               {entry?.session ? (
-                <LiveAccount
-                  account={account}
-                  live={entry.session}
-                  connection={entry.connection}
-                  snapshot={snapshot}
-                  busy={busy}
-                  run={runFor(account.id)}
-                />
+                <>
+                  <LiveAccount
+                    account={account}
+                    live={entry.session}
+                    connection={entry.connection}
+                    snapshot={snapshot}
+                    busy={busy}
+                    run={runFor(account.id)}
+                  />
+                  <AccountFacts
+                    context={context}
+                    account={account.id}
+                    scope={`${account.id}/${account.trading?.node}/${entry.connection.session}`}
+                  />
+                </>
               ) : !entry && account.trading_record ? (
                 <div className="workflow-empty">
                   <p>
@@ -687,6 +695,20 @@ function LiveAccount({
           )}
         </div>
       </div>
+      <details>
+        <summary>{t("柜台观察范围")}</summary>
+        <dl className="definition-list">
+          <dt>{t("连接代次")}</dt>
+          <dd>{live.connection_generation}</dd>
+          <dt>{t("观察序号")}</dt>
+          <dd>{live.broker_sequence}</dd>
+          <dt>{t("持仓核对状态")}</dt>
+          <dd>{t(live.positions_reconciled ? "已纳入已知成交" : "尚未核对已知成交")}</dd>
+        </dl>
+        <p className="subtle">
+          {t("资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。")}
+        </p>
+      </details>
       {environmentReady && (
         <p className={environment === "real" ? "alert" : "subtle"}>
           {t(

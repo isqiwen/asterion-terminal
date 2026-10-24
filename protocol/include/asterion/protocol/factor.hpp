@@ -51,6 +51,17 @@ struct FactorObservations
 };
 
 FactorObservations factor_observations(const factor::proto::FactorInput& input);
+
+// Exact single-series source labels in factor observation order. Daily tables have
+// a provider trading date only; their ordering ordinal is not a UTC timestamp.
+struct FactorObservationClock
+{
+    std::string trading_day;
+    std::optional<std::int64_t> timestamp_ns;
+};
+
+std::vector<FactorObservationClock> factor_observation_clocks(
+    const factor::proto::FactorInput& input);
 // Raw daily timeline, independent of factor type and forward labels.
 FactorObservations factor_daily_observations(const factor::proto::FactorInput& input);
 // Validation also produces the aligned observations, owned by the caller. Workers

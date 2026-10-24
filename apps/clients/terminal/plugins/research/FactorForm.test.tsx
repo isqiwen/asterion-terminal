@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import type { Snapshot, TableCoverage, TableProduct } from "../../src/bridge/client";
+import type {
+  ResearchVariableDefinition,
+  Snapshot,
+  TableCoverage,
+  TableProduct,
+} from "../../src/bridge/client";
 import { registerTerminalPlugins } from "../../src/host/plugin-registry";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { readySnapshot } from "../../src/testing/core";
@@ -221,4 +226,71 @@ test("what is chosen and submitted belongs to the services it was made on", asyn
   await screen.findByLabelText("品种或合约");
   expect(screen.getByRole("list", { name: "已选的品种和合约" }).textContent).toBe("");
   expect(screen.queryByText("任务已提交，可在任务中心查看进度。")).toBeNull();
+});
+
+test("a fixed expression owns the algorithm choice without inheriting or overwriting a saved term-structure choice", async () => {
+  const snapshot = readySnapshot();
+  const store = createWorkspaceDrafts();
+  const query: TerminalContext["query"] = async (...[method]) =>
+    method === "data.tables.products"
+      ? { ...snapshot, table_products: products }
+      : { ...snapshot, table_coverage: coverage };
+  const run = vi.fn(async () => true);
+  const definition: ResearchVariableDefinition = {
+    object: {
+      node: "fixture",
+      service: "research",
+      domain: "research",
+      kind: "research_variable",
+      id: "causal",
+      version: "a".repeat(64),
+    },
+    name: "causal",
+    purpose: "isolated unit test",
+    expression: "return(close,window)",
+    window: 2,
+    price_power: 0,
+    required_history: 2,
+    recorded_at_ms: "1",
+  };
+  const view = (variableDefinition: ResearchVariableDefinition | null) => (
+    <WorkspaceDraftScope store={store} namespace="algorithm-choice">
+      <TableFactorForm
+        snapshot={snapshot}
+        query={query}
+        busy={false}
+        navigate={() => {}}
+        run={run}
+        variableDefinition={variableDefinition}
+        variableReady
+      />
+    </WorkspaceDraftScope>
+  );
+  const mounted = render(view(null));
+  const entry = await screen.findByLabelText("品种或合约");
+  fireEvent.change(entry, { target: { value: "SHFE/rb/2026-10" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  fireEvent.change(screen.getByLabelText("起始日期"), { target: { value: "2026-09-21" } });
+  fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-10-09" } });
+  fireEvent.change(screen.getByLabelText("因子"), { target: { value: "term_structure" } });
+  expect(screen.getByRole("alert").textContent).toContain("期限结构只在品种的主力连续上评价");
+  mounted.rerender(view(definition));
+  expect(screen.queryByRole("combobox", { name: /^因子$/ })).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByLabelText("保存逐行特征与标签证据"));
+  fireEvent.click(screen.getByRole("button", { name: "开始分析" }));
+  await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+  expect(run).toHaveBeenCalledWith(
+    "factor.submit",
+    expect.objectContaining({
+      factor: "expression",
+      lookbacks: [2],
+      variable_definition: definition.object,
+    }),
+  );
+  mounted.rerender(view(null));
+  expect((screen.getByLabelText("因子") as HTMLSelectElement).value).toBe("term_structure");
+  expect(screen.getByRole("alert").textContent).toContain("期限结构只在品种的主力连续上评价");
+  mounted.unmount();
+  store.dispose();
 });

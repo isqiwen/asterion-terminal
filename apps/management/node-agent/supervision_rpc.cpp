@@ -1,3 +1,5 @@
+#include <asterion/research.pb.h>
+#include <asterion/intelligence.pb.h>
 #include "supervision_rpc.hpp"
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
@@ -14,8 +16,7 @@ using namespace std::chrono_literals;
 PolledTask<HealthObservation> probe_service_health(
     node::proto::ServiceKind kind,
     const std::string& name,
-    const std::string& endpoint,
-    const std::string& peer)
+    const std::string& endpoint)
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
     const auto correlation = "health." + unique_process_id();
@@ -65,7 +66,7 @@ PolledTask<HealthObservation> probe_service_health(
         protocol::validate_message(reply);
         if (reply.version() != 1 || reply.service_id() != name
             || reply.correlation_id() != correlation || !reply.has_health()
-            || reply.health().instance_id() != name || reply.health().task_instance() != peer)
+            || reply.health().instance_id() != name)
             throw std::runtime_error("data health identity mismatch");
         using protocol::ServiceHealth;
         co_return HealthObservation{
@@ -75,8 +76,33 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    if (kind == node::proto::TASK_SERVICE) {
-        task::proto::TaskRequest ping;
+    if (kind == node::proto::INTELLIGENCE) {
+        intelligence::proto::IntelligenceRequest ping;
+        ping.set_version(1);
+        ping.set_service_id(name);
+        ping.set_correlation_id(correlation);
+        ping.mutable_heartbeat();
+        auto pending = channel.request(ping.SerializeAsString(), 1500ms);
+        co_await PollUntil{[&] {
+            channel.poll();
+            return pending.wait_for(0ms) == std::future_status::ready;
+        }};
+        intelligence::proto::IntelligenceResponse reply;
+        if (!reply.ParseFromString(*pending.get()))
+            throw std::runtime_error("invalid intelligence health");
+        protocol::validate_message(reply);
+        if (reply.version() != 1 || reply.service_id() != name
+            || reply.correlation_id() != correlation || !reply.has_health()
+            || reply.health().instance_id() != name)
+            throw std::runtime_error("intelligence health identity mismatch");
+        co_return HealthObservation{
+            reply.health().initialized() ? protocol::ServiceHealth::ready
+                                         : protocol::ServiceHealth::starting,
+            {}
+        };
+    }
+    if (kind == node::proto::RESEARCH) {
+        research::proto::ResearchRequest ping;
         ping.set_version(1);
         ping.set_service_id(name);
         ping.set_correlation_id(correlation);
@@ -92,7 +118,7 @@ PolledTask<HealthObservation> probe_service_health(
         protocol::validate_message(reply);
         if (reply.version() != 1 || reply.service_id() != name
             || reply.correlation_id() != correlation || !reply.has_health()
-            || reply.health().instance_id() != name || reply.health().data_instance() != peer)
+            || reply.health().instance_id() != name)
             throw std::runtime_error("task health identity mismatch");
         using protocol::ServiceHealth;
         co_return HealthObservation{

@@ -1,6 +1,9 @@
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "live_session.hpp"
+#include "facts_archive.hpp"
+#include <asterion/protocol/trading_facts.hpp>
+#include <asterion/kernel/thread_pool.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/rpc_host.hpp>
@@ -49,7 +52,8 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion CTP account service (one execution owner per account)"};
     app.set_version_flag("--version", "Asterion Trading 0.1.0");
-    std::string session_id, directory, health_endpoint;
+    std::string session_id, directory, health_endpoint, node_id;
+    app.add_option("--node-id", node_id, "Stable owning node identity for fixed factual evidence");
     app.add_option("--health-endpoint", health_endpoint, "Private supervisor health channel");
     std::uint64_t owner_pid = 0;
     app.add_option("--owner-pid", owner_pid, "Managed service supervisor identity");
@@ -78,6 +82,8 @@ int main(int argc, char** argv)
                 std::filesystem::path(
                     std::u8string(plugin_directory.begin(), plugin_directory.end())));
         asterion::validate_id(session_id);
+        if (!node_id.empty())
+            asterion::validate_id(node_id);
         namespace wire = asterion::protocol::proto;
         const std::filesystem::path sdk(std::u8string(ctp_library.begin(), ctp_library.end()));
         transport.validate();
@@ -87,6 +93,11 @@ int main(int argc, char** argv)
         // I/O owns initialization, publication and shutdown; the account owns its resources.
         std::unique_ptr<asterion::trading::LiveSession> account_owner;
         asterion::trading::LiveSession* account = nullptr;
+        asterion::ThreadPool facts_readers{1, 4};
+        asterion::resource::proto::Owner facts_owner;
+        facts_owner.set_node_id(node_id);
+        facts_owner.set_service_id(session_id);
+        facts_owner.set_domain("trading");
         std::shared_future<void> initializing;
         bool recovering = false;
         asterion::Progress initialization, io_progress;
@@ -124,6 +135,7 @@ int main(int argc, char** argv)
             std::shared_future<void> initialization;
             std::future<void> action;
             std::future<wire::LiveSnapshot> snapshot;
+            std::optional<asterion::trading::LiveSession::FactsOperation> facts;
             bool needs_snapshot = false;
 
             void fail(const std::exception& error)
@@ -161,7 +173,50 @@ int main(int argc, char** argv)
                 else if (!request.policy_revision().empty())
                     throw std::invalid_argument(
                         "policy revision is only valid for trading commands");
-                if (request.has_heartbeat()) {
+                if (request.has_facts()) {
+                    if (node_id.empty())
+                        throw asterion::Error(
+                            asterion::ErrorCode::unavailable,
+                            "fixed trading facts require a stable owning node identity");
+                    const auto& query = request.facts();
+                    if (query.has_read()) {
+                        asterion::protocol::validate_trading_facts_reference(query.read());
+                        if (query.read().owner().SerializeAsString()
+                            != facts_owner.SerializeAsString())
+                            throw asterion::Error(
+                                asterion::ErrorCode::conflict,
+                                "trading facts owner mismatch");
+                        auto result = std::make_shared<wire::TradingFactsStatus>();
+                        auto completed = facts_readers.submit([journal,
+                                                                  reference = query.read(),
+                                                                  result](std::stop_token stop) {
+                            if (stop.stop_requested())
+                                throw asterion::Error(
+                                    asterion::ErrorCode::cancelled,
+                                    "trading facts read cancelled");
+                            *result =
+                                asterion::trading::FactsArchive::read_published(journal, reference);
+                        });
+                        work->facts.emplace(
+                            asterion::trading::LiveSession::FactsOperation{
+                                std::move(completed),
+                                std::move(result)
+                            });
+                    } else {
+                        if (!work->session)
+                            throw asterion::Error(
+                                asterion::ErrorCode::unavailable,
+                                "account factual owner is initializing");
+                        if (query.has_capture())
+                            work->facts.emplace(work->session
+                                    ->capture_facts(facts_owner, instance, query.capture()));
+                        else if (query.has_status())
+                            work->facts.emplace(
+                                work->session->inspect_facts(facts_owner, query.status()));
+                        else
+                            throw std::invalid_argument("missing trading facts operation");
+                    }
+                } else if (request.has_heartbeat()) {
                     fill_health(*response.mutable_health());
                 } else if (request.has_shutdown()) {
                     throw std::invalid_argument("service stop is a Node Agent operation");
@@ -232,6 +287,12 @@ int main(int argc, char** argv)
                             return {};
                         work->action.get();
                     }
+                    if (work->facts) {
+                        if (work->facts->completed.wait_for(0ms) != std::future_status::ready)
+                            return {};
+                        work->facts->completed.get();
+                        *response.mutable_facts() = *work->facts->result;
+                    }
                     if (work->needs_snapshot) {
                         if (!work->snapshot.valid())
                             work->snapshot = work->session->snapshot();
@@ -251,7 +312,8 @@ int main(int argc, char** argv)
                     "trading",
                     request,
                     response,
-                    request.has_snapshot() || request.has_heartbeat() || request.has_attach(),
+                    request.has_snapshot() || request.has_heartbeat() || request.has_attach()
+                        || (request.has_facts() && !request.facts().has_capture()),
                     {{"session_id", session_id},
                         {"account_id", request.account_id()},
                         {"request_id", command.request_id()},

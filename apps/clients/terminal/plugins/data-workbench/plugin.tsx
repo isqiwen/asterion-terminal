@@ -12,12 +12,28 @@ export const plugin: TerminalPlugin = {
   commands: [
     "task.page",
     "data.download.budget.configure",
-    "node.data_tasks.local.open",
+    "node.data.local.open",
+    "market.observation.preview",
+    "data.observation.admit",
+    "data.observation.execute",
+    "data.observation.read",
+    "data.material.sources",
+    "data.material.submit",
+    "data.material.task",
+    "data.material.read",
     "task.action",
+    "task.retirement.preview",
+    "task.retirement.execute",
     "task.result",
     "data.datasets",
     "data.coverage",
     "data.history.usage",
+    "data.history.retirement.preview",
+    "data.tables.retirement.preview",
+    "data.tables.retirement.execute",
+    "data.tables.retirements",
+    "data.history.retirement.execute",
+    "data.history.retirements",
     "data.download.update.plan",
     "data.download.update.submit",
     "data.download.minutes.submit",
@@ -35,10 +51,15 @@ export const plugin: TerminalPlugin = {
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
-    (context.snapshot?.task_service?.tasks ?? [])
-      .filter(task => task.kind === "minute_download" || task.kind === "table_update")
+    (context.snapshot?.data?.tasks ?? [])
+      .filter(
+        task =>
+          task.kind === "minute_download" ||
+          task.kind === "table_update" ||
+          task.kind === "material_acquisition",
+      )
       .map(task => ({
-        id: task.id,
+        id: `data:${context.snapshot?.data?.node_id}:${context.snapshot?.data?.service}:${task.id}`,
         title:
           task.kind === "table_update"
             ? `${t("全市场数据")} · ${task.instrument
@@ -49,7 +70,7 @@ export const plugin: TerminalPlugin = {
         status: t(
           {
             queued: "排队中",
-            running: "下载中",
+            running: task.kind === "material_acquisition" ? "取得中" : "下载中",
             cancel_requested: "正在取消",
             publishing: "正在发布",
             succeeded: "已完成",
@@ -61,10 +82,18 @@ export const plugin: TerminalPlugin = {
         completed: task.completed,
         total: task.total,
         open: () =>
-          context.navigate(task.kind === "table_update" ? "workspace.tables" : "workspace.history"),
+          context.navigate(
+            task.kind === "material_acquisition"
+              ? "workspace.materials"
+              : task.kind === "table_update"
+                ? "workspace.tables"
+                : "workspace.history",
+            task.kind === "material_acquisition" ? { params: { id: task.id } } : undefined,
+          ),
       })),
   workspaces: [
     ["history", "历史数据"],
+    ["materials", "情报材料"],
     ["tables", "全市场数据"],
     ["records", "历史数据仓库"],
   ].map(([page, title]) => ({

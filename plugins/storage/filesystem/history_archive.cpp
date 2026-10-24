@@ -1,6 +1,7 @@
 #include "history_archive.hpp"
 #include "history_minutes.hpp"
 #include <asterion/foundation/id.hpp>
+#include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <asterion/protocol/data.hpp>
@@ -68,11 +69,12 @@ Archive::Archive(std::filesystem::path root, Access access)
     if (!root_.is_absolute())
         throw std::invalid_argument("historical archive requires an absolute directory");
     safe(root_);
+    check_retirement_authority();
     if (std::filesystem::exists(root_ / "index")
         && !std::filesystem::is_directory(root_ / "named-datasets"))
         throw std::invalid_argument(
             "unsupported historical archive layout; existing data was preserved");
-    if (access_ == Access::read_only) {
+    if (access_ != Access::writer) {
         for (const auto& directory : {root_, root_ / "named-datasets", root_ / "index"}) {
             safe(directory);
             if (!std::filesystem::is_directory(directory))
@@ -89,7 +91,7 @@ Archive::Archive(std::filesystem::path root, Access access)
 
 void Archive::writable() const
 {
-    if (access_ == Access::read_only)
+    if (access_ != Access::writer)
         throw std::logic_error("historical archive is read only");
 }
 
@@ -121,13 +123,48 @@ std::filesystem::path Archive::directory(
     return p;
 }
 
+std::filesystem::path Archive::resolve_directory(
+    const data::proto::MinuteDownload& input,
+    const std::string& locator) const
+{
+    const auto range = minute_range(input);
+    const std::filesystem::path original(locator);
+    if (!original.is_absolute() || original != original.lexically_normal())
+        throw std::invalid_argument("invalid historical acquisition locator");
+    const auto acquisition = original.filename().string();
+    validate_id(acquisition);
+    if (acquisition == "." || acquisition == "..")
+        throw std::invalid_argument("invalid historical acquisition locator");
+    const std::vector<std::string> suffix{
+        range.instrument.venue,
+        range.instrument.product,
+        range.instrument.delivery_month,
+        range.source,
+        std::to_string(range.interval_minutes) + "m",
+        acquisition
+    };
+    auto cursor = original;
+    for (auto part = suffix.rbegin(); part != suffix.rend(); ++part) {
+        if (cursor.filename() != *part)
+            throw std::invalid_argument(
+                "historical locator disagrees with its immutable definition");
+        cursor = cursor.parent_path();
+    }
+    auto result = root_;
+    for (const auto& part : suffix)
+        result /= part;
+    require_owned_directory(root_, result);
+    return result;
+}
+
 void Archive::publish_verified(const data::proto::HistoryRecord& record)
 {
     writable();
     const auto item = summary(record);
     digest(item.id);
-    const auto path = std::filesystem::path(record.minute_result().directory());
-    require_owned_directory(root_, path);
+    if (retirement(item.id))
+        throw Error(ErrorCode::conflict, "retired minute version cannot be published");
+    (void)resolve_directory(record.minutes(), record.minute_result().directory());
     FileLock lock(root_, "archive.lock");
     const auto index = root_ / "index" / (item.id + ".pb");
     safe(index);
@@ -144,6 +181,8 @@ void Archive::publish_verified(const data::proto::HistoryRecord& record)
 data::proto::HistoryRecord Archive::get(const std::string& id) const
 {
     digest(id);
+    if (retirement(id))
+        throw Error(ErrorCode::conflict, "minute version is sealed for retirement");
     const auto index = root_ / "index" / (id + ".pb");
     safe(index);
     if (!std::filesystem::is_regular_file(index) || std::filesystem::file_size(index) > 262144)
@@ -153,8 +192,8 @@ data::proto::HistoryRecord Archive::get(const std::string& id) const
     data::proto::HistoryRecord record;
     if (!record.ParseFromString(bytes) || summary(record).id != id)
         throw std::invalid_argument("historical archive revision mismatch");
-    const auto path = std::filesystem::path(record.minute_result().directory());
-    require_owned_directory(root_, path);
+    record.mutable_minute_result()->set_directory(
+        resolve_directory(record.minutes(), record.minute_result().directory()).string());
     return record;
 }
 
@@ -179,6 +218,8 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
         safe(file.path());
         if (file.path().extension() != ".pb")
             throw std::invalid_argument("unknown historical archive entry");
+        if (retirement(file.path().stem().string()))
+            continue;
         const auto item = summary(get(file.path().stem().string()));
         if ((filter.venue.empty() || filter.venue == item.contract.venue)
             && (filter.product.empty() || filter.product == item.contract.product)

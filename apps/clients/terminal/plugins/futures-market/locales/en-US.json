@@ -305,5 +305,9 @@
   "本段仅画 {rows} 根已观测分钟": "This segment draws only {rows} observed minute candles",
   "当前服务没有可用临时观测；旧实例响应不显示。": "No temporary observations from the current service; old-instance replies are not shown.",
   "观测段间空档": "Gaps between observation segments",
-  "未观测标签窗 {minutes} 个（不等于缺交易分钟）": "{minutes} unobserved label windows (not a count of missing trading minutes)"
+  "未观测标签窗 {minutes} 个（不等于缺交易分钟）": "{minutes} unobserved label windows (not a count of missing trading minutes)",
+  "低": "Low",
+  "开": "Open",
+  "收": "Close",
+  "高": "High"
 }

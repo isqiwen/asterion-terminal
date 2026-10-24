@@ -1,0 +1,85 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+import "asterion/intelligence.proto";
+import "asterion/domain.proto";
+// An evidence-availability audit, never an implicit historical model input.
+message NoticeReviewRequest {
+  asterion.resource.proto.Object source = 1;
+  int64 as_of_ms = 2;
+  string use_scope = 3;
+}
+message NoticeReviewInput {
+  asterion.resource.proto.Owner owner = 1;
+  NoticeReviewRequest request = 2;
+  asterion.intelligence.proto.NoticePublished publication = 3;
+  asterion.intelligence.proto.NoticeStoredContent content = 4;
+  string program_artifact = 5;
+}
+message NoticeReviewExecution {
+  asterion.resource.proto.Owner owner = 1;
+  NoticeReviewRequest request = 2;
+  string program_artifact = 3;
+}
+message NoticeReviewResult {
+  asterion.resource.proto.Owner owner = 1;
+  asterion.resource.proto.Object source = 2;
+  asterion.resource.proto.Object content = 3;
+  string program_artifact = 4;
+  int64 as_of_ms = 5;
+  string use_scope = 6;
+  string contract = 7;
+  string effective_day = 8;
+  asterion.protocol.proto.Decimal margin_ratio = 9;
+  bool planned = 10;
+  optional int64 source_published_at_ms = 11;
+  int64 acquired_at_ms = 12;
+  int64 processed_at_ms = 13;
+  int64 verified_at_ms = 14;
+  int64 stored_at_ms = 15;
+  int64 available_at_ms = 16;
+  bool published_by_cutoff = 17;
+  bool strict_history_eligible = 18;
+  repeated string limitations = 19;
+}
+
+// A fresh source observation, separate from the immutable audit input/result.
+message NoticeSourceObservation {
+  asterion.resource.proto.Object consumer = 1;
+  asterion.intelligence.proto.NoticeRecord source = 2;
+  asterion.intelligence.proto.NoticeEventView current = 3;
+  int64 observed_at_ms = 4;
+}
+
+// A Research-owned audit of an already published fixed event set. Selection,
+// cutoff and exclusions remain those of the source, never a fresh query.
+message EventSetReviewRequest {
+  asterion.resource.proto.Object source = 1;
+  string use_scope = 2;
+}
+message EventSetReviewInput {
+  asterion.resource.proto.Owner owner = 1;
+  EventSetReviewRequest request = 2;
+  asterion.intelligence.proto.NoticeSetRecord publication = 3;
+  asterion.intelligence.proto.NoticeStoredSet content = 4;
+  repeated NoticeReviewInput members = 5;
+  repeated asterion.intelligence.proto.NoticeStoredChange changes = 6;
+  string program_artifact = 7;
+}
+message EventSetReviewExecution {
+  asterion.resource.proto.Owner owner = 1;
+  EventSetReviewRequest request = 2;
+  string program_artifact = 3;
+}
+message EventSetReviewResult {
+  asterion.resource.proto.Owner owner = 1;
+  asterion.resource.proto.Object source = 2;
+  asterion.resource.proto.Object content = 3;
+  string program_artifact = 4;
+  repeated NoticeReviewResult members = 5;
+  repeated asterion.intelligence.proto.NoticeSetExclusion exclusions = 6;
+  int64 as_of_ms = 7;
+  asterion.intelligence.proto.NoticeUseMode use_mode = 8;
+  string use_scope = 9;
+  int64 assembled_at_ms = 10;
+}

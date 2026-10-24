@@ -1,4 +1,4 @@
-add_library(asterion_strategies STATIC strategy.cpp)
+add_library(asterion_strategies STATIC strategy.cpp portfolio_targets.cpp)
 target_include_directories(asterion_strategies PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_strategies PUBLIC asterion_protocol PRIVATE asterion_factor_analysis)
 asterion_target_defaults(asterion_strategies)

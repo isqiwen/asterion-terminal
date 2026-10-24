@@ -1,24 +1,25 @@
 syntax = "proto3";
-import "asterion/node.proto";
-import "asterion/domain.proto";
 package asterion.task.proto;
 import "asterion/trading.proto";
+import "asterion/task_state.proto";
+import "asterion/research_project.proto";
+import "asterion/research_variable.proto";
+import "asterion/research_statistics.proto";
+import "asterion/research_evaluation.proto";
+import "asterion/research_sample.proto";
+import "asterion/research_strategy.proto";
+import "asterion/research_logic.proto";
+import "asterion/research_batch.proto";
+import "asterion/research_assessment.proto";
+import "asterion/research_model.proto";
 import "asterion/factor.proto";
 import "asterion/backtest.proto";
 import "asterion/data.proto";
-import "asterion/data_service.proto";
-
-enum TaskState {
-  TASK_STATE_UNSPECIFIED = 0;
-  QUEUED = 1;
-  RUNNING = 2;
-  CANCEL_REQUESTED = 3;
-  SUCCEEDED = 4;
-  FAILED = 5;
-  CANCELLED = 6;
-  INTERRUPTED = 7;
-  PUBLISHING = 8;
-}
+import "asterion/resource.proto";
+import "asterion/account_review.proto";
+import "asterion/material.proto";
+import "asterion/notice_review.proto";
+import "asterion/intelligence.proto";
 
 enum TaskKind {
   TASK_KIND_UNSPECIFIED = 0;
@@ -27,6 +28,16 @@ enum TaskKind {
   MINUTE_DOWNLOAD = 3;
   reserved 4;
   TABLE_UPDATE = 5;
+  ACCOUNT_REVIEW = 6;
+  MATERIAL_ACQUISITION = 7;
+  NOTICE_REVIEW = 8;
+  EVENT_SET_REVIEW = 9;
+  STATISTICS = 10;
+  SAMPLE = 11;
+  LOGIC_TRIAL = 12;
+  MODEL_TRAINING = 13;
+  MODEL_TIME_VALIDATION = 14;
+  PERFORMANCE_EVALUATION = 15;
 }
 
 // Descriptive state is independent of immutable calculation inputs and results.
@@ -36,6 +47,7 @@ message TaskDerivation {
   string data_choice = 3;
   string snapshot = 4;
   string source_instance = 5;
+  asterion.resource.proto.Object batch = 6; // Exact immutable finite manifest, when present.
 }
 message TaskMetadata {
   uint32 revision = 1;
@@ -52,6 +64,8 @@ message TaskMetadataEdit {
 message Task {
   string id = 1;
   TaskMetadata metadata = 27;
+  asterion.resource.proto.Object retirement =
+    30; // Durable lifecycle decision, separate from execution.
   asterion.data.proto.TableRefreshTarget table_refresh =
     28; // summary projection of immutable input
   reserved 5;
@@ -60,6 +74,16 @@ message Task {
     asterion.factor.proto.FactorInput factor = 3;
     asterion.data.proto.MinuteDownload minutes = 4;
     asterion.data.proto.TableUpdate table_update = 26;
+    asterion.research.proto.AccountReviewInput account_review = 31;
+    asterion.data.proto.MaterialInput material = 32;
+    asterion.research.proto.NoticeReviewInput notice_review = 33;
+    asterion.research.proto.EventSetReviewInput event_set_review = 34;
+    asterion.research.proto.StatisticsInput statistics = 38;
+    asterion.research.proto.SampleInput sample = 39;
+    asterion.research.proto.LogicTrialInput logic_trial = 41;
+    asterion.research.proto.ModelTrainingInput model_training = 42;
+    asterion.research.proto.ModelTimeInput model_time = 44;
+    asterion.research.proto.EvaluationInput evaluation = 46;
   }
   TaskKind kind = 6;
   TaskState state = 7;
@@ -76,6 +100,13 @@ message Task {
   asterion.data.proto.DownloadPublication publication = 17;
   string history_dataset_id = 18; // Projection of the verified published download result.
   string risk_artifact = 19; // Immutable native risk SHA-256 for backtests.
+  // Actual Research executable, fixed separately from reusable data/parameter bytes.
+  string program_artifact = 35;
+  asterion.research.proto.ProjectBinding research_plan = 36;
+  asterion.research.proto.StrategyUse strategy_use = 40;
+  asterion.resource.proto.Object model_plan = 43;
+  asterion.resource.proto.Object model_time_plan = 45;
+  asterion.resource.proto.Object variable_definition = 37;
   string download_authorization = 20;
   string provider_artifact = 21; // Immutable native provider SHA-256 for downloads.
   uint32 minute_interval_minutes = 22; // summary projection; zero for other task kinds
@@ -84,6 +115,26 @@ message Task {
   // UTC wall-clock observations in milliseconds; not used for durations/order.
   int64 submitted_at_ms = 24;
   int64 updated_at_ms = 25;
+}
+message TaskRetirementRequest {
+  string id = 1;
+  bool execute = 2;
+}
+message TaskRetirement {
+  enum State {
+    AVAILABLE = 0;
+    BLOCKED = 1;
+    RETIRED = 2;
+  }
+
+  asterion.resource.proto.Object object = 1;
+  Task task = 2;
+  State state = 3;
+  repeated string consumers = 4;
+  bool active = 5;
+  bool admission_busy = 6;
+  bool source_release_confirmed = 7;
+  asterion.protocol.proto.Error release_error = 8;
 }
 message TaskCapacity {
   uint32 uncommitted = 1;
@@ -107,25 +158,30 @@ message TaskList {
 message TaskId {
   string id = 1;
 }
-message TaskSubmit {
-  string id = 1;
-  TaskDerivation derivation = 6;
-  oneof definition {
-    asterion.backtest.proto.BacktestRequest backtest = 2;
-    asterion.factor.proto.FactorRequest factor_request = 3;
-    string download_authorization = 4;
-    asterion.backtest.proto.BacktestReuse backtest_reuse = 5;
-  }
-}
 // Small execution definition, projected from Task-owned immutable evidence.
 // Backtest contracts already follow the resolved month order. The fixed schedules
 // below replace request.series, and are those of a factor request's dominant
 // series in order: execution never select dominant months again.
 message TaskExecution {
   string input_sha256 = 1;
+  string program_artifact = 10;
+  asterion.research.proto.ModelReplayDefinition model_replay = 19;
+  asterion.research.proto.ProjectBinding research_plan = 11;
+  asterion.research.proto.StrategyUse strategy_use = 15;
+  asterion.research.proto.VariableDefinition variable_definition = 12;
+  asterion.data.proto.DataOwner data_owner = 6;
   oneof parameters {
     asterion.backtest.proto.BacktestRequest backtest = 2;
     asterion.factor.proto.FactorRequest factor = 3;
+    asterion.research.proto.AccountReviewExecution account_review = 7;
+    asterion.research.proto.NoticeReviewExecution notice_review = 8;
+    asterion.research.proto.EventSetReviewExecution event_set_review = 9;
+    asterion.research.proto.StatisticsInput statistics = 13;
+    asterion.research.proto.SampleExecution sample = 14;
+    asterion.research.proto.LogicTrialInput logic_trial = 16;
+    asterion.research.proto.ModelTrainingInput model_training = 17;
+    asterion.research.proto.ModelTimeInput model_time = 18;
+    asterion.research.proto.EvaluationInput evaluation = 20;
   }
   repeated asterion.data.proto.DominantSchedule schedules = 4;
   asterion.data.proto.HistoricalMargins historical_margins = 5;
@@ -147,27 +203,19 @@ message TaskFinish {
     asterion.factor.proto.FactorResult factor = 4;
     asterion.data.proto.MinuteDownloadResult minutes = 5;
     asterion.data.proto.TableUpdateResult table_update = 7;
+    asterion.research.proto.AccountReviewResult account_review = 8;
+    asterion.data.proto.MaterialReceipt material = 9;
+    asterion.research.proto.NoticeReviewResult notice_review = 10;
+    asterion.research.proto.EventSetReviewResult event_set_review = 11;
+    asterion.research.proto.StatisticsResult statistics = 12;
+    asterion.research.proto.SampleResult sample = 13;
+    asterion.research.proto.LogicTrialResult logic_trial = 14;
+    asterion.research.proto.ModelTrainingResult model_training = 15;
+    asterion.research.proto.ModelTimeResult model_time = 16;
+    asterion.research.proto.EvaluationResult evaluation = 17;
   }
 }
 
-message TaskRequest {
-  uint32 version = 1;
-  string service_id = 2;
-  string correlation_id = 3;
-  oneof operation {
-    TaskSubmit submit = 10;
-    TaskId get = 11;
-    TaskListQuery list = 12;
-    TaskId cancel = 13;
-    TaskId retry = 14;
-    TaskId result = 15;
-    asterion.protocol.proto.Empty heartbeat = 16;
-    asterion.node.proto.Quiesce quiesce = 23;
-    TaskId history_usage = 24;
-    TaskMetadataEdit metadata_edit = 25;
-    TaskId metadata_get = 26;
-  }
-}
 message TaskHealth {
   string instance_id = 1;
   string version = 2;
@@ -175,7 +223,18 @@ message TaskHealth {
   bool recovery_required = 4;
   bool initialized = 5;
   string process_id = 6;
-  string data_instance = 7;
+  reserved 7;
+}
+message ProjectTaskPage {
+  repeated Task tasks = 1;
+  uint32 next_before_sequence = 2;
+}
+// A direct Research projection. Member task states come from the original store.
+message ResearchBatchReply {
+  asterion.research.proto.BacktestBatchState state = 1;
+  repeated asterion.research.proto.BacktestBatchState states = 2;
+  string next_after = 3;
+  repeated Task members = 4;
 }
 message TaskResponse {
   reserved 19;
@@ -194,6 +253,29 @@ message TaskResponse {
     asterion.data.proto.MinuteDownloadResult minutes = 18;
     asterion.data.proto.HistoryUsage history_usage = 20;
     asterion.data.proto.TableUpdateResult table_update = 21;
+    asterion.resource.proto.ReleaseDecision release_decision = 22;
+    TaskRetirement retirement = 23;
+    asterion.resource.proto.Catalogue resources = 24;
+    asterion.research.proto.AccountReviewResult account_review = 25;
+    asterion.data.proto.MaterialReceipt material = 26;
+    asterion.research.proto.NoticeReviewResult notice_review = 27;
+    asterion.intelligence.proto.NoticeConsumerRecord notice_custody = 28;
+    asterion.research.proto.NoticeSourceObservation notice_source_observation = 29;
+    asterion.research.proto.EventSetReviewResult event_set_review = 30;
+    asterion.research.proto.ProjectReply project = 31;
+    ProjectTaskPage project_tasks = 32;
+    asterion.research.proto.VariableReply variable = 33;
+    asterion.research.proto.StatisticsResult statistics = 34;
+    asterion.research.proto.SampleResult sample = 35;
+    asterion.research.proto.StrategyReply strategy = 36;
+    asterion.research.proto.LogicTrialResult logic_trial = 37;
+    asterion.research.proto.LogicReply logic = 38;
+    ResearchBatchReply batch = 39;
+    asterion.research.proto.ModelTrainingResult model_training = 40;
+    asterion.research.proto.ModelReply model = 41;
+    asterion.research.proto.ModelTimeResult model_time = 42;
+    asterion.research.proto.EvaluationResult evaluation = 43;
+    asterion.research.proto.BatchAssessmentReply assessment = 44;
   }
 }
 
@@ -217,4 +299,11 @@ message StoredTaskRecord {
   uint64 input_bytes = 3;
   string token = 4;
   uint64 event_sequence = 5;
+}
+
+// Current in-flight creation record; it is not an admitted task or a format migration.
+message PreparedTaskSubmission {
+  string instance_id = 1;
+  StoredTaskRecord record = 2;
+  TaskExecution execution = 3;
 }

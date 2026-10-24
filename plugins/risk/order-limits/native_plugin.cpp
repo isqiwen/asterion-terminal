@@ -129,6 +129,9 @@ AstStatus evaluate(void* self, const AstRiskContext* input, uint32_t* decision) 
             case RiskReason::working_orders:
                 *decision = AST_RISK_WORKING_ORDERS;
                 break;
+            case RiskReason::insufficient_funds:
+                // Funding is decided by the account, outside this quantity-only ABI.
+                throw std::invalid_argument("invalid native risk decision");
         }
     });
 }

@@ -14,6 +14,7 @@ const kinds = {
   download: "来源下载",
   backtest: "回测任务",
   factor: "因子任务",
+  sample: "独立研究样本",
   saved_dataset: "已保存数据集",
 };
 const roles = { market: "行情输入", output: "下载产物" };
@@ -73,7 +74,7 @@ export function HistoryUsagePanel({
         <summary>{t("内容版本")}</summary>
         <code>{item.revision}</code>
       </details>
-      <p>{t("核对任务记录和本窗口草稿。尚未开放历史版本删除。")}</p>
+      <p>{t("由数据拥有者核对引用与本窗口草稿；删除请使用版本维护。")}</p>
       {loading && <p role="status">{t("正在核对使用情况…")}</p>}
       {error && (
         <p role="alert">
@@ -84,9 +85,11 @@ export function HistoryUsagePanel({
         <>
           <h4>{t("当前数据服务")}</h4>
           <p role="status">
-            {usage.references.length
-              ? t("找到 {count} 条关联记录，请保留此版本。", { count: usage.references.length })
-              : t("当前数据服务中未发现关联记录；这不代表该版本可以删除。")}
+            {usage.references.length + usage.consumers.length
+              ? t("找到 {count} 条关联记录，请保留此版本。", {
+                  count: usage.references.length + usage.consumers.length,
+                })
+              : t("当前拥有者未登记保留引用；删除仍须重新预览和确认。")}
           </p>
           {!!usage.selected_roles.length && (
             <p>
@@ -96,70 +99,50 @@ export function HistoryUsagePanel({
             </p>
           )}
           <ReferenceTable rows={usage.references} />
-          {!!usage.other_data_services.length && (
-            <section aria-label={t("其他数据服务")}>
-              <h4>{t("其他数据服务")}</h4>
-              <p className="subtle">
-                {t("检查已连接节点的任务与已保存数据集；停止的本机服务只读检查账本。")}
-              </p>
-              {usage.other_data_services.map(group => (
-                <section
-                  key={`${group.node}:${group.service}`}
-                  aria-label={`${group.node === "local" ? t("本机") : group.node} / ${group.service || t("服务清单")}`}
-                >
-                  <h5>
-                    {group.node === "local" ? t("本机") : group.node} /{" "}
-                    {group.service || t("服务清单")}
-                  </h5>
-                  {group.checked ? (
-                    <p>
-                      {t("已检查，发现 {count} 条关联记录。", { count: group.references.length })}
-                    </p>
-                  ) : (
-                    <div role="alert">
-                      <p>{t("数据服务检查未完成，不能视为无引用。")}</p>
-                      {group.error && (
+          {!!usage.consumers.length && (
+            <div className="history-usage-table">
+              <h4>{t("跨域保留引用")}</h4>
+              <p>{t("准备和正式引用均受保护；消费方离线不会解除引用。")}</p>
+              <table className="coverage-table" aria-label={t("跨域保留引用")}>
+                <thead>
+                  <tr>
+                    <th>{t("所属节点与服务")}</th>
+                    <th>{t("引用对象")}</th>
+                    <th>{t("保留状态")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usage.consumers.map(consumer => (
+                    <tr
+                      key={`${consumer.node}:${consumer.service}:${consumer.id}:${consumer.version}`}
+                    >
+                      <td>
+                        {consumer.node} / {consumer.service}
+                      </td>
+                      <td>
+                        {consumer.kind} / {consumer.id}
                         <details>
-                          <summary>{t("未完成检查的详情")}</summary>
-                          <ErrorNotice error={group.error} namespace="diagnostics" />
+                          <summary>{t("固定输入身份")}</summary>
+                          <code>{consumer.version}</code>
                         </details>
-                      )}
-                    </div>
-                  )}
-                  {group.stopped && <p className="subtle">{t("本机账本已检查；服务保持停止。")}</p>}
-                  <ReferenceTable rows={group.references} />
-                </section>
-              ))}
-            </section>
-          )}
-          {(usage.disconnected_nodes.names.length > 0 || usage.disconnected_nodes.error) && (
-            <section aria-label={t("未连接的节点")}>
-              <h4>{t("未连接的节点")}</h4>
-              <p>{t("以下已登记节点未连接，本次未检查；不会自动连接或启动服务。")}</p>
-              <ul>
-                {usage.disconnected_nodes.names.map(name => (
-                  <li key={name}>{name}</li>
-                ))}
-              </ul>
-              {usage.disconnected_nodes.error && (
-                <div role="alert">
-                  <p>{t("节点登记清单未能完整读取，检查范围不完整。")}</p>
-                  <details>
-                    <summary>{t("未完成检查的详情")}</summary>
-                    <ErrorNotice error={usage.disconnected_nodes.error} namespace="diagnostics" />
-                  </details>
-                </div>
-              )}
-            </section>
+                      </td>
+                      <td>
+                        {t(consumer.phase === "prepared" ? "准备中的引用仍保留" : "正式引用仍保留")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}
       <details className="history-usage-scope">
         <summary>{t("检查范围与保留说明")}</summary>
-        <p>{t("包含来源下载、回测、K 线因子和已保存数据集；任务结束或取消后仍保留来源关系。")}</p>
+        <p>{t("包含数据拥有者的采集、已保存数据集和跨域保留；任务结束或取消不自动解除引用。")}</p>
         <p>
           {t(
-            "未检查停止的远程数据服务、未连接的节点及其他窗口的回测与因子草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
+            "不通过进程清单推断引用；引用账本不可访问时明确失败。本窗口草稿另列，删除执行仍由数据拥有者裁决。",
           )}
         </p>
       </details>

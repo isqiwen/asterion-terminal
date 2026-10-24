@@ -126,7 +126,7 @@ export function ServiceStatus({
       services.some(s => s.desired_running && starting(s)));
   const kinds: Record<string, string> = {
     market: "行情服务",
-    task: "任务服务",
+    research: "研究服务",
     data: "数据服务",
     live: "交易服务",
   };

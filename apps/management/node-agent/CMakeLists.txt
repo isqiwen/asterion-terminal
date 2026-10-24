@@ -5,6 +5,7 @@ target_link_libraries(asterion_node_firewall PUBLIC Asterion::Kernel PRIVATE asi
 add_library(asterion_node_storage STATIC
   plugin_artifacts.cpp
   service_configuration.cpp
+  node_storage_identity.cpp
   program_preparation.cpp
   upgrade_plan.cpp
 )

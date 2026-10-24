@@ -197,7 +197,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
     if (historicalOnly) {
       data.result.market = null;
       // Historical versions remain available when Task is offline and has no visible history.
-      data.result.task_service = { ...data.result.task_service!, online: false, tasks: [] };
+      data.result.research_service = { ...data.result.research_service!, online: false, tasks: [] };
     }
     if (request.method === "market.minutes") {
       data.result.intraday = {

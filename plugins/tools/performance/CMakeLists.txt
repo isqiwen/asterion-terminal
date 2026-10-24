@@ -1,4 +1,4 @@
-add_library(asterion_performance STATIC performance.cpp account_reconciliation.cpp portfolio_budget.cpp)
+add_library(asterion_performance STATIC performance.cpp account_reconciliation.cpp portfolio_budget.cpp account_exposure.cpp static_stress.cpp)
 target_include_directories(asterion_performance PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_performance PUBLIC asterion_protocol)
 asterion_target_defaults(asterion_performance)

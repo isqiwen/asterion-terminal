@@ -19,10 +19,23 @@ public:
     DataClient(const DataClient&) = delete;
     DataClient& operator=(const DataClient&) = delete;
     [[nodiscard]] std::future<Json> status() const;
+    [[nodiscard]] std::future<Json> resources(const resource::proto::CatalogueQuery&);
     [[nodiscard]] std::future<std::string> authorize_download(
         const data::proto::DownloadAuthorizationRequest&);
     [[nodiscard]] std::future<void> configure_download_budget(
         const data::proto::DownloadBudgetConfiguration&);
+    [[nodiscard]] std::future<data::proto::AcquisitionTaskResponse> acquisition_task(
+        data::proto::AcquisitionTaskRequest);
+    [[nodiscard]] std::future<void> submit_download(const std::string&, const std::string&);
+    [[nodiscard]] std::future<Json> material_sources();
+    [[nodiscard]] std::future<Json> submit_material(const data::proto::MaterialRequest&);
+    [[nodiscard]] std::future<Json> material_read(const std::string&);
+    [[nodiscard]] std::future<void> page(unsigned before);
+    [[nodiscard]] std::future<Json> retirement(const std::string&, bool execute);
+    [[nodiscard]] std::future<Json> result(const std::string&);
+    [[nodiscard]] std::future<Json> metadata(const std::string&);
+    [[nodiscard]] std::future<void> edit_metadata(const task::proto::TaskMetadataEdit&);
+    [[nodiscard]] std::future<void> action(const std::string&, const std::string&);
     ServiceEndpoint endpoint() const;
     [[nodiscard]] std::future<data::proto::HistorySource> source(const std::string& id) const;
     [[nodiscard]] std::future<std::vector<data::proto::HistorySource>> provider_sources(
@@ -45,7 +58,13 @@ public:
     [[nodiscard]] std::future<Json> minute_page(const data::proto::MinutePageQuery&);
     [[nodiscard]] std::future<Json> minute_range(const data::proto::MinuteRangeQuery&);
     [[nodiscard]] std::future<Json> minute_evidence(const data::proto::MinuteEvidenceQuery&);
+    [[nodiscard]] std::future<Json> minute_retirement(const std::string&, bool execute);
+    [[nodiscard]] std::future<Json>
+    table_retirement(const std::string&, bool execute, const std::string& preview_digest = {});
+    [[nodiscard]] std::future<Json> table_retirements(const std::string& after);
+    [[nodiscard]] std::future<Json> minute_retirements(const std::string& after);
     [[nodiscard]] std::future<Json> history_usage(const std::string&);
+    [[nodiscard]] std::future<Json> observation(const data::proto::ObservationQuery&);
     // Market-wide tables: what the store holds, and one page of a partition.
     [[nodiscard]] std::future<data::proto::TableRefreshPlan> table_refresh_plan(
         const data::proto::TableRefreshQuery&);

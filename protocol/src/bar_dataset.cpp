@@ -8,6 +8,9 @@
 #include <cctype>
 #include <charconv>
 #include <optional>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 
 namespace asterion::protocol {
@@ -256,6 +259,20 @@ std::string bar_dataset_revision(const data::proto::BarDataset& dataset)
     canonical += increment_changes(dataset).dump();
     canonical += "}";
     return sha256_bytes(canonical);
+}
+
+std::string format_utc_nanoseconds(std::int64_t value)
+{
+    using namespace std::chrono;
+    const std::chrono::sys_time<std::chrono::nanoseconds> point{std::chrono::nanoseconds{value}};
+    const auto day = std::chrono::floor<std::chrono::days>(point);
+    const hh_mm_ss clock{point - day};
+    std::ostringstream out;
+    out << format_trading_date(year_month_day{day}) << 'T' << std::setfill('0') << std::setw(2)
+        << clock.hours().count() << ':' << std::setw(2) << clock.minutes().count() << ':'
+        << std::setw(2) << clock.seconds().count() << '.' << std::setw(9)
+        << clock.subseconds().count() << 'Z';
+    return out.str();
 }
 
 void validate_bar_dataset(const data::proto::BarDataset& dataset)

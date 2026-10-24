@@ -12,6 +12,8 @@ import { savePreferences, usePreferences } from "../ui/preferences";
 import { DataSources } from "./DataSources";
 import { CtpConnections } from "./CtpConnections";
 import { NativePlugins } from "./NativePlugins";
+import { ResourceCatalogue } from "./ResourceCatalogue";
+import { DataBackup } from "./DataBackup";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 export function Settings({
@@ -65,6 +67,8 @@ export function Settings({
             ["ctp", t("CTP 账户"), "connections"],
             ["sources", t("数据源"), "connections"],
             ["plugins", t("插件"), "plugins"],
+            ["resources", t("业务资产目录"), "settings"],
+            ["backup", t("数据备份与恢复"), "settings"],
             ["about", t("关于"), "info"],
           ].map(([item, label, icon]) => (
             <button
@@ -88,6 +92,7 @@ export function Settings({
               ctp: t("CTP 账户"),
               sources: t("数据源"),
               plugins: t("插件"),
+              backup: t("数据备份与恢复"),
               about: t("关于"),
             }[page]
           }
@@ -103,6 +108,8 @@ export function Settings({
           </p>
         )}
         {busy && <p role="status">{t("正在处理…")}</p>}
+        {page === "resources" && <ResourceCatalogue snapshot={snapshot} />}
+        {page === "backup" && <DataBackup snapshot={snapshot} />}
         {page === "preferences" && (
           <>
             <label className="terminal-setting">

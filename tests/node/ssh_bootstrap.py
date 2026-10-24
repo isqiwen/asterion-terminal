@@ -82,10 +82,10 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         assert 'error' in call('node.bootstrap',request)
         executable=deployed/'asterion_node_agent'
         assert executable.is_file() and not (deployed/'install.json').exists()
-        policy = deployed / 'state/config/task.json'
-        assert json.loads(policy.read_text()) == {"task_concurrency": 2}
+        policy = deployed / 'state/config/research.json'
+        assert json.loads(policy.read_text()) == {"task_concurrency": 1}
         assert json.loads((deployed / 'state/config/logging.json').read_text())["level"] == "info"
-        policy.write_text('{"task_concurrency":5}\n')
+        policy.write_text('{"task_concurrency":2}\n')
         original_policy = policy.read_bytes()
         original_mtime = policy.stat().st_mtime_ns
         before=executable.stat()
@@ -118,7 +118,8 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
                 if found and found[0]['state']=='running': return found[0]
                 time.sleep(0.2)
             raise AssertionError('service did not run')
-        call('node.deploy',dict(kind='live',id='bootstrap-test',service='account-test',port=str(service_port)))
+        deployed_service = call('node.deploy',dict(kind='live',id='bootstrap-test',service='account-test',port=str(service_port)))
+        assert 'result' in deployed_service, deployed_service
         kept=running()
         record=deployed/'state/services/account-test/service.json'
         configuration=record.read_bytes()

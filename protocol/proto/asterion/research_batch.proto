@@ -1,0 +1,96 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+import "asterion/data.proto";
+import "asterion/trading.proto";
+import "asterion/domain.proto";
+// A finite cost scenario, not a task state or an execution permission.
+message BacktestBatchMember {
+  string task_id = 1;
+  uint32 slippage_ticks = 2;
+  // Present for a fee-only scenario; slippage remains the original value.
+  asterion.protocol.proto.Decimal fee_multiplier = 3;
+}
+message BacktestBatchDraft {
+  string id = 1;
+  string name = 2;
+  string purpose = 3;
+  string limitations = 4;
+  asterion.resource.proto.Object source = 5;
+  repeated BacktestBatchMember members = 6;
+  uint32 run_budget = 7;
+  uint32 time_budget_seconds = 8;
+}
+// Captured only from Research's verified original result and fixed input.
+message BacktestBatchDefinition {
+  BacktestBatchDraft request = 1;
+  asterion.resource.proto.Owner owner = 2;
+  string source_input_sha256 = 3;
+  string program_artifact = 4;
+  string risk_artifact = 5;
+  uint64 work_units_per_run = 6;
+  int64 recorded_at_ms = 7;
+  asterion.data.proto.DataOwner data_owner = 8;
+  string digest = 9; // Immutable batch content used by task member references.
+}
+
+enum BacktestBatchPhase {
+  BACKTEST_BATCH_PHASE_UNSPECIFIED = 0;
+  BATCH_SAVED = 1;
+  BATCH_RUNNING = 2;
+  BATCH_STOPPING = 3;
+  BATCH_STOPPED = 4;
+  BATCH_COMPLETED = 5;
+  BATCH_INTERRUPTED = 6;
+}
+
+enum BacktestBatchAdmission {
+  BACKTEST_BATCH_ADMISSION_UNSPECIFIED = 0;
+  BATCH_MEMBER_WAITING = 1;
+  BATCH_MEMBER_PENDING = 2;
+  BATCH_MEMBER_ADMITTED = 3;
+  BATCH_MEMBER_REJECTED = 4;
+}
+
+// Admission facts only. Actual running/cancel/result state remains in TaskStore.
+message BacktestBatchMemberReceipt {
+  string task_id = 1;
+  BacktestBatchAdmission admission = 2;
+  asterion.protocol.proto.Error error = 3;
+  string input_sha256 = 4; // Fixed expected member input before admission.
+}
+message BacktestBatchState {
+  BacktestBatchDefinition definition = 1;
+  BacktestBatchPhase phase = 2;
+  int64 started_at_ms = 3;
+  int64 stopped_at_ms = 4;
+  string reason = 5;
+  optional uint64 elapsed_ms = 6; // Absent when a restart prevents exact duration.
+  repeated BacktestBatchMemberReceipt members = 7;
+}
+message BacktestBatchStop {
+  asterion.resource.proto.Object batch = 1;
+  string reason = 2;
+}
+message BacktestBatchMutation {
+  string id = 1;
+  oneof operation {
+    BacktestBatchDraft save = 2;
+    asterion.resource.proto.Object start = 3;
+    BacktestBatchStop stop = 4;
+  }
+}
+message BacktestBatchRead {
+  string id = 1;
+}
+message BacktestBatchPage {
+  string after = 1;
+  uint32 limit = 2;
+}
+message BacktestBatchRequest {
+  oneof operation {
+    BacktestBatchMutation mutation = 1;
+    BacktestBatchRead read = 2;
+    BacktestBatchPage list = 3;
+  }
+}

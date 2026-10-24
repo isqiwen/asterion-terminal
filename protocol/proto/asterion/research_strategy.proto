@@ -1,0 +1,124 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+import "asterion/domain.proto";
+import "asterion/trading.proto";
+import "asterion/research_logic.proto";
+import "asterion/research_model.proto";
+// Fixed ordinary-daily portfolio decision; contains no account or market payload.
+message PortfolioStrategyDefinition {
+  repeated asterion.protocol.proto.Contract contracts = 1;
+  asterion.protocol.proto.Strategy strategy = 2;
+}
+// Mutually exclusive decision content; never an account authorization.
+message StrategyDefinition {
+  oneof decision {
+    asterion.protocol.proto.Strategy strategy = 1;
+    ModelReplayDefinition model_replay = 6;
+    PortfolioStrategyDefinition portfolio = 7;
+  }
+  asterion.protocol.proto.Contract contract = 2;
+  uint32 interval_minutes = 3;
+  string program_artifact = 4;
+  string risk_artifact = 5;
+}
+message StrategyPackage {
+  string id = 1;
+  asterion.resource.proto.Owner owner = 2;
+  StrategyDefinition definition = 3;
+  string digest = 4; // Semantic definition only; names do not change validation.
+  string name = 5;
+  string purpose = 6;
+  string limitations = 7;
+  oneof source {
+    asterion.resource.proto.Object reference_result = 8; // Always reference_only.
+    StrategyLogicEvidence logic = 13;
+  }
+  string source_input_sha256 = 9;
+  uint32 source_attempt = 10;
+  int64 recorded_at_ms = 11;
+  string retirement_reason = 12; // Deprecation preserves content and admitted runs.
+}
+message StrategyDelivery {
+  string id = 1;
+  asterion.resource.proto.Owner owner = 2;
+  asterion.resource.proto.Object package = 3;
+  string target_task_id = 4;
+  oneof source {
+    asterion.resource.proto.Object reference_result = 5;
+    asterion.resource.proto.Object logic_trial = 9;
+  }
+  string source_input_sha256 = 6;
+  int64 recorded_at_ms = 7;
+  string digest = 8;
+}
+message StrategyUse {
+  asterion.resource.proto.Object package = 1;
+  asterion.resource.proto.Object delivery = 2;
+  string request_sha256 = 3; // Owning Research fixes explicit new-backtest intent for exact replay.
+}
+message StrategyLogicEvidence {
+  LogicDefinition definition = 1;
+  asterion.resource.proto.Object example = 2;
+  asterion.resource.proto.Object result = 3;
+}
+message StrategyLogicFreeze {
+  string id = 1;
+  string name = 2;
+  string purpose = 3;
+  string limitations = 4;
+  asterion.resource.proto.Object source = 5;
+  asterion.protocol.proto.Contract contract = 6;
+  uint32 interval_minutes = 7;
+  asterion.protocol.proto.Strategy strategy = 8;
+}
+message StrategyFreeze {
+  string id = 1;
+  string name = 2;
+  string purpose = 3;
+  string limitations = 4;
+  asterion.resource.proto.Object source = 5;
+}
+message StrategyRetire {
+  asterion.resource.proto.Object package = 1;
+  string reason = 2;
+}
+message StrategyDeliver {
+  string id = 1;
+  asterion.resource.proto.Object package = 2;
+  string target_task_id = 3;
+}
+message StrategyMutation {
+  string id = 1;
+  oneof operation {
+    StrategyFreeze freeze = 2;
+    StrategyRetire retire = 3;
+    StrategyDeliver deliver = 4;
+    StrategyLogicFreeze logic = 5;
+  }
+}
+message StrategyLookup {
+  string id = 1;
+}
+message StrategyList {
+  string after = 1;
+  uint32 limit = 2;
+  string package_id = 3; // Optional filter for deliveries only.
+}
+message StrategyRequest {
+  oneof operation {
+    StrategyMutation mutation = 1;
+    StrategyLookup get = 2;
+    StrategyList list = 3;
+    StrategyLookup delivery = 4;
+    StrategyList deliveries = 5;
+  }
+}
+message StrategyReply {
+  StrategyPackage package = 1;
+  repeated StrategyPackage packages = 2;
+  StrategyDelivery delivery = 3;
+  repeated StrategyDelivery deliveries = 4;
+  string next_after = 5;
+  bool target_accepted = 6; // Derived from the owning TaskStore, never persisted here.
+}

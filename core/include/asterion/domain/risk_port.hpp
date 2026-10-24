@@ -23,7 +23,8 @@ enum class RiskReason
     invalid_context,
     order_quantity,
     gross_quantity,
-    working_orders
+    working_orders,
+    insufficient_funds
 };
 
 constexpr std::string_view risk_reason_name(RiskReason reason) noexcept
@@ -41,6 +42,8 @@ constexpr std::string_view risk_reason_name(RiskReason reason) noexcept
             return "gross_quantity";
         case RiskReason::working_orders:
             return "working_orders";
+        case RiskReason::insufficient_funds:
+            return "insufficient_funds";
     }
     return "unavailable";
 }

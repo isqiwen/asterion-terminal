@@ -278,7 +278,7 @@ static AstStatus read_table(
     }
     if (!strcmp(mode, "empty"))
         return AST_OK;
-    if (!strcmp(mode, "hold")) {
+    if (!strcmp(mode, "hold") || !strcmp(mode, "hold-corrected")) {
         FILE* f = fopen(control, "w");
         if (f) {
             fputs("holding", f);
@@ -298,6 +298,8 @@ static AstStatus read_table(
             struct timespec delay = {0, 10000000};
             nanosleep(&delay, NULL);
         }
+        if (!strcmp(mode, "hold-corrected"))
+            strcpy(mode, "corrected");
     }
     if (!strcmp(mode, "wait")) {
         FILE* f = fopen(control, "w");

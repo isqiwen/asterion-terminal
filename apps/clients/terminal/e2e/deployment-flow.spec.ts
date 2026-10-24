@@ -20,7 +20,16 @@ test(
       host: "192.0.2.10",
       port: 7442,
     };
-    remote.health!.services = [];
+    const dataService = structuredClone(
+      base.nodes.find(n => n.id === "local")!.health!.services.find(s => s.kind === "data")!,
+    );
+    Object.assign(dataService, {
+      id: "remote-data",
+      endpoint: "",
+      port: 7551,
+      directory: "/test/remote/data",
+    });
+    remote.health!.services = [dataService];
     let current = structuredClone(base);
     let revision = base.revision;
     const mutations: { method: string; params: Record<string, string> }[] = [];
@@ -32,44 +41,52 @@ test(
           "runtime.snapshot",
           "node.local",
           "node.deploy",
-          "node.data_tasks.attach",
+          "node.research.attach",
           "node.action",
         ].includes(method)
       )
         return route.continue();
-      if (["node.deploy", "node.data_tasks.attach", "node.action"].includes(method))
+      if (["node.deploy", "node.research.attach", "node.action"].includes(method))
         mutations.push({ method, params });
       if (method === "node.deploy") {
         expect(params.id).toBe(remote.id);
+        expect(params).not.toHaveProperty("data_service");
         const service = structuredClone(
-          base.nodes.find(n => n.id === "local")!.health!.services.find(s => s.kind === "task")!,
+          base.nodes
+            .find(n => n.id === "local")!
+            .health!.services.find(s => s.kind === "research")!,
         );
         Object.assign(service, {
           id: params.service,
           port: Number(params.port),
           endpoint: "",
-          directory: "/test/remote/taskService",
+          directory: "/test/remote/research",
           revision: "remote-revision",
         });
         remote.health!.services.push(service);
       }
-      if (method === "node.data_tasks.attach")
-        current.task_service = {
-          ...base.task_service!,
+      if (method === "node.research.attach") {
+        current.research_service = {
+          ...base.research_service!,
           remote: true,
           host: remote.host,
           port: 7550,
-          service: "task",
-          connection_id: "test-remote-taskService",
+          service: "research",
+          connection_id: "test-remote-research",
           online: true,
+          node_id: remote.id,
         };
+      }
       if (method === "node.action") {
-        expect(params).toEqual({ id: "compute-1", service: "task", action: "stop" });
-        Object.assign(remote.health!.services[0], {
-          state: "stopped",
-          desired_running: false,
-          health: "offline",
-        });
+        expect(params).toEqual({ id: "compute-1", service: "research", action: "stop" });
+        Object.assign(
+          remote.health!.services.find(s => s.id === "research")!,
+          {
+            state: "stopped",
+            desired_running: false,
+            health: "offline",
+          },
+        );
       }
       current = {
         ...current,
@@ -83,16 +100,17 @@ test(
     const location = page
       .getByRole("list", { name: "当前运行位置" })
       .getByRole("listitem")
-      .filter({ hasText: "任务服务" });
+      .filter({ hasText: "研究服务" });
     await expect(location).toContainText("本机");
     await page.getByRole("button", { name: "机器管理", exact: true }).click();
     await page.getByRole("button", { name: "compute-1 在线", exact: true }).click();
     await page.getByRole("button", { name: "部署服务", exact: true }).click();
-    await page.getByLabel("新服务名称", { exact: true }).fill("task");
+    await expect(page.getByLabel("研究使用的数据服务", { exact: true })).toHaveCount(0);
+    await page.getByLabel("新服务名称", { exact: true }).fill("research");
     await page.getByLabel("服务端口", { exact: true }).fill("7550");
     await page.getByRole("button", { name: "上传并部署", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("当前运行位置未改变");
-    const service = page.getByRole("listitem", { name: "task", exact: true });
+    const service = page.getByRole("listitem", { name: "research", exact: true });
     await expect(service.getByRole("button", { name: "使用此服务" })).toBeVisible();
     expect(mutations.map(m => m.method)).toEqual(["node.deploy"]);
     await page.getByRole("button", { name: "当前运行位置", exact: true }).click();
@@ -100,7 +118,7 @@ test(
     await page.getByRole("button", { name: "机器管理", exact: true }).click();
     await service.getByRole("button", { name: "使用此服务" }).click();
     const dialog = page.getByRole("dialog", { name: "切换运行位置" });
-    await expect(dialog).toContainText("compute-1 / task");
+    await expect(dialog).toContainText("compute-1 / research");
     await expect(dialog).toContainText("已有数据和任务不会搬到目标机器");
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     expect(mutations).toHaveLength(1);
@@ -113,7 +131,7 @@ test(
     await service.getByText("管理服务", { exact: true }).click();
     await service.getByRole("button", { name: "停止", exact: true }).click();
     const stop = page.getByRole("dialog", { name: "停止服务" });
-    await expect(stop).toContainText("task");
+    await expect(stop).toContainText("research");
     await page.screenshot({ path: "apps/clients/terminal/test-results/deployment-stop.png" });
     await stop.getByRole("button", { name: "取消", exact: true }).click();
     expect(mutations.filter(m => m.method === "node.action")).toHaveLength(0);

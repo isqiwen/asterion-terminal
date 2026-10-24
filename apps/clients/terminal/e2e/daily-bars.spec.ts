@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile } from "node:fs/promises";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -97,8 +98,9 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect(row.first().getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   // The task froze the months the table named on the day it was submitted:
   // both are read from the daily table, and every day of the series settles.
-  const task = (await rpc(page.request, "runtime.snapshot")).task_service.tasks.at(-1);
-  const evidence = (await rpc(page.request, "task.result", { id: task.id })).task_result;
+  const task = (await rpc(page.request, "runtime.snapshot")).research_service.tasks.at(-1);
+  const evidence = (await taskRpc(page.request, "research", "task.result", { id: task.id }))
+    .task_result;
   expect(
     evidence.experiment.paper.contracts.map(
       (item: { dataset: { contract: { symbol: string }; source_dataset_ids: string[] } }) => [
@@ -129,12 +131,13 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (item: { id: string }) => item.id === fixedId,
         )?.state,
     )
     .toBe("succeeded");
-  const fixed = (await rpc(page.request, "task.result", { id: fixedId })).task_result;
+  const fixed = (await taskRpc(page.request, "research", "task.result", { id: fixedId }))
+    .task_result;
   expect(fixed.input_sha256).toBe(evidence.input_sha256);
   expect(fixed.experiment).toEqual(evidence.experiment);
   expect(fixed.result).toEqual(evidence.result);
@@ -148,7 +151,7 @@ test("a contract's days and a product's months backtest from the daily table", a
     settlement: 230,
   });
   await page.reload();
-  await rpc(page.request, "task.result", { id: task.id });
+  await taskRpc(page.request, "research", "task.result", { id: task.id });
   await openView(page, "backtest");
   const originalRow = workspace
     .getByRole("region", { name: "研究任务", exact: true })
@@ -163,18 +166,21 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
           (item: { id: string }) => item.id === revisedId,
         )?.state,
     )
     .toBe("succeeded");
-  const revised = (await rpc(page.request, "task.result", { id: revisedId })).task_result;
+  const revised = (await taskRpc(page.request, "research", "task.result", { id: revisedId }))
+    .task_result;
   expect(revised.input_sha256).not.toBe(evidence.input_sha256);
   expect(revised.experiment.dataset_revision).not.toBe(evidence.experiment.dataset_revision);
   expect(revised.experiment.strategies).toEqual(evidence.experiment.strategies);
   expect(revised.experiment.paper.risk).toEqual(evidence.experiment.paper.risk);
   expect(revised.result).not.toEqual(evidence.result);
-  expect((await rpc(page.request, "task.result", { id: task.id })).task_result).toEqual(evidence);
+  expect(
+    (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result,
+  ).toEqual(evidence);
   const comparison = workspace.getByRole("region", { name: "回测实验比较", exact: true });
   for (const id of [task.id, fixedId, revisedId])
     await comparison.getByLabel(id + " · " + evidence.task.instrument, { exact: true }).check();
@@ -248,12 +254,12 @@ test("a contract's days and a product's months backtest from the daily table", a
   );
 
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
-  expect((await rpc(page.request, "task.result.read", { id: task.id })).task_result).toEqual(
-    evidence,
-  );
-  expect((await rpc(page.request, "task.result.read", { id: revisedId })).task_result).toEqual(
-    revised,
-  );
+  expect(
+    (await taskRpc(page.request, "research", "task.result.read", { id: task.id })).task_result,
+  ).toEqual(evidence);
+  expect(
+    (await taskRpc(page.request, "research", "task.result.read", { id: revisedId })).task_result,
+  ).toEqual(revised);
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
   const exportPanel = workspace.getByRole("region", { name: "研究证据导出", exact: true });
   const downloadEvent = page.waitForEvent("download");
@@ -275,9 +281,9 @@ test("a contract's days and a product's months backtest from the daily table", a
   expect(document.performance).toEqual(evidence.performance);
   expect(document.trades).toEqual(evidence.trades);
   await expect(exportPanel.getByRole("status")).toContainText(`${bytes.length} bytes`);
-  expect((await rpc(page.request, "task.result.read", { id: task.id })).task_result).toEqual(
-    evidence,
-  );
+  expect(
+    (await taskRpc(page.request, "research", "task.result.read", { id: task.id })).task_result,
+  ).toEqual(evidence);
   const missing = await page.request.post("/__asterion/api", {
     data: {
       version: 1,

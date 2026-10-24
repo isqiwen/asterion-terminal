@@ -15,10 +15,11 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion read-only live market-data host"};
     app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-    std::string service, health_endpoint, directory, sdk, catalog_sdk;
+    std::string service, health_endpoint, directory, sdk, catalog_sdk, node_id;
     std::uint64_t owner_pid = 0;
     service::Transport transport;
     app.add_option("--session", service)->required();
+    app.add_option("--node-id", node_id, "Stable owning Agent node identity");
     app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
     app.add_option("--endpoint", transport.endpoint);
     app.add_option("--health-endpoint", health_endpoint);
@@ -35,6 +36,8 @@ int main(int argc, char** argv)
     try {
         asterion::initialize_process_logging("market-data", service);
         validate_id(service);
+        if (!node_id.empty())
+            validate_id(node_id);
         transport.validate();
         const auto instance = unique_process_id();
         service::install_stop_signals();
@@ -146,8 +149,14 @@ int main(int argc, char** argv)
             std::move(options),
             io_progress);
         // Listen before starting resources whose teardown may wait for a provider.
-        state = std::make_unique<market_data::Session>(
-            market_data::Session::Configuration{service, instance, directory, sdk, catalog_sdk});
+        state = std::make_unique<market_data::Session>(market_data::Session::Configuration{
+            service,
+            instance,
+            directory,
+            sdk,
+            catalog_sdk,
+            node_id
+        });
         try {
             if (!host.run())
                 std::_Exit(0);

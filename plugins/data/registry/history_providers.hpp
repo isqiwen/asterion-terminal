@@ -4,6 +4,7 @@
 #include <asterion/domain/history_tables.hpp>
 #include <memory>
 #include <functional>
+#include <filesystem>
 
 namespace asterion::history_providers {
 
@@ -34,6 +35,11 @@ struct Source
 
 std::vector<Source> sources();
 std::string artifact(const std::string& source);
+// Retain exactly the selected loaded module before admitting its authorization.
+void preserve_artifact(
+    const std::string& digest,
+    const std::filesystem::path& directory,
+    std::stop_token stop = {});
 std::vector<ConnectionCheck> verify_connection(
     const std::string& source,
     const std::string& credential,

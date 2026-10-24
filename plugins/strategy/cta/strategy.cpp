@@ -82,6 +82,14 @@ public:
         closes_.push_back(close);
     }
 
+    double approximate_mean() const
+    {
+        const auto [whole, part] = parts();
+        return static_cast<double>(
+            (static_cast<long double>(whole) + static_cast<long double>(part) / window_)
+            / 100000000.0L);
+    }
+
     // This mean against another's, both windows full. Nothing is rounded.
     std::strong_ordering compare(const WindowMean& other) const
     {
@@ -110,33 +118,84 @@ private:
     std::deque<Decimal> closes_;
 };
 
+} // namespace
+
+struct MovingAverageSignal::Impl
+{
+    Impl(std::size_t fast_window, std::size_t slow_window)
+        : fast(fast_window),
+          slow(slow_window)
+    {}
+
+    WindowMean fast, slow;
+    std::size_t seen = 0;
+    std::optional<int> direction;
+};
+
+MovingAverageSignal::MovingAverageSignal(std::size_t fast, std::size_t slow)
+{
+    if (!fast || fast >= slow || slow > 10000)
+        throw std::invalid_argument("moving average requires 0 < fast < slow <= 10000");
+    impl_ = std::make_unique<Impl>(fast, slow);
+}
+
+MovingAverageSignal::~MovingAverageSignal() = default;
+
+void MovingAverageSignal::reset()
+{
+    impl_->fast.clear();
+    impl_->slow.clear();
+    impl_->seen = 0;
+    impl_->direction.reset();
+}
+
+std::optional<int> MovingAverageSignal::push(Decimal close)
+{
+    impl_->fast.push(close);
+    impl_->slow.push(close);
+    ++impl_->seen;
+    if (!impl_->slow.full())
+        return impl_->direction = std::nullopt;
+    const auto side = impl_->fast.compare(impl_->slow);
+    return impl_->direction = side > 0 ? 1 : side < 0 ? -1 : 0;
+}
+
+MovingAverageObservation MovingAverageSignal::observation() const
+{
+    MovingAverageObservation result;
+    result.observations = impl_->seen;
+    result.direction = impl_->direction;
+    if (impl_->fast.full())
+        result.fast_mean = impl_->fast.approximate_mean();
+    if (impl_->slow.full())
+        result.slow_mean = impl_->slow.approximate_mean();
+    if (result.fast_mean && result.slow_mean)
+        result.difference = *result.fast_mean - *result.slow_mean;
+    return result;
+}
+
+namespace {
+
 class MovingAverageCross final : public Strategy
 {
 public:
     MovingAverageCross(Decimal quantity, PositionSides sides, std::size_t fast, std::size_t slow)
         : Strategy(quantity, sides),
-          fast_(fast),
-          slow_(slow)
+          signal_(fast, slow)
     {}
 
 private:
     void reset() override
     {
-        fast_.clear();
-        slow_.clear();
+        signal_.reset();
     }
 
     std::optional<int> decide(const MarketBar& bar) override
     {
-        fast_.push(bar.close);
-        slow_.push(bar.close);
-        if (!slow_.full())
-            return std::nullopt;
-        const auto side = fast_.compare(slow_);
-        return side > 0 ? 1 : side < 0 ? -1 : 0;
+        return signal_.push(bar.close);
     }
 
-    WindowMean fast_, slow_;
+    MovingAverageSignal signal_;
 };
 
 class ChannelBreakout final : public Strategy
@@ -302,6 +361,7 @@ make_strategy(const protocol::proto::Strategy& definition, const Instrument& ins
                 sides,
                 definition.reversion().window(),
                 Decimal::from_raw(definition.reversion().width().units()));
+        case protocol::proto::Strategy::kFixedWeights:
         case protocol::proto::Strategy::kCross:
             throw std::invalid_argument("a rule over several contracts runs in backtests only");
         case protocol::proto::Strategy::RULE_NOT_SET:

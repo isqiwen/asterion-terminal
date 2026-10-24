@@ -1,3 +1,6 @@
+#include "node_storage_identity.hpp"
+#include <asterion/research.pb.h>
+#include <asterion/intelligence.pb.h>
 #include "program_preparation.hpp"
 #include <asterion/protocol/health.hpp>
 #include "plugin_artifacts.hpp"
@@ -153,6 +156,7 @@ class Agent
     }
 
     const std::string instance_ = unique_process_id();
+    std::string node_id_;
     agent::BlockingWork blocking_ = [this](std::function<void()> work) {
         return prepare(std::move(work));
     };
@@ -230,39 +234,12 @@ class Agent
         });
     }
 
-    // A peer may be deployed later, but its identity is already reserved by the
-    // first member of the pair. No process needs to wait for its peer to start.
-    static void validate_binding(
-        const std::map<std::string, Service>& services,
-        const std::string& name,
-        wire::ServiceKind kind,
-        const std::string& task,
-        const std::string& data)
-    {
-        for (const auto& [other_name, other] : services) {
-            if (other_name == name)
-                continue;
-            const auto& c = other.configuration;
-            if ((kind == wire::TASK_SERVICE && data == other_name
-                    && (c.kind != wire::DATA_SERVICE || c.task_service != name))
-                || (kind == wire::DATA_SERVICE && task == other_name
-                    && (c.kind != wire::TASK_SERVICE || c.data_service != name))
-                || (c.kind == wire::TASK_SERVICE && c.data_service == name
-                    && (kind != wire::DATA_SERVICE || task != other_name))
-                || (c.kind == wire::DATA_SERVICE && c.task_service == name
-                    && (kind != wire::TASK_SERVICE || data != other_name))
-                || (kind == wire::TASK_SERVICE && c.kind == kind && c.data_service == data)
-                || (kind == wire::DATA_SERVICE && c.kind == kind && c.task_service == task))
-                throw std::invalid_argument("data and task service bindings disagree");
-        }
-    }
-
     PolledTask<void> configure_plugins(const wire::ConfigurePlugins& request)
     {
         validate_service_id(request.service_id());
         validate_artifact_digest(request.expected_revision());
         auto& current = services_.at(request.service_id());
-        if (current.configuration.kind != wire::TASK_SERVICE
+        if (current.configuration.kind != wire::RESEARCH
             && current.configuration.kind != wire::DATA_SERVICE)
             throw std::invalid_argument("service does not support managed native plugins");
         if (current.configuration.desired || (current.process && !current.process->exited()))
@@ -325,7 +302,7 @@ class Agent
             "--health-endpoint",
             result.health_endpoint
         };
-        if (configuration.kind == wire::TASK_SERVICE || configuration.kind == wire::LIVE_TRADING
+        if (configuration.kind == wire::RESEARCH || configuration.kind == wire::LIVE_TRADING
             || configuration.kind == wire::DATA_SERVICE)
             args.insert(
                 args.end(),
@@ -336,18 +313,33 @@ class Agent
                 args.end(),
                 {"--internal-endpoint",
                     utf8(sockets_ / (name + ".internal")),
-                    "--task-instance",
-                    configuration.task_service});
-        if (configuration.kind == wire::TASK_SERVICE) {
+                    "--node-id",
+                    node_id_,
+                    "--discovery-endpoint",
+                    discovery_endpoint()});
+        if ((configuration.kind == wire::DATA_SERVICE || configuration.kind == wire::RESEARCH
+                || configuration.kind == wire::INTELLIGENCE)
+            && configuration.port != 0)
+            args.insert(args.end(), {"--local-endpoint", result.endpoint});
+        if (configuration.kind == wire::INTELLIGENCE)
+            args.insert(
+                args.end(),
+                {"--node-id",
+                    node_id_,
+                    "--program-artifact",
+                    configuration.artifact,
+                    "--discovery-endpoint",
+                    discovery_endpoint()});
+        if (configuration.kind == wire::RESEARCH) {
             args.insert(
                 args.end(),
                 {"--config",
-                    utf8(root_ / "config" / "services" / name / "task.json"),
-                    "--data-instance",
-                    configuration.data_service,
-                    "--data-endpoint",
-                    utf8(sockets_ / (configuration.data_service + ".internal"))});
+                    utf8(root_ / "config" / "services" / name / "research.json"),
+                    "--discovery-endpoint",
+                    discovery_endpoint()});
         }
+        if (configuration.kind == wire::MARKET_DATA || configuration.kind == wire::LIVE_TRADING)
+            args.insert(args.end(), {"--node-id", node_id_});
         if (configuration.kind == wire::MARKET_DATA && !configuration.provider_artifact.empty()) {
             const auto source = binary(configuration.provider_artifact);
             const auto library = root_ / "services" / name
@@ -515,19 +507,19 @@ class Agent
                         name,
                         s,
                         true);
-                else if (s.configuration.kind == wire::TASK_SERVICE)
-                    co_await quiesce_service<task::proto::TaskRequest, task::proto::TaskResponse>(
+                else if (s.configuration.kind == wire::INTELLIGENCE)
+                    co_await quiesce_service<
+                        intelligence::proto::IntelligenceRequest,
+                        intelligence::proto::IntelligenceResponse>(name, s, true);
+                else if (s.configuration.kind == wire::RESEARCH)
+                    co_await quiesce_service<
+                        research::proto::ResearchRequest,
+                        task::proto::TaskResponse>(name, s, true);
+                else if (s.configuration.kind == wire::DATA_SERVICE)
+                    co_await quiesce_service<data::proto::DataRequest, data::proto::DataResponse>(
                         name,
                         s,
                         true);
-                else if (s.configuration.kind == wire::DATA_SERVICE) {
-                    const auto peer = services_.find(s.configuration.task_service);
-                    const bool task_stopped = peer == services_.end() || !peer->second.process;
-                    if (task_stopped)
-                        co_await quiesce_service<
-                            data::proto::DataRequest,
-                            data::proto::DataResponse>(name, s, true);
-                }
             } catch (const std::exception& e) {
                 upgrade_error_ = name + ": " + e.what();
             }
@@ -560,8 +552,9 @@ class Agent
             for (const auto& [name, s] : services_)
                 if ((s.configuration.desired || s.process)
                     && s.configuration.kind != wire::MARKET_DATA
-                    && s.configuration.kind != wire::TASK_SERVICE
-                    && s.configuration.kind != wire::DATA_SERVICE)
+                    && s.configuration.kind != wire::RESEARCH
+                    && s.configuration.kind != wire::DATA_SERVICE
+                    && s.configuration.kind != wire::INTELLIGENCE)
                     throw std::runtime_error(
                         "service lacks an automatic upgrade recovery boundary: " + name);
             agent::UpgradePlan next;
@@ -647,12 +640,10 @@ class Agent
             const auto observation = observation_identity(name, *service);
             const auto kind = service->configuration.kind;
             const auto endpoint = service->health_endpoint;
-            const auto peer = kind == wire::TASK_SERVICE ? service->configuration.data_service
-                                                         : service->configuration.task_service;
             HealthObservation health;
             std::string error;
             try {
-                health = co_await probe_service_health(kind, name, endpoint, peer);
+                health = co_await probe_service_health(kind, name, endpoint);
             } catch (const std::exception& e) {
                 error = e.what();
             }
@@ -700,6 +691,7 @@ class Agent
 
     struct Loaded
     {
+        std::string node_id;
         std::map<std::string, Service> services;
         std::optional<agent::UpgradePlan> upgrade;
         std::string maintenance;
@@ -711,6 +703,7 @@ class Agent
         if (!root_.is_absolute() || !fs::is_directory(root_))
             throw std::invalid_argument("agent requires an existing absolute directory");
         require_managed_path(root_);
+        loaded.node_id = agent::node_storage_identity(root_);
         const auto maintenance_file = root_ / "maintenance.json";
         require_managed_path(maintenance_file);
         if (fs::exists(maintenance_file)) {
@@ -732,13 +725,6 @@ class Agent
             plugins_.verify(s.configuration.plugin_artifacts);
             loaded.services.emplace(name, std::move(s));
         }
-        for (const auto& [name, service] : loaded.services)
-            validate_binding(
-                loaded.services,
-                name,
-                service.configuration.kind,
-                service.configuration.task_service,
-                service.configuration.data_service);
         const auto upgrade_path = root_ / "maintenance-plan.json";
         require_managed_path(upgrade_path);
         if (fs::exists(upgrade_path)) {
@@ -776,6 +762,7 @@ class Agent
                 } complete{initialization_progress_};
                 loaded = load();
             });
+            node_id_ = std::move(loaded.node_id);
             services_ = std::move(loaded.services);
             upgrade_ = std::move(loaded.upgrade);
             maintenance_ = std::move(loaded.maintenance);
@@ -911,6 +898,9 @@ class Agent
         auto* status = response.mutable_status();
         const auto platform = current_platform();
         status->set_instance_id(instance_);
+        status->set_node_id(node_id_);
+        if (local_)
+            status->set_discovery_endpoint(discovery_endpoint());
         status->set_phase(phase_);
         if (phase_ == wire::Status::RECOVERY_REQUIRED)
             *status->mutable_failure() = failure_;
@@ -940,8 +930,6 @@ class Agent
             auto* service = status->add_services();
             service->set_id(name);
             service->set_kind(s.configuration.kind);
-            service->set_task_service(s.configuration.task_service);
-            service->set_data_service(s.configuration.data_service);
             service->set_artifact(s.configuration.artifact);
             service->set_revision(revision(s.configuration));
             for (const auto& hash : s.configuration.plugin_artifacts)
@@ -989,18 +977,10 @@ class Agent
         const auto& d = r.deploy();
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
-        if (d.kind() != wire::MARKET_DATA && d.kind() != wire::TASK_SERVICE
-            && d.kind() != wire::LIVE_TRADING && d.kind() != wire::DATA_SERVICE)
+        if (d.kind() != wire::MARKET_DATA && d.kind() != wire::RESEARCH
+            && d.kind() != wire::LIVE_TRADING && d.kind() != wire::DATA_SERVICE
+            && d.kind() != wire::INTELLIGENCE)
             throw std::invalid_argument("explicit service kind required");
-        if (d.kind() == wire::DATA_SERVICE) {
-            validate_service_id(d.task_service());
-        } else if (!d.task_service().empty())
-            throw std::invalid_argument("task binding only belongs to data service");
-        if (d.kind() == wire::TASK_SERVICE) {
-            validate_service_id(d.data_service());
-        } else if (!d.data_service().empty())
-            throw std::invalid_argument("data binding only belongs to task service");
-        validate_binding(services_, d.service_id(), d.kind(), d.task_service(), d.data_service());
         if (!d.provider_artifact().empty()) {
             if (d.kind() != wire::MARKET_DATA)
                 throw std::invalid_argument("provider library only belongs to market data");
@@ -1030,8 +1010,8 @@ class Agent
         const auto folder = root_ / "services" / d.service_id();
         Service s;
         s.configuration.kind = d.kind();
-        s.configuration.task_service = d.task_service();
-        s.configuration.data_service = d.data_service();
+        if (d.kind() == wire::INTELLIGENCE && !d.plugin_artifacts().empty())
+            throw std::invalid_argument("intelligence does not load native provider plugins");
         s.configuration.plugin_artifacts.assign(
             d.plugin_artifacts().begin(),
             d.plugin_artifacts().end());
@@ -1063,15 +1043,16 @@ class Agent
             s.configuration.directory = utf8(folder / "ledger");
         }
         co_await prepare([&] {
-            if (s.configuration.kind == wire::TASK_SERVICE) {
-                const auto policy = root_ / "config" / "services" / d.service_id() / "task.json";
+            if (s.configuration.kind == wire::RESEARCH) {
+                const auto policy =
+                    root_ / "config" / "services" / d.service_id() / "research.json";
                 require_managed_path(policy);
                 if (!fs::exists(policy)) {
-                    const auto source = root_ / "config" / "task.json";
+                    const auto source = root_ / "config" / "research.json";
                     std::ifstream input(source, std::ios::binary);
                     if (!input)
                         throw std::runtime_error(
-                            "cannot read task configuration template: " + source.string());
+                            "cannot read research configuration template: " + source.string());
                     const std::string contents{std::istreambuf_iterator<char>(input), {}};
                     create_directories_durably(policy.parent_path());
                     replace_file_durably(policy, contents);
@@ -1152,7 +1133,10 @@ class Agent
     {
         const auto& a = r.action();
         validate_service_id(a.service_id());
-        auto& s = services_.at(a.service_id());
+        const auto found = services_.find(a.service_id());
+        if (found == services_.end())
+            throw Error(ErrorCode::not_found, "service is not deployed");
+        auto& s = found->second;
         if (a.kind() != wire::Action::START && a.kind() != wire::Action::STOP
             && a.kind() != wire::Action::RESTART)
             throw std::invalid_argument("unknown service action");
@@ -1171,6 +1155,36 @@ class Agent
     }
 
 public:
+    std::string discovery_endpoint() const
+    {
+        return utf8(sockets_ / "discovery.sock");
+    }
+
+    wire::Response discover(const wire::Request& request)
+    {
+        wire::Response response;
+        response.set_version(1);
+        response.set_correlation_id(request.correlation_id());
+        try {
+            protocol::validate_message(request);
+            validate_id(request.correlation_id());
+            if (request.version() != 1 || !request.has_status())
+                throw Error(ErrorCode::permission_denied, "service discovery is read only");
+            report_status(response);
+            // This socket is private to the node. A TCP deployment's public local
+            // socket is intentionally not part of its remote management view.
+            for (auto& service : *response.mutable_status()->mutable_services())
+                if (service.kind() == wire::DATA_SERVICE || service.kind() == wire::RESEARCH
+                    || service.kind() == wire::INTELLIGENCE)
+                    service.set_endpoint(service_endpoint(service.id()));
+        } catch (const std::exception& error) {
+            response.clear_status();
+            response.mutable_error()->set_code(std::string(error_name(classify(error))));
+            response.mutable_error()->set_message(error.what());
+        }
+        return response;
+    }
+
     Agent(
         fs::path root,
         ipc::TlsIdentity tls,
@@ -1258,9 +1272,13 @@ public:
         co_await PollUntil{[&] {
             return background_idle();
         }};
-        // Stop task services before their bound data services.
+        // Stop Data consumers before their source services.
         for (const auto kind :
-            {wire::TASK_SERVICE, wire::LIVE_TRADING, wire::MARKET_DATA, wire::DATA_SERVICE})
+            {wire::RESEARCH,
+                wire::INTELLIGENCE,
+                wire::LIVE_TRADING,
+                wire::MARKET_DATA,
+                wire::DATA_SERVICE})
             for (auto& [name, service] : services_)
                 if (service.configuration.kind == kind)
                     co_await stop_processes(service);
@@ -1484,6 +1502,21 @@ int main(int argc, char** argv)
                 transport.bind,
                 transport.port,
                 io_progress);
+            options.local_endpoints.push_back(
+                {agent->discovery_endpoint(),
+                    [&](const Host::Peer&, std::string frame) -> Host::Reply {
+                        wire::Request request;
+                        if (!request.ParseFromString(frame))
+                            throw std::invalid_argument("malformed discovery request");
+                        auto response = agent->discover(request).SerializeAsString();
+                        return [response = std::move(response)] {
+                            return std::optional<std::string>(response);
+                        };
+                    },
+                    4,
+                    false,
+                    65536,
+                    4 * 1024 * 1024});
             Host host(
                 transport,
                 [&](const Host::Peer& peer, std::string frame) {

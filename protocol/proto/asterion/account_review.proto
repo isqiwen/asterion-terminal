@@ -1,0 +1,42 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/resource.proto";
+import "asterion/trading.proto";
+
+message AccountReviewRequest {
+  asterion.resource.proto.Object source = 1;
+  string account_id = 2;
+  asterion.protocol.proto.TradingEnvironment environment = 3;
+}
+message AccountReviewInput {
+  asterion.resource.proto.Owner owner = 1;
+  asterion.protocol.proto.TradingFactsStatus evidence = 2;
+  string program_artifact = 3;
+}
+// A bounded descriptor, not another copy of the complete fixed observation.
+message AccountReviewExecution {
+  AccountReviewRequest request = 1;
+  asterion.resource.proto.Owner owner = 2;
+  string program_artifact = 3;
+}
+message AccountReviewResult {
+  enum Conclusion {
+    UNSPECIFIED = 0;
+    EVIDENCE_INSUFFICIENT = 1;
+  }
+  asterion.resource.proto.Object source = 1;
+  string account_id = 2;
+  asterion.protocol.proto.TradingEnvironment environment = 3;
+  string program_artifact = 4;
+  uint32 position_records = 5;
+  uint32 order_records = 6;
+  uint32 trade_records = 7;
+  uint32 unconfirmed_orders = 8;
+  bool funds_present = 9;
+  bool positions_reconciled = 10;
+  bool broker_ready = 11;
+  bool recovery_required = 12;
+  repeated string limitations = 13;
+  Conclusion conclusion = 14;
+  asterion.resource.proto.Owner owner = 15;
+}

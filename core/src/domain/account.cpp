@@ -409,7 +409,7 @@ void FuturesAccount::submit(LimitOrder request, Offset offset)
     const auto required = reserved({order, offset});
     const auto before = available();
     if (offset == Offset::open && required > before)
-        throw std::invalid_argument("insufficient available funds");
+        throw InsufficientAvailableFunds{};
     // The post-submit ledger must remain representable.
     (void)(frozen() + required);
     (void)(before - required);

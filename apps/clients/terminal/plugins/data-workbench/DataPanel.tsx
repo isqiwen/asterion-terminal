@@ -1,14 +1,16 @@
 import "./data.css";
-import { DataTaskAccess, type TerminalContext } from "../contract";
+import { WorkloadAccess, type TerminalContext } from "../contract";
 import { ArchivedDataPanel } from "./ArchivedDataPanel";
+import { MaterialAcquisition } from "./MaterialAcquisition";
+import { ObservationArchive } from "./ObservationArchive";
 import { HistoricalDownloads } from "./HistoricalDownloads";
 import { MarketTables } from "./MarketTables";
 
 export function DataPanel(context: TerminalContext) {
   return (
-    <DataTaskAccess context={context} enabled={!context.snapshot?.data}>
+    <WorkloadAccess role="data" context={context} enabled={!context.snapshot?.data}>
       {ready => <DataContent {...ready} />}
-    </DataTaskAccess>
+    </WorkloadAccess>
   );
 }
 function DataContent(context: TerminalContext) {
@@ -17,10 +19,15 @@ function DataContent(context: TerminalContext) {
     <div className="data-workbench">
       {page === "history" ? (
         <HistoricalDownloads {...context} />
+      ) : page === "materials" ? (
+        <MaterialAcquisition context={context} />
       ) : page === "tables" ? (
         <MarketTables {...context} />
       ) : (
-        <ArchivedDataPanel {...context} />
+        <>
+          <ArchivedDataPanel {...context} />
+          <ObservationArchive context={context} />
+        </>
       )}
     </div>
   );

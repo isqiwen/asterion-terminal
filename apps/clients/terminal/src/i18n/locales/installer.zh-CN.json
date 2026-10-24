@@ -91,5 +91,6 @@
   "remoteAll": "同时卸载全部远程节点（先远程，后本机；资料保留选择适用于全部节点）",
   "remotePreserveOption": "保留所选远程节点的配置与业务数据",
   "remoteConnection": "选择已有节点编辑 SSH 连接",
-  "remoteConnectionSettings": "SSH 维护连接"
+  "remoteConnectionSettings": "SSH 维护连接",
+  "remoteInspectionRequired": "升级或联合卸载前须完成远程节点检查。排除检查错误后，请点击“重新检查”；同版本本机修复不受此限制。"
 }

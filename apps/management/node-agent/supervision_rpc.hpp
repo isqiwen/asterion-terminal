@@ -20,7 +20,6 @@ struct HealthObservation
 PolledTask<HealthObservation> probe_service_health(
     node::proto::ServiceKind kind,
     const std::string& name,
-    const std::string& endpoint,
-    const std::string& peer);
+    const std::string& endpoint);
 
 } // namespace asterion::agent

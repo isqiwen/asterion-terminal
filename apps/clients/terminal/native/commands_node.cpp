@@ -58,33 +58,18 @@ void Application::Impl::register_node_commands()
         });
         co_return snapshot();
     });
-    command("node.data_tasks.local.create", [this](const json& p) -> PolledTask<Response> {
+    command("node.research.local.create", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"plugins"});
         if (!p.at("plugins").is_array())
             throw std::invalid_argument("invalid native plugin selection");
         const auto plugins = p.at("plugins").get<std::vector<std::string>>();
         const auto generation = data_task_generation;
-        auto awaited = (co_await manage<std::tuple<
-                std::shared_ptr<NodeClient>,
-                std::shared_ptr<TaskClient>,
-                std::shared_ptr<DataClient>>>(
-            [&]() -> PolledTask<std::tuple<
-                      std::shared_ptr<NodeClient>,
-                      std::shared_ptr<TaskClient>,
-                      std::shared_ptr<DataClient>>> {
-                auto node = (co_await local_node_client());
-                const auto task = (co_await PollFuture{node->local_data_tasks(plugins)});
-                const auto pair = (co_await PollFuture{node->data_task_endpoints(task.session)});
-                auto client = (co_await PollFuture{TaskClient::open(service_io, pair.task)});
-                auto data = (co_await PollFuture{DataClient::open(service_io, pair.data)});
-                co_return std::tuple{std::move(node), std::move(client), std::move(data)};
-            }));
-        auto& [node, next, next_data] = awaited;
+        const auto node = co_await local_node_client();
+        const auto address = co_await PollFuture{node->local_research(plugins)};
+        auto client = co_await PollFuture{ResearchClient::open(service_io, address)};
         if (generation != data_task_generation)
-            throw Error(
-                ErrorCode::conflict,
-                "data/task service selection changed during operation; inspect the " "original services before retrying");
-        adopt_data_tasks(std::move(next), std::move(next_data));
+            throw Error(ErrorCode::conflict, "research owner selection changed");
+        adopt_research(std::move(client));
         co_return snapshot();
     });
     command("node.initializer.export", [this](const json& p) -> PolledTask<Response> {

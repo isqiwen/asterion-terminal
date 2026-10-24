@@ -433,3 +433,28 @@
 .history-usage-scope code {
   overflow-wrap: anywhere;
 }
+
+.observation-archive {
+  min-width: 0;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.observation-archive code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.observation-archive label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px;
+}
+.observation-archive table {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.observation-archive table th,
+.observation-archive table td {
+  padding: 4px;
+  text-align: right;
+}

@@ -9,6 +9,30 @@
 
 namespace asterion {
 
+// Pure completed-close calculation, shared by CTA execution and logic trials.
+// Approximate means/difference explain the exact direction; they never choose it.
+struct MovingAverageObservation
+{
+    std::size_t observations = 0;
+    std::optional<int> direction;
+    std::optional<double> fast_mean, slow_mean, difference;
+    bool operator==(const MovingAverageObservation&) const = default;
+};
+
+class MovingAverageSignal
+{
+public:
+    MovingAverageSignal(std::size_t fast, std::size_t slow);
+    ~MovingAverageSignal();
+    void reset();
+    std::optional<int> push(Decimal close);
+    MovingAverageObservation observation() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // A trading rule applied to one contract's completed bars. It has no clock,
 // data source or execution: its host feeds the bars, valid and each on the
 // price increment of its day, and routes the targets.

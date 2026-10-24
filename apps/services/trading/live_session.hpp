@@ -42,6 +42,16 @@ public:
     execute(std::string_view account_id, std::string_view policy_revision, AccountRequest request);
     // Detached transport value constructed on the account owner; JSON belongs to Terminal.
     std::future<protocol::proto::LiveSnapshot> snapshot() const;
+
+    struct FactsOperation
+    {
+        std::future<void> completed;
+        // Read only after completed.get(); retained until the admitted operation finishes.
+        std::shared_ptr<protocol::proto::TradingFactsStatus> result;
+    };
+
+    FactsOperation capture_facts(resource::proto::Owner, std::string instance, std::string id);
+    FactsOperation inspect_facts(resource::proto::Owner, std::string id);
     bool recovery_required() const noexcept;
 
     struct Health

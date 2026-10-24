@@ -593,3 +593,19 @@
 .settings-card dd.bad {
   color: var(--danger);
 }
+
+.resource-catalogue table {
+  width: 100%;
+  table-layout: fixed;
+}
+.resource-catalogue th,
+.resource-catalogue td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.resource-catalogue code {
+  overflow-wrap: anywhere;
+}
+.resource-catalogue th:first-child {
+  width: 30%;
+}

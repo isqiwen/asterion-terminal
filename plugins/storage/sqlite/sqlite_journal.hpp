@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <stop_token>
 
 namespace asterion {
 
@@ -57,6 +58,13 @@ public:
         std::set<std::string> sidecar_directories = {},
         std::function<void(const Json&)> validate_header = {});
     ~SqliteJournal();
+    // Caller retains the stopped domain's physical file ownership through its cut.
+    // No writer pragmas, schema creation, SDK, replayed commands or persistent changes.
+    static std::vector<std::filesystem::path> inspect_backup(
+        const std::filesystem::path&,
+        const std::set<std::string>& sidecars,
+        const std::function<void(const SqliteJournal&, const Json&)>&,
+        std::stop_token = {});
     void start();
     void stop() noexcept;
     static constexpr std::size_t page_size = 64;
@@ -87,6 +95,7 @@ private:
     std::set<std::string> sidecar_directories_;
     std::function<void(const Json&)> validate_header_;
     std::unique_ptr<sqlite::Database> database_;
+    void inspect_records(std::stop_token = {});
     Archive seal() const;
     std::vector<Json> read_records(std::uint64_t first, std::size_t count) const;
     bool poisoned_ = false;

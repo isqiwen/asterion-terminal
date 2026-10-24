@@ -57,7 +57,7 @@ test("fixed archive previews incremental ranges and whole-day repair without sub
   });
   expect(after.history_datasets).toEqual(before.history_datasets);
   expect(
-    (await rpc(page.request, "runtime.snapshot")).task_service.tasks.some((task: { id: string }) =>
+    (await rpc(page.request, "runtime.snapshot")).data.tasks.some((task: { id: string }) =>
       task.id.startsWith("history-"),
     ),
   ).toBe(false);
@@ -78,7 +78,7 @@ test("reviewed closure conflicts explain blocked repair and reject submit before
     limit: 50,
   });
   const beforeTables = await rpc(page.request, "data.tables.coverage");
-  const tasks = (await rpc(page.request, "runtime.snapshot")).task_service.tasks.map(
+  const tasks = (await rpc(page.request, "runtime.snapshot")).data.tasks.map(
     (task: { id: string }) => task.id,
   );
   await page.goto("/");
@@ -142,8 +142,6 @@ test("reviewed closure conflicts explain blocked repair and reject submit before
     beforeTables.table_coverage.snapshot,
   );
   expect(
-    (await rpc(page.request, "runtime.snapshot")).task_service.tasks.map(
-      (task: { id: string }) => task.id,
-    ),
+    (await rpc(page.request, "runtime.snapshot")).data.tasks.map((task: { id: string }) => task.id),
   ).toEqual(tasks);
 });

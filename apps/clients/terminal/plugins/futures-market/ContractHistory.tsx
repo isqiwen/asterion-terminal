@@ -57,7 +57,7 @@ export function ContractHistory({
     )?.contract_id;
   const connection = snapshot?.data?.connection_id;
   const online = !!snapshot?.data?.online;
-  const publications = (snapshot?.task_service?.tasks ?? [])
+  const publications = (snapshot?.data?.tasks ?? [])
     .filter(task => task.history_dataset_id)
     .map(task => task.history_dataset_id)
     .join(",");

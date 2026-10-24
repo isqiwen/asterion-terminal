@@ -51,6 +51,12 @@ test("failed saves and remounts retain notes; explicit refresh retains draft and
     <WorkspaceDraftScope store={store} namespace="description">
       <ExperimentMetadata
         task={task}
+        owner={{
+          kind: "research",
+          node_id: snapshot.research_service!.node_id,
+          service: snapshot.research_service!.service,
+          connection_id: snapshot.research_service!.connection_id,
+        }}
         connection="service"
         busy={false}
         trade={trade}
@@ -85,12 +91,26 @@ test("failed saves and remounts retain notes; explicit refresh retains draft and
     "task.metadata.edit",
     {
       id: "derived",
+      owner: {
+        kind: "research",
+        node_id: snapshot.research_service!.node_id,
+        service: snapshot.research_service!.service,
+        connection_id: snapshot.research_service!.connection_id,
+      },
       expected_revision: 5,
       name: "my experiment",
       note: "do not lose\nsecond line",
     },
   ]);
-  expect(query).toHaveBeenCalledWith("task.metadata.read", { id: "derived" });
+  expect(query).toHaveBeenCalledWith("task.metadata.read", {
+    id: "derived",
+    owner: {
+      kind: "research",
+      node_id: snapshot.research_service!.node_id,
+      service: snapshot.research_service!.service,
+      connection_id: snapshot.research_service!.connection_id,
+    },
+  });
   expect(screen.getByText(/research-task \/ original/)).toBeTruthy();
   expect(screen.getByText(/派生数据选择.*沿用原固定快照/)).toBeTruthy();
 });

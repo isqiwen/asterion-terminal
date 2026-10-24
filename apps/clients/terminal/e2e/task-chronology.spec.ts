@@ -26,7 +26,9 @@ test("durable task order and dates survive reload independently of task IDs", as
   };
   await call("factor.submit", { ...spec, id: older });
   const submitted = await call("factor.submit", { ...spec, id: newer });
-  const metadata = submitted.task_service.tasks.find((task: { id: string }) => task.id === newer);
+  const metadata = submitted.research_service.tasks.find(
+    (task: { id: string }) => task.id === newer,
+  );
   expect(metadata.submitted_at_ms).toBeGreaterThan(0);
   for (let reload = 0; reload < 2; reload++) {
     await page.reload();
@@ -46,7 +48,7 @@ test("durable task order and dates survive reload independently of task IDs", as
   await expect
     .poll(async () => {
       const state = await call("runtime.snapshot");
-      return state.task_service.tasks.find((task: { id: string }) => task.id === newer)?.state;
+      return state.research_service.tasks.find((task: { id: string }) => task.id === newer)?.state;
     })
     .toBe("succeeded");
   await call("task.page", { before_sequence: metadata.submission_sequence });

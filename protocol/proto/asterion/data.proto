@@ -2,6 +2,12 @@ syntax = "proto3";
 package asterion.data.proto;
 import "asterion/domain.proto";
 
+// Logical source authority. Neither endpoint paths nor process generations are identity.
+message DataOwner {
+  string node_id = 1;
+  string service_id = 2;
+}
+
 // Current providers do not prove historical publication/knowable times.
 // Unspecified is invalid: absence must not imply historical availability.
 enum SourceAvailability {
@@ -213,7 +219,8 @@ message MinutePage {
 message TableRefreshTarget {
   TablePartitionKey partition = 1;
   string source = 2;
-  string previous_snapshot = 3;
+  string previous_snapshot =
+    3; // selected partition revision identity; not a full-view prefix reference
   string previous_content = 4;
   string provider_artifact = 5;
 }
@@ -542,6 +549,13 @@ message HistoryRecord {
   MinuteDownload minutes = 2;
   MinuteDownloadResult minute_result = 4;
 }
+// Data preserves this minimal evidence after explicitly retiring minute payloads.
+message HistoryRetirement {
+  HistoryRecord record = 1;
+  bool complete = 2;
+  bytes manifest = 3;
+}
+
 message HistoryFilter {
   string venue = 1;
   string product = 2;
@@ -746,6 +760,7 @@ enum HistoryReferenceKind {
   HISTORY_BACKTEST = 2;
   HISTORY_FACTOR = 3;
   HISTORY_SAVED_DATASET = 4;
+  HISTORY_SAMPLE = 5;
 }
 
 enum HistoryReferenceRole {
@@ -799,4 +814,121 @@ message HistoricalMargins {
   string phase_reference = 7;
   string basis_reference = 8;
   repeated HistoricalMarginDay days = 9;
+}
+
+// Captured by Data before a download is submitted to Task. Secrets never form
+// part of the public authorization or immutable task definition.
+message DownloadAuthorizationRequest {
+  string task_instance = 1;
+  string task_id = 2;
+  string credential = 3;
+  reserved 5;
+  oneof definition {
+    MinuteDownload minutes = 4;
+    TableUpdate table_update = 6;
+  }
+}
+message DownloadAuthorization {
+  reserved 1;
+  string id = 2;
+  string data_instance = 3;
+  string task_instance = 4;
+  string task_id = 5;
+  string provider_artifact = 6;
+  string provider_id = 7;
+  reserved 9;
+  oneof definition {
+    MinuteDownload minutes = 8;
+    TableUpdate table_update = 10;
+  }
+}
+// Private on-disk representation. Never returned through DataResponse.
+message StoredDownloadAuthorization {
+  DownloadAuthorization authorization = 1;
+  string credential = 2;
+}
+// A candidate has one task coordinator and one attempt. This identity survives
+// response loss; callers may confirm this same operation, never invent another.
+message DownloadIdentity {
+  string data_instance = 1;
+  string task_instance = 2;
+  string task_id = 3;
+  uint32 attempt = 4;
+}
+message DownloadCredentials {
+  DownloadIdentity identity = 1;
+  string authorization_id = 2;
+  string credential = 3;
+}
+message DownloadAllocation {
+  string authorization_id = 1;
+  DownloadIdentity identity = 2;
+  reserved 4;
+  oneof definition {
+    MinuteDownload minutes = 3;
+    TableUpdate table_update = 5;
+  }
+}
+message DownloadDirectory {
+  string directory = 1;
+}
+message AllocatedDownload {
+  DownloadAllocation request = 1;
+  string directory = 2;
+}
+message DownloadPreparation {
+  DownloadIdentity identity = 1;
+  HistoryRecord record = 2;
+}
+message PreparedDownload {
+  DownloadIdentity identity = 1;
+  string candidate_digest = 2;
+  string dataset_id = 3;
+}
+// The task coordinator persists this decision before requesting publication.
+message DownloadPublication {
+  DownloadIdentity identity = 1;
+  string candidate_digest = 2;
+  string publication_id = 3;
+}
+message PublishedDownload {
+  DownloadPublication decision = 1;
+  HistoryRecord record = 2;
+}
+
+// What a table update still has to read, in order. It is planned in steps,
+// each from what the step before stored: the contract lists say when an
+// exchange began, its calendar from that year on which days it was open, and
+// those days are read last.
+enum TablePlanStep {
+  TABLE_PLAN_STEP_UNSPECIFIED = 0;
+  TABLE_PLAN_CONTRACTS = 1;
+  TABLE_PLAN_CALENDAR = 2;
+  TABLE_PLAN_DAYS = 3;
+}
+
+message TablePlanQuery {
+  DownloadIdentity identity = 1;
+  TablePlanStep step = 2;
+}
+message TableUpdatePlan {
+  repeated TablePartitionKey partitions = 1;
+  repeated string waiting = 2;
+}
+// One partition as the source delivered it. The reply is the revision the
+// partition now holds, or why its rows cannot be stored; a rejection is an
+// answer about the data, not a failed request.
+message TablePartitionRows {
+  DownloadIdentity identity = 1;
+  TablePartitionKey partition = 2;
+  repeated TableRow rows = 3;
+  SourceResponse response = 4;
+}
+message TablePartitionReceipt {
+  oneof outcome {
+    TableRevision revision = 1;
+    string rejection = 2;
+  }
+  bool unchanged = 3;
+  TableRefreshObservation observation = 4;
 }

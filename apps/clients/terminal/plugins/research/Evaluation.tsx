@@ -1,3 +1,5 @@
+import { taskOwner, type TaskOwnerRef } from "../../src/bridge/client";
+import { EvaluationReports, type EvaluationSource } from "./EvaluationReports";
 import { useEffect, useRef, useState } from "react";
 import { ErrorNotice, asDisplayError, type DisplayError, type TerminalContext } from "../contract";
 import type { BacktestEvidence } from "./BacktestComparison";
@@ -7,18 +9,63 @@ import { MonthlyContributions } from "./MonthlyContributions";
 import { TradeStatistics } from "./TradeStatistics";
 import { namespace, t } from "./shared";
 
-export function Evaluation({ snapshot, query, busy, workspaceParams, navigate }: TerminalContext) {
-  const connection = snapshot?.task_service?.connection_id;
-  const sourceId = workspaceParams?.connection_id === connection ? (workspaceParams?.id ?? "") : "";
+export function Evaluation({
+  snapshot,
+  query,
+  trade,
+  busy,
+  workspaceParams,
+  navigate,
+  focus = "performance",
+}: TerminalContext & { focus?: "performance" | "risk" }) {
+  const heading = focus === "risk" ? "风险分析与资金事实" : "绩效与归因";
+  const connection = snapshot?.research_service?.connection_id;
+  const sourceId =
+    workspaceParams?.connection_id === connection &&
+    workspaceParams?.kind !== "performance_evaluation"
+      ? (workspaceParams?.id ?? "")
+      : "";
+  const destination = JSON.stringify([
+    connection,
+    snapshot?.research_service?.owner_node_id,
+    snapshot?.research_service?.service,
+  ]);
   const [id, setId] = useState(sourceId);
-  const [result, setResult] = useState<BacktestEvidence | null>(null);
+  const [readResult, setReadResult] = useState<{
+    result: BacktestEvidence;
+    owner: TaskOwnerRef;
+    businessNode: string;
+  } | null>(null);
+  const result = readResult?.result ?? null;
+  const fixedSource: EvaluationSource | null = readResult
+    ? {
+        object: {
+          node: readResult.businessNode,
+          service: readResult.owner.service,
+          domain: "research",
+          kind: "backtest_result",
+          id: readResult.result.id,
+          version: readResult.result.task.result_digest,
+        },
+        owner: readResult.owner,
+        program: readResult.result.task.program_artifact ?? "",
+        retired: Boolean(readResult.result.task.retired),
+        scopes: [
+          "full_account",
+          ...(readResult.result.experiment.holdout_day
+            ? ["development" as const, "holdout" as const]
+            : []),
+          ...(readResult.result.experiment.walk_forward ? ["out_of_sample" as const] : []),
+        ],
+      }
+    : null;
   const [error, setError] = useState<DisplayError>("");
   const [loading, setLoading] = useState(false);
   const generation = useRef(0);
   useEffect(() => {
     generation.current++;
     setId(sourceId);
-    setResult(null);
+    setReadResult(null);
     setError("");
     setLoading(false);
     return () => {
@@ -26,18 +73,20 @@ export function Evaluation({ snapshot, query, busy, workspaceParams, navigate }:
       // eslint-disable-next-line react-hooks/exhaustive-deps
       generation.current++;
     };
-  }, [connection, sourceId]);
+  }, [destination, sourceId]);
   async function read() {
     const current = ++generation.current;
     setLoading(true);
-    setResult(null);
+    setReadResult(null);
     setError("");
     try {
-      const reply = await query("task.result.read", { id });
+      const owner = taskOwner(snapshot?.research_service, "research");
+      const businessNode = snapshot?.research_service?.owner_node_id ?? "";
+      const reply = await query("task.result.read", { owner, id });
       if (current !== generation.current) return;
       if (reply.task_result?.kind !== "backtest" || reply.task_result.id !== id)
         throw new Error(t("所选任务没有回测结果"));
-      setResult(reply.task_result);
+      setReadResult({ result: reply.task_result, owner, businessNode });
     } catch (reason) {
       if (current === generation.current) setError(asDisplayError(reason));
     } finally {
@@ -45,29 +94,31 @@ export function Evaluation({ snapshot, query, busy, workspaceParams, navigate }:
     }
   }
   return (
-    <section className="evaluation-workspace" aria-label={t("绩效与归因")}>
-      <h2>{t("绩效与归因")}</h2>
+    <section className="evaluation-workspace" aria-label={t(heading)}>
+      <h2>{t(heading)}</h2>
       <p className="subtle">
         {t(
-          "当前评估读取已核验回测结果；实盘现金流调整与统一评估参数尚未实现。原始统计口径随结果展示，不作为实盘准入。",
+          focus === "risk"
+            ? "可固定原日采样损失、末日敞口资金及显式单合约静态压力；尾部估计、动态压力和完整策略归因仍未实现。"
+            : "读取固定账户事实并显式保存绩效与所选风险情景；完整归因、尾部、动态压力与独立性仍有缺项，人工解释另行明确记录。",
         )}
       </p>
-      <fieldset disabled={busy || loading || !snapshot?.task_service?.online}>
+      <fieldset disabled={busy || loading || !snapshot?.research_service?.online}>
         <label>
           {t("评估来源")}
           <select
             value={id}
             onChange={event => {
               setId(event.target.value);
-              setResult(null);
+              setReadResult(null);
               setError("");
             }}
           >
             <option value="">{t("选择已完成回测")}</option>
-            {id && !snapshot?.task_service?.tasks.some(task => task.id === id) && (
+            {id && !snapshot?.research_service?.tasks.some(task => task.id === id) && (
               <option value={id}>{id}</option>
             )}
-            {(snapshot?.task_service?.tasks ?? [])
+            {(snapshot?.research_service?.tasks ?? [])
               .filter(task => task.kind === "backtest" && task.state === "succeeded")
               .map(task => (
                 <option key={task.id} value={task.id}>
@@ -81,6 +132,14 @@ export function Evaluation({ snapshot, query, busy, workspaceParams, navigate }:
         </button>
       </fieldset>
       <ErrorNotice error={error} namespace={namespace} />
+      <EvaluationReports
+        snapshot={snapshot}
+        query={query}
+        trade={trade}
+        busy={busy}
+        workspaceParams={workspaceParams}
+        source={fixedSource}
+      />
       {result && (
         <>
           <p>
@@ -99,7 +158,7 @@ export function Evaluation({ snapshot, query, busy, workspaceParams, navigate }:
           <Figures label={t("绩效")} value={result.performance} />
           <p className="subtle">
             {t(
-              "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
+              "按原固定账户事实读取统计，不改写账本或原发布评分。年化收益使用实际观测秒数和365.2425天；波动率和夏普使用明确年期数与无风险假设，缺项分别显示原因。",
             )}
           </p>
           <MonthlyContributions months={result.performance.by_month} />

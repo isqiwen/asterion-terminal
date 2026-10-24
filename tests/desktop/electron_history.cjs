@@ -23,24 +23,27 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     assert.equal(response.error, undefined, JSON.stringify(response.error));
     return response.result;
   };
-  await call("node.data_tasks.local.open");
+  await call("node.data.local.open");
   // The daily table is seeded under the sources the installed data source
   // offers: those are the ones the Terminal's pages read.
   const offered = (await call("data.tables.coverage")).table_coverage.sources;
   const daily = offered.find(item => item.table === "futures.daily");
   const source = table =>
     offered.find(item => item.table === table && item.plugin_id === daily.plugin_id).source;
-  const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
-  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+  const stopped = await call("node.action", {
+    id: "local",
+    service: "historical-data",
+    action: "stop",
+  });
   const service = stopped.nodes
     .filter(node => node.id === "local")
     .flatMap(node => node.health?.services ?? [])
-    .find(service => service.id === "task");
+    .find(service => service.id === "historical-data");
   assert.ok(service, "isolated Agent did not report its task service");
   const root = await fs.realpath(path.join(temp, "node"));
   assert.equal(
     path.relative(root, await fs.realpath(service.directory)),
-    path.join("services", "task", "ledger"),
+    path.join("services", "historical-data", "ledger"),
   );
   assert.equal(service.state, "stopped");
   const seeded = await execFile(
@@ -68,14 +71,16 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     },
   );
   assert.match(seeded.stdout, /queued minute fixture/);
-  assert.ok((await fs.stat(path.join(service.directory, "tasks.sqlite"))).isFile());
-  await call("node.data_tasks.local.open");
+  assert.ok(
+    (await fs.stat(path.join(service.directory, "acquisition-tasks", "tasks.sqlite"))).isFile(),
+  );
+  await call("node.data.local.open");
   await expect
     .poll(
       async () => {
         const snapshot = await call("runtime.snapshot");
-        const task = snapshot.task_service?.tasks.find(task => task.id === "native-queued-minutes");
-        return task && { state: task.state, error: task.error || snapshot.task_service.error };
+        const task = snapshot.data?.tasks.find(task => task.id === "native-queued-minutes");
+        return task && { state: task.state, error: task.error || snapshot.data.error };
       },
       {
         timeout: 20000,
@@ -83,25 +88,23 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
       },
     )
     .toEqual({ state: "succeeded", error: "" });
-  const queuedTask = (await call("runtime.snapshot")).task_service.tasks.find(
+  const queuedTask = (await call("runtime.snapshot")).data.tasks.find(
     task => task.id === "native-queued-minutes",
   );
   assert.equal(queuedTask.attempt, 1);
   assert.equal(queuedTask.completed, queuedTask.total);
   assert.match(queuedTask.result_digest, /^[0-9a-f]{64}$/);
   // Read through the owning service: SQLite uses an exclusive writer lock.
-  await call("node.action", { id: "local", service: "task", action: "stop" });
-  await call("node.data_tasks.local.open");
+  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+  await call("node.data.local.open");
   await expect
-    .poll(async () =>
-      (await call("runtime.snapshot")).task_service.tasks.find(t => t.id === queuedTask.id),
-    )
+    .poll(async () => (await call("runtime.snapshot")).data.tasks.find(t => t.id === queuedTask.id))
     .toMatchObject({
       state: "succeeded",
       attempt: 1,
       result_digest: queuedTask.result_digest,
     });
-  const minuteDatasetId = (await call("runtime.snapshot")).task_service.tasks.find(
+  const minuteDatasetId = (await call("runtime.snapshot")).data.tasks.find(
     task => task.id === "native-minute-fixture",
   ).history_dataset_id;
   const pageQuery = offset => ({
@@ -156,7 +159,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(viewer.getByRole("status")).toContainText("历史数据服务未连接", { timeout: 15000 });
   await expect(viewer.locator("tbody tr")).toHaveCount(20);
   await expect(viewer.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
-  await call("node.data_tasks.local.open");
+  await call("node.data.local.open");
   await expect(viewer).toHaveCount(0, { timeout: 15000 });
   await openMinutes.click();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);

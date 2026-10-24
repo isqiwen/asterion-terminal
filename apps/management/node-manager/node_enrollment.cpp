@@ -836,7 +836,7 @@ if (root / 'install.json').exists() or (root / 'install.json').is_symlink():
 directory(root / 'state')
 if not (root / 'install.json').exists():
     directory(root / 'state' / 'config')
-    for name in ('task.json', 'logging.json'):
+    for name in ('research.json', 'logging.json'):
         target = root / 'state' / 'config' / name
         if target.exists() or target.is_symlink():
             continue
@@ -872,7 +872,7 @@ if receipt.exists():
     for (const auto* file : {"ca.crt", "server.crt", "server.key", "install.json", "install"})
         batch +=
             "put " + batch_quote(utf8(root / file)) + " " + batch_quote(stage + "/" + file) + "\n";
-    for (const auto* name : {"task.json", "logging.json"})
+    for (const auto* name : {"research.json", "logging.json"})
         batch += "put " + batch_quote(utf8(node_configuration_templates() / name)) + " "
             + batch_quote(stage + "/" + name) + "\n";
     batch += "put " + batch_quote(utf8(binary)) + " " + batch_quote(stage + "/agent") + "\n";
@@ -1102,9 +1102,10 @@ std::vector<std::string> candidate_files(const fs::path& folder, const std::stri
     std::vector<std::string> names{
         "asterion_node_agent",
         "asterion_trading",
-        "asterion_market_data",
-        "asterion_data_service",
-        "asterion_task_service",
+        "asterion_market",
+        "asterion_data",
+        "asterion_research",
+        "asterion_intelligence",
         "ctp-md.so",
         "ctp-trader.so",
         "plugins/asterion_tushare.so",
@@ -1147,13 +1148,14 @@ void upload_maintenance(
             service->set_provider(stage + "/ctp-md.so");
         if (kind == node::proto::MARKET_DATA || kind == node::proto::LIVE_TRADING)
             service->set_catalog(stage + "/ctp-trader.so");
-        if (kind == node::proto::TASK_SERVICE) {
+        if (kind == node::proto::RESEARCH) {
         }
     };
-    add(node::proto::MARKET_DATA, "asterion_market_data");
+    add(node::proto::MARKET_DATA, "asterion_market");
     add(node::proto::LIVE_TRADING, "asterion_trading");
-    add(node::proto::DATA_SERVICE, "asterion_data_service");
-    add(node::proto::TASK_SERVICE, "asterion_task_service");
+    add(node::proto::DATA_SERVICE, "asterion_data");
+    add(node::proto::RESEARCH, "asterion_research");
+    add(node::proto::INTELLIGENCE, "asterion_intelligence");
     for (const auto& file : files)
         if (file.starts_with("plugins/"))
             programs.add_bundled_plugins(stage + "/" + file);

@@ -129,10 +129,9 @@ TEST_F(PluginManagement, ConfigurationKeepsRevisionAndStoppedState)
 {
     fs::create_directory(root / "ledger");
     const Json document{
-        {"kind", static_cast<int>(node::proto::TASK_SERVICE)},
+        {"kind", static_cast<int>(node::proto::RESEARCH)},
         {"artifact", std::string(64, 'a')},
         {"provider_artifact", ""},
-        {"data_service", "data-one"},
         {"plugin_artifacts", Json::array({std::string(64, 'e')})},
         {"port", 0},
         {"desired", false},

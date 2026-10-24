@@ -1,7 +1,17 @@
 #pragma once
 #include <asterion/task.pb.h>
+#include <vector>
 
 namespace asterion::protocol {
+
+struct TaskDataReferences
+{
+    std::vector<std::string> minutes;
+    std::vector<std::string> snapshots;
+};
+
+// Fixed input identities only; no location resolution or retention decisions.
+TaskDataReferences task_data_references(const task::proto::TaskExecution&);
 
 // Called on the file worker after verifying immutable input bytes.
 task::proto::TaskExecution

@@ -27,24 +27,23 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await expect
     .poll(async () => {
       const snapshot = await rpc(page.request, "runtime.snapshot");
-      return snapshot.task_service?.tasks.find((task: TaskRecord) => task.id === "retained-factor")
-        ?.state;
+      return snapshot.research_service?.tasks.find(
+        (task: TaskRecord) => task.id === "retained-factor",
+      )?.state;
     })
     .toBe("succeeded");
   const original = await rpc(page.request, "runtime.snapshot");
   checkSnapshot("original task store", original);
-  const originalService = original.task_service!.service;
-  const originalTasks = original.task_service!.tasks;
+  const originalService = original.research_service!.service;
+  const originalTasks = original.research_service!.tasks;
   expect(originalTasks.length).toBeGreaterThan(0);
   expect(original.datasets).toHaveLength(1);
-  const reattached = await rpc(page.request, "node.data_tasks.attach", {
+  const reattached = await rpc(page.request, "node.research.attach", {
     id: "local",
     service: originalService,
   });
   expect(reattached.datasets).toEqual(original.datasets);
-  expect((await rpc(page.request, "node.data_tasks.local.open")).datasets).toEqual(
-    original.datasets,
-  );
+  expect((await rpc(page.request, "node.research.local.open")).datasets).toEqual(original.datasets);
   const name = "backtest-factor-continued";
   for (const params of [
     { id: "local", service: name, kind: "market", port: "0" },
@@ -79,7 +78,9 @@ test("a fresh local task store preserves the original tasks and requires an expl
   // after its response, within this workflow's overall deadline.
   expect((await (await deployed).json()).error).toBeUndefined();
   await expect(settings.getByRole("status")).toContainText("当前运行位置未改变");
-  expect((await rpc(page.request, "runtime.snapshot")).task_service.service).toBe(originalService);
+  expect((await rpc(page.request, "runtime.snapshot")).research_service.service).toBe(
+    originalService,
+  );
   expect((await rpc(page.request, "runtime.snapshot")).datasets).toEqual(original.datasets);
   // Keeping the original store does not require both pairs to run concurrently.
   // Release its node reservation before using the newly deployed pair.
@@ -97,7 +98,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
     // instance reports ready, without resubmitting the switch or deployment.
     await expect
       .poll(async () => {
-        const selected = (await rpc(page.request, "runtime.snapshot")).task_service;
+        const selected = (await rpc(page.request, "runtime.snapshot")).research_service;
         return selected?.online ? selected.service : null;
       })
       .toBe(service);
@@ -105,10 +106,10 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await use(name);
   const fresh = await rpc(page.request, "runtime.snapshot");
   checkSnapshot("fresh continuation store", fresh);
-  expect(fresh.task_service!.service).toBe(name);
-  expect(fresh.task_service!.tasks).toEqual([]);
+  expect(fresh.research_service!.service).toBe(name);
+  expect(fresh.research_service!.tasks).toEqual([]);
   expect(fresh.datasets).toEqual([]);
-  expect(fresh.task_service!.capacity).toEqual({
+  expect(fresh.research_service!.capacity).toEqual({
     retained_tasks: 0,
     active_used: 0,
     active_reserved: 0,
@@ -122,7 +123,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await page.getByRole("button", { name: "重试准备", exact: true }).click();
   await expect
     .poll(async () => {
-      const taskService = (await rpc(page.request, "runtime.snapshot")).task_service;
+      const taskService = (await rpc(page.request, "runtime.snapshot")).research_service;
       return taskService?.online ? taskService.service : "offline";
     })
     .toBe(name);
@@ -141,7 +142,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await use(originalService);
   const restored = await rpc(page.request, "runtime.snapshot");
   checkSnapshot("original task store remains accessible", restored);
-  expect(restored.task_service!.tasks).toEqual(originalTasks);
+  expect(restored.research_service!.tasks).toEqual(originalTasks);
   expect(restored.datasets).toEqual([]);
-  expect(restored.task_service!.capacity!.retained_tasks).toBe(originalTasks.length);
+  expect(restored.research_service!.capacity!.retained_tasks).toBe(originalTasks.length);
 });

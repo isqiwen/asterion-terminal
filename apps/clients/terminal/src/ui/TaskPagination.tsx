@@ -1,15 +1,17 @@
 import type { CommandHandler } from "../bridge/commands";
 import { useState } from "react";
-import type { Snapshot } from "../bridge/client";
+import { taskOwner, type Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 export function TaskPagination({
   taskService,
+  kind = "research",
   busy,
   trade,
 }: {
-  taskService: Snapshot["task_service"] | undefined;
+  taskService: Snapshot["research_service"] | undefined;
+  kind?: "data" | "research";
   busy: boolean;
   trade: CommandHandler;
 }) {
@@ -19,7 +21,7 @@ export function TaskPagination({
   async function page(before_sequence: number) {
     setError("");
     try {
-      await trade("task.page", { before_sequence });
+      await trade("task.page", { before_sequence, owner: taskOwner(taskService, kind) });
     } catch (reason) {
       setError(asDisplayError(reason));
     }

@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
         profile = local/'enrollments/bootstrap-test/ssh.json'
         assert 'PRIVATE KEY' not in profile.read_text() and 'private_key' not in profile.read_text()
         ledger = remote/'deployed/state/retained-ledger'; ledger.write_text('business fixture')
-        config = remote/'deployed/state/config/task.json'; config.write_text('{"task_concurrency":5}')
+        config = remote/'deployed/state/config/research.json'; config.write_text('{"task_concurrency":5}')
         (remote/'reject').touch()
         maintain('PREPARE', True)
         assert not (local/'enrollments/.maintenance.json').exists()

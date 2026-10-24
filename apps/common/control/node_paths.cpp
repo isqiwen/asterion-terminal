@@ -29,7 +29,7 @@ void install_node_configuration(const fs::path& node, const fs::path& source)
 {
     const auto destination = node / "config";
     create_directories_durably(destination);
-    for (const auto* name : {"task.json", "logging.json"}) {
+    for (const auto* name : {"research.json", "logging.json"}) {
         const auto file = destination / name;
         if (fs::exists(file) || fs::is_symlink(file))
             continue;

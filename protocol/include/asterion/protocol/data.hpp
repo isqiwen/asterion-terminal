@@ -96,6 +96,8 @@ std::string bar_dataset_revision(const data::proto::BarDataset&);
 // Validates structure, order, contract units, that every bar is on the price
 // increment of its day and falls on one of the days, and the revision.
 void validate_bar_dataset(const data::proto::BarDataset&);
+// Exact UTC presentation of an original observation, preserving all nine nanos.
+std::string format_utc_nanoseconds(std::int64_t);
 std::vector<MarketBar> dataset_bars(const data::proto::BarDataset&);
 // The days its price increment changes after the first bar's, ascending.
 std::vector<PriceIncrementChange> dataset_price_increment_changes(const data::proto::BarDataset&);

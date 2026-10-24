@@ -1,6 +1,7 @@
 import { translate, type TerminalContext } from "../contract";
 import { MarketPanel } from "./MarketPanel";
 import { LivePanel } from "./LivePanel";
+import { ObservationArchive } from "../data-workbench/ObservationArchive";
 import { MarketNavigation, useMarketSection } from "./MarketNavigation";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function Workspace(context: TerminalContext) {
@@ -28,7 +29,10 @@ export function Workspace(context: TerminalContext) {
       ) : context.marketMode === "history" ? (
         <MarketPanel context={context} />
       ) : (
-        <LivePanel context={context} />
+        <>
+          <LivePanel context={context} />
+          <ObservationArchive context={context} />
+        </>
       )}
     </div>
   );

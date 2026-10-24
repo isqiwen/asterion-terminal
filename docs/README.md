@@ -22,9 +22,11 @@
 | 任务、固定输入、结果、导出和恢复          | [任务](tasks.md)                                                                                                                                  |
 | 回测、策略与因子语义                      | [回测](backtest.md)、[策略](strategies.md)、[因子](factors.md)                                                                                    |
 | 节点部署、资源与运行管理                  | [服务](services.md)                                                                                                                               |
+| Node Manager 的职责、协议、连接与维护架构 | [Node Manager 架构设计](architecture/node-manager.md) |
 | 真实柜台验收条件                          | [CTP 仿真验收](acceptance/ctp-simulation.md)                                                                                                      |
 | 设计取舍与有基线的验收记录                | [评审索引](reviews/README.md)                                                                                                                     |
 
-模块 README 只解释该模块职责，并链接这里的完整契约；不复制状态页或阶段日志。
+进程级架构设计统一放在 `architecture/`，按进程职责命名；[总体架构](architecture.md)维护系统级边界与共同约束。
+模块 README 只解释该模块职责、标出源码入口并链接对应的完整设计；不复制设计正文、状态页或阶段日志。
 更新实现时同步生产者、消费者、测试和对应主题文档。历史失败及复验记录保留，不把新结果覆盖到旧基线。
 

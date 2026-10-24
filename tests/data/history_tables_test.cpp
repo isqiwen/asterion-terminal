@@ -544,3 +544,144 @@ TEST(RefreshObservation, ConflictingReplayAndCorruptObjectAreRejectedWithoutChan
         std::invalid_argument);
     EXPECT_EQ(store.head(), old.snapshot);
 }
+
+TEST(HistoryTableStore, ColdInspectionVerifiesHistoryWithoutWritingOrPublishing)
+{
+    Folder folder;
+    const auto root = folder.path / "tables";
+    const auto partition = table_partition(
+        daily,
+        "SHFE",
+        "2025-07-25",
+        {row("SHFE/rb/2025-10", "3356", "100", "3356000")});
+    history_files::TableRevision fixed;
+    TableStore::Object object;
+    {
+        TableStore writer(root);
+        object = writer.write(partition);
+        fixed = writer.record(partition, series, object, artifact, 1000).revision;
+    }
+    const auto before = sha256_file(root / "ledger.sqlite");
+    {
+        TableStore reader(root, TableStore::Access::read_only);
+        EXPECT_EQ(reader.head(), fixed.snapshot);
+        EXPECT_NO_THROW(reader.verify_history());
+        EXPECT_EQ(reader.rows(fixed).size(), 1U);
+        EXPECT_THROW(reader.write(partition), std::logic_error);
+        EXPECT_THROW(reader.record(partition, series, object, artifact, 2000), std::logic_error);
+        EXPECT_THROW(
+            reader.record_refresh_observation({}, fixed, {}, 2000, true),
+            std::logic_error);
+    }
+    EXPECT_EQ(sha256_file(root / "ledger.sqlite"), before);
+    EXPECT_FALSE(
+        std::filesystem::exists(root / "objects" / ("incoming-" + partition.content + ".parquet")));
+    const auto absent = folder.path / "never-created";
+    EXPECT_THROW(TableStore missing(absent, TableStore::Access::read_only), std::invalid_argument);
+    EXPECT_FALSE(std::filesystem::exists(absent));
+    {
+        sqlite::Database database(root / "ledger.sqlite");
+        sqlite::Database::Statement corrupt(
+            database,
+            "UPDATE table_revisions SET snapshot=? WHERE sequence=1");
+        corrupt.bind(1, std::string(64, 'b')).step();
+    }
+    TableStore corrupted(root, TableStore::Access::read_only);
+    EXPECT_THROW(corrupted.verify_history(), std::invalid_argument);
+}
+
+TEST(TableRetirement, SharedPrefixesKeepObjectsAndInterruptedCleanupResumesFromEvidence)
+{
+    Folder folder;
+    TableStore::Retirement decision;
+    std::string first, middle, head, object;
+    const auto a =
+        table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "100", "1", "1")});
+    const auto b =
+        table_partition(daily, "SHFE", "2025-07-28", {row("SHFE/rb/2025-10", "200", "1", "1")});
+    const auto c =
+        table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "300", "1", "1")});
+    {
+        TableStore store(folder.path);
+        const auto old = store.write(a);
+        object = old.sha256;
+        first = store.record(a, series, old, artifact, 1000).revision.snapshot;
+        const auto second = store.write(b);
+        middle = store.record(b, series, second, artifact, 2000).revision.snapshot;
+        head = store.record(c, series, store.write(c), artifact, 3000).revision.snapshot;
+        EXPECT_THROW(store.preview_retirement(head), Error);
+        const auto shared = store.preview_retirement(first);
+        EXPECT_TRUE(shared.objects.empty());
+        store.begin_retirement(shared);
+        store.clean_retirement(first);
+        store.finish_retirement(first);
+        EXPECT_FALSE(store.sequence(first));
+        EXPECT_TRUE(
+            std::filesystem::exists(
+                folder.path / "objects" / object.substr(0, 2) / (object + ".parquet")));
+        decision = store.preview_retirement(middle);
+        ASSERT_EQ(decision.objects, std::vector<std::string>{object});
+        store.begin_retirement(decision);
+        EXPECT_THROW(store.revisions(series, "SHFE", "2025-07-25", "2025-07-28", 2), Error);
+        EXPECT_THROW(store.write(a), Error);
+        std::stop_source stop;
+        stop.request_stop();
+        EXPECT_THROW(store.clean_retirement(middle, stop.get_token()), Error);
+        EXPECT_FALSE(store.retirement(middle)->complete);
+    }
+    TableStore restored(folder.path);
+    EXPECT_FALSE(restored.sequence(middle));
+    EXPECT_EQ(restored.head(), head);
+    EXPECT_EQ(restored.retirement(middle)->objects, decision.objects);
+    restored.clean_retirement(middle);
+    restored.finish_retirement(middle);
+    EXPECT_TRUE(restored.retirement(middle)->complete);
+    EXPECT_EQ(restored.retirement_bytes(decision), 0U);
+    EXPECT_FALSE(
+        std::filesystem::exists(
+            folder.path / "objects" / object.substr(0, 2) / (object + ".parquet")));
+    EXPECT_NO_THROW(restored.verify_history());
+    EXPECT_EQ(restored.revisions(series, "SHFE", "2025-07-25", "2025-07-28", 3).size(), 2U);
+    // Same bytes can be a new, explicitly published revision after completed cleanup.
+    const auto again = restored.record(a, series, restored.write(a), artifact, 4000).revision;
+    EXPECT_EQ(again.object, object);
+    EXPECT_NE(again.snapshot, first);
+    EXPECT_NO_THROW(restored.verify_history());
+    EXPECT_FALSE(restored.sequence(first));
+}
+
+TEST(TableRetirement, MissingAuthorityOrUnknownPayloadDoesNotPermitCleanup)
+{
+    Folder folder;
+    std::string first, object;
+    {
+        TableStore store(folder.path);
+        const auto a =
+            table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "100", "1", "1")});
+        const auto b =
+            table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "200", "1", "1")});
+        const auto file = store.write(a);
+        object = file.sha256;
+        first = store.record(a, series, file, artifact, 1000).revision.snapshot;
+        store.record(b, series, store.write(b), artifact, 2000);
+        const auto path = folder.path / "objects" / object.substr(0, 2) / (object + ".parquet");
+        const auto saved = folder.path / "isolated-original.parquet";
+        std::filesystem::rename(path, saved);
+        EXPECT_THROW(store.preview_retirement(first), std::invalid_argument);
+        EXPECT_FALSE(store.retirement(first));
+        std::filesystem::rename(saved, path);
+        store.begin_retirement(store.preview_retirement(first));
+    }
+    std::filesystem::rename(
+        folder.path / "retirements.sqlite",
+        folder.path / "preserved-retirements.sqlite");
+    EXPECT_THROW(TableStore unavailable(folder.path), std::runtime_error);
+    EXPECT_TRUE(
+        std::filesystem::exists(
+            folder.path / "objects" / object.substr(0, 2) / (object + ".parquet")));
+    std::filesystem::rename(
+        folder.path / "preserved-retirements.sqlite",
+        folder.path / "retirements.sqlite");
+    std::filesystem::rename(folder.path / "retirements.required", folder.path / "preserved-guard");
+    EXPECT_THROW(TableStore unavailable(folder.path), std::runtime_error);
+}

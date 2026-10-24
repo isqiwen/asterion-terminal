@@ -6,7 +6,7 @@ import type { TerminalContext, TerminalPlugin } from "../../plugins/contract";
 
 const plugin: TerminalPlugin = {
   id: "test.panel",
-  commands: ["node.data_tasks.local.open"],
+  commands: ["node.research.local.open"],
   workspaces: [
     {
       id: "test.workspace",
@@ -35,7 +35,7 @@ test("plugins can only invoke the commands they declare", async () => {
   } as unknown as TerminalContext;
   const [registered] = registerTerminalPlugins([plugin]);
   const scoped = scopedContext(registered, base);
-  await scoped.trade("node.data_tasks.local.open");
+  await scoped.trade("node.research.local.open");
   await expect(scoped.trade("live.open", { account: "test" })).rejects.toThrow("live.open");
   await expect(
     scoped.query("data.minutes.page", {
@@ -48,7 +48,7 @@ test("plugins can only invoke the commands they declare", async () => {
     }),
   ).rejects.toThrow("data.minutes.page");
   expect("inspect" in scoped).toBe(false);
-  expect(calls).toEqual(["node.data_tasks.local.open"]);
+  expect(calls).toEqual(["node.research.local.open"]);
   expect(Object.isFrozen(registered.commands)).toBe(true);
 });
 

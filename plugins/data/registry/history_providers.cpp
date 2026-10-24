@@ -1,4 +1,5 @@
 #include "history_providers.hpp"
+#include "provider_programs.hpp"
 #include "response_evidence.hpp"
 #include "margins.hpp"
 #include <asterion/plugin/history_response.h>
@@ -10,6 +11,10 @@
 #include <asterion/foundation/error.hpp>
 #include <cstring>
 #include <set>
+#include <fstream>
+#include <asterion/kernel/durable_file.hpp>
+#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/kernel/process/child.hpp>
 #include <stdexcept>
 
 namespace asterion::history_providers {
@@ -689,6 +694,30 @@ std::vector<TableSource> table_sources()
 std::string table_artifact(const std::string& plugin_id)
 {
     return table_provider(plugin_id).library.sha256();
+}
+
+void preserve_artifact(
+    const std::string& digest,
+    const std::filesystem::path& directory,
+    std::stop_token stop)
+{
+    provider_programs::preserve(
+        digest,
+        directory,
+        [&] {
+            const NativeLibrary* selected = nullptr;
+            for (const auto& installed : registry())
+                if (installed.library.sha256() == digest)
+                    selected = &installed.library;
+            if (!selected)
+                for (const auto& installed : table_registry())
+                    if (installed.library.sha256() == digest)
+                        selected = &installed.library;
+            if (!selected)
+                throw Error(ErrorCode::unavailable, "selected provider program is unavailable");
+            return selected->path();
+        },
+        stop);
 }
 
 void validate_response(

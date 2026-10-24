@@ -24,11 +24,10 @@ async function fixture(
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (!data.result.task_service || !data.result.data)
-      return route.fulfill({ response, json: data });
+    if (!data.result.data || !data.result.data) return route.fulfill({ response, json: data });
     data.result.data.connection_id = state.connection;
-    data.result.task_service = {
-      ...data.result.task_service!,
+    data.result.data = {
+      ...data.result.data!,
       connection_id: state.connection,
       online: true,
       remote: false,

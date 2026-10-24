@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { rpc, seedHistory } from "./dataset-fixture";
@@ -56,14 +57,15 @@ test("F06 daily holding spans preserve precision and keep open positions separat
       },
     ],
   });
-  const tasks = async () => (await rpc(page.request, "runtime.snapshot")).task_service.tasks;
+  const tasks = async () => (await rpc(page.request, "runtime.snapshot")).research_service.tasks;
   await expect
     .poll(
       async () => (await tasks()).find((t: { id: string }) => t.id === "holding-baseline")?.state,
     )
     .toBe("succeeded");
-  const original = (await rpc(page.request, "task.result.read", { id: "holding-baseline" }))
-    .task_result;
+  const original = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "holding-baseline" })
+  ).task_result;
   expect(original.result.fill_days.length).toBe(original.result.account.fills.length);
   expect(original.trades.closed[0].holding).toEqual({
     opened_day: "2026-09-10",
@@ -95,8 +97,9 @@ test("F06 daily holding spans preserve precision and keep open positions separat
     "2026-09-23",
   );
   await expect(stats).toContainText("不代表持有0分钟");
-  const again = (await rpc(page.request, "task.result.read", { id: "holding-baseline" }))
-    .task_result;
+  const again = (
+    await taskRpc(page.request, "research", "task.result.read", { id: "holding-baseline" })
+  ).task_result;
   expect(again).toEqual(original);
   expect((await tasks()).map((t: { id: string }) => t.id)).toEqual(ids);
 });

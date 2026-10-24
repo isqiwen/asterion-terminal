@@ -1,0 +1,127 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/domain.proto";
+import "asterion/resource.proto";
+
+message LogicDefinition {
+  enum Input {
+    INPUT_UNSPECIFIED = 0;
+    COMPLETED_CLOSE = 1;
+  }
+
+  enum Output {
+    OUTPUT_UNSPECIFIED = 0;
+    TARGET_SIGN = 1;
+  }
+
+  string id = 1;
+  asterion.resource.proto.Owner owner = 2;
+  string name = 3;
+  string purpose = 4;
+  uint32 fast = 5;
+  uint32 slow = 6;
+  Input input = 7;
+  Output output = 8; // -1/0/+1, zero is flat target; warmup is absent output.
+  string digest = 9;
+  int64 recorded_at_ms = 10;
+  string retirement_reason = 11;
+}
+message LogicRegister {
+  string id = 1;
+  string name = 2;
+  string purpose = 3;
+  uint32 fast = 4;
+  uint32 slow = 5;
+  LogicDefinition.Input input = 6;
+  LogicDefinition.Output output = 7;
+}
+// Fictional complete-close examples never enter Data or market provenance.
+message LogicObservation {
+  int64 closed_at_ns = 1;
+  int64 available_at_ns = 2;
+  asterion.protocol.proto.Decimal close = 3;
+  oneof expected {
+    bool warmup = 4;
+    sint32 target_sign = 5;
+  }
+}
+message LogicExample {
+  string id = 1;
+  asterion.resource.proto.Owner owner = 2;
+  asterion.resource.proto.Object definition = 3;
+  string name = 4;
+  string use_scope = 5;
+  bool fictional = 6;
+  repeated LogicObservation observations = 7;
+  string digest = 8;
+  int64 recorded_at_ms = 9;
+}
+message LogicExampleSave {
+  string id = 1;
+  asterion.resource.proto.Object definition = 2;
+  string name = 3;
+  string use_scope = 4;
+  bool fictional = 5;
+  repeated LogicObservation observations = 6;
+}
+message LogicRetire {
+  asterion.resource.proto.Object definition = 1;
+  string reason = 2;
+}
+message LogicMutation {
+  string id = 1;
+  oneof operation {
+    LogicRegister registration = 2;
+    LogicExampleSave example = 3;
+    LogicRetire retire = 4;
+  }
+}
+message LogicLookup {
+  string id = 1;
+}
+message LogicList {
+  string after = 1;
+  uint32 limit = 2;
+  string definition_id = 3;
+}
+message LogicRequest {
+  oneof operation {
+    LogicMutation mutation = 1;
+    LogicLookup get = 2;
+    LogicList list = 3;
+    LogicLookup example = 4;
+    LogicList examples = 5;
+  }
+}
+message LogicReply {
+  LogicDefinition definition = 1;
+  repeated LogicDefinition definitions = 2;
+  LogicExample example = 3;
+  repeated LogicExample examples = 4;
+  string next_after = 5;
+}
+message LogicTrialRequest {
+  asterion.resource.proto.Object example = 1;
+}
+message LogicTrialInput {
+  asterion.resource.proto.Owner owner = 1;
+  LogicDefinition definition = 2;
+  LogicExample example = 3;
+}
+message LogicTrialRow {
+  uint32 index = 1;
+  oneof actual {
+    bool warmup = 2;
+    sint32 target_sign = 3;
+  }
+  optional double fast_mean = 4; // Approximate explanation, never direction authority.
+  optional double slow_mean = 5;
+  optional double difference = 6;
+  bool matches = 7;
+}
+message LogicTrialResult {
+  repeated LogicTrialRow rows = 1;
+  uint32 matched = 2;
+  uint32 decisions = 3;
+  bool all_match = 4; // A completed calculation may have incorrect expectations.
+}

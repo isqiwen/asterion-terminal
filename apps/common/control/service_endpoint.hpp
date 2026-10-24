@@ -9,6 +9,7 @@ struct ServiceEndpoint
     std::uint16_t port;
     ipc::TlsIdentity tls;
     std::string endpoint{};
+    std::string node_id{"local"}, owner_node_id{};
 };
 
 inline bool same_service_endpoint(const ServiceEndpoint& a, const ServiceEndpoint& b)

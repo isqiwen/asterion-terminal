@@ -186,6 +186,9 @@ export type LiveSession = {
   error_code: number;
   trading_day: string;
   synchronized_ms: number;
+  broker_sequence: string;
+  connection_generation: string;
+  positions_reconciled: boolean;
   funds: null | {
     balance: string;
     available: string;
@@ -326,9 +329,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "live" | "market" | "task" | "data";
-      task_service: string;
-      data_service: string;
+      kind: "live" | "market" | "research" | "data" | "intelligence";
       plugin_artifacts: string[];
       id: string;
       artifact: string;
@@ -463,7 +464,22 @@ export type FactorMembershipReason =
   | "MEMBERSHIP_UNKNOWN_OPEN_INTEREST"
   | "MEMBERSHIP_BELOW_VOLUME"
   | "MEMBERSHIP_BELOW_OPEN_INTEREST";
+export type FactorObservation = {
+  feature_state?:
+    "FEATURE_VALUE" | "FEATURE_WARMUP" | "FEATURE_ZERO_DENOMINATOR" | "FEATURE_NON_FINITE";
+  role: "full_sample" | "development" | "holdout";
+  label_crosses_boundary: boolean;
+  event_index: number;
+  observed: string;
+  value: number | null;
+  forward_return: number | null;
+  label_end_index: number | null;
+  label: string | null;
+  evaluation_warmup: boolean;
+  included: boolean;
+};
 export type FactorResult = {
+  observations?: FactorObservation[]; // Present only when explicitly retained in this run.
   memberships: { series_index: number; trading_day: string; reason: FactorMembershipReason }[];
   dataset_revision: string;
   lookback: number;
@@ -479,6 +495,7 @@ export type FactorResult = {
     validation_end: number;
     lookback: number;
     candidates: FactorResult["candidates"];
+    observations?: FactorObservation[];
     development: FactorResult["partitions"][number];
     holdout: FactorResult["partitions"][number];
   }[];
@@ -594,18 +611,556 @@ export type ExperimentMetadata = {
   source_id: string;
   source_instance: string;
   source_result_digest: string;
+  batch?: ResourceObject;
   data_choice: string;
   snapshot: string;
 };
+export type LogicExpectation = { state: "warmup" } | { state: "target_sign"; value: -1 | 0 | 1 };
+export type LogicObservation = {
+  closed_at_ns: string;
+  available_at_ns: string;
+  close: string;
+  expected: LogicExpectation;
+};
+export type LogicDefinition = {
+  object: ResourceObject;
+  name: string;
+  purpose: string;
+  fast: number;
+  slow: number;
+  input: "completed_close";
+  output: "target_sign";
+  recorded_at_ms: string;
+  retirement_reason: string;
+};
+export type LogicExample = {
+  object: ResourceObject;
+  definition: ResourceObject;
+  name: string;
+  use_scope: string;
+  fictional: true;
+  observations: LogicObservation[];
+  recorded_at_ms: string;
+};
+export type LogicTrialInput = { definition: LogicDefinition; example: LogicExample };
+export type LogicTrialResult = {
+  rows: {
+    index: number;
+    actual: LogicExpectation;
+    fast_mean: number | null;
+    slow_mean: number | null;
+    difference: number | null;
+    matches: boolean;
+  }[];
+  matched: number;
+  decisions: number;
+  all_match: boolean;
+  fictional: true;
+};
+export type ResearchBatchDraft = {
+  id: string;
+  name: string;
+  purpose: string;
+  limitations: string;
+  source: ResourceObject;
+  members: { task_id: string; slippage_ticks: number; fee_multiplier?: string }[];
+  run_budget: number;
+  time_budget_seconds: number;
+};
+export type ResearchBatchState = {
+  definition: Omit<ResearchBatchDraft, "id"> & {
+    object: ResourceObject;
+    owner: ResearchProjectOwner;
+    source_input_sha256: string;
+    program_artifact: string;
+    risk_artifact: string;
+    data_owner: { node_id: string; service_id: string };
+    work_units_per_run: string;
+    recorded_at_ms: number;
+  };
+  phase: "saved" | "running" | "stopping" | "stopped" | "completed" | "interrupted";
+  started_at_ms: number | null;
+  stopped_at_ms: number | null;
+  elapsed_ms: string | null;
+  reason: string;
+  members: {
+    task_id: string;
+    admission: "waiting" | "pending" | "admitted" | "rejected";
+    input_sha256: string | null;
+    error: { code: string; message: string } | null;
+  }[];
+};
+export type ResearchBatchAssessmentTask = {
+  id: string;
+  state: TaskRecord["state"];
+  attempt: number;
+  retired: boolean;
+  error: string;
+  input_sha256: string;
+  result_sha256: string | null;
+  program_artifact: string;
+  risk_artifact: string;
+  account: {
+    currency: string;
+    first_day: string;
+    last_day: string;
+    settlement_days: number;
+    deposit: string;
+    closing_equity: string;
+    fees: string;
+    net_profit: string;
+  } | null;
+};
+export type ResearchBatchAssessmentSnapshot = {
+  batch: ResearchBatchState;
+  source: ResearchBatchAssessmentTask;
+  members: ResearchBatchAssessmentTask[];
+};
+export type ResearchBatchAssessmentDeclaration = {
+  id: string;
+  batch: ResourceObject;
+  expected_snapshot: string;
+  question: string;
+  scope: string;
+  judgment: "supported" | "refuted" | "insufficient";
+  reason: string;
+  selected_task_id: string;
+  selection_reason: string;
+  unselected_reason: string;
+  validation_information_used: boolean;
+  information_use: string;
+  previous_id: string;
+  revision_reason: string;
+};
+export type ResearchBatchAssessment = {
+  object: ResourceObject;
+  declaration: ResearchBatchAssessmentDeclaration;
+  snapshot: ResearchBatchAssessmentSnapshot;
+  owner: ResearchProjectOwner;
+  program_artifact: string;
+  recorded_at_ms: string;
+};
+export type ResearchBatchAssessmentReply = {
+  preview: ResearchBatchAssessmentSnapshot | null;
+  preview_digest: string;
+  assessment: ResearchBatchAssessment | null;
+  assessments: ResearchBatchAssessment[];
+  next_after: string;
+};
+export type ResearchBatchReply = {
+  state?: ResearchBatchState;
+  states: ResearchBatchState[];
+  next_after: string;
+  members: TaskRecord[];
+};
+export type ResearchLogicReply = {
+  definition?: LogicDefinition;
+  example?: LogicExample;
+  definitions?: LogicDefinition[];
+  examples?: LogicExample[];
+  next_after?: string;
+};
+export type ResearchStrategyUse = {
+  package: ResourceObject;
+  delivery: ResourceObject;
+  request_sha256?: string;
+};
+type ResearchStrategyPackageDefinition = {
+  object: ResourceObject;
+  name: string;
+  purpose: string;
+  limitations: string;
+  definition: {
+    interval_minutes: number;
+    program_artifact: string;
+    risk_artifact: string;
+  } & (
+    | {
+        contract: FuturesContract;
+        strategy: Exclude<StrategyDefinition, FixedWeightStrategyDefinition>;
+        model_replay?: never;
+        portfolio?: never;
+      }
+    | {
+        contract: FuturesContract;
+        model_replay: ModelReplayDefinition;
+        strategy?: never;
+        portfolio?: never;
+      }
+    | {
+        portfolio: { contracts: FuturesContract[]; strategy: FixedWeightStrategyDefinition };
+        contract?: never;
+        strategy?: never;
+        model_replay?: never;
+      }
+  );
+
+  source_input_sha256: string;
+  source_attempt: number;
+  recorded_at_ms: string;
+  retirement_reason: string;
+};
+export type ResearchStrategyPackage = ResearchStrategyPackageDefinition &
+  (
+    | { evidence_relation: "reference_only"; reference_result: ResourceObject; logic?: null }
+    | {
+        evidence_relation: "logic_trial";
+        definition: ResearchStrategyPackageDefinition["definition"] & {
+          contract: FuturesContract;
+          strategy: Exclude<StrategyDefinition, FixedWeightStrategyDefinition>;
+          model_replay?: never;
+          portfolio?: never;
+        };
+        reference_result: null;
+        logic: { definition: LogicDefinition; example: ResourceObject; result: ResourceObject };
+      }
+  );
+export type ReferenceStrategyPackage = Extract<
+  ResearchStrategyPackage,
+  { evidence_relation: "reference_only" }
+>;
+export type PortfolioStrategyPackage = ReferenceStrategyPackage & {
+  definition: Extract<ResearchStrategyPackageDefinition["definition"], { portfolio: unknown }>;
+};
+export function isPortfolioStrategyPackage(
+  value: ResearchStrategyPackage,
+): value is PortfolioStrategyPackage {
+  return value.evidence_relation === "reference_only" && Boolean(value.definition.portfolio);
+}
+export type LogicStrategyPackage = Extract<
+  ResearchStrategyPackage,
+  { evidence_relation: "logic_trial" }
+>;
+type ResearchStrategyDeliveryDefinition = {
+  object: ResourceObject;
+  package: ResourceObject;
+
+  target_task_id: string;
+  source_input_sha256: string;
+  recorded_at_ms: string;
+};
+export type ResearchStrategyDelivery = ResearchStrategyDeliveryDefinition &
+  (
+    | { reference_result: ResourceObject; logic_trial?: null }
+    | { reference_result: null; logic_trial: ResourceObject }
+  );
+export type ReferenceStrategyDelivery = Extract<
+  ResearchStrategyDelivery,
+  { reference_result: ResourceObject }
+>;
+export type LogicStrategyDelivery = Extract<ResearchStrategyDelivery, { reference_result: null }>;
+export type ResearchStrategyReply = {
+  package?: ResearchStrategyPackage;
+  delivery?: ResearchStrategyDelivery;
+  packages: ResearchStrategyPackage[];
+  deliveries: ResearchStrategyDelivery[];
+  next_after: string;
+  target_accepted?: boolean;
+};
+export type ResearchModelSpecification = {
+  name: string;
+  purpose: string;
+  limitations: string;
+  source: ResourceObject | null;
+  method: "linear" | "ridge" | "unspecified";
+  fit_intercept: boolean | null;
+  alpha: string | null;
+  training_begin: number;
+  training_end: number;
+  standardize: boolean;
+  weights: "equal" | "unspecified";
+  run_budget: number;
+  time_budget_seconds: number;
+  valid_until_ms: number;
+  mode: "post_hoc_diagnostic" | "unspecified";
+};
+export type ResearchModelDraft = {
+  object: ResourceObject;
+  specification: ResearchModelSpecification;
+  updated_at_ms: number;
+};
+export type ResearchModelPlan = {
+  object: ResourceObject;
+  draft_id: string;
+  draft_digest: string;
+  specification: ResearchModelSpecification;
+  program_artifact: string;
+  recorded_at_ms: number;
+  training_samples: number;
+  source: {
+    result: ResourceObject;
+    input_sha256: string;
+    input_bytes: number;
+    attempt: number;
+    program_artifact: string;
+    observations: number;
+    holdout_start: number;
+    horizon: number;
+    required_history: number;
+    lookback: number;
+    price_power: number;
+    factor: FactorKind | "variable";
+    variable_definition: ResourceObject | null;
+    historical_availability_unknown: boolean;
+  };
+};
+export type ResearchModelMappingSpecification = {
+  name: string;
+  purpose: string;
+  model: ResourceObject;
+  short_threshold: string;
+  long_threshold: string;
+  middle: "no_new_direction";
+  valid_until_ms: number;
+};
+export type ResearchModelMapping = {
+  object: ResourceObject;
+  specification: ResearchModelMappingSpecification;
+  plan: ResourceObject;
+  mode: "post_hoc_diagnostic";
+  recorded_at_ms: number;
+  model_published_at_ms: number;
+  folds: ResearchModelTimeFold[];
+  source: Pick<
+    ResearchModelPlan["source"],
+    "result" | "input_sha256" | "price_power" | "horizon" | "historical_availability_unknown"
+  >;
+};
+export type ResearchModelMappingProjection = {
+  mapping: ResearchModelMapping;
+  total: number;
+  begin: number;
+  next_begin: number | null;
+  observed_at_ms: number;
+  scope: "post_hoc_diagnostic";
+  rows: ((
+    | (Omit<ResearchModelTrainingResult["rows"][number], "event_index"> & { index: number })
+    | {
+        index: number;
+        fold_index: number;
+        role: "development_validation";
+        exclusion: ResearchModelTimeResult["folds"][number]["predictions"][number]["exclusion"];
+        prediction: number | null;
+      }
+  ) & {
+    intent:
+      | "long_direction"
+      | "short_direction"
+      | "no_new_direction"
+      | "prediction_unavailable"
+      | "expired";
+  })[];
+};
+export type ResearchModelTimeFold = {
+  training_begin: number;
+  training_end: number;
+  validation_begin: number;
+  validation_end: number;
+};
+export type ResearchModelTimeSpecification = {
+  name: string;
+  purpose: string;
+  limitations: string;
+  recipe: ResourceObject;
+  folds: ResearchModelTimeFold[];
+  run_budget: number;
+  time_budget_seconds: number;
+  valid_until_ms: number;
+};
+export type ResearchModelTimePlan = {
+  object: ResourceObject;
+  specification: ResearchModelTimeSpecification;
+  recipe: ResearchModelPlan;
+  training_counts: number[];
+  boundaries: { event_index: number; trading_day: string; timestamp_ns: string | null }[];
+  recorded_at_ms: number;
+  mode: "post_hoc_diagnostic";
+};
+export type ResearchModelTimeResult = {
+  plan: ResourceObject;
+  computed_at_ms: number;
+  scope: "development_validation";
+  historical_availability_unknown: true;
+  folds: {
+    scope: ResearchModelTimeFold;
+    training_members: number[];
+    intercept: number;
+    coefficient: number;
+    training_residual_sum_squares: number;
+    regularization: number;
+    training_objective: number;
+    standardization: ResearchModelTrainingResult["standardization"];
+    evaluated: number;
+    validation_residual_sum_squares: number;
+    validation_mean_squared_error: number | null;
+    predictions: {
+      event_index: number;
+      prediction: number | null;
+      exclusion:
+        | "included"
+        | "warmup"
+        | "feature_unavailable"
+        | "label_unavailable"
+        | "crossed_label"
+        | "non_finite_prediction";
+    }[];
+  }[];
+};
+export type ResearchModelReply = {
+  draft?: ResearchModelDraft;
+  plan?: ResearchModelPlan;
+  mapping?: ResearchModelMapping;
+  time_plan?: ResearchModelTimePlan;
+  time_plans: ResearchModelTimePlan[];
+  projection?: ResearchModelMappingProjection;
+  mappings: ResearchModelMapping[];
+  drafts: ResearchModelDraft[];
+  plans: ResearchModelPlan[];
+  next_after: string;
+};
+export type ResearchModelTrainingResult = {
+  plan: ResourceObject;
+  training_samples: number;
+  intercept: number;
+  coefficient: number;
+  residual_sum_squares: number;
+  regularization: number;
+  objective: number;
+  fitted_at_ms: number;
+  standardization: {
+    training_samples: number;
+    mean: number;
+    sample_standard_deviation: number;
+  } | null;
+  rows: {
+    event_index: number;
+    role: "training" | "other_development" | "holdout";
+    reason:
+      "fitted" | "not_training" | "warmup" | "missing_feature" | "missing_label" | "crossed_label";
+    prediction_state: "predicted" | "feature_unavailable" | "non_finite_prediction";
+    prediction: number | null;
+  }[];
+};
+export type ResearchVariableDefinition = {
+  object: ResourceObject;
+  name: string;
+  purpose: string;
+  expression: string;
+  window: number;
+  price_power: number;
+  required_history: number;
+  recorded_at_ms: string;
+};
+export type ResearchVariablePreview = {
+  valid: boolean;
+  price_power: number;
+  required_history: number;
+  diagnostic: string;
+  error_offset: number | null;
+};
+export type ResearchVariableReply = {
+  definition?: ResearchVariableDefinition;
+  definitions: ResearchVariableDefinition[];
+  next_after: string;
+  preview?: ResearchVariablePreview;
+};
+export type ResearchProjectDefinition = {
+  title: string;
+  question: string;
+  hypothesis: string;
+  mechanism: string;
+  scope: string;
+  data_needs: string;
+  evaluation: string;
+  support: string;
+  refutation: string;
+  limitations: string;
+  notes: string;
+  sources: string[];
+};
+export type ResearchProjectOwner = { domain: "research"; node_id: string; service_id: string };
+export type ResearchPlanBinding = {
+  project_id: string;
+  plan_id: string;
+  definition_digest: string;
+  owner: ResearchProjectOwner;
+};
+export type ResearchProjectDraft = {
+  id: string;
+  owner: ResearchProjectOwner;
+  definition: ResearchProjectDefinition;
+  digest: string;
+  updated_at_ms: string;
+};
+export type ResearchHypothesisPlan = {
+  id: string;
+  project_id: string;
+  owner: ResearchProjectOwner;
+  definition: ResearchProjectDefinition;
+  definition_digest: string;
+  recorded_at_ms: string;
+  parent_plan_id: string;
+  revision_reason: string;
+  exploratory: boolean;
+};
+export type ResearchConclusionWrite = {
+  id: string;
+  plan: ResearchPlanBinding;
+  result: ResourceObject;
+  judgment: "supported" | "refuted" | "insufficient";
+  reason: string;
+  previous_id: string;
+  revision_reason: string;
+};
+export type ResearchProjectConclusion = {
+  declaration: ResearchConclusionWrite;
+  input_sha256: string;
+  program_artifact: string;
+  retrospective: boolean;
+  recorded_at_ms: string;
+  digest: string;
+};
+export type ResearchProjectReply = {
+  conclusion?: ResearchProjectConclusion;
+  conclusions: ResearchProjectConclusion[];
+  draft?: ResearchProjectDraft;
+  plan?: ResearchHypothesisPlan;
+  drafts: ResearchProjectDraft[];
+  plans: ResearchHypothesisPlan[];
+  next_after: string;
+};
+export type ResearchProjectTasks = { tasks: TaskRecord[]; next_before_sequence: number };
 export type TaskRecord = {
+  model_plan?: ResourceObject;
+  model_time_plan?: ResourceObject;
+  strategy_use?: ResearchStrategyUse;
+  variable_definition?: ResourceObject;
+  research_plan?: ResearchPlanBinding;
+  retired?: boolean; // Lifecycle is separate from the execution outcome.
   error_code?: string; // absent when the task has no structured failure observation
   table_refresh?: TableRefreshTarget;
   metadata?: ExperimentMetadata;
   provider_artifact?: string;
   risk_artifact?: string;
+  program_artifact?: string;
   data_source?: string;
   history_dataset_id?: string;
-  kind: "backtest" | "factor" | "minute_download" | "table_update";
+  kind:
+    | "backtest"
+    | "factor"
+    | "minute_download"
+    | "table_update"
+    | "account_review"
+    | "notice_review"
+    | "event_set_review"
+    | "statistics"
+    | "performance_evaluation"
+    | "sample"
+    | "logic_trial"
+    | "model_training"
+    | "model_time_validation"
+    | "material_acquisition";
+  material_request?: MaterialRequest;
   id: string;
   state:
     | "queued"
@@ -811,7 +1366,135 @@ export type HistoricalMargins = {
   }[];
 };
 export type SettlementMargin = { trading_day: string; rate: string; source: string };
+export type ModelReplayDefinition = {
+  mapping: ResearchModelMapping;
+  training: { plan: ResearchModelTimePlan };
+  model_attempt: number;
+  fold_index: number;
+  quantity: string;
+  sides: PositionSides;
+  processing_delay_bars: number;
+  time_budget_seconds: number;
+  availability: "assume_original_bar_close";
+  historical_availability_unknown: true;
+  scope: "post_hoc_conditional";
+};
+export type ModelReplaySelection = Pick<
+  ModelReplayDefinition,
+  | "fold_index"
+  | "quantity"
+  | "sides"
+  | "processing_delay_bars"
+  | "time_budget_seconds"
+  | "availability"
+> & { mapping: ResourceObject };
+export type ModelReplayResult = {
+  fit: {
+    training_members: number[];
+    intercept: number;
+    coefficient: number;
+    training_residual_sum_squares: number;
+    regularization: number;
+    training_objective: number;
+    standardization: ResearchModelTrainingResult["standardization"];
+    started_index: number;
+    ready_index: number;
+    started_boundary_ns: string;
+    ready_boundary_ns: string;
+    actual_started_at_ms: number;
+    actual_fitted_at_ms: number;
+    actual_duration_ns: number;
+  };
+  decisions: {
+    source_index: number;
+    boundary_ns: string;
+    phase:
+      | "before_training"
+      | "model_pending"
+      | "outside_validation"
+      | "feature_unavailable"
+      | "non_finite_prediction"
+      | "expired"
+      | "mapped";
+    feature: number | null;
+    prediction: number | null;
+    intent:
+      | "long_direction"
+      | "short_direction"
+      | "no_new_direction"
+      | "prediction_unavailable"
+      | "expired";
+    target: string | null;
+    intent_id: string;
+    disposition: "no_new_target" | "next_bar" | "outside_replay";
+  }[];
+  fills: {
+    fill_id: string;
+    source_index: number;
+    boundary_ns: string;
+    decision_source_index: number;
+    intent_id: string;
+  }[];
+  historical_availability_unknown: true;
+  scope: "post_hoc_conditional";
+};
+export type PortfolioTargetDecision = {
+  boundary_ns: string;
+  trading_day: string;
+  has_next_bar: boolean;
+  equity: string;
+  gross_weight: string;
+  net_weight: string;
+  gross_limit: string;
+  net_limit: string;
+  requested_gross_notional: string;
+  requested_net_notional: string;
+  allocated_gross_notional: string;
+  allocated_net_notional: string;
+  unallocated_nominal_budget: string;
+  members: {
+    venue: string;
+    symbol: string;
+    source_index: number;
+    intent_id: string;
+    weight: string;
+    price: string;
+    multiplier: string;
+    requested_notional: string;
+    quantity: string;
+    allocated_notional: string;
+    nominal_remainder: string;
+    observation: {
+      positions: BacktestAccount["positions"];
+      working_orders: BacktestAccount["orders"];
+    };
+  }[];
+};
 export type BacktestResult = {
+  portfolio_targets?: PortfolioTargetDecision[];
+  portfolio_orders?: {
+    order_id: string;
+    intent_id: string;
+    decision_source_index: number;
+    source_index: number;
+    boundary_ns: string;
+  }[];
+  portfolio_fills?: {
+    fill_id: string;
+    intent_id: string;
+    decision_source_index: number;
+    source_index: number;
+    boundary_ns: string;
+  }[];
+  model_replay?: ModelReplayResult;
+  model_validation?: { total_return: number; max_drawdown: number; sharpe: number | null };
+  target_rejections?: {
+    intent_id: string;
+    source_index: number;
+    boundary_ns: string;
+    reason: "order_quantity" | "gross_quantity" | "working_orders" | "insufficient_funds";
+    target: string;
+  }[];
   fill_days?: { fill_id: string; trading_day: string }[];
   dataset_revision: string;
   // With several strategies: what the days before the holdout showed of each,
@@ -822,6 +1505,11 @@ export type BacktestResult = {
   // of every strategy, and the one followed from `first_day`, if any.
   folds: {
     first_day: string;
+    last_day: string;
+    training_first_day: string;
+    training_last_day: string;
+    training_days: number;
+    validation_days: number;
     candidates: { total_return: number; max_drawdown: number; sharpe: number | null }[];
     selected: number | null;
   }[];
@@ -862,7 +1550,13 @@ export type ExperimentData = {
   source: string;
   source_dataset_ids: string[];
 };
+export type PerformanceAssumptions = {
+  annual_periods: number | null;
+  risk_free: "unconfigured" | "explicit_zero";
+};
 export type BacktestExperiment = {
+  performance_assumptions?: PerformanceAssumptions;
+  model_replay?: ModelReplayDefinition;
   historical_margins?: HistoricalMargins;
   settlement_margins?: SettlementMargin[];
   dataset_revision: string;
@@ -931,8 +1625,10 @@ export type FactorSeriesEvidence =
 // the deviation of a window's returns.
 export type FactorKind = "momentum" | "term_structure" | "volatility";
 export type FactorExperiment = {
+  variable_definition?: ResearchVariableDefinition;
+  retain_observations?: boolean;
   liquidity: FactorLiquidityRule | null;
-  factor: FactorKind;
+  factor: FactorKind | "expression";
   dataset_revision: string;
   series: FactorSeriesEvidence[];
   lookbacks: number[];
@@ -946,7 +1642,18 @@ export type FactorExperiment = {
 export type PositionSides = "both" | "long" | "short";
 // What a strategy trades by: a rule over completed bars, the lots it holds
 // while the rule takes a side, and the sides it may hold.
+export type FixedWeightStrategyDefinition = {
+  sides: "both";
+  rule: {
+    kind: "fixed_weights";
+    rebalance: number;
+    gross_weight_limit: string;
+    net_weight_limit: string;
+    members: { venue: string; symbol: string; weight: string }[];
+  };
+};
 export type StrategyDefinition =
+  | FixedWeightStrategyDefinition
   | {
       quantity: string;
       sides: PositionSides;
@@ -1026,8 +1733,281 @@ export type BacktestTrades = {
 };
 // How a backtest's result performed, from its day-end equity. The drawdown is
 // a share of the peak it fell from. Yearly figures are scaled by the calendar
-// time the days span and are null with fewer than 20 trading days.
+// actual observation seconds; other annualized metrics require explicit period/risk-free assumptions.
+export type PerformanceUnavailable =
+  | "source_time_not_recorded"
+  | "non_positive_observation_duration"
+  | "fewer_than_two_complete_returns"
+  | "non_positive_equity_path"
+  | "annual_periods_not_configured"
+  | "risk_free_not_configured"
+  | "constant_returns"
+  | "no_drawdown"
+  | "non_finite_statistic";
+export type PerformanceCalculation = {
+  begin_ns: string | null;
+  end_ns: string | null;
+  calendar_year_days: number;
+  annual_periods: number | null;
+  risk_free_annual: 0 | null;
+  frequency: "daily_settlement";
+  opening_return_included: boolean;
+  return_periods: number;
+  short_calendar_span: boolean;
+  derived_on_read: true;
+  unavailable: Record<
+    "annual_return" | "annual_volatility" | "sharpe" | "calmar",
+    PerformanceUnavailable | null
+  >;
+};
+export type EvaluationScope = "full_account" | "development" | "holdout" | "out_of_sample";
+export type EvaluationStressScenario = {
+  purpose: string;
+  price: string;
+  margin_rate: string;
+  funds_model: "paper_balance_equity_minimum";
+};
+export type EvaluationRequest = {
+  include_ledger?: boolean;
+  include_contributions?: boolean;
+  static_stress: EvaluationStressScenario | null;
+  include_daily_drawdown: boolean;
+  include_exposure: boolean;
+  source: ResourceObject;
+  question: string;
+  scope: EvaluationScope;
+  method: PerformanceAssumptions;
+};
+export type EvaluationInput = {
+  request: EvaluationRequest;
+  source: {
+    input_sha256: string;
+    input_bytes: string;
+    attempt: number;
+    program_artifact: string;
+    settlements: number;
+    first_settlement: number;
+    end_settlement: number;
+  };
+};
+export type EvaluationMetricState =
+  | "AVAILABLE"
+  | "SOURCE_TIME_NOT_RECORDED"
+  | "NON_POSITIVE_OBSERVATION_DURATION"
+  | "FEWER_THAN_TWO_COMPLETE_RETURNS"
+  | "NON_POSITIVE_EQUITY_PATH"
+  | "ANNUAL_PERIODS_NOT_CONFIGURED"
+  | "RISK_FREE_NOT_CONFIGURED"
+  | "CONSTANT_RETURNS"
+  | "NO_DRAWDOWN"
+  | "NON_FINITE_STATISTIC"
+  | "FEWER_THAN_TWO_OBSERVATIONS"
+  | "GROSS_NOT_RECORDED"
+  | "MARGIN_NOT_RECORDED"
+  | "ZERO_GROSS_NOTIONAL";
+export type EvaluationMetric = { state: EvaluationMetricState; value: number | null };
+export type EvaluationLimitation =
+  | "CASH_FLOWS_NOT_EVALUATED"
+  | "BENCHMARK_NOT_EVALUATED"
+  | "RISK_AND_STRESS_NOT_EVALUATED"
+  | "INDEPENDENCE_NOT_ESTABLISHED"
+  | "HISTORICAL_AVAILABILITY_NOT_VERIFIED"
+  | "HUMAN_CONCLUSION_NOT_RECORDED"
+  | "RISK_AND_STRESS_INCOMPLETE";
+export type EvaluationDailyDrawdown = {
+  points: {
+    source_index: number;
+    trading_day: string;
+    timestamp_ns: string | null;
+    equity: string;
+    peak_source_index: number;
+    peak_equity: string;
+    loss: string;
+    fraction: EvaluationMetric;
+  }[];
+  episodes: {
+    peak_source_index: number;
+    trough_source_index: number;
+    recovery_source_index: number | null;
+    observed_end_source_index: number;
+    peak_to_trough_intervals: number;
+    peak_to_recovery_intervals: number | null;
+    observed_intervals: number;
+  }[];
+  max_loss: string;
+  max_loss_source_index: number;
+  max_fraction: EvaluationMetric;
+  max_fraction_source_index: number | null;
+};
+export type EvaluationExposure = {
+  source_index: number;
+  trading_day: string;
+  timestamp_ns: string | null;
+  balance: string;
+  funds: { margin: string; available: string; frozen: string } | null;
+  positions: {
+    source_contract_index: number;
+    venue: string;
+    symbol: string;
+    product: string;
+    delivery_month: string;
+    price: string;
+    multiplier: string;
+    quantity_increment: string;
+    net_quantity: string;
+    gross_quantity: string | null;
+    margin: string | null;
+    long_quantity: string | null;
+    short_quantity: string | null;
+    net_notional: string;
+    gross_notional: string | null;
+    net_to_equity: EvaluationMetric;
+    gross_to_equity: EvaluationMetric;
+    margin_to_equity: EvaluationMetric;
+    covered_gross_share: EvaluationMetric;
+  }[];
+  covered_net_notional: string;
+  covered_gross_notional: string | null;
+  net_to_equity: EvaluationMetric;
+  gross_to_equity: EvaluationMetric;
+  margin_to_equity: EvaluationMetric;
+};
+export type EvaluationLedgerCheck = {
+  metric:
+    | "settlement"
+    | "position"
+    | "fees"
+    | "balance"
+    | "equity"
+    | "realized"
+    | "unrealized"
+    | "frozen"
+    | "margin"
+    | "available";
+  expected: string;
+  recorded: string;
+  residual: string;
+};
+export type EvaluationLedger = {
+  venue: string;
+  symbol: string;
+  multiplier: string;
+  deposit: string;
+  gross: string;
+  fees: string;
+  explained_net: string;
+  recorded_net: string;
+  residual: string;
+  closing_net_quantity: string;
+  closing_gross_quantity: string;
+  reconciled: boolean;
+  days: {
+    source_index: number;
+    trading_day: string;
+    timestamp_ns: string;
+    opening_quantity: string;
+    quantity_change: string;
+    closing_quantity: string;
+    opening_balance: string;
+    gross: string;
+    fees: string;
+    expected_balance: string;
+    recorded_balance: string;
+    recorded_equity: string;
+    cumulative_residual: string;
+    fills: {
+      id: string;
+      order_id: string;
+      buy: boolean;
+      quantity: string;
+      price: string;
+      fee: string;
+    }[];
+    checks: EvaluationLedgerCheck[];
+  }[];
+  final_checks: EvaluationLedgerCheck[];
+};
+export type EvaluationContributions = {
+  deposit: string;
+  gross: string;
+  fees: string;
+  explained_net: string;
+  recorded_net: string;
+  residual: string;
+  reconciled: boolean;
+  contracts: {
+    venue: string;
+    symbol: string;
+    multiplier: string;
+    gross: string;
+    fees: string;
+    net: string;
+    final_position: EvaluationLedgerCheck;
+    days: {
+      source_index: number;
+      trading_day: string;
+      timestamp_ns: string;
+      settlement: string;
+      opening_quantity: string;
+      quantity_change: string;
+      closing_quantity: string;
+      gross: string;
+      fees: string;
+      fills: EvaluationLedger["days"][number]["fills"];
+      checks: EvaluationLedgerCheck[];
+    }[];
+  }[];
+  days: {
+    source_index: number;
+    trading_day: string;
+    timestamp_ns: string;
+    gross: string;
+    fees: string;
+    expected_balance: string;
+    recorded_balance: string;
+    recorded_equity: string;
+    cumulative_residual: string;
+    checks: EvaluationLedgerCheck[];
+  }[];
+  final_checks: EvaluationLedgerCheck[];
+};
+export type EvaluationResult = {
+  ledger?: EvaluationLedger;
+  contributions?: EvaluationContributions;
+  static_stress: {
+    mark_change: string;
+    equity: string;
+    margin: string;
+    available: string;
+    gap: string;
+  } | null;
+  exposure: EvaluationExposure | null;
+  daily_drawdown: EvaluationDailyDrawdown | null;
+  first_day: string;
+  last_day: string;
+  begin_ns: string;
+  end_ns: string;
+  opening_equity: string;
+  closing_equity: string;
+  fees: string;
+  net_profit: string;
+  currency: string;
+  trading_days: number;
+  complete_return_periods: number;
+  opening_is_full_period: boolean;
+  short_calendar_span: boolean;
+  calendar_year_days: number;
+  total_return: EvaluationMetric;
+  max_drawdown: EvaluationMetric;
+  winning_days: EvaluationMetric;
+  annual_return: EvaluationMetric;
+  annual_volatility: EvaluationMetric;
+  sharpe: EvaluationMetric;
+  calmar: EvaluationMetric;
+  limitations: EvaluationLimitation[];
+};
 export type PerformanceFigures = {
+  calculation?: PerformanceCalculation;
   trading_days: number;
   total_return: number;
   max_drawdown: number;
@@ -1063,7 +2043,262 @@ export type BacktestPerformance = PerformanceFigures & {
   development: PerformanceFigures | null;
   holdout: PerformanceFigures | null;
 };
+export type AccountReviewResult = {
+  owner: { node: string; service: string; domain: "research" };
+  source: TradingFacts["reference"];
+  account_id: string;
+  environment: "real" | "simulation";
+  program_artifact: string;
+  conclusion: "evidence_insufficient";
+  position_records: number;
+  order_records: number;
+  trade_records: number;
+  unconfirmed_orders: number;
+  funds_present: boolean;
+  positions_reconciled: boolean;
+  broker_ready: boolean;
+  recovery_required: boolean;
+  limitations: string[];
+};
+export type NoticeEvidenceResult = {
+  owner: AccountReviewResult["owner"];
+  source: NoticeObject;
+  content: ResourceObject;
+  program_artifact: string;
+  as_of_ms: string;
+  use_scope: string;
+  contract: string;
+  effective_day: string;
+  margin_ratio: string;
+  planned: boolean;
+  source_published_at_ms: string | null;
+  acquired_at_ms: string;
+  processed_at_ms: string;
+  verified_at_ms: string;
+  stored_at_ms: string;
+  available_at_ms: string;
+  published_by_cutoff: boolean;
+  strict_history_eligible: boolean;
+  limitations: string[];
+};
+export type EventSetReviewEvidence = {
+  owner: AccountReviewResult["owner"];
+  source: NoticeObject;
+  content: ResourceObject;
+  program_artifact: string;
+  name: string;
+  as_of_ms: string;
+  use_scope: string;
+  use_mode: "post_hoc" | "strict_history";
+  assembled_at_ms: string;
+  events: NoticeObject[];
+  members: {
+    event: NoticeEventView;
+    evidence: Extract<TaskResult, { kind: "notice_review" }>["experiment"];
+    limitations: NoticeSetReason[];
+  }[];
+  exclusions: { event: NoticeObject; reasons: NoticeSetReason[] }[];
+};
+export type ResearchSampleEvaluation =
+  { mode: "full_sample" } | { mode: "holdout"; split_index: number };
+export type ResearchSampleInput = {
+  owner: { node_id: string; service_id: string; domain: "research" };
+  data_owner: { node_id: string; service_id: string };
+  request: {
+    selection: Pick<DatasetSelection, "source_dataset_ids" | "daily" | "begin_day" | "end_day"> & {
+      contract: string;
+    };
+    use_scope: string;
+    mode: "post_hoc";
+    evaluation: ResearchSampleEvaluation;
+  };
+  dataset: DatasetEvidence;
+  historical_availability: "unknown";
+  complete_history: "unproven";
+};
+export type ResearchSampleResult = {
+  owner: ResearchSampleInput["owner"];
+  dataset_revision: string;
+  price_power: 1;
+  historical_availability: "unknown";
+  complete_history: "unproven";
+  rows: {
+    event_index: number;
+    observed: string;
+    observed_ns: string;
+    trading_day: string;
+    role: "full_sample" | "development" | "holdout";
+    value: string | null;
+  }[];
+};
+export type StatisticsRequest = {
+  source: ResourceObject;
+  use_scope: string;
+  column: "feature" | "forward_return" | "raw_close";
+  role: "full_sample" | "development";
+  begin_index: number;
+  end_index: number;
+  bins: number;
+  grouping?: "none" | "trading_day";
+};
+export type StatisticValue = {
+  state: "DEFINED" | "NO_VALID_SAMPLES" | "INSUFFICIENT_SAMPLES" | "NON_FINITE";
+  value: number | null;
+};
+export type StatisticsReason =
+  | "VALID"
+  | "WARMUP"
+  | "ZERO_DENOMINATOR"
+  | "NON_FINITE"
+  | "UNKNOWN_LABEL"
+  | "CROSSED_LABEL"
+  | "OTHER_ROLE";
+export type StatisticsSummary = {
+  total: number;
+  allowed: number;
+  valid: number;
+  missing: number;
+  mean: StatisticValue;
+  standard_deviation: StatisticValue;
+  minimum: StatisticValue;
+  q25: StatisticValue;
+  median: StatisticValue;
+  q75: StatisticValue;
+  maximum: StatisticValue;
+};
+export type StatisticsGroup = {
+  trading_day: string;
+  summary: StatisticsSummary;
+  reasons: { reason: StatisticsReason; count: number }[];
+  bin_counts: number[];
+};
+export type StatisticsResult = {
+  owner: { node_id: string; service_id: string; domain: "research" };
+  source: ResourceObject;
+  price_power: number;
+  summary: StatisticsSummary;
+  groups: StatisticsGroup[];
+  reasons: { reason: StatisticsReason; count: number }[];
+  bins: { lower: number; upper: number; count: number }[];
+  rows: {
+    event_index: number;
+    observed: string;
+    trading_day: string;
+    value: number | null;
+    reason: StatisticsReason;
+    bin: number | null;
+  }[];
+};
+export type StatisticsInput = {
+  owner: { node_id: string; service_id: string; domain: "research" };
+  request: StatisticsRequest;
+  source: {
+    result: ResourceObject;
+    input_sha256: string;
+    input_bytes: string;
+    attempt: number;
+    program_artifact: string;
+    observations: number;
+    price_power: number;
+    required_history: number;
+    horizon: number;
+    evaluation: { mode: "full_sample" } | { mode: "holdout"; split_index: number };
+  };
+};
 export type TaskResult =
+  | {
+      id: string;
+      kind: "model_time_validation";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: { plan: ResearchModelTimePlan };
+      result: ResearchModelTimeResult;
+    }
+  | {
+      id: string;
+      kind: "model_training";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: { plan: ResearchModelPlan };
+      result: ResearchModelTrainingResult;
+    }
+  | {
+      id: string;
+      kind: "logic_trial";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: LogicTrialInput;
+      result: LogicTrialResult;
+    }
+  | {
+      id: string;
+      kind: "sample";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: ResearchSampleInput;
+      result: ResearchSampleResult;
+    }
+  | {
+      id: string;
+      kind: "performance_evaluation";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: EvaluationInput;
+      result: EvaluationResult;
+    }
+  | {
+      id: string;
+      kind: "statistics";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: StatisticsInput;
+      result: StatisticsResult;
+    }
+  | {
+      id: string;
+      kind: "event_set_review";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: EventSetReviewEvidence;
+      result: EventSetReviewEvidence & { reports: NoticeEvidenceResult[] };
+    }
+  | {
+      id: string;
+      kind: "notice_review";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: {
+        owner: AccountReviewResult["owner"];
+        source: NoticeObject;
+        content: ResourceObject;
+        as_of_ms: string;
+        use_scope: string;
+        contract: string;
+        material: ResourceObject;
+        verification_program: string;
+        program_artifact: string;
+      };
+      result: NoticeEvidenceResult;
+    }
+  | {
+      id: string;
+      kind: "material_acquisition";
+      task: TaskRecord;
+      experiment: MaterialRequest;
+      result: MaterialReceipt;
+    }
+  | {
+      id: string;
+      kind: "account_review";
+      input_sha256: string;
+      task: TaskRecord;
+      experiment: {
+        owner: AccountReviewResult["owner"];
+        program_artifact: string;
+        evidence: TradingFactsStatus;
+      };
+      result: AccountReviewResult;
+    }
   | {
       id: string;
       kind: "backtest";
@@ -1363,24 +2598,42 @@ export type SavedNamedDataset = {
   > & { contract: string })[];
 };
 export type HistoryReference = {
-  kind: "download" | "backtest" | "factor" | "saved_dataset";
+  kind: "download" | "backtest" | "factor" | "saved_dataset" | "sample";
   id: string;
   name: string;
   roles: ("market" | "output")[];
 };
+export type MinuteRetirement = {
+  id: string;
+  payload_bytes: string | null;
+  state: "available" | "blocked" | "pending" | "removed";
+  selected?: boolean;
+  references: HistoryReference[];
+  consumers: {
+    node: string;
+    service: string;
+    domain: string;
+    kind: string;
+    id: string;
+    version: string;
+    phase: "prepared" | "confirmed";
+  }[];
+};
+export type TableRetirement = MinuteRetirement & {
+  preview_digest: string;
+  sequence: string;
+  current_head: boolean;
+  acquisitions: string[];
+  objects: string[];
+};
+export type TableRetirementEntry = Pick<TableRetirement, "id" | "sequence" | "state">;
+export type MinuteRetirements = { items: MinuteRetirement[]; next_after: string };
 export type HistoryUsage = {
   dataset_id: string;
   references: HistoryReference[];
   selected_roles: "market"[];
-  disconnected_nodes: { names: string[]; error?: string };
-  other_data_services: {
-    node: string;
-    service: string;
-    checked: boolean;
-    stopped?: boolean;
-    references: HistoryReference[];
-    error?: string;
-  }[];
+  consumers: MinuteRetirement["consumers"];
+  state: MinuteRetirement["state"];
 };
 export type HistoryUpdateQuery = {
   dataset_id: string;
@@ -1475,7 +2728,423 @@ export type NativePluginInfo = {
   state: "available" | "invalid";
   error: string;
 };
+export type BackupReport = {
+  manifest: {
+    backup_id: string;
+    owners: { node: string; service: string; domain: string }[];
+    scopes?: { owner: number; key: string; value: string }[];
+    files: { owner: number; path: string; bytes: number; format: string; sha256: string }[];
+    dependencies: {
+      included: boolean;
+      object?: {
+        owner: { node: string; service: string; domain: string };
+        kind: string;
+        id: string;
+        version: string;
+      };
+    }[];
+    limitations: { owner: number; reason: string }[];
+    exclusions: { owner: number; category: string }[];
+  };
+  partial: boolean;
+  payload_bytes?: number;
+  available_bytes?: number;
+  preview_digest?: string;
+  saved?: boolean;
+  restored?: boolean;
+};
+export type ResearchRetirement = {
+  id: string;
+  node: string;
+  service: string;
+  version: string;
+  state: "available" | "blocked" | "retired";
+  active: boolean;
+  admission_busy: boolean;
+  consumers: string[];
+  task: TaskRecord;
+  source_release_confirmed: boolean;
+  release_error: { code: string; message: string } | null;
+};
+export type ResourceObject = {
+  node: string;
+  service: string;
+  domain: "data" | "research" | "intelligence";
+  kind: string;
+  id: string;
+  version: string;
+};
+export type ResourceEntry = {
+  object: ResourceObject;
+  state: "registered" | "sealed" | "retired";
+  name: string;
+  logical_bytes: string | null;
+  relative_location: string;
+};
+export type ResourceCatalogue = {
+  owner: Pick<ResourceObject, "node" | "service" | "domain">;
+  kind: string;
+  items: ResourceEntry[];
+  next_after: string;
+};
+export type ResourceInspection = {
+  object: ResourceObject;
+  maintenance: {
+    state: string;
+    active?: boolean;
+    current_head?: boolean;
+    selected?: boolean;
+    admission_busy?: boolean;
+    acquisitions?: string[];
+    references?: HistoryReference[];
+    consumers: (string | { node: string; service: string; id: string })[];
+    source_release_confirmed?: boolean;
+  };
+};
+export type MarketObservation = {
+  reference: Omit<ResourceObject, "domain"> & { domain: "market" };
+  instance: string;
+  captured_at_ms: string;
+  stream_id: string;
+  applied_sequence: string;
+  source_phase: string;
+  minutes: Omit<IntradaySeries, "service" | "instance_id">;
+  aggregate_only: true;
+  complete_history: false;
+};
+export type ObservationArchive = {
+  id: string;
+  admitted_at_ms: string;
+  published_at_ms?: string;
+  source: MarketObservation["reference"];
+  state: "admitted" | "published";
+  archive?: ResourceObject;
+  capture?: MarketObservation;
+};
+export type TradingFacts = {
+  reference: Omit<ResourceObject, "domain"> & { domain: "trading" };
+  account_id: string;
+  environment: "real" | "simulation";
+  instance: string;
+  captured_at_ms: string;
+  broker_sequence: string;
+  connection_generation: string;
+  synchronized_ms: string;
+  phase: LiveSession["phase"];
+  error_code: number;
+  trading_day: string;
+  positions_reconciled: boolean;
+  recovery_required: boolean;
+  policy_revision: string;
+  risk_artifact: string;
+  complete_history: false;
+  atomic_ledger_cut: false;
+  missing_evidence: string[];
+  funds: LiveSession["funds"];
+  positions: LiveSession["positions"];
+  orders: LiveSession["orders"];
+  trades: LiveSession["trades"];
+  unconfirmed: LiveSession["unconfirmed"];
+};
+export type TradingFactsStatus = {
+  id: string;
+  reference: TradingFacts["reference"];
+  state: "admitted" | "published";
+  admitted_at_ms: string;
+  published_at_ms?: string;
+  capture?: TradingFacts;
+};
+export type MaterialRequest = {
+  id: string;
+  source_id: string;
+  resource_id: string;
+  use_scope: string;
+  provider_artifact: string;
+  max_requests: number;
+  max_bytes: number;
+};
+export type MaterialSource = {
+  id: string;
+  name: string;
+  usage: string;
+  plugin_id: string;
+  provider_artifact: string;
+  max_bytes: number;
+  credential_required: boolean;
+  no_additional_fee: boolean;
+};
+export type MaterialReceipt = {
+  reference: ResourceObject;
+  content: ResourceObject;
+  request: MaterialRequest;
+  media_type: string;
+  bytes: number;
+  acquired_at_ms: string;
+  source_published_at_ms: string | null;
+};
+export type MaterialRead = {
+  receipt: MaterialReceipt;
+  reading: { state: "readable" | "invalid_utf8" | "unsupported_media"; readable_bytes: number };
+  text: string | null;
+};
+export type NoticeObject = Omit<ResourceObject, "domain"> & { domain: "intelligence" };
+export type NoticeSpan = { begin: number; end: number; text: string };
+export type NoticeEvent = {
+  reference: NoticeObject;
+  initial_publication: NoticeObject;
+  contract: string;
+  use_scope: string;
+  rule_id: string;
+  available_at_ms: string;
+};
+export type NoticeChangeRequest = {
+  id: string;
+  event: NoticeObject;
+  expected_head: NoticeObject;
+  action: "correct" | "withdraw";
+  replacement: NoticeObject | null;
+  material: ResourceObject;
+  evidence: NoticeSpan;
+  operator_name: string;
+  reason: string;
+  human_confirmed: boolean;
+  effective_at_ms: string | null;
+};
+export type NoticeChangeRecord = Omit<NoticeChangeRequest, "id" | "human_confirmed"> & {
+  reference: NoticeObject;
+  affected_publication: NoticeObject;
+  reviewed_at_ms: string;
+  prepared_at_ms: string;
+  program_artifact: string;
+  published: null | {
+    reference: NoticeObject;
+    content: ResourceObject;
+    stored_at_ms: string;
+    available_at_ms: string;
+    sequence: string;
+  };
+};
+export type NoticeEventView = {
+  event: NoticeEvent;
+  head: NoticeObject;
+  selected_publication: NoticeObject;
+  withdrawn: boolean;
+  latest_change: NoticeChangeRecord | null;
+  pending_change: NoticeChangeRecord | null;
+};
+export type NoticeSourceObservation = {
+  consumer: Omit<ResourceObject, "domain"> & { domain: "research" };
+  source: NoticeObject;
+  current: NoticeEventView;
+  observed_at_ms: string;
+};
+export type NoticeCandidate = {
+  event?: NoticeObject | null;
+  id: string;
+  material: ResourceObject;
+  dictionary: TableListedContracts["query"];
+  contract: string;
+  evidence: Record<
+    "subject" | "parameter" | "effective_day" | "percentage" | "modality",
+    NoticeSpan
+  >;
+  rule_id: "contract_margin_announcement";
+  use_scope: string;
+  use_mode: "post_hoc_research" | "strict_history";
+};
+export type NoticeRecord = {
+  event?: NoticeEvent | null;
+  related_event?: NoticeObject | null;
+  reference: NoticeObject;
+  state: "preparing" | "draft" | "verified" | "publishing" | "published" | "rejected" | "abandoned";
+  material: MaterialReceipt;
+  dictionary_reference: ResourceObject | null;
+  contract: string;
+  evidence: NoticeCandidate["evidence"];
+  rule_id: string;
+  use_scope: string;
+  use_mode: NoticeCandidate["use_mode"];
+  program_artifact: string;
+  created_at_ms: string;
+  updated_at_ms: string;
+  assessment: {
+    checks: { field: string; state: "pass" | "blocked" | "unknown"; reason: string }[];
+    limitations: string[];
+    ready_for_human_review: boolean;
+    effective_day: string;
+    margin_ratio: string | null;
+  };
+  verification: null | {
+    id: string;
+    operator_name: string;
+    reason: string;
+    approved: boolean;
+    verified_at_ms: string;
+  };
+  publication_request?: null | { id: string; reason: string };
+  published: null | {
+    reference: NoticeObject;
+    preparation: NoticeObject;
+    content: ResourceObject;
+    stored_at_ms: string;
+    available_at_ms: string;
+  };
+};
+export type NoticeSetReason = { source: ResourceObject; reason: string };
+export type NoticeSetRequest = {
+  id: string;
+  name: string;
+  program_artifact: string;
+  data_owner: { node: string; service: string; domain: "data" };
+  query: {
+    events: NoticeObject[];
+    use_mode: "post_hoc_research" | "strict_history";
+    as_of_ms: string;
+    use_scope: string;
+  };
+};
+export type NoticeSetView = {
+  request: NoticeSetRequest;
+  state: "preview" | "prepared" | "published";
+  observed_at_ms: string;
+  reference: NoticeObject | null;
+  available_at_ms: string | null;
+  members: {
+    event: NoticeEventView;
+    publication: NoticeObject;
+    content: ResourceObject;
+    limitations: NoticeSetReason[];
+  }[];
+  exclusions: { event: NoticeObject; reasons: NoticeSetReason[] }[];
+};
+export type NoticeDeliveryKind = "publication" | "correction" | "withdrawal";
+export type NoticeDeliveryFilter = {
+  contracts: string[];
+  rule_id: "contract_margin_announcement";
+  use_scope: string;
+  kinds: NoticeDeliveryKind[];
+  include_followup_statements: boolean;
+};
+export type NoticeDelivery = {
+  position: string;
+  source: NoticeObject;
+  event: NoticeObject;
+  initial_publication: NoticeObject;
+  contract: string;
+  rule_id: string;
+  use_scope: string;
+  kind: NoticeDeliveryKind;
+  available_at_ms: string;
+};
+export type NoticeDeliveryPage = {
+  owner: { node: string; service: string; domain: "intelligence" };
+  filter: NoticeDeliveryFilter;
+  after: string;
+  through: string;
+  head: string;
+  scanned_through: string;
+  more: boolean;
+  items: NoticeDelivery[];
+};
+export type NoticeSubscriptionDefinition = {
+  id: string;
+  name: string;
+  filter: NoticeDeliveryFilter;
+  start_after: string;
+  consumer: "application_reminder";
+};
+export type NoticeSubscription = {
+  reference: NoticeObject;
+  definition: NoticeSubscriptionDefinition;
+  active: boolean;
+  revision: string;
+  confirmed_through: string;
+  paused_through: string;
+  gap_through: string;
+  head: string;
+  created_at_ms: string;
+  updated_at_ms: string;
+  pending_delivery: NoticeObject | null;
+};
+export type NoticeSubscriptionOffer = {
+  subscription: NoticeObject;
+  operation_id: string;
+  after: string;
+  through: string;
+  historical: boolean;
+};
+export type NoticeDeliveryBatch = NoticeSubscriptionOffer & {
+  reference: NoticeObject;
+  acknowledged: boolean;
+  offered_at_ms: string;
+  page: NoticeDeliveryPage;
+};
+export type NoticeReminderPage = {
+  subscription: NoticeObject;
+  after: string;
+  next_after: string;
+  items: { change: NoticeDelivery; first_offered_at_ms: string; historical: boolean }[];
+};
+export type NoticeConsumerRecord = {
+  source: NoticeObject;
+  consumer: Omit<ResourceObject, "domain"> & { domain: "research" };
+  use_scope: string;
+  phase: "prepared" | "confirmed" | "released";
+  created_at_ms: string;
+  updated_at_ms: string;
+};
+export type NoticeConsumerPage = {
+  source: NoticeObject;
+  items: NoticeConsumerRecord[];
+  next_after: string;
+};
+export type IntelligenceService = {
+  node_id: string;
+  owner_node_id: string;
+  service: string;
+  connection_id: string;
+  remote: boolean;
+  host: string;
+  port: number;
+  records: NoticeRecord[];
+};
 export type Snapshot = {
+  research_project?: ResearchProjectReply;
+  research_variable?: ResearchVariableReply;
+  research_model?: ResearchModelReply;
+  research_strategy?: ResearchStrategyReply;
+  research_logic?: ResearchLogicReply;
+  research_batch?: ResearchBatchReply;
+  research_assessment?: ResearchBatchAssessmentReply;
+  project_tasks?: ResearchProjectTasks;
+  intelligence_service?: IntelligenceService | null;
+  notice_custody?: NoticeConsumerRecord | null;
+  notice_consumers?: NoticeConsumerPage;
+  notice_event_view?: NoticeEventView;
+  notice_source_observation?: NoticeSourceObservation;
+  notice_change?: NoticeChangeRecord;
+  notice_set?: NoticeSetView;
+  notice_subscription?: NoticeSubscription;
+  notice_subscriptions?: {
+    owner: NoticeDeliveryPage["owner"];
+    head: string;
+    items: NoticeSubscription[];
+  };
+  notice_delivery_page?: NoticeDeliveryPage;
+  notice_delivery_batch?: NoticeDeliveryBatch;
+  notice_reminders?: NoticeReminderPage;
+  intelligence_record?: NoticeRecord;
+  intelligence_records?: NoticeRecord[];
+  material_sources?: MaterialSource[];
+  material_task?: TaskRecord;
+  material_read?: MaterialRead;
+  trading_facts?: TradingFactsStatus;
+  market_observation?: MarketObservation;
+  observation_archive?: ObservationArchive;
+  resources?: ResourceCatalogue;
+  resource_inspection?: ResourceInspection;
+  task_retirement?: ResearchRetirement;
+  backup?: BackupReport;
   plugin_candidate?: NativePluginInfo;
   data_credentials?: DataCredentialEntry[];
   ctp_connections?: CtpConnectionEntry[];
@@ -1494,6 +3163,10 @@ export type Snapshot = {
   minute_range?: MinuteRangeEvidence;
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;
+  minute_retirement?: MinuteRetirement;
+  table_retirement?: TableRetirement;
+  table_retirements?: { items: TableRetirementEntry[]; next_after: string };
+  minute_retirements?: MinuteRetirements;
   historical_margins?: HistoricalMargins;
   table_coverage?: TableCoverage;
   table_page?: TablePage;
@@ -1506,41 +3179,14 @@ export type Snapshot = {
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
-  task_service: null | {
-    connection_id: string;
-    port: number;
-    service: string;
-    host: string;
-    remote: boolean;
-    online: boolean;
-    error: string;
-    tasks: TaskRecord[];
-    before_sequence: number;
-    next_before_sequence: number;
-    failed_count: number;
-    interrupted_count: number;
-    capacity: {
-      retained_tasks: number;
-      active_used: number;
-      active_reserved: number;
-      uncommitted: number;
-      active_limit: number;
-    } | null;
-  };
-  data: null | {
-    connection_id: string;
-    port: number;
-    service: string;
-    host: string;
-    remote: boolean;
-    online: boolean;
-    error: string;
-    sources: NativeHistorySource[];
-  };
+  research_service: TaskOwnerStatus | null;
+  data: (TaskOwnerStatus & { sources: NativeHistorySource[] }) | null;
   portfolio_report?: PortfolioAnalysis;
   quantstats_report?: QuantStatsAnalysis;
   portfolio_budget_review?: PortfolioBudgetReview;
   research_export?: {
+    source_version?: string;
+    conclusion_version?: string;
     name: string;
     bytes: number;
     path?: string;
@@ -1728,4 +3374,46 @@ function mergeMarket(next: Snapshot, held: LiveMarket | null): Snapshot {
     subscriptions = held.subscriptions.map(row => changed.get(`${row.venue}.${row.symbol}`) ?? row);
   }
   return { ...next, market: { ...market, catalog, subscriptions, delta: undefined } };
+}
+
+export type TaskOwnerRef = {
+  kind: "data" | "research";
+  node_id: string;
+  service: string;
+  connection_id: string;
+};
+export type TaskOwnerStatus = {
+  node_id: string;
+  owner_node_id?: string; // Stable business identity; node_id is the Manager connection key.
+  connection_id: string;
+  port: number;
+  service: string;
+  host: string;
+  remote: boolean;
+  online: boolean;
+  error: string;
+  tasks: TaskRecord[];
+  before_sequence: number;
+  next_before_sequence: number;
+  failed_count: number;
+  interrupted_count: number;
+  capacity: {
+    retained_tasks: number;
+    active_used: number;
+    active_reserved: number;
+    uncommitted: number;
+    active_limit: number;
+  } | null;
+};
+export function taskOwner(
+  service: TaskOwnerStatus | null | undefined,
+  kind: TaskOwnerRef["kind"],
+): TaskOwnerRef {
+  if (!service) throw new Error("task owner is not selected");
+  return {
+    kind,
+    node_id: service.node_id,
+    service: service.service,
+    connection_id: service.connection_id,
+  };
 }

@@ -1,3 +1,4 @@
+import { taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { seedDataset, rpc } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
@@ -358,6 +359,14 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await expect(workspace.getByText(/^候选策略 2 个/)).toBeVisible();
   // A Saturday: the holdout begins on the Monday after it.
   await workspace.getByLabel("留出起始日", { exact: true }).fill("2026-09-19");
+  await expect(workspace.getByLabel("年期数A（日结算）", { exact: true })).toHaveValue("");
+  await expect(
+    workspace.getByLabel("明确采用零无风险年收益假设", { exact: true }),
+  ).not.toBeChecked();
+  await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
+  await workspace.getByLabel("年期数A（日结算）", { exact: true }).fill("252");
+  await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
+  await workspace.getByLabel("明确采用零无风险年收益假设", { exact: true }).check();
   for (const [label, value] of [
     ["目标手数", "1"],
     ["初始资金", "100000"],
@@ -428,8 +437,34 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await expect(figure("前段", "夏普比率")).toHaveText(
     await chosen.locator("td").nth(2).innerText(),
   );
-  // Five days are too few for yearly figures.
-  await expect(figure("留出段", "夏普比率")).toHaveText("—");
+  // Explicit assumptions permit even a short sample; it is clearly marked as scaled.
+  await expect(figure("留出段", "夏普比率")).not.toHaveText("—");
+  const development = result.getByRole("region", { name: "前段", exact: true });
+  await development.getByText("绩效方法与不可计算原因", { exact: true }).click();
+  await expect(development).toContainText("明确零无风险");
+  await expect(development).toContainText("252");
+  await expect(development).toContainText("观测不足一年；年化仅为方法缩放值。");
+  const snapshot = await rpc(page.request, "runtime.snapshot", {});
+  const fixed = snapshot.task_result;
+  expect(fixed.experiment.performance_assumptions).toEqual({
+    annual_periods: 252,
+    risk_free: "explicit_zero",
+  });
+  expect(fixed.performance.development.calculation).toMatchObject({
+    annual_periods: 252,
+    risk_free_annual: 0,
+    return_periods: 24,
+    opening_return_included: false,
+    derived_on_read: true,
+    short_calendar_span: true,
+  });
+  expect(fixed.performance.development.sharpe).toBeCloseTo(
+    fixed.result.candidates[fixed.result.selected].sharpe,
+    12,
+  );
+  expect(fixed.performance.holdout.calculation.return_periods).toBe(5);
+  expect(fixed.performance.holdout.calculation.opening_return_included).toBe(true);
+
   await result.getByRole("heading", { name: "比较", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-comparison.png") });
   await result.getByText("实验参数", { exact: true }).click();
@@ -604,7 +639,7 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
       (row: { quantities_on_grid: boolean }) => row.quantities_on_grid,
     ),
   ).toBe(true);
-  const tasksBefore = (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+  const tasksBefore = (await rpc(page.request, "runtime.snapshot")).research_service.tasks
     .map((task: { id: string }) => task.id)
     .sort();
   await result.getByText("组合敞口与预算复核", { exact: true }).click();
@@ -679,11 +714,11 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
     },
   });
   expect((await stale.json()).error).toBeTruthy();
-  expect((await rpc(page.request, "task.result.read", { id: original.id })).task_result).toEqual(
-    original,
-  );
   expect(
-    (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+    (await taskRpc(page.request, "research", "task.result.read", { id: original.id })).task_result,
+  ).toEqual(original);
+  expect(
+    (await rpc(page.request, "runtime.snapshot")).research_service.tasks
       .map((task: { id: string }) => task.id)
       .sort(),
   ).toEqual(tasksBefore);
@@ -811,6 +846,8 @@ test("strategies are compared by rolling and the account follows each round's be
   await workspace.getByLabel("快均线", { exact: true }).fill("1");
   await workspace.getByLabel("慢均线", { exact: true }).fill("2, 3");
   await workspace.getByLabel("比较方式", { exact: true }).selectOption("rolling");
+  await workspace.getByLabel("年期数A（日结算）", { exact: true }).fill("252");
+  await workspace.getByLabel("明确采用零无风险年收益假设", { exact: true }).check();
   // A rolling comparison asks for its windows instead of a holdout date.
   await expect(workspace.getByLabel("留出起始日", { exact: true })).toHaveCount(0);
   await expect(workspace.getByText(/^候选策略 2 个；训练交易日至少 20 个/)).toBeVisible();
@@ -855,9 +892,12 @@ test("strategies are compared by rolling and the account follows each round's be
     [1, days[25]],
   ] as const) {
     const cells = rounds.nth(index).locator("td");
-    await expect(cells.nth(0)).toHaveText(first);
-    await expect(cells.nth(1)).toHaveText(/^均线交叉 1\/[23]$/);
-    await expect(cells.nth(3)).toHaveText("5");
+    await expect(cells.nth(0)).toHaveText(`${days[5 * index]} — ${days[19 + 5 * index]}`);
+    await expect(cells.nth(1)).toHaveText("20");
+    await expect(cells.nth(2)).toHaveText(first);
+    await expect(cells.nth(3)).toHaveText(days[24 + 5 * index]);
+    await expect(cells.nth(4)).toHaveText(/^均线交叉 1\/[23]$/);
+    await expect(cells.nth(6)).toHaveText("5");
   }
   const figure = (section: string, name: string) =>
     result
@@ -878,6 +918,13 @@ test("strategies are compared by rolling and the account follows each round's be
     days[20],
     days[25],
   ]);
+  for (const [index, fold] of evidence.result.folds.entries()) {
+    expect(fold.training_first_day).toBe(days[5 * index]);
+    expect(fold.training_last_day).toBe(days[19 + 5 * index]);
+    expect(fold.last_day).toBe(days[24 + 5 * index]);
+    expect(fold.training_days).toBe(20);
+    expect(fold.validation_days).toBe(5);
+  }
   // Nothing was held before the first round had a strategy to follow.
   for (const day of evidence.result.settlements.slice(0, 20))
     expect(day.contracts[0].position_quantity).toBe("0");

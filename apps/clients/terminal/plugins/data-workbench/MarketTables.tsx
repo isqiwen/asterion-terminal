@@ -1,3 +1,6 @@
+import { TableSnapshotMaintenance } from "./TableSnapshotMaintenance";
+import { AcquisitionRetirement } from "./AcquisitionRetirement";
+import { taskOwner } from "../../src/bridge/client";
 import "./data.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -181,7 +184,7 @@ export function MarketTables(context: TerminalContext) {
     };
   }, [online, connection, load]);
   // What an update stores appears as its tasks end.
-  const finished = (context.snapshot?.task_service?.tasks ?? [])
+  const finished = (context.snapshot?.data?.tasks ?? [])
     .filter(task => task.kind === "table_update" && task.state !== "queued")
     .map(task => `${task.id}:${task.state}:${task.completed}`)
     .join(" ");
@@ -278,6 +281,7 @@ export function MarketTables(context: TerminalContext) {
           )}
         </>
       )}
+      <TableSnapshotMaintenance context={context} />
       {opened && held(opened.source, opened.exchange) && (
         <PartitionViewer
           key={`${opened.source.table}:${opened.source.source}:${opened.exchange}`}
@@ -351,7 +355,7 @@ function TableUpdateForm({
   );
   // This page's own request, or else the latest update: one started before
   // the page was opened is still worth watching.
-  const updates = (snapshot?.task_service?.tasks ?? []).filter(
+  const updates = (snapshot?.data?.tasks ?? []).filter(
     item => item.kind === "table_update" && !item.table_refresh,
   );
   const task = id
@@ -367,14 +371,19 @@ function TableUpdateForm({
       ? snapshot.task_result.result
       : null;
   const running = !!task && ["queued", "running", "cancel_requested"].includes(task.state);
-  const enabled = !!snapshot?.task_service?.online && !!snapshot?.data?.online;
+  const enabled = !!snapshot?.data?.online;
   const succeeded = task?.state === "succeeded";
+  const owner = useRef(snapshot?.data);
+  owner.current = snapshot?.data;
+  const ownerConnection = snapshot?.data?.connection_id;
   const read = useRef(context.trade);
   read.current = context.trade;
   useEffect(() => {
     if (succeeded && shown)
-      void read.current("task.result", { id: shown }).catch(e => setError(asDisplayError(e)));
-  }, [succeeded, shown]);
+      void read
+        .current("task.result", { owner: taskOwner(owner.current, "data"), id: shown })
+        .catch(e => setError(asDisplayError(e)));
+  }, [succeeded, shown, ownerConnection]);
   async function act(action: () => Promise<void>) {
     setWorking(true);
     setError("");
@@ -561,6 +570,14 @@ function TableUpdateForm({
       )}
       {task && (
         <div className="history-update-preview" aria-live="polite">
+          <AcquisitionRetirement
+            key={`retire:${owner.current?.connection_id}:${task.id}`}
+            id={task.id}
+            owner={taskOwner(owner.current, "data")}
+            busy={context.busy || !owner.current?.online}
+            query={context.query}
+            trade={context.trade}
+          />
           {running && (
             <p role="status">
               {t(task.state === "queued" ? "更新任务排队中" : "正在更新：{percent}%", {
@@ -573,7 +590,13 @@ function TableUpdateForm({
               type="button"
               disabled={context.busy || task.state === "cancel_requested"}
               onClick={() =>
-                void act(() => context.trade("task.action", { id: shown, action: "cancel" }))
+                void act(() =>
+                  context.trade("task.action", {
+                    owner: taskOwner(owner.current, "data"),
+                    id: shown,
+                    action: "cancel",
+                  }),
+                )
               }
             >
               {t("停止更新")}

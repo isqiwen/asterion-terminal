@@ -64,7 +64,7 @@ test("log loss stays visible while a failed background refresh can recover", () 
 test("old account progress stays uncertain even while transport responds", () => {
   const report = (stale: boolean) => {
     const snapshot = readySnapshot();
-    const account = { ...localService(snapshot, "task"), id: "live-1", kind: "live" as const };
+    const account = { ...localService(snapshot, "research"), id: "live-1", kind: "live" as const };
     account.health = stale ? "degraded" : "ready";
     account.execution = {
       ...account.execution!,

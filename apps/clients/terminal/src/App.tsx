@@ -66,6 +66,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   usePreferences();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [drafts] = useState(createWorkspaceDrafts);
+  useEffect(() => () => drafts.dispose(), [drafts]);
   const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setHeaderTarget(document.getElementById("terminal-header-tools")), []);
   const [navigation, setNavigation] = useState(() => {
@@ -251,7 +252,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
   );
   const failedTasks =
-    (snapshot?.task_service?.failed_count ?? 0) + (snapshot?.task_service?.interrupted_count ?? 0);
+    (snapshot?.research_service?.failed_count ?? 0) +
+    (snapshot?.research_service?.interrupted_count ?? 0) +
+    (snapshot?.data?.failed_count ?? 0) +
+    (snapshot?.data?.interrupted_count ?? 0);
   return (
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
@@ -422,7 +426,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   </button>
                 </div>
                 <TaskPagination
-                  taskService={snapshot?.task_service}
+                  kind="data"
+                  taskService={snapshot?.data}
+                  busy={busy}
+                  trade={context.trade}
+                />
+                <TaskPagination
+                  taskService={snapshot?.research_service}
                   busy={busy}
                   trade={context.trade}
                 />
@@ -468,10 +478,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 onClick={() => setTasks(!tasks)}
               >
                 {t("{p0} 项任务执行中", {
-                  p0:
-                    snapshot?.task_service?.tasks.filter(task =>
-                      ["running", "queued", "cancel_requested", "publishing"].includes(task.state),
-                    ).length ?? 0,
+                  p0: [
+                    ...(snapshot?.research_service?.tasks ?? []),
+                    ...(snapshot?.data?.tasks ?? []),
+                  ].filter(task =>
+                    ["running", "queued", "cancel_requested", "publishing"].includes(task.state),
+                  ).length,
                 })}
                 {failedTasks > 0 && ` · ${t("{p0} 项任务异常", { p0: failedTasks })}`}
               </button>

@@ -146,6 +146,20 @@ void Application::Impl::register_market_commands()
         result.values["intraday"] = std::move(intraday);
         co_return result;
     });
+    command("market.observation.preview", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"venue", "symbol"});
+        if (!market)
+            throw Error(ErrorCode::unavailable, "select a market service first");
+        const auto reader = market;
+        auto value = co_await PollFuture{reader->observation(text(p, "venue"), text(p, "symbol"))};
+        if (market != reader)
+            throw Error(
+                ErrorCode::conflict,
+                "market service selection changed during operation; inspect the original service before retrying");
+        auto result = snapshot();
+        result.values["market_observation"] = std::move(value);
+        co_return result;
+    });
     command("market.disconnect", [this](const json& p) -> PolledTask<Response> {
         const auto client = market;
         fields(p, {});

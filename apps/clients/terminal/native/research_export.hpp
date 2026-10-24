@@ -18,6 +18,10 @@ research_evidence_document(const nlohmann::json& source, const std::string& inst
         throw std::invalid_argument(
             "research evidence export requires a backtest or factor result");
     const auto& task = source.at("task");
+    const auto programme = task.value("program_artifact", std::string{});
+    if (programme.size() != 64
+        || programme.find_first_not_of("0123456789abcdef") != std::string::npos)
+        throw std::invalid_argument("research evidence export requires a fixed execution program");
     nlohmann::json payload = {
         {"format", "asterion.research.evidence"},
         {"scope", "verified_parameter_summary_and_complete_result"},
@@ -27,6 +31,7 @@ research_evidence_document(const nlohmann::json& source, const std::string& inst
                 {"kind", kind},
                 {"attempt", task.at("attempt")},
                 {"result_sha256", task.at("result_digest")},
+                {"program_artifact", programme},
                 {"input_sha256",
                     source.contains("input_sha256") ? source.at("input_sha256")
                                                     : nlohmann::json(nullptr)},
@@ -48,6 +53,9 @@ research_evidence_document(const nlohmann::json& source, const std::string& inst
                 "Source SHA-256 values identify service-owned Protobuf bytes, not this JSON.",
                 "Descriptions are editable and are not part of calculation identity."}}
     };
+    for (const auto* key : {"strategy_use", "research_plan"})
+        if (task.contains(key))
+            payload[key] = task.at(key);
     if (kind == "backtest") {
         payload["performance"] = source.at("performance");
         payload["trades"] = source.at("trades");

@@ -1,3 +1,4 @@
+import { taskOwner, isPortfolioStrategyPackage } from "../../src/bridge/client";
 import {
   SettlementMarginEditor,
   SettlementMarginDetails,
@@ -6,14 +7,22 @@ import {
 import { QuantStatsReport } from "./QuantStatsReport";
 import { ResearchExport } from "./ResearchExport";
 import { BacktestComparison } from "./BacktestComparison";
-import { SlippageSensitivity } from "./SlippageSensitivity";
+import { CostSensitivity } from "./CostSensitivity";
 import { BacktestReuse } from "./BacktestReuse";
+import { ModelReplayEvidence, TargetRejectionEvidence } from "./ModelReplayEvidence";
 import { PortfolioBudget } from "./PortfolioBudget";
+import { PortfolioTargetsEvidence } from "./PortfolioTargetsEvidence";
+import {
+  PortfolioPolicyEditor,
+  portfolioPolicy,
+  portfolioEligible,
+  portfolioPolicyDefaults,
+} from "./PortfolioPolicy";
 import { AccountReconciliation } from "./AccountReconciliation";
 import { TradeStatistics } from "./TradeStatistics";
 import { MonthlyContributions } from "./MonthlyContributions";
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PriceChart } from "@asterion/client-ui/PriceChart";
 import {
   useWorkspaceDraft,
@@ -35,6 +44,15 @@ import {
 } from "../contract";
 import { timestamp, type SettlementMargin, type HistoricalMargins } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
+import type {
+  LogicStrategyPackage,
+  LogicStrategyDelivery,
+  PortfolioStrategyPackage,
+  ReferenceStrategyDelivery,
+  ResearchPlanBinding,
+  PerformanceAssumptions,
+} from "../../src/bridge/client";
+import { ResearchPlanPicker, ResearchPlanEvidence } from "./ResearchPlan";
 import { namespace, ResearchPage, states, t, TaskRecords, useRun, selectedSeries } from "./shared";
 
 import { Figures, percent, ratio } from "./Performance";
@@ -48,7 +66,7 @@ export function Backtest({
   workspacePage,
   workspaceParams,
 }: TerminalContext) {
-  const taskService = snapshot?.task_service;
+  const taskService = snapshot?.research_service;
   const [view, setView] = useWorkspaceDraft<"records" | "configure" | "progress" | "result">(
     `backtest-view:${taskService?.connection_id}`,
     "records",
@@ -67,14 +85,130 @@ export function Backtest({
   const activeTask = taskService?.tasks.find(task => task.id === selectedTask);
   const { error, setError, run } = useRun(trade);
   async function showResult(id: string) {
-    if (await run("task.result", { id })) {
+    if (
+      await run("task.result", { owner: taskOwner(snapshot?.research_service, "research"), id })
+    ) {
       setSelectedTask(id);
       setView("result");
     }
   }
+  const [plan, setPlan] = useWorkspaceDraft<ResearchPlanBinding | null>(
+    `backtest-plan:${taskService?.connection_id}`,
+    null,
+  );
+  const [planReady, setPlanReady] = useState(false);
+  const planHint = workspaceParams?.plan_id ? JSON.stringify(workspaceParams) : "";
+  const [seenPlanHint, setSeenPlanHint] = useWorkspaceDraft(
+    `backtest-plan-hint:${taskService?.connection_id}`,
+    "",
+  );
+  useEffect(() => {
+    if (!planHint || planHint === seenPlanHint) return;
+    const params = JSON.parse(planHint) as Record<string, string>;
+    setPlanReady(false);
+    setPlan({
+      project_id: params.project_id,
+      plan_id: params.plan_id,
+      definition_digest: params.definition_digest,
+      owner: { domain: "research", node_id: params.plan_node, service_id: params.plan_service },
+    });
+    setSeenPlanHint(planHint);
+    setView("configure");
+    setStep(0);
+  }, [planHint, seenPlanHint, setSeenPlanHint, setPlan, setView, setStep]);
+  const researchReady = planReady && (!planHint || planHint === seenPlanHint);
   const datasets = snapshot?.datasets ?? [];
+  const deliveryQuery = useRef(query);
+  deliveryQuery.current = query;
+  const requestedDelivery =
+    workspacePage === "backtest" ? workspaceParams?.strategy_delivery_id : "";
+  const [binding, setBinding] = useState<{
+    package: LogicStrategyPackage | PortfolioStrategyPackage;
+    delivery: LogicStrategyDelivery | ReferenceStrategyDelivery;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    setBinding(null);
+    if (!requestedDelivery) return;
+    void (async () => {
+      const draft = (
+        await deliveryQuery.current("research.strategy.delivery.read", { id: requestedDelivery })
+      ).research_strategy?.delivery;
+      if (!draft) throw new Error(t("固定策略交付草稿不一致"));
+      const candidate = (
+        await deliveryQuery.current("research.strategy.read", { id: draft.package.id })
+      ).research_strategy?.package;
+      if (
+        !candidate ||
+        candidate.object.id !== draft.package.id ||
+        candidate.object.version !== draft.package.version
+      )
+        throw new Error(t("固定策略交付草稿不一致"));
+      if (!active) return;
+      if (
+        candidate.evidence_relation === "logic_trial" &&
+        draft.reference_result === null &&
+        candidate.logic.result.id === draft.logic_trial.id &&
+        candidate.logic.result.version === draft.logic_trial.version
+      ) {
+        setBinding({ package: candidate, delivery: draft });
+      } else if (
+        isPortfolioStrategyPackage(candidate) &&
+        draft.reference_result !== null &&
+        candidate.reference_result.id === draft.reference_result.id &&
+        candidate.reference_result.version === draft.reference_result.version &&
+        candidate.source_input_sha256 === draft.source_input_sha256
+      ) {
+        setBinding({ package: candidate, delivery: draft });
+      } else {
+        throw new Error(t("固定策略交付草稿不一致"));
+      }
+      setSelectedTask(draft.target_task_id);
+      setView("configure");
+      setStep(0);
+    })().catch(reason => {
+      if (active) setError(asDisplayError(reason));
+    });
+    return () => {
+      active = false;
+    };
+  }, [requestedDelivery, taskService?.connection_id, setError, setSelectedTask, setView, setStep]);
+  const boundDefinition = binding?.package.definition;
+  const boundContracts =
+    boundDefinition?.portfolio?.contracts ??
+    (boundDefinition?.contract ? [boundDefinition.contract] : []);
+  const boundDataMatches =
+    !requestedDelivery ||
+    Boolean(
+      binding &&
+      boundContracts.length > 0 &&
+      datasets.length === boundContracts.length &&
+      !snapshot?.dataset_series?.length &&
+      boundContracts.every((contract, index) => {
+        const actual = datasets[index];
+        return (
+          actual.venue === contract.venue &&
+          actual.symbol === contract.symbol &&
+          actual.interval_minutes === binding.package.definition.interval_minutes &&
+          (!boundDefinition?.portfolio ||
+            (
+              [
+                "currency",
+                "multiplier",
+                "price_increment",
+                "quantity_increment",
+                "delivery_month",
+                "product",
+              ] as const
+            ).every(key => actual.contract[key] === contract[key]))
+        );
+      }),
+    );
+
   const dataReady =
-    datasets.length > 0 && (!sourceRequestKey || confirmedSource === sourceRequestKey);
+    datasets.length > 0 &&
+    boundDataMatches &&
+    (!sourceRequestKey || confirmedSource === sourceRequestKey);
   useEffect(() => {
     if (sourceRequestKey && received !== sourceRequestKey) {
       setReceived(sourceRequestKey);
@@ -88,8 +222,50 @@ export function Backtest({
     setView("progress");
   }, [workspacePage, workspaceParams, setSelectedTask, setView]);
 
+  useEffect(() => {
+    const id = workspaceParams?.result_id;
+    if (
+      workspacePage === "backtest" &&
+      id &&
+      snapshot?.task_result?.kind === "backtest" &&
+      snapshot.task_result.id === id
+    ) {
+      setSelectedTask(id);
+      setView("result");
+    }
+  }, [
+    workspacePage,
+    workspaceParams?.result_id,
+    snapshot?.task_result?.kind,
+    snapshot?.task_result?.id,
+    setSelectedTask,
+    setView,
+  ]);
+
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
   const [strategy, setStrategy] = useWorkspaceDraft("backtest-strategy", strategyDefaults);
+  const [portfolioDraft, setPortfolioDraft] = useWorkspaceDraft(
+    "backtest-portfolio-policy",
+    portfolioPolicyDefaults,
+  );
+  const eligiblePortfolio = portfolioEligible(datasets, Boolean(snapshot?.dataset_series?.length));
+  const lockedPortfolio = boundDefinition?.portfolio?.strategy;
+  const portfolioMode = Boolean(lockedPortfolio) || (!binding && portfolioDraft.enabled);
+  const fixedPortfolio = binding
+    ? (lockedPortfolio ?? null)
+    : portfolioPolicy(portfolioDraft, datasets, eligiblePortfolio);
+  const portfolioEditorDraft = lockedPortfolio
+    ? {
+        enabled: true,
+        weights: Object.fromEntries(
+          lockedPortfolio.rule.members.map(m => [`${m.venue}/${m.symbol}`, m.weight]),
+        ),
+        gross: lockedPortfolio.rule.gross_weight_limit,
+        net: lockedPortfolio.rule.net_weight_limit,
+        rebalance: String(lockedPortfolio.rule.rebalance),
+      }
+    : portfolioDraft;
+  const portfolioReady = Boolean(binding) || !portfolioDraft.enabled || fixedPortfolio !== null;
   // Several values in a window make several strategies, compared before a holdout.
   const [holdoutFrom, setHoldoutFrom] = useWorkspaceDraft("backtest-holdout", "");
   // Or they are compared by rolling: rounds of training days and the
@@ -102,7 +278,46 @@ export function Backtest({
     training: "60",
     validation: "20",
   });
-  const candidates = strategiesOf(strategy);
+  const fixed = boundDefinition?.portfolio?.strategy ?? boundDefinition?.strategy;
+  const shownStrategy =
+    fixed && fixed.rule.kind === "moving_average" && "quantity" in fixed
+      ? {
+          ...strategy,
+          kind: "moving_average" as const,
+          quantity: fixed.quantity,
+          sides: fixed.sides,
+          fast: String(fixed.rule.fast),
+          slow: String(fixed.rule.slow),
+        }
+      : strategy;
+  const candidates = binding
+    ? fixed
+      ? [fixed]
+      : []
+    : portfolioMode
+      ? fixedPortfolio
+        ? [fixedPortfolio]
+        : []
+      : strategiesOf(strategy);
+  const [performanceDraft, setPerformanceDraft] = useWorkspaceDraft(
+    `backtest-performance:${JSON.stringify([destination, datasets.map(item => item.revision)])}`,
+    { annual: "", zeroRiskFree: false },
+  );
+  const annualPeriods =
+    performanceDraft.annual.trim() === "" ? null : Number(performanceDraft.annual);
+  const validAnnualPeriods =
+    annualPeriods === null ||
+    (Number.isFinite(annualPeriods) && annualPeriods > 0 && annualPeriods <= 366);
+  const performanceReady =
+    validAnnualPeriods &&
+    (candidates.length < 2 || (annualPeriods !== null && performanceDraft.zeroRiskFree));
+  const performanceAssumptions: PerformanceAssumptions | undefined =
+    validAnnualPeriods && (annualPeriods !== null || performanceDraft.zeroRiskFree)
+      ? {
+          annual_periods: annualPeriods,
+          risk_free: performanceDraft.zeroRiskFree ? "explicit_zero" : "unconfigured",
+        }
+      : undefined;
   // A rule that ranks contracts holds some long and as many short: it needs
   // twice as many as the most any candidate holds a side.
   const selection = selectedSeries(snapshot);
@@ -161,14 +376,18 @@ export function Backtest({
     JSON.stringify([
       destination,
       strategy,
+      portfolioDraft,
       holdoutFrom,
       comparison,
       rolling,
       parameters,
+      performanceDraft,
       costs,
       settlementMargins,
       marginChoice,
       datasets.map(item => item.revision),
+      binding?.delivery.object.version,
+      plan,
     ]),
   );
   async function submit(event: React.FormEvent) {
@@ -177,17 +396,22 @@ export function Backtest({
       setStep(0);
       return;
     }
+    if (!researchReady || !performanceReady || !portfolioReady) {
+      setStep(1);
+      return;
+    }
     if (step === 1) {
       setStep(2);
       return;
     }
-    const id = pendingId ?? `backtest-${crypto.randomUUID()}`;
+    const id = binding?.delivery.target_task_id ?? pendingId ?? `backtest-${crypto.randomUUID()}`;
     setPendingId(id);
     try {
       const payload = {
         id,
         ...parameters,
         strategies: candidates,
+        ...(performanceAssumptions ? { performance_assumptions: performanceAssumptions } : {}),
         settlement_margins: settlementMargins,
         ...(historicalMargins ? { margin_snapshot: historicalMargins.snapshot } : {}),
         holdout_from: candidates.length > 1 && comparison === "holdout" ? holdoutFrom : "",
@@ -199,6 +423,10 @@ export function Backtest({
               }
             : null,
         contracts: contractCostRequest(datasets, costs, snapshot?.dataset_series ?? []),
+        ...(binding
+          ? { strategy_use: { package: binding.package.object, delivery: binding.delivery.object } }
+          : {}),
+        ...(plan ? { research_plan: plan } : {}),
       };
       if (await run("backtest.submit", payload)) {
         setSubmitted(id);
@@ -235,6 +463,31 @@ export function Backtest({
                   : "回测结果",
           )}
         </h3>
+        {requestedDelivery && (
+          <section aria-label={t(lockedPortfolio ? "固定组合交付回测" : "固定逻辑交付回测")}>
+            <p>
+              {binding
+                ? `${binding.package.name} · ${binding.delivery.target_task_id}`
+                : t("正在读取固定策略交付")}
+            </p>
+            <p>
+              {t(
+                lockedPortfolio
+                  ? "全部合约、权重、预算和调仓间隔来自固定包；请显式确认本次Data版本、资金、费用与风险。"
+                  : "规则、数量、方向和周期来自固定包；请显式确认本次数据、资金、费用与风险。",
+              )}
+            </p>
+            {!boundDataMatches && (
+              <p role="alert">
+                {t(
+                  lockedPortfolio
+                    ? "所选数据需按原顺序匹配固定包的全部合约、单位和周期"
+                    : "所选数据需匹配固定包的单合约和周期",
+                )}
+              </p>
+            )}
+          </section>
+        )}
         <div className="source-actions">
           {view !== "records" && (
             <button disabled={busy} onClick={() => setView("records")}>
@@ -299,13 +552,32 @@ export function Backtest({
             </p>
             <form hidden={step !== 1} onSubmit={event => void submit(event)}>
               <fieldset disabled={busy || !dataReady || step !== 1}>
-                <StrategyFields
-                  className="research-fields"
-                  value={strategy}
-                  onChange={setStrategy}
-                  compare
-                  portfolio
+                <ResearchPlanPicker
+                  snapshot={snapshot}
+                  query={query}
+                  binding={plan}
+                  onChange={setPlan}
+                  onReady={setPlanReady}
                 />
+                <p>{t("研究计划记录原问题与判断标准，不替代时间划分或证明未提前见过样本。")}</p>
+                <fieldset disabled={Boolean(binding)}>
+                  <PortfolioPolicyEditor
+                    draft={portfolioEditorDraft}
+                    datasets={datasets}
+                    eligible={eligiblePortfolio}
+                    disabled={Boolean(binding)}
+                    onChange={setPortfolioDraft}
+                  />
+                  {!portfolioMode && (
+                    <StrategyFields
+                      className="research-fields"
+                      value={shownStrategy}
+                      onChange={setStrategy}
+                      compare={!binding}
+                      portfolio={!binding}
+                    />
+                  )}
+                </fieldset>
                 {ranked < 2 * held && (
                   <p role="alert" className="alert">
                     {t(
@@ -319,11 +591,15 @@ export function Backtest({
                     {unranked}
                   </p>
                 )}
-                <p className="subtle">
-                  {t(
-                    "窗口里可以用逗号填多个值，排序规则还可以两个方向都比较；所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选要选一种比较方式：留出，只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日；滚动验证，每一轮用一段训练交易日比较，账户在随后的验证交易日里跟随这一轮夏普比率最高的那个，再整体向后移一轮。",
-                  )}
-                </p>
+                {!portfolioMode && (
+                  <>
+                    <p className="subtle">
+                      {t(
+                        "窗口里可以用逗号填多个值，排序规则还可以两个方向都比较；所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选要选一种比较方式：留出，只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日；滚动验证，每一轮用一段训练交易日比较，账户在随后的验证交易日里跟随这一轮夏普比率最高的那个，再整体向后移一轮。",
+                      )}
+                    </p>
+                  </>
+                )}
                 {candidates.length > 1 && (
                   <div className="research-fields">
                     <label>
@@ -377,7 +653,11 @@ export function Backtest({
                 )}
                 <p className="subtle" role="status">
                   {candidates.length === 0
-                    ? t("这些窗口组不出可用的策略。")
+                    ? t(
+                        portfolioDraft.enabled && !binding
+                          ? "组合政策不完整，尚不能进入运行确认。"
+                          : "这些窗口组不出可用的策略。",
+                      )
                     : candidates.length > 32
                       ? t("候选策略 {n} 个，超过 32 个。", { n: candidates.length })
                       : candidates.length > 1
@@ -451,6 +731,46 @@ export function Backtest({
                     onChange={setSettlementMargins}
                   />
                 )}
+                <fieldset>
+                  <legend>{t("绩效计算方法假设")}</legend>
+                  <p>
+                    {t(
+                      "年化期数由本次日结算方法明确选择，不从样本跨度推断；未配置时保留缺项原因。比较或走步按夏普选优，须配置年期数并明确零无风险假设。",
+                    )}
+                  </p>
+                  <label>
+                    {t("年期数A（日结算）")}
+                    <input
+                      type="number"
+                      min="0"
+                      max="366"
+                      step="any"
+                      value={performanceDraft.annual}
+                      onChange={event =>
+                        setPerformanceDraft({ ...performanceDraft, annual: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={performanceDraft.zeroRiskFree}
+                      onChange={event =>
+                        setPerformanceDraft({
+                          ...performanceDraft,
+                          zeroRiskFree: event.target.checked,
+                        })
+                      }
+                    />
+                    {t("明确采用零无风险年收益假设")}
+                  </label>
+                  {!validAnnualPeriods && (
+                    <p role="alert">{t("年期数A须为大于0且不超过366的日结算年期数。")}</p>
+                  )}
+                  {candidates.length > 1 && !performanceReady && (
+                    <p role="status">{t("候选评分缺少明确年期数或零无风险选择。")}</p>
+                  )}
+                </fieldset>
                 <div className="workflow-actions">
                   <button type="button" onClick={() => setStep(0)}>
                     {t("上一步")}
@@ -462,6 +782,9 @@ export function Backtest({
                       !taskService?.online ||
                       !snapshot?.data?.online ||
                       !datasets.length ||
+                      !researchReady ||
+                      !performanceReady ||
+                      !portfolioReady ||
                       candidates.length < 1 ||
                       candidates.length > 32 ||
                       ranked < 2 * held ||
@@ -497,8 +820,27 @@ export function Backtest({
                             },
                           )}{" "}
                     {candidates.length > 0 && <>· {strategySize(candidates[0])} </>}·{" "}
-                    {strategySides(strategy.sides)}
+                    {strategySides(candidates[0]?.sides ?? shownStrategy.sides)}
                   </dd>
+                  {fixedPortfolio && (
+                    <>
+                      <dt>{t("固定组合名义政策")}</dt>
+                      <dd>
+                        <p>
+                          {t("组合总绝对名义权重预算")}：{fixedPortfolio.rule.gross_weight_limit} ·{" "}
+                          {t("组合净名义权重预算")}：{fixedPortfolio.rule.net_weight_limit} ·{" "}
+                          {t("固定调仓间隔")}：{fixedPortfolio.rule.rebalance}
+                        </p>
+                        <ul>
+                          {fixedPortfolio.rule.members.map(m => (
+                            <li key={`${m.venue}/${m.symbol}`}>
+                              {m.venue}/{m.symbol}：{m.weight}
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </>
+                  )}
                   <dt>{t("初始资金")}</dt>
                   <dd>{parameters.deposit}</dd>
                   <dt>{t("风险限制")}</dt>
@@ -506,6 +848,11 @@ export function Backtest({
                     {t("单笔数量上限")} {parameters.max_order_quantity} · {t("总持仓量上限")}{" "}
                     {parameters.max_gross_quantity} · {t("在途委托数上限")}{" "}
                     {parameters.max_working_orders}
+                  </dd>
+                  <dt>{t("绩效计算方法假设")}</dt>
+                  <dd>
+                    {t("年期数A（日结算）")}: {annualPeriods ?? t("未配置")} ·{" "}
+                    {performanceDraft.zeroRiskFree ? t("明确零无风险") : t("无风险收益未配置")}
                   </dd>
                   <dt>{t("运行位置")}</dt>
                   <dd>
@@ -532,6 +879,9 @@ export function Backtest({
                       !taskService?.online ||
                       !snapshot?.data?.online ||
                       !dataReady ||
+                      !researchReady ||
+                      !performanceReady ||
+                      !portfolioReady ||
                       invalidSettlementScope
                     }
                   >
@@ -598,7 +948,11 @@ export function Backtest({
                     <button
                       disabled={busy || !taskService?.online}
                       onClick={() =>
-                        void run("task.action", { id: activeTask.id, action: "cancel" })
+                        void run("task.action", {
+                          owner: taskOwner(snapshot?.research_service, "research"),
+                          id: activeTask.id,
+                          action: "cancel",
+                        })
                       }
                     >
                       {t("取消回测")}
@@ -609,7 +963,11 @@ export function Backtest({
                       <button
                         disabled={busy || !taskService?.online}
                         onClick={() =>
-                          void run("task.action", { id: activeTask.id, action: "retry" })
+                          void run("task.action", {
+                            owner: taskOwner(snapshot?.research_service, "research"),
+                            id: activeTask.id,
+                            action: "retry",
+                          })
                         }
                       >
                         {t("重新运行")}
@@ -647,9 +1005,11 @@ export function Backtest({
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
                   {activeTask?.instrument} ·{" "}
-                  {result.experiment.walk_forward
-                    ? t("滚动验证 · {n} 个候选", { n: result.experiment.strategies.length })
-                    : strategyRule(result.experiment.strategies[result.result.selected])}
+                  {result.experiment.model_replay
+                    ? t("固定行情模型模拟")
+                    : result.experiment.walk_forward
+                      ? t("滚动验证 · {n} 个候选", { n: result.experiment.strategies.length })
+                      : strategyRule(result.experiment.strategies[result.result.selected])}
                 </h3>
                 <p className="subtle">
                   {activeTask && new Date(activeTask.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
@@ -741,11 +1101,19 @@ export function Backtest({
                         { training: result.experiment.walk_forward.training_days },
                       )}
                     </p>
+                    <p className="subtle">
+                      {t(
+                        "训练日期是评分区间，不表示策略状态在首日重置；这些边界本身不证明资料未参与此前选择。",
+                      )}
+                    </p>
                     <div className="research-table">
                       <table aria-label={t("滚动验证各轮")}>
                         <thead>
                           <tr>
+                            <th>{t("训练评分区间（含首尾）")}</th>
+                            <th>{t("训练交易日数")}</th>
                             <th>{t("验证起始日")}</th>
+                            <th>{t("验证末交易日")}</th>
                             <th>{t("跟随的策略")}</th>
                             <th>{t("训练段夏普比率")}</th>
                             <th>{t("验证交易日数")}</th>
@@ -758,7 +1126,12 @@ export function Backtest({
                             const validation = result.performance.folds[index];
                             return (
                               <tr key={fold.first_day}>
+                                <td>
+                                  {fold.training_first_day} — {fold.training_last_day}
+                                </td>
+                                <td>{fold.training_days}</td>
                                 <td>{fold.first_day}</td>
+                                <td>{fold.last_day}</td>
                                 <td>
                                   {fold.selected === null
                                     ? t("无（都没有夏普比率，不持仓）")
@@ -771,7 +1144,7 @@ export function Backtest({
                                       : fold.candidates[fold.selected].sharpe,
                                   )}
                                 </td>
-                                <td>{validation?.trading_days ?? "—"}</td>
+                                <td>{fold.validation_days}</td>
                                 <td>{percent(validation?.total_return ?? null)}</td>
                                 <td>{percent(validation?.max_drawdown ?? null)}</td>
                               </tr>
@@ -790,7 +1163,7 @@ export function Backtest({
                 )}
                 <p className="subtle">
                   {t(
-                    "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
+                    "按原固定账户事实读取统计，不改写账本或原发布评分。年化收益使用实际观测秒数和365.2425天；波动率和夏普使用明确年期数与无风险假设，缺项分别显示原因。",
                   )}
                 </p>
                 <TradeStatistics key={result.id} trades={result.trades} />
@@ -850,6 +1223,10 @@ export function Backtest({
                   </p>
                 </details>
                 <SettlementMarginResults settlements={result.result.settlements} />
+                <ResearchPlanEvidence binding={result.task.research_plan} query={query} />
+                <ModelReplayEvidence key={`model-replay-${result.id}`} evidence={result} />
+                <PortfolioTargetsEvidence key={`portfolio-${result.id}`} evidence={result} />
+                <TargetRejectionEvidence evidence={result} />
                 <ExperimentDetails evidence={result} />
                 <ResearchExport
                   key={`export-${result.id}`}
@@ -858,13 +1235,13 @@ export function Backtest({
                   busy={busy}
                   query={query}
                 />
-                <SlippageSensitivity
+                <CostSensitivity
                   key={`slippage-${result.id}`}
                   evidence={result}
                   snapshot={snapshot}
                   busy={busy}
                   query={query}
-                  run={run}
+                  trade={trade}
                 />
                 <BacktestReuse
                   key={`reuse-${result.id}`}

@@ -78,8 +78,8 @@ test("service and task failures remain visible from every workspace", async ({ p
       health: "unavailable",
       error: "Test-only service failure",
     };
-    data.result.task_service.failed_count = 1;
-    data.result.task_service.tasks = [
+    data.result.research_service.failed_count = 1;
+    data.result.research_service.tasks = [
       {
         id: "failed-download",
         kind: "minute_download",

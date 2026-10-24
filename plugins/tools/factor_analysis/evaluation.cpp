@@ -315,7 +315,9 @@ FactorEvaluation evaluate_factor(
     std::optional<std::size_t> split,
     std::stop_token stop,
     const std::function<void(std::size_t, std::size_t)>& progress,
-    std::span<const std::span<const std::uint8_t>> eligibility)
+    std::span<const std::span<const std::uint8_t>> eligibility,
+    bool retain_observations,
+    std::optional<std::size_t> evaluation_history)
 {
     if (series.empty() || values.size() != series.size())
         throw std::invalid_argument("factor evaluation needs a series and its values");
@@ -324,6 +326,8 @@ FactorEvaluation evaluate_factor(
         throw std::invalid_argument(
             "factor evaluation needs windows and, to compare them, a " "boundary inside the series");
     const bool cross = series.size() > 1;
+    if (retain_observations && cross)
+        throw std::invalid_argument("observation evidence requires one series");
     if (!eligibility.empty() && (!cross || eligibility.size() != series.size()))
         throw std::invalid_argument("eligibility must match a cross-section");
     for (const auto mask : eligibility)
@@ -340,7 +344,7 @@ FactorEvaluation evaluate_factor(
                 throw std::invalid_argument("return requires positive prices");
         }
     }
-    const std::size_t warmup = lookbacks.back();
+    const std::size_t warmup = evaluation_history.value_or(lookbacks.back());
     const auto boundary = split.value_or(count);
     const auto total = count + (lookbacks.size() > 1 ? lookbacks.size() * boundary : 0);
     std::size_t completed = 0;
@@ -411,6 +415,21 @@ FactorEvaluation evaluate_factor(
     }
     const auto features = featured(count, result.lookback);
     const auto labels = labelled(count);
+    if (retain_observations) {
+        result.observations.reserve(count);
+        for (std::size_t i = 0; i < count; ++i)
+            result.observations.push_back(
+                {i,
+                    features.front()[i],
+                    labels.front()[i],
+                    i < warmup,
+                    i >= warmup && features.front()[i].has_value() && labels.front()[i].has_value()
+                        && !(split && i < boundary && i + horizon >= boundary),
+                    !split             ? FactorSampleRole::full_sample
+                        : i < boundary ? FactorSampleRole::development
+                                       : FactorSampleRole::holdout,
+                    split && i < boundary && i + horizon < count && i + horizon >= boundary});
+    }
     for (std::size_t index = 0; index < (split ? 2U : 1U); ++index) {
         const auto begin = index ? boundary : 0, end = index || !split ? count : boundary;
         // A development label that ends in the holdout would let the two overlap.
@@ -435,18 +454,22 @@ FactorEvaluation evaluate_factor(
                 sections.begin(),
                 sections.end());
         } else {
-            const auto [values, outcomes] = over_time(features.front(), labels.front(), rows);
+            std::vector<std::size_t> usable;
+            for (const auto row : rows)
+                if (features.front()[row] && labels.front()[row])
+                    usable.push_back(row);
+            const auto [values, outcomes] = over_time(features.front(), labels.front(), usable);
             result.partitions.push_back(
                 {begin,
                     end,
-                    rows.size(),
+                    usable.size(),
                     correlation(values, outcomes),
                     rank_correlation(values, outcomes),
                     {},
                     {},
                     {}});
-            for (std::size_t i = 0; i < rows.size(); ++i)
-                result.samples.push_back({rows[i], values[i], outcomes[i]});
+            for (std::size_t i = 0; i < usable.size(); ++i)
+                result.samples.push_back({usable[i], values[i], outcomes[i]});
         }
     }
     advance(count);

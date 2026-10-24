@@ -1,4 +1,6 @@
-#include "support/task_wait.hpp"
+#include "data_retentions.hpp"
+#include "support/data_discovery.hpp"
+#include <asterion/research.pb.h>
 #include "support/task_wait.hpp"
 #include "data_store.hpp"
 #include "data/history_requests.hpp"
@@ -18,6 +20,8 @@
 #include <fstream>
 #include <thread>
 #include <array>
+#include <barrier>
+#include <future>
 using namespace asterion;
 namespace fs = std::filesystem;
 
@@ -81,7 +85,7 @@ data::proto::DownloadAllocation allocation()
     data::proto::DownloadAllocation request;
     auto* identity = request.mutable_identity();
     identity->set_data_instance("data-one");
-    identity->set_task_instance("tasks-one");
+    identity->set_task_instance("data-one");
     identity->set_task_id("download-one");
     identity->set_attempt(1);
     *request.mutable_minutes() = asterion::testing_support::minute_request(
@@ -199,16 +203,16 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement)
 {
     Folder root;
     data::proto::DownloadAuthorizationRequest request;
-    request.set_task_instance("tasks-one");
+    request.set_task_instance("data-one");
     request.set_task_id("download-one");
     request.set_credential("fixture-private-token");
     *request.mutable_minutes() = allocation().minutes();
     data::proto::DownloadAuthorization authorization;
     {
-        data::Store store(root.path, "data-one", "tasks-one");
+        data::Store store(root.path, "data-one");
         authorization = store.authorize(store.verify_authorization(request));
         EXPECT_EQ(authorization.data_instance(), "data-one");
-        EXPECT_EQ(authorization.task_instance(), "tasks-one");
+        EXPECT_EQ(authorization.task_instance(), "data-one");
         EXPECT_EQ(authorization.task_id(), "download-one");
         EXPECT_EQ(
             authorization.minutes().SerializeAsString(),
@@ -231,7 +235,7 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement)
         const auto public_permissions = fs::perms::group_all | fs::perms::others_all;
         EXPECT_EQ(fs::status(path).permissions() & public_permissions, fs::perms::none);
     }
-    data::Store restored(root.path, "data-one", "tasks-one");
+    data::Store restored(root.path, "data-one");
     EXPECT_EQ(
         restored.authorization(authorization.id()).SerializeAsString(),
         authorization.SerializeAsString());
@@ -240,9 +244,9 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement)
 TEST(DataAuthorization, FailedDurableCaptureCannotBeAcknowledgedUntilItsBarrierCompletes)
 {
     Folder root;
-    data::Store store(root.path, "data-one", "tasks-one");
+    data::Store store(root.path, "data-one");
     data::proto::DownloadAuthorizationRequest request;
-    request.set_task_instance("tasks-one");
+    request.set_task_instance("data-one");
     request.set_task_id("download-one");
     request.set_credential("fixture-private-token");
     *request.mutable_minutes() = allocation().minutes();
@@ -250,7 +254,7 @@ TEST(DataAuthorization, FailedDurableCaptureCannotBeAcknowledgedUntilItsBarrierC
     fail_next_directory_syncs_for_testing(1);
     EXPECT_THROW(store.authorize(verified), std::runtime_error);
     fail_next_directory_syncs_for_testing(0);
-    const auto id = sha256_bytes("data-one/tasks-one/download-one");
+    const auto id = sha256_bytes("data-one/data-one/download-one");
     fail_next_directory_syncs_for_testing(1);
     EXPECT_THROW(store.authorization(id), std::runtime_error);
     fail_next_directory_syncs_for_testing(0);
@@ -268,7 +272,7 @@ TEST(DataService, AllocationAndPublicationSurviveAParentPathAliasWithoutRewritin
     fs::path receipt;
     std::string digest;
     {
-        data::Store store(root.path / "physical/warehouse", "data-one", "tasks-one");
+        data::Store store(root.path / "physical/warehouse", "data-one");
         directory = test::allocate_download(store, request).directory();
         for (const auto& file : fs::recursive_directory_iterator(root.path / "physical/warehouse"))
             if (file.path().filename() == "allocation.pb")
@@ -276,7 +280,7 @@ TEST(DataService, AllocationAndPublicationSurviveAParentPathAliasWithoutRewritin
         ASSERT_FALSE(receipt.empty());
         digest = sha256_file(receipt);
     }
-    data::Store reopened(root.path / "alias/warehouse", "data-one", "tasks-one");
+    data::Store reopened(root.path / "alias/warehouse", "data-one");
     EXPECT_EQ(test::allocate_download(reopened, request).directory(), directory);
     EXPECT_EQ(sha256_file(receipt), digest);
     const auto prepared = download(request, directory);
@@ -286,10 +290,22 @@ TEST(DataService, AllocationAndPublicationSurviveAParentPathAliasWithoutRewritin
     decision.set_candidate_digest(accepted.candidate_digest());
     decision.set_publication_id("publish-one");
     const auto published = reopened.publish(reopened.verify_publication(decision));
-    EXPECT_EQ(published.record().SerializeAsString(), prepared.record().SerializeAsString());
-    EXPECT_EQ(
-        reopened.archive().get(accepted.dataset_id()).SerializeAsString(),
-        prepared.record().SerializeAsString());
+    const auto same_evidence = [&](data::proto::HistoryRecord projected) {
+        // Location follows this owner's read root; it is not the immutable version identity.
+        EXPECT_TRUE(fs::equivalent(projected.minute_result().directory(), directory));
+        projected.mutable_minute_result()->set_directory(directory);
+        EXPECT_EQ(projected.SerializeAsString(), prepared.record().SerializeAsString());
+    };
+    same_evidence(published.record());
+    const auto index =
+        root.path / "physical/warehouse/history/index" / (accepted.dataset_id() + ".pb");
+    const auto indexed = sha256_file(index);
+    same_evidence(reopened.archive().get(accepted.dataset_id()));
+    history_files::Archive physical(
+        root.path / "physical/warehouse/history",
+        history_files::Archive::Access::read_only);
+    same_evidence(physical.get(accepted.dataset_id()));
+    EXPECT_EQ(sha256_file(index), indexed);
     EXPECT_EQ(sha256_file(receipt), digest);
     // A link inside the archive is not a parent alias and must not bypass ownership.
     fs::rename(directory, directory + "-moved");
@@ -305,7 +321,7 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
     data::proto::DownloadPreparation prepared;
     data::proto::PreparedDownload accepted;
     {
-        data::Store store(root.path, "data-one", "tasks-one");
+        data::Store store(root.path, "data-one");
         const auto directory = test::allocate_download(store, request).directory();
         EXPECT_EQ(test::allocate_download(store, request).directory(), directory);
         auto conflict = request;
@@ -323,7 +339,7 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
     decision.set_candidate_digest(accepted.candidate_digest());
     decision.set_publication_id("publish-one");
     {
-        data::Store store(root.path, "data-one", "tasks-one");
+        data::Store store(root.path, "data-one");
         EXPECT_TRUE(store.archive().datasets({}).empty());
         auto wrong = decision;
         wrong.set_candidate_digest(std::string(64, 'a'));
@@ -338,12 +354,12 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
         EXPECT_THROW(store.publish(store.verify_publication(wrong)), Error);
     }
     {
-        data::Store store(root.path, "data-one", "tasks-one");
+        data::Store store(root.path, "data-one");
         EXPECT_EQ(store.published(request.identity()).decision().publication_id(), "publish-one");
         EXPECT_EQ(store.archive().datasets({}).size(), 1);
     }
-    EXPECT_THROW((data::Store(root.path, "another-data", "tasks-one")), std::invalid_argument);
-    EXPECT_THROW((data::Store(root.path, "data-one", "another-task")), std::invalid_argument);
+    EXPECT_THROW((data::Store(root.path, "another-data")), std::invalid_argument);
+    EXPECT_NO_THROW((data::Store(root.path, "data-one")));
 }
 
 TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
@@ -353,7 +369,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
     auto request = allocation();
     data::proto::PreparedDownload accepted;
     {
-        data::Store store(root.path, "data-one", "tasks-one");
+        data::Store store(root.path, "data-one");
         accepted = store.prepare(store.verify_download(
             download(request, test::allocate_download(store, request).directory())));
     }
@@ -366,8 +382,6 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
             root.path.string(),
             "--session",
             "data-one",
-            "--task-instance",
-            "tasks-one",
             "--endpoint",
             endpoint,
             "--internal-endpoint",
@@ -394,7 +408,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
         silent.push_back(ipc::Channel::connect(worker, 1s));
     data::proto::DataRequest capture;
     auto* authorization_request = capture.mutable_authorize_download();
-    authorization_request->set_task_instance("tasks-one");
+    authorization_request->set_task_instance("data-one");
     authorization_request->set_task_id("authorized-download");
     authorization_request->set_credential("fixture-rpc-private-token");
     *authorization_request->mutable_minutes() = request.minutes();
@@ -476,8 +490,6 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
             root.path.string(),
             "--session",
             "data-one",
-            "--task-instance",
-            "tasks-one",
             "--endpoint",
             restored_endpoint,
             "--internal-endpoint",
@@ -504,11 +516,11 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService)
 TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
 {
     Folder tasks, warehouse;
-    data::Store data(warehouse.path, "data-one", "tasks-one");
-    tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
+    data::Store data(warehouse.path, "data-one");
+    tasks::Store store(tasks.path, tasks::Identity{"data-one"});
     auto request = allocation();
     const auto id = request.identity().task_id();
-    tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
+    tasks::submit(store, test::authorize_download(data, "data-one", id, request.minutes()));
     task::proto::TaskFinish finish;
     finish.set_id(id);
     finish.set_token(store.commit(store.claim(id)).token());
@@ -536,21 +548,20 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
     EXPECT_TRUE(data.archive().datasets({}).empty());
 }
 
-TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutDataStartupDependency)
+TEST(DownloadPublication, DataRestartResumesTheOriginalDecisionAndRetainsConfirmedResult)
 {
     using namespace std::chrono_literals;
-    Folder tasks, warehouse, sockets;
+    Folder warehouse, sockets;
+    const auto ledger = warehouse.path / "acquisition-tasks";
     auto request = allocation();
     const auto id = request.identity().task_id();
     std::string token, dataset_id;
     data::proto::DownloadPublication decision;
     {
-        data::Store data(warehouse.path, "data-one", "tasks-one");
-        tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
-        tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
-        tasks::submit(
-            store,
-            test::authorize_download(data, "tasks-one", "queued-download", request.minutes()));
+        data::Store data(warehouse.path, "data-one");
+        fs::create_directory(ledger);
+        tasks::Store store(ledger, tasks::Identity{"data-one"});
+        tasks::submit(store, test::authorize_download(data, "data-one", id, request.minutes()));
         token = store.commit(store.claim(id)).token();
         const auto candidate =
             download(request, test::allocate_download(data, request).directory());
@@ -574,101 +585,63 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutDataStartupDep
         decision = store.pending_publications().at(0);
         EXPECT_TRUE(data.archive().datasets({}).empty());
     }
-    const auto task_endpoint = (sockets.path / "task.sock").string();
-    const auto data_endpoint = (sockets.path / "data.sock").string();
-    const auto task_workers = (sockets.path / "task.workers").string();
-    const auto data_workers = (sockets.path / "data.workers").string();
-    ChildProcess coordinator(
-        ASTERION_TASK_SERVICE_PATH,
-        {"--config",
-            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
-                .string(),
-            "--directory",
-            tasks.path.string(),
-            "--session",
-            "tasks-one",
-            "--endpoint",
-            task_endpoint,
-            "--data-instance",
-            "data-one",
-            "--data-endpoint",
-            data_workers},
-        false,
-        sockets.path / "task.log",
-        true);
-    auto wait_endpoint = [&](const std::string& endpoint, ChildProcess& process) {
+    const auto endpoint = (sockets.path / "data.sock").string();
+    const auto internal = (sockets.path / "data.internal").string();
+    auto start = [&] {
+        auto process = std::make_unique<ChildProcess>(
+            ASTERION_DATA_SERVICE_PATH,
+            std::vector<std::string>{
+                "--directory",
+                warehouse.path.string(),
+                "--session",
+                "data-one",
+                "--endpoint",
+                endpoint,
+                "--internal-endpoint",
+                internal
+            });
         const auto deadline = std::chrono::steady_clock::now() + 10s;
-        while (!fs::exists(endpoint) && !process.exited()
+        while (!fs::exists(endpoint) && !process->exited()
             && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(10ms);
         if (!fs::exists(endpoint))
-            throw std::runtime_error("fixture service did not initialize");
+            throw std::runtime_error("isolated Data did not listen before deadline");
+        return process;
     };
-    wait_endpoint(task_endpoint, coordinator);
-    auto call = [&](task::proto::TaskRequest request, bool worker = false) {
-        request.set_version(1);
-        request.set_service_id("tasks-one");
-        request.set_correlation_id(unique_process_id());
-        auto channel = ipc::Channel::connect(worker ? task_workers : task_endpoint, 2s);
-        channel.send(request.SerializeAsString(), 2s);
-        task::proto::TaskResponse response;
-        if (!response.ParseFromString(channel.receive(2s)) || response.has_error())
-            throw std::runtime_error("task publication fixture request failed");
-        return response;
-    };
-    task::proto::TaskRequest heartbeat;
-    heartbeat.mutable_heartbeat();
-    const auto ready_deadline = std::chrono::steady_clock::now() + 10s;
-    while (!call(heartbeat).health().initialized()) {
-        ASSERT_FALSE(coordinator.exited());
-        ASSERT_LT(std::chrono::steady_clock::now(), ready_deadline);
-        std::this_thread::sleep_for(10ms);
-    }
-    task::proto::TaskRequest get;
-    get.mutable_get()->set_id(id);
-    EXPECT_EQ(call(get).task().state(), task::proto::PUBLISHING);
-    EXPECT_EQ(call(get).task().publication().SerializeAsString(), decision.SerializeAsString());
-    task::proto::TaskRequest cancel;
-    cancel.mutable_cancel()->set_id(id);
-    EXPECT_EQ(call(cancel).task().state(), task::proto::PUBLISHING);
-    // Data can start later. No claim, heartbeat, redownload, or new decision is sent.
-    auto data_process = std::make_unique<ChildProcess>(
-        ASTERION_DATA_SERVICE_PATH,
-        std::vector<std::string>{
-            "--directory",
-            warehouse.path.string(),
-            "--session",
-            "data-one",
-            "--task-instance",
-            "tasks-one",
-            "--endpoint",
-            data_endpoint,
-            "--internal-endpoint",
-            data_workers
-        },
-        false,
-        sockets.path / "data.log",
-        true);
-    wait_endpoint(data_endpoint, *data_process);
+    auto process = start();
+    protocol::DataClient data(endpoint, "data-one");
+    await_ready(data);
+    data::proto::DataRequest get;
+    get.mutable_acquisition_task()->mutable_get()->set_id(id);
     const auto deadline = std::chrono::steady_clock::now() + 10s;
-    while (call(get).task().state() == task::proto::PUBLISHING
+    while (data.call(get).acquisition_task().task().state() == task::proto::PUBLISHING
         && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(20ms);
-    ASSERT_EQ(call(get).task().state(), task::proto::SUCCEEDED);
-    ASSERT_EQ(call(get).task().publication().SerializeAsString(), decision.SerializeAsString());
-    protocol::DataClient data(data_workers, "data-one");
+    const auto completed = data.call(get).acquisition_task().task();
+    ASSERT_EQ(completed.state(), task::proto::SUCCEEDED);
+    EXPECT_EQ(completed.attempt(), 1);
+    EXPECT_EQ(completed.publication().SerializeAsString(), decision.SerializeAsString());
+    protocol::DataClient worker(internal, "data-one");
     data::proto::DataRequest published;
     *published.mutable_published_download() = decision.identity();
-    const auto receipt = data.call(published).published_download();
+    const auto receipt = worker.call(published).published_download();
     EXPECT_EQ(receipt.decision().SerializeAsString(), decision.SerializeAsString());
     EXPECT_EQ(receipt.record().minute_result().manifest_sha256(), dataset_id);
-    data_process.reset();
-    // Historical file access belongs to Data. Task still serves its confirmed
-    // result evidence while the warehouse process and its files are unavailable.
-    fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
-    task::proto::TaskRequest result;
-    result.mutable_result()->set_id(id);
-    EXPECT_EQ(call(result).minutes().manifest_sha256(), dataset_id);
+    data::proto::DataRequest result;
+    result.mutable_acquisition_task()->mutable_result()->set_id(id);
+    const auto evidence = data.call(result).acquisition_task();
+    EXPECT_EQ(evidence.minutes().manifest_sha256(), dataset_id);
+    process.reset();
+    // Only this isolated child's sockets may need removal after termination.
+    for (const auto& socket : {endpoint, internal})
+        if (fs::is_socket(socket))
+            fs::remove(socket);
+    process = start();
+    await_ready(data);
+    EXPECT_EQ(
+        data.call(result).acquisition_task().SerializeAsString(),
+        evidence.SerializeAsString());
+    EXPECT_EQ(data.call(get).acquisition_task().task().attempt(), 1);
 }
 
 TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
@@ -676,7 +649,7 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
     using namespace std::chrono_literals;
     Folder tasks, warehouse, sockets;
     {
-        data::Store data(warehouse.path, "data-one", "tasks-one");
+        data::Store data(warehouse.path, "data-one");
     }
     // The contract's days in the market-wide daily table.
     const auto daily = protocol::encode_daily_table(
@@ -696,17 +669,21 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
             warehouse.path.string(),
             "--session",
             "data-one",
-            "--task-instance",
-            "tasks-one",
+            "--node-id",
+            "fixture-node",
             "--endpoint",
             data_endpoint,
             "--internal-endpoint",
             data_workers
         });
+    testing_support::DataDiscovery discovery(
+        task_endpoint + ".discovery",
+        "data-one",
+        data_endpoint);
     ChildProcess task_process(
-        ASTERION_TASK_SERVICE_PATH,
+        ASTERION_RESEARCH_PATH,
         {"--config",
-            (std::filesystem::path(ASTERION_TASK_SERVICE_PATH).parent_path() / "config/task.json")
+            (std::filesystem::path(ASTERION_RESEARCH_PATH).parent_path() / "config/research.json")
                 .string(),
             "--directory",
             tasks.path.string(),
@@ -714,17 +691,16 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
             "tasks-one",
             "--endpoint",
             task_endpoint,
-            "--data-instance",
-            "data-one",
-            "--data-endpoint",
-            data_workers});
+            "--discovery-endpoint",
+            task_endpoint + ".discovery"});
+    discovery.research("tasks-one", task_process.id(), sha256_file(ASTERION_RESEARCH_PATH));
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     while ((!fs::exists(data_endpoint) || !fs::exists(task_endpoint)) && !data_process->exited()
         && !task_process.exited() && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(10ms);
     ASSERT_TRUE(fs::exists(data_endpoint));
     ASSERT_TRUE(fs::exists(task_endpoint));
-    auto call = [&](task::proto::TaskRequest request) {
+    auto call = [&](research::proto::ResearchRequest request) {
         request.set_version(1);
         request.set_service_id("tasks-one");
         request.set_correlation_id(unique_process_id());
@@ -757,8 +733,9 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
     *query.mutable_save_dataset() = saved;
     ASSERT_EQ(data.call(query).saved_dataset().id(), saved.id());
 
-    task::proto::TaskRequest submit;
+    research::proto::ResearchRequest submit;
     submit.mutable_submit()->set_id("backtest");
+    submit.mutable_submit()->mutable_data_owner()->set_service_id("data-one");
     auto* backtest = submit.mutable_submit()->mutable_backtest();
     auto* contract = backtest->add_contracts();
     *contract->mutable_data() = selection;
@@ -806,7 +783,7 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
             task::proto::SUCCEEDED);
     data_process.reset();
     fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
-    task::proto::TaskRequest get;
+    research::proto::ResearchRequest get;
     get.mutable_get()->set_id("backtest");
     EXPECT_EQ(
         call(get).task().input().paper().contracts(0).dataset().SerializeAsString(),
@@ -815,7 +792,7 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
     EXPECT_EQ(
         call(get).task().factor().series(0).bars().SerializeAsString(),
         expected.SerializeAsString());
-    task::proto::TaskRequest result;
+    research::proto::ResearchRequest result;
     for (const auto* id : {"backtest", "factor"}) {
         result.mutable_result()->set_id(id);
         EXPECT_EQ(call(result).result_task().state(), task::proto::SUCCEEDED);
@@ -835,7 +812,7 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput)
     auto* selection = query.mutable_bar_dataset();
     selection->set_contract("SHFE/rb/2026-10");
     {
-        data::Store store(warehouse.path, "historical-data", "task");
+        data::Store store(warehouse.path, "historical-data");
         data::proto::MinuteDownload request;
         request.set_contract_id("SHFE/rb/2026-10");
         request.set_source("tushare.ft_mins");
@@ -862,8 +839,6 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput)
             warehouse.path.string(),
             "--session",
             "historical-data",
-            "--task-instance",
-            "task",
             "--endpoint",
             endpoint,
             "--internal-endpoint",
@@ -883,4 +858,513 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput)
     EXPECT_EQ(input.bars(count - 1).timestamp_ns(), begin + (count - 1) * minute_ns);
     EXPECT_GT(reply.ByteSizeLong(), 4 * 1024 * 1024)
         << "Data's private endpoint carries bulk replies, not only small control frames";
+}
+
+namespace {
+
+asterion::data::proto::DataOwner retention_owner()
+{
+    data::proto::DataOwner owner;
+    owner.set_node_id("fixture-node");
+    owner.set_service_id("historical-data");
+    return owner;
+}
+
+data::proto::DataRetention retained_input(const Json& selected, const std::string& id = "run-one")
+{
+    data::proto::DataRetention value;
+    *value.mutable_source() = retention_owner();
+    auto* consumer = value.mutable_consumer();
+    consumer->mutable_owner()->set_node_id("fixture-node");
+    consumer->mutable_owner()->set_service_id("research-one");
+    consumer->mutable_owner()->set_domain("research");
+    consumer->set_kind("task");
+    consumer->set_id(id);
+    consumer->set_version(std::string(64, 'a'));
+    for (const auto& id : selected.at("source_dataset_ids")) {
+        auto* version = value.add_versions();
+        version->set_kind(data::proto::DataVersion::MINUTE_VERSION);
+        version->set_version(id.get<std::string>());
+    }
+    auto* snapshot = value.add_versions();
+    snapshot->set_kind(data::proto::DataVersion::TABLE_SNAPSHOT);
+    snapshot->set_version(selected.at("daily").at("snapshot").get<std::string>());
+    return value;
+}
+
+} // namespace
+
+TEST(DataRetentions, IdempotentPreparationAndConfirmationKeepFixedInputsAcrossReopen)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    const auto input = retained_input(selected);
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        const auto prepared = retentions.prepare(input);
+        EXPECT_EQ(prepared.phase(), data::proto::DataRetentionRecord::PREPARED);
+        EXPECT_EQ(retentions.prepare(input).SerializeAsString(), prepared.SerializeAsString());
+        EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+        const auto confirmed = retentions.confirm(input);
+        EXPECT_EQ(confirmed.phase(), data::proto::DataRetentionRecord::CONFIRMED);
+        EXPECT_EQ(retentions.confirm(input).SerializeAsString(), confirmed.SerializeAsString());
+    }
+    data::Store restored(directory.path, "historical-data");
+    data::Retentions retentions(directory.path, retention_owner(), restored);
+    EXPECT_EQ(
+        retentions.get(input.consumer()).phase(),
+        data::proto::DataRetentionRecord::CONFIRMED);
+    EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+    EXPECT_EQ(retentions.holds(input.versions(1)).size(), 1U);
+}
+
+TEST(DataRetentions, ChangedConsumerInputOrSourceCannotOverwriteAndMissingVersionsNeverRetain)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    const auto input = retained_input(selected);
+    data::Store store(directory.path, "historical-data");
+    data::Retentions retentions(directory.path, retention_owner(), store);
+    const auto original = retentions.prepare(input);
+    auto changed = input;
+    changed.mutable_consumer()->set_version(std::string(64, 'b'));
+    EXPECT_THROW(retentions.prepare(changed), Error);
+    EXPECT_THROW(retentions.confirm(changed), Error);
+    changed = input;
+    changed.mutable_source()->set_node_id("another-node");
+    EXPECT_THROW(retentions.prepare(changed), Error);
+    changed = retained_input(selected, "missing-version");
+    changed.mutable_versions(1)->set_version(std::string(64, 'f'));
+    EXPECT_THROW(retentions.prepare(changed), Error);
+    EXPECT_THROW(retentions.get(changed.consumer()), Error);
+    EXPECT_EQ(retentions.get(input.consumer()).SerializeAsString(), original.SerializeAsString());
+    EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+}
+
+TEST(DataRetentions, CommitFailureRollsBackAndPreparedHoldSurvivesLostAcknowledgement)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    const auto input = retained_input(selected);
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(retentions.prepare(input), std::runtime_error);
+        EXPECT_THROW(retentions.get(input.consumer()), Error);
+        EXPECT_TRUE(retentions.holds(input.versions(0)).empty());
+        (void)retentions.prepare(input); // Committed but its reply is deliberately discarded.
+    }
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        EXPECT_EQ(
+            retentions.get(input.consumer()).phase(),
+            data::proto::DataRetentionRecord::PREPARED);
+        EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(retentions.confirm(input), std::runtime_error);
+        EXPECT_EQ(
+            retentions.get(input.consumer()).phase(),
+            data::proto::DataRetentionRecord::PREPARED);
+        EXPECT_EQ(retentions.confirm(input).phase(), data::proto::DataRetentionRecord::CONFIRMED);
+    }
+}
+
+TEST(DataRetentions, WrongOwnerCannotReopenOrRewriteExistingRetentionMetadata)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        (void)retentions.prepare(retained_input(selected));
+    }
+    const auto database = directory.path / "retentions.sqlite";
+    const auto before = sha256_file(database);
+    {
+        data::Store store(directory.path, "historical-data");
+        auto owner = retention_owner();
+        owner.set_node_id("another-node");
+        EXPECT_THROW(
+            data::Retentions rejected(directory.path, owner, store),
+            std::invalid_argument);
+    }
+    EXPECT_EQ(sha256_file(database), before);
+}
+
+TEST(DataRetentions, OwnerReleaseProofIsRequiredAndReleasedReferencesCannotResurrect)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    const auto input = retained_input(selected);
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        (void)retentions.prepare(input);
+        resource::proto::ReleaseDecision proof;
+        *proof.mutable_object() = input.consumer();
+        EXPECT_THROW(retentions.release(input.consumer(), proof), Error);
+        proof.set_state(resource::proto::ReleaseDecision::RETAINED);
+        EXPECT_THROW(retentions.release(input.consumer(), proof), Error);
+        proof.set_state(resource::proto::ReleaseDecision::RELEASED);
+        proof.mutable_object()->set_version(std::string(64, 'b'));
+        EXPECT_THROW(retentions.release(input.consumer(), proof), Error);
+        EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+        *proof.mutable_object() = input.consumer();
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(retentions.release(input.consumer(), proof), std::runtime_error);
+        EXPECT_EQ(retentions.holds(input.versions(0)).size(), 1U);
+        EXPECT_EQ(
+            retentions.release(input.consumer(), proof).phase(),
+            data::proto::DataRetentionRecord::RELEASED);
+        EXPECT_TRUE(retentions.holds(input.versions(0)).empty());
+        EXPECT_EQ(
+            retentions.release(input.consumer(), proof).phase(),
+            data::proto::DataRetentionRecord::RELEASED);
+        EXPECT_THROW(retentions.prepare(input), Error);
+        EXPECT_THROW(retentions.confirm(input), Error);
+    }
+    data::Store restored(directory.path, "historical-data");
+    data::Retentions retentions(directory.path, retention_owner(), restored);
+    EXPECT_EQ(retentions.get(input.consumer()).phase(), data::proto::DataRetentionRecord::RELEASED);
+    EXPECT_TRUE(retentions.holds(input.versions(0)).empty());
+    EXPECT_EQ(
+        restored.archive().get(input.versions(0).version()).minute_result().manifest_sha256(),
+        input.versions(0).version()); // Releasing a consumer is not deleting Data's object.
+}
+
+TEST(DataRetentions, MissingAuthorityCannotBeRecreatedAsAnEmptyLedger)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retained");
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        (void)retentions.prepare(retained_input(selected));
+    }
+    ASSERT_TRUE(fs::exists(directory.path / "retentions.required.pb"));
+    ASSERT_TRUE(fs::remove(directory.path / "retentions.sqlite"));
+    data::Store store(directory.path, "historical-data");
+    EXPECT_THROW(
+        data::Retentions rejected(directory.path, retention_owner(), store),
+        std::runtime_error);
+    EXPECT_FALSE(fs::exists(directory.path / "retentions.sqlite"));
+    const auto input = retained_input(selected);
+    EXPECT_EQ(
+        store.archive().get(input.versions(0).version()).minute_result().manifest_sha256(),
+        input.versions(0).version());
+}
+
+namespace {
+
+class RetirementProcess
+{
+    fs::path root_;
+    std::string endpoint_;
+    std::unique_ptr<ChildProcess> process_;
+
+public:
+    explicit RetirementProcess(const fs::path& root)
+        : root_(root),
+          endpoint_((root / "data.sock").string()),
+          client(endpoint_, "historical-data")
+    {
+        start();
+    }
+
+    void start()
+    {
+        process_ = std::make_unique<ChildProcess>(
+            ASTERION_DATA_SERVICE_PATH,
+            std::vector<std::string>{
+                "--directory",
+                root_.string(),
+                "--session",
+                "historical-data",
+                "--node-id",
+                "fixture-node",
+                "--endpoint",
+                endpoint_,
+                "--internal-endpoint",
+                endpoint_ + ".workers"
+            });
+        using namespace std::chrono_literals;
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            try {
+                await_ready(client);
+                return;
+            } catch (const Error& error) {
+                if (error.code() != ErrorCode::unavailable || process_->exited()
+                    || std::chrono::steady_clock::now() >= deadline)
+                    throw;
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+    }
+
+    void restart()
+    {
+        process_.reset();
+        start();
+    }
+
+    protocol::DataClient client;
+};
+
+data::proto::DataRequest retire_minute(const std::string& id, bool execute)
+{
+    data::proto::DataRequest request;
+    request.mutable_minute_retirement()->set_id(id);
+    request.mutable_minute_retirement()->set_execute(execute);
+    return request;
+}
+
+std::string minute_manifest(const data::proto::HistoryRecord& record)
+{
+    std::ifstream input(
+        fs::path(record.minute_result().directory()) / "minutes.json",
+        std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), {}};
+}
+
+} // namespace
+
+TEST(DataMinuteRetirement, PreviewThenConcurrentReferenceAndDeletionHaveOnlyOneWinner)
+{
+    using namespace std::chrono_literals;
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retire-race");
+    const auto pin = retained_input(selected);
+    const auto id = pin.versions(0).version();
+    RetirementProcess data(directory.path);
+    const auto preview = data.client.call(retire_minute(id, false)).minute_retirement();
+    ASSERT_EQ(preview.state(), data::proto::MinuteRetirement::AVAILABLE);
+    ASSERT_TRUE(preview.has_payload_bytes());
+    EXPECT_GT(preview.payload_bytes(), 0U);
+    data::proto::DataRequest prepare;
+    *prepare.mutable_retention()->mutable_prepare() = pin;
+    std::barrier start(3);
+    auto retaining = std::async(std::launch::async, [&] {
+        start.arrive_and_wait();
+        try {
+            (void)data.client.call(prepare, 10s);
+            return true;
+        } catch (const Error&) {
+            return false;
+        }
+    });
+    auto deleting = std::async(std::launch::async, [&] {
+        start.arrive_and_wait();
+        return data.client.call(retire_minute(id, true), 10s).minute_retirement();
+    });
+    start.arrive_and_wait();
+    const auto result = deleting.get();
+    const bool retained = retaining.get();
+    if (retained) {
+        ASSERT_EQ(result.state(), data::proto::MinuteRetirement::BLOCKED);
+        ASSERT_EQ(result.holds_size(), 1);
+        EXPECT_EQ(
+            data.client.call(retire_minute(id, true)).minute_retirement().state(),
+            data::proto::MinuteRetirement::BLOCKED);
+        data::proto::DataRequest record;
+        record.mutable_record()->set_id(id);
+        EXPECT_TRUE(fs::exists(data.client.call(record).record().minute_result().directory()));
+    } else {
+        ASSERT_EQ(result.state(), data::proto::MinuteRetirement::REMOVED);
+        EXPECT_THROW(data.client.call(prepare), Error);
+        EXPECT_EQ(
+            data.client.call(retire_minute(id, true)).minute_retirement().state(),
+            data::proto::MinuteRetirement::REMOVED);
+    }
+    data.restart();
+    EXPECT_EQ(
+        data.client.call(retire_minute(id, false)).minute_retirement().state(),
+        result.state());
+    data::proto::DataRequest heartbeat;
+    heartbeat.mutable_heartbeat();
+    EXPECT_FALSE(data.client.call(heartbeat).health().recovery_required());
+}
+
+TEST(DataMinuteRetirement, NamedDatasetBlocksDeletionAndDoesNotLosePayload)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retire-named");
+    const auto pin = retained_input(selected);
+    RetirementProcess data(directory.path);
+    data::proto::DataRequest query;
+    auto* selection = query.mutable_bar_dataset();
+    selection->set_contract("SHFE/rb/2026-10");
+    selection->set_begin_day("2026-09-25");
+    selection->set_end_day("2026-09-25");
+    *selection->mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
+    selection->add_source_dataset_ids(pin.versions(0).version());
+    const auto resolved = data.client.call(query).bar_dataset();
+    data::proto::NamedDataset saved;
+    saved.set_name("retained selection");
+    *saved.add_selections() = *selection;
+    saved.add_content_revisions(resolved.revision());
+    saved.set_id(protocol::named_dataset_revision(saved));
+    query.Clear();
+    *query.mutable_save_dataset() = saved;
+    (void)data.client.call(query);
+    const auto result =
+        data.client.call(retire_minute(pin.versions(0).version(), true)).minute_retirement();
+    ASSERT_EQ(result.state(), data::proto::MinuteRetirement::BLOCKED);
+    ASSERT_EQ(result.internal_usage().references_size(), 1);
+    EXPECT_EQ(result.internal_usage().references(0).id(), saved.id());
+    data::proto::DataRequest still_readable;
+    still_readable.mutable_record()->set_id(pin.versions(0).version());
+    EXPECT_TRUE(
+        fs::is_directory(data.client.call(still_readable).record().minute_result().directory()));
+}
+
+TEST(DataMinuteRetirement, DurablePendingSealResumesThroughPublicServiceAfterRestart)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retire-resume");
+    const auto pin = retained_input(selected);
+    const auto id = pin.versions(0).version();
+    fs::path payload;
+    {
+        data::Store store(directory.path, "historical-data");
+        const auto record = store.archive().get(id);
+        payload = record.minute_result().directory();
+        store.begin_minute_retirement(record, minute_manifest(record));
+        EXPECT_THROW(store.archive().get(id), Error);
+        history_files::Archive archive(directory.path / "history");
+        EXPECT_THROW(archive.publish_verified(record), Error);
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        EXPECT_THROW(retentions.prepare(pin), Error);
+    }
+    RetirementProcess data(directory.path);
+    EXPECT_EQ(
+        data.client.call(retire_minute(id, false)).minute_retirement().state(),
+        data::proto::MinuteRetirement::PENDING);
+    data::proto::DataRequest inventory;
+    inventory.mutable_minute_retirements()->set_limit(1);
+    const auto pending = data.client.call(inventory).minute_retirements();
+    ASSERT_EQ(pending.items_size(), 1);
+    EXPECT_EQ(pending.items(0).id(), id);
+    EXPECT_EQ(pending.items(0).state(), data::proto::MinuteRetirement::PENDING);
+    EXPECT_TRUE(pending.next_after().empty());
+    inventory.mutable_minute_retirements()->set_after(id);
+    EXPECT_EQ(data.client.call(inventory).minute_retirements().items_size(), 0);
+
+    EXPECT_EQ(
+        data.client.call(retire_minute(id, true)).minute_retirement().state(),
+        data::proto::MinuteRetirement::REMOVED);
+    EXPECT_FALSE(fs::exists(payload));
+    data.restart();
+    EXPECT_EQ(
+        data.client.call(retire_minute(id, true)).minute_retirement().state(),
+        data::proto::MinuteRetirement::REMOVED);
+    data::proto::DataRequest prepare;
+    *prepare.mutable_retention()->mutable_prepare() = pin;
+    EXPECT_THROW(data.client.call(prepare), Error);
+}
+
+TEST(DataMinuteRetirement, InterruptedCleanupAndUncertainCompletionKeepSealAndAuthorityIsRequired)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retire-interrupted");
+    const auto id = retained_input(selected).versions(0).version();
+    {
+        data::Store store(directory.path, "historical-data");
+        const auto record = store.archive().get(id);
+        store.begin_minute_retirement(record, minute_manifest(record));
+        std::stop_source stop;
+        stop.request_stop();
+        EXPECT_THROW(store.clean_minute_retirement(id, stop.get_token()), Error);
+        EXPECT_TRUE(fs::exists(record.minute_result().directory()));
+        EXPECT_FALSE(store.archive().retirement(id)->complete());
+    }
+    {
+        data::Store store(directory.path, "historical-data");
+        store.clean_minute_retirement(id, {});
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(store.finish_minute_retirement(id), std::runtime_error);
+        EXPECT_FALSE(store.archive().retirement(id)->complete());
+    }
+    {
+        data::Store store(directory.path, "historical-data");
+        store.finish_minute_retirement(id);
+        EXPECT_TRUE(store.archive().retirement(id)->complete());
+    }
+
+    {
+        sqlite::Database read(
+            directory.path / "history" / "retirements.sqlite",
+            sqlite::Database::Access::read_only);
+        sqlite::Database::Statement evidence(read, "SELECT manifest FROM retirements WHERE id=?");
+        evidence.bind(1, id);
+        ASSERT_TRUE(evidence.step());
+        EXPECT_EQ(sha256_bytes(evidence.blob(0)), id);
+    }
+    ASSERT_TRUE(fs::remove(directory.path / "history" / "retirements.sqlite"));
+    EXPECT_THROW(data::Store rejected(directory.path, "historical-data"), std::runtime_error);
+    EXPECT_FALSE(fs::exists(directory.path / "history" / "retirements.sqlite"));
+    EXPECT_TRUE(fs::exists(directory.path / "history" / "index" / (id + ".pb")));
+}
+
+TEST(DataMinuteRetirement, PreparedReferenceBlocksDeletionEvenWhenConsumerIsOffline)
+{
+    Folder directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "retire-held");
+    const auto pin = retained_input(selected);
+    {
+        data::Store store(directory.path, "historical-data");
+        data::Retentions retentions(directory.path, retention_owner(), store);
+        (void)retentions.prepare(pin);
+    }
+    RetirementProcess data(directory.path);
+    const auto result =
+        data.client.call(retire_minute(pin.versions(0).version(), true)).minute_retirement();
+    ASSERT_EQ(result.state(), data::proto::MinuteRetirement::BLOCKED);
+    ASSERT_EQ(result.holds_size(), 1);
+    EXPECT_EQ(result.holds(0).phase(), data::proto::DataRetentionRecord::PREPARED);
+    EXPECT_EQ(
+        result.holds(0).retention().consumer().SerializeAsString(),
+        pin.consumer().SerializeAsString());
+    EXPECT_GT(result.payload_bytes(), 0U);
+}
+
+TEST(DataMinuteRetirement, IndependentCopyResumesOnlyItsOwnSealedPayloadAndKeepsOriginal)
+{
+    Folder source, restored;
+    const auto selected = test::seed_history(source.path, {100, 101, 102}, "retire-portable");
+    const auto id = retained_input(selected).versions(0).version();
+    fs::path original_payload;
+    {
+        data::Store store(source.path, "historical-data");
+        const auto record = store.archive().get(id);
+        original_payload =
+            fs::path(record.minute_result().directory()).lexically_relative(source.path);
+        store.begin_minute_retirement(record, minute_manifest(record));
+    }
+    const auto copy = restored.path / "copy";
+    fs::copy(source.path, copy, fs::copy_options::recursive);
+    const auto preserved =
+        source.path.parent_path() / (source.path.filename().string() + "-preserved");
+    fs::rename(source.path, preserved);
+    // Transfer cleanup responsibility to Folder; the original remains inaccessible at its old locator.
+    source.path = preserved;
+    {
+        data::Store store(copy, "historical-data");
+        const auto decision = store.archive().retirement(id);
+        ASSERT_TRUE(decision.has_value());
+        EXPECT_EQ(
+            fs::path(decision->record().minute_result().directory()),
+            copy / original_payload);
+        EXPECT_FALSE(decision->complete());
+        store.clean_minute_retirement(id, {});
+        store.finish_minute_retirement(id);
+        EXPECT_TRUE(store.archive().retirement(id)->complete());
+        EXPECT_FALSE(fs::exists(copy / original_payload));
+    }
+    data::Store original(source.path, "historical-data");
+    EXPECT_FALSE(original.archive().retirement(id)->complete());
+    EXPECT_TRUE(fs::is_directory(source.path / original_payload));
 }

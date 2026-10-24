@@ -10,11 +10,24 @@ import {
   type DisplayError,
   type TerminalContext,
 } from "../contract";
-import type { FactorKind, TableCoverage, TableProduct } from "../../src/bridge/client";
+import type {
+  ResearchPlanBinding,
+  ResearchVariableDefinition,
+  FactorKind,
+  TableCoverage,
+  TableProduct,
+} from "../../src/bridge/client";
 import { factorNames, factorWords, t, type Run, selectedSeries } from "./shared";
 
 type Kind = keyof typeof factorWords;
+type PlanSelection = {
+  researchPlan?: ResearchPlanBinding | null;
+  planReady?: boolean;
+  variableDefinition?: ResearchVariableDefinition | null;
+  variableReady?: boolean;
+};
 const defaults = {
+  retain_observations: false,
   lookback: "5",
   horizon: "1",
   evaluation: "full_sample",
@@ -35,20 +48,25 @@ function FactorParameters({
   identity,
   observations,
   selectionCount = 0,
+  researchPlan,
+  planReady = true,
+  variableDefinition,
+  variableReady = true,
   snapshot,
   busy,
   run,
-}: Pick<TerminalContext, "snapshot" | "busy"> & {
-  kind: Kind;
-  factor?: FactorKind;
-  series: CommandParams["factor.submit"]["series"] | null;
-  identity: string;
-  observations?: number;
-  selectionCount?: number;
-  run: Run;
-}) {
+}: Pick<TerminalContext, "snapshot" | "busy"> &
+  PlanSelection & {
+    kind: Kind;
+    factor?: FactorKind;
+    series: CommandParams["factor.submit"]["series"] | null;
+    identity: string;
+    observations?: number;
+    selectionCount?: number;
+    run: Run;
+  }) {
   const words = factorWords[kind];
-  const taskService = snapshot?.task_service;
+  const taskService = snapshot?.research_service;
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
   const [parameters, setParameters] = useWorkspaceDraft(`factor:${kind}`, defaults);
   const [liquidity, setLiquidity] = useWorkspaceDraft(`factor:${kind}:liquidity`, {
@@ -58,25 +76,53 @@ function FactorParameters({
     interest: "0",
   });
   const filtered = kind === "tables" && liquidity.enabled;
+  const expressionSupported =
+    !variableDefinition ||
+    (selectionCount === 1 &&
+      !filtered &&
+      (parameters.evaluation === "full_sample" || parameters.evaluation === "holdout") &&
+      parameters.retain_observations);
+  const observationSupport = variableDefinition
+    ? selectionCount === 1 &&
+      !filtered &&
+      (parameters.evaluation === "full_sample" || parameters.evaluation === "holdout")
+    : selectionCount === 1 &&
+      (parameters.evaluation !== "full_sample" ||
+        parameters.lookback.split(",").filter(value => value.trim()).length === 1) &&
+      !filtered &&
+      (factor === "momentum" || factor === "volatility");
   const [submitted, setSubmitted] = useWorkspaceDraft(
     `submitted:${destination}:factor:${kind}`,
     "",
   );
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     `factor-submission:${kind}`,
-    JSON.stringify([destination, identity, factor, parameters, filtered ? liquidity : null]),
+    JSON.stringify([
+      destination,
+      identity,
+      factor,
+      parameters,
+      filtered ? liquidity : null,
+      researchPlan,
+      variableDefinition?.object,
+    ]),
   );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const id = pendingId ?? `factor-${crypto.randomUUID()}`;
     setPendingId(id);
-    if (!series || !factor) return;
+    if (!series || !factor || !planReady || !variableReady || !expressionSupported) return;
     const payload: CommandParams["factor.submit"] = {
       id,
+      ...(researchPlan ? { research_plan: researchPlan } : {}),
       series,
-      factor,
-      lookbacks: parameters.lookback.split(",").map(value => Number(value.trim())),
+      factor: variableDefinition ? "expression" : factor,
+      ...(variableDefinition ? { variable_definition: variableDefinition.object } : {}),
+      lookbacks: variableDefinition
+        ? [variableDefinition.window]
+        : parameters.lookback.split(",").map(value => Number(value.trim())),
       horizon: Number(parameters.horizon),
+      ...(parameters.retain_observations ? { retain_observations: true } : {}),
       ...(filtered
         ? {
             liquidity: {
@@ -104,6 +150,13 @@ function FactorParameters({
   }
   return (
     <>
+      {variableDefinition && (
+        <p role="status">
+          {t(
+            "固定表达式支持单序列、固定窗口、全样本或时间留出，并须保存逐行证据；请明确选择这些条件。",
+          )}
+        </p>
+      )}
       <form onSubmit={event => void submit(event)}>
         <fieldset disabled={busy}>
           <div className="research-fields">
@@ -121,7 +174,12 @@ function FactorParameters({
                   max="10000"
                   step="1"
                   required
-                  value={parameters[key]}
+                  readOnly={key === "lookback" && Boolean(variableDefinition)}
+                  value={
+                    key === "lookback" && variableDefinition
+                      ? String(variableDefinition.window)
+                      : parameters[key]
+                  }
                   onChange={e => setParameters({ ...parameters, [key]: e.target.value })}
                 />
               </label>
@@ -236,19 +294,48 @@ function FactorParameters({
               </p>
             </>
           )}
+          {!variableDefinition && (
+            <p className="subtle">
+              {t("多个窗口按递增顺序用逗号分隔，最多 32 个，需使用留出或滚动验证。")}
+            </p>
+          )}
           <p className="subtle">
-            {t("多个窗口按递增顺序用逗号分隔，最多 32 个，需使用留出或滚动验证。")}
+            {t("每段至少 30 个有标签观察；无效特征另行排除，跨分界标签不参与评价。")}
           </p>
-          <p className="subtle">{t("每段至少 30 个有效样本；跨分界标签不参与评价。")}</p>
+          <label>
+            <input
+              type="checkbox"
+              checked={parameters.retain_observations}
+              disabled={!observationSupport && !parameters.retain_observations}
+              onChange={e =>
+                setParameters({ ...parameters, retain_observations: e.target.checked })
+              }
+            />
+            {t("保存逐行特征与标签证据")}
+          </label>
+          <p className="subtle">
+            {t(
+              "逐行证据支持单序列价格动量或波动率；选参仅使用开发或训练段，走步证据按轮保存，不混合角色和窗口。",
+            )}
+          </p>
+          {parameters.retain_observations && !observationSupport && (
+            <p role="status">
+              {t("当前配置不支持逐行证据；请调整配置或取消保存，不会静默丢弃该选择。")}
+            </p>
+          )}
           <div className="workflow-actions">
             <button
               className="primary"
               type="submit"
               disabled={
+                !planReady ||
+                !variableReady ||
+                !expressionSupported ||
                 !taskService?.online ||
                 !snapshot?.data?.online ||
                 !series ||
-                (filtered && selectionCount < 3)
+                (filtered && selectionCount < 3) ||
+                (parameters.retain_observations && !observationSupport)
               }
             >
               {pendingId ? t("确认提交状态") : t("开始分析")}
@@ -286,7 +373,12 @@ export function BarFactorForm({
   trade,
   navigate,
   run,
-}: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> & { run: Run }) {
+  researchPlan,
+  planReady,
+  variableDefinition,
+  variableReady,
+}: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> &
+  PlanSelection & { run: Run }) {
   const datasets = snapshot?.datasets ?? [];
   const { alone, dominant, count } = selectedSeries(snapshot);
   // One series is studied over time, three or more against each other.
@@ -295,7 +387,7 @@ export function BarFactorForm({
   // The term structure compares a dominant month with a later one: it is read
   // of dominant series alone, where the months after the dominant one exist.
   const unavailable =
-    factor !== "term_structure"
+    variableDefinition || factor !== "term_structure"
       ? null
       : alone.length
         ? t("期限结构只在主力连续上评价：请去掉单个合约，只保留主力连续。")
@@ -315,24 +407,26 @@ export function BarFactorForm({
         onDownload={() => navigate("workspace.history")}
       />
       <div className="research-fields">
-        <label>
-          {t("因子")}
-          <select
-            aria-label={t("因子")}
-            value={factor}
-            onChange={event => setFactor(event.target.value as FactorKind)}
-          >
-            {Object.entries(factorNames).map(([value, name]) => (
-              <option key={value} value={value}>
-                {t(name)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!variableDefinition && (
+          <label>
+            {t("因子")}
+            <select
+              aria-label={t("因子")}
+              value={factor}
+              onChange={event => setFactor(event.target.value as FactorKind)}
+            >
+              {Object.entries(factorNames).map(([value, name]) => (
+                <option key={value} value={value}>
+                  {t(name)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       <p className="subtle">
         {t(
-          factor === "term_structure"
+          !variableDefinition && factor === "term_structure"
             ? "期限结构 · 每个交易日开始时已知的年化近远月价差：前一交易日主力月份的结算价 ÷ 当日持仓最大的后续月份的结算价 − 1，再乘以 12 ÷ 两个月份相隔的月数；回看窗口内取均值。只在能做这个比较的交易日上评价。"
             : cross
               ? "多个合约 · 在每根 K 线上比较当时有数据的合约的因子值与未来收益"
@@ -341,7 +435,7 @@ export function BarFactorForm({
                 : "单合约 · 按 K 线收盘价计算",
         )}
       </p>
-      {factor === "volatility" && (
+      {!variableDefinition && factor === "volatility" && (
         <p className="subtle">
           {t(
             "波动率 · 回看窗口内逐条收益率（相邻两条观测的收盘价之比减一）的样本标准差，回看窗口至少为 2。",
@@ -364,6 +458,11 @@ export function BarFactorForm({
         series={(count === 1 || count > 2) && !unavailable ? { kind: "bars" } : null}
         identity={JSON.stringify(datasets.map(item => item.revision))}
         observations={cross ? undefined : alone[0]?.count}
+        selectionCount={count}
+        researchPlan={researchPlan}
+        planReady={planReady}
+        variableDefinition={variableDefinition}
+        variableReady={variableReady}
         snapshot={snapshot}
         busy={busy}
         run={run}
@@ -408,10 +507,15 @@ export function TableFactorForm({
   busy,
   navigate,
   run,
-}: Pick<TerminalContext, "snapshot" | "query" | "busy" | "navigate"> & { run: Run }) {
+  researchPlan,
+  planReady,
+  variableDefinition,
+  variableReady,
+}: Pick<TerminalContext, "snapshot" | "query" | "busy" | "navigate"> &
+  PlanSelection & { run: Run }) {
   const online = !!snapshot?.data?.online;
   const connection = snapshot?.data?.connection_id;
-  const destination = JSON.stringify([connection, snapshot?.task_service?.connection_id]);
+  const destination = JSON.stringify([connection, snapshot?.research_service?.connection_id]);
   const [held, setHeld] = useState<{ coverage: TableCoverage; products: TableProduct[] } | null>(
     null,
   );
@@ -502,7 +606,7 @@ export function TableFactorForm({
     .filter(item => !!range.end && item.begin_day > range.end)
     .flatMap(item => item.instruments);
   const unavailable =
-    factor === "term_structure" && contracts.length
+    !variableDefinition && factor === "term_structure" && contracts.length
       ? t("期限结构只在品种的主力连续上评价：请去掉单个合约。")
       : absent.length
         ? t("{names} 所在的交易所在结束日期之后才有合约上市：请去掉它们。", {
@@ -560,20 +664,22 @@ export function TableFactorForm({
             })}
           </p>
           <div className="research-fields">
-            <label>
-              {t("因子")}
-              <select
-                aria-label={t("因子")}
-                value={factor}
-                onChange={event => setFactor(event.target.value as FactorKind)}
-              >
-                {Object.entries(factorNames).map(([value, name]) => (
-                  <option key={value} value={value}>
-                    {t(name)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!variableDefinition && (
+              <label>
+                {t("因子")}
+                <select
+                  aria-label={t("因子")}
+                  value={factor}
+                  onChange={event => setFactor(event.target.value as FactorKind)}
+                >
+                  {Object.entries(factorNames).map(([value, name]) => (
+                    <option key={value} value={value}>
+                      {t(name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               {t("起始日期")}
               <input
@@ -693,6 +799,10 @@ export function TableFactorForm({
       <FactorParameters
         kind="tables"
         selectionCount={instruments.length}
+        researchPlan={researchPlan}
+        planReady={planReady}
+        variableDefinition={variableDefinition}
+        variableReady={variableReady}
         factor={factor}
         series={series}
         identity={JSON.stringify(series)}

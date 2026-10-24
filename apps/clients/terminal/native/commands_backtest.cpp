@@ -1,6 +1,9 @@
 #include "application_impl.hpp"
 #include "portfolio_budget_review.hpp"
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/research_strategy.hpp>
+#include <asterion/protocol/research_project.hpp>
+#include <asterion/protocol/research_model.hpp>
 
 namespace asterion::terminal {
 
@@ -29,15 +32,15 @@ void Application::Impl::register_backtest_commands()
     command("backtest.budget.review", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "input_sha256", "result_digest", "limits"});
         validate_id(text(p, "id"));
-        if (!task_client)
-            throw std::invalid_argument("task service is not connected");
-        const auto client = task_client;
+        if (!research_client)
+            throw std::invalid_argument("research service is not connected");
+        const auto client = research_client;
         const auto generation = data_task_generation;
         auto source = co_await PollFuture{client->result(text(p, "id"))};
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; " "inspect the original services before retrying");
+                "data/research service selection changed during operation; " "inspect the original services before retrying");
         if (source.value("input_sha256", json(nullptr)) != p.at("input_sha256")
             || source.at("task").at("result_digest") != p.at("result_digest"))
             throw Error(
@@ -52,6 +55,9 @@ void Application::Impl::register_backtest_commands()
     command("backtest.reuse", [this](const json& p) -> PolledTask<Response> {
         auto required = p;
         required.erase("slippage_ticks");
+        required.erase("fee_multiplier");
+        required.erase("model_replay");
+        required.erase("strategy_use");
         fields(
             required,
             {"id", "source_id", "source_result_digest", "source_input_sha256", "mode", "snapshot"});
@@ -65,15 +71,15 @@ void Application::Impl::register_backtest_commands()
         if ((mode != "fixed" && mode != "snapshot")
             || (mode == "fixed" ? !selected.empty() : selected.empty()))
             throw std::invalid_argument("explicit experiment data choice required");
-        if (!task_client)
-            throw std::invalid_argument("task service is not connected");
-        const auto client = task_client;
+        if (!research_client)
+            throw std::invalid_argument("research service is not connected");
+        const auto client = research_client;
         const auto generation = data_task_generation;
         const auto source = co_await PollFuture{client->result(text(p, "source_id"))};
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; " "inspect the original services before retrying");
+                "data/research service selection changed during operation; " "inspect the original services before retrying");
         if (source.at("kind") != "backtest"
             || source.at("task").at("result_digest") != p.at("source_result_digest")
             || source.at("input_sha256") != p.at("source_input_sha256"))
@@ -87,28 +93,50 @@ void Application::Impl::register_backtest_commands()
             mode == "fixed" ? backtest::proto::BacktestReuse::FIXED
                             : backtest::proto::BacktestReuse::NEW_SNAPSHOT);
         reuse.set_snapshot(selected);
+        if (p.contains("model_replay")) {
+            if (mode != "fixed" || p.contains("slippage_ticks") || p.contains("fee_multiplier")
+                || p.contains("strategy_use"))
+                throw std::invalid_argument(
+                    "model replay requires an exclusive fixed-data selection");
+            *reuse.mutable_model_replay() =
+                protocol::encode_model_replay_selection(p.at("model_replay"));
+        }
+        if (p.contains("fee_multiplier")) {
+            if (p.contains("slippage_ticks"))
+                throw std::invalid_argument("fee and slippage scenarios require separate requests");
+            reuse.mutable_fee_multiplier()->set_units(
+                Decimal::parse(text(p, "fee_multiplier")).raw());
+        }
         if (p.contains("slippage_ticks")) {
             const auto& ticks = p.at("slippage_ticks");
             if (!ticks.is_number_integer() || ticks < 0 || ticks > 100)
                 throw std::invalid_argument("slippage is 0 to 100 price increments");
             reuse.set_slippage_ticks(ticks.get<unsigned>());
         }
-        co_await PollFuture{client->reuse_backtest(text(p, "id"), reuse)};
+        co_await PollFuture{client->reuse_backtest(
+            text(p, "id"),
+            reuse,
+            mode == "snapshot" ? research_data_owner() : data::proto::DataOwner{},
+            p.contains("strategy_use") ? protocol::encode_strategy_use(p.at("strategy_use"))
+                                       : research::proto::StrategyUse{})};
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; " "inspect the original services before retrying");
+                "data/research service selection changed during operation; " "inspect the original services before retrying");
         co_return snapshot();
     });
     command("backtest.submit", [this](const json& p) -> PolledTask<Response> {
         auto required = p;
         required.erase("settlement_margins");
         required.erase("margin_snapshot");
+        required.erase("strategy_use");
+        required.erase("research_plan");
+        required.erase("performance_assumptions");
         fields_with_risk(
             required,
             {"id", "strategies", "holdout_from", "walk_forward", "deposit", "contracts"});
-        if (!task_client)
-            throw std::invalid_argument("task service is not connected");
+        if (!research_client)
+            throw std::invalid_argument("research service is not connected");
         const auto generation = data_task_generation;
         // What each selected contract trades at: its cost schedule and slippage.
         const auto costs = selection_costs(p.at("contracts"));
@@ -163,6 +191,7 @@ void Application::Impl::register_backtest_commands()
                 {"strategies", p.at("strategies")},
                 {"holdout_from", p.at("holdout_from")},
                 {"walk_forward", p.at("walk_forward")},
+                {"performance_assumptions", p.value("performance_assumptions", json(nullptr))},
                 {"settlement_margins", p.value("settlement_margins", json::array())},
                 {"series", std::move(series)}});
         if (p.contains("margin_snapshot")) {
@@ -172,11 +201,18 @@ void Application::Impl::register_backtest_commands()
                 throw std::invalid_argument("historical margin snapshot is unavailable");
             request.set_margin_snapshot(value);
         }
-        (co_await PollFuture{task_client->submit(text(p, "id"), request)});
+        (co_await PollFuture{research_client->submit(
+            text(p, "id"),
+            request,
+            research_data_owner(),
+            p.contains("strategy_use") ? protocol::encode_strategy_use(p.at("strategy_use"))
+                                       : research::proto::StrategyUse{},
+            p.contains("research_plan") ? protocol::encode_project_binding(p.at("research_plan"))
+                                        : research::proto::ProjectBinding{})});
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
-                "data/task service selection changed during operation; inspect the " "original services before retrying");
+                "data/research service selection changed during operation; inspect the " "original services before retrying");
         co_return snapshot();
     });
 }

@@ -3,9 +3,10 @@
     "asterion_trading",
     "asterion_node_agent",
     "asterion_node_manager",
-    "asterion_market_data",
-    "asterion_data_service",
-    "asterion_task_service",
+    "asterion_market",
+    "asterion_data",
+    "asterion_research",
+    "asterion_intelligence",
     "asterion_keychain",
     "asterion_terminal.node",
     "asterion_maintenance"
@@ -18,7 +19,7 @@
     "plugins/asterion_order_limits"
   ],
   "configuration": [
-    "config/task.json",
+    "config/research.json",
     "config/logging.json",
     "product.json"
   ]

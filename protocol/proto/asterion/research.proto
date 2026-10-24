@@ -1,0 +1,81 @@
+syntax = "proto3";
+package asterion.research.proto;
+import "asterion/task.proto";
+import "asterion/research_project.proto";
+import "asterion/research_variable.proto";
+import "asterion/research_statistics.proto";
+import "asterion/research_evaluation.proto";
+import "asterion/research_sample.proto";
+import "asterion/research_strategy.proto";
+import "asterion/research_logic.proto";
+import "asterion/research_batch.proto";
+import "asterion/research_assessment.proto";
+import "asterion/research_model.proto";
+import "asterion/data.proto";
+import "asterion/resource.proto";
+import "asterion/node.proto";
+import "asterion/trading.proto";
+import "asterion/backtest.proto";
+import "asterion/factor.proto";
+import "asterion/account_review.proto";
+import "asterion/notice_review.proto";
+message ResearchSubmit {
+  ProjectBinding research_plan = 11;
+  StrategyUse strategy_use = 14;
+  string id = 1;
+  asterion.data.proto.DataOwner data_owner = 7;
+  asterion.task.proto.TaskDerivation derivation = 6;
+  reserved 4;
+  oneof definition {
+    asterion.backtest.proto.BacktestRequest backtest = 2;
+    asterion.factor.proto.FactorRequest factor_request = 3;
+    asterion.backtest.proto.BacktestReuse backtest_reuse = 5;
+    AccountReviewRequest account_review = 8;
+    NoticeReviewRequest notice_review = 9;
+    EventSetReviewRequest event_set_review = 10;
+    StatisticsRequest statistics = 12;
+    SampleRequest sample = 13;
+    LogicTrialRequest logic_trial = 15;
+    ModelTrainingRequest model_training = 16;
+    ModelTimeTrainingRequest model_time = 17;
+    EvaluationRequest evaluation = 18;
+  }
+}
+message ProjectTaskQuery {
+  string project_id = 1;
+  uint32 limit = 2;
+  uint32 before_sequence = 3;
+}
+message ResearchRequest {
+  uint32 version = 1;
+  string service_id = 2;
+  string correlation_id = 3;
+  oneof operation {
+    ProjectRequest project = 34;
+    ProjectTaskQuery project_tasks = 35;
+    VariableRequest variable = 36;
+    StrategyRequest strategy = 37;
+    LogicRequest logic = 38;
+    BacktestBatchRequest batch = 39;
+    ModelRequest model = 40;
+    BatchAssessmentRequest assessment = 41;
+    ResearchSubmit submit = 10;
+    asterion.task.proto.TaskId get = 11;
+    asterion.task.proto.TaskListQuery list = 12;
+    asterion.task.proto.TaskId cancel = 13;
+    asterion.task.proto.TaskId retry = 14;
+    asterion.task.proto.TaskId result = 15;
+    asterion.protocol.proto.Empty heartbeat = 16;
+    asterion.node.proto.Quiesce quiesce = 23;
+    asterion.task.proto.TaskId history_usage = 24;
+    asterion.task.proto.TaskMetadataEdit metadata_edit = 25;
+    asterion.task.proto.TaskId metadata_get = 26;
+    asterion.task.proto.TaskId recover_submission = 27;
+    asterion.task.proto.TaskId abandon_preparation = 28;
+    asterion.resource.proto.Object release_decision = 29;
+    asterion.task.proto.TaskRetirementRequest retirement = 30;
+    asterion.resource.proto.CatalogueQuery resources = 31;
+    asterion.task.proto.TaskId reconcile_notice_custody = 32;
+    asterion.task.proto.TaskId notice_source_changes = 33;
+  }
+}

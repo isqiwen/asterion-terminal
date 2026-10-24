@@ -51,13 +51,13 @@ async function verifyPrograms(services) {
   );
   const programs = {
     market: {
-      artifact: "asterion_market_data",
+      artifact: "asterion_market",
       provider_artifact: "ctp-md" + local.library,
       catalog_artifact: "ctp-trader" + local.library,
     },
-    data: { artifact: "asterion_data_service" },
+    data: { artifact: "asterion_data" },
     task: {
-      artifact: "asterion_task_service",
+      artifact: "asterion_research",
     },
     live: { artifact: "asterion_trading", catalog_artifact: "ctp-trader" + local.library },
   };

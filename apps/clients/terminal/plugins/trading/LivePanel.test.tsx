@@ -38,6 +38,9 @@ const session: LiveSession = {
   error_code: 0,
   trading_day: "20261013",
   synchronized_ms: 1,
+  broker_sequence: "9007199254740993",
+  connection_generation: "9007199254740995",
+  positions_reconciled: true,
   funds: null,
   positions: [],
   orders: [],
@@ -158,4 +161,51 @@ test("reopens the bound remote instance and displays the service-owned environme
   );
   expect(screen.queryByRole("combobox", { name: "柜台环境" })).toBeNull();
   expect(screen.getByText("CTP 仿真")).toBeTruthy();
+});
+
+test("broker observation identity remains exact and incomplete coverage is visible without commands", () => {
+  const sent: unknown[] = [];
+  const context: TerminalContext = {
+    snapshot,
+    busy: false,
+    error: "",
+    query: async () => snapshot,
+    navigate: () => {},
+    openSettings: () => {},
+    trade: async (...args) => {
+      sent.push(args);
+    },
+  };
+  const store = createWorkspaceDrafts();
+  const view = render(
+    <WorkspaceDraftScope store={store} namespace="facts">
+      <LivePanel {...context} />
+    </WorkspaceDraftScope>,
+  );
+  expect(screen.getByText("9007199254740993")).toBeTruthy();
+  expect(screen.getByText("9007199254740995")).toBeTruthy();
+  expect(screen.getByText("已纳入已知成交")).toBeTruthy();
+  expect(
+    screen.getByText(
+      "资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。",
+    ),
+  ).toBeTruthy();
+  view.rerender(
+    <WorkspaceDraftScope store={store} namespace="facts">
+      <LivePanel
+        {...context}
+        snapshot={{
+          ...snapshot,
+          live: {
+            account: {
+              ...snapshot.live.account!,
+              session: { ...session, phase: "disconnected", positions_reconciled: false },
+            },
+          },
+        }}
+      />
+    </WorkspaceDraftScope>,
+  );
+  expect(screen.getByText("尚未核对已知成交")).toBeTruthy();
+  expect(sent).toEqual([]);
 });

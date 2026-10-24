@@ -1,5 +1,10 @@
 #pragma once
 #include "data_store.hpp"
+#include "data_retentions.hpp"
+#include "observation_store.hpp"
+#include "material_store.hpp"
+#include "intelligence_content.hpp"
+#include "acquisition_tasks.hpp"
 #include "download_budget.hpp"
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/thread_pool.hpp>
@@ -23,8 +28,11 @@ public:
     struct Configuration
     {
         std::filesystem::path directory;
-        std::string service, task_instance;
+        std::string service;
         unsigned file_workers = 2;
+        std::string internal_endpoint;
+        std::string node_id;
+        std::string discovery_endpoint;
     };
 
     explicit DataHost(Configuration configuration);
@@ -55,6 +63,7 @@ private:
             preparing,
             prepared,
             writing,
+            cleaning,
             complete
         };
         Phase phase = Phase::queued;
@@ -84,6 +93,14 @@ private:
     std::optional<std::string> budget_step(const std::shared_ptr<Work>& work);
 
     const Configuration configuration_;
+    std::unique_ptr<Materials> materials_;
+    std::unique_ptr<AcquisitionTasks> refresh_;
+    std::unique_ptr<Retentions> retentions_;
+    std::unique_ptr<Observations> observations_;
+    std::unique_ptr<IntelligenceContent> intelligence_content_;
+    std::future<void> refreshing_;
+    bool refresh_idle_ = true;
+    std::chrono::steady_clock::time_point next_refresh_;
     const std::string process_;
     const std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
     bool initialized_ = false, degraded_ = false, quiescing_ = false;
