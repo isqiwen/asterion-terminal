@@ -47,13 +47,13 @@ NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，
 共享控制机制在 `apps/common/control/`。Terminal 业务客户端和展示快照在
 `apps/clients/terminal/native/`，不要加入公共管理库。安装器原生执行器与 Electron
 宿主统一位于 `apps/clients/installer/`，其 React 页面暂与 Terminal 共用前端工程。
-完整职责见[应用工程组织](architecture.md#应用工程组织)。
+完整职责见[架构](architecture.md)。
 
-按[现行架构](architecture.md)选择修改位置：界面贡献在 Terminal plugins，应用编排在 Native，业务状态在所属服务，供应商/算法实现留在 plugins。Core 不导入应用或具体插件；Task 不运行计算引擎，Agent 不解释业务结果。
+按[现行架构](architecture.md)选择修改位置：界面贡献在 Terminal plugins，应用编排在 Native，业务状态在所属服务，供应商/算法实现留在 plugins。Core 不导入应用或具体插件；Agent 不解释业务结果。
 
 UI 贡献与宿主同步修改并编译。原生插件目录可选资格由 Native 统一发布；修改能力支持时同步目录/实际消费者，在 C++ 验证资格，在组件测试验证界面消费，在隔离 E2E 验证真实装配。新增动态 ABI 需要纯 C 契约及所有权验证；不要仅为内部模块建立运行时版本计数。
 
-现行使用说明位于 `docs/` 和模块 README，日期、基线、失败及复验记录位于 `docs/reviews/`；见[文档导航](README.md)。测试数字不能跨源码或 checkout 沿用。
+现行说明位于 `docs/` 和模块 README，见[文档导航](README.md)。
 
 ## 构建
 
@@ -83,7 +83,7 @@ CMake 目标和项目自有可执行程序、库文件统一使用下划线，�
 桌面入口接受 macOS 和 Linux，三个命令在两个系统上都可用；安装包在 macOS 是 DMG，在 Linux 是图形安装器归档，只能在各自的系统上生成。远程 Linux 服务包由下面的独立构建流程提供，在 Linux 开发机上同样通过容器构建，以保持 Ubuntu 24.04 的运行库基线。
 Conan 与 CTP SDK 只接受 macOS armv8 和 Linux x86_64；CMake 拒绝其它系统及非 x86_64 Linux。SDK 准备入口不提供 Windows 下载清单，显式指定 `--os linux --arch x86_64` 可在 macOS 上准备远程服务依赖；不支持的目标在下载前拒绝。原生资源清单 `scripts/desktop/native-resources.json` 列出程序名和不带后缀的动态库名，macOS 取 `.dylib`，Linux 取 `.so`。仓库不含 Windows 专属的延迟加载、SCM 服务入口、Task Scheduler 验收分支和语法检查脚本。
 
-排查正在运行的桌面时，先核对 Electron 的工作目录、Vite 提供的源码和加载的 `build/electron-resources/native/asterion_terminal.node`。其它 worktree 中的修复不会自动进入当前桌面；单独重编译 C++ 也不会替换已加载的模块。应用原生修复后从对应目录通过 `pnpm desktop` 正常重启。当前构建与验证记录见 [架构实施记录](reviews/architecture-implementation.md)。
+排查正在运行的桌面时，先核对 Electron 的工作目录、Vite 提供的源码和加载的 `build/electron-resources/native/asterion_terminal.node`。其它 worktree 中的修复不会自动进入当前桌面；单独重编译 C++ 也不会替换已加载的模块。应用原生修复后从对应目录通过 `pnpm desktop` 正常重启。当前构建与验证记录。
 
 ## 编辑器（VS Code）
 
@@ -119,7 +119,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 
 | 命令 | 内容 |
 | --- | --- |
-| `ctest --test-dir build/Debug -j 8` | C++ 单元测试与进程集成测试 |
+| `ctest --preset conan-debug -j 6` | C++ 单元测试与进程集成测试（约 10 分钟；更高并发会因负载超时） |
 | `pnpm test:unit` | 界面的单元测试与组件测试（Vitest），几秒钟，不需要构建和服务 |
 | `ASTERION_CPP_BUILD="$PWD/build/Debug" pnpm test:desktop` | Electron 宿主与行情深度专项测试，使用本 checkout 的 Debug 程序 |
 | `pnpm run test:e2e:journeys` | 端到端的关键链路，日常改动后跑这一档 |
@@ -136,7 +136,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 | `market/` | CTP 行情与合约目录、行情服务，行情 SDK 替身 |
 | `trading/` | 实盘会话、CTP 交易、风控限额、交易服务，交易 SDK 替身 |
 | `data/` | 历史数据源、存储、数据服务，数据集种子 |
-| `tasks/` | 任务服务、回测与因子引擎、内部执行池 |
+| `tasks/` | 研究服务、回测与因子引擎、内部执行池 |
 | `node/` | Manager／Agent：管理归属、监督、部署、升级、SSH 主机、TLS 角色，以及各服务共同遵守的约定 |
 | `terminal/` | 终端原生层：命令、凭据、插件管理 |
 | `desktop/` | Electron 宿主、安装包及其内容校验 |
@@ -152,7 +152,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 - **界面单元与组件测试**放在源码旁（`*.test.ts(x)`），验证“界面拿到某个回复后怎么做”：步骤、提示、重试、草稿、语言。组件测试用 `src/testing/core.ts` 顶替界面访问 C++ 核心的唯一通道，每个回复由用例自己给出；`readySnapshot()` 是一份带类型的“全部就绪”快照，契约变化时由类型检查指出。它不模拟核心的行为，核心做了什么仍由 C++ 测试和端到端测试证明。
 - **端到端测试**只保留必须穿过真实核心、Agent 和服务才能证明的行为。其中标记 `@journey` 的是每项能力一条的完整链路（行情、下单与授权、交易恢复、下载到回测、回测、因子、数据集持久化、远程部署、C++ 与界面的类型契约）；`e2e/snapshot-contract.spec.ts` 保证真实核心的输出符合组件测试所依赖的类型。新增端到端用例前先确认它不能写成组件测试；每个用例文件都要重新部署一套隔离服务，在 Linux 的 Debug 构建上约 6 秒。
 
-端到端测试必须用 `pnpm run test:e2e`（或它的 `test:e2e:journeys`）。首次运行或升级 Playwright 后先执行 `pnpm exec playwright install chromium`，准备与锁定版本对应的测试浏览器；缺少时全部用例在启动浏览器时失败。其中两个用例和 `pnpm test:desktop` 会启动真实的 Electron 窗口，Linux 上需要图形会话（无显示器的机器用 `xvfb-run -a`）。Linux 的 Debug 程序内嵌调试信息，每个用例文件的隔离节点约占 650 MB；换到下一个用例文件时上一个节点目录即被删除，整套运行同一时间只占一个节点目录的空间。`/tmp` 空间不足时，用 `TMPDIR` 指向磁盘上的目录。从没有图形会话的终端（例如 SSH）运行时，`DISPLAY` 为空，那两个 Electron 用例和 `pnpm test:desktop` 会因“Missing X server”失败，需要指向一个可用的显示。它通过 `tests/support/ssh_e2e.py` 启动临时目录中的隔离 Agent，并使用测试 CTP SDK；直接运行 `playwright test` 会连接并修改你本机正在使用的服务。运行前确认没有其他进程占用 1423 端口。
+端到端测试必须用 `pnpm run test:e2e`（或它的 `test:e2e:journeys`）。首次运行或升级 Playwright 后先执行 `pnpm exec playwright install chromium`，准备与锁定版本对应的测试浏览器；缺少时全部用例在启动浏览器时失败。其中两个用例和 `pnpm test:desktop` 会启动真实的 Electron 窗口，Linux 上需要图形会话（无显示器的机器用 `xvfb-run -a`）。Linux 的 Debug 程序内嵌调试信息，每个用例文件的隔离节点约占 650 MB；换到下一个用例文件时上一个节点目录即被删除，整套运行同一时间只占一个节点目录的空间。`/tmp` 空间不足时，用 `TMPDIR` 指向磁盘上的目录。macOS 上 CTest 统一使用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。从没有图形会话的终端（例如 SSH）运行时，`DISPLAY` 为空，那两个 Electron 用例和 `pnpm test:desktop` 会因“Missing X server”失败，需要指向一个可用的显示。它通过 `tests/support/ssh_e2e.py` 启动临时目录中的隔离 Agent，并使用测试 CTP SDK；直接运行 `playwright test` 会连接并修改你本机正在使用的服务。运行前确认没有其他进程占用 1423 端口。
 
 `ctp_sdk_smoke` 要求真实行情和交易 SDK 同时存在，缺失明确失败。交易 SDK 检查版本与 ABI，通过本机临时回环监听器验证连接、断开、重新创建和释放；安装包验证显式使用包内的两套库。测试只使用临时状态，不提供柜台协议应答，不等于真实认证、成交、跨日或流文件验收。 Linux CTP 库的模块级状态随服务进程保留，避免 SDK 卸载时遗失分配；每个 API 连接仍单独 `Release`，SDK 更新通过停止并重启服务生效。
 
@@ -207,8 +207,8 @@ scripts/services/build_linux_services.sh
 ### 单机默认拓扑
 
 安装包的本机 `native/` 资源包含全部业务服务。Manager／Agent 在安装后启动；
-Terminal 工作台准备本机行情及配对的数据／任务服务，交易进程按账户记录管理，任务
-按任务启动。没有远程节点时仍可使用全部本机业务能力，数据源、账户和授权要求保持不变。
+Terminal 工作台按需准备本机行情、数据与研究服务，交易进程按账户记录管理；
+任务在所属服务内部执行。没有远程节点时仍可使用全部本机业务能力，数据源、账户和授权要求保持不变。
 `remote-linux/` 只用于用户选择远程部署后的资源上传，本机程序选择不读取它。
 `node_manager_lifecycle` 在远程资源目录不存在的隔离节点上验证服务启动、部署落盘与重启恢复；
 市场和交易功能另外使用专用测试 SDK 验证，不连接真实柜台。
@@ -243,11 +243,9 @@ Agent 部署研究服务时将 `<node>/config/research.json` 原样复制到
 {"task_concurrency": 1}
 ```
 
-`task_concurrency`允许1–2，限制一个任务服务实例同时准备、执行和确认的任务。
-各实例独立配置，不存在节点额度或worker启动通道。修改后重启该服务生效，不需要重启Agent。
-已有旧字段文件明确报错并保留原文，需操作者编辑；程序不会自动重写用户配置。
-节点`services/<实例>/service.json`也不再包含`worker_artifact`、`factor_artifact`、`data_artifact`。
-旧部署登记按当前契约明确拒绝，不自动迁移，也不据此删除业务目录或历史制品。
+`task_concurrency`允许1–2，限制一个研究服务实例同时准备、执行和确认的任务。
+各实例独立配置，不存在节点级额度。修改后重启该服务生效，不需要重启Agent。
+未知字段明确报错并保留原文；程序不会自动重写用户配置。
 日志配置在各进程初始化日志时读取，需要重启相应进程生效。Manager 的登记目录和环境通过
 OS 服务启动参数传入。配置不热更新，必需配置缺失或无效时明确报告文件路径，保留原文件。
 
@@ -269,7 +267,7 @@ Linux 开发环境实例配置通常为
 
 用户服务在 macOS 是 `~/Library/LaunchAgents/<标识>.plist` 的 launchd 任务，在 Linux 是 `~/.config/systemd/user/<标识>.service` 的 systemd 用户单元。Linux 设置了 `XDG_DATA_HOME` 时节点目录位于其下。Agent 的本机套接字目录在 `/tmp` 下，重启后不存在，Linux 单元在启动 Agent 前重新创建它。单元不设启动频率限制（systemd 会把 Terminal 主动发起的启动也计入并拒绝后续启动），Agent 异常退出后每 10 秒重试一次，与 launchd 的行为一致。
 
-开发窗口标题及标题栏显示“开发环境”。Agent 各自持有独立随机 IPC 地址，安装版关闭窗口后继续运行。开发版关闭主窗口或按 Ctrl+C 时，核验开发 Agent 的系统服务归属后请求停止，由Agent停止任务服务内部计算及其他业务服务、最后停止数据服务，再由入口停止 Manager，最后退出界面和 Vite；停止成功后移除两个开发服务的登录启动注册，数据与已确认的服务运行意愿保留。退出不通过逐服务管理命令改写配置，Agent 正在初始化或需恢复也可结束。下次启动重新注册 Manager／Agent，按保存的运行意愿恢复进程；柜台连接和交易授权不会自动恢复。升级与维护只作用于当前环境。钥匙串账户按数据源配置目录的摘要区分，两个环境相同连接名称不会读取或覆盖对方凭据。行情密码和授权码可由用户明确选择保存在本机钥匙串，账户身份及前置地址参与隔离；交易登录密码不持久化。
+开发窗口标题及标题栏显示“开发环境”。Agent 各自持有独立随机 IPC 地址，安装版关闭窗口后继续运行。开发版关闭主窗口或按 Ctrl+C 时，核验开发 Agent 的系统服务归属后请求停止，由Agent停止研究服务内部计算及其他业务服务、最后停止数据服务，再由入口停止 Manager，最后退出界面和 Vite；停止成功后移除两个开发服务的登录启动注册，数据与已确认的服务运行意愿保留。退出不通过逐服务管理命令改写配置，Agent 正在初始化或需恢复也可结束。下次启动重新注册 Manager／Agent，按保存的运行意愿恢复进程；柜台连接和交易授权不会自动恢复。升级与维护只作用于当前环境。钥匙串账户按数据源配置目录的摘要区分，两个环境相同连接名称不会读取或覆盖对方凭据。行情密码和授权码可由用户明确选择保存在本机钥匙串，账户身份及前置地址参与隔离；交易登录密码不持久化。
 
 开发入口每次启动都把当前构建的服务程序按内容摘要存进节点的 `artifacts/`，并把各服务的配置指到它们。被新构建替换下来、已经没有服务使用的程序副本在这一步删除：调试构建的六个服务程序合计约 600 MB，不删的话每次改完代码重启都会留下一份。插件的副本不删——已提交的任务按提交时的风控和数据源插件启动——所以插件有改动的构建每次仍会多留几十兆；各服务加载插件用的目录（`services/<服务>/plugins/`）只是这些副本的拷贝，启动时清掉、用到时重建。
 
@@ -345,7 +343,7 @@ Electron 从 Native 快照的 `diagnostics.log_directory` 获取路径，再调�
 `cmake --build build/Release --target asterion_factor_capacity_probe` 显式构建
 `tests/tasks/factor_capacity.cpp`。它只生成与读取独立测试输入，分开报告读取/解析、校验、
 对齐、算法、完整引擎和结果校验的耗时及进程峰值内存，不访问供应商或生产目录。
-[测量记录](reviews/factor-capacity-2026-10-15.md)包含完整命令、环境、输入范围和解释限制。
+测量记录包含完整命令、环境、输入范围和解释限制。
 
 上期所保证金插件的显式公网验收入口位于 `tests/acceptance/shfe_margin_probe.cpp`。
 先构建 `asterion_shfe_margin_probe`，再传入绝对路径 `--plugins <build>/plugins`
@@ -374,7 +372,7 @@ build/Release/asterion_live_tests --gtest_filter=Live.DISABLED_ObservationScaleM
 
 该测量在 `tests/trading/`，不连接真实柜台、不提交订单；普通 CTest 默认不运行。
 输出包括不同委托/成交数量与多账户下的观察、编码和 UI 投影耗时、总字节及进程 RSS 高水位。
-测量口径和限制见[专项记录](reviews/command-boundaries-2026-10-16.md)。
+测量口径和限制。
 
 ### Node Manager 的注册与连接
 

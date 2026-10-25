@@ -8,7 +8,7 @@
 
 本报告保存本次项目需求与新架构评审的完整结论、依据、设计取舍、优化方案和建议实施顺序。
 用户授权将评审落盘到仓库，不等同于批准所有需求变更或要求本次完成代码整改。
-需求正文仍是目标行为的权威入口，[目标架构](architecture-design-review.md)仍是目标设计入口；
+需求正文仍是目标行为的权威入口，[目标架构](../architecture/target.md)仍是目标设计入口；
 本报告不建立另一套可执行架构，也不将当前实现限制反向写成产品需求。
 
 ## 1. 评审范围、方法与边界
@@ -19,7 +19,7 @@
 - 数据、情报、分析、策略、回测、评估、实盘、系统管理及其子模块的需求。
 - [共同契约](../requirements/common/contracts.md)、[交互规范](../requirements/common/interaction.md)、[质量基线](../requirements/common/reliability.md)。
 - [58项目标UI](../requirements/common/ui-designs.md)、[42条操作旅程](../requirements/workflows/README.md)与需求追踪。
-- [现行架构](../architecture.md)、[新目标架构](architecture-design-review.md)、[304项FR责任映射](requirements-architecture-map.md)、[服务自有任务设计](service-owned-tasks-design.md)。
+- [现行架构](../architecture.md)、[新目标架构](../architecture/target.md)、304项FR责任映射与服务自有任务设计（已删除，见 Git 历史）。
 - 任务、交易、服务、数据等主题文档，以及架构实施与审计记录中的相关基线。
 
 方法是核对需求与业务对象、服务所有权、跨模块交接、异常行为、使用流程及验收条件是否相互一致。
@@ -136,7 +136,7 @@ P1表示对应能力或架构切换交付前应完成；P2表示产品选择或�
 ## 6. A02：真实账户唯一执行与实例绑定的保证不同
 
 依据：[FR-LIV-RUN-04-05](../requirements/modules/live/operations.md#fr-liv-run-04-05)、
-[交易文档](../trading.md)“账户记录与本机归属”、[目标设计](architecture-design-review.md)“同一交易程序的跨节点实例管理”。
+[交易文档](../trading.md)“账户记录与本机归属”、[目标设计](../architecture/target.md)“同一交易程序的跨节点实例管理”。
 
 需求明确按稳定机构/环境/真实账户排除跨节点双执行；旧节点失联不等于停止，旧节点恢复也不能用旧身份发送。
 目标架构描述账户固定绑定节点ID与服务实例ID；当前交易文档明确本机锁针对内部account_id，
@@ -273,7 +273,7 @@ Trading最小持久风险状态应明确有效政策、业务期间/基准、已
 
 ## 10. A09：跨服务引用与发布的提交和恢复
 
-依据：[目标架构](architecture-design-review.md)“数据、状态与跨模块交接”“引用与删除”。
+依据：[目标架构](../architecture/target.md)“数据、状态与跨模块交接”“引用与删除”。
 稳定身份、内容拥有者登记引用、删除时重查、离线不当作无引用等原则已经正确。
 下一步应把两类副作用写成可实现的协议：Research/Trading固定对象与Data引用登记；
 Intelligence发布决定与Data固定内容公开。
@@ -297,7 +297,7 @@ Intelligence发布决定与Data固定内容公开。
 
 依据：[质量基线](../requirements/common/reliability.md#quality-baseline)、
 [NFR-RUN-01](../requirements/common/reliability.md#nfr-run-01)、
-[NFR-REC-01](../requirements/common/reliability.md#nfr-rec-01)、[目标架构](architecture-design-review.md)服务内执行章节。
+[NFR-REC-01](../requirements/common/reliability.md#nfr-rec-01)、[目标架构](../architecture/target.md)服务内执行章节。
 
 ### 11.1 两个任务不等于资源有界
 

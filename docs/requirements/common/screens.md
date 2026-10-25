@@ -1,6 +1,6 @@
 # 界面设计阅读与操作指南
 
-[需求总纲](../README.md) · [界面设计总览](ui-designs.md) · [目标界面浏览](../prototype.html) · [跨模块流程](../workflows/README.md)
+[需求总纲](../README.md) · [界面设计总览](ui-designs.md) · 目标界面浏览（生成文件 `prototype.html`） · [跨模块流程](../workflows/README.md)
 
 本页说明目标工作台怎样组织、用户怎样完成页面操作，以及如何阅读58项UI设计。页面图中的账户、合约和数值是设计案例；字段约束及动作后果以对应UI正文为准。
 

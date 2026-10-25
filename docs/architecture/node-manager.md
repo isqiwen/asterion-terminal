@@ -4,9 +4,7 @@ Node Manager 是 Terminal 所在机器上的独立节点管理进程，程序名
 它统一持有当前环境已登记 Agent 的管理连接，汇总节点状态，并协调登记、部署、启停和维护。
 Agent 拥有目标机器的服务进程，业务服务拥有账户、数据和任务；这三层责任不能互相替代。
 
-本文面向维护管理进程、Terminal 原生客户端和安装器的开发者，解释当前实现的控制流、状态所有权、
-持久化及故障语义。核对日期为 2026-10-22，基线为主检出 `main`、HEAD `a717802` 及其未提交工作树，
-不能仅凭该提交还原全部本文所述行为。
+本文面向维护管理进程、Terminal 原生客户端和安装器的开发者，解释控制流、状态所有权、持久化及故障语义。
 全局边界见[架构](../architecture.md)，部署操作见[服务与部署](../services.md)，
 安装责任见[安装与配置](../requirements/modules/system/setup.md)。
 
@@ -31,11 +29,8 @@ Agent 拥有目标机器的服务进程，业务服务拥有账户、数据和�
 5. 普通安装版启动不安装或升级程序；安装维护由独立安装器执行。
 6. 运行配置只读，既有业务资料不因连接、登记恢复或程序更新而被迁移、重置或删除。
 
-当前协议可管理 `MARKET_DATA`、`DATA_SERVICE`、`RESEARCH`、`LIVE_TRADING` 四类服务。
-Data 已拥有采集任务，Research 拥有研究计算，独立 Task 服务已退出；Research 的部署也不再固定配对 Data。
-目标设计中的 Intelligence 独立服务尚未成为 `node.proto` 的服务种类，不能把目标五服务架构当作
-Manager 已经提供的完整部署能力。带日期的[架构设计审查](../reviews/architecture-design-review.md)
-及早期实施记录应按其基线阅读。
+管理协议可部署 `MARKET`、`DATA`、`RESEARCH`、`INTELLIGENCE`、`TRADING` 五类服务。
+Data 拥有采集任务，Research 拥有研究计算；Research 显式绑定 Data，不固定部署配对。
 
 ## 进程关系与通信边界
 
@@ -657,4 +652,4 @@ Manager 当前是每环境单实例，没有主备切换、分布式一致性、
 
 文档改动只需核对源码、协议、相对链接和格式。改变运行行为时，应在上述责任层补充或运行有意义的测试；
 实际 SSH 主机、macOS launchd 和安装包验收不能由 Linux 隔离进程测试替代。
-历史验证及本次文档核对记录保留在[整改进度](../reviews/audit-progress.md)。
+历史验证及本次文档核对记录保留在整改进度。

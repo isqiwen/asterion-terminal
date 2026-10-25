@@ -1,646 +1,84 @@
 # Repository Instructions
 
-Read this file before working. It applies to the entire repository and contains
-only current rules. Project requirements below remain mandatory; the engineering
-philosophy guides implementation within those constraints.
+Rules for anyone changing this repository. Keep this file short and current.
 
 ## Scope
 
-- Build, test, and ship **Terminal for futures only**, on **macOS (Apple Silicon)** and **Linux x86_64**.
-- Do not add Web, Mobile, Notebook, standalone CLI, or Windows desktop clients.
-- Remote services support **Linux x86_64** only and exist to serve Terminal.
-- Build interfaces and implementations only for actual requirements.
-
-## Current Implementation Only
-
-- Keep one current implementation. Remove superseded code, contracts, configuration,
-  scripts, tests, and documentation; do not retain reference or backup implementations.
-- No legacy interfaces, protocols, aliases, compatibility layers, parallel
-  implementations, migration entry points, or downgrade paths. Update callers,
-  tests, and documentation together.
-- The project is unreleased and has no historical-data compatibility commitment.
-  Maintain only the current development contract. Git records implementation history.
-- Use stable, responsibility-based names for project-owned types, functions,
-  constants, modules, namespaces/packages, files, and directories. Do not encode
-  implementation generations in names with `V1`, `V2`, `v3`, or similar prefixes,
-  suffixes, or path segments. Update the current implementation in place.
-- This naming rule includes project-owned protocol packages and plugin API types.
-  A necessary ABI check does not require versioned type names or parallel APIs.
-  Keep required dependency/release versions, external-standard identifiers, and
-  explicit ABI compatibility checks distinct from implementation naming.
-- When removing existing versioned names, update definitions, consumers, build
-  rules, generators, tests, and current documentation together. Do not leave old
-  names as aliases or compatibility entry points, or silently rewrite persisted
-  identifiers and user data as part of a naming cleanup.
-- Do not accumulate internal engine or persisted-format version counters, bump them
-  after routine changes, or add old-format readers, migration paths, retained legacy
-  task kinds, or UI flows for rebuilding unsupported historical experiments.
-- Change current producers, consumers, fixtures, and documentation together. Validate
-  the actual structure, identities, content digests, and domain invariants; reject
-  invalid input explicitly. Preserve existing files; never silently convert or delete them.
-- Keep dependency locks, plugin ABI checks, required deployment artifact identities,
-  the current transport contract, and domain revisions (data snapshots, policy
-  revisions, attempt tokens). Retain hashes only where they satisfy the concrete
-  requirements in "Hash and Integrity Checks" below; a build or artifact label alone
-  does not justify another checksum.
-- Establish release and compatibility policy when preparing the first release, based
-  on actual distribution and data-retention requirements.
+- One product: the futures **Terminal** on macOS (Apple Silicon) and Linux x86_64.
+  Remote services run on Linux x86_64 only and exist to serve Terminal.
+- No Web, mobile, notebook, standalone CLI or Windows clients.
+- The project is unreleased. Keep one current implementation: no legacy
+  interfaces, aliases, migration paths, version counters or backup copies of code.
+  Git holds history.
 
 ## Architecture
 
-- Core layers, lowest to highest: `asterion_foundation`, `asterion_kernel`,
-  `asterion_domain`. Dependencies point downward only.
-- Core provides mechanisms. Providers, storage backends, strategies, and risk
-  algorithms belong in `plugins/`. Plugins are trusted in-process code, not a sandbox.
-- A separate current-user graphical installer owns local installation, same-release repair, offline upgrade,
-  and uninstall. Installation, upgrade and repair preserve configuration and business data.
-  Uninstall defaults to preserving them; deletion requires the user to explicitly clear
-  retention and confirm the displayed local scope. Ordinary Terminal startup
-  must not install or upgrade programs. See `docs/requirements/modules/system/setup.md`.
-- Remote installation and maintenance use the same installer UI and the existing
-  Manager registry/SSH owner. Prepare remote programs before replacing the local
-  application; start and confirm remote Agents afterward. Persist maintenance
-  state across restarts, preserve existing connections on preflight failure, and
-  never discard management identities while their remote nodes remain installed.
-  Remote Agent replacement uses the restricted host service boundary; uploaded
-  maintenance code runs as the dedicated unprivileged node account.
-- Each business service is a separate process managed by Node Agent. Node Manager
-  and Node Agent are independently supervised by the OS service manager.
-  Closing an installed Terminal window leaves background processes running.
-  Exiting the single development entry point stops local development services,
-  Agent, and Manager, preserves data, and leaves remote nodes running.
-- IPC uses Protobuf from `protocol/proto/`: Unix sockets locally, TCP + mTLS remotely.
-- Terminal C++ orchestration belongs in `apps/clients/terminal/native/`;
-  UI plugin contracts belong in `apps/clients/terminal/plugins/contract.ts`.
-- Management processes belong in `apps/management/`; persistent business services
-  belong in `apps/services/`. Task execution runs inside its owning service;
-  do not introduce per-task worker executables or Agent task-dispatch protocols.
-  Keep shared control mechanisms in `apps/common/control/`; account storage and
-  credential-helper paths belong to their Terminal modules.
-- Installer native code and Electron host belong in `apps/clients/installer/`.
-  The maintenance executor uses Manager IPC and an offline Agent subprocess;
-  it must not link Manager or Agent process implementations.
-  Keep Terminal business clients and presentation snapshots in Terminal, not in
-  `apps/common/control/`; shared control code must not pull chart presentation
-  dependencies into Manager or the installer.
-- Node-management boundary: every participating machine has a Node Agent
-  for its environment. The Terminal machine also runs a separate Node Manager,
-  to own registered Agent connections, aggregate node status, and coordinate
-  node-management commands. Node Manager must not be launched, supervised, or
-  stopped as an Agent-managed service. Agent failure, restart, or upgrade must
-  not terminate Manager. OS service managers own process supervision; Manager
-  coordinates Agent administration through the appropriate management boundary.
-- Default installation includes all local business services and required
-  plugins. Complete local operation must not depend on remote nodes or remote Linux
-  deployment bundles. Start management services after installation; create/start
-  business services as needed, with accounts, credentials and authorization remaining
-  under their business workflows. Tasks execute only after service admission.
-  Users add remote nodes and deploy their services in Terminal.
-  Manager persists node enrollment; each
-  Agent persists its service deployment state. Installer maintenance consumes those
-  records, without a separate topology list or rewriting runtime policy configuration.
-- Node Manager owns Agent administration; Terminal uses the Manager protocol.
-  Do not add a second registry, Agent connection owner, or competing management path.
-  Agent owns local business-service processes; business services retain their state and
-  execution authority. The boundaries and validation scope are recorded in
-  `docs/architecture.md`.
-- Business traffic must connect directly to its owning service. Neither Node
-  Manager nor Node Agent may proxy market streams, trading commands, historical
-  data, task results, or other business payloads. Endpoint discovery, deployment,
-  health probes, and service lifecycle coordination are management operations.
-  Keep business algorithms outside both management processes.
-- Agent owns periodic host resource observations; Manager aggregates their
-  snapshots. Observations are diagnostic, not service startup gates. Missing
-  or failed telemetry must be visible without stopping service supervision.
-  Each business service owns its task concurrency policy and queue decisions.
-  Services execute tasks through their own bounded thread pools or asynchronous I/O.
-  Their state owner alone confirms progress, cancellation and durable results. Agent
-  does not allocate task slots, launch task workers, or poll business queues. Concurrent
-  execution limits count tasks through completion, not subprocesses. Cancellation is
-  cooperative; a service restart interrupts unconfirmed work without automatic retry.
-  Keep a subprocess only for a concrete runtime requirement, such as the packaged
-  Python analytics runtime, not as a parallel task-dispatch mechanism.
+- Core layers, lowest first: `asterion_foundation` → `asterion_kernel` →
+  `asterion_domain`. Dependencies point down. Providers, storage, strategies and
+  risk algorithms live in `plugins/` (trusted in-process code, not a sandbox).
+- Business services (`apps/services/`): Market, Data, Research, Intelligence,
+  Trading (one process per account). Each owns its state and runs its own tasks
+  in bounded thread pools. There is no central task service or worker process.
+- Management (`apps/management/`): Node Manager (on the Terminal machine) owns
+  node registration and Agent connections; Node Agent (on every node) supervises
+  that node's service processes. Both are supervised by the OS service manager.
+  Neither proxies business traffic: Terminal connects to services directly.
+- IPC: Protobuf from `protocol/proto/`; Unix sockets locally, TCP + mTLS remotely.
+- Terminal: Electron + React UI (`apps/clients/terminal/src`, `plugins/`), C++
+  orchestration in `apps/clients/terminal/native/`. The installer is in
+  `apps/clients/installer/`.
+- Configuration: defaults in repository `config/`, copied once at deployment to
+  `<node>/config/`. Services only read configuration; missing or invalid
+  configuration fails with its path.
 
-- Keep runtime configuration under `<node>/config/`, split by responsibility.
-  Keep maintained node defaults in repository-root `config/`; package and copy
-  them during initial deployment, preserving existing operator configuration.
-  Service startup reads policy only: never generate, complete, reset or overwrite
-  configuration. Missing required or invalid configuration must fail with its path.
-  Share logging policy once. Pass machine-specific Manager launch context through
-  OS service arguments, not a generated configuration file. Keep service-owned
-  durable state separate. Plugin defaults, when actually needed, belong beside
-  their plugin in `config/`; instance configuration belongs under
-  `<node>/config/services/<service>/plugins/<plugin-id>.json`. Do not invent empty
-  plugin configuration files or move domain-owned account/task state into them.
-- Process/service instance identity determines diagnostic log files. Module and
-  operation names belong in record fields, not separate output files. Manage
-  common logging policy once per node environment, without copied per-process
-  configuration files. Agent preparation/synchronization is an Agent run mode
-  and must use the same process logging mechanism.
+Details: [docs/architecture.md](docs/architecture.md).
 
-## Implementation
+## Trading and data safety
 
-- Use underscores for project-owned CMake target identifiers and generated
-  executable/library basenames. Use the default target basename where possible;
-  keep `OUTPUT_NAME` only when the public module name differs. Keep dependency-owned
-  filenames, package identifiers and installed state identities unchanged. Update loaders, packaging,
-  build commands, tests and current documentation together; do not add naming guards.
-- Use C++20, RAII, and explicit ownership. Exceptions must not cross C ABI or Node-API boundaries.
-- Use `Decimal` for money and prices; binary floating point is not authoritative ledger data.
-- Use typed domain interfaces. Restrict JSON to protocol boundaries and UI presentation.
-- Core and services emit English diagnostics; cross-process errors carry `ErrorCode`.
-  Register new user-facing diagnostics in `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`.
-- Write durable state and keys through `kernel/durable_file.hpp`.
-- Define CMake targets in the owning module's `CMakeLists.txt`; parent directories
-  compose modules with `add_subdirectory()`. Keep project options, dependency
-  discovery and artifact layout at the root. Declare includes,
-  compile requirements and links on targets; do not keep a root source list or
-  mutate another module's targets to share build policy.
-- Keep internal architecture rules in documentation and code review. Do not add
-  build-time dependency policing, source scans for forbidden includes or types,
-  or tests whose only purpose is enforcing those organizational rules. Ordinary
-  compiler/linker checks, required platform/SDK checks, dependency locks, plugin
-  ABI checks and domain/input validation serve separate concrete requirements.
-- Lock dependencies with Conan and pnpm. No implicit downloads or global include/link
-  paths. Use spdlog, CLI11, and GoogleTest + CTest.
-- Follow `.clang-format` (clang-format 23.1.1) and Prettier. C/C++ uses four-space
-  indentation; Protobuf and frontend code use two. Keep nonempty function/lambda
-  bodies expanded and definitions separated as enforced by the formatter.
-  Run `pnpm run format` before committing; `pnpm run format:check` checks both formatters.
+- Market and historical data come from real providers. Never fabricate market
+  data; fixtures are for tests only.
+- Live trading requires authorization, account risk controls and the single
+  execution path. Missing risk configuration or plugins rejects execution.
+- Never resend a trading command automatically after a disconnect or an unknown
+  outcome.
+- Credentials are entered locally and never stored in source, logs, chat,
+  configuration files or UI storage. Saved market-data credentials live in the
+  OS keychain and are never reused for trading.
+- Never silently rewrite, migrate or delete user ledgers, tasks or datasets.
 
-## Data and Trading Safety
+## Engineering
 
-- Market and historical data come from data providers. Do not substitute local
-  CSV/JSON imports or fabricate market data. Fixtures are for tests only.
-- Live trading requires authorization, account risk controls, and the unified
-  execution path. Reject execution if any part is missing.
-- CTP accounts and backtests require risk configuration. Missing configuration or
-  unavailable risk plugins must reject execution, never allow it by default.
-- Never automatically resend trading commands after a disconnect.
-- Enter or generate credentials locally. Never put them in source, logs, or chat.
-  Users may explicitly save market-data login passwords and authorization codes
-  in the macOS Keychain or the Linux Secret Service keyring. Never put them in
-  ordinary configuration files or UI storage, and never reuse saved market
-  credentials for trading login.
-- Never silently rewrite, migrate, or delete user ledgers, tasks, or datasets.
+- C++20 with RAII; `Decimal` for money and prices; exceptions never cross C ABI
+  or Node-API boundaries. JSON only at protocol and UI boundaries.
+- Durable files go through `kernel/durable_file.hpp`.
+- Hash only where a digest is an identity (fixed inputs, artifacts, locked
+  downloads) or at a trust boundary (cold backup, remote artifacts). Do not
+  re-hash or re-validate data the same owner already wrote.
+- CMake targets live in their module's `CMakeLists.txt`; names use underscores.
+  Dependencies are locked with Conan and pnpm.
+- Format with `pnpm run format` (clang-format 23.1.1 and Prettier).
+- UI text goes through `src/i18n`; English and Chinese change together.
 
-## Hash and Integrity Checks
+## Design principles
 
-- Do not add hashes, checksums, source fingerprints, digest manifests, or repeated
-  integrity scans by default. This rule applies to AI-generated changes as well as
-  manual changes across production code, scripts, tests, and documentation.
-- Before adding or retaining a check, identify its actual requirement, reachable
-  failure mode, consumer, and owning boundary. "Extra safety", generic corruption
-  concerns, and audit decoration are not sufficient reasons.
-- Decide whether the validation itself is necessary before choosing an algorithm.
-  Delete unnecessary validation rather than replacing its hash with another check.
-  If validation is necessary and hashing is the simplest correct implementation,
-  keep it. Reducing the number of hash calls is not a goal in itself.
-- Do not introduce extra copies, reads, computation, state, caches, interfaces, or
-  control-flow branches merely to avoid hashing. Compare the total complexity and
-  cost of a proposed change; fewer hashes alone do not justify it.
-- Trust invariants already established by the owning boundary. Do not repeat
-  validation downstream without a concrete intervening change or failure mode.
-- Keep necessary checks for locked dependency downloads, fixed data/task identities,
-  ledger consistency, deployment artifact selection/integrity, and cryptographic
-  trust. These categories are not blanket permission to add checks.
-- Compute and validate at the owning boundary. Reuse a validated identity when it
-  is already available to the consumer; do not widen contracts solely to reduce
-  hash counts. Revalidation requires a real intervening mutation or trust boundary.
-- Prefer continuous ownership and atomic publication over before/after hashes.
-  Do not hash whole databases to compensate for releasing and reacquiring a lock,
-  or repeat validated file scans while the same owner still holds the lock.
-- Do not gate ordinary local startup on source-tree hashes or rescan every bundled
-  dependency. Use the build process to prepare generated resources and check the
-  actual runtime requirements. Do not generate extra hashes solely for display,
-  logs, test reports, or exports without a concrete consumer.
-- Remove unnecessary producers, fields, checks, tests, and current documentation
-  together. Do not replace removed hashes with equally unnecessary version counters
-  or other gates. Do not bypass necessary domain validation or rewrite user data.
-
-## UI
-
-- Follow the minimal, technical, futuristic style in [Terminal design](docs/terminal.md).
-- Use Tonghuashun Futures as the market-layout reference. Clearly mark unavailable
-  data sources; do not fabricate content.
-- Localize UI text through `src/i18n`. Update English and Chinese together;
-  missing keys must fail explicitly.
+- Prefer the smallest correct design. Delete code before adding code.
+- Fix the root cause; enforce an invariant once, at its owning boundary.
+- Fail explicitly on invalid input and broken invariants; add retries or
+  fallbacks only for a concrete, reachable failure that is safe to retry.
+- One owner per piece of state. No second registry, cache or source of truth.
+- Test behavior that matters at the lowest layer that proves it. Do not test
+  defensive code that should not exist.
 
 ## Workflow
 
-- Work directly on `main` in the primary checkout. Do not create development
-  branches unless requested. Do not push unless requested.
-- Keep audits and reviews in `docs/reviews/`. Before related work, read the
-  [architecture design](docs/reviews/architecture-design-review.md),
-  [implementation record](docs/reviews/architecture-implementation.md) and
-  [remediation progress](docs/reviews/audit-progress.md), compare their baselines
-  with current code, and update progress after completing work.
-- For running desktop issues, verify the actual launch directory, frontend source,
-  and native-module path as described in the [development guide](docs/development.md).
-  Never transfer test conclusions between checkouts without verifying the inputs.
-- Test at the lowest layer that proves the behavior: C++ tests for trading, data
-  and service logic; Vitest unit and component tests beside the source
-  (`pnpm test:unit`) for what the UI does with a reply; E2E only for behavior
-  that needs the real core, Agent and services.
-- C++ and process tests live in `tests/<module>/` with that module's fixtures,
-  registered in `tests/CMakeLists.txt`; probes run by hand against real systems
-  live in `tests/acceptance/`. The [development guide](docs/development.md)
-  lists the modules.
-- Run E2E only through `pnpm run test:e2e` (everything) or
-  `pnpm run test:e2e:journeys` (the key journeys), which isolate Agent and the
-  test CTP SDK. Never invoke `playwright test` directly; it can operate real
-  local services.
-- Changes to service build inputs in `core/`, `protocol/`, `plugins/`,
-  `apps/services/`, `apps/management/`, `apps/common/`, or `bindings/` change the Linux service source fingerprint.
-  Desktop-only `plugins/tools/analytics/` is excluded. Rebuild affected service
-  bundles before release following the [development guide](docs/development.md);
-  `pnpm desktop` only warns in development.
-- Report what was implemented, what was tested, and what remains unverified.
-
-## Engineering Philosophy
-
-Optimize for correctness, simplicity, architectural coherence, and long-term
-maintainability.
-
-Do not optimize for maximum defensive coverage, maximum test count, or maximum
-abstraction.
-
-Prefer the smallest correct design that satisfies the actual requirements and
-preserves the system's intended invariants.
-
-A solution is not better merely because it handles more hypothetical cases.
-
-### Core Principles
-
-1. Prefer simple designs over defensive complexity.
-
-2. Fix problems at their architectural root rather than adding local patches.
-
-3. Enforce invariants at the correct boundary instead of repeatedly checking
-   them throughout the codebase.
-
-4. Prefer explicit failure over speculative recovery.
-
-5. Add fallback, retry, validation, compatibility, or recovery behavior only
-   when there is a concrete and justified failure mode.
-
-6. Do not design for hypothetical future requirements unless the current task
-   explicitly requires them.
-
-7. Prefer deleting, simplifying, or restructuring incorrect abstractions over
-   adding more code around them.
-
-8. Avoid abstractions that have only one real use case unless they materially
-   improve correctness or clarity.
-
-9. Minimize the number of concepts a developer must understand to reason about
-   the system.
-
-10. Preserve clear ownership of state and responsibility. Avoid duplicating
-    state or responsibility across layers.
-
-### Avoid Speculative Defensive Programming
-
-Do not add defensive behavior merely because a state is theoretically possible.
-
-Before adding any defensive branch, validation, fallback, retry, or recovery
-mechanism, identify:
-
-- the concrete failure mode,
-- whether that failure mode is actually reachable,
-- the architectural boundary responsible for preventing or handling it,
-- and why the proposed behavior is preferable to failing clearly.
-
-Do not add:
-
-- speculative validation,
-- speculative fallback paths,
-- retries without a demonstrated transient failure mode,
-- compatibility layers for hypothetical callers,
-- redundant null or state checks for invariants guaranteed elsewhere,
-- silent recovery from invariant violations,
-- catch-all exception handling that hides programming errors,
-- defensive copies without a demonstrated ownership or mutation problem,
-- generic infrastructure created solely for one narrow use case.
-
-If an invariant should never be violated, make that invariant explicit and fail
-clearly when it is violated.
-
-Do not silently turn programmer errors into recoverable runtime states unless
-the architecture explicitly requires that behavior.
-
-### Solve Root Causes, Not Symptoms
-
-When fixing a bug, first determine why the system allowed the bug to exist.
-
-Do not immediately patch the location where the symptom appears.
-
-Ask:
-
-- Is responsibility assigned to the wrong component?
-- Is the abstraction incorrect?
-- Is state represented in more than one place?
-- Is an invariant missing or enforced too late?
-- Is lifecycle ownership unclear?
-- Is the API permitting invalid states?
-- Is the current implementation fundamentally more complicated than necessary?
-
-Prefer a structural fix when it removes an entire class of failure.
-
-A slightly larger root-cause fix is preferable to a sequence of small patches
-when the patches preserve a flawed design.
-
-### Stop-and-Rethink Rule
-
-Stop incremental patching and reassess the design if any of the following
-occurs:
-
-- the same component requires more than two corrective iterations,
-- multiple special cases begin accumulating,
-- one fix repeatedly exposes adjacent edge cases,
-- several fallback paths are needed for a simple operation,
-- tests become substantially more complicated than the production behavior,
-- a small feature requires several new abstractions,
-- state must be synchronized between multiple owners,
-- correctness depends on many scattered defensive checks,
-- the implementation keeps growing without making the core model simpler,
-- a change is technically passing tests but becoming harder to explain.
-
-When this happens:
-
-1. Stop modifying code.
-2. Restate the underlying problem.
-3. Re-evaluate the relevant abstraction and ownership boundaries.
-4. Consider whether existing code should be removed or simplified.
-5. Compare at least two alternative designs.
-6. Resume implementation only after identifying the simplest coherent design.
-
-Do not continue a patch-test-patch loop indefinitely.
-
-### Design Before Implementation
-
-For non-trivial changes, reason about the design before editing production code.
-
-Before implementation, establish:
-
-- the root problem,
-- the relevant architectural boundary,
-- the invariants that must hold,
-- the minimal behavior required,
-- explicit non-goals,
-- the expected data/control flow,
-- failure semantics,
-- ownership and lifecycle,
-- and what existing code can be simplified or removed.
-
-For significant architectural changes, consider at least two viable designs and
-prefer the one with fewer concepts, fewer states, fewer special cases, and
-clearer ownership.
-
-Do not introduce a generalized framework when a direct implementation is
-sufficient.
-
-Do not expand task scope merely because adjacent improvements are possible.
-
-### Scope Discipline
-
-Implement only what is required for the current task plus changes necessary to
-preserve correctness and architectural consistency.
-
-Do not opportunistically:
-
-- redesign unrelated modules,
-- introduce generic infrastructure,
-- add future-facing extension points,
-- support hypothetical deployment modes,
-- add compatibility behavior without a current consumer,
-- refactor unrelated code solely because it could be cleaner,
-- or convert a local requirement into a system-wide framework.
-
-If an adjacent issue is important but not required, document it separately
-instead of expanding the current change.
-
-### Testing Philosophy
-
-Tests exist to establish confidence in meaningful behavior and important
-invariants.
-
-The goal is not maximum line coverage, branch coverage, test count, or exhaustive
-enumeration of theoretically possible states.
-
-Prefer a small number of high-value tests over a large number of low-value
-tests.
-
-Prioritize tests for:
-
-- primary externally observable behavior,
-- important system invariants,
-- meaningful boundary conditions,
-- previously observed regressions,
-- realistic failure modes,
-- state transitions that could corrupt or lose data,
-- concurrency behavior where concurrency actually exists.
-
-Avoid tests that:
-
-- assert private implementation details,
-- duplicate the same behavior through many parameter combinations without added
-  risk coverage,
-- test impossible states,
-- exist only to exercise a line or branch,
-- mock so much of the system that they no longer validate useful behavior,
-- lock in an implementation that should remain free to change,
-- test defensive code that should not exist in the first place.
-
-Do not add a regression test for every incidental implementation mistake.
-
-Add a regression test when the failure represents behavior that could plausibly
-recur and is important enough to protect.
-
-When tests fail after a change, first determine whether:
-
-- the implementation is wrong,
-- the test encodes an obsolete assumption,
-- or both reflect a deeper design problem.
-
-Do not automatically modify production code merely to satisfy an existing test.
-
-### Test Budget
-
-For ordinary changes, start with the minimum useful set:
-
-- the main success path,
-- important boundary behavior,
-- concrete regression cases,
-- and meaningful failure behavior.
-
-Expand coverage only when additional tests protect a distinct and realistic
-risk.
-
-Do not create exhaustive combinatorial coverage unless the domain genuinely
-requires it.
-
-If the test suite added for a simple feature becomes larger or conceptually more
-complex than the feature itself, reconsider both the design and the testing
-strategy.
-
-### Failure Handling
-
-Distinguish between:
-
-- expected runtime failures,
-- transient external failures,
-- invalid user input,
-- corrupted external data,
-- violated internal invariants,
-- and programmer errors.
-
-Handle each category deliberately.
-
-Expected runtime failures may require explicit handling.
-
-Transient failures may justify retry behavior when retry semantics are safe and
-well-defined.
-
-Invalid external input should be rejected at the appropriate boundary.
-
-Internal invariant violations should normally fail loudly rather than be hidden
-behind fallback behavior.
-
-Do not use broad exception handling as a substitute for understanding failure
-semantics.
-
-Never retry an operation unless it is known to be safe or idempotent, or the
-retry mechanism explicitly prevents duplicated effects.
-
-### Abstraction Discipline
-
-Introduce an abstraction when it removes meaningful duplication, establishes a
-real architectural boundary, or makes an important invariant easier to enforce.
-
-Do not introduce abstractions merely to make code appear extensible.
-
-Prefer:
-
-- concrete code over premature frameworks,
-- explicit control flow over excessive indirection,
-- composition over unnecessary hierarchy,
-- domain-specific interfaces over generic abstractions,
-- fewer layers when additional layers add no real boundary.
-
-Every new abstraction should answer:
-
-- What complexity does this remove?
-- What invariant does this protect?
-- What independent variation does this enable today?
-- Why is direct code insufficient?
-
-If those questions do not have convincing answers, prefer the simpler design.
-
-### Code Size and Deletion
-
-Treat deletion as a first-class engineering tool.
-
-When modifying a subsystem, actively look for:
-
-- obsolete branches,
-- redundant validation,
-- duplicated state,
-- superseded abstractions,
-- dead compatibility code,
-- unnecessary wrappers,
-- and tests that only protect removed behavior.
-
-Prefer:
-
-    +120 lines
-    -400 lines
-
-over:
-
-    +800 lines
-    -20 lines
-
-when both solve the same problem correctly.
-
-Do not preserve complexity merely because it already exists.
-
-### Local vs Global Optimization
-
-Do not optimize only for the current failing test, function, or call site.
-
-After identifying a local fix, ask whether it improves or harms the global
-system design.
-
-A locally convenient fix should be rejected if it:
-
-- weakens architectural boundaries,
-- duplicates responsibility,
-- creates another source of truth,
-- makes ownership less clear,
-- increases the number of possible states,
-- or creates future synchronization requirements.
-
-When repeated local fixes are necessary, assume the abstraction may be wrong
-until proven otherwise.
-
-### Implementation Review
-
-Before considering a non-trivial change complete, review the resulting design
-and ask:
-
-- Is there a simpler solution?
-- Did we solve the root cause?
-- Did we add speculative defensive behavior?
-- Are all fallbacks justified by concrete requirements?
-- Are retries justified and safe?
-- Did we introduce unnecessary abstractions?
-- Did we duplicate state or responsibility?
-- Are ownership and lifecycle clear?
-- Are tests focused on meaningful behavior?
-- Are tests coupled to implementation details?
-- Can any new production code be deleted while preserving correctness?
-- Can any old code now be removed?
-- Did the implementation remain within scope?
-- Does the resulting architecture become easier, rather than harder, to explain?
-
-Passing tests is necessary but not sufficient.
-
-A change is complete only when it is correct, appropriately tested, and
-architecturally simpler or at least no more complicated than necessary.
-
-### Decision Priority
-
-When engineering goals conflict, use this order of preference:
-
-1. Correctness
-2. Clear invariants and ownership
-3. Simplicity
-4. Architectural coherence
-5. Maintainability
-6. Observability and diagnosability
-7. Appropriate testing
-8. Performance where relevant
-9. Defensive behavior only where justified
-10. Generality and extensibility only when currently required
-
-Do not sacrifice the first six items merely to maximize the last four.
-
-### Default Bias
-
-When uncertain between two correct approaches, prefer the one with:
-
-- fewer states,
-- fewer branches,
-- fewer abstractions,
-- fewer dependencies,
-- fewer hidden side effects,
-- fewer recovery paths,
-- clearer ownership,
-- more explicit invariants,
-- and less code.
-
-Simple does not mean simplistic.
-
-The objective is the smallest design that correctly represents the actual
-problem.
+- Work on `main`; do not push unless asked.
+- Build and test:
+  - C++: `cmake --build --preset conan-debug`, then
+    `ctest --preset conan-debug -j 6` (run long suites in the background; do not
+    edit service sources while it runs — the service fingerprint check fails).
+  - UI: `pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json`,
+    `pnpm lint`, `pnpm test:unit`.
+  - E2E only through `pnpm run test:e2e` or `pnpm run test:e2e:journeys`.
+- Report what changed, what was tested, and what was not verified.
+- The current refactoring plan and its status:
+  [docs/reviews/project-assessment-2026-10-25.md](docs/reviews/project-assessment-2026-10-25.md).

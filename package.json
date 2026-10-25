@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.32.1",
   "scripts": {
     "docs:requirements": "node scripts/requirements/render.mjs",
-    "docs:requirements:check": "node scripts/requirements/check.mjs",
+    "docs:requirements:check": "node scripts/requirements/render.mjs && node scripts/requirements/check.mjs",
     "dev": "vite --config apps/clients/terminal/vite.config.ts",
     "build": "tsc --noEmit -p apps/clients/terminal/tsconfig.json && vite build --config apps/clients/terminal/vite.config.ts",
     "test:unit": "vitest run --config apps/clients/terminal/vitest.config.ts",

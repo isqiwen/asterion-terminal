@@ -1,6 +1,8 @@
 # 应用
 
-- `clients/terminal/`：macOS 与 Linux 桌面终端（Electron + React + C++ 编排）。
-- `services/`：由 Node Agent 托管的独立服务和按任务启动的工作程序。
+- `services/`：业务服务，由 Node Agent 托管，各自拥有状态并在进程内执行自己的任务。
+- `management/`：Node Manager 与 Node Agent，由操作系统服务管理器托管。
+- `common/control/`：客户端与管理进程共用的服务 I/O、端点与节点路径。
+- `clients/terminal/`：桌面终端（Electron + React + C++ 编排）；`clients/installer/`：安装维护程序。
 
-各应用装配 `core/`、`plugins/` 与 `protocol/`，不复制业务实现。进程职责见 [架构](../docs/architecture.md)。
+进程职责见 [架构](../docs/architecture.md)。
