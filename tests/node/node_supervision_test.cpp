@@ -7,7 +7,6 @@
 #include "task_store.hpp"
 #include "research_data.hpp"
 #include <asterion/research.pb.h>
-#include <asterion/intelligence.pb.h>
 #include "agent_client.hpp"
 #include "node_paths.hpp"
 #include "support/local_listener.hpp"
@@ -793,57 +792,4 @@ TEST_F(NodeSupervision, UnknownServiceActionDoesNotCreateAServiceOrChangeDesired
     }
     EXPECT_TRUE(health().at("services").empty());
     EXPECT_FALSE(fs::exists(root / "agent/services/not-deployed"));
-}
-
-TEST_F(NodeSupervision, IntelligenceStartsWithoutDataAndKeepsStableOwnerAcrossAgentRestart)
-{
-    auto address = client->local_intelligence().get();
-    const auto stable_owner = address.owner_node_id;
-    ASSERT_FALSE(address.owner_node_id.empty());
-    EXPECT_EQ(address.session, "intelligence");
-    const auto ready = [&] {
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
-        while (state("intelligence").at("health") != "ready") {
-            if (std::chrono::steady_clock::now() >= deadline)
-                throw std::runtime_error("managed Intelligence readiness timed out");
-            std::this_thread::sleep_for(20ms);
-        }
-    };
-    ready();
-    EXPECT_EQ(health().at("services").size(), 1U);
-    EXPECT_EQ(state("intelligence").at("kind"), "intelligence");
-    const auto call = [&](bool heartbeat) {
-        intelligence::proto::IntelligenceRequest q;
-        q.set_version(1);
-        q.set_service_id(address.session);
-        q.set_correlation_id(unique_process_id());
-        if (heartbeat)
-            q.mutable_heartbeat();
-        else
-            q.mutable_list()->set_limit(64);
-        auto channel = ipc::Channel::connect(address.endpoint, 2s);
-        channel.send(q.SerializeAsString(), 2s);
-        intelligence::proto::IntelligenceResponse r;
-        if (!r.ParseFromString(channel.receive(3s)) || r.has_error()
-            || r.correlation_id() != q.correlation_id() || r.service_id() != q.service_id())
-            throw std::runtime_error("managed Intelligence request failed");
-        return r;
-    };
-    const auto before = call(true).health();
-    EXPECT_TRUE(before.initialized());
-    EXPECT_EQ(call(false).records().items_size(), 0);
-    EXPECT_EQ(client->local_intelligence().get().session, address.session);
-    ready();
-    EXPECT_EQ(health().at("services").size(), 1U);
-    client->action("intelligence", "restart").get();
-    ready();
-    const auto after = call(true).health();
-    EXPECT_EQ(after.instance_id(), before.instance_id());
-    EXPECT_NE(after.process_id(), before.process_id());
-    restart();
-    ready();
-    address = client->service_endpoint("intelligence", node::proto::INTELLIGENCE).get();
-    EXPECT_EQ(address.owner_node_id, stable_owner);
-    EXPECT_EQ(call(false).records().items_size(), 0);
-    EXPECT_EQ(health().at("services").size(), 1U);
 }

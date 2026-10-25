@@ -18,7 +18,6 @@ import "asterion/trading.proto";
 import "asterion/backtest.proto";
 import "asterion/factor.proto";
 import "asterion/account_review.proto";
-import "asterion/notice_review.proto";
 message ResearchSubmit {
   ProjectBinding research_plan = 11;
   StrategyUse strategy_use = 14;
@@ -31,8 +30,6 @@ message ResearchSubmit {
     asterion.factor.proto.FactorRequest factor_request = 3;
     asterion.backtest.proto.BacktestReuse backtest_reuse = 5;
     AccountReviewRequest account_review = 8;
-    NoticeReviewRequest notice_review = 9;
-    EventSetReviewRequest event_set_review = 10;
     StatisticsRequest statistics = 12;
     SampleRequest sample = 13;
     LogicTrialRequest logic_trial = 15;
@@ -75,7 +72,5 @@ message ResearchRequest {
     asterion.resource.proto.Object release_decision = 29;
     asterion.task.proto.TaskRetirementRequest retirement = 30;
     asterion.resource.proto.CatalogueQuery resources = 31;
-    asterion.task.proto.TaskId reconcile_notice_custody = 32;
-    asterion.task.proto.TaskId notice_source_changes = 33;
   }
 }

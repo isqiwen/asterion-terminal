@@ -4,6 +4,18 @@ import type { IconName } from "../ui/Icon";
 // current contributed views, never an alternate or historical routing contract.
 export const modules = [
   {
+    id: "market",
+    title: "行情",
+    icon: "market",
+    sections: [
+      {
+        id: "quotes",
+        title: "行情与自选",
+        views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
+      },
+    ],
+  },
+  {
     id: "data",
     title: "数据",
     icon: "data",
@@ -18,23 +30,9 @@ export const modules = [
     ],
   },
   {
-    id: "intelligence",
-    title: "情报",
-    icon: "info",
-    sections: [
-      { id: "extraction", title: "信息提取", views: [] },
-      { id: "verification", title: "情报核验", views: ["workspace.intelligence-notices"] },
-      {
-        id: "events",
-        title: "事件服务",
-        views: ["workspace.intelligence-sets", "workspace.intelligence-subscriptions"],
-      },
-    ],
-  },
-  {
     id: "analysis",
     title: "分析",
-    icon: "market",
+    icon: "info",
     sections: [
       {
         id: "exploration",
@@ -43,8 +41,6 @@ export const modules = [
           "workspace.research-projects",
           "workspace.research-statistics",
           "workspace.research-samples",
-          "workspace.notice-review",
-          "workspace.event-set-review",
         ],
       },
       {
@@ -96,7 +92,7 @@ export const modules = [
       {
         id: "operations",
         title: "准备与运行",
-        views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
+        views: [],
       },
       { id: "execution", title: "订单与成交", views: ["workspace.trading"] },
       { id: "accounts", title: "账户与核对", views: ["workspace.account-review"] },

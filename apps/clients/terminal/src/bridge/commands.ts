@@ -19,12 +19,6 @@ import type {
   MarketObservation,
   TradingFacts,
   MaterialRequest,
-  NoticeCandidate,
-  NoticeChangeRequest,
-  NoticeSetRequest,
-  NoticeSubscriptionDefinition,
-  NoticeSubscriptionOffer,
-  NoticeObject,
 } from "./client";
 // The current UI-to-Native contract. JSON is encoded only by the bridge.
 // Command names and parameters stay correlated through host and component callbacks.
@@ -222,7 +216,7 @@ export type CommandParams = {
   };
   "research.project.tasks": { project_id: string; before_sequence: number; limit: number };
   "resource.catalogue": {
-    domain: "data" | "research" | "intelligence";
+    domain: "data" | "research";
     kind: string;
     after: string;
   };
@@ -262,32 +256,6 @@ export type CommandParams = {
   "native.plugins.uninstall": { file: string; sha256: string };
   "node.plugins.configure": { id: string; service: string; revision: string; plugins: string[] };
   "node.update": { id: string; service: string; revision: string };
-  "node.intelligence.local.open": Record<string, never>;
-  "node.intelligence.attach": { id: string; service: string };
-  "intelligence.submit": { candidate: NoticeCandidate };
-  "intelligence.get": { id: string };
-  "intelligence.list": { after: string };
-  "intelligence.consumers": { source: NoticeObject; after: string };
-  "intelligence.event.view": { event: NoticeObject; as_of_ms: string | null };
-  "intelligence.change": { request: NoticeChangeRequest };
-  "intelligence.set.preview": { request: NoticeSetRequest };
-  "intelligence.set.publish": { request: NoticeSetRequest };
-  "intelligence.set.get": { id: string };
-  "intelligence.subscription.preview": { definition: NoticeSubscriptionDefinition };
-  "intelligence.subscription.create": { definition: NoticeSubscriptionDefinition };
-  "intelligence.subscription.get": { id: string };
-  "intelligence.subscription.list": Record<string, never>;
-  "intelligence.subscription.control": {
-    subscription: NoticeObject;
-    revision: string;
-    active: boolean;
-    gap_through: string | null;
-  };
-  "intelligence.subscription.offer": { request: NoticeSubscriptionOffer };
-  "intelligence.subscription.batch": { subscription: NoticeObject; operation_id: string };
-  "intelligence.subscription.ack": { reference: NoticeObject; subscription: NoticeObject };
-  "intelligence.subscription.reminders": { subscription: NoticeObject; after: string };
-  "intelligence.source.inspect": { source: NoticeObject };
   "research.sample.submit": {
     id: string;
     owner: TaskOwnerRef;
@@ -304,28 +272,6 @@ export type CommandParams = {
     owner: TaskOwnerRef;
     research_plan?: ResearchPlanBinding;
   };
-  "event.set.review.submit": {
-    id: string;
-    owner: TaskOwnerRef;
-    source: NoticeObject;
-    use_scope: string;
-  };
-  "notice.source.inspect": { id: string; owner: TaskOwnerRef };
-  "intelligence.review": {
-    id: string;
-    candidate: NoticeObject;
-    operator_name: string;
-    reason: string;
-    approve: boolean;
-    checks: string[];
-  };
-  "intelligence.publish": {
-    id: string;
-    candidate: NoticeObject;
-    data_owner: Pick<ResourceObject, "node" | "service" | "domain">;
-    reason: string;
-  };
-  "intelligence.abandon": { id: string; candidate: NoticeObject; reason: string };
   "node.research.local.open": Record<string, never>;
   "node.data.local.open": Record<string, never>;
   "node.data.attach": { id: string; service: string };
@@ -357,14 +303,6 @@ export type CommandParams = {
     result_digest: string;
     limits: { margin: string | null; gross_notional: string | null };
   };
-  "notice.review.submit": {
-    id: string;
-    owner: TaskOwnerRef;
-    source: NoticeObject;
-    as_of_ms: string;
-    use_scope: string;
-  };
-  "notice.custody.reconcile": { id: string; owner: TaskOwnerRef };
   "account.review.submit": {
     id: string;
     owner: TaskOwnerRef;

@@ -27,8 +27,6 @@
 #include "task_payload.hpp"
 #include "program_files.hpp"
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
-#include <asterion/protocol/intelligence.hpp>
 #include <asterion/protocol/trading_facts.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <unistd.h>
@@ -59,10 +57,6 @@ inline std::string named_task(const research::proto::ResearchRequest& request)
 {
     if (request.has_recover_submission())
         return request.recover_submission().id();
-    if (request.has_reconcile_notice_custody())
-        return request.reconcile_notice_custody().id();
-    if (request.has_notice_source_changes())
-        return request.notice_source_changes().id();
     if (request.has_abandon_preparation())
         return request.abandon_preparation().id();
     if (request.has_release_decision())
@@ -121,8 +115,6 @@ inline void check_retry(const wire::Task& task)
         case wire::BACKTEST:
         case wire::FACTOR:
         case wire::ACCOUNT_REVIEW:
-        case wire::NOTICE_REVIEW:
-        case wire::EVENT_SET_REVIEW:
         case wire::STATISTICS:
         case wire::PERFORMANCE_EVALUATION:
         case wire::SAMPLE:
@@ -143,7 +135,7 @@ inline bool changes_state(const research::proto::ResearchRequest& request)
     return (request.has_project() && request.project().has_mutation())
         || (request.has_model() && request.model().has_mutation()) || request.has_submit()
         || request.has_metadata_edit() || request.has_retry() || request.has_recover_submission()
-        || request.has_abandon_preparation() || request.has_reconcile_notice_custody()
+        || request.has_abandon_preparation()
         || (request.has_retirement() && request.retirement().execute());
 }
 
@@ -151,8 +143,7 @@ inline bool changes_state(const research::proto::ResearchRequest& request)
 inline bool prepares_input(const research::proto::ResearchRequest& request)
 {
     return request.has_submit() || request.has_recover_submission()
-        || request.has_abandon_preparation() || request.has_reconcile_notice_custody()
-        || request.has_notice_source_changes() || request.has_retirement()
+        || request.has_abandon_preparation() || request.has_retirement()
         || (request.has_strategy() && request.strategy().has_mutation()
             && (request.strategy().mutation().has_freeze()
                 || request.strategy().mutation().has_logic()));
@@ -209,8 +200,7 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
         co_await file_work([&] {
             if (!prepared_files)
                 input->prepare_files();
-            if (input->execution().has_account_review() || input->execution().has_notice_review()
-                || input->execution().has_event_set_review() || input->execution().has_statistics()
+            if (input->execution().has_account_review() || input->execution().has_statistics()
                 || input->execution().has_evaluation() || input->execution().has_logic_trial()
                 || input->execution().has_model_training() || input->execution().has_model_time())
                 return; // Owned fixed evidence; source domains retain their formal publications.
@@ -225,35 +215,6 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
         });
         if (call.request.has_submit() && call.request.submit().derivation().has_batch())
             co_await verify_prepared_batch(call, *input);
-        if (input->execution().has_notice_review() || input->execution().has_event_set_review()) {
-            const auto binding = notice_consumer_binding(input->execution(), id);
-            const auto prepared = co_await notice_custody(
-                call,
-                binding,
-                intelligence::proto::NoticeConsumerRecord::PREPARED);
-            co_await file_work([&] {
-                save_notice_custody(configuration_.directory / id, prepared);
-            });
-            co_await ready(call);
-            auto accepted = co_await commit(storage_->register_submission(*input));
-            try {
-                const auto confirmed = co_await notice_custody(
-                    call,
-                    binding,
-                    intelligence::proto::NoticeConsumerRecord::CONFIRMED);
-                co_await file_work([&] {
-                    save_notice_custody(configuration_.directory / id, confirmed);
-                });
-            } catch (const std::exception& error) {
-                // Durable source PREPARED still holds. Task admission has already committed.
-                log_process_event(
-                    "research",
-                    LogLevel::warning,
-                    "notice.custody.confirmation_pending",
-                    {{"task_id", id}, {"code", std::string(error_name(classify(error)))}});
-            }
-            co_return std::move(accepted);
-        }
         if (input->execution().has_account_review() || input->execution().has_statistics()
             || input->execution().has_evaluation() || input->execution().has_logic_trial()
             || input->execution().has_model_training() || input->execution().has_model_time()) {

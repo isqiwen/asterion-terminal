@@ -47,7 +47,6 @@ public:
     std::future<ServiceEndpoint> trading_session(const std::string& service);
     std::future<ServiceEndpoint> local_market();
     std::future<ServiceEndpoint> local_data();
-    std::future<ServiceEndpoint> local_intelligence();
     std::future<ServiceEndpoint> local_research(
         const std::optional<std::vector<std::string>>& = std::nullopt);
 

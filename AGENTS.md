@@ -16,8 +16,8 @@ Rules for anyone changing this repository. Keep this file short and current.
 - Core layers, lowest first: `asterion_foundation` → `asterion_kernel` →
   `asterion_domain`. Dependencies point down. Providers, storage, strategies and
   risk algorithms live in `plugins/` (trusted in-process code, not a sandbox).
-- Business services (`apps/services/`): Market, Data, Research, Intelligence,
-  Trading (one process per account). Each owns its state and runs its own tasks
+- Business services (`apps/services/`): Market, Data, Research and Trading
+  (one process per account). Each owns its state and runs its own tasks
   in bounded thread pools. There is no central task service or worker process.
 - Management (`apps/management/`): Node Manager (on the Terminal machine) owns
   node registration and Agent connections; Node Agent (on every node) supervises

@@ -8,12 +8,6 @@ import { lazy } from "react";
 import "./research.css";
 import type { TerminalPlugin } from "../contract";
 const Backtest = lazy(() => import("./Backtest").then(module => ({ default: module.Backtest })));
-const NoticeEvidenceReview = lazy(() =>
-  import("./NoticeEvidenceReview").then(m => ({ default: m.NoticeEvidenceReview })),
-);
-const EventSetReview = lazy(() =>
-  import("./EventSetReview").then(m => ({ default: m.EventSetReview })),
-);
 const AccountReview = lazy(() =>
   import("./AccountReview").then(module => ({ default: module.AccountReview })),
 );
@@ -124,10 +118,6 @@ export const plugin: TerminalPlugin = {
     "evaluation.submit",
     "research.sample.submit",
     "account.review.submit",
-    "notice.review.submit",
-    "event.set.review.submit",
-    "notice.custody.reconcile",
-    "notice.source.inspect",
     "factor.reuse",
     "data.tables.coverage",
     "data.tables.products",
@@ -152,15 +142,13 @@ export const plugin: TerminalPlugin = {
           task.kind === "backtest" ||
           task.kind === "factor" ||
           task.kind === "account_review" ||
-          task.kind === "notice_review" ||
-          task.kind === "event_set_review" ||
           task.kind === "statistics" ||
           task.kind === "performance_evaluation" ||
           task.kind === "sample",
       )
       .map(task => ({
         id: `research:${context.snapshot?.research_service?.node_id}:${context.snapshot?.research_service?.service}:${task.id}`,
-        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("独立研究样本") : task.kind === "statistics" ? t("探索统计") : task.kind === "event_set_review" ? t("固定事件集合审阅") : task.kind === "notice_review" ? t("公告证据与时点审阅") : task.kind === "account_review" ? t("账户观察审阅") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
+        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("独立研究样本") : task.kind === "statistics" ? t("探索统计") : task.kind === "account_review" ? t("账户观察审阅") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
         status: t(
           task.retired
             ? "已退役"
@@ -185,15 +173,11 @@ export const plugin: TerminalPlugin = {
                 ? "workspace.research-samples"
                 : task.kind === "statistics"
                   ? "workspace.research-statistics"
-                  : task.kind === "event_set_review"
-                    ? "workspace.event-set-review"
-                    : task.kind === "notice_review"
-                      ? "workspace.notice-review"
-                      : task.kind === "account_review"
-                        ? "workspace.account-review"
-                        : task.kind === "backtest"
-                          ? "workspace.backtest"
-                          : "workspace.factor",
+                  : task.kind === "account_review"
+                    ? "workspace.account-review"
+                    : task.kind === "backtest"
+                      ? "workspace.backtest"
+                      : "workspace.factor",
             {
               page: "research",
               params: {
@@ -242,26 +226,6 @@ export const plugin: TerminalPlugin = {
       component: context => (
         <WorkloadAccess context={context}>
           {ready => <ResearchProjects {...ready} />}
-        </WorkloadAccess>
-      ),
-    },
-    {
-      id: "workspace.event-set-review",
-      get title() {
-        return t("固定事件集合审阅");
-      },
-      component: context => (
-        <WorkloadAccess context={context}>{ready => <EventSetReview {...ready} />}</WorkloadAccess>
-      ),
-    },
-    {
-      id: "workspace.notice-review",
-      get title() {
-        return t("公告证据与时点审阅");
-      },
-      component: context => (
-        <WorkloadAccess context={context}>
-          {ready => <NoticeEvidenceReview {...ready} />}
         </WorkloadAccess>
       ),
     },

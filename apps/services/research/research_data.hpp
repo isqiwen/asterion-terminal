@@ -1,7 +1,6 @@
 #pragma once
 #include <asterion/data_service.pb.h>
 #include <asterion/task.pb.h>
-#include <asterion/intelligence.pb.h>
 #include <filesystem>
 #include <asterion/node.pb.h>
 #include <asterion/kernel/ipc/rpc_client.hpp>
@@ -34,8 +33,6 @@ struct ResearchProgram
 
 ResearchFactsRoute
 resolve_research_facts(const node::proto::Status&, const resource::proto::Owner&);
-ResearchFactsRoute
-resolve_research_notice(const node::proto::Status&, const resource::proto::Owner&);
 ResearchProgram
 resolve_research_program(const node::proto::Status&, const std::string& service, std::uint64_t pid);
 
@@ -55,15 +52,6 @@ void verify_research_retention(
     const std::filesystem::path& task_directory,
     const data::proto::DataRetention&);
 
-intelligence::proto::NoticeConsumerBinding
-notice_consumer_binding(const task::proto::TaskExecution&, const std::string& task_id);
-std::optional<intelligence::proto::NoticeConsumerRecord> read_notice_custody(
-    const std::filesystem::path& task_directory,
-    const intelligence::proto::NoticeConsumerBinding&);
-void save_notice_custody(
-    const std::filesystem::path& task_directory,
-    const intelligence::proto::NoticeConsumerRecord&);
-
 // One Research I/O owner pumps discovery and a bounded set of direct Data reads.
 // Manager/Agent carry metadata only; business payloads use the resolved endpoint.
 class ResearchData
@@ -76,8 +64,6 @@ public:
     read(const ResearchDataRoute&, std::string request, std::chrono::milliseconds timeout);
     PolledTask<ResearchFactsRoute>
     resolve_facts(resource::proto::Owner, std::chrono::milliseconds timeout, std::string parent);
-    PolledTask<ResearchFactsRoute>
-    resolve_notice(resource::proto::Owner, std::chrono::milliseconds timeout, std::string parent);
     PolledTask<ResearchProgram> program(
         std::string service,
         std::uint64_t pid,

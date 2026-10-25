@@ -45,7 +45,7 @@ pnpm desktop --prepare-analytics    # 首次：准备分析助手、构建并启
 | `core/` | 基础（Decimal、时间、错误）、内核（IPC、进程、日志、持久文件）、期货领域模型 |
 | `plugins/` | 数据源、执行、存储、策略、风控与分析工具 |
 | `protocol/` | Protobuf 契约与边界校验 |
-| `apps/services/` | 业务服务：行情、数据、研究、情报、交易 |
+| `apps/services/` | 业务服务：行情、数据、研究、交易 |
 | `apps/management/` | Node Manager 与 Node Agent |
 | `apps/common/control/` | 客户端与管理进程共用的控制机制 |
 | `apps/clients/` | Terminal 桌面端与安装器 |

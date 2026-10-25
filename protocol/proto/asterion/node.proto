@@ -36,7 +36,6 @@ enum ServiceKind {
   RESEARCH = 2;
   TRADING = 3;
   DATA = 4;
-  INTELLIGENCE = 5;
 }
 
 message Deploy {

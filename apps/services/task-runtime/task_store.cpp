@@ -26,7 +26,6 @@
 #include <asterion/kernel/process/file_lock.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <asterion/protocol/material.hpp>
 #include <map>
 #include <limits>
@@ -52,12 +51,6 @@ constexpr KindSpec kind_specs[] = {
     {wire::BACKTEST, "research", "backtest", "input", "backtest"},
     {wire::FACTOR, "research", "factor", "factor", "factor"},
     {wire::ACCOUNT_REVIEW, "research", "account_review", "account_review", "account_review"},
-    {wire::NOTICE_REVIEW, "research", "notice_review", "notice_review", "notice_review"},
-    {wire::EVENT_SET_REVIEW,
-        "research",
-        "event_set_review",
-        "event_set_review",
-        "event_set_review"},
     {wire::STATISTICS, "research", "statistics", "statistics", "statistics"},
     {wire::PERFORMANCE_EVALUATION,
         "research",
@@ -273,19 +266,6 @@ void prepare(wire::Task& task)
                     : 2)
             * (task.statistics().request().end_index()
                 - task.statistics().request().begin_index()));
-    } else if (task.has_event_set_review()) {
-        protocol::validate_event_set_review_input(task.event_set_review());
-        task.set_kind(wire::EVENT_SET_REVIEW);
-        task.set_source_name(task.event_set_review().request().source().owner().service_id());
-        task.set_instrument(task.event_set_review().content().payload().request().name());
-        task.set_total(task.event_set_review().members_size());
-    } else if (task.has_notice_review()) {
-        protocol::validate_notice_review_input(task.notice_review());
-        task.set_kind(wire::NOTICE_REVIEW);
-        task.set_source_name(task.notice_review().request().source().owner().service_id());
-        task.set_instrument(
-            task.notice_review().content().payload().input().candidate().contract());
-        task.set_total(1);
     } else if (task.has_account_review()) {
         protocol::validate_account_review_input(task.account_review());
         const auto& facts = task.account_review().evidence().capture().facts();
@@ -914,10 +894,6 @@ struct Store::Impl
                 entry.task.set_kind(wire::MATERIAL_ACQUISITION);
             else if (manifest.at("type") == "account_review.task")
                 entry.task.set_kind(wire::ACCOUNT_REVIEW);
-            else if (manifest.at("type") == "notice_review.task")
-                entry.task.set_kind(wire::NOTICE_REVIEW);
-            else if (manifest.at("type") == "event_set_review.task")
-                entry.task.set_kind(wire::EVENT_SET_REVIEW);
             else if (manifest.at("type") == "statistics.task")
                 entry.task.set_kind(wire::STATISTICS);
             else if (manifest.at("type") == "performance_evaluation.task")
@@ -1879,8 +1855,6 @@ Store::Change Store::abandon_preparation(
             && record.task().kind() != wire::MINUTE_DOWNLOAD
             && record.task().kind() != wire::TABLE_UPDATE
             && record.task().kind() != wire::ACCOUNT_REVIEW
-            && record.task().kind() != wire::NOTICE_REVIEW
-            && record.task().kind() != wire::EVENT_SET_REVIEW
             && record.task().kind() != wire::STATISTICS && record.task().kind() != wire::SAMPLE
             && record.task().kind() != wire::LOGIC_TRIAL
             && record.task().kind() != wire::MODEL_TRAINING
@@ -1895,8 +1869,6 @@ Store::Change Store::abandon_preparation(
     const auto kind = record.task().kind() == wire::BACKTEST   ? "backtest"
         : record.task().kind() == wire::FACTOR                 ? "factor"
         : record.task().kind() == wire::ACCOUNT_REVIEW         ? "account_review"
-        : record.task().kind() == wire::NOTICE_REVIEW          ? "notice_review"
-        : record.task().kind() == wire::EVENT_SET_REVIEW       ? "event_set_review"
         : record.task().kind() == wire::STATISTICS             ? "statistics"
         : record.task().kind() == wire::PERFORMANCE_EVALUATION ? "performance_evaluation"
         : record.task().kind() == wire::SAMPLE                 ? "sample"
@@ -2088,17 +2060,11 @@ void Store::admit_submission(Submission& input)
             protocol::require_backtest_scoring_assumptions(
                 static_cast<std::size_t>(input.task_.input().strategies_size()),
                 input.task_.input().performance_assumptions());
-        if ((input.task_.has_account_review() || input.task_.has_notice_review()
-                || input.task_.has_event_set_review())
-            && !input.reusable_) {
+        if (input.task_.has_account_review() && !input.reusable_) {
             sqlite::Database::Statement same(
                 *impl_->database,
                 "SELECT id FROM tasks WHERE kind=? AND json_extract(manifest,'$.input_sha256')=? LIMIT 1");
-            same.bind(
-                1,
-                input.task_.has_notice_review()          ? "notice_review.task"
-                    : input.task_.has_event_set_review() ? "event_set_review.task"
-                                                         : "account_review.task");
+            same.bind(1, "account_review.task");
             same.bind(2, input.reuse_digest_);
             if (same.step()) {
                 const auto original = impl_->find(same.text(0));
@@ -2309,8 +2275,6 @@ Store::Change Store::register_submission(Submission& input)
         : task.kind() == wire::TABLE_UPDATE            ? "tables.task"
         : task.kind() == wire::FACTOR                  ? "factor.task"
         : task.kind() == wire::ACCOUNT_REVIEW          ? "account_review.task"
-        : task.kind() == wire::NOTICE_REVIEW           ? "notice_review.task"
-        : task.kind() == wire::EVENT_SET_REVIEW        ? "event_set_review.task"
         : task.kind() == wire::STATISTICS              ? "statistics.task"
         : task.kind() == wire::PERFORMANCE_EVALUATION  ? "performance_evaluation.task"
         : task.kind() == wire::SAMPLE                  ? "sample.task"
@@ -2585,10 +2549,8 @@ void Store::HistoryRead::load_page()
     for (const auto& entry : page_) {
         if (active_only_ && entry.task().has_retirement())
             continue;
-        if (entry.task().kind() == wire::ACCOUNT_REVIEW
-            || entry.task().kind() == wire::NOTICE_REVIEW
-            || entry.task().kind() == wire::EVENT_SET_REVIEW
-            || entry.task().kind() == wire::STATISTICS || entry.task().kind() == wire::LOGIC_TRIAL
+        if (entry.task().kind() == wire::ACCOUNT_REVIEW || entry.task().kind() == wire::STATISTICS
+            || entry.task().kind() == wire::LOGIC_TRIAL
             || entry.task().kind() == wire::MODEL_TRAINING
             || entry.task().kind() == wire::MODEL_TIME_VALIDATION
             || entry.task().kind() == wire::PERFORMANCE_EVALUATION)
@@ -2638,8 +2600,7 @@ Store::resources(const std::string& node, const resource::proto::CatalogueQuery&
     const auto limit = protocol::catalogue_limit(query);
     validate_id(node);
     const bool output = query.kind() == "backtest_result" || query.kind() == "factor_result"
-        || query.kind() == "account_review_result" || query.kind() == "notice_review_result"
-        || query.kind() == "event_set_review_result" || query.kind() == "statistics_result"
+        || query.kind() == "account_review_result" || query.kind() == "statistics_result"
         || query.kind() == "sample_result" || query.kind() == "logic_trial_result"
         || query.kind() == "model_training_result" || query.kind() == "model_time_validation_result"
         || query.kind() == "performance_evaluation_result";
@@ -2648,10 +2609,6 @@ Store::resources(const std::string& node, const resource::proto::CatalogueQuery&
         : query.kind() == "factor" || query.kind() == "factor_result" ? wire::FACTOR
         : query.kind() == "account_review" || query.kind() == "account_review_result"
         ? wire::ACCOUNT_REVIEW
-        : query.kind() == "notice_review" || query.kind() == "notice_review_result"
-        ? wire::NOTICE_REVIEW
-        : query.kind() == "event_set_review" || query.kind() == "event_set_review_result"
-        ? wire::EVENT_SET_REVIEW
         : query.kind() == "performance_evaluation"
             || query.kind() == "performance_evaluation_result"
         ? wire::PERFORMANCE_EVALUATION
@@ -2919,14 +2876,6 @@ void Store::Completion::prepare_payload()
         else if (result_.has_statistics() && task_.kind() == wire::STATISTICS
             && task_.has_statistics())
             protocol::validate_statistics_result(task_.statistics(), result_.statistics());
-        else if (result_.has_event_set_review() && task_.kind() == wire::EVENT_SET_REVIEW
-            && task_.has_event_set_review())
-            protocol::validate_event_set_review_result(
-                task_.event_set_review(),
-                result_.event_set_review());
-        else if (result_.has_notice_review() && task_.kind() == wire::NOTICE_REVIEW
-            && task_.has_notice_review())
-            protocol::validate_notice_review_result(task_.notice_review(), result_.notice_review());
         else if (result_.has_account_review() && task_.kind() == wire::ACCOUNT_REVIEW
             && task_.has_account_review())
             protocol::validate_account_review_result(
@@ -2951,9 +2900,6 @@ void Store::Completion::prepare_payload()
             case wire::TaskFinish::kAccountReview:
                 output = &result_.account_review();
                 break;
-            case wire::TaskFinish::kEventSetReview:
-                output = &result_.event_set_review();
-                break;
             case wire::TaskFinish::kStatistics:
                 output = &result_.statistics();
                 break;
@@ -2971,9 +2917,6 @@ void Store::Completion::prepare_payload()
                 break;
             case wire::TaskFinish::kLogicTrial:
                 output = &result_.logic_trial();
-                break;
-            case wire::TaskFinish::kNoticeReview:
-                output = &result_.notice_review();
                 break;
             case wire::TaskFinish::kMaterial:
                 output = &result_.material();

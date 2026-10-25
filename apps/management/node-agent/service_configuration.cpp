@@ -80,11 +80,8 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
         validate_artifact_digest(configuration.catalog_artifact);
     }
     if (configuration.kind != wire::MARKET && configuration.kind != wire::RESEARCH
-        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA
-        && configuration.kind != wire::INTELLIGENCE)
+        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA)
         throw std::invalid_argument("unsupported service kind");
-    if (configuration.kind == wire::INTELLIGENCE && !configuration.plugin_artifacts.empty())
-        throw std::invalid_argument("intelligence does not load native provider plugins");
     if (!configuration.provider_artifact.empty()) {
         if (configuration.kind != wire::MARKET)
             throw std::invalid_argument("provider library only belongs to market data");

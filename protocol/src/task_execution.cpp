@@ -11,7 +11,6 @@
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <stdexcept>
 #include <set>
 
@@ -158,14 +157,6 @@ task_execution(const task::proto::Task& task, const std::string& input_sha256)
     } else if (task.has_statistics()) {
         validate_statistics_input(task.statistics());
         *result.mutable_statistics() = task.statistics();
-    } else if (task.has_event_set_review()) {
-        validate_event_set_review_input(task.event_set_review());
-        auto& value = *result.mutable_event_set_review();
-        *value.mutable_owner() = task.event_set_review().owner();
-        *value.mutable_request() = task.event_set_review().request();
-        value.set_program_artifact(task.event_set_review().program_artifact());
-    } else if (task.has_notice_review()) {
-        *result.mutable_notice_review() = notice_review_execution(task.notice_review());
     } else if (task.has_account_review()) {
         *result.mutable_account_review() = account_review_execution(task.account_review());
     } else {
@@ -276,10 +267,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
         if (execution.has_data_owner() || !execution.schedules().empty()
             || execution.has_historical_margins())
             throw std::invalid_argument("statistics execution contains unrelated parameters");
-    } else if (execution.has_event_set_review()) {
-        validate_event_set_review_execution(execution.event_set_review());
-    } else if (execution.has_notice_review()) {
-        validate_notice_review_execution(execution.notice_review());
     } else if (execution.has_account_review()) {
         validate_account_review_execution(execution.account_review());
     } else

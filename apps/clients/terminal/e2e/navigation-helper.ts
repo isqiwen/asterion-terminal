@@ -2,7 +2,6 @@ import type { Page } from "@playwright/test";
 import host from "../src/i18n/locales/en-US.json";
 import market from "../plugins/futures-market/locales/en-US.json";
 import data from "../plugins/data-workbench/locales/en-US.json";
-import intelligence from "../plugins/intelligence/locales/en-US.json";
 import research from "../plugins/research/locales/en-US.json";
 
 // Exercise the public product navigation; do not inject internal route state.
@@ -15,11 +14,6 @@ const destinations = {
   statistics: ["分析", "数据探索", "探索统计"],
   history: ["数据", "接入与采集"],
   materials: ["数据", "接入与采集", "情报材料"],
-  intelligence: ["情报", "情报核验"],
-  noticeReview: ["分析", "数据探索", "公告证据与时点审阅"],
-  eventSets: ["情报", "事件服务"],
-  subscriptions: ["情报", "事件服务", "情报订阅与交付"],
-  eventSetReview: ["分析", "数据探索", "固定事件集合审阅"],
   tables: ["数据", "管理与服务", "全市场数据"],
   records: ["数据", "管理与服务", "历史数据仓库"],
   factor: ["分析", "特征与因子"],
@@ -28,9 +22,9 @@ const destinations = {
   performance: ["评估", "绩效与归因"],
   risk: ["评估", "风险与压力"],
   validation: ["评估", "稳健性与综合评价"],
-  market: ["实盘", "准备与运行", "市场"],
-  watchlist: ["实盘", "准备与运行", "自选"],
-  contract: ["实盘", "准备与运行", "合约"],
+  market: ["行情", "行情与自选", "市场"],
+  watchlist: ["行情", "行情与自选", "自选"],
+  contract: ["行情", "行情与自选", "合约"],
   trading: ["实盘", "订单与成交"],
 } as const;
 
@@ -41,7 +35,6 @@ export async function openView(page: Page, view: keyof typeof destinations) {
     ...host,
     ...market,
     ...data,
-    ...intelligence,
     ...research,
   };
   const name = (key: string) => (english ? messages[key] : key);

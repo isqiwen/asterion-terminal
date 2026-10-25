@@ -1,7 +1,6 @@
 #include "data_host.hpp"
 #include <asterion/protocol/retention_release.hpp>
 #include "observation_source.hpp"
-#include "intelligence_source.hpp"
 #include "material_providers.hpp"
 #include "historical_margins.hpp"
 #include "history_coverage.hpp"
@@ -61,7 +60,6 @@ void DataHost::open()
             archive_owner.set_service_id(configuration_.service);
             archive_owner.set_domain("data");
             materials_ = std::make_unique<Materials>(directory, archive_owner);
-            intelligence_content_ = std::make_unique<IntelligenceContent>(directory, archive_owner);
             observations_ = std::make_unique<Observations>(directory, std::move(archive_owner));
         }
         named_dataset_count_ = store_->archive().named_datasets().items_size();
@@ -370,104 +368,6 @@ std::function<void()> DataHost::prepare(
                 fail(response, error);
             }
         };
-    } else if (request.has_intelligence_set_save()) {
-        if (!intelligence_content_)
-            throw Error(ErrorCode::unavailable, "event set content requires stable Data owner");
-        const auto source = request.intelligence_set_save();
-        if (const auto previous = intelligence_content_->find_set(source)) {
-            *response.mutable_intelligence_saved() = previous->receipt;
-            return {};
-        }
-        auto intent = fetch_intelligence_set_preparation(
-            source,
-            configuration_.node_id,
-            configuration_.discovery_endpoint,
-            stop);
-        return [&, source, intent = std::move(intent)] {
-            *response.mutable_intelligence_saved() =
-                intelligence_content_->save_set(source, [&](const auto&) {
-                    return intent;
-                });
-        };
-    } else if (request.has_intelligence_set_read()) {
-        if (!intelligence_content_)
-            throw Error(ErrorCode::unavailable, "event set content requires stable Data owner");
-        const auto read = intelligence_content_->read_set(request.intelligence_set_read());
-        auto& result = *response.mutable_intelligence_set_content();
-        *result.mutable_receipt() = read.receipt;
-        *result.mutable_payload() = read.payload;
-    } else if (request.has_intelligence_change_save()) {
-        if (!intelligence_content_ || !materials_)
-            throw Error(ErrorCode::unavailable, "notice change content requires stable Data owner");
-        const auto source = request.intelligence_change_save();
-        if (const auto previous = intelligence_content_->find_change(source)) {
-            *response.mutable_intelligence_saved() = previous->receipt;
-            return {};
-        }
-        auto intent = fetch_intelligence_change_preparation(
-            source,
-            configuration_.node_id,
-            configuration_.discovery_endpoint,
-            stop);
-        protocol::validate_notice_change_intent(intent);
-        const auto& original = intent.payload().input().material();
-        const auto evidence = materials_->read(original.reference().id(), original.reference());
-        if (evidence.receipt.SerializeAsString() != original.SerializeAsString())
-            throw Error(
-                ErrorCode::conflict,
-                "notice change material receipt differs from Data authority");
-        return [&, source, intent = std::move(intent)] {
-            *response.mutable_intelligence_saved() =
-                intelligence_content_->save_change(source, [&](const auto&) {
-                    return intent;
-                });
-        };
-    } else if (request.has_intelligence_change_read()) {
-        if (!intelligence_content_)
-            throw Error(ErrorCode::unavailable, "notice change content requires stable Data owner");
-        const auto read = intelligence_content_->read_change(request.intelligence_change_read());
-        auto& result = *response.mutable_intelligence_change_content();
-        *result.mutable_receipt() = read.receipt;
-        *result.mutable_payload() = read.payload;
-    } else if (request.has_intelligence_save()) {
-        if (!intelligence_content_ || !retentions_)
-            throw Error(ErrorCode::unavailable, "intelligence content requires stable Data owner");
-        const auto source = request.intelligence_save();
-        // Immutable reads happen on the reader. Never block Data's writer while
-        // Intelligence serves the prepared publication from its own serial writer.
-        if (const auto previous = intelligence_content_->find(source)) {
-            *response.mutable_intelligence_saved() = previous->receipt;
-            return {};
-        }
-        auto intent = fetch_intelligence_preparation(
-            source,
-            configuration_.node_id,
-            configuration_.discovery_endpoint,
-            stop);
-        return [&, source, intent = std::move(intent)] {
-            const auto& input = intent.payload().input();
-            const auto held = retentions_->get(intent.payload().candidate());
-            bool exact_snapshot = false;
-            for (const auto& version : held.retention().versions())
-                if (version.kind() == wire::DataVersion::TABLE_SNAPSHOT
-                    && version.version() == input.dictionary_reference().version())
-                    exact_snapshot = true;
-            if (held.phase() != wire::DataRetentionRecord::CONFIRMED || !exact_snapshot
-                || held.retention().consumer().SerializeAsString()
-                    != intent.payload().candidate().SerializeAsString())
-                throw Error(ErrorCode::conflict, "intelligence source retention is not confirmed");
-            *response.mutable_intelligence_saved() =
-                intelligence_content_->save(source, [&](const auto&) {
-                    return intent;
-                });
-        };
-    } else if (request.has_intelligence_read()) {
-        if (!intelligence_content_)
-            throw Error(ErrorCode::unavailable, "intelligence content requires stable Data owner");
-        const auto read = intelligence_content_->read(request.intelligence_read());
-        auto& result = *response.mutable_intelligence_content();
-        *result.mutable_receipt() = read.receipt;
-        *result.mutable_payload() = read.payload;
     } else if (request.has_material_sources()) {
         for (const auto& source : material_providers::sources()) {
             auto* item = response.mutable_material_sources()->add_items();
@@ -852,8 +752,7 @@ void DataHost::admit(Work& admitted, bool worker)
     if (!initialized_)
         throw Error(ErrorCode::unavailable, "data service is initializing");
     require_ready();
-    const bool mutation = request.has_intelligence_set_save() || request.has_intelligence_save()
-        || request.has_intelligence_change_save() || request.has_configure_download_budget()
+    const bool mutation = request.has_configure_download_budget()
         || request.has_acquire_download_permit() || request.has_authorize_download()
         || (request.has_observation() && !request.observation().has_read())
         || request.has_download_authorization() || request.has_download_credentials()
@@ -892,25 +791,6 @@ void DataHost::admit(Work& admitted, bool worker)
     const auto attempt = [&](const wire::DownloadIdentity& identity) {
         work->objects.push_back("download/" + identity.SerializeAsString());
     };
-    if (request.has_intelligence_set_save() || request.has_intelligence_set_read()) {
-        const auto& source = request.has_intelligence_set_save() ? request.intelligence_set_save()
-                                                                 : request.intelligence_set_read();
-        protocol::validate_message(source);
-        work->objects.push_back("intelligence/" + sha256_bytes(source.SerializeAsString()));
-    }
-    if (request.has_intelligence_change_save() || request.has_intelligence_change_read()) {
-        const auto& source = request.has_intelligence_change_save()
-            ? request.intelligence_change_save()
-            : request.intelligence_change_read();
-        protocol::validate_message(source);
-        work->objects.push_back("intelligence/" + sha256_bytes(source.SerializeAsString()));
-    }
-    if (request.has_intelligence_save() || request.has_intelligence_read()) {
-        const auto& source = request.has_intelligence_save() ? request.intelligence_save()
-                                                             : request.intelligence_read();
-        protocol::validate_message(source);
-        work->objects.push_back("intelligence/" + sha256_bytes(source.SerializeAsString()));
-    }
     if (request.has_observation()) {
         const auto& query = request.observation();
         const auto id = query.has_admit() ? query.admit().id()
@@ -1004,9 +884,7 @@ void DataHost::admit(Work& admitted, bool worker)
         work->objects.end());
     for (const auto& key : work->objects)
         object_order_[key].push_back(work);
-    work->writes_catalog = request.has_intelligence_set_save() || request.has_intelligence_save()
-        || request.has_intelligence_change_save() || request.has_store_table_partition()
-        || request.has_save_dataset()
+    work->writes_catalog = request.has_store_table_partition() || request.has_save_dataset()
         || (request.has_observation() && !request.observation().has_read())
         || request.has_publish_download()
         || (request.has_acquisition_task() && request.acquisition_task().has_retirement()

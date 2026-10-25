@@ -3,7 +3,6 @@
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/research_model.hpp>
@@ -45,38 +44,6 @@ Store::Submission task_submission(
     auto submission = store.submission(std::move(task));
     submission.set_reuse_digest(
         sha256_bytes(submission.task().account_review().SerializeAsString()));
-    return submission;
-}
-
-Store::Submission
-task_submission(const Store& store, const std::string& id, research::proto::NoticeReviewInput input)
-{
-    protocol::validate_notice_review_input(input);
-    if (input.owner().service_id() != store.instance())
-        throw Error(ErrorCode::conflict, "notice review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_notice_review() = std::move(input);
-    auto submission = store.submission(std::move(task));
-    submission.set_reuse_digest(
-        sha256_bytes(submission.task().notice_review().SerializeAsString()));
-    return submission;
-}
-
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::EventSetReviewInput input)
-{
-    protocol::validate_event_set_review_input(input);
-    if (input.owner().service_id() != store.instance())
-        throw Error(ErrorCode::conflict, "event set review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_event_set_review() = std::move(input);
-    auto submission = store.submission(std::move(task));
-    submission.set_reuse_digest(
-        sha256_bytes(submission.task().event_set_review().SerializeAsString()));
     return submission;
 }
 

@@ -43,10 +43,6 @@ ServicePrograms resolve_programs(node::proto::ServiceKind kind, Resolve resolve)
             programs.executable =
                 resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion_data", false);
             break;
-        case node::proto::INTELLIGENCE:
-            programs.executable =
-                resolve("ASTERION_INTELLIGENCE_EXECUTABLE", "asterion_intelligence", false);
-            break;
         case node::proto::RESEARCH:
             programs.executable =
                 resolve("ASTERION_RESEARCH_EXECUTABLE", "asterion_research", false);
@@ -83,11 +79,7 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
     node::proto::ServicePrograms manifest;
     manifest.set_version(1);
     for (const auto kind :
-        {node::proto::MARKET,
-            node::proto::DATA,
-            node::proto::RESEARCH,
-            node::proto::INTELLIGENCE,
-            node::proto::TRADING}) {
+        {node::proto::MARKET, node::proto::DATA, node::proto::RESEARCH, node::proto::TRADING}) {
         const auto programs = local_service_programs(kind);
         auto& source = *manifest.add_services();
         source.set_kind(kind);

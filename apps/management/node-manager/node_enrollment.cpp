@@ -1105,7 +1105,6 @@ std::vector<std::string> candidate_files(const fs::path& folder, const std::stri
         "asterion_market",
         "asterion_data",
         "asterion_research",
-        "asterion_intelligence",
         "ctp-md.so",
         "ctp-trader.so",
         "plugins/asterion_tushare.so",
@@ -1155,7 +1154,6 @@ void upload_maintenance(
     add(node::proto::TRADING, "asterion_trading");
     add(node::proto::DATA, "asterion_data");
     add(node::proto::RESEARCH, "asterion_research");
-    add(node::proto::INTELLIGENCE, "asterion_intelligence");
     for (const auto& file : files)
         if (file.starts_with("plugins/"))
             programs.add_bundled_plugins(stage + "/" + file);

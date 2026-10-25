@@ -19,7 +19,6 @@
 #include "task_payload.hpp"
 #include "program_files.hpp"
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
@@ -68,8 +67,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     std::map<std::string, proto::ModelTimePlan> retained_time_plans;
     std::vector<task::proto::StoredTaskRecord> required_batches;
     bool missing_original_program = false;
-    bool missing_notice_receipt = false;
-    std::vector<fs::path> notice_receipts;
     std::set<std::string> required_programs;
     std::vector<proto::ProjectBinding> required_plans;
     std::vector<resource::proto::Object> required_variables;
@@ -133,170 +130,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
                 protocol::validate_account_review_result(evidence, output);
                 auto object = input;
                 object.set_kind("account_review_result");
-                object.set_version(record.task().result_digest());
-                result.objects.push_back(std::move(object));
-            }
-        }
-        return input;
-    };
-    const auto inspect_notice = [&](const task::proto::StoredTaskRecord& record,
-                                    const task::proto::TaskExecution& execution,
-                                    bool abandoned = false) {
-        if (!execution.has_notice_review())
-            throw std::invalid_argument("notice review backup lacks its execution identity");
-        const auto& fixed = execution.notice_review();
-        protocol::validate_notice_review_execution(fixed);
-        if (fixed.owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.has_data_owner() || execution.input_sha256() != record.input_digest())
-            throw Error(ErrorCode::conflict, "notice review backup owner or input mismatch");
-        required_programs.insert(fixed.program_artifact());
-        resource::proto::Object input;
-        *input.mutable_owner() = owner;
-        input.set_kind("notice_review");
-        input.set_id(record.task().id());
-        input.set_version(record.input_digest());
-        if (record.task().has_retirement()
-            && record.task().retirement().SerializeAsString() != input.SerializeAsString())
-            throw Error(ErrorCode::conflict, "notice review retirement backup mismatch");
-        const auto binding = tasks::notice_consumer_binding(execution, input.id());
-        const auto receipt = tasks::read_notice_custody(root / input.id(), binding);
-        if (receipt) {
-            if (!abandoned
-                && receipt->phase() == intelligence::proto::NoticeConsumerRecord::RELEASED)
-                throw Error(ErrorCode::conflict, "accepted notice evidence has a released source");
-            notice_receipts.push_back(fs::path(input.id()) / "notice-custody.pb");
-        } else if (!abandoned) {
-            missing_notice_receipt = true;
-        }
-        result.notice_references.push_back(
-            {binding.source(),
-                binding.consumer(),
-                sha256_bytes(binding.SerializeAsString()),
-                abandoned});
-        result.objects.push_back(input);
-        inputs.emplace(input.id(), input);
-        depend(fixed.request()
-                .source()); // Embedded evidence is not a backup of the Intelligence ledger or Data content.
-        // The saved bytes and semantic publication have different domain owners.
-
-        resource::proto::Object program;
-        *program.mutable_owner() = owner;
-        program.set_kind("research_program");
-        program.set_id(fixed.program_artifact());
-        program.set_version(fixed.program_artifact());
-        depend(std::move(program));
-        const auto file = root / input.id() / "input.pb";
-        if (fs::exists(file)) {
-            research::proto::NoticeReviewInput evidence;
-            tasks::payload::parse(
-                tasks::payload::read(
-                    file,
-                    record.input_digest(),
-                    tasks::payload::max_input_bytes,
-                    record.input_bytes()),
-                evidence);
-            if (protocol::notice_review_execution(evidence).SerializeAsString()
-                != fixed.SerializeAsString())
-                throw Error(
-                    ErrorCode::conflict,
-                    "notice review backup input differs from its execution");
-            depend(evidence.content().receipt().content());
-            if (record.task().state() == task::proto::SUCCEEDED) {
-                research::proto::NoticeReviewResult output;
-                tasks::payload::parse(
-                    tasks::payload::read(
-                        root / input.id() / "results"
-                            / (std::to_string(record.task().attempt()) + ".pb"),
-                        record.task().result_digest(),
-                        tasks::payload::max_result_bytes),
-                    output);
-                protocol::validate_notice_review_result(evidence, output);
-                auto object = input;
-                object.set_kind("notice_review_result");
-                object.set_version(record.task().result_digest());
-                result.objects.push_back(std::move(object));
-            }
-        }
-        return input;
-    };
-    const auto inspect_set = [&](const task::proto::StoredTaskRecord& record,
-                                 const task::proto::TaskExecution& execution,
-                                 bool abandoned = false) {
-        if (!execution.has_event_set_review())
-            throw std::invalid_argument("event set review backup lacks its execution identity");
-        const auto& fixed = execution.event_set_review();
-        protocol::validate_event_set_review_execution(fixed);
-        if (fixed.owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.has_data_owner() || execution.input_sha256() != record.input_digest())
-            throw Error(ErrorCode::conflict, "event set review backup owner or input mismatch");
-        required_programs.insert(fixed.program_artifact());
-        const auto binding = tasks::notice_consumer_binding(execution, record.task().id());
-        const auto input = binding.consumer();
-        if (record.task().has_retirement()
-            && record.task().retirement().SerializeAsString() != input.SerializeAsString())
-            throw Error(ErrorCode::conflict, "event set review retirement backup mismatch");
-        const auto receipt = tasks::read_notice_custody(root / input.id(), binding);
-        if (receipt) {
-            if (!abandoned
-                && receipt->phase() == intelligence::proto::NoticeConsumerRecord::RELEASED)
-                throw Error(
-                    ErrorCode::conflict,
-                    "accepted event set evidence has a released source");
-            notice_receipts.push_back(fs::path(input.id()) / "notice-custody.pb");
-        } else if (!abandoned) {
-            missing_notice_receipt = true;
-        }
-        result.notice_references.push_back(
-            {binding.source(),
-                binding.consumer(),
-                sha256_bytes(binding.SerializeAsString()),
-                abandoned});
-        result.objects.push_back(input);
-        inputs.emplace(input.id(), input);
-        depend(fixed.request().source());
-        resource::proto::Object program;
-        *program.mutable_owner() = owner;
-        program.set_kind("research_program");
-        program.set_id(fixed.program_artifact());
-        program.set_version(fixed.program_artifact());
-        depend(std::move(program));
-        const auto file = root / input.id() / "input.pb";
-        if (fs::exists(file)) {
-            research::proto::EventSetReviewInput evidence;
-            tasks::payload::parse(
-                tasks::payload::read(
-                    file,
-                    record.input_digest(),
-                    tasks::payload::max_input_bytes,
-                    record.input_bytes()),
-                evidence);
-            protocol::validate_event_set_review_input(evidence);
-            task::proto::Task task;
-            *task.mutable_event_set_review() = evidence;
-            if (protocol::task_execution(task, record.input_digest()).SerializeAsString()
-                != execution.SerializeAsString())
-                throw Error(
-                    ErrorCode::conflict,
-                    "event set review backup input differs from execution");
-            depend(evidence.content().receipt().content());
-            for (const auto& member : evidence.members()) {
-                depend(member.publication().reference());
-                depend(member.content().receipt().content());
-            }
-            for (const auto& change : evidence.changes())
-                depend(change.receipt().content());
-            if (record.task().state() == task::proto::SUCCEEDED) {
-                research::proto::EventSetReviewResult output;
-                tasks::payload::parse(
-                    tasks::payload::read(
-                        root / input.id() / "results"
-                            / (std::to_string(record.task().attempt()) + ".pb"),
-                        record.task().result_digest(),
-                        tasks::payload::max_result_bytes),
-                    output);
-                protocol::validate_event_set_review_result(evidence, output);
-                auto object = input;
-                object.set_kind("event_set_review_result");
                 object.set_version(record.task().result_digest());
                 result.objects.push_back(std::move(object));
             }
@@ -608,14 +441,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             origins.push_back(task.metadata());
             return;
         }
-        if (task.kind() == task::proto::EVENT_SET_REVIEW) {
-            (void)inspect_set(record, execution);
-            return;
-        }
-        if (task.kind() == task::proto::NOTICE_REVIEW) {
-            (void)inspect_notice(record, execution);
-            return;
-        }
         if (task.kind() == task::proto::ACCOUNT_REVIEW) {
             (void)inspect_review(record, execution);
             return;
@@ -707,18 +532,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             if (inspect_statistics(evidence.record(), execution).SerializeAsString()
                 != decision.SerializeAsString())
                 throw Error(ErrorCode::conflict, "invalid statistics source identity");
-            return;
-        }
-        if (evidence.record().task().kind() == task::proto::EVENT_SET_REVIEW) {
-            if (inspect_set(evidence.record(), execution, true).SerializeAsString()
-                != decision.SerializeAsString())
-                throw Error(ErrorCode::conflict, "event set review abandonment backup mismatch");
-            return;
-        }
-        if (evidence.record().task().kind() == task::proto::NOTICE_REVIEW) {
-            if (inspect_notice(evidence.record(), execution, true).SerializeAsString()
-                != decision.SerializeAsString())
-                throw Error(ErrorCode::conflict, "notice review abandonment backup mismatch");
             return;
         }
         if (evidence.record().task().kind() == task::proto::ACCOUNT_REVIEW) {
@@ -1046,10 +859,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
                 : file.extension() == ".json"                               ? "json"
                 : file.extension() == ".so" || file.extension() == ".dylib" ? "binary"
                                                                             : "protobuf");
-    for (const auto& receipt : notice_receipts)
-        add(receipt, "protobuf");
-    if (missing_notice_receipt)
-        snapshot.limitations.push_back("notice_source_registration_acknowledgement_not_recorded");
     snapshot.directories = catalogue.directories;
     if (fs::exists(root / "programs") || !required_programs.empty()) {
         programs::Files programs(root / "programs", owner);

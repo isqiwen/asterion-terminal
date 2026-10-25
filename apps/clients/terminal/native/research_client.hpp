@@ -62,10 +62,6 @@ public:
         const research::proto::SampleRequest&,
         const data::proto::DataOwner&,
         const research::proto::ProjectBinding& = {});
-    [[nodiscard]] std::future<void>
-    submit(const std::string&, const research::proto::NoticeReviewRequest&);
-    [[nodiscard]] std::future<void>
-    submit(const std::string&, const research::proto::EventSetReviewRequest&);
     [[nodiscard]] std::future<void> reuse_backtest(
         const std::string&,
         const backtest::proto::BacktestReuse&,
@@ -73,8 +69,6 @@ public:
         const research::proto::StrategyUse& = {});
     [[nodiscard]] std::future<Json> history_usage(const std::string&);
     [[nodiscard]] std::future<Json> retirement(const std::string&, bool execute);
-    [[nodiscard]] std::future<Json> reconcile_notice_custody(const std::string&);
-    [[nodiscard]] std::future<Json> notice_source_changes(const std::string&);
     [[nodiscard]] static std::future<Json> inspect_history_usage(
         ServiceIo&,
         const ServiceEndpoint&,

@@ -17,9 +17,6 @@ const kinds = {
     "observation_archive",
     "material_acquisition",
     "material_content",
-    "intelligence_content",
-    "intelligence_change_content",
-    "intelligence_set_content",
   ],
   research: [
     "backtest",
@@ -59,19 +56,6 @@ const kinds = {
     "model_training_result",
     "strategy_package",
     "strategy_delivery",
-  ],
-  intelligence: [
-    "intelligence_candidate",
-    "intelligence_preparation",
-    "intelligence_publication",
-    "intelligence_program",
-    "intelligence_event",
-    "intelligence_change_preparation",
-    "intelligence_change",
-    "intelligence_set_preparation",
-    "intelligence_set",
-    "intelligence_subscription",
-    "intelligence_delivery",
   ],
 };
 const maintenanceNames: Record<string, string> = {
@@ -125,44 +109,16 @@ const names: Record<string, string> = {
   notice_review_result: "公告审阅正式结果",
   event_set_review: "事件集合审阅固定输入",
   event_set_review_result: "事件集合审阅正式结果",
-  intelligence_set_preparation: "情报集合准备（非发布）",
-  intelligence_set: "情报固定事件集合",
-  intelligence_subscription: "情报应用内订阅条件",
-  intelligence_delivery: "情报固定交付批次",
-  intelligence_set_content: "情报集合已保存内容（非发布证明）",
-  intelligence_content: "情报已保存内容（非发布证明）",
-  intelligence_candidate: "情报候选（非发布）",
-  intelligence_preparation: "情报发布准备（非发布）",
-  intelligence_publication: "情报固定发布",
-  intelligence_program: "情报核验程序原件",
-  intelligence_event: "情报事件定义",
-  intelligence_change_preparation: "情报变化准备（非发布）",
-  intelligence_change: "情报追加更正或撤回",
-  intelligence_change_content: "情报变化已保存内容（非发布证明）",
 };
 export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
-  const [domain, setDomain] = useState<"data" | "research" | "intelligence">("data");
+  const [domain, setDomain] = useState<"data" | "research">("data");
   const [kind, setKind] = useState("minute_version");
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [inspection, setInspection] = useState<ResourceInspection | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<DisplayError>("");
   const epoch = useRef({ value: 0 });
-  const selectedIntelligence = snapshot?.intelligence_service;
-  const intelligenceNode = snapshot?.nodes.find(node => node.id === selectedIntelligence?.node_id);
-  const source =
-    domain === "intelligence"
-      ? selectedIntelligence && {
-          ...selectedIntelligence,
-          online:
-            intelligenceNode?.state === "online" &&
-            intelligenceNode.health?.services.some(
-              service => service.id === selectedIntelligence.service && service.health === "ready",
-            ),
-        }
-      : domain === "data"
-        ? snapshot?.data
-        : snapshot?.research_service;
+  const source = domain === "data" ? snapshot?.data : snapshot?.research_service;
   const connection = source?.connection_id;
   useEffect(() => {
     ++epoch.current.value;
@@ -248,14 +204,13 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
           disabled={pending}
           value={domain}
           onChange={event => {
-            const value = event.target.value as "data" | "research" | "intelligence";
+            const value = event.target.value as "data" | "research";
             setDomain(value);
             setKind(kinds[value][0]);
           }}
         >
           <option value="data">Data</option>
           <option value="research">Research</option>
-          <option value="intelligence">Intelligence</option>
         </select>
       </label>
       <label>
@@ -345,8 +300,7 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                   </td>
                   <td>
                     {entry.object.kind === "provider_module" ||
-                    entry.object.kind === "research_program" ||
-                    entry.object.kind === "intelligence_program" ? (
+                    entry.object.kind === "research_program" ? (
                       <span>{t("程序工件维护尚未实现，不提供删除操作。")}</span>
                     ) : entry.object.kind === "backtest_batch_assessment" ? (
                       <span>
@@ -391,10 +345,6 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                             ? "在研究变量入口读取原定义；此目录不提供修改或删除。"
                             : "在研究项目入口读取原计划与人工结论；此目录不提供修改或删除。",
                         )}
-                      </span>
-                    ) : entry.object.kind.startsWith("intelligence_") ? (
-                      <span>
-                        {t("情报候选、准备、发布及保存字节分别归属；此目录不提供更改或删除。")}
                       </span>
                     ) : entry.object.kind === "material_acquisition" ||
                       entry.object.kind === "material_content" ? (

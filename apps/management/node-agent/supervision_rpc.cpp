@@ -1,5 +1,4 @@
 #include <asterion/research.pb.h>
-#include <asterion/intelligence.pb.h>
 #include "supervision_rpc.hpp"
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
@@ -73,31 +72,6 @@ PolledTask<HealthObservation> probe_service_health(
             reply.health().recovery_required() ? ServiceHealth::degraded
                 : reply.health().initialized() ? ServiceHealth::ready
                                                : ServiceHealth::starting,
-            {}
-        };
-    }
-    if (kind == node::proto::INTELLIGENCE) {
-        intelligence::proto::IntelligenceRequest ping;
-        ping.set_version(1);
-        ping.set_service_id(name);
-        ping.set_correlation_id(correlation);
-        ping.mutable_heartbeat();
-        auto pending = channel.request(ping.SerializeAsString(), 1500ms);
-        co_await PollUntil{[&] {
-            channel.poll();
-            return pending.wait_for(0ms) == std::future_status::ready;
-        }};
-        intelligence::proto::IntelligenceResponse reply;
-        if (!reply.ParseFromString(*pending.get()))
-            throw std::runtime_error("invalid intelligence health");
-        protocol::validate_message(reply);
-        if (reply.version() != 1 || reply.service_id() != name
-            || reply.correlation_id() != correlation || !reply.has_health()
-            || reply.health().instance_id() != name)
-            throw std::runtime_error("intelligence health identity mismatch");
-        co_return HealthObservation{
-            reply.health().initialized() ? protocol::ServiceHealth::ready
-                                         : protocol::ServiceHealth::starting,
             {}
         };
     }

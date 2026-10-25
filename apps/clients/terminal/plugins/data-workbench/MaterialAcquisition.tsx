@@ -331,16 +331,6 @@ export function MaterialAcquisition({ context }: { context: TerminalContext }) {
                 {t("原始 UTF-8 字节范围")}：[0, {read.reading.readable_bytes})
               </p>
               <textarea readOnly rows={12} aria-label={t("固定材料正文")} value={read.text ?? ""} />
-              <button
-                disabled={pending}
-                onClick={() =>
-                  context.navigate("workspace.intelligence-notices", {
-                    params: { material: read.receipt.reference.id },
-                  })
-                }
-              >
-                {t("人工核验此材料")}
-              </button>
             </>
           ) : (
             <p>

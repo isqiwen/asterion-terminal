@@ -12,7 +12,6 @@
 #include <asterion/protocol/research_model.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 
 namespace asterion::tasks {
 
@@ -140,37 +139,6 @@ void resolve_task_input(
         validate_statistics_input(execution.statistics());
         *task.mutable_statistics() = execution.statistics();
         return; // Fixed owned source descriptor; never discover or refetch Data.
-    }
-    if (task.kind() == task::proto::EVENT_SET_REVIEW) {
-        if (stop.stop_requested())
-            throw Error(ErrorCode::cancelled, "task cancelled");
-        if (!task.has_event_set_review() || !execution.has_event_set_review()
-            || execution.has_data_owner()
-            || sha256_bytes(task.event_set_review().SerializeAsString())
-                != execution.input_sha256())
-            throw std::invalid_argument(
-                "event set review owned input differs from fixed execution");
-        validate_event_set_review_input(task.event_set_review());
-        validate_event_set_review_execution(execution.event_set_review());
-        const auto& fixed = task.event_set_review();
-        const auto& descriptor = execution.event_set_review();
-        if (fixed.owner().SerializeAsString() != descriptor.owner().SerializeAsString()
-            || fixed.request().SerializeAsString() != descriptor.request().SerializeAsString()
-            || fixed.program_artifact() != descriptor.program_artifact())
-            throw std::invalid_argument(
-                "event set review owned input differs from fixed execution");
-        return; // Complete owned selection; never refetch or select current source versions.
-    }
-    if (task.kind() == task::proto::NOTICE_REVIEW) {
-        if (stop.stop_requested())
-            throw Error(ErrorCode::cancelled, "task cancelled");
-        if (!task.has_notice_review() || !execution.has_notice_review()
-            || execution.has_data_owner()
-            || sha256_bytes(task.notice_review().SerializeAsString()) != execution.input_sha256()
-            || notice_review_execution(task.notice_review()).SerializeAsString()
-                != execution.notice_review().SerializeAsString())
-            throw std::invalid_argument("notice review owned input differs from fixed execution");
-        return; // Owned semantic evidence, never refetch Intelligence or Data during computation.
     }
     if (task.kind() == task::proto::ACCOUNT_REVIEW) {
         if (stop.stop_requested())

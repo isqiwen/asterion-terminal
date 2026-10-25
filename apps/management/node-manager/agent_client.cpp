@@ -431,7 +431,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                 throw std::invalid_argument(
                     "service already exists; its program and ledger are not replaced");
         if (kind != wire::MARKET && kind != wire::RESEARCH && kind != wire::TRADING
-            && kind != wire::DATA && kind != wire::INTELLIGENCE)
+            && kind != wire::DATA)
             throw std::invalid_argument("invalid service kind");
         const auto hash = (co_await upload_artifact(path, os, arch, stop));
         const auto library = programs.provider.empty()
@@ -696,31 +696,6 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             co_await action(service, "start", stop);
         }
         co_return co_await service_endpoint(service, wire::DATA, stop);
-    }
-
-    PolledTask<ServiceEndpoint> local_intelligence(std::stop_token stop)
-    {
-        if (endpoint.endpoint.empty())
-            throw std::invalid_argument("local Agent required");
-        const std::string service = "intelligence";
-        const auto observed = co_await ready(stop);
-        const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
-        if (found == observed.services().end()) {
-            const auto programs = co_await io.admin<ServicePrograms>([] {
-                return local_service_programs(wire::INTELLIGENCE);
-            });
-            co_await deploy(
-                {.service = service,
-                    .kind = wire::INTELLIGENCE,
-                    .platform = current_platform(),
-                    .programs = programs},
-                stop);
-        } else {
-            if (found->kind() != wire::INTELLIGENCE)
-                throw std::invalid_argument("service kind mismatch");
-            co_await action(service, "start", stop);
-        }
-        co_return co_await service_endpoint(service, wire::INTELLIGENCE, stop);
     }
 
     PolledTask<ServiceEndpoint> local_research(
@@ -997,15 +972,6 @@ std::future<ServiceEndpoint> AgentClient::local_data()
     return impl_->submit<ServiceEndpoint>(
         [state = impl_](std::stop_token stop) {
             return state->local_data(stop);
-        },
-        false);
-}
-
-std::future<ServiceEndpoint> AgentClient::local_intelligence()
-{
-    return impl_->submit<ServiceEndpoint>(
-        [state = impl_](std::stop_token stop) {
-            return state->local_intelligence(stop);
         },
         false);
 }

@@ -146,8 +146,6 @@ PolledTask<> ResearchHost::claim(Call& call)
     if ((storage_->describe(id).kind() != wire::BACKTEST
             && storage_->describe(id).kind() != wire::FACTOR
             && storage_->describe(id).kind() != wire::ACCOUNT_REVIEW
-            && storage_->describe(id).kind() != wire::NOTICE_REVIEW
-            && storage_->describe(id).kind() != wire::EVENT_SET_REVIEW
             && storage_->describe(id).kind() != wire::STATISTICS
             && storage_->describe(id).kind() != wire::PERFORMANCE_EVALUATION
             && storage_->describe(id).kind() != wire::SAMPLE
@@ -185,48 +183,6 @@ PolledTask<> ResearchHost::claim(Call& call)
     if (read.execution().has_variable_definition()) {
         const auto object = protocol::variable_object(read.execution().variable_definition());
         (void)co_await resolve_variable(call, object);
-    }
-    if (read.execution().has_event_set_review()) {
-        const auto observed = co_await program(call);
-        const auto& fixed = read.execution().event_set_review();
-        if (fixed.owner().SerializeAsString() != observed.owner.SerializeAsString()
-            || fixed.program_artifact() != observed.artifact)
-            throw Error(
-                ErrorCode::conflict,
-                "event set review requires its fixed execution program and owner");
-        co_await file_work([&] {
-            (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(fixed.program_artifact());
-        });
-        co_await ready(call);
-        call.input_in_time();
-        refuse_during_upgrade(quiescing_);
-        const auto token = (co_await commit(storage_->claim(read))).token();
-        call.attempt.set_token(token);
-        call.attempt = storage_->confirm_attempt(std::move(read));
-        call.attempt.set_token(token);
-        co_return;
-    }
-    if (read.execution().has_notice_review()) {
-        const auto observed = co_await program(call);
-        const auto& fixed = read.execution().notice_review();
-        if (fixed.owner().SerializeAsString() != observed.owner.SerializeAsString()
-            || fixed.program_artifact() != observed.artifact)
-            throw Error(
-                ErrorCode::conflict,
-                "notice review requires its fixed execution program and owner");
-        co_await file_work([&] {
-            (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(fixed.program_artifact());
-        });
-        co_await ready(call);
-        call.input_in_time();
-        refuse_during_upgrade(quiescing_);
-        const auto token = (co_await commit(storage_->claim(read))).token();
-        call.attempt.set_token(token);
-        call.attempt = storage_->confirm_attempt(std::move(read));
-        call.attempt.set_token(token);
-        co_return;
     }
     if (read.execution().has_account_review()) {
         const auto observed = co_await program(call);

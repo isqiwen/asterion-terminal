@@ -91,11 +91,7 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
   const node = snapshot?.nodes.find(item => item.id === "local");
   const services =
     node?.health?.services.filter(
-      item =>
-        item.kind === "data" ||
-        item.kind === "intelligence" ||
-        item.kind === "research" ||
-        item.kind === "live",
+      item => item.kind === "data" || item.kind === "research" || item.kind === "live",
     ) ?? [];
   const [selected, setSelected] = useState<string[]>([]);
   const [destination, setDestination] = useState("");

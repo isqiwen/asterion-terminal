@@ -1,7 +1,5 @@
 #include <asterion/research.pb.h>
 #include "research_client.hpp"
-#include <asterion/protocol/intelligence.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_variable.hpp>
@@ -454,24 +452,21 @@ decode_task_response(const research::proto::ResearchRequest& request, const std:
         throw Error(ErrorCode::unavailable, "task response identity mismatch");
     if (response.has_error())
         throw_remote_error(response.error().code(), response.error().message());
-    if (request.has_assessment()                     ? !response.has_assessment()
-            : request.has_batch()                    ? !response.has_batch()
-            : request.has_logic()                    ? !response.has_logic()
-            : request.has_model()                    ? !response.has_model()
-            : request.has_strategy()                 ? !response.has_strategy()
-            : request.has_variable()                 ? !response.has_variable()
-            : request.has_project()                  ? !response.has_project()
-            : request.has_project_tasks()            ? !response.has_project_tasks()
-            : request.has_notice_source_changes()    ? !response.has_notice_source_observation()
-            : request.has_reconcile_notice_custody() ? !response.has_notice_custody()
-            : request.has_resources()                ? !response.has_resources()
-            : request.has_retirement()               ? !response.has_retirement()
-            : request.has_history_usage()            ? !response.has_history_usage()
-            : request.has_list()                     ? !response.has_tasks()
+    if (request.has_assessment()          ? !response.has_assessment()
+            : request.has_batch()         ? !response.has_batch()
+            : request.has_logic()         ? !response.has_logic()
+            : request.has_model()         ? !response.has_model()
+            : request.has_strategy()      ? !response.has_strategy()
+            : request.has_variable()      ? !response.has_variable()
+            : request.has_project()       ? !response.has_project()
+            : request.has_project_tasks() ? !response.has_project_tasks()
+            : request.has_resources()     ? !response.has_resources()
+            : request.has_retirement()    ? !response.has_retirement()
+            : request.has_history_usage() ? !response.has_history_usage()
+            : request.has_list()          ? !response.has_tasks()
             : request.has_result()
             ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes()
                   && !response.has_table_update() && !response.has_account_review()
-                  && !response.has_notice_review() && !response.has_event_set_review()
                   && !response.has_statistics() && !response.has_sample()
                   && !response.has_logic_trial() && !response.has_model_training()
                   && !response.has_model_time() && !response.has_evaluation())
@@ -764,32 +759,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                     {"next_before_sequence", page.next_before_sequence()}
                 };
             }
-            if (request.has_notice_source_changes()) {
-                const auto& observation = response.notice_source_observation();
-                protocol::validate_notice_source_observation(observation);
-                const auto& consumer = observation.consumer();
-                if (consumer.owner().node_id() != node
-                    || consumer.owner().service_id() != request.service_id()
-                    || consumer.id() != request.notice_source_changes().id()
-                    || response.has_result_task())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "notice source observation belongs to another Research input");
-                return protocol::decode_notice_source_observation(observation);
-            }
-            if (request.has_reconcile_notice_custody()) {
-                const auto& record = response.notice_custody();
-                protocol::validate_notice_consumer_record(record);
-                const auto& consumer = record.binding().consumer();
-                if (consumer.owner().node_id() != node
-                    || consumer.owner().service_id() != request.service_id()
-                    || consumer.id() != request.reconcile_notice_custody().id()
-                    || response.has_result_task())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "notice custody belongs to another Research input");
-                return protocol::decode_notice_consumer_record(record);
-            }
             if (request.has_resources()) {
                 resource::proto::Owner owner;
                 owner.set_node_id(node);
@@ -844,19 +813,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                     throw Error(
                         ErrorCode::conflict,
                         "account review result belongs to another Research owner");
-                if (response.has_event_set_review()
-                    && (response.event_set_review().owner().node_id() != node
-                        || response.event_set_review().owner().service_id()
-                            != request.service_id()))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "event set review result belongs to another Research owner");
-                if (response.has_notice_review()
-                    && (response.notice_review().owner().node_id() != node
-                        || response.notice_review().owner().service_id() != request.service_id()))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "notice review result belongs to another Research owner");
                 auto evidence = protocol::decode_task_result(response, request.result().id());
                 if (response.has_backtest()) {
                     evidence["portfolio"] =
@@ -1099,24 +1055,6 @@ ResearchClient::submit(const std::string& id, const research::proto::AccountRevi
     return impl_->mutate(std::move(request));
 }
 
-std::future<void>
-ResearchClient::submit(const std::string& id, const research::proto::NoticeReviewRequest& input)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_submit()->set_id(id);
-    *request.mutable_submit()->mutable_notice_review() = input;
-    return impl_->mutate(std::move(request));
-}
-
-std::future<void>
-ResearchClient::submit(const std::string& id, const research::proto::EventSetReviewRequest& input)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_submit()->set_id(id);
-    *request.mutable_submit()->mutable_event_set_review() = input;
-    return impl_->mutate(std::move(request));
-}
-
 std::future<nlohmann::json> ResearchClient::metadata(const std::string& id)
 {
     research::proto::ResearchRequest request;
@@ -1171,26 +1109,6 @@ std::future<Json> ResearchClient::retirement(const std::string& id, bool execute
             if (request.retirement().execute())
                 co_await state->refresh(stop);
             co_return result;
-        });
-}
-
-std::future<Json> ResearchClient::notice_source_changes(const std::string& id)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_notice_source_changes()->set_id(id);
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) {
-            return state->read(request, stop);
-        });
-}
-
-std::future<Json> ResearchClient::reconcile_notice_custody(const std::string& id)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_reconcile_notice_custody()->set_id(id);
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) {
-            return state->read(request, stop);
         });
 }
 

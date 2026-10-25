@@ -87,7 +87,7 @@ _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_te
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
 SERVICE_PROGRAMS = ("asterion_trading", "asterion_node_agent", "asterion_node_manager", "asterion_market", "asterion_data",
-                    "asterion_research", "asterion_intelligence")
+                    "asterion_research")
 
 def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
@@ -260,7 +260,7 @@ def verify_macos_bundle(distribution=True):
             market = app / "Contents/Resources/native/asterion_market"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion_data", "asterion_research", "asterion_intelligence"):
+            for name in ("asterion_data", "asterion_research"):
                 program = app / "Contents/Resources/native" / name
                 run(["codesign", "--verify", "--strict", str(program)])
                 run([str(program), "--version"])

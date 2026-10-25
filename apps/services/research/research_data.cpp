@@ -1,7 +1,5 @@
 #include "research_data.hpp"
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/protocol/notice_review.hpp>
-#include <asterion/protocol/intelligence.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -13,89 +11,6 @@
 #include <asterion/kernel/durable_file.hpp>
 
 namespace asterion::tasks {
-
-intelligence::proto::NoticeConsumerBinding
-notice_consumer_binding(const task::proto::TaskExecution& execution, const std::string& id)
-{
-    validate_id(id);
-    protocol::validate_message(execution);
-    if ((!execution.has_notice_review() && !execution.has_event_set_review())
-        || execution.has_data_owner() || execution.input_sha256().size() != 64
-        || execution.input_sha256().find_first_not_of("0123456789abcdef") != std::string::npos)
-        throw std::invalid_argument("notice custody requires fixed Research execution");
-    intelligence::proto::NoticeConsumerBinding binding;
-    if (execution.has_event_set_review()) {
-        const auto& fixed = execution.event_set_review();
-        protocol::validate_event_set_review_execution(fixed);
-        *binding.mutable_source() = fixed.request().source();
-        auto& consumer = *binding.mutable_consumer();
-        *consumer.mutable_owner() = fixed.owner();
-        consumer.set_kind("event_set_review");
-        consumer.set_id(id);
-        consumer.set_version(execution.input_sha256());
-        binding.set_use_scope(fixed.request().use_scope());
-        protocol::validate_notice_consumer_binding(binding);
-        return binding;
-    }
-    const auto& fixed = execution.notice_review();
-    protocol::validate_notice_review_execution(fixed);
-    *binding.mutable_source() = fixed.request().source();
-    auto& consumer = *binding.mutable_consumer();
-    *consumer.mutable_owner() = fixed.owner();
-    consumer.set_kind("notice_review");
-    consumer.set_id(id);
-    consumer.set_version(execution.input_sha256());
-    binding.set_use_scope(fixed.request().use_scope());
-    protocol::validate_notice_consumer_binding(binding);
-    return binding;
-}
-
-std::optional<intelligence::proto::NoticeConsumerRecord> read_notice_custody(
-    const std::filesystem::path& directory,
-    const intelligence::proto::NoticeConsumerBinding& binding)
-{
-    namespace fs = std::filesystem;
-    protocol::validate_notice_consumer_binding(binding);
-    if (directory.filename() != binding.consumer().id() || fs::is_symlink(directory))
-        throw std::invalid_argument("notice custody directory identity differs");
-    const auto file = directory / "notice-custody.pb";
-    if (!fs::exists(file) && !fs::is_symlink(file))
-        return {};
-    if (fs::is_symlink(file) || !fs::is_regular_file(file) || fs::file_size(file) > 16384)
-        throw std::invalid_argument("notice custody receipt is missing or invalid");
-    std::ifstream stream(file, std::ios::binary);
-    const std::string bytes{std::istreambuf_iterator<char>(stream), {}};
-    intelligence::proto::NoticeConsumerRecord record;
-    if (stream.bad() || !record.ParseFromString(bytes))
-        throw std::invalid_argument("notice custody receipt is corrupt");
-    protocol::validate_notice_consumer_record(record);
-    if (record.binding().SerializeAsString() != binding.SerializeAsString())
-        throw Error(ErrorCode::conflict, "notice custody receipt belongs to another fixed input");
-    return record;
-}
-
-void save_notice_custody(
-    const std::filesystem::path& directory,
-    const intelligence::proto::NoticeConsumerRecord& record)
-{
-    namespace fs = std::filesystem;
-    protocol::validate_notice_consumer_record(record);
-    if (!fs::is_directory(directory))
-        throw std::invalid_argument("notice custody requires its existing task directory");
-    if (const auto old = read_notice_custody(directory, record.binding())) {
-        if (old->created_at_ms() != record.created_at_ms())
-            throw Error(ErrorCode::conflict, "notice custody original acknowledgement changed");
-        if (old->phase() == intelligence::proto::NoticeConsumerRecord::RELEASED
-            && record.phase() != old->phase())
-            throw Error(ErrorCode::conflict, "released notice custody cannot revive");
-        if (old->phase() == intelligence::proto::NoticeConsumerRecord::CONFIRMED
-            && record.phase() == intelligence::proto::NoticeConsumerRecord::PREPARED)
-            return; // A late preparation reply cannot erase the confirmed acknowledgement.
-        if (record.updated_at_ms() < old->updated_at_ms())
-            throw Error(ErrorCode::conflict, "notice custody acknowledgement moved backwards");
-    }
-    replace_file_durably(directory / "notice-custody.pb", record.SerializeAsString());
-}
 
 ResearchDataRoute
 resolve_research_data(const node::proto::Status& status, const data::proto::DataOwner& selected)
@@ -151,35 +66,6 @@ resolve_research_facts(const node::proto::Status& status, const resource::proto:
         return {selected, service.endpoint()};
     }
     throw Error(ErrorCode::not_found, "selected trading facts owner is not deployed");
-}
-
-ResearchFactsRoute
-resolve_research_notice(const node::proto::Status& status, const resource::proto::Owner& selected)
-{
-    if (status.phase() != node::proto::Status::READY || status.has_failure())
-        throw Error(ErrorCode::unavailable, "notice publication discovery is not ready");
-    validate_id(status.node_id());
-    validate_id(selected.node_id());
-    validate_id(selected.service_id());
-    if (selected.domain() != "intelligence")
-        throw Error(
-            ErrorCode::invalid_request,
-            "notice publication requires an Intelligence owner");
-    if (selected.node_id() != status.node_id())
-        throw Error(ErrorCode::conflict, "cross-node notice publication transfer is unavailable");
-    const node::proto::Service* found = nullptr;
-    for (const auto& service : status.services()) {
-        if (service.id() != selected.service_id())
-            continue;
-        if (found || service.kind() != node::proto::INTELLIGENCE)
-            throw Error(ErrorCode::conflict, "selected notice owner is not unique Intelligence");
-        found = &service;
-    }
-    if (!found)
-        throw Error(ErrorCode::not_found, "selected notice owner is not deployed");
-    if (found->state() != "running" || found->endpoint().empty())
-        throw Error(ErrorCode::unavailable, "selected notice publication owner is unavailable");
-    return {selected, found->endpoint()};
 }
 
 ResearchProgram resolve_research_program(
@@ -301,14 +187,6 @@ PolledTask<ResearchFactsRoute> ResearchData::resolve_facts(
     std::string parent)
 {
     co_return resolve_research_facts(co_await observe(timeout, std::move(parent)), selected);
-}
-
-PolledTask<ResearchFactsRoute> ResearchData::resolve_notice(
-    resource::proto::Owner selected,
-    std::chrono::milliseconds timeout,
-    std::string parent)
-{
-    co_return resolve_research_notice(co_await observe(timeout, std::move(parent)), selected);
 }
 
 PolledTask<ResearchProgram> ResearchData::program(

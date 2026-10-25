@@ -40,7 +40,6 @@ fs::path checked_resource(const std::string& arch, const std::string& name)
         "asterion_market",
         "asterion_data",
         "asterion_research",
-        "asterion_intelligence",
         "initialize-linux.py",
         "plugins/asterion_tushare.so",
         "plugins/asterion_shfe.so",
@@ -77,7 +76,7 @@ fs::path bundled_linux_program(const std::string& arch, const std::string& progr
 {
     if (program != "asterion_node_agent" && program != "asterion_trading"
         && program != "asterion_market" && program != "asterion_data"
-        && program != "asterion_research" && program != "asterion_intelligence"
+        && program != "asterion_research"
 
         && !((program == "ctp-md.so" || program == "ctp-trader.so") && arch == "x86_64"))
         throw std::invalid_argument("invalid bundled program");

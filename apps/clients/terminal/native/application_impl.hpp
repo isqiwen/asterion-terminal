@@ -96,9 +96,6 @@ struct Application::Impl
     void record_refresh_failure(ErrorCode code) noexcept;
     std::shared_ptr<ResearchClient> research_client;
     std::shared_ptr<DataClient> data_client;
-    std::optional<ServiceEndpoint> intelligence_endpoint;
-    json intelligence_state = nullptr;
-    std::uint64_t intelligence_generation = 0;
     std::uint64_t data_task_generation = 0;
 
     bool task_owner_is_data(const json& p) const
@@ -157,7 +154,7 @@ struct Application::Impl
     PolledTask<std::string> source_credential(const std::string& source, std::string typed);
     // The credential typed for this request, else the one saved for the provider.
     PolledTask<std::string> provider_credential(const std::string& provider, std::string typed);
-    std::shared_ptr<const json> task_result, notice_custody;
+    std::shared_ptr<const json> task_result;
     // One dataset per portfolio contract, in selection order.
     std::vector<DatasetSelection> selections;
     std::vector<DatasetSeries> dataset_series;
@@ -328,7 +325,7 @@ struct Application::Impl
         std::map<std::string, TradingClient::Read> live;
         std::optional<ResearchClient::Read> tasks;
         MarketProjection market;
-        std::shared_ptr<const json> task_result, notice_custody, plugins;
+        std::shared_ptr<const json> task_result, plugins;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;
         bool same_state(const Publication&) const;
@@ -350,7 +347,6 @@ struct Application::Impl
     void register_node_commands();
     void register_backup_commands();
     void register_data_commands();
-    void register_intelligence_commands();
     void register_task_commands();
     void register_backtest_commands();
     void register_factor_commands();

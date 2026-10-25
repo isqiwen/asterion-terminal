@@ -272,10 +272,6 @@ PolledTask<> ResearchHost::submit_operation(Call& call)
             co_return co_await submit_logic_trial(call);
         case Definition::kAccountReview:
             co_return co_await submit_account_review(call);
-        case Definition::kNoticeReview:
-            co_return co_await submit_notice_review(call);
-        case Definition::kEventSetReview:
-            co_return co_await submit_event_set_review(call);
         case Definition::DEFINITION_NOT_SET:
             break;
     }
@@ -379,12 +375,6 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
             break;
         case Operation::kRecoverSubmission:
             co_await recover_submission(call);
-            break;
-        case Operation::kReconcileNoticeCustody:
-            co_await reconcile_notice_custody(call);
-            break;
-        case Operation::kNoticeSourceChanges:
-            co_await notice_source_changes(call);
             break;
         case Operation::kHistoryUsage:
             co_await history_usage(call);

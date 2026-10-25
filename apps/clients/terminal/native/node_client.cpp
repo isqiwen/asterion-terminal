@@ -227,13 +227,6 @@ std::future<ServiceEndpoint> NodeClient::local_data()
     return endpoint(std::move(command));
 }
 
-std::future<ServiceEndpoint> NodeClient::local_intelligence()
-{
-    wire::NodeCommand command;
-    command.mutable_local_intelligence();
-    return endpoint(std::move(command));
-}
-
 std::future<ServiceEndpoint> NodeClient::local_research(
     const std::optional<std::vector<std::string>>& plugins)
 {

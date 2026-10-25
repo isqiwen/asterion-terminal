@@ -12,7 +12,7 @@ if sys.platform != "linux":
     raise SystemExit("Remote service bundles target Linux only; desktop bundles include local native services separately")
 build = Path(sys.argv[1]).resolve()
 subprocess.run(["cmake", "--build", str(build), "--target", "asterion_node_agent", "asterion_trading",
-    "asterion_market", "asterion_data", "asterion_research", "asterion_intelligence"], check=True)
+    "asterion_market", "asterion_data", "asterion_research"], check=True)
 source_hash = fingerprint()
 if (build / "service-source.sha256").read_text().strip() != source_hash:
     raise SystemExit("Build directory service source does not match this checkout")
@@ -20,7 +20,7 @@ os_name = "linux"
 if platform.machine().lower() not in ('x86_64', 'amd64'):
     raise SystemExit('Linux currently supports x86_64 only')
 arch = "x86_64"
-files = [build / name for name in ("asterion_node_agent", "asterion_trading", "asterion_market", "asterion_data", "asterion_research", "asterion_intelligence")]
+files = [build / name for name in ("asterion_node_agent", "asterion_trading", "asterion_market", "asterion_data", "asterion_research")]
 if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"])
 files.append(build / "plugins/asterion_tushare.so")
 files.append(build / "plugins/asterion_shfe.so")

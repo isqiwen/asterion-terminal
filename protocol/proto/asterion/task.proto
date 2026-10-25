@@ -18,8 +18,6 @@ import "asterion/data.proto";
 import "asterion/resource.proto";
 import "asterion/account_review.proto";
 import "asterion/material.proto";
-import "asterion/notice_review.proto";
-import "asterion/intelligence.proto";
 
 enum TaskKind {
   TASK_KIND_UNSPECIFIED = 0;
@@ -30,8 +28,6 @@ enum TaskKind {
   TABLE_UPDATE = 5;
   ACCOUNT_REVIEW = 6;
   MATERIAL_ACQUISITION = 7;
-  NOTICE_REVIEW = 8;
-  EVENT_SET_REVIEW = 9;
   STATISTICS = 10;
   SAMPLE = 11;
   LOGIC_TRIAL = 12;
@@ -76,8 +72,6 @@ message Task {
     asterion.data.proto.TableUpdate table_update = 26;
     asterion.research.proto.AccountReviewInput account_review = 31;
     asterion.data.proto.MaterialInput material = 32;
-    asterion.research.proto.NoticeReviewInput notice_review = 33;
-    asterion.research.proto.EventSetReviewInput event_set_review = 34;
     asterion.research.proto.StatisticsInput statistics = 38;
     asterion.research.proto.SampleInput sample = 39;
     asterion.research.proto.LogicTrialInput logic_trial = 41;
@@ -174,8 +168,6 @@ message TaskExecution {
     asterion.backtest.proto.BacktestRequest backtest = 2;
     asterion.factor.proto.FactorRequest factor = 3;
     asterion.research.proto.AccountReviewExecution account_review = 7;
-    asterion.research.proto.NoticeReviewExecution notice_review = 8;
-    asterion.research.proto.EventSetReviewExecution event_set_review = 9;
     asterion.research.proto.StatisticsInput statistics = 13;
     asterion.research.proto.SampleExecution sample = 14;
     asterion.research.proto.LogicTrialInput logic_trial = 16;
@@ -205,8 +197,6 @@ message TaskFinish {
     asterion.data.proto.TableUpdateResult table_update = 7;
     asterion.research.proto.AccountReviewResult account_review = 8;
     asterion.data.proto.MaterialReceipt material = 9;
-    asterion.research.proto.NoticeReviewResult notice_review = 10;
-    asterion.research.proto.EventSetReviewResult event_set_review = 11;
     asterion.research.proto.StatisticsResult statistics = 12;
     asterion.research.proto.SampleResult sample = 13;
     asterion.research.proto.LogicTrialResult logic_trial = 14;
@@ -258,10 +248,6 @@ message TaskResponse {
     asterion.resource.proto.Catalogue resources = 24;
     asterion.research.proto.AccountReviewResult account_review = 25;
     asterion.data.proto.MaterialReceipt material = 26;
-    asterion.research.proto.NoticeReviewResult notice_review = 27;
-    asterion.intelligence.proto.NoticeConsumerRecord notice_custody = 28;
-    asterion.research.proto.NoticeSourceObservation notice_source_observation = 29;
-    asterion.research.proto.EventSetReviewResult event_set_review = 30;
     asterion.research.proto.ProjectReply project = 31;
     ProjectTaskPage project_tasks = 32;
     asterion.research.proto.VariableReply variable = 33;

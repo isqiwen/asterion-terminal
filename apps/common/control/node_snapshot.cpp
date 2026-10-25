@@ -14,8 +14,6 @@ const char* service_kind_name(wire::ServiceKind kind)
             return "market";
         case wire::DATA:
             return "data";
-        case wire::INTELLIGENCE:
-            return "intelligence";
         case wire::RESEARCH:
             return "research";
         default:
@@ -31,8 +29,6 @@ wire::ServiceKind parse_service_kind(const std::string& name)
         return wire::MARKET;
     if (name == "data")
         return wire::DATA;
-    if (name == "intelligence")
-        return wire::INTELLIGENCE;
     if (name == "research")
         return wire::RESEARCH;
     throw std::invalid_argument("invalid service kind");

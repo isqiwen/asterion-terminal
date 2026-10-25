@@ -1,5 +1,4 @@
 #include "application_impl.hpp"
-#include "intelligence_call.hpp"
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/task_execution.hpp>
@@ -255,18 +254,15 @@ void Application::Impl::register_data_commands()
         } else {
             if (kind != "backtest" && kind != "factor" && kind != "backtest_result"
                 && kind != "factor_result" && kind != "account_review"
-                && kind != "account_review_result" && kind != "notice_review"
-                && kind != "notice_review_result" && kind != "performance_evaluation"
+                && kind != "account_review_result" && kind != "performance_evaluation"
                 && kind != "performance_evaluation_result")
                 throw std::invalid_argument("unsupported Research resource kind");
             value = co_await PollFuture{research_client->retirement(id, false)};
             const bool result = kind == "backtest_result" || kind == "factor_result"
-                || kind == "account_review_result" || kind == "notice_review_result"
-                || kind == "performance_evaluation_result";
+                || kind == "account_review_result" || kind == "performance_evaluation_result";
             const auto task_kind =
                 (kind == "performance_evaluation" || kind == "performance_evaluation_result")
                 ? "performance_evaluation"
-                : (kind == "notice_review" || kind == "notice_review_result")   ? "notice_review"
                 : (kind == "account_review" || kind == "account_review_result") ? "account_review"
                 : (kind == "backtest" || kind == "backtest_result")             ? "backtest"
                                                                                 : "factor";
@@ -399,29 +395,6 @@ void Application::Impl::register_data_commands()
     command("resource.catalogue", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"domain", "kind", "after"});
         const auto domain = text(p, "domain");
-        if (domain == "intelligence") {
-            if (!intelligence_endpoint)
-                throw Error(ErrorCode::unavailable, "select the resource owner service first");
-            const auto endpoint = *intelligence_endpoint;
-            const auto generation = intelligence_generation;
-            intelligence::proto::IntelligenceRequest query;
-            query.mutable_resources()->set_kind(text(p, "kind"));
-            query.mutable_resources()->set_after(text(p, "after", true));
-            query.mutable_resources()->set_limit(64);
-            const auto response = co_await intelligence_call(service_io, endpoint, query);
-            if (generation != intelligence_generation)
-                throw Error(
-                    ErrorCode::conflict,
-                    "resource owner selection changed; reload its catalogue");
-            resource::proto::Owner owner;
-            owner.set_node_id(endpoint.owner_node_id);
-            owner.set_service_id(endpoint.session);
-            owner.set_domain("intelligence");
-            auto result = snapshot();
-            result.values["resources"] =
-                protocol::decode_resource_catalogue(response.resources(), query.resources(), owner);
-            co_return result;
-        }
         if (domain != "data" && domain != "research")
             throw std::invalid_argument("unsupported resource domain");
         const bool data = domain == "data";

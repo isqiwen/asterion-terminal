@@ -1,7 +1,6 @@
 #include "data_backup.hpp"
 #include "observation_store.hpp"
 #include "material_store.hpp"
-#include "intelligence_content.hpp"
 #include "task_store.hpp"
 #include "history_archive.hpp"
 #include "history_tables.hpp"
@@ -100,8 +99,7 @@ cold_backup(const fs::path& directory, const proto::DataOwner& owner, std::stop_
             && name != "downloads" && name != "acquisition-tasks" && name != "retentions.sqlite"
             && name != "retentions.required.pb" && name != "programs" && name != "observations"
             && name != "observations.required.pb" && name != "materials"
-            && name != "materials.required.pb" && name != "intelligence-content"
-            && name != "intelligence-content.required.pb")
+            && name != "materials.required.pb")
             throw std::invalid_argument("unknown Data root entry; owner inspection required");
     }
     for (const auto& database :
@@ -442,68 +440,6 @@ cold_backup(const fs::path& directory, const proto::DataOwner& owner, std::stop_
         if (unreferenced)
             snapshot.limitations.push_back("unreferenced_material_original_retained");
     }
-    if (fs::exists(root / "intelligence-content")
-        || fs::exists(root / "intelligence-content.required.pb")) {
-        IntelligenceContent content(root, snapshot.owner);
-        const auto receipts = content.receipts(stop);
-        add("intelligence-content.required.pb", "protobuf");
-        snapshot.directories.push_back("intelligence-content/objects");
-        snapshot.directories.push_back("intelligence-content/receipts");
-        for (const auto& entry : fs::directory_iterator(root / "intelligence-content"))
-            if (entry.is_symlink() || !entry.is_directory()
-                || (entry.path().filename() != "objects" && entry.path().filename() != "receipts"))
-                throw std::invalid_argument("unknown intelligence content directory");
-        std::set<std::string> saved;
-        for (const auto& receipt : receipts) {
-            // The cold cut, unlike the rebuildable catalogue, verifies every exact body.
-            if (receipt.origin().kind() == "intelligence_set_preparation") {
-                const auto set = content.read_set(receipt.origin());
-                content.verify_set_members(set.payload);
-                for (const auto& member : set.payload.members()) {
-                    snapshot.dependencies.push_back({member.publication().reference(), false});
-                    snapshot.dependencies.push_back(
-                        {member.publication().publication().storage().content(), false});
-                    if (member.event().has_latest_change()) {
-                        snapshot.dependencies.push_back(
-                            {member.event().latest_change().published().reference(), false});
-                        snapshot.dependencies.push_back(
-                            {member.event().latest_change().published().storage().content(),
-                                false});
-                    }
-                }
-            } else if (receipt.origin().kind() == "intelligence_change_preparation")
-                (void)content.read_change(receipt.origin());
-            else
-                (void)content.read(receipt.origin());
-            const auto version = receipt.content().version();
-            if (saved.insert(version).second) {
-                add(fs::path("intelligence-content/objects") / version, "protobuf");
-                result.objects.push_back(receipt.content());
-            }
-            add(fs::path("intelligence-content/receipts")
-                    / (sha256_bytes(receipt.origin().SerializeAsString()) + ".pb"),
-                "protobuf");
-            // Saving bytes is not a semantic publication. Keep the exact preparation dependency.
-            snapshot.dependencies.push_back({receipt.origin(), false});
-        }
-        bool unconfirmed = false;
-        for (const auto& entry : fs::directory_iterator(root / "intelligence-content/objects")) {
-            const auto version = entry.path().filename().string();
-            if (entry.is_symlink() || !entry.is_regular_file() || !digest(version))
-                throw std::invalid_argument("unknown intelligence content object");
-            if (saved.contains(version))
-                continue;
-            const auto body = bytes(entry.path(), 1024 * 1024);
-            // Without a save receipt there is no confirmed semantic type.
-            // Preserve the bytes without guessing a type or publishing them.
-            if (body.empty() || sha256_bytes(body) != version)
-                throw std::invalid_argument("unconfirmed intelligence content is corrupt");
-            add(entry.path().lexically_relative(root), "binary");
-            unconfirmed = true;
-        }
-        if (unconfirmed)
-            snapshot.limitations.push_back("unconfirmed_intelligence_content_retained");
-    }
     if (fs::exists(root / "programs")) {
         if (!fs::is_directory(root / "programs"))
             throw std::invalid_argument("invalid Data program directory");
@@ -564,8 +500,7 @@ cold_backup(const fs::path& directory, const proto::DataOwner& owner, std::stop_
     std::set<fs::path> declared;
     for (const auto& file : snapshot.files)
         declared.insert(file.relative);
-    for (const auto& base :
-        {"history", "acquisition-tasks", "observations", "materials", "intelligence-content"}) {
+    for (const auto& base : {"history", "acquisition-tasks", "observations", "materials"}) {
         if (!fs::exists(root / base))
             continue;
         for (const auto& entry : fs::recursive_directory_iterator(root / base)) {

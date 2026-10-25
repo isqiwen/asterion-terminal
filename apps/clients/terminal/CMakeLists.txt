@@ -3,8 +3,6 @@ add_library(asterion_terminal_application STATIC
   native/market_client.cpp
   native/research_client.cpp
   native/data_client.cpp
-  native/intelligence_call.cpp
-  native/commands_intelligence.cpp
   native/terminal_application.cpp
   native/commands_live.cpp
   native/commands_node.cpp
@@ -43,13 +41,13 @@ endif()
 add_dependencies(asterion_terminal_application asterion_keychain)
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
-add_dependencies(asterion_terminal_application asterion_data asterion_research asterion_intelligence)
+add_dependencies(asterion_terminal_application asterion_data asterion_research)
 asterion_target_defaults(asterion_terminal_application)
 asterion_target_defaults(asterion_terminal_dev_bridge)
 
 add_library(asterion_domain_backup STATIC native/domain_backup.cpp)
 target_include_directories(asterion_domain_backup PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup asterion_trading_backup asterion_intelligence_backup)
+target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup asterion_trading_backup)
 asterion_target_defaults(asterion_domain_backup)
 
 target_link_libraries(asterion_terminal_application PRIVATE asterion_domain_backup)

@@ -563,7 +563,6 @@
   "中途失败时再次执行即可完成，使用的是同一套新证书。": "If it fails part-way, running it again finishes it with the same new certificates.",
   "我已了解这台机器上的服务会停止": "I understand the services on this machine will stop",
   "停止服务并更换身份": "Stop Services and Replace Identity",
-  "情报": "Intelligence",
   "分析": "Analysis",
   "回测": "Backtest",
   "评估": "Evaluation",
@@ -572,9 +571,6 @@
   "接入与采集": "Access & Collection",
   "加工与质量": "Processing & Quality",
   "管理与服务": "Management & Services",
-  "信息提取": "Information Extraction",
-  "情报核验": "Intelligence Verification",
-  "事件服务": "Event Services",
   "数据探索": "Data Exploration",
   "特征与因子": "Features & Factors",
   "有效性评价与筛选": "Effectiveness & Selection",
@@ -893,5 +889,7 @@
   "共同边界调仓间隔": "Common-boundary rebalance interval",
   "总绝对名义权重预算": "Gross nominal weight budget",
   "净名义权重预算": "Net nominal weight budget",
-  "名义权重": "Nominal weight"
+  "名义权重": "Nominal weight",
+  "行情": "Market",
+  "行情与自选": "Quotes & Watchlist"
 }

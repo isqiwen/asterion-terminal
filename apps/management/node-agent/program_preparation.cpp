@@ -102,8 +102,7 @@ void prepare_service_programs(
         const bool market = source.kind() == node::proto::MARKET;
         const bool trading = source.kind() == node::proto::TRADING;
         const bool task = source.kind() == node::proto::RESEARCH;
-        if ((!market && !trading && !task && source.kind() != node::proto::DATA
-                && source.kind() != node::proto::INTELLIGENCE)
+        if ((!market && !trading && !task && source.kind() != node::proto::DATA)
             || source.executable().empty() || source.provider().empty() == market
             || source.catalog().empty() == (market || trading)
 

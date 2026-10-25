@@ -45,10 +45,9 @@ flowchart TB
   OS -.守护.-> Agent[Node Agent]
   Terminal --> Manager
   Manager --> Agent
-  Agent -.监督.-> Market & Data & Research & Intelligence & Trading
-  Terminal -->|业务直连| Market & Data & Research & Intelligence & Trading
+  Agent -.监督.-> Market & Data & Research & Trading
+  Terminal -->|业务直连| Market & Data & Research & Trading
   Research -->|固定版本读取| Data
-  Intelligence -->|材料存取| Data
   Market --> Provider[行情来源]
   Data --> Provider2[历史数据来源]
   Trading <--> Broker[期货公司柜台]
@@ -61,7 +60,6 @@ flowchart TB
 | `asterion_market` | CTP 实时行情、合约目录、事件流、当日分钟线 |
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
 | `asterion_research` | 研究类任务（回测、因子、统计、样本、模型、评估、复核）及研究项目、变量、逻辑、策略包、批次 |
-| `asterion_intelligence` | 公告候选、人工核验、发布与更正、事件集与订阅 |
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |
 
 - 本机使用 Unix Socket，远程使用 TCP + 双向 TLS，消息均为 `protocol/proto/asterion/` 中的 Protobuf。
@@ -107,7 +105,7 @@ Research 拥有研究类任务。两者共用 `apps/services/task-runtime` 的�
 | `bindings/node/`、`bindings/c/` | Node-API 与 C ABI |
 | `apps/clients/terminal/native/` | 服务客户端、命令、状态快照 |
 | `apps/clients/terminal/src/` | React 宿主：工作台、设置、启动、多语言、桥接 |
-| `apps/clients/terminal/plugins/` | 工作区插件：行情、数据、研究、情报、交易 |
+| `apps/clients/terminal/plugins/` | 工作区插件：行情、数据、研究、交易 |
 
 Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界面按修订号轮询，未变化时不返回内容，
 行情只返回变化的报价行。命令参数类型定义在 `src/bridge/commands.ts`，Native 在边界再次校验。

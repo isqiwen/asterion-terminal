@@ -17,7 +17,6 @@
 #include <asterion/protocol/research_assessment.hpp>
 #include <asterion/protocol/research_model.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <charconv>
 
 namespace asterion::terminal {
@@ -733,98 +732,6 @@ void Application::Impl::register_task_commands()
                 "data/research service selection changed during operation; inspect the original services before retrying");
         task_result = nullptr;
         co_return snapshot();
-    });
-    command("notice.review.submit", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "owner", "source", "as_of_ms", "use_scope"});
-        validate_id(text(p, "id"));
-        if (task_owner_is_data(p))
-            throw std::invalid_argument("notice review requires a Research owner");
-        const auto client = research_client;
-        const auto& source = p.at("source");
-        fields(source, {"node", "service", "domain", "kind", "id", "version"});
-        research::proto::NoticeReviewRequest input;
-        auto& ref = *input.mutable_source();
-        ref.mutable_owner()->set_node_id(text(source, "node"));
-        ref.mutable_owner()->set_service_id(text(source, "service"));
-        ref.mutable_owner()->set_domain(text(source, "domain"));
-        ref.set_kind(text(source, "kind"));
-        ref.set_id(text(source, "id"));
-        ref.set_version(text(source, "version"));
-        const auto raw = text(p, "as_of_ms");
-        std::int64_t cutoff = 0;
-        const auto parsed = std::from_chars(raw.data(), raw.data() + raw.size(), cutoff);
-        if (parsed.ec != std::errc{} || parsed.ptr != raw.data() + raw.size() || cutoff <= 0)
-            throw std::invalid_argument(
-                "notice review cutoff must be a positive UTC millisecond timestamp");
-        input.set_as_of_ms(cutoff);
-        input.set_use_scope(text(p, "use_scope"));
-        protocol::validate_notice_review_request(input);
-        co_await PollFuture{client->submit(text(p, "id"), input)};
-        if (research_client != client)
-            throw Error(
-                ErrorCode::conflict,
-                "research owner changed; inspect the original notice review");
-        task_result = nullptr;
-        co_return snapshot();
-    });
-    command("event.set.review.submit", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "owner", "source", "use_scope"});
-        validate_id(text(p, "id"));
-        if (task_owner_is_data(p))
-            throw std::invalid_argument("event set review requires a Research owner");
-        const auto client = research_client;
-        const auto& source = p.at("source");
-        fields(source, {"node", "service", "domain", "kind", "id", "version"});
-        research::proto::EventSetReviewRequest input;
-        auto& ref = *input.mutable_source();
-        ref.mutable_owner()->set_node_id(text(source, "node"));
-        ref.mutable_owner()->set_service_id(text(source, "service"));
-        ref.mutable_owner()->set_domain(text(source, "domain"));
-        ref.set_kind(text(source, "kind"));
-        ref.set_id(text(source, "id"));
-        ref.set_version(text(source, "version"));
-        input.set_use_scope(text(p, "use_scope"));
-        protocol::validate_event_set_review_request(input);
-        co_await PollFuture{client->submit(text(p, "id"), input)};
-        if (research_client != client)
-            throw Error(
-                ErrorCode::conflict,
-                "research owner changed; inspect the original event set review");
-        task_result = nullptr;
-        co_return snapshot();
-    });
-    command("notice.source.inspect", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "owner"});
-        validate_id(text(p, "id"));
-        if (task_owner_is_data(p))
-            throw std::invalid_argument("notice review requires a Research owner");
-        const auto client = research_client;
-        auto observation = co_await PollFuture{client->notice_source_changes(text(p, "id"))};
-        if (research_client != client)
-            throw Error(
-                ErrorCode::conflict,
-                "research owner changed; inspect the original notice review");
-        auto result = snapshot();
-        result.values["notice_source_observation"] = std::move(observation);
-        co_return result;
-    });
-    command("notice.custody.reconcile", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "owner"});
-        validate_id(text(p, "id"));
-        if (task_owner_is_data(p))
-            throw std::invalid_argument("notice review requires a Research owner");
-        const auto client = research_client;
-        if (!client)
-            throw Error(ErrorCode::unavailable, "select a Research service first");
-        auto value = co_await PollFuture{client->reconcile_notice_custody(text(p, "id"))};
-        if (research_client != client)
-            throw Error(
-                ErrorCode::conflict,
-                "research owner changed; inspect the original notice review");
-        auto result = snapshot();
-        notice_custody = std::make_shared<const json>(value);
-        result.values["notice_custody"] = std::move(value);
-        co_return result;
     });
     command("account.review.submit", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "owner", "source", "account_id", "environment"});

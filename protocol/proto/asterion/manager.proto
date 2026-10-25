@@ -78,7 +78,6 @@ message NodeCommand {
     Action firewall = 15;
     string trading_session = 16;
     Empty local_data = 17;
-    Empty local_intelligence = 18;
   }
 }
 

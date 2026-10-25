@@ -2,7 +2,6 @@
 #include "data_backup.hpp"
 #include "research_backup.hpp"
 #include "trading_backup.hpp"
-#include "intelligence_backup.hpp"
 #include <asterion/foundation/error.hpp>
 #include <algorithm>
 #include <map>
@@ -33,7 +32,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
     std::map<std::string, data::ColdBackup> data;
     std::map<std::string, research::ColdBackup> research;
     std::map<std::string, trading::ColdBackup> trading;
-    std::map<std::string, intelligence::ColdBackup> intelligence;
     std::set<std::filesystem::path> roots;
     std::set<std::string> owners;
     for (const auto& selection : selections) {
@@ -52,10 +50,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
             research.emplace(
                 identity,
                 research::cold_backup(selection.directory, selection.owner, stop));
-        } else if (selection.owner.domain() == "intelligence") {
-            intelligence.emplace(
-                identity,
-                intelligence::cold_backup(selection.directory, selection.owner, stop));
         } else if (selection.owner.domain() == "trading") {
             trading.emplace(
                 identity,
@@ -105,7 +99,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
         }
     };
     inspect_consumers(research);
-    inspect_consumers(intelligence);
     for (const auto& [identity, domain] : data)
         for (const auto& reference : domain.references) {
             const auto expected = identity + ":" + key(reference.consumer);
@@ -113,33 +106,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
                 && !research_references.contains(expected))
                 throw Error(ErrorCode::conflict, "backup Data retention lacks consumer evidence");
         }
-    std::map<std::string, const intelligence::NoticeReference*> source_notice_references;
-    std::map<std::string, const research::NoticeReference*> research_notice_references;
-    for (const auto& [identity, domain] : intelligence)
-        for (const auto& reference : domain.notice_references)
-            source_notice_references.emplace(identity + ":" + key(reference.consumer), &reference);
-    for (const auto& [identity, domain] : research)
-        for (const auto& reference : domain.notice_references) {
-            const auto source = key(reference.source.owner());
-            const auto relation = source + ":" + key(reference.consumer);
-            research_notice_references.emplace(relation, &reference);
-            const auto found = source_notice_references.find(relation);
-            if (found != source_notice_references.end()) {
-                if (found->second->binding_digest != reference.binding_digest
-                    || (!reference.released && found->second->released))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "backup Intelligence and Research custody differs");
-            } else if (intelligence.contains(source) && !reference.released) {
-                throw Error(
-                    ErrorCode::conflict,
-                    "backup accepted notice input lacks source custody");
-            }
-        }
-    for (const auto& [relation, reference] : source_notice_references)
-        if (!reference->released && research.contains(key(reference->consumer.owner()))
-            && !research_notice_references.contains(relation))
-            throw Error(ErrorCode::conflict, "backup Intelligence custody lacks Research evidence");
     std::vector<backup_files::Snapshot> snapshots;
     const auto append = [&](auto& domains) {
         for (auto& [identity, domain] : domains) {
@@ -151,7 +117,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
     append(data);
     append(research);
     append(trading);
-    append(intelligence);
     return backup_files::Cut(std::move(snapshots));
 }
 

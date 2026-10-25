@@ -28,7 +28,7 @@ deploy_service(ServiceIo& io, AgentClient& node, bool local, const manager::prot
     if (local
         && (p.port() != 0
             || (kind != node::proto::RESEARCH && kind != node::proto::DATA
-                && kind != node::proto::TRADING && kind != node::proto::INTELLIGENCE)))
+                && kind != node::proto::TRADING)))
         throw std::invalid_argument("local deployment requires a business service and port zero");
     if (!local
         && (status.health->os() != "linux" || status.health->version() != ASTERION_PRODUCT_VERSION))
@@ -179,7 +179,7 @@ struct NodeManager::Impl
         std::shared_ptr<AgentClient> node;
         if (p.has_connect() || p.has_trading_session() || p.has_local_session()
             || p.has_local_market() || p.has_local_data() || p.has_local_research()
-            || p.has_create_research() || p.has_local_intelligence())
+            || p.has_create_research())
             node = co_await connect(p.id());
         else {
             const auto found = nodes.find(p.id());
@@ -219,7 +219,6 @@ struct NodeManager::Impl
             case wire::NodeCommand::kLocalSession:
             case wire::NodeCommand::kLocalMarket:
             case wire::NodeCommand::kLocalData:
-            case wire::NodeCommand::kLocalIntelligence:
             case wire::NodeCommand::kLocalResearch:
             case wire::NodeCommand::kCreateResearch: {
                 if (p.id() != "local")
@@ -229,8 +228,6 @@ struct NodeManager::Impl
                     address = co_await PollFuture{node->local_session(p.local_session())};
                 else if (p.has_local_market())
                     address = co_await PollFuture{node->local_market()};
-                else if (p.has_local_intelligence())
-                    address = co_await PollFuture{node->local_intelligence()};
                 else if (p.has_local_data())
                     address = co_await PollFuture{node->local_data()};
                 else {

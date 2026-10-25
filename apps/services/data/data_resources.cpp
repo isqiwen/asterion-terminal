@@ -1,7 +1,6 @@
 #include "data_store.hpp"
 #include "observation_store.hpp"
 #include "material_store.hpp"
-#include "intelligence_content.hpp"
 #include <asterion/protocol/resource.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
@@ -121,23 +120,6 @@ resource::proto::Catalogue Store::resources(
                     (std::filesystem::path("materials/objects") / ref.id()).generic_string());
                 entry.set_logical_bytes(receipt.evidence().bytes());
             }
-        }
-    } else if (query.kind() == "intelligence_content"
-        || query.kind() == "intelligence_change_content"
-        || query.kind() == "intelligence_set_content") {
-        const IntelligenceContent content(root_, owner);
-        for (const auto& receipt : content.receipts(stop)) {
-            const auto& ref = receipt.content();
-            if (ref.kind() != query.kind() || ref.id() <= query.after())
-                continue;
-            auto& entry = entries[ref.id()];
-            *entry.mutable_object() = ref;
-            entry.set_state(resource::proto::CatalogueEntry::REGISTERED);
-            entry.set_name(receipt.origin().id());
-            entry.set_relative_location(
-                (std::filesystem::path("intelligence-content/objects") / ref.version())
-                    .generic_string());
-            entry.set_logical_bytes(receipt.bytes());
         }
     } else if (query.kind() == "provider_module") {
         namespace fs = std::filesystem;

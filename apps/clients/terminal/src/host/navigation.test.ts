@@ -13,8 +13,8 @@ import { setLocale, translate } from "../i18n";
 
 test("product catalog has the required modules and places every contributed view exactly once", () => {
   expect(modules.map(module => module.id)).toEqual([
+    "market",
     "data",
-    "intelligence",
     "analysis",
     "strategy",
     "backtest",
@@ -77,8 +77,6 @@ test("reload restores the concrete destination without persisting object paramet
   expect(currentRoute(restored).view).toBe("workspace.trading");
   expect(restored.locations).toEqual({});
   expect(initialNavigation({ ...location, view: "workspace.factor" }).module).toBe("data");
-  const pending = selectSection(selectModule(state, "intelligence"), "verification");
-  expect(currentRoute(initialNavigation(navigationLocation(pending))).section.id).toBe(
-    "verification",
-  );
+  const pending = selectSection(selectModule(state, "evaluation"), "risk");
+  expect(currentRoute(initialNavigation(navigationLocation(pending))).section.id).toBe("risk");
 });

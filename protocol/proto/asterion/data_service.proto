@@ -7,7 +7,6 @@ import "asterion/node.proto";
 import "asterion/task.proto";
 import "asterion/market.proto";
 import "asterion/material.proto";
-import "asterion/intelligence.proto";
 
 message DataId {
   string id = 1;
@@ -242,12 +241,6 @@ message DataRequest {
     ObservationQuery observation = 58;
     asterion.protocol.proto.Empty material_sources = 59;
     MaterialReadQuery material_read = 60;
-    asterion.resource.proto.Object intelligence_save = 61;
-    asterion.resource.proto.Object intelligence_read = 62;
-    asterion.resource.proto.Object intelligence_change_save = 63;
-    asterion.resource.proto.Object intelligence_change_read = 64;
-    asterion.resource.proto.Object intelligence_set_save = 65;
-    asterion.resource.proto.Object intelligence_set_read = 66;
   }
 }
 message DataResponse {
@@ -300,9 +293,5 @@ message DataResponse {
     ObservationStatus observation = 54;
     MaterialSources material_sources = 55;
     MaterialRead material_read = 56;
-    asterion.intelligence.proto.NoticeStorageReceipt intelligence_saved = 57;
-    asterion.intelligence.proto.NoticeStoredContent intelligence_content = 58;
-    asterion.intelligence.proto.NoticeStoredChange intelligence_change_content = 59;
-    asterion.intelligence.proto.NoticeStoredSet intelligence_set_content = 60;
   }
 }

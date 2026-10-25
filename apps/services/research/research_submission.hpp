@@ -13,14 +13,6 @@ Store::Submission task_submission(
     const Store& store,
     const std::string& id,
     research::proto::AccountReviewInput input);
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::NoticeReviewInput input);
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::EventSetReviewInput input);
 Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::SampleInput input);
 Store::Submission

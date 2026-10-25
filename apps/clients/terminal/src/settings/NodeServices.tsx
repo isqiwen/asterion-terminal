@@ -27,7 +27,7 @@ const actionLabels: Record<Action, string> = {
   update: "更新服务程序",
 };
 // Trading has per-account placement, so the single-location summary excludes it.
-const kinds: ServiceKind[] = ["market", "data", "intelligence", "research"];
+const kinds: ServiceKind[] = ["market", "data", "research"];
 export function NodeServices({
   snapshot,
   busy,
@@ -102,7 +102,6 @@ export function NodeServices({
       if (kind === "live") return;
       if (kind === "market") success = await run("market.attach", params);
       else if (kind === "data") success = await run("node.data.attach", params);
-      else if (kind === "intelligence") success = await run("node.intelligence.attach", params);
       else success = await run("node.research.attach", params);
     } else if (pending.action === "update")
       success = await run("node.update", { ...params, revision: pending.revision });

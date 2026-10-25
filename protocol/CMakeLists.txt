@@ -3,7 +3,7 @@ set(ASTERION_PROTO_GEN ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${ASTERION_PROTO_GEN})
 set(ASTERION_PROTO_SOURCES)
 file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/*.proto)
-foreach(schema health domain resource trading node manager market task_state task research_assessment research research_project research_variable research_statistics research_evaluation research_sample research_strategy research_logic research_batch research_model backtest factor data data_service analytics account_review material intelligence notice_review)
+foreach(schema health domain resource trading node manager market task_state task research_assessment research research_project research_variable research_statistics research_evaluation research_sample research_strategy research_logic research_batch research_model backtest factor data data_service analytics account_review material)
   add_custom_command(
     OUTPUT ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.h
     COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto
@@ -40,9 +40,7 @@ add_library(asterion_protocol STATIC
   src/observation.cpp
   src/trading_facts.cpp
   src/account_review.cpp
-  src/notice_review.cpp
   src/material.cpp
-  src/intelligence.cpp
   src/task.cpp
   src/task_execution.cpp
   src/backtest.cpp

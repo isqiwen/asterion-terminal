@@ -329,7 +329,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "live" | "market" | "research" | "data" | "intelligence";
+      kind: "live" | "market" | "research" | "data";
       plugin_artifacts: string[];
       id: string;
       artifact: string;
@@ -1151,8 +1151,6 @@ export type TaskRecord = {
     | "minute_download"
     | "table_update"
     | "account_review"
-    | "notice_review"
-    | "event_set_review"
     | "statistics"
     | "performance_evaluation"
     | "sample"
@@ -2060,45 +2058,6 @@ export type AccountReviewResult = {
   recovery_required: boolean;
   limitations: string[];
 };
-export type NoticeEvidenceResult = {
-  owner: AccountReviewResult["owner"];
-  source: NoticeObject;
-  content: ResourceObject;
-  program_artifact: string;
-  as_of_ms: string;
-  use_scope: string;
-  contract: string;
-  effective_day: string;
-  margin_ratio: string;
-  planned: boolean;
-  source_published_at_ms: string | null;
-  acquired_at_ms: string;
-  processed_at_ms: string;
-  verified_at_ms: string;
-  stored_at_ms: string;
-  available_at_ms: string;
-  published_by_cutoff: boolean;
-  strict_history_eligible: boolean;
-  limitations: string[];
-};
-export type EventSetReviewEvidence = {
-  owner: AccountReviewResult["owner"];
-  source: NoticeObject;
-  content: ResourceObject;
-  program_artifact: string;
-  name: string;
-  as_of_ms: string;
-  use_scope: string;
-  use_mode: "post_hoc" | "strict_history";
-  assembled_at_ms: string;
-  events: NoticeObject[];
-  members: {
-    event: NoticeEventView;
-    evidence: Extract<TaskResult, { kind: "notice_review" }>["experiment"];
-    limitations: NoticeSetReason[];
-  }[];
-  exclusions: { event: NoticeObject; reasons: NoticeSetReason[] }[];
-};
 export type ResearchSampleEvaluation =
   { mode: "full_sample" } | { mode: "holdout"; split_index: number };
 export type ResearchSampleInput = {
@@ -2253,32 +2212,6 @@ export type TaskResult =
       task: TaskRecord;
       experiment: StatisticsInput;
       result: StatisticsResult;
-    }
-  | {
-      id: string;
-      kind: "event_set_review";
-      input_sha256: string;
-      task: TaskRecord;
-      experiment: EventSetReviewEvidence;
-      result: EventSetReviewEvidence & { reports: NoticeEvidenceResult[] };
-    }
-  | {
-      id: string;
-      kind: "notice_review";
-      input_sha256: string;
-      task: TaskRecord;
-      experiment: {
-        owner: AccountReviewResult["owner"];
-        source: NoticeObject;
-        content: ResourceObject;
-        as_of_ms: string;
-        use_scope: string;
-        contract: string;
-        material: ResourceObject;
-        verification_program: string;
-        program_artifact: string;
-      };
-      result: NoticeEvidenceResult;
     }
   | {
       id: string;
@@ -2769,7 +2702,7 @@ export type ResearchRetirement = {
 export type ResourceObject = {
   node: string;
   service: string;
-  domain: "data" | "research" | "intelligence";
+  domain: "data" | "research";
   kind: string;
   id: string;
   version: string;
@@ -2887,227 +2820,6 @@ export type MaterialRead = {
   reading: { state: "readable" | "invalid_utf8" | "unsupported_media"; readable_bytes: number };
   text: string | null;
 };
-export type NoticeObject = Omit<ResourceObject, "domain"> & { domain: "intelligence" };
-export type NoticeSpan = { begin: number; end: number; text: string };
-export type NoticeEvent = {
-  reference: NoticeObject;
-  initial_publication: NoticeObject;
-  contract: string;
-  use_scope: string;
-  rule_id: string;
-  available_at_ms: string;
-};
-export type NoticeChangeRequest = {
-  id: string;
-  event: NoticeObject;
-  expected_head: NoticeObject;
-  action: "correct" | "withdraw";
-  replacement: NoticeObject | null;
-  material: ResourceObject;
-  evidence: NoticeSpan;
-  operator_name: string;
-  reason: string;
-  human_confirmed: boolean;
-  effective_at_ms: string | null;
-};
-export type NoticeChangeRecord = Omit<NoticeChangeRequest, "id" | "human_confirmed"> & {
-  reference: NoticeObject;
-  affected_publication: NoticeObject;
-  reviewed_at_ms: string;
-  prepared_at_ms: string;
-  program_artifact: string;
-  published: null | {
-    reference: NoticeObject;
-    content: ResourceObject;
-    stored_at_ms: string;
-    available_at_ms: string;
-    sequence: string;
-  };
-};
-export type NoticeEventView = {
-  event: NoticeEvent;
-  head: NoticeObject;
-  selected_publication: NoticeObject;
-  withdrawn: boolean;
-  latest_change: NoticeChangeRecord | null;
-  pending_change: NoticeChangeRecord | null;
-};
-export type NoticeSourceObservation = {
-  consumer: Omit<ResourceObject, "domain"> & { domain: "research" };
-  source: NoticeObject;
-  current: NoticeEventView;
-  observed_at_ms: string;
-};
-export type NoticeCandidate = {
-  event?: NoticeObject | null;
-  id: string;
-  material: ResourceObject;
-  dictionary: TableListedContracts["query"];
-  contract: string;
-  evidence: Record<
-    "subject" | "parameter" | "effective_day" | "percentage" | "modality",
-    NoticeSpan
-  >;
-  rule_id: "contract_margin_announcement";
-  use_scope: string;
-  use_mode: "post_hoc_research" | "strict_history";
-};
-export type NoticeRecord = {
-  event?: NoticeEvent | null;
-  related_event?: NoticeObject | null;
-  reference: NoticeObject;
-  state: "preparing" | "draft" | "verified" | "publishing" | "published" | "rejected" | "abandoned";
-  material: MaterialReceipt;
-  dictionary_reference: ResourceObject | null;
-  contract: string;
-  evidence: NoticeCandidate["evidence"];
-  rule_id: string;
-  use_scope: string;
-  use_mode: NoticeCandidate["use_mode"];
-  program_artifact: string;
-  created_at_ms: string;
-  updated_at_ms: string;
-  assessment: {
-    checks: { field: string; state: "pass" | "blocked" | "unknown"; reason: string }[];
-    limitations: string[];
-    ready_for_human_review: boolean;
-    effective_day: string;
-    margin_ratio: string | null;
-  };
-  verification: null | {
-    id: string;
-    operator_name: string;
-    reason: string;
-    approved: boolean;
-    verified_at_ms: string;
-  };
-  publication_request?: null | { id: string; reason: string };
-  published: null | {
-    reference: NoticeObject;
-    preparation: NoticeObject;
-    content: ResourceObject;
-    stored_at_ms: string;
-    available_at_ms: string;
-  };
-};
-export type NoticeSetReason = { source: ResourceObject; reason: string };
-export type NoticeSetRequest = {
-  id: string;
-  name: string;
-  program_artifact: string;
-  data_owner: { node: string; service: string; domain: "data" };
-  query: {
-    events: NoticeObject[];
-    use_mode: "post_hoc_research" | "strict_history";
-    as_of_ms: string;
-    use_scope: string;
-  };
-};
-export type NoticeSetView = {
-  request: NoticeSetRequest;
-  state: "preview" | "prepared" | "published";
-  observed_at_ms: string;
-  reference: NoticeObject | null;
-  available_at_ms: string | null;
-  members: {
-    event: NoticeEventView;
-    publication: NoticeObject;
-    content: ResourceObject;
-    limitations: NoticeSetReason[];
-  }[];
-  exclusions: { event: NoticeObject; reasons: NoticeSetReason[] }[];
-};
-export type NoticeDeliveryKind = "publication" | "correction" | "withdrawal";
-export type NoticeDeliveryFilter = {
-  contracts: string[];
-  rule_id: "contract_margin_announcement";
-  use_scope: string;
-  kinds: NoticeDeliveryKind[];
-  include_followup_statements: boolean;
-};
-export type NoticeDelivery = {
-  position: string;
-  source: NoticeObject;
-  event: NoticeObject;
-  initial_publication: NoticeObject;
-  contract: string;
-  rule_id: string;
-  use_scope: string;
-  kind: NoticeDeliveryKind;
-  available_at_ms: string;
-};
-export type NoticeDeliveryPage = {
-  owner: { node: string; service: string; domain: "intelligence" };
-  filter: NoticeDeliveryFilter;
-  after: string;
-  through: string;
-  head: string;
-  scanned_through: string;
-  more: boolean;
-  items: NoticeDelivery[];
-};
-export type NoticeSubscriptionDefinition = {
-  id: string;
-  name: string;
-  filter: NoticeDeliveryFilter;
-  start_after: string;
-  consumer: "application_reminder";
-};
-export type NoticeSubscription = {
-  reference: NoticeObject;
-  definition: NoticeSubscriptionDefinition;
-  active: boolean;
-  revision: string;
-  confirmed_through: string;
-  paused_through: string;
-  gap_through: string;
-  head: string;
-  created_at_ms: string;
-  updated_at_ms: string;
-  pending_delivery: NoticeObject | null;
-};
-export type NoticeSubscriptionOffer = {
-  subscription: NoticeObject;
-  operation_id: string;
-  after: string;
-  through: string;
-  historical: boolean;
-};
-export type NoticeDeliveryBatch = NoticeSubscriptionOffer & {
-  reference: NoticeObject;
-  acknowledged: boolean;
-  offered_at_ms: string;
-  page: NoticeDeliveryPage;
-};
-export type NoticeReminderPage = {
-  subscription: NoticeObject;
-  after: string;
-  next_after: string;
-  items: { change: NoticeDelivery; first_offered_at_ms: string; historical: boolean }[];
-};
-export type NoticeConsumerRecord = {
-  source: NoticeObject;
-  consumer: Omit<ResourceObject, "domain"> & { domain: "research" };
-  use_scope: string;
-  phase: "prepared" | "confirmed" | "released";
-  created_at_ms: string;
-  updated_at_ms: string;
-};
-export type NoticeConsumerPage = {
-  source: NoticeObject;
-  items: NoticeConsumerRecord[];
-  next_after: string;
-};
-export type IntelligenceService = {
-  node_id: string;
-  owner_node_id: string;
-  service: string;
-  connection_id: string;
-  remote: boolean;
-  host: string;
-  port: number;
-  records: NoticeRecord[];
-};
 export type Snapshot = {
   research_project?: ResearchProjectReply;
   research_variable?: ResearchVariableReply;
@@ -3117,24 +2829,6 @@ export type Snapshot = {
   research_batch?: ResearchBatchReply;
   research_assessment?: ResearchBatchAssessmentReply;
   project_tasks?: ResearchProjectTasks;
-  intelligence_service?: IntelligenceService | null;
-  notice_custody?: NoticeConsumerRecord | null;
-  notice_consumers?: NoticeConsumerPage;
-  notice_event_view?: NoticeEventView;
-  notice_source_observation?: NoticeSourceObservation;
-  notice_change?: NoticeChangeRecord;
-  notice_set?: NoticeSetView;
-  notice_subscription?: NoticeSubscription;
-  notice_subscriptions?: {
-    owner: NoticeDeliveryPage["owner"];
-    head: string;
-    items: NoticeSubscription[];
-  };
-  notice_delivery_page?: NoticeDeliveryPage;
-  notice_delivery_batch?: NoticeDeliveryBatch;
-  notice_reminders?: NoticeReminderPage;
-  intelligence_record?: NoticeRecord;
-  intelligence_records?: NoticeRecord[];
   material_sources?: MaterialSource[];
   material_task?: TaskRecord;
   material_read?: MaterialRead;

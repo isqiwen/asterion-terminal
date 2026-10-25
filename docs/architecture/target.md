@@ -1,5 +1,7 @@
 # 按产品需求组织的架构与工程设计
 
+> 2026-10-25 决定：情报服务（Intelligence）以及模型训练与批次审阅已从代码中删除，首个版本只做“数据 → 策略 → 回测 → 评估 → 模拟 → 柜台仿真”闭环。本文中涉及情报的设计保留为需求目标，重新实现前需另行设计。
+
 目标架构：由产品需求推导的业务服务划分、职责边界与工程组织。当前实现见[架构](../architecture.md)，
 依据见[产品需求](../requirements/README.md)、[共同契约](../requirements/common/contracts.md)和
 [非功能基线](../requirements/common/reliability.md#quality-baseline)。

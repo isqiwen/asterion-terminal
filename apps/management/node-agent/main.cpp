@@ -1,6 +1,5 @@
 #include "node_storage_identity.hpp"
 #include <asterion/research.pb.h>
-#include <asterion/intelligence.pb.h>
 #include "program_preparation.hpp"
 #include <asterion/protocol/health.hpp>
 #include "plugin_artifacts.hpp"
@@ -317,19 +316,9 @@ class Agent
                     node_id_,
                     "--discovery-endpoint",
                     discovery_endpoint()});
-        if ((configuration.kind == wire::DATA || configuration.kind == wire::RESEARCH
-                || configuration.kind == wire::INTELLIGENCE)
+        if ((configuration.kind == wire::DATA || configuration.kind == wire::RESEARCH)
             && configuration.port != 0)
             args.insert(args.end(), {"--local-endpoint", result.endpoint});
-        if (configuration.kind == wire::INTELLIGENCE)
-            args.insert(
-                args.end(),
-                {"--node-id",
-                    node_id_,
-                    "--program-artifact",
-                    configuration.artifact,
-                    "--discovery-endpoint",
-                    discovery_endpoint()});
         if (configuration.kind == wire::RESEARCH) {
             args.insert(
                 args.end(),
@@ -508,10 +497,6 @@ class Agent
                         name,
                         s,
                         true);
-                else if (s.configuration.kind == wire::INTELLIGENCE)
-                    co_await quiesce_service<
-                        intelligence::proto::IntelligenceRequest,
-                        intelligence::proto::IntelligenceResponse>(name, s, true);
                 else if (s.configuration.kind == wire::RESEARCH)
                     co_await quiesce_service<
                         research::proto::ResearchRequest,
@@ -552,8 +537,7 @@ class Agent
                 throw std::runtime_error("Agent is already in maintenance");
             for (const auto& [name, s] : services_)
                 if ((s.configuration.desired || s.process) && s.configuration.kind != wire::MARKET
-                    && s.configuration.kind != wire::RESEARCH && s.configuration.kind != wire::DATA
-                    && s.configuration.kind != wire::INTELLIGENCE)
+                    && s.configuration.kind != wire::RESEARCH && s.configuration.kind != wire::DATA)
                     throw std::runtime_error(
                         "service lacks an automatic upgrade recovery boundary: " + name);
             agent::UpgradePlan next;
@@ -977,7 +961,7 @@ class Agent
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
         if (d.kind() != wire::MARKET && d.kind() != wire::RESEARCH && d.kind() != wire::TRADING
-            && d.kind() != wire::DATA && d.kind() != wire::INTELLIGENCE)
+            && d.kind() != wire::DATA)
             throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
             if (d.kind() != wire::MARKET)
@@ -1008,8 +992,6 @@ class Agent
         const auto folder = root_ / "services" / d.service_id();
         Service s;
         s.configuration.kind = d.kind();
-        if (d.kind() == wire::INTELLIGENCE && !d.plugin_artifacts().empty())
-            throw std::invalid_argument("intelligence does not load native provider plugins");
         s.configuration.plugin_artifacts.assign(
             d.plugin_artifacts().begin(),
             d.plugin_artifacts().end());
@@ -1172,8 +1154,7 @@ public:
             // This socket is private to the node. A TCP deployment's public local
             // socket is intentionally not part of its remote management view.
             for (auto& service : *response.mutable_status()->mutable_services())
-                if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH
-                    || service.kind() == wire::INTELLIGENCE)
+                if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH)
                     service.set_endpoint(service_endpoint(service.id()));
         } catch (const std::exception& error) {
             response.clear_status();
@@ -1271,8 +1252,7 @@ public:
             return background_idle();
         }};
         // Stop Data consumers before their source services.
-        for (const auto kind :
-            {wire::RESEARCH, wire::INTELLIGENCE, wire::TRADING, wire::MARKET, wire::DATA})
+        for (const auto kind : {wire::RESEARCH, wire::TRADING, wire::MARKET, wire::DATA})
             for (auto& [name, service] : services_)
                 if (service.configuration.kind == kind)
                     co_await stop_processes(service);

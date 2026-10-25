@@ -174,24 +174,6 @@ private:
     PolledTask<research::proto::VariableDefinition>
     resolve_variable(Call&, resource::proto::Object);
     PolledTask<> submit_account_review(Call& call);
-    PolledTask<> submit_notice_review(Call& call);
-    PolledTask<> submit_event_set_review(Call& call);
-    PolledTask<research::proto::EventSetReviewInput> event_set_evidence(
-        const Call&,
-        const research::proto::EventSetReviewRequest&,
-        const resource::proto::Owner&,
-        const std::string&);
-    PolledTask<> reconcile_notice_custody(Call& call);
-    PolledTask<> notice_source_changes(Call& call);
-    PolledTask<intelligence::proto::NoticeConsumerRecord> notice_custody(
-        const Call&,
-        const intelligence::proto::NoticeConsumerBinding&,
-        intelligence::proto::NoticeConsumerRecord::Phase);
-    PolledTask<research::proto::NoticeReviewInput> notice_evidence(
-        const Call&,
-        const research::proto::NoticeReviewRequest&,
-        const resource::proto::Owner&,
-        const std::string&);
     PolledTask<ResearchProgram> program(const Call& call);
     PolledTask<research::proto::AccountReviewInput> account_evidence(
         const Call&,

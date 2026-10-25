@@ -10,7 +10,6 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/notice_review.hpp>
 #include <asterion/protocol/material.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/domain/trading_days.hpp>
@@ -34,10 +33,6 @@ Json decode_task_retirement(
             expected_kind = "factor";
         if (value.task().kind() == wire::ACCOUNT_REVIEW)
             expected_kind = "account_review";
-        if (value.task().kind() == wire::NOTICE_REVIEW)
-            expected_kind = "notice_review";
-        if (value.task().kind() == wire::EVENT_SET_REVIEW)
-            expected_kind = "event_set_review";
         if (value.task().kind() == wire::STATISTICS)
             expected_kind = "statistics";
         if (value.task().kind() == wire::PERFORMANCE_EVALUATION)
@@ -187,8 +182,7 @@ Json decode_task(const task::proto::Task& task)
     }
     if (task.kind() != task::proto::BACKTEST && task.kind() != task::proto::FACTOR
         && task.kind() != task::proto::MINUTE_DOWNLOAD && task.kind() != task::proto::TABLE_UPDATE
-        && task.kind() != task::proto::ACCOUNT_REVIEW && task.kind() != task::proto::NOTICE_REVIEW
-        && task.kind() != task::proto::EVENT_SET_REVIEW && task.kind() != task::proto::STATISTICS
+        && task.kind() != task::proto::ACCOUNT_REVIEW && task.kind() != task::proto::STATISTICS
         && task.kind() != task::proto::SAMPLE && task.kind() != task::proto::LOGIC_TRIAL
         && task.kind() != task::proto::MATERIAL_ACQUISITION
         && task.kind() != task::proto::MODEL_TRAINING
@@ -201,8 +195,6 @@ Json decode_task(const task::proto::Task& task)
                 : task.kind() == task::proto::TABLE_UPDATE           ? "table_update"
                 : task.kind() == task::proto::FACTOR                 ? "factor"
                 : task.kind() == task::proto::ACCOUNT_REVIEW         ? "account_review"
-                : task.kind() == task::proto::NOTICE_REVIEW          ? "notice_review"
-                : task.kind() == task::proto::EVENT_SET_REVIEW       ? "event_set_review"
                 : task.kind() == task::proto::STATISTICS             ? "statistics"
                 : task.kind() == task::proto::PERFORMANCE_EVALUATION ? "performance_evaluation"
                 : task.kind() == task::proto::SAMPLE                 ? "sample"
@@ -399,22 +391,6 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["input_sha256"] = sha256_bytes(task.statistics().SerializeAsString());
         envelope["experiment"] = decode_statistics_input(task.statistics());
         envelope["result"] = decode_statistics_result(task.statistics(), response.statistics());
-    } else if (task.kind() == task::proto::EVENT_SET_REVIEW && task.has_event_set_review()
-        && response.has_event_set_review()) {
-        if (sha256_bytes(response.event_set_review().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("event set review result digest mismatch");
-        envelope["input_sha256"] = sha256_bytes(task.event_set_review().SerializeAsString());
-        envelope["experiment"] = decode_event_set_review_input(task.event_set_review());
-        envelope["result"] =
-            decode_event_set_review_result(task.event_set_review(), response.event_set_review());
-    } else if (task.kind() == task::proto::NOTICE_REVIEW && task.has_notice_review()
-        && response.has_notice_review()) {
-        if (sha256_bytes(response.notice_review().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("notice review result digest mismatch");
-        envelope["input_sha256"] = sha256_bytes(task.notice_review().SerializeAsString());
-        envelope["experiment"] = decode_notice_review_input(task.notice_review());
-        envelope["result"] =
-            decode_notice_review_result(task.notice_review(), response.notice_review());
     } else if (task.kind() == task::proto::ACCOUNT_REVIEW && task.has_account_review()
         && response.has_account_review()) {
         if (sha256_bytes(response.account_review().SerializeAsString()) != task.result_digest())
