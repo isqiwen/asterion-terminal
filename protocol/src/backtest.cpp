@@ -4,7 +4,6 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/backtest.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <charconv>
 #include <cmath>
 #include <set>
@@ -383,14 +382,6 @@ std::vector<BacktestRound> backtest_folds(const backtest::proto::BacktestInput& 
 
 std::size_t backtest_work_units(const backtest::proto::BacktestInput& input)
 {
-    if (input.has_model_replay())
-        return static_cast<std::size_t>(input.model_replay()
-                       .training()
-                       .plan()
-                       .specification()
-                       .folds(static_cast<int>(input.model_replay().fold_index()))
-                       .validation_end())
-            + 1;
     std::size_t bars = 0, development = 0;
     for (const auto& contract : input.paper().contracts())
         for (const auto& bar : contract.dataset().bars()) {
@@ -406,8 +397,7 @@ std::size_t backtest_work_units(const backtest::proto::BacktestInput& input)
 Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView view)
 {
     validate_message(input);
-    if (!input.has_paper() || input.strategies_size() > 32
-        || (input.has_model_replay() ? !input.strategies().empty() : input.strategies().empty()))
+    if (!input.has_paper() || input.strategies_size() > 32 || input.strategies().empty())
         throw std::invalid_argument("incomplete backtest input");
     if (input.has_performance_assumptions())
         validate_performance_assumptions(input.performance_assumptions());
@@ -431,8 +421,8 @@ Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView vi
         return strategy.has_fixed_weights();
     });
     if (fixed_portfolio) {
-        if (input.strategies_size() != 1 || input.has_model_replay() || !input.series().empty()
-            || !input.holdout_day().empty() || input.has_walk_forward()
+        if (input.strategies_size() != 1 || !input.series().empty() || !input.holdout_day().empty()
+            || input.has_walk_forward()
             || input.paper().contracts_size() != input.strategies(0).fixed_weights().members_size())
             throw std::invalid_argument(
                 "fixed-weight replay requires one complete ordinary daily portfolio without strategy comparison");
@@ -468,40 +458,7 @@ Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView vi
     }
     const auto days = backtest_trading_days(input);
     const auto holdout = std::ranges::find(days, input.holdout_day());
-    if (input.has_model_replay()) {
-        validate_model_replay_definition(input.model_replay());
-        const auto& model = input.model_replay();
-        const auto& fold =
-            model.training().plan().specification().folds(static_cast<int>(model.fold_index()));
-        if (input.paper().contracts_size() != 1 || !input.series().empty()
-            || input.paper().contracts(0).dataset().interval_minutes() != 1
-            || input.paper().contracts(0).dataset().bars_size()
-                != static_cast<int>(model.training().plan().recipe().source().observations())
-            || !input.holdout_day().empty() || input.has_walk_forward())
-            throw std::invalid_argument(
-                "model replay requires one fixed ordinary one-minute source and no CTA comparison");
-        const auto& data = input.paper().contracts(0).dataset();
-        if (data.bars(static_cast<int>(fold.validation_begin())).trading_day()
-                == data.bars(static_cast<int>(fold.validation_begin()) - 1).trading_day()
-            || data.bars(static_cast<int>(fold.validation_end()) - 1).trading_day()
-                >= data.bars(static_cast<int>(fold.validation_end())).trading_day())
-            throw std::invalid_argument(
-                "model replay validation requires complete original trading-day boundaries");
-        for (int i = 0; i < 4; ++i) {
-            const auto& boundary =
-                model.training().plan().boundaries(static_cast<int>(model.fold_index()) * 4 + i);
-            const auto& bar = data.bars(static_cast<int>(boundary.event_index()));
-            if (bar.timestamp_ns() != boundary.timestamp_ns()
-                || bar.trading_day() != boundary.trading_day())
-                throw std::invalid_argument(
-                    "model replay source bars differ from fixed training boundaries");
-        }
-        const auto quantity = Decimal::from_raw(model.quantity().units());
-        const auto increment = Decimal::from_raw(data.contract().quantity_increment().units());
-        if (quantity.raw() % increment.raw() != 0)
-            throw std::invalid_argument(
-                "model replay quantity is not on the contract lot increment");
-    } else if (input.has_walk_forward()) {
+    if (input.has_walk_forward()) {
         // Rounds score by a yearly ratio, which fewer than 20 days do not have.
         const auto& rolling = input.walk_forward();
         if (input.strategies_size() == 1 || !input.holdout_day().empty()
@@ -535,8 +492,6 @@ Json decode_backtest(const backtest::proto::BacktestInput& input, DatasetView vi
     if (input.has_performance_assumptions())
         result["performance_assumptions"] =
             decode_performance_assumptions(input.performance_assumptions());
-    if (input.has_model_replay())
-        result["model_replay"] = decode_model_replay_definition(input.model_replay());
     if (input.has_historical_margins())
         result["historical_margins"] = decode_historical_margins(input.historical_margins());
     if (!input.settlement_margins().empty()) {
@@ -793,20 +748,6 @@ Json decode_backtest_result(const backtest::proto::BacktestResult& result)
                     {"source_index", order.source_index()},
                     {"boundary_ns", std::to_string(order.boundary_ns())}});
         shown["portfolio_orders"] = std::move(orders);
-    }
-    if (result.has_model_replay() != result.has_model_validation())
-        throw std::invalid_argument("model replay validation summary is missing or unexpected");
-    if (result.has_model_replay()) {
-        shown["model_replay"] = decode_model_replay_result(result.model_replay());
-        const auto& score = result.model_validation();
-        if (!std::isfinite(score.total_return()) || !std::isfinite(score.max_drawdown())
-            || score.max_drawdown() < 0 || (score.has_sharpe() && !std::isfinite(score.sharpe())))
-            throw std::invalid_argument("invalid model replay validation summary");
-        shown["model_validation"] = {
-            {"total_return", score.total_return()},
-            {"max_drawdown", score.max_drawdown()},
-            {"sharpe", score.has_sharpe() ? Json(score.sharpe()) : Json(nullptr)}
-        };
     }
     if (!result.target_rejections().empty()) {
         shown["target_rejections"] = Json::array();

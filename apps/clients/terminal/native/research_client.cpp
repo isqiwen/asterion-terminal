@@ -5,9 +5,6 @@
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_batch.hpp>
-#include <asterion/protocol/research_assessment.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include "performance.hpp"
 #include "account_reconciliation.hpp"
 #include "portfolio_budget.hpp"
@@ -452,10 +449,7 @@ decode_task_response(const research::proto::ResearchRequest& request, const std:
         throw Error(ErrorCode::unavailable, "task response identity mismatch");
     if (response.has_error())
         throw_remote_error(response.error().code(), response.error().message());
-    if (request.has_assessment()          ? !response.has_assessment()
-            : request.has_batch()         ? !response.has_batch()
-            : request.has_logic()         ? !response.has_logic()
-            : request.has_model()         ? !response.has_model()
+    if (request.has_logic()               ? !response.has_logic()
             : request.has_strategy()      ? !response.has_strategy()
             : request.has_variable()      ? !response.has_variable()
             : request.has_project()       ? !response.has_project()
@@ -468,8 +462,7 @@ decode_task_response(const research::proto::ResearchRequest& request, const std:
             ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes()
                   && !response.has_table_update() && !response.has_account_review()
                   && !response.has_statistics() && !response.has_sample()
-                  && !response.has_logic_trial() && !response.has_model_training()
-                  && !response.has_model_time() && !response.has_evaluation())
+                  && !response.has_logic_trial() && !response.has_evaluation())
             : !response.has_task())
         throw Error(ErrorCode::unavailable, "unexpected task response");
     return response;
@@ -595,17 +588,9 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
     {
         identify(request);
         std::chrono::milliseconds timeout = request.has_result() || request.has_strategy()
-                || (request.has_model() && request.model().has_mutation()
-                    && (request.model().mutation().has_fix()
-                        || request.model().mutation().has_time_validation()))
-                || (request.has_batch() && request.batch().has_mutation()
-                    && request.batch().mutation().has_save())
-                || (request.has_assessment()
-                    && (request.assessment().has_preview() || request.assessment().has_mutation()))
             ? protocol::task_verification_timeout + 5s
             : request.has_project() || request.has_project_tasks() || request.has_variable()
-                || request.has_logic() || request.has_batch() || request.has_model()
-                || request.has_assessment()
+                || request.has_logic()
             ? 10s
             : request.has_resources()  ? 30s
             : request.has_retirement() ? 15s
@@ -624,9 +609,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                 || request.has_history_usage() || request.has_retirement()
                 || request.has_resources() || request.has_project() || request.has_project_tasks()
                 || request.has_strategy() || request.has_variable() || request.has_logic()
-                || request.has_model() || request.has_assessment()
-                || (request.has_batch()
-                    && (!request.batch().has_mutation() || request.batch().mutation().has_save()))
             ? Lane::read
             : Lane::control;
         const auto send_timeout = request.has_submit() || request.has_history_usage() ? 30s : 5s;
@@ -653,39 +635,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                                              raw = std::move(raw),
                                              node = endpoint.owner_node_id] {
             const auto response = decode_task_response(request, *raw);
-            if (request.has_assessment()) {
-                if (response.has_result_task())
-                    throw Error(ErrorCode::unavailable, "invalid batch assessment response");
-                resource::proto::Owner owner;
-                owner.set_node_id(node);
-                owner.set_service_id(request.service_id());
-                owner.set_domain("research");
-                return protocol::decode_batch_assessment_reply(
-                    response.assessment(),
-                    request.assessment(),
-                    owner);
-            }
-            if (request.has_batch()) {
-                if (response.has_result_task())
-                    throw Error(ErrorCode::unavailable, "invalid research batch response");
-                resource::proto::Owner owner;
-                owner.set_node_id(node);
-                owner.set_service_id(request.service_id());
-                owner.set_domain("research");
-                return protocol::decode_backtest_batch_reply(
-                    response.batch(),
-                    request.batch(),
-                    owner);
-            }
-            if (request.has_model()) {
-                if (response.has_result_task())
-                    throw Error(ErrorCode::unavailable, "invalid model metadata response");
-                resource::proto::Owner owner;
-                owner.set_node_id(node);
-                owner.set_service_id(request.service_id());
-                owner.set_domain("research");
-                return protocol::decode_model_reply(response.model(), request.model(), owner);
-            }
             if (request.has_logic()) {
                 if (response.has_result_task())
                     throw Error(ErrorCode::unavailable, "invalid research logic response");
@@ -1148,55 +1097,6 @@ std::future<Json> ResearchClient::project(const research::proto::ProjectRequest&
         [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
             return state->read(std::move(request), stop);
         });
-}
-
-std::future<Json> ResearchClient::assessment(const research::proto::BatchAssessmentRequest& query)
-{
-    research::proto::ResearchRequest request;
-    *request.mutable_assessment() = query;
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
-            return state->read(std::move(request), stop);
-        });
-}
-
-std::future<Json> ResearchClient::batch(const research::proto::BacktestBatchRequest& query)
-{
-    research::proto::ResearchRequest request;
-    *request.mutable_batch() = query;
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
-            return state->read(std::move(request), stop);
-        });
-}
-
-std::future<Json> ResearchClient::model(const research::proto::ModelRequest& query)
-{
-    research::proto::ResearchRequest request;
-    *request.mutable_model() = query;
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
-            return state->read(std::move(request), stop);
-        });
-}
-
-std::future<void>
-ResearchClient::submit(const std::string& id, const research::proto::ModelTrainingRequest& input)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_submit()->set_id(id);
-    *request.mutable_submit()->mutable_model_training() = input;
-    return impl_->mutate(std::move(request));
-}
-
-std::future<void> ResearchClient::submit(
-    const std::string& id,
-    const research::proto::ModelTimeTrainingRequest& input)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_submit()->set_id(id);
-    *request.mutable_submit()->mutable_model_time() = input;
-    return impl_->mutate(std::move(request));
 }
 
 std::future<Json> ResearchClient::logic(const research::proto::LogicRequest& query)

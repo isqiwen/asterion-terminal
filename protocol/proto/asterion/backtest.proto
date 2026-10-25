@@ -3,7 +3,6 @@ package asterion.backtest.proto;
 import "asterion/domain.proto";
 import "asterion/trading.proto";
 import "asterion/data.proto";
-import "asterion/research_model.proto";
 
 // Explicit model parameters for the single ordinary daily contract. The source
 // is a user-supplied explanation, not a claim of verified provider provenance.
@@ -46,7 +45,6 @@ message BacktestInput {
   repeated SettlementMargin settlement_margins = 8;
   asterion.data.proto.HistoricalMargins historical_margins = 9;
   // Mutually exclusive with ordinary CTA strategies. Uses the same paper account/engine.
-  asterion.research.proto.ModelReplayDefinition model_replay = 11;
   PerformanceAssumptions performance_assumptions = 12;
 }
 // A comparison that rolls forward by trading days. Each round scores the
@@ -94,7 +92,6 @@ message BacktestReuse {
   DataChoice choice = 4;
   string snapshot = 5;
   optional uint32 slippage_ticks = 6; // fixed-data single-contract sensitivity only
-  asterion.research.proto.ModelReplaySelection model_replay = 7;
   asterion.protocol.proto.Decimal fee_multiplier = 8; // exclusive fixed-data fee scenario
 }
 message BacktestRequest {
@@ -275,7 +272,4 @@ message BacktestResult {
   repeated PortfolioTargetFill portfolio_fills = 16;
   repeated PortfolioTargetOrder portfolio_orders = 17;
   repeated BacktestFillDay fill_days = 11; // empty means no fill-date evidence
-  asterion.research.proto.ModelReplayResult model_replay = 12;
-  BacktestCandidate model_validation =
-    13; // Validation days only; never dilute with flat training days.
 }

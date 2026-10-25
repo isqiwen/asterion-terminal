@@ -189,13 +189,6 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
     const auto& reuse = p.backtest_reuse();
     if (reuse.has_slippage_ticks() && reuse.has_fee_multiplier())
         throw std::invalid_argument("fee and slippage scenarios require separate requests");
-    std::optional<research::proto::BacktestBatchDefinition> batch;
-    if (reuse.has_model_replay()
-        && (reuse.choice() != backtest::proto::BacktestReuse::FIXED
-            || (reuse.has_slippage_ticks() || reuse.has_fee_multiplier()) || p.has_strategy_use()
-            || p.has_derivation()))
-        throw std::invalid_argument(
-            "model replay requires unchanged fixed data and an explicit standalone request");
     using Choice = backtest::proto::BacktestReuse;
     if (p.id() == reuse.source_id())
         throw std::invalid_argument("experiment reuse requires a new task id");
@@ -240,39 +233,6 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
             throw Error(
                 ErrorCode::conflict,
                 "strategy delivery requires its fixed execution program");
-    }
-    if (p.derivation().has_batch()) {
-        auto fields = p.derivation();
-        fields.clear_batch();
-        if (fields.ByteSizeLong() || p.has_strategy_use() || p.has_research_plan())
-            throw std::invalid_argument("batch reuse accepts only its fixed member binding");
-        const auto object = p.derivation().batch();
-        co_await wait_for_store({}, call.deadline);
-        research::Batches batches(*storage_, object.owner());
-        const auto current = batches.state(object.id());
-        batch = current.definition();
-        if (protocol::backtest_batch_object(*batch).SerializeAsString()
-                != object.SerializeAsString()
-            || protocol::backtest_batch_member_reuse(*batch, p.id()).SerializeAsString()
-                != reuse.SerializeAsString())
-            throw Error(
-                ErrorCode::conflict,
-                "backtest request differs from its fixed batch member");
-        require_fixed_owner(p.data_owner(), batch->data_owner());
-        const auto found_task = storage_->find_task(p.id());
-        const bool existing = found_task && !found_task->has_retirement();
-        if (existing) {
-            (void)co_await batch_metadata(
-                call,
-                object.owner(),
-                true,
-                [object, id = p.id()](auto& batches, auto& reply) {
-                    *reply.mutable_state() = batches.confirm_member(object.id(), id);
-                });
-            co_await ready(call);
-            *call.response.mutable_task() = storage_->describe(p.id());
-            co_return;
-        }
     }
     co_await wait_for_store(reuse.source_id());
     auto source_slot = verification_slots_.acquire(false, reuse.source_id());
@@ -328,46 +288,6 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
     });
     co_await ready(call);
     call.input_in_time();
-    if (reuse.has_model_replay()) {
-        co_await wait_for_store({}, call.deadline);
-        bool accepted = storage_->find_task(p.id()).has_value();
-        if (accepted) {
-            auto existing_read = storage_->prepare_input(p.id());
-            co_await file_work([&] {
-                existing_read.load();
-            });
-            co_await ready(call);
-            const auto existing = storage_->confirm_input(std::move(existing_read));
-            if (!existing.has_input() || !existing.input().has_model_replay()
-                || existing.has_retirement())
-                throw Error(ErrorCode::conflict, "task id already has another experiment");
-            const auto& fixed = existing.input().model_replay();
-            research::proto::ModelReplaySelection original_selection;
-            *original_selection.mutable_mapping() = protocol::model_mapping_object(fixed.mapping());
-            original_selection.set_fold_index(fixed.fold_index());
-            *original_selection.mutable_quantity() = fixed.quantity();
-            original_selection.set_sides(fixed.sides());
-            original_selection.set_processing_delay_bars(fixed.processing_delay_bars());
-            original_selection.set_time_budget_seconds(fixed.time_budget_seconds());
-            original_selection.set_availability(fixed.availability());
-            auto expected = input;
-            expected.clear_strategies();
-            *expected.mutable_model_replay() = fixed;
-            const auto& derivation = existing.metadata().derivation();
-            if (original_selection.SerializeAsString() != reuse.model_replay().SerializeAsString()
-                || expected.SerializeAsString() != existing.input().SerializeAsString()
-                || derivation.source_id() != reuse.source_id()
-                || derivation.source_result_digest() != reuse.source_result_digest()
-                || derivation.data_choice() != "fixed"
-                || existing.research_plan().SerializeAsString()
-                    != p.research_plan().SerializeAsString())
-                throw Error(
-                    ErrorCode::conflict,
-                    "task id already has another model replay request");
-            *call.response.mutable_task() = storage_->describe(p.id());
-            co_return; // The exact accepted request needs neither Data nor a new execution.
-        }
-    }
     const auto selected = [&](const data::proto::BarDataset& dataset) {
         auto selection = protocol::bar_dataset_selection(dataset);
         if (reuse.choice() == Choice::NEW_SNAPSHOT)
@@ -451,108 +371,19 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
         throw Error(
             ErrorCode::conflict,
             "cost sensitivity requires its original execution program");
-    if (batch) {
-        if (programme.artifact != batch->program_artifact())
-            throw Error(ErrorCode::conflict, "batch requires its original execution program");
-        std::string digest;
-        co_await file_work([&] {
-            input.set_dataset_revision(protocol::dataset_revision(input.paper()));
-            if (input.SerializeAsString() != original_bytes)
-                throw std::invalid_argument("batch fixed input differs from its original source");
-            input = reuse.has_fee_multiplier()
-                ? protocol::backtest_fee_variant(
-                      input,
-                      Decimal::from_raw(reuse.fee_multiplier().units()))
-                : protocol::backtest_slippage_variant(input, reuse.slippage_ticks());
-            digest = sha256_bytes(input.SerializeAsString());
-        });
-        co_await ready(call);
-        call.input_in_time();
-        const auto timer = batch_started_.find(batch->request().id());
-        if (timer == batch_started_.end() || Clock::now() >= timer->second.deadline)
-            throw Error(ErrorCode::conflict, "batch budget exhausted before member preparation");
-        (void)co_await batch_metadata(
-            call,
-            batch->owner(),
-            true,
-            [id = p.id(), batch, digest](auto& batches, auto& reply) {
-                *reply.mutable_state() = batches.begin_member(batch->request().id(), id, digest);
-            });
-    }
-    std::optional<backtest::proto::BacktestInput> replay;
-    if (reuse.has_model_replay()) {
-        if (input.has_model_replay() || input.paper().contracts_size() != 1
-            || !input.series().empty() || input.has_walk_forward() || !input.holdout_day().empty())
-            throw std::invalid_argument(
-                "model replay requires an ordinary single-contract reference account");
-        const auto selection = reuse.model_replay();
-        protocol::validate_strategy_object(selection.mapping(), "model_mapping");
-        const auto node = configuration_.node_id;
-        const auto owner = selection.mapping().owner();
-        if (owner.node_id() != node || owner.service_id() != configuration_.service)
-            throw Error(ErrorCode::conflict, "model replay belongs to another Research owner");
-        co_await wait_for_store({}, call.deadline);
-        research::Models models(*storage_, owner);
-        const auto mapping = models.mapping(selection.mapping().id());
-        if (protocol::model_mapping_object(mapping).SerializeAsString()
-                != selection.mapping().SerializeAsString()
-            || mapping.specification().model().kind() != "model_time_validation_result")
-            throw Error(
-                ErrorCode::conflict,
-                "model replay requires its exact chronological mapping");
-        // The existing reuse lease bounds these sequential source reads to one public operation.
-        auto model_read = storage_->prepare_result(mapping.specification().model().id());
-        co_await file_work([&] {
-            model_read.verify();
-        });
-        co_await ready(call);
-        auto original_model = storage_->confirm_result(std::move(model_read));
-        const auto& original_task = original_model.result_task();
-        if (!original_model.has_model_time()
-            || original_task.result_digest() != mapping.specification().model().version())
-            throw Error(ErrorCode::conflict, "model replay fixed result identity changed");
-        const auto fixed = original_task.model_time();
-        (void)models.time_admission(
-            protocol::model_time_plan_object(fixed.plan()),
-            programme.artifact);
-        replay = input;
-        replay->clear_strategies();
-        auto& definition = *replay->mutable_model_replay();
-        *definition.mutable_mapping() = mapping;
-        *definition.mutable_training() = fixed;
-        definition.set_model_attempt(original_task.attempt());
-        definition.set_fold_index(selection.fold_index());
-        *definition.mutable_quantity() = selection.quantity();
-        definition.set_sides(selection.sides());
-        definition.set_processing_delay_bars(selection.processing_delay_bars());
-        definition.set_time_budget_seconds(selection.time_budget_seconds());
-        definition.set_availability(selection.availability());
-        co_await file_work([&] {
-            (void)protocol::decode_backtest(*replay);
-            (void)research::resolve_model_replay_data(
-                *replay,
-                configuration_.directory,
-                programme.artifact);
-        });
-        co_await ready(call);
-        call.input_in_time();
-    }
     *call.response.mutable_task() = (co_await submit(call, [&] {
         if (reuse.choice() == Choice::NEW_SNAPSHOT)
             *input.mutable_data_owner() = call.data_route->owner;
         input.set_dataset_revision(protocol::dataset_revision(input.paper()));
-        if (!batch && reuse.choice() == Choice::FIXED
-            && input.SerializeAsString() != original_bytes)
+        if (reuse.choice() == Choice::FIXED && input.SerializeAsString() != original_bytes)
             throw std::invalid_argument(
                 "reused backtest input does not match original fixed evidence");
-        if (!batch && (reuse.has_slippage_ticks() || reuse.has_fee_multiplier()))
+        if (reuse.has_slippage_ticks() || reuse.has_fee_multiplier())
             input = reuse.has_fee_multiplier()
                 ? protocol::backtest_fee_variant(
                       input,
                       Decimal::from_raw(reuse.fee_multiplier().units()))
                 : protocol::backtest_slippage_variant(input, reuse.slippage_ticks());
-        if (replay)
-            input = std::move(*replay);
         auto submission = task_submission(*storage_, p.id(), std::move(input));
         submission.set_program_artifact(programme.artifact);
         if (candidate)
@@ -562,8 +393,6 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
         source.set_source_result_digest(reuse.source_result_digest());
         source.set_data_choice(reuse.choice() == Choice::FIXED ? "fixed" : "snapshot");
         source.set_snapshot(reuse.snapshot());
-        if (batch)
-            *source.mutable_batch() = protocol::backtest_batch_object(*batch);
         submission.set_derivation(std::move(source));
         return submission;
     })).task();

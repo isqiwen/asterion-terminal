@@ -21,11 +21,5 @@ Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::EvaluationInput input);
 Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::StatisticsInput input);
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::ModelTrainingInput input);
-Store::Submission
-task_submission(const Store& store, const std::string& id, research::proto::ModelTimeInput input);
 
 } // namespace asterion::tasks

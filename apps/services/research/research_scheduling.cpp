@@ -4,7 +4,6 @@ namespace asterion::tasks {
 
 PolledTask<> ResearchHost::schedule_tasks()
 {
-    co_await schedule_batches();
     if (degraded_ || quiescing_)
         co_return;
     if (executions_.size() >= configuration_.task_concurrency)
@@ -149,9 +148,7 @@ PolledTask<> ResearchHost::claim(Call& call)
             && storage_->describe(id).kind() != wire::STATISTICS
             && storage_->describe(id).kind() != wire::PERFORMANCE_EVALUATION
             && storage_->describe(id).kind() != wire::SAMPLE
-            && storage_->describe(id).kind() != wire::LOGIC_TRIAL
-            && storage_->describe(id).kind() != wire::MODEL_TRAINING
-            && storage_->describe(id).kind() != wire::MODEL_TIME_VALIDATION))
+            && storage_->describe(id).kind() != wire::LOGIC_TRIAL))
         throw Error(ErrorCode::conflict, "acquisition belongs to the data service");
     // Load before committing an attempt. Slow file parsing must not consume an
     // execution slot while blocking unrelated controls.
@@ -207,8 +204,8 @@ PolledTask<> ResearchHost::claim(Call& call)
     }
     const auto kind = storage_->describe(id).kind();
     if (kind == wire::BACKTEST || kind == wire::FACTOR || kind == wire::STATISTICS
-        || kind == wire::SAMPLE || kind == wire::LOGIC_TRIAL || kind == wire::MODEL_TRAINING
-        || kind == wire::MODEL_TIME_VALIDATION || kind == wire::PERFORMANCE_EVALUATION) {
+        || kind == wire::SAMPLE || kind == wire::LOGIC_TRIAL
+        || kind == wire::PERFORMANCE_EVALUATION) {
         const auto programme = co_await program(call);
         if (read.execution().program_artifact().empty()
             || read.execution().program_artifact() != programme.artifact)
@@ -222,7 +219,6 @@ PolledTask<> ResearchHost::claim(Call& call)
         refuse_during_upgrade(quiescing_);
     }
     if (kind == wire::STATISTICS || kind == wire::SAMPLE || kind == wire::LOGIC_TRIAL
-        || kind == wire::MODEL_TRAINING || kind == wire::MODEL_TIME_VALIDATION
         || kind == wire::PERFORMANCE_EVALUATION) {
         const auto token = (co_await commit(storage_->claim(read))).token();
         call.attempt = storage_->confirm_attempt(std::move(read));

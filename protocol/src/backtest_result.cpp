@@ -1,5 +1,4 @@
 #include <asterion/protocol/backtest.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/domain/trading_days.hpp>
 #include <algorithm>
 #include <set>
@@ -230,32 +229,15 @@ void validate_backtest_result(
     const auto& paper = input.paper();
     // The replay settles every day any contract settles on, with bars that day
     // or without, and costs follow its last day.
-    const auto model_end = input.has_model_replay()
-        ? input.model_replay()
-              .training()
-              .plan()
-              .specification()
-              .folds(static_cast<int>(input.model_replay().fold_index()))
-              .validation_end()
-        : 0;
-    const auto last_model_day = input.has_model_replay()
-        ? paper.contracts(0).dataset().bars(static_cast<int>(model_end) - 1).trading_day()
-        : std::string{};
     std::set<std::string> trading_days;
     for (const auto& contract : paper.contracts())
         for (const auto& day : contract.dataset().days())
-            if (!input.has_model_replay() || day.trading_day() <= last_model_day)
-                trading_days.insert(day.trading_day());
+            trading_days.insert(day.trading_day());
     const auto days = static_cast<int>(trading_days.size());
     const auto last_day = trading_days.empty() ? std::string() : *trading_days.rbegin();
     std::uint32_t bars = 0;
     for (const auto& contract : paper.contracts())
         bars += static_cast<std::uint32_t>(contract.dataset().bars_size());
-    if (input.has_model_replay())
-        bars = model_end;
-    if (input.has_model_replay() != result.has_model_replay()
-        || input.has_model_replay() != result.has_model_validation())
-        throw std::invalid_argument("model replay result evidence is missing or unexpected");
     // A comparison scores every strategy it was given: once before a holdout,
     // or in every round of a rolling one. One strategy has no scores.
     const auto strategies = input.strategies_size();
@@ -296,17 +278,6 @@ void validate_backtest_result(
         || !folds || result.account().risk().SerializeAsString() != paper.risk().SerializeAsString()
         || !result.has_max_drawdown() || result.account().recovery_required())
         throw std::invalid_argument("incomplete or mismatched task result");
-    if (input.has_model_replay()) {
-        validate_model_replay_result(
-            input.model_replay(),
-            result.model_replay(),
-            paper.contracts(0).dataset());
-        if (result.model_replay().fills_size() != result.account().fills_size())
-            throw std::invalid_argument("model replay is missing actual account fill associations");
-        for (int i = 0; i < result.model_replay().fills_size(); ++i)
-            if (result.model_replay().fills(i).fill_id() != result.account().fills(i).id())
-                throw std::invalid_argument("model replay fill differs from original account fact");
-    }
     static_cast<void>(protocol::decode_backtest_result(result));
     auto peak = Decimal::from_raw(input.paper().deposit().units());
     Decimal drawdown;
@@ -334,25 +305,12 @@ void validate_backtest_result(
     std::ranges::stable_sort(timeline, {}, [](const auto* bar) {
         return bar->timestamp_ns();
     });
-    if (input.has_model_replay())
-        timeline.resize(bars);
     std::set<std::string> rejected_intents;
     for (const auto& rejected : result.target_rejections()) {
         if (rejected.source_index() >= timeline.size()
             || rejected.boundary_ns() != timeline[rejected.source_index()]->timestamp_ns()
             || !rejected_intents.insert(rejected.intent_id()).second)
             throw std::invalid_argument("target rejection differs from original replay boundary");
-        if (input.has_model_replay()) {
-            if (rejected.source_index() == 0)
-                throw std::invalid_argument("model target rejected before any decision");
-            const auto& decision =
-                result.model_replay().decisions(static_cast<int>(rejected.source_index()) - 1);
-            if (decision.intent_id() != rejected.intent_id() || !decision.has_target()
-                || decision.target().units() != rejected.target().units()
-                || decision.disposition() != research::proto::ModelReplayDecision::NEXT_BAR)
-                throw std::invalid_argument(
-                    "target rejection differs from original model decision");
-        }
     }
     // A mark at every bar, and each day's settlement after its bars: at the
     // last of them, or where the day has none, at the close of its session.

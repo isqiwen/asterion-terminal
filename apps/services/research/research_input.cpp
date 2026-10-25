@@ -9,7 +9,6 @@
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/protocol/account_review.hpp>
 
@@ -82,37 +81,6 @@ void resolve_task_input(
         (void)task_data_references(execution);
         *task.mutable_logic_trial() = execution.logic_trial();
         return; // Fictional owned observations never resolve or read a Data service.
-    }
-    if (task.kind() == task::proto::MODEL_TRAINING) {
-        if (stop.stop_requested())
-            throw Error(ErrorCode::cancelled, "task cancelled");
-        if (!execution.has_model_training()
-            || (task.has_model_training()
-                && task.model_training().SerializeAsString()
-                    != execution.model_training().SerializeAsString())
-            || sha256_bytes(execution.model_training().SerializeAsString())
-                != execution.input_sha256()
-            || task.model_plan().SerializeAsString()
-                != model_plan_object(execution.model_training().plan()).SerializeAsString())
-            throw std::invalid_argument("model training differs from its fixed execution");
-        (void)task_data_references(execution);
-        *task.mutable_model_training() = execution.model_training();
-        return; // Restore only the owned descriptor; never reconstruct original factor evidence.
-    }
-    if (task.kind() == task::proto::MODEL_TIME_VALIDATION) {
-        if (stop.stop_requested())
-            throw Error(ErrorCode::cancelled, "task cancelled");
-        if (!execution.has_model_time()
-            || (task.has_model_time()
-                && task.model_time().SerializeAsString()
-                    != execution.model_time().SerializeAsString())
-            || sha256_bytes(execution.model_time().SerializeAsString()) != execution.input_sha256()
-            || task.model_time_plan().SerializeAsString()
-                != model_time_plan_object(execution.model_time().plan()).SerializeAsString())
-            throw std::invalid_argument("model training differs from its fixed execution");
-        (void)task_data_references(execution);
-        *task.mutable_model_time() = execution.model_time();
-        return; // Restore only the owned descriptor; never reconstruct original factor evidence.
     }
     if (task.kind() == task::proto::PERFORMANCE_EVALUATION) {
         if (stop.stop_requested())
@@ -207,8 +175,6 @@ void resolve_task_input(
         if (execution.has_historical_margins())
             *input->mutable_historical_margins() = execution.historical_margins();
         set_backtest_strategies(*input, parameters);
-        if (execution.has_model_replay())
-            *input->mutable_model_replay() = execution.model_replay();
         input->set_dataset_revision(dataset_revision(*paper));
         digest = sha256_bytes(input->SerializeAsString());
     } else {

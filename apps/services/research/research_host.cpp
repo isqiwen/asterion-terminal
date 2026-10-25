@@ -202,15 +202,10 @@ PolledTask<> ResearchHost::resources_operation(Call& call)
     auto& response = call.response;
     // A catalogue kind names the module that owns those resources.
     const auto& kind = request.resources().kind();
-    if (kind == "backtest_batch" || kind == "backtest_batch_assessment")
-        co_return co_await batch_operation(call);
     if (kind == "strategy_package" || kind == "strategy_delivery")
         co_return co_await strategy_operation(call);
     if (kind == "logic_definition" || kind == "logic_case")
         co_return co_await logic_operation(call);
-    if (kind == "model_draft" || kind == "model_plan" || kind == "model_mapping"
-        || kind == "model_time_plan")
-        co_return co_await model_operation(call);
     if (kind == "research_variable")
         co_return co_await variable_operation(call);
     if (kind == "research_project" || kind == "research_plan" || kind == "research_conclusion")
@@ -259,9 +254,6 @@ PolledTask<> ResearchHost::submit_operation(Call& call)
             co_return co_await reuse_backtest(call);
         case Definition::kFactorRequest:
             co_return co_await submit_factor(call);
-        case Definition::kModelTraining:
-        case Definition::kModelTime:
-            co_return co_await submit_model(call);
         case Definition::kStatistics:
             co_return co_await submit_statistics(call);
         case Definition::kEvaluation:
@@ -336,9 +328,6 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
         case Operation::kProject:
             co_await project_operation(call);
             break;
-        case Operation::kModel:
-            co_await model_operation(call);
-            break;
         case Operation::kVariable:
             co_await variable_operation(call);
             break;
@@ -347,12 +336,6 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
             break;
         case Operation::kStrategy:
             co_await strategy_operation(call);
-            break;
-        case Operation::kBatch:
-            co_await batch_operation(call);
-            break;
-        case Operation::kAssessment:
-            co_await assessment_operation(call);
             break;
         case Operation::kProjectTasks: {
             co_await wait_for_store({}, call.deadline);

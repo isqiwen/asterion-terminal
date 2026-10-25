@@ -2,7 +2,6 @@
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <cctype>
@@ -94,23 +93,13 @@ void validate_strategy_definition(const r::StrategyDefinition& value)
         return;
     }
     (void)decode_contract(value.contract());
-    if (value.has_model_replay()) {
-        const auto& model = value.model_replay();
-        validate_model_replay_definition(model);
-        if (value.interval_minutes() != 1
-            || value.program_artifact() != model.training().plan().recipe().program_artifact()
-            || model.quantity().units() % value.contract().quantity_increment().units() != 0)
-            throw std::invalid_argument(
-                "model strategy differs from its fixed program, market or quantity policy");
-    } else {
-        if (!value.has_strategy() || value.strategy().has_cross()
-            || value.strategy().has_fixed_weights())
-            throw std::invalid_argument(
-                "strategy candidate requires exactly one ordinary decision definition");
-        validate_strategy(
-            value.strategy(),
-            Decimal::from_raw(value.contract().quantity_increment().units()));
-    }
+    if (!value.has_strategy() || value.strategy().has_cross()
+        || value.strategy().has_fixed_weights())
+        throw std::invalid_argument(
+            "strategy candidate requires exactly one ordinary decision definition");
+    validate_strategy(
+        value.strategy(),
+        Decimal::from_raw(value.contract().quantity_increment().units()));
 }
 
 r::StrategyDefinition strategy_definition(
@@ -121,8 +110,7 @@ r::StrategyDefinition strategy_definition(
     validate_message(input);
     const bool portfolio = input.strategies_size() == 1 && input.strategies(0).has_fixed_weights();
     if ((!portfolio && input.paper().contracts_size() != 1)
-        || (portfolio && input.paper().contracts_size() < 2)
-        || (input.has_model_replay() ? input.strategies_size() != 0 : input.strategies_size() != 1)
+        || (portfolio && input.paper().contracts_size() < 2) || input.strategies_size() != 1
         || input.series_size() || input.has_walk_forward() || !input.holdout_day().empty())
         throw std::invalid_argument(
             "strategy candidate requires one ordinary contract and one fixed CTA rule");
@@ -136,10 +124,7 @@ r::StrategyDefinition strategy_definition(
             *fixed.add_contracts() = member.dataset().contract();
         }
     } else {
-        if (input.has_model_replay())
-            *value.mutable_model_replay() = input.model_replay();
-        else
-            *value.mutable_strategy() = input.strategies(0);
+        *value.mutable_strategy() = input.strategies(0);
         *value.mutable_contract() = input.paper().contracts(0).dataset().contract();
     }
     value.set_interval_minutes(input.paper().contracts(0).dataset().interval_minutes());
@@ -185,10 +170,6 @@ void validate_strategy_package(const r::StrategyPackage& value)
     const auto& source = strategy_source(value);
     validate_strategy_object(source, value.has_logic() ? "logic_trial_result" : "backtest_result");
     validate_strategy_definition(value.definition());
-    if (value.definition().has_model_replay()
-        && value.definition().model_replay().mapping().owner().SerializeAsString()
-            != value.owner().SerializeAsString())
-        throw std::invalid_argument("model strategy dependency owner mismatch");
     if (value.has_logic()) {
         const auto& evidence = value.logic();
         validate_strategy_logic(evidence.definition(), value.definition());
@@ -300,10 +281,7 @@ Json decode_strategy_package(const r::StrategyPackage& value)
         };
     } else {
         definition["contract"] = decode_contract(d.contract());
-        if (d.has_model_replay())
-            definition["model_replay"] = decode_model_replay_definition(d.model_replay());
-        else
-            definition["strategy"] = decode_strategy(d.strategy());
+        definition["strategy"] = decode_strategy(d.strategy());
     }
     return {
         {"object", decode_strategy_object(strategy_package_object(value))},

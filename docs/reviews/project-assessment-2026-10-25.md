@@ -328,7 +328,11 @@
 | P2.8 | 本机完成：源码目录改为 `apps/services/{market,data,research}`；`ServiceKind` 枚举改为 `MARKET/DATA/RESEARCH/INTELLIGENCE/TRADING`（整数值不变）。命名空间迁移（`asterion::tasks` → `asterion::research`）涉及十余个文件与测试，收益仅为外观，暂不做；持久的实例 ID（如 `market-data`）与日志程序名不改 |
 | 文档 | 本机完成：删除 80 份按日期的评审与 9,185 行整改日志；25 份 research-* 等碎片合并为 `research.md`，情报 3 份合并为 `intelligence.md`，交易与行情交接文档并入主题文档；`data-paths.md`、目标设计移入 `docs/architecture/`；重写 AGENTS.md、README、docs 导航、架构与现状；派生 HTML 不再入库。Markdown 54,859 → 30,491 行，docs 文件 160 → 66，失效链接 0 |
 | P2.4 | 暂缓：写连接为 `locking_mode=EXCLUSIVE`（冷备依赖无共享内存旁路文件），并发读连接会改变持久化与冷备语义；P0.5 已去掉主要延迟来源，按“先测量再优化”在有负载数据前不改 | — | — |
-| 第 1、3—5 阶段 | 等待第 8 节的决定 | — | — |
+| D1/D7 删除 | 完成：情报服务（`dd190094`），模型训练/逐折验证/模型重放与成本批次/稳健性审阅（协议、Research、task-runtime、Native、界面、测试、文案、文档一并删除，约 −2.4 万行）。`backtest.reuse` 的单项 `fee_multiplier`/`slippage_ticks` 已无界面调用方，留待 R1 决定是否作为单个成本变体重新开放或删除 |
+| D6 | 完成：行情为独立一级入口 | — | — |
+| P1.1 | 完成：`docs/requirements/release-r1.md`（支持集合、R1 页面编号、冻结与删除、外部条件、完成判据），`product.md`/`delivery.md`/需求导航加链接 | — | — |
+| 本机测试 | 删除后 `ctest -j 6`：960 项中 952 项通过。失败 8 项：`market_observation_archive`、`task_agent_recovery`（改动前即失败），QuantStats/Portfolio 6 项（`build/electron-resources/analytics` 中仍是改名前的 `asterion-analytics`，需重新 `pnpm desktop --prepare-analytics`）。界面：tsc、lint、205 项单元测试通过 | — | — |
+| 第 3—5 阶段 | 下一步：D5 由 Protobuf 生成界面类型（含 P2.7、P3.1/P3.2） | — | — |
 
 ## 附录 A：本机 CTest 结果
 

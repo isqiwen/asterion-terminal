@@ -11,14 +11,11 @@ class Module;
 
 namespace asterion::backtest {
 
-struct ModelReplayData;
-
 void validate(const backtest::proto::BacktestInput& input);
 backtest::proto::BacktestResult run(
     const backtest::proto::BacktestInput& input,
     std::stop_token stop = {},
     const std::function<void(std::size_t, std::size_t)>& progress = {},
-    const risk_providers::Module* risk_module = nullptr,
-    const ModelReplayData* model = nullptr);
+    const risk_providers::Module* risk_module = nullptr);
 
 } // namespace asterion::backtest

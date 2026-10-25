@@ -25,13 +25,6 @@ public:
     [[nodiscard]] std::future<Json> variable(const research::proto::VariableRequest&);
     [[nodiscard]] std::future<Json> strategy(const research::proto::StrategyRequest&);
     [[nodiscard]] std::future<Json> logic(const research::proto::LogicRequest&);
-    [[nodiscard]] std::future<Json> model(const research::proto::ModelRequest&);
-    [[nodiscard]] std::future<void>
-    submit(const std::string&, const research::proto::ModelTrainingRequest&);
-    [[nodiscard]] std::future<void>
-    submit(const std::string&, const research::proto::ModelTimeTrainingRequest&);
-    [[nodiscard]] std::future<Json> batch(const research::proto::BacktestBatchRequest&);
-    [[nodiscard]] std::future<Json> assessment(const research::proto::BatchAssessmentRequest&);
     [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::LogicTrialRequest&);
     [[nodiscard]] std::future<Json> project_tasks(const research::proto::ProjectTaskQuery&);

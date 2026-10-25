@@ -9,7 +9,6 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/task_execution.hpp>
@@ -59,8 +58,6 @@ constexpr KindSpec kind_specs[] = {
         "evaluation"},
     {wire::SAMPLE, "research", "sample", "sample", "sample"},
     {wire::LOGIC_TRIAL, "research", "logic_trial", "logic_trial", "logic_trial"},
-    {wire::MODEL_TRAINING, "research", "model_training", "model_training", "model_training"},
-    {wire::MODEL_TIME_VALIDATION, "research", "model_time_validation", "model_time", "model_time"},
     {wire::MINUTE_DOWNLOAD, "data", "minutes", "minutes", "minutes"},
     {wire::TABLE_UPDATE, "data", "table_update", "table_update", "table_update"},
     {wire::MATERIAL_ACQUISITION, "data", "material_acquisition_task", "material", "material"},
@@ -210,30 +207,6 @@ void prepare(wire::Task& task)
         task.set_source_name(task.material().request().source_id());
         task.set_instrument(task.material().request().resource_id());
         task.set_total(1);
-    } else if (task.has_model_training()) {
-        protocol::validate_model_training_input(task.model_training());
-        const auto& plan = task.model_training().plan();
-        if (!task.has_model_plan()
-            || task.model_plan().SerializeAsString()
-                != protocol::model_plan_object(plan).SerializeAsString()
-            || task.program_artifact() != plan.program_artifact())
-            throw std::invalid_argument("model task differs from its fixed plan or program");
-        task.set_kind(wire::MODEL_TRAINING);
-        task.set_source_name(plan.source().result().owner().service_id());
-        task.set_instrument(plan.specification().name());
-        task.set_total(protocol::model_training_work_units(task.model_training()));
-    } else if (task.has_model_time()) {
-        protocol::validate_model_time_input(task.model_time());
-        const auto& plan = task.model_time().plan();
-        if (!task.has_model_time_plan()
-            || task.model_time_plan().SerializeAsString()
-                != protocol::model_time_plan_object(plan).SerializeAsString()
-            || task.program_artifact() != plan.recipe().program_artifact())
-            throw std::invalid_argument("model task differs from its fixed plan or program");
-        task.set_kind(wire::MODEL_TIME_VALIDATION);
-        task.set_source_name(plan.recipe().source().result().owner().service_id());
-        task.set_instrument(plan.specification().name());
-        task.set_total(static_cast<unsigned>(plan.specification().folds_size()));
     } else if (task.has_logic_trial()) {
         protocol::validate_logic_trial_input(task.logic_trial());
         task.set_kind(wire::LOGIC_TRIAL);
@@ -391,10 +364,6 @@ wire::Task summary(const wire::Task& task)
         *result.mutable_publication() = task.publication();
     result.set_risk_artifact(task.risk_artifact());
     result.set_program_artifact(task.program_artifact());
-    if (task.has_model_plan())
-        *result.mutable_model_plan() = task.model_plan();
-    if (task.has_model_time_plan())
-        *result.mutable_model_time_plan() = task.model_time_plan();
     if (task.has_research_plan())
         *result.mutable_research_plan() = task.research_plan();
     if (task.has_strategy_use())
@@ -429,12 +398,6 @@ void validate_metadata(const wire::TaskMetadata& metadata)
             payload::validate_digest(source.snapshot());
         else if (source.data_choice() != "fixed" || !source.snapshot().empty())
             throw std::invalid_argument("invalid experiment derivation");
-        if (source.has_batch()) {
-            protocol::validate_strategy_object(source.batch(), "backtest_batch");
-            if (source.data_choice() != "fixed"
-                || source.batch().owner().service_id() != source.source_instance())
-                throw std::invalid_argument("invalid fixed batch member derivation");
-        }
     }
 }
 
@@ -457,11 +420,6 @@ wire::TaskMetadata read_metadata(const Json& value)
 
 void admit_as(wire::Task& task, const wire::Task& admitted)
 {
-    if (task.model_plan().SerializeAsString() != admitted.model_plan().SerializeAsString())
-        throw std::invalid_argument("persisted model plan differs from admitted identity");
-    if (task.model_time_plan().SerializeAsString()
-        != admitted.model_time_plan().SerializeAsString())
-        throw std::invalid_argument("persisted model plan differs from admitted identity");
     if (admitted.has_table_refresh())
         *task.mutable_table_refresh() = admitted.table_refresh();
     task.set_total(admitted.total());
@@ -547,19 +505,6 @@ void transition(
 wire::Task parse_input(wire::Task task, const std::string& raw)
 {
     payload::parse(raw, mutable_definition(task));
-    if (task.kind() == wire::MODEL_TRAINING) {
-        protocol::validate_model_training_input(task.model_training());
-        if (task.model_plan().SerializeAsString()
-                != protocol::model_plan_object(task.model_training().plan()).SerializeAsString()
-            || task.program_artifact() != task.model_training().plan().program_artifact())
-            throw std::invalid_argument("model task differs from its fixed input");
-    } else if (task.kind() == wire::MODEL_TIME_VALIDATION) {
-        protocol::validate_model_time_input(task.model_time());
-        if (task.model_time_plan().SerializeAsString()
-                != protocol::model_time_plan_object(task.model_time().plan()).SerializeAsString()
-            || task.program_artifact() != task.model_time().plan().recipe().program_artifact())
-            throw std::invalid_argument("model task differs from its fixed input");
-    }
     const bool variable = task.has_factor() && task.factor().has_variable_definition();
     if (task.has_variable_definition() != variable)
         throw std::invalid_argument("research variable differs from its fixed input");
@@ -837,14 +782,11 @@ struct Store::Impl
             manifest_fields.erase("research_plan");
             manifest_fields.erase("strategy_use");
             manifest_fields.erase("variable_definition");
-            manifest_fields.erase("model_plan");
-            manifest_fields.erase("model_time_plan");
             const bool calculation_program = manifest.at("type") == "backtest.task"
                 || manifest.at("type") == "factor.task" || manifest.at("type") == "statistics.task"
                 || manifest.at("type") == "performance_evaluation.task"
-                || manifest.at("type") == "sample.task" || manifest.at("type") == "logic_trial.task"
-                || manifest.at("type") == "model_training.task"
-                || manifest.at("type") == "model_time_validation.task";
+                || manifest.at("type") == "sample.task"
+                || manifest.at("type") == "logic_trial.task";
             if (calculation_program)
                 manifest_fields.erase("program_artifact");
             require_fields(
@@ -902,10 +844,6 @@ struct Store::Impl
                 entry.task.set_kind(wire::SAMPLE);
             else if (manifest.at("type") == "logic_trial.task")
                 entry.task.set_kind(wire::LOGIC_TRIAL);
-            else if (manifest.at("type") == "model_training.task")
-                entry.task.set_kind(wire::MODEL_TRAINING);
-            else if (manifest.at("type") == "model_time_validation.task")
-                entry.task.set_kind(wire::MODEL_TIME_VALIDATION);
             else
                 throw std::invalid_argument("unsupported task manifest type");
             entry.task.set_provider_artifact(manifest.at("provider_artifact").get<std::string>());
@@ -934,28 +872,9 @@ struct Store::Impl
                 entry.task.set_program_artifact(manifest.at("program_artifact").get<std::string>());
                 if (!entry.task.program_artifact().empty() || entry.task.kind() == wire::STATISTICS
                     || entry.task.kind() == wire::PERFORMANCE_EVALUATION
-                    || entry.task.kind() == wire::SAMPLE || entry.task.kind() == wire::LOGIC_TRIAL
-                    || entry.task.kind() == wire::MODEL_TRAINING
-                    || entry.task.kind() == wire::MODEL_TIME_VALIDATION)
+                    || entry.task.kind() == wire::SAMPLE || entry.task.kind() == wire::LOGIC_TRIAL)
                     payload::validate_digest(entry.task.program_artifact());
             }
-            if (manifest.contains("model_plan")) {
-                *entry.task.mutable_model_plan() =
-                    protocol::encode_strategy_object(manifest.at("model_plan"), "model_plan");
-                if (entry.task.kind() != wire::MODEL_TRAINING
-                    || entry.task.model_plan().owner().service_id() != identity.instance)
-                    throw std::invalid_argument("invalid fixed model plan owner or task kind");
-            } else if (entry.task.kind() == wire::MODEL_TRAINING)
-                throw std::invalid_argument("model training requires its fixed plan");
-            if (manifest.contains("model_time_plan")) {
-                *entry.task.mutable_model_time_plan() = protocol::encode_strategy_object(
-                    manifest.at("model_time_plan"),
-                    "model_time_plan");
-                if (entry.task.kind() != wire::MODEL_TIME_VALIDATION
-                    || entry.task.model_time_plan().owner().service_id() != identity.instance)
-                    throw std::invalid_argument("invalid fixed model plan owner or task kind");
-            } else if (entry.task.kind() == wire::MODEL_TIME_VALIDATION)
-                throw std::invalid_argument("model training requires its fixed plan");
             if (manifest.contains("research_plan")) {
                 *entry.task.mutable_research_plan() =
                     protocol::encode_project_binding(manifest.at("research_plan"));
@@ -1618,15 +1537,9 @@ void Store::Submission::set_program_artifact(std::string artifact)
     if (admitted_ || prepared_
         || (task_.kind() != wire::BACKTEST && task_.kind() != wire::FACTOR
             && task_.kind() != wire::STATISTICS && task_.kind() != wire::SAMPLE
-            && task_.kind() != wire::LOGIC_TRIAL && task_.kind() != wire::MODEL_TRAINING
-            && task_.kind() != wire::MODEL_TIME_VALIDATION
-            && task_.kind() != wire::PERFORMANCE_EVALUATION))
+            && task_.kind() != wire::LOGIC_TRIAL && task_.kind() != wire::PERFORMANCE_EVALUATION))
         throw std::logic_error("program identity requires an unprepared calculation submission");
     payload::validate_digest(artifact);
-    if (task_.has_model_training() && artifact != task_.model_training().plan().program_artifact())
-        throw Error(ErrorCode::conflict, "model training program cannot replace its fixed plan");
-    if (task_.has_model_time() && artifact != task_.model_time().plan().recipe().program_artifact())
-        throw Error(ErrorCode::conflict, "model training program cannot replace its fixed plan");
     task_.set_program_artifact(std::move(artifact));
 }
 
@@ -1664,8 +1577,6 @@ void Store::Submission::set_derivation(wire::TaskDerivation derivation)
 {
     if (admitted_)
         throw std::logic_error("task submission already admitted");
-    if (derivation.has_batch() && task_.kind() != wire::BACKTEST)
-        throw std::invalid_argument("finite batch member requires a backtest");
     *task_.mutable_metadata()->mutable_derivation() = std::move(derivation);
 }
 
@@ -1726,26 +1637,6 @@ wire::PreparedTaskSubmission Store::prepared_submission_record(const std::string
     if (record.task().strategy_use().SerializeAsString()
         != value.execution().strategy_use().SerializeAsString())
         throw std::invalid_argument("task preparation strategy use mismatch");
-    if (record.task().kind() == wire::MODEL_TRAINING) {
-        if (!value.execution().has_model_training()
-            || record.task().model_plan().SerializeAsString()
-                != protocol::model_plan_object(value.execution().model_training().plan())
-                    .SerializeAsString()
-            || record.task().program_artifact() != value.execution().program_artifact())
-            throw std::invalid_argument("model preparation differs from its fixed plan or program");
-        (void)protocol::task_data_references(value.execution());
-    } else if (record.task().has_model_plan() || value.execution().has_model_training())
-        throw std::invalid_argument("unexpected model preparation parameters");
-    if (record.task().kind() == wire::MODEL_TIME_VALIDATION) {
-        if (!value.execution().has_model_time()
-            || record.task().model_time_plan().SerializeAsString()
-                != protocol::model_time_plan_object(value.execution().model_time().plan())
-                    .SerializeAsString()
-            || record.task().program_artifact() != value.execution().program_artifact())
-            throw std::invalid_argument("model preparation differs from its fixed plan or program");
-        (void)protocol::task_data_references(value.execution());
-    } else if (record.task().has_model_time_plan() || value.execution().has_model_time())
-        throw std::invalid_argument("unexpected model preparation parameters");
     if (record.task().has_strategy_use()) {
         protocol::validate_strategy_use(record.task().strategy_use());
         if (record.task().kind() != wire::BACKTEST
@@ -1857,8 +1748,6 @@ Store::Change Store::abandon_preparation(
             && record.task().kind() != wire::ACCOUNT_REVIEW
             && record.task().kind() != wire::STATISTICS && record.task().kind() != wire::SAMPLE
             && record.task().kind() != wire::LOGIC_TRIAL
-            && record.task().kind() != wire::MODEL_TRAINING
-            && record.task().kind() != wire::MODEL_TIME_VALIDATION
             && record.task().kind() != wire::PERFORMANCE_EVALUATION
             && record.task().kind() != wire::MATERIAL_ACQUISITION))
         throw Error(ErrorCode::conflict, "invalid unadmitted preparation state");
@@ -1873,8 +1762,6 @@ Store::Change Store::abandon_preparation(
         : record.task().kind() == wire::PERFORMANCE_EVALUATION ? "performance_evaluation"
         : record.task().kind() == wire::SAMPLE                 ? "sample"
         : record.task().kind() == wire::LOGIC_TRIAL            ? "logic_trial"
-        : record.task().kind() == wire::MODEL_TRAINING         ? "model_training"
-        : record.task().kind() == wire::MODEL_TIME_VALIDATION  ? "model_time_validation"
         : record.task().kind() == wire::MINUTE_DOWNLOAD        ? "minutes"
         : record.task().kind() == wire::MATERIAL_ACQUISITION   ? "material_acquisition_task"
                                                                : "table_update";
@@ -1917,24 +1804,6 @@ void Store::admit_submission(Submission& input)
             throw Error(ErrorCode::conflict, "calculation requires its fixed execution program");
         payload::validate_digest(input.task_.program_artifact());
     }
-    if (input.task_.kind() == wire::MODEL_TRAINING) {
-        protocol::validate_model_training_input(input.task_.model_training());
-        const auto& plan = input.task_.model_training().plan();
-        if (input.task_.program_artifact() != plan.program_artifact()
-            || input.task_.model_plan().SerializeAsString()
-                != protocol::model_plan_object(plan).SerializeAsString()
-            || !input.task_.metadata().has_derivation())
-            throw Error(ErrorCode::conflict, "model task requires its fixed plan and source");
-    }
-    if (input.task_.kind() == wire::MODEL_TIME_VALIDATION) {
-        protocol::validate_model_time_input(input.task_.model_time());
-        const auto& plan = input.task_.model_time().plan();
-        if (input.task_.program_artifact() != plan.recipe().program_artifact()
-            || input.task_.model_time_plan().SerializeAsString()
-                != protocol::model_time_plan_object(plan).SerializeAsString()
-            || !input.task_.metadata().has_derivation())
-            throw Error(ErrorCode::conflict, "model task requires its fixed plan and source");
-    }
     if (input.task_.kind() == wire::PERFORMANCE_EVALUATION) {
         if (input.task_.program_artifact().empty())
             throw Error(ErrorCode::conflict, "evaluation requires its fixed execution program");
@@ -1961,8 +1830,6 @@ void Store::admit_submission(Submission& input)
                 "retired research source cannot accept new derivations");
         const bool statistics = input.task_.kind() == wire::STATISTICS;
         const bool evaluation = input.task_.kind() == wire::PERFORMANCE_EVALUATION;
-        const bool model = input.task_.kind() == wire::MODEL_TRAINING
-            || input.task_.kind() == wire::MODEL_TIME_VALIDATION;
         if (source->source_id() == input.task_.id() || original.state() != wire::SUCCEEDED
             || (statistics
                     ? !((original.kind() == wire::FACTOR
@@ -1971,7 +1838,6 @@ void Store::admit_submission(Submission& input)
                               && input.task_.statistics().source().result().kind()
                                   == "sample_result"))
                     : evaluation ? original.kind() != wire::BACKTEST
-                    : model      ? original.kind() != wire::FACTOR
                                  : original.kind() != input.task_.kind())
             || original.result_digest() != source->source_result_digest())
             throw std::invalid_argument("invalid experiment derivation");
@@ -2001,19 +1867,6 @@ void Store::admit_submission(Submission& input)
                     ErrorCode::conflict,
                     "statistics source evidence does not match its captured identity");
             // The parent is factor evidence, not reusable statistics input bytes.
-        } else if (model) {
-            const auto& fixed = input.task_.kind() == wire::MODEL_TIME_VALIDATION
-                ? input.task_.model_time().plan().recipe().source()
-                : input.task_.model_training().plan().source();
-            if (source->data_choice() != "fixed" || source->source_id() != fixed.result().id()
-                || source->source_result_digest() != fixed.result().version()
-                || fixed.input_sha256() != original_entry.input_digest
-                || fixed.input_bytes() != original_entry.input_bytes
-                || fixed.attempt() != original.attempt()
-                || fixed.program_artifact() != original.program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "model source evidence differs from its fixed plan");
         } else {
             input.reusable_.emplace();
             *input.reusable_->mutable_task() = summary(original);
@@ -2027,12 +1880,6 @@ void Store::admit_submission(Submission& input)
     const auto& id = input.task_.id();
     if (impl_->contains(id)) {
         const auto entry = impl_->find(id);
-        if (input.task_.model_plan().SerializeAsString()
-            != entry.task.model_plan().SerializeAsString())
-            throw Error(ErrorCode::conflict, "task model plan changed");
-        if (input.task_.model_time_plan().SerializeAsString()
-            != entry.task.model_time_plan().SerializeAsString())
-            throw Error(ErrorCode::conflict, "task model plan changed");
         if (input.task_.research_plan().SerializeAsString()
             != entry.task.research_plan().SerializeAsString())
             throw Error(ErrorCode::conflict, "task research plan changed");
@@ -2239,20 +2086,6 @@ Store::Change Store::register_submission(Submission& input)
         return impl_->unchanged(impl_->find(task.id()));
     if (impl_->submitting != task.id())
         throw std::logic_error("task submission has no reserved capacity");
-    if (task.kind() == wire::MODEL_TRAINING) {
-        const auto& source = task.model_training().plan().source().result();
-        const auto original = impl_->find(source.id()).task;
-        if (original.has_retirement() || impl_->retiring.contains(source.id())
-            || original.state() != wire::SUCCEEDED || original.result_digest() != source.version())
-            throw Error(ErrorCode::conflict, "model source is no longer available for admission");
-    }
-    if (task.kind() == wire::MODEL_TIME_VALIDATION) {
-        const auto& source = task.model_time().plan().recipe().source().result();
-        const auto original = impl_->find(source.id()).task;
-        if (original.has_retirement() || impl_->retiring.contains(source.id())
-            || original.state() != wire::SUCCEEDED || original.result_digest() != source.version())
-            throw Error(ErrorCode::conflict, "model source is no longer available for admission");
-    }
     if (task.kind() == wire::PERFORMANCE_EVALUATION) {
         const auto& source = task.evaluation().request().source();
         const auto original = impl_->find(source.id()).task;
@@ -2279,8 +2112,6 @@ Store::Change Store::register_submission(Submission& input)
         : task.kind() == wire::PERFORMANCE_EVALUATION  ? "performance_evaluation.task"
         : task.kind() == wire::SAMPLE                  ? "sample.task"
         : task.kind() == wire::LOGIC_TRIAL             ? "logic_trial.task"
-        : task.kind() == wire::MODEL_TRAINING          ? "model_training.task"
-        : task.kind() == wire::MODEL_TIME_VALIDATION   ? "model_time_validation.task"
         : task.kind() == wire::MATERIAL_ACQUISITION    ? "material.task"
                                                        : "backtest.task";
     change.manifest = Json{
@@ -2296,22 +2127,15 @@ Store::Change Store::register_submission(Submission& input)
     }.dump();
     if (task.kind() == wire::BACKTEST || task.kind() == wire::FACTOR
         || task.kind() == wire::STATISTICS || task.kind() == wire::SAMPLE
-        || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::MODEL_TRAINING
-        || task.kind() == wire::MODEL_TIME_VALIDATION || task.kind() == wire::PERFORMANCE_EVALUATION
+        || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::PERFORMANCE_EVALUATION
         || task.metadata().has_derivation()) {
         auto manifest = Json::parse(change.manifest);
         if (task.kind() == wire::BACKTEST || task.kind() == wire::FACTOR
             || task.kind() == wire::STATISTICS || task.kind() == wire::SAMPLE
-            || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::MODEL_TRAINING
-            || task.kind() == wire::MODEL_TIME_VALIDATION
-            || task.kind() == wire::PERFORMANCE_EVALUATION)
+            || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::PERFORMANCE_EVALUATION)
             manifest["program_artifact"] = task.program_artifact();
         if (task.metadata().has_derivation())
             manifest["derivation"] = metadata_json(task.metadata()).at("derivation");
-        if (task.has_model_plan())
-            manifest["model_plan"] = protocol::decode_strategy_object(task.model_plan());
-        if (task.has_model_time_plan())
-            manifest["model_time_plan"] = protocol::decode_strategy_object(task.model_time_plan());
         if (task.has_research_plan())
             manifest["research_plan"] = protocol::decode_project_binding(task.research_plan());
         if (task.has_strategy_use())
@@ -2551,8 +2375,6 @@ void Store::HistoryRead::load_page()
             continue;
         if (entry.task().kind() == wire::ACCOUNT_REVIEW || entry.task().kind() == wire::STATISTICS
             || entry.task().kind() == wire::LOGIC_TRIAL
-            || entry.task().kind() == wire::MODEL_TRAINING
-            || entry.task().kind() == wire::MODEL_TIME_VALIDATION
             || entry.task().kind() == wire::PERFORMANCE_EVALUATION)
             continue; // No Data-owned versions; leave unrelated account facts unread.
         const auto& id = entry.task().id();
@@ -2602,7 +2424,6 @@ Store::resources(const std::string& node, const resource::proto::CatalogueQuery&
     const bool output = query.kind() == "backtest_result" || query.kind() == "factor_result"
         || query.kind() == "account_review_result" || query.kind() == "statistics_result"
         || query.kind() == "sample_result" || query.kind() == "logic_trial_result"
-        || query.kind() == "model_training_result" || query.kind() == "model_time_validation_result"
         || query.kind() == "performance_evaluation_result";
     const auto kind = query.kind() == "backtest" || query.kind() == "backtest_result"
         ? wire::BACKTEST
@@ -2612,13 +2433,10 @@ Store::resources(const std::string& node, const resource::proto::CatalogueQuery&
         : query.kind() == "performance_evaluation"
             || query.kind() == "performance_evaluation_result"
         ? wire::PERFORMANCE_EVALUATION
-        : query.kind() == "statistics" || query.kind() == "statistics_result"   ? wire::STATISTICS
-        : query.kind() == "sample" || query.kind() == "sample_result"           ? wire::SAMPLE
-        : query.kind() == "logic_trial" || query.kind() == "logic_trial_result" ? wire::LOGIC_TRIAL
-        : query.kind() == "model_training" || query.kind() == "model_training_result"
-        ? wire::MODEL_TRAINING
-        : query.kind() == "model_time_validation" || query.kind() == "model_time_validation_result"
-        ? wire::MODEL_TIME_VALIDATION
+        : query.kind() == "statistics" || query.kind() == "statistics_result" ? wire::STATISTICS
+        : query.kind() == "sample" || query.kind() == "sample_result"         ? wire::SAMPLE
+        : query.kind() == "logic_trial" || query.kind() == "logic_trial_result"
+        ? wire::LOGIC_TRIAL
         : wire::TASK_KIND_UNSPECIFIED;
     if (kind == wire::TASK_KIND_UNSPECIFIED)
         throw Error(ErrorCode::invalid_request, "resource kind is not implemented by Research");
@@ -2862,14 +2680,6 @@ void Store::Completion::prepare_payload()
             protocol::validate_logic_trial_result(task_.logic_trial(), result_.logic_trial());
         else if (result_.has_sample() && task_.kind() == wire::SAMPLE && task_.has_sample())
             protocol::validate_sample_result(task_.sample(), result_.sample());
-        else if (result_.has_model_training() && task_.kind() == wire::MODEL_TRAINING
-            && task_.has_model_training())
-            protocol::validate_model_training_result(
-                task_.model_training(),
-                result_.model_training());
-        else if (result_.has_model_time() && task_.kind() == wire::MODEL_TIME_VALIDATION
-            && task_.has_model_time())
-            protocol::validate_model_time_result(task_.model_time(), result_.model_time());
         else if (result_.has_evaluation() && task_.kind() == wire::PERFORMANCE_EVALUATION
             && task_.has_evaluation())
             protocol::validate_evaluation_result(task_.evaluation(), result_.evaluation());
@@ -2905,12 +2715,6 @@ void Store::Completion::prepare_payload()
                 break;
             case wire::TaskFinish::kEvaluation:
                 output = &result_.evaluation();
-                break;
-            case wire::TaskFinish::kModelTraining:
-                output = &result_.model_training();
-                break;
-            case wire::TaskFinish::kModelTime:
-                output = &result_.model_time();
                 break;
             case wire::TaskFinish::kSample:
                 output = &result_.sample();

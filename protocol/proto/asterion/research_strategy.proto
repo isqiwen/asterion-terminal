@@ -4,7 +4,6 @@ import "asterion/resource.proto";
 import "asterion/domain.proto";
 import "asterion/trading.proto";
 import "asterion/research_logic.proto";
-import "asterion/research_model.proto";
 // Fixed ordinary-daily portfolio decision; contains no account or market payload.
 message PortfolioStrategyDefinition {
   repeated asterion.protocol.proto.Contract contracts = 1;
@@ -14,7 +13,6 @@ message PortfolioStrategyDefinition {
 message StrategyDefinition {
   oneof decision {
     asterion.protocol.proto.Strategy strategy = 1;
-    ModelReplayDefinition model_replay = 6;
     PortfolioStrategyDefinition portfolio = 7;
   }
   asterion.protocol.proto.Contract contract = 2;

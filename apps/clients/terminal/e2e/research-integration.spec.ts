@@ -283,39 +283,6 @@ test("research chain integration @joint: fixed evidence through revision recover
       await info.attach("backtest attribution evidence", { path, contentType: "application/json" });
       await screenshot("02-account-attribution");
     });
-    await test.step("有限滑点变体保持同一完整输入", async () => {
-      const workspace = await openResearch("backtest", "joint-backtest");
-      const panel = workspace.getByRole("region", { name: "固定数据成本敏感性", exact: true });
-      await panel.getByLabel("滑点变体（1–2个整数，以逗号分隔）", { exact: true }).fill("1,2");
-      await panel.getByRole("button", { name: "核对滑点变体", exact: true }).click();
-      await panel.getByRole("button", { name: "确认创建滑点变体", exact: true }).click();
-      await expect
-        .poll(
-          async () =>
-            (await tasks()).filter(
-              (t: { kind: string; id: string; state: string }) =>
-                t.kind === "backtest" && t.id !== "joint-backtest" && t.state === "succeeded",
-            ).length,
-        )
-        .toBe(2);
-      const variants = (await tasks()).filter(
-        (t: { kind: string; id: string }) => t.kind === "backtest" && t.id !== "joint-backtest",
-      );
-      const baseline = await result("joint-backtest");
-      for (const task of variants) {
-        const v = await result(task.id),
-          n = structuredClone(v.experiment);
-        n.paper.contracts[0].slippage_ticks = 0;
-        expect(n).toEqual(baseline.experiment);
-        expect(v.result.account.equity).not.toBe(baseline.result.account.equity);
-      }
-      await panel.getByRole("button", { name: "读取成本敏感性结果", exact: true }).click();
-      await expect(
-        panel.getByRole("table", { name: "成本敏感性结果", exact: true }).locator("tbody tr"),
-      ).toHaveCount(3);
-      records.slippage_ids = variants.map((t: { id: string }) => t.id);
-      await screenshot("03-slippage-sensitivity");
-    });
     await test.step("单分区修订、失败重试、空响应与未变", async () => {
       await rpc(page.request, "data.credentials.save", {
         provider: "test.independent.c",

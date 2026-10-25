@@ -6,7 +6,6 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/account_review.hpp>
@@ -41,10 +40,6 @@ Json decode_task_retirement(
             expected_kind = "sample";
         if (value.task().kind() == wire::LOGIC_TRIAL)
             expected_kind = "logic_trial";
-        if (value.task().kind() == wire::MODEL_TRAINING)
-            expected_kind = "model_training";
-        if (value.task().kind() == wire::MODEL_TIME_VALIDATION)
-            expected_kind = "model_time_validation";
     } else if (domain == "data") {
         if (value.task().kind() == wire::MINUTE_DOWNLOAD)
             expected_kind = "minutes";
@@ -185,8 +180,6 @@ Json decode_task(const task::proto::Task& task)
         && task.kind() != task::proto::ACCOUNT_REVIEW && task.kind() != task::proto::STATISTICS
         && task.kind() != task::proto::SAMPLE && task.kind() != task::proto::LOGIC_TRIAL
         && task.kind() != task::proto::MATERIAL_ACQUISITION
-        && task.kind() != task::proto::MODEL_TRAINING
-        && task.kind() != task::proto::MODEL_TIME_VALIDATION
         && task.kind() != task::proto::PERFORMANCE_EVALUATION)
         throw std::invalid_argument("invalid task kind");
     Json output = {
@@ -199,8 +192,6 @@ Json decode_task(const task::proto::Task& task)
                 : task.kind() == task::proto::PERFORMANCE_EVALUATION ? "performance_evaluation"
                 : task.kind() == task::proto::SAMPLE                 ? "sample"
                 : task.kind() == task::proto::LOGIC_TRIAL            ? "logic_trial"
-                : task.kind() == task::proto::MODEL_TRAINING         ? "model_training"
-                : task.kind() == task::proto::MODEL_TIME_VALIDATION  ? "model_time_validation"
                 : task.kind() == task::proto::MATERIAL_ACQUISITION   ? "material_acquisition"
                                                                      : "backtest"},
         {"id", task.id()},
@@ -232,16 +223,6 @@ Json decode_task(const task::proto::Task& task)
         {"submitted_at_ms", task.submitted_at_ms()},
         {"updated_at_ms", task.updated_at_ms()}
     };
-    if (task.kind() == task::proto::MODEL_TRAINING) {
-        validate_strategy_object(task.model_plan(), "model_plan");
-        output["model_plan"] = decode_strategy_object(task.model_plan());
-    } else if (task.has_model_plan())
-        throw std::invalid_argument("unexpected model task plan");
-    if (task.kind() == task::proto::MODEL_TIME_VALIDATION) {
-        validate_strategy_object(task.model_time_plan(), "model_time_plan");
-        output["model_time_plan"] = decode_strategy_object(task.model_time_plan());
-    } else if (task.has_model_time_plan())
-        throw std::invalid_argument("unexpected model time task plan");
     if (task.has_research_plan())
         output["research_plan"] = decode_project_binding(task.research_plan());
     if (task.has_strategy_use())
@@ -274,14 +255,6 @@ Json decode_task(const task::proto::Task& task)
     }
     if (task.has_retirement())
         output["retired"] = true;
-    if (task.metadata().derivation().has_batch()) {
-        const auto& origin = task.metadata().derivation();
-        validate_strategy_object(origin.batch(), "backtest_batch");
-        if (task.kind() != task::proto::BACKTEST || origin.data_choice() != "fixed"
-            || origin.source_instance() != origin.batch().owner().service_id())
-            throw std::invalid_argument("invalid fixed batch member derivation");
-        output["metadata"]["batch"] = decode_strategy_object(origin.batch());
-    }
     return output;
 }
 
@@ -356,27 +329,6 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["input_sha256"] = sha256_bytes(task.sample().SerializeAsString());
         envelope["experiment"] = decode_sample_input(task.sample());
         envelope["result"] = decode_sample_result(task.sample(), response.sample());
-    } else if (task.kind() == task::proto::MODEL_TRAINING && task.has_model_training()
-        && response.has_model_training()) {
-        if (sha256_bytes(response.model_training().SerializeAsString()) != task.result_digest()
-            || task.model_plan().SerializeAsString()
-                != model_plan_object(task.model_training().plan()).SerializeAsString()
-            || task.program_artifact() != task.model_training().plan().program_artifact())
-            throw std::invalid_argument("model result differs from its fixed task evidence");
-        envelope["input_sha256"] = sha256_bytes(task.model_training().SerializeAsString());
-        envelope["experiment"] = decode_model_training_input(task.model_training());
-        envelope["result"] =
-            decode_model_training_result(task.model_training(), response.model_training());
-    } else if (task.kind() == task::proto::MODEL_TIME_VALIDATION && task.has_model_time()
-        && response.has_model_time()) {
-        if (sha256_bytes(response.model_time().SerializeAsString()) != task.result_digest()
-            || task.model_time_plan().SerializeAsString()
-                != model_time_plan_object(task.model_time().plan()).SerializeAsString()
-            || task.program_artifact() != task.model_time().plan().recipe().program_artifact())
-            throw std::invalid_argument("model result differs from its fixed task evidence");
-        envelope["input_sha256"] = sha256_bytes(task.model_time().SerializeAsString());
-        envelope["experiment"] = decode_model_time_input(task.model_time());
-        envelope["result"] = decode_model_time_result(task.model_time(), response.model_time());
     } else if (task.kind() == task::proto::PERFORMANCE_EVALUATION && task.has_evaluation()
         && response.has_evaluation()) {
         if (sha256_bytes(response.evaluation().SerializeAsString()) != task.result_digest())

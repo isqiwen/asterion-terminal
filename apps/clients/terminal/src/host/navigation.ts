@@ -59,7 +59,7 @@ export const modules = [
       {
         id: "logic",
         title: "策略逻辑",
-        views: ["workspace.research-logic", "workspace.research-models"],
+        views: ["workspace.research-logic"],
       },
       { id: "portfolio", title: "组合与仓位", views: [] },
       { id: "delivery", title: "策略管理与交付", views: ["workspace.strategy-packages"] },

@@ -3,7 +3,6 @@
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_project.hpp>
-#include <asterion/protocol/research_model.hpp>
 
 namespace asterion::terminal {
 
@@ -56,7 +55,6 @@ void Application::Impl::register_backtest_commands()
         auto required = p;
         required.erase("slippage_ticks");
         required.erase("fee_multiplier");
-        required.erase("model_replay");
         required.erase("strategy_use");
         fields(
             required,
@@ -93,14 +91,6 @@ void Application::Impl::register_backtest_commands()
             mode == "fixed" ? backtest::proto::BacktestReuse::FIXED
                             : backtest::proto::BacktestReuse::NEW_SNAPSHOT);
         reuse.set_snapshot(selected);
-        if (p.contains("model_replay")) {
-            if (mode != "fixed" || p.contains("slippage_ticks") || p.contains("fee_multiplier")
-                || p.contains("strategy_use"))
-                throw std::invalid_argument(
-                    "model replay requires an exclusive fixed-data selection");
-            *reuse.mutable_model_replay() =
-                protocol::encode_model_replay_selection(p.at("model_replay"));
-        }
         if (p.contains("fee_multiplier")) {
             if (p.contains("slippage_ticks"))
                 throw std::invalid_argument("fee and slippage scenarios require separate requests");

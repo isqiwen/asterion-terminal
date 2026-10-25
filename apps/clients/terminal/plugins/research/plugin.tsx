@@ -17,9 +17,6 @@ const ResearchSamples = lazy(() =>
 const ResearchStatistics = lazy(() =>
   import("./ResearchStatistics").then(module => ({ default: module.ResearchStatistics })),
 );
-const ResearchModels = lazy(() =>
-  import("./ResearchModels").then(m => ({ default: m.ResearchModels })),
-);
 const ResearchLogic = lazy(() =>
   import("./ResearchLogic").then(m => ({ default: m.ResearchLogic })),
 );
@@ -42,32 +39,10 @@ const BacktestComparison = lazy(() =>
 const Evaluation = lazy(() =>
   import("./Evaluation").then(module => ({ default: module.Evaluation })),
 );
-const BatchAssessments = lazy(() =>
-  import("./BatchAssessments").then(module => ({ default: module.BatchAssessments })),
-);
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
   commands: [
     "task.action",
-    "research.model.list",
-    "research.model.read",
-    "research.model.save",
-    "research.model.fix",
-    "research.model.train",
-    "research.model.time.save",
-    "research.model.time.train",
-    "research.model.mapping.save",
-    "research.model.mapping.preview",
-    "research.batch.list",
-    "research.batch.read",
-    "research.batch.save",
-    "research.batch.start",
-    "research.batch.stop",
-    "research.batch.assessment.preview",
-    "research.batch.assessment.save",
-    "research.batch.assessment.read",
-    "research.batch.assessment.list",
-    "research.batch.assessment.export",
     "resource.catalogue",
     "research.logic.list",
     "research.logic.read",
@@ -259,15 +234,6 @@ export const plugin: TerminalPlugin = {
       ),
     },
     {
-      id: "workspace.research-models",
-      get title() {
-        return t("固定来源模型训练");
-      },
-      component: context => (
-        <WorkloadAccess context={context}>{ready => <ResearchModels {...ready} />}</WorkloadAccess>
-      ),
-    },
-    {
       id: "workspace.research-logic",
       get title() {
         return t("策略逻辑与事先样例");
@@ -318,12 +284,7 @@ export const plugin: TerminalPlugin = {
 
       component: context => (
         <WorkloadAccess context={context}>
-          {ready => (
-            <>
-              <BacktestComparison {...ready} />
-              <BatchAssessments {...ready} />
-            </>
-          )}
+          {ready => <BacktestComparison {...ready} />}
         </WorkloadAccess>
       ),
     },

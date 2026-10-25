@@ -1,4 +1,0 @@
-add_library(asterion_model_regression STATIC model_regression.cpp model_validation.cpp)
-target_include_directories(asterion_model_regression PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_model_regression PUBLIC Asterion::Domain)
-asterion_target_defaults(asterion_model_regression)

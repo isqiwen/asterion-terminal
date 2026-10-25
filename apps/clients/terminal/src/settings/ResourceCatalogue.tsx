@@ -21,8 +21,6 @@ const kinds = {
   research: [
     "backtest",
     "backtest_result",
-    "backtest_batch",
-    "backtest_batch_assessment",
     "factor",
     "factor_result",
     "statistics",
@@ -34,10 +32,6 @@ const kinds = {
     "account_review",
     "account_review_result",
     "research_program",
-    "notice_review",
-    "notice_review_result",
-    "event_set_review",
-    "event_set_review_result",
     "research_project",
     "research_plan",
     "research_conclusion",
@@ -46,14 +40,6 @@ const kinds = {
     "logic_case",
     "logic_trial",
     "logic_trial_result",
-    "model_draft",
-    "model_plan",
-    "model_mapping",
-    "model_time_plan",
-    "model_time_validation",
-    "model_time_validation_result",
-    "model_training",
-    "model_training_result",
     "strategy_package",
     "strategy_delivery",
   ],
@@ -74,8 +60,6 @@ const names: Record<string, string> = {
   material_content: "材料固定原件",
   backtest: "回测固定输入",
   backtest_result: "回测正式结果",
-  backtest_batch: "有限成本批次",
-  backtest_batch_assessment: "固定批次稳健性审阅",
   factor: "因子固定输入",
   factor_result: "因子正式结果",
   statistics: "统计固定输入",
@@ -95,20 +79,8 @@ const names: Record<string, string> = {
   logic_case: "事先虚构样例",
   logic_trial: "固定逻辑试算",
   logic_trial_result: "逻辑试算正式证据",
-  model_draft: "模型方案草稿",
-  model_plan: "模型固定训练方案",
-  model_mapping: "固定模型预测映射",
-  model_time_plan: "模型逐折固定计划",
-  model_time_validation: "模型逐折验证输入",
-  model_time_validation_result: "模型逐折验证正式证据",
-  model_training: "模型固定训练输入",
-  model_training_result: "模型正式拟合证据",
   strategy_package: "固定策略候选",
   strategy_delivery: "策略交付草稿",
-  notice_review: "公告审阅固定输入",
-  notice_review_result: "公告审阅正式结果",
-  event_set_review: "事件集合审阅固定输入",
-  event_set_review_result: "事件集合审阅正式结果",
 };
 export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
   const [domain, setDomain] = useState<"data" | "research">("data");
@@ -280,9 +252,7 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                               entry.object.kind === "strategy_package" ||
                               entry.object.kind === "logic_definition" ||
                               entry.object.kind === "logic_case" ||
-                              entry.object.kind === "strategy_delivery" ||
-                              entry.object.kind === "backtest_batch" ||
-                              entry.object.kind === "backtest_batch_assessment") &&
+                              entry.object.kind === "strategy_delivery") &&
                             entry.state === "sealed"
                           ? "已固定（只读）"
                           : entry.state === "registered"
@@ -302,27 +272,6 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                     {entry.object.kind === "provider_module" ||
                     entry.object.kind === "research_program" ? (
                       <span>{t("程序工件维护尚未实现，不提供删除操作。")}</span>
-                    ) : entry.object.kind === "backtest_batch_assessment" ? (
-                      <span>
-                        {t("在稳健性入口读取固定批次审阅；此目录不提供修改、删除或执行。")}
-                      </span>
-                    ) : entry.object.kind === "backtest_batch" ? (
-                      <span>
-                        {t("在原回测的成本敏感性入口读取批次及启停状态；此目录不提供删除或执行。")}
-                      </span>
-                    ) : [
-                        "model_draft",
-                        "model_plan",
-                        "model_mapping",
-                        "model_time_plan",
-                        "model_time_validation",
-                        "model_time_validation_result",
-                        "model_training",
-                        "model_training_result",
-                      ].includes(entry.object.kind) ? (
-                      <span>
-                        {t("在模型训练入口读取原方案和诊断预测；此目录不提供修改、删除或执行。")}
-                      </span>
                     ) : entry.object.kind === "logic_definition" ||
                       entry.object.kind === "logic_case" ? (
                       <span>

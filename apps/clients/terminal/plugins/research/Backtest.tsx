@@ -7,9 +7,8 @@ import {
 import { QuantStatsReport } from "./QuantStatsReport";
 import { ResearchExport } from "./ResearchExport";
 import { BacktestComparison } from "./BacktestComparison";
-import { CostSensitivity } from "./CostSensitivity";
 import { BacktestReuse } from "./BacktestReuse";
-import { ModelReplayEvidence, TargetRejectionEvidence } from "./ModelReplayEvidence";
+import { TargetRejectionEvidence } from "./TargetRejectionEvidence";
 import { PortfolioBudget } from "./PortfolioBudget";
 import { PortfolioTargetsEvidence } from "./PortfolioTargetsEvidence";
 import {
@@ -1005,11 +1004,9 @@ export function Backtest({
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
                   {activeTask?.instrument} ·{" "}
-                  {result.experiment.model_replay
-                    ? t("固定行情模型模拟")
-                    : result.experiment.walk_forward
-                      ? t("滚动验证 · {n} 个候选", { n: result.experiment.strategies.length })
-                      : strategyRule(result.experiment.strategies[result.result.selected])}
+                  {result.experiment.walk_forward
+                    ? t("滚动验证 · {n} 个候选", { n: result.experiment.strategies.length })
+                    : strategyRule(result.experiment.strategies[result.result.selected])}
                 </h3>
                 <p className="subtle">
                   {activeTask && new Date(activeTask.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
@@ -1224,7 +1221,6 @@ export function Backtest({
                 </details>
                 <SettlementMarginResults settlements={result.result.settlements} />
                 <ResearchPlanEvidence binding={result.task.research_plan} query={query} />
-                <ModelReplayEvidence key={`model-replay-${result.id}`} evidence={result} />
                 <PortfolioTargetsEvidence key={`portfolio-${result.id}`} evidence={result} />
                 <TargetRejectionEvidence evidence={result} />
                 <ExperimentDetails evidence={result} />
@@ -1234,14 +1230,6 @@ export function Backtest({
                   kind="backtest"
                   busy={busy}
                   query={query}
-                />
-                <CostSensitivity
-                  key={`slippage-${result.id}`}
-                  evidence={result}
-                  snapshot={snapshot}
-                  busy={busy}
-                  query={query}
-                  trade={trade}
                 />
                 <BacktestReuse
                   key={`reuse-${result.id}`}

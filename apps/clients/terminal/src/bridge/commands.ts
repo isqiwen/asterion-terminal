@@ -1,12 +1,6 @@
 import type {
   ResourceObject,
   PerformanceAssumptions,
-  ModelReplaySelection,
-  ResearchModelSpecification,
-  ResearchModelMappingSpecification,
-  ResearchModelTimeSpecification,
-  ResearchBatchDraft,
-  ResearchBatchAssessmentDeclaration,
   FuturesContract,
   LogicObservation,
   ResearchStrategyUse,
@@ -89,46 +83,6 @@ export type ComparisonMatrix = {
 };
 
 export type CommandParams = {
-  "research.model.list": {
-    kind: "draft" | "plan" | "mapping" | "time_plan";
-    after: string;
-    limit: number;
-  };
-  "research.model.read": { kind: "draft" | "plan" | "mapping" | "time_plan"; id: string };
-  "research.model.save": {
-    id: string;
-    draft_id: string;
-    expected_digest: string;
-    specification: ResearchModelSpecification;
-  };
-  "research.model.fix": { id: string; plan_id: string; draft_id: string; expected_digest: string };
-  "research.model.train": { id: string; plan: ResourceObject };
-  "research.model.time.save": {
-    id: string;
-    plan_id: string;
-    specification: ResearchModelTimeSpecification;
-  };
-  "research.model.time.train": { id: string; plan: ResourceObject };
-  "research.model.mapping.save": {
-    id: string;
-    mapping_id: string;
-    specification: ResearchModelMappingSpecification;
-  };
-  "research.model.mapping.preview": { mapping: ResourceObject; begin: number; limit: number };
-  "research.batch.list": { after: string; limit: number };
-  "research.batch.read": { id: string };
-  "research.batch.save": { id: string; definition: ResearchBatchDraft };
-  "research.batch.start": { id: string; batch: ResourceObject };
-  "research.batch.stop": { id: string; batch: ResourceObject; reason: string };
-  "research.batch.assessment.preview": { batch: ResourceObject };
-  "research.batch.assessment.save": { id: string; definition: ResearchBatchAssessmentDeclaration };
-  "research.batch.assessment.read": { id: string };
-  "research.batch.assessment.list": { batch_id: string; after: string; limit: number };
-  "research.batch.assessment.export": {
-    object: ResourceObject;
-    format: "html" | "csv";
-    path: string;
-  };
   "research.logic.list": { after: string; limit: number };
   "research.logic.read": { id: string };
   "research.logic.register": {
@@ -291,7 +245,6 @@ export type CommandParams = {
     research_plan?: ResearchPlanBinding;
   };
   "backtest.reuse": ReuseParameters & {
-    model_replay?: ModelReplaySelection;
     source_input_sha256: string;
     slippage_ticks?: number;
     fee_multiplier?: string;

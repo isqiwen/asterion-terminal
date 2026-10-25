@@ -3,9 +3,7 @@
 #include "research_evaluation.hpp"
 #include "research_sample.hpp"
 #include "research_logic.hpp"
-#include "research_models.hpp"
 #include "backtest/engine.hpp"
-#include "backtest/model_strategy.hpp"
 #include "factor/factor_engine.hpp"
 #include "risk_module.hpp"
 #include "coverage.hpp"
@@ -35,19 +33,8 @@ task::proto::TaskFinish execute(
             const auto module = risk_providers::Module::pinned(
                 directory / attempt.task().id(),
                 attempt.task().risk_artifact());
-            std::optional<backtest::ModelReplayData> model;
-            if (attempt.task().input().has_model_replay())
-                model = research::resolve_model_replay_data(
-                    attempt.task().input(),
-                    directory,
-                    loaded_program,
-                    stop);
-            *result.mutable_result() = backtest::run(
-                attempt.task().input(),
-                stop,
-                progress,
-                &module,
-                model ? &*model : nullptr);
+            *result.mutable_result() =
+                backtest::run(attempt.task().input(), stop, progress, &module);
             break;
         }
         case task::proto::FACTOR:
@@ -67,25 +54,6 @@ task::proto::TaskFinish execute(
                     ErrorCode::conflict,
                     "calculation requires its fixed execution program");
             *result.mutable_sample() = capture_sample(attempt.task().sample(), stop, progress);
-            break;
-        case task::proto::MODEL_TRAINING:
-            if (loaded_program.empty() || loaded_program != attempt.task().program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "calculation requires its fixed execution program");
-            *result.mutable_model_training() =
-                research::train_model(attempt.task().model_training(), directory, stop, progress);
-            break;
-        case task::proto::MODEL_TIME_VALIDATION:
-            if (loaded_program.empty() || loaded_program != attempt.task().program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "calculation requires its fixed execution program");
-            *result.mutable_model_time() = research::validate_model_time(
-                attempt.task().model_time(),
-                directory,
-                stop,
-                progress);
             break;
         case task::proto::PERFORMANCE_EVALUATION:
             if (loaded_program.empty() || loaded_program != attempt.task().program_artifact())

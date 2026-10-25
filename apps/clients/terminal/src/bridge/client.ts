@@ -611,7 +611,6 @@ export type ExperimentMetadata = {
   source_id: string;
   source_instance: string;
   source_result_digest: string;
-  batch?: ResourceObject;
   data_choice: string;
   snapshot: string;
 };
@@ -657,102 +656,6 @@ export type LogicTrialResult = {
   all_match: boolean;
   fictional: true;
 };
-export type ResearchBatchDraft = {
-  id: string;
-  name: string;
-  purpose: string;
-  limitations: string;
-  source: ResourceObject;
-  members: { task_id: string; slippage_ticks: number; fee_multiplier?: string }[];
-  run_budget: number;
-  time_budget_seconds: number;
-};
-export type ResearchBatchState = {
-  definition: Omit<ResearchBatchDraft, "id"> & {
-    object: ResourceObject;
-    owner: ResearchProjectOwner;
-    source_input_sha256: string;
-    program_artifact: string;
-    risk_artifact: string;
-    data_owner: { node_id: string; service_id: string };
-    work_units_per_run: string;
-    recorded_at_ms: number;
-  };
-  phase: "saved" | "running" | "stopping" | "stopped" | "completed" | "interrupted";
-  started_at_ms: number | null;
-  stopped_at_ms: number | null;
-  elapsed_ms: string | null;
-  reason: string;
-  members: {
-    task_id: string;
-    admission: "waiting" | "pending" | "admitted" | "rejected";
-    input_sha256: string | null;
-    error: { code: string; message: string } | null;
-  }[];
-};
-export type ResearchBatchAssessmentTask = {
-  id: string;
-  state: TaskRecord["state"];
-  attempt: number;
-  retired: boolean;
-  error: string;
-  input_sha256: string;
-  result_sha256: string | null;
-  program_artifact: string;
-  risk_artifact: string;
-  account: {
-    currency: string;
-    first_day: string;
-    last_day: string;
-    settlement_days: number;
-    deposit: string;
-    closing_equity: string;
-    fees: string;
-    net_profit: string;
-  } | null;
-};
-export type ResearchBatchAssessmentSnapshot = {
-  batch: ResearchBatchState;
-  source: ResearchBatchAssessmentTask;
-  members: ResearchBatchAssessmentTask[];
-};
-export type ResearchBatchAssessmentDeclaration = {
-  id: string;
-  batch: ResourceObject;
-  expected_snapshot: string;
-  question: string;
-  scope: string;
-  judgment: "supported" | "refuted" | "insufficient";
-  reason: string;
-  selected_task_id: string;
-  selection_reason: string;
-  unselected_reason: string;
-  validation_information_used: boolean;
-  information_use: string;
-  previous_id: string;
-  revision_reason: string;
-};
-export type ResearchBatchAssessment = {
-  object: ResourceObject;
-  declaration: ResearchBatchAssessmentDeclaration;
-  snapshot: ResearchBatchAssessmentSnapshot;
-  owner: ResearchProjectOwner;
-  program_artifact: string;
-  recorded_at_ms: string;
-};
-export type ResearchBatchAssessmentReply = {
-  preview: ResearchBatchAssessmentSnapshot | null;
-  preview_digest: string;
-  assessment: ResearchBatchAssessment | null;
-  assessments: ResearchBatchAssessment[];
-  next_after: string;
-};
-export type ResearchBatchReply = {
-  state?: ResearchBatchState;
-  states: ResearchBatchState[];
-  next_after: string;
-  members: TaskRecord[];
-};
 export type ResearchLogicReply = {
   definition?: LogicDefinition;
   example?: LogicExample;
@@ -778,20 +681,12 @@ type ResearchStrategyPackageDefinition = {
     | {
         contract: FuturesContract;
         strategy: Exclude<StrategyDefinition, FixedWeightStrategyDefinition>;
-        model_replay?: never;
-        portfolio?: never;
-      }
-    | {
-        contract: FuturesContract;
-        model_replay: ModelReplayDefinition;
-        strategy?: never;
         portfolio?: never;
       }
     | {
         portfolio: { contracts: FuturesContract[]; strategy: FixedWeightStrategyDefinition };
         contract?: never;
         strategy?: never;
-        model_replay?: never;
       }
   );
 
@@ -808,7 +703,6 @@ export type ResearchStrategyPackage = ResearchStrategyPackageDefinition &
         definition: ResearchStrategyPackageDefinition["definition"] & {
           contract: FuturesContract;
           strategy: Exclude<StrategyDefinition, FixedWeightStrategyDefinition>;
-          model_replay?: never;
           portfolio?: never;
         };
         reference_result: null;
@@ -856,190 +750,6 @@ export type ResearchStrategyReply = {
   deliveries: ResearchStrategyDelivery[];
   next_after: string;
   target_accepted?: boolean;
-};
-export type ResearchModelSpecification = {
-  name: string;
-  purpose: string;
-  limitations: string;
-  source: ResourceObject | null;
-  method: "linear" | "ridge" | "unspecified";
-  fit_intercept: boolean | null;
-  alpha: string | null;
-  training_begin: number;
-  training_end: number;
-  standardize: boolean;
-  weights: "equal" | "unspecified";
-  run_budget: number;
-  time_budget_seconds: number;
-  valid_until_ms: number;
-  mode: "post_hoc_diagnostic" | "unspecified";
-};
-export type ResearchModelDraft = {
-  object: ResourceObject;
-  specification: ResearchModelSpecification;
-  updated_at_ms: number;
-};
-export type ResearchModelPlan = {
-  object: ResourceObject;
-  draft_id: string;
-  draft_digest: string;
-  specification: ResearchModelSpecification;
-  program_artifact: string;
-  recorded_at_ms: number;
-  training_samples: number;
-  source: {
-    result: ResourceObject;
-    input_sha256: string;
-    input_bytes: number;
-    attempt: number;
-    program_artifact: string;
-    observations: number;
-    holdout_start: number;
-    horizon: number;
-    required_history: number;
-    lookback: number;
-    price_power: number;
-    factor: FactorKind | "variable";
-    variable_definition: ResourceObject | null;
-    historical_availability_unknown: boolean;
-  };
-};
-export type ResearchModelMappingSpecification = {
-  name: string;
-  purpose: string;
-  model: ResourceObject;
-  short_threshold: string;
-  long_threshold: string;
-  middle: "no_new_direction";
-  valid_until_ms: number;
-};
-export type ResearchModelMapping = {
-  object: ResourceObject;
-  specification: ResearchModelMappingSpecification;
-  plan: ResourceObject;
-  mode: "post_hoc_diagnostic";
-  recorded_at_ms: number;
-  model_published_at_ms: number;
-  folds: ResearchModelTimeFold[];
-  source: Pick<
-    ResearchModelPlan["source"],
-    "result" | "input_sha256" | "price_power" | "horizon" | "historical_availability_unknown"
-  >;
-};
-export type ResearchModelMappingProjection = {
-  mapping: ResearchModelMapping;
-  total: number;
-  begin: number;
-  next_begin: number | null;
-  observed_at_ms: number;
-  scope: "post_hoc_diagnostic";
-  rows: ((
-    | (Omit<ResearchModelTrainingResult["rows"][number], "event_index"> & { index: number })
-    | {
-        index: number;
-        fold_index: number;
-        role: "development_validation";
-        exclusion: ResearchModelTimeResult["folds"][number]["predictions"][number]["exclusion"];
-        prediction: number | null;
-      }
-  ) & {
-    intent:
-      | "long_direction"
-      | "short_direction"
-      | "no_new_direction"
-      | "prediction_unavailable"
-      | "expired";
-  })[];
-};
-export type ResearchModelTimeFold = {
-  training_begin: number;
-  training_end: number;
-  validation_begin: number;
-  validation_end: number;
-};
-export type ResearchModelTimeSpecification = {
-  name: string;
-  purpose: string;
-  limitations: string;
-  recipe: ResourceObject;
-  folds: ResearchModelTimeFold[];
-  run_budget: number;
-  time_budget_seconds: number;
-  valid_until_ms: number;
-};
-export type ResearchModelTimePlan = {
-  object: ResourceObject;
-  specification: ResearchModelTimeSpecification;
-  recipe: ResearchModelPlan;
-  training_counts: number[];
-  boundaries: { event_index: number; trading_day: string; timestamp_ns: string | null }[];
-  recorded_at_ms: number;
-  mode: "post_hoc_diagnostic";
-};
-export type ResearchModelTimeResult = {
-  plan: ResourceObject;
-  computed_at_ms: number;
-  scope: "development_validation";
-  historical_availability_unknown: true;
-  folds: {
-    scope: ResearchModelTimeFold;
-    training_members: number[];
-    intercept: number;
-    coefficient: number;
-    training_residual_sum_squares: number;
-    regularization: number;
-    training_objective: number;
-    standardization: ResearchModelTrainingResult["standardization"];
-    evaluated: number;
-    validation_residual_sum_squares: number;
-    validation_mean_squared_error: number | null;
-    predictions: {
-      event_index: number;
-      prediction: number | null;
-      exclusion:
-        | "included"
-        | "warmup"
-        | "feature_unavailable"
-        | "label_unavailable"
-        | "crossed_label"
-        | "non_finite_prediction";
-    }[];
-  }[];
-};
-export type ResearchModelReply = {
-  draft?: ResearchModelDraft;
-  plan?: ResearchModelPlan;
-  mapping?: ResearchModelMapping;
-  time_plan?: ResearchModelTimePlan;
-  time_plans: ResearchModelTimePlan[];
-  projection?: ResearchModelMappingProjection;
-  mappings: ResearchModelMapping[];
-  drafts: ResearchModelDraft[];
-  plans: ResearchModelPlan[];
-  next_after: string;
-};
-export type ResearchModelTrainingResult = {
-  plan: ResourceObject;
-  training_samples: number;
-  intercept: number;
-  coefficient: number;
-  residual_sum_squares: number;
-  regularization: number;
-  objective: number;
-  fitted_at_ms: number;
-  standardization: {
-    training_samples: number;
-    mean: number;
-    sample_standard_deviation: number;
-  } | null;
-  rows: {
-    event_index: number;
-    role: "training" | "other_development" | "holdout";
-    reason:
-      "fitted" | "not_training" | "warmup" | "missing_feature" | "missing_label" | "crossed_label";
-    prediction_state: "predicted" | "feature_unavailable" | "non_finite_prediction";
-    prediction: number | null;
-  }[];
 };
 export type ResearchVariableDefinition = {
   object: ResourceObject;
@@ -1131,8 +841,6 @@ export type ResearchProjectReply = {
 };
 export type ResearchProjectTasks = { tasks: TaskRecord[]; next_before_sequence: number };
 export type TaskRecord = {
-  model_plan?: ResourceObject;
-  model_time_plan?: ResourceObject;
   strategy_use?: ResearchStrategyUse;
   variable_definition?: ResourceObject;
   research_plan?: ResearchPlanBinding;
@@ -1155,8 +863,6 @@ export type TaskRecord = {
     | "performance_evaluation"
     | "sample"
     | "logic_trial"
-    | "model_training"
-    | "model_time_validation"
     | "material_acquisition";
   material_request?: MaterialRequest;
   id: string;
@@ -1364,78 +1070,6 @@ export type HistoricalMargins = {
   }[];
 };
 export type SettlementMargin = { trading_day: string; rate: string; source: string };
-export type ModelReplayDefinition = {
-  mapping: ResearchModelMapping;
-  training: { plan: ResearchModelTimePlan };
-  model_attempt: number;
-  fold_index: number;
-  quantity: string;
-  sides: PositionSides;
-  processing_delay_bars: number;
-  time_budget_seconds: number;
-  availability: "assume_original_bar_close";
-  historical_availability_unknown: true;
-  scope: "post_hoc_conditional";
-};
-export type ModelReplaySelection = Pick<
-  ModelReplayDefinition,
-  | "fold_index"
-  | "quantity"
-  | "sides"
-  | "processing_delay_bars"
-  | "time_budget_seconds"
-  | "availability"
-> & { mapping: ResourceObject };
-export type ModelReplayResult = {
-  fit: {
-    training_members: number[];
-    intercept: number;
-    coefficient: number;
-    training_residual_sum_squares: number;
-    regularization: number;
-    training_objective: number;
-    standardization: ResearchModelTrainingResult["standardization"];
-    started_index: number;
-    ready_index: number;
-    started_boundary_ns: string;
-    ready_boundary_ns: string;
-    actual_started_at_ms: number;
-    actual_fitted_at_ms: number;
-    actual_duration_ns: number;
-  };
-  decisions: {
-    source_index: number;
-    boundary_ns: string;
-    phase:
-      | "before_training"
-      | "model_pending"
-      | "outside_validation"
-      | "feature_unavailable"
-      | "non_finite_prediction"
-      | "expired"
-      | "mapped";
-    feature: number | null;
-    prediction: number | null;
-    intent:
-      | "long_direction"
-      | "short_direction"
-      | "no_new_direction"
-      | "prediction_unavailable"
-      | "expired";
-    target: string | null;
-    intent_id: string;
-    disposition: "no_new_target" | "next_bar" | "outside_replay";
-  }[];
-  fills: {
-    fill_id: string;
-    source_index: number;
-    boundary_ns: string;
-    decision_source_index: number;
-    intent_id: string;
-  }[];
-  historical_availability_unknown: true;
-  scope: "post_hoc_conditional";
-};
 export type PortfolioTargetDecision = {
   boundary_ns: string;
   trading_day: string;
@@ -1484,8 +1118,6 @@ export type BacktestResult = {
     source_index: number;
     boundary_ns: string;
   }[];
-  model_replay?: ModelReplayResult;
-  model_validation?: { total_return: number; max_drawdown: number; sharpe: number | null };
   target_rejections?: {
     intent_id: string;
     source_index: number;
@@ -1554,7 +1186,6 @@ export type PerformanceAssumptions = {
 };
 export type BacktestExperiment = {
   performance_assumptions?: PerformanceAssumptions;
-  model_replay?: ModelReplayDefinition;
   historical_margins?: HistoricalMargins;
   settlement_margins?: SettlementMargin[];
   dataset_revision: string;
@@ -2165,22 +1796,6 @@ export type StatisticsInput = {
   };
 };
 export type TaskResult =
-  | {
-      id: string;
-      kind: "model_time_validation";
-      input_sha256: string;
-      task: TaskRecord;
-      experiment: { plan: ResearchModelTimePlan };
-      result: ResearchModelTimeResult;
-    }
-  | {
-      id: string;
-      kind: "model_training";
-      input_sha256: string;
-      task: TaskRecord;
-      experiment: { plan: ResearchModelPlan };
-      result: ResearchModelTrainingResult;
-    }
   | {
       id: string;
       kind: "logic_trial";
@@ -2823,11 +2438,8 @@ export type MaterialRead = {
 export type Snapshot = {
   research_project?: ResearchProjectReply;
   research_variable?: ResearchVariableReply;
-  research_model?: ResearchModelReply;
   research_strategy?: ResearchStrategyReply;
   research_logic?: ResearchLogicReply;
-  research_batch?: ResearchBatchReply;
-  research_assessment?: ResearchBatchAssessmentReply;
   project_tasks?: ResearchProjectTasks;
   material_sources?: MaterialSource[];
   material_task?: TaskRecord;

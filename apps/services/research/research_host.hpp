@@ -13,12 +13,6 @@
 #include <map>
 #include <optional>
 
-namespace asterion::research {
-
-class Models;
-
-} // namespace asterion::research
-
 namespace asterion::tasks {
 
 // The research service's state and I/O owner. It decides task state through Store,
@@ -70,36 +64,8 @@ private:
     void collect_metadata();
     PolledTask<> project_operation(Call&);
     PolledTask<> variable_operation(Call&);
-    PolledTask<> model_operation(Call&);
-    PolledTask<> submit_model(Call&);
-    PolledTask<research::proto::ModelReply> model_metadata(
-        const Call&,
-        const resource::proto::Owner&,
-        bool writer,
-        std::function<void(research::Models&, research::proto::ModelReply&)>);
     PolledTask<> logic_operation(Call&);
     PolledTask<> strategy_operation(Call&);
-    PolledTask<> batch_operation(Call&);
-    PolledTask<> assessment_operation(Call&);
-    PolledTask<research::proto::BatchAssessmentSnapshot>
-    assessment_snapshot(Call&, const resource::proto::Object&);
-    PolledTask<research::proto::BatchAssessmentTask>
-    assessment_task(Call&, const task::proto::Task&, const std::string&);
-    PolledTask<research::proto::BatchAssessmentReply> assessment_metadata(
-        const Call&,
-        const resource::proto::Owner&,
-        bool,
-        std::function<void(research::Batches&, research::proto::BatchAssessmentReply&)>);
-    PolledTask<> schedule_batches();
-    PolledTask<> ensure_batches(Call&, const resource::proto::Owner&);
-    PolledTask<task::proto::ResearchBatchReply> batch_metadata(
-        const Call&,
-        const resource::proto::Owner&,
-        bool writer,
-        std::function<void(research::Batches&, task::proto::ResearchBatchReply&)>);
-    void batch_attach_tasks(task::proto::ResearchBatchReply&);
-    bool batch_admission_open(const Call&, const std::string&);
-    PolledTask<> verify_prepared_batch(const Call&, Store::Submission&);
     PolledTask<> strategy_holders(Call&, task::proto::TaskRetirement&);
 
     struct MetadataWork
@@ -107,11 +73,8 @@ private:
         std::future<void> result;
         research::proto::ProjectReply reply;
         research::proto::VariableReply variable;
-        research::proto::ModelReply model;
         research::proto::LogicReply logic;
         research::proto::StrategyReply strategy;
-        task::proto::ResearchBatchReply batch;
-        research::proto::BatchAssessmentReply assessment;
         bool replay = false;
         std::vector<std::string> consumers;
         resource::proto::Catalogue catalogue;
@@ -203,16 +166,6 @@ private:
     ThreadPool computation_;
     std::optional<PolledTask<>> scheduling_;
     Clock::time_point next_schedule_ = Clock::now();
-    bool batches_recovered_ = false, batches_recovering_ = false;
-
-    struct BatchTiming
-    {
-        Clock::time_point started, deadline;
-    };
-
-    std::map<std::string, BatchTiming> batch_started_;
-    std::string batch_cursor_;
-    std::optional<resource::proto::Owner> batch_owner_;
 };
 
 } // namespace asterion::tasks

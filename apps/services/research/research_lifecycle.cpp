@@ -18,10 +18,6 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         prepared = storage_->prepared_submission_record(id);
     });
     call.input_in_time();
-    if (prepared.record().task().metadata().derivation().has_batch())
-        throw Error(
-            ErrorCode::conflict,
-            "unadmitted batch preparation requires explicit abandonment and a new batch");
     if (prepared.execution().has_strategy_use()) {
         co_await wait_for_store({}, call.deadline);
         research::Strategies(*storage_, prepared.execution().strategy_use().package().owner())
@@ -93,80 +89,6 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
                 if (restored.digest != prepared.record().input_digest()
                     || restored.size != prepared.record().input_bytes())
                     throw std::invalid_argument("reconstructed input differs from preparation");
-            }
-            input.emplace(storage_->resume_submission(id));
-        });
-        *call.response.mutable_task() = (co_await submit(
-                                             call,
-                                             [&] {
-                                                 return std::move(*input);
-                                             },
-                                             true))
-                                            .task();
-        co_return;
-    }
-    if (prepared.execution().has_model_training()) {
-        const auto& fixed = prepared.execution().model_training();
-        protocol::validate_model_training_input(fixed);
-        const auto node = configuration_.node_id;
-        if (fixed.plan().owner().node_id() != node
-            || fixed.plan().owner().service_id() != configuration_.service)
-            throw Error(
-                ErrorCode::conflict,
-                "model preparation belongs to another Research service");
-        co_await wait_for_store({}, call.deadline);
-        (void)research::Models(*storage_, fixed.plan().owner())
-            .admission(
-                protocol::model_plan_object(fixed.plan()),
-                prepared.execution().program_artifact());
-        std::optional<Store::Submission> input;
-        co_await file_work([&] {
-            (void)programs::Files(configuration_.directory / "programs", fixed.plan().owner())
-                .verify(prepared.execution().program_artifact());
-            const auto path = configuration_.directory / id / "input.pb";
-            if (!std::filesystem::exists(path)) {
-                const auto restored = payload::publish(path, fixed, payload::max_input_bytes);
-                if (restored.digest != prepared.record().input_digest()
-                    || restored.size != prepared.record().input_bytes())
-                    throw std::invalid_argument(
-                        "reconstructed model descriptor differs from preparation");
-            }
-            input.emplace(storage_->resume_submission(id));
-        });
-        *call.response.mutable_task() = (co_await submit(
-                                             call,
-                                             [&] {
-                                                 return std::move(*input);
-                                             },
-                                             true))
-                                            .task();
-        co_return;
-    }
-    if (prepared.execution().has_model_time()) {
-        const auto& fixed = prepared.execution().model_time();
-        protocol::validate_model_time_input(fixed);
-        const auto node = configuration_.node_id;
-        if (fixed.plan().owner().node_id() != node
-            || fixed.plan().owner().service_id() != configuration_.service)
-            throw Error(
-                ErrorCode::conflict,
-                "model preparation belongs to another Research service");
-        co_await wait_for_store({}, call.deadline);
-        (void)research::Models(*storage_, fixed.plan().owner())
-            .time_admission(
-                protocol::model_time_plan_object(fixed.plan()),
-                prepared.execution().program_artifact());
-        std::optional<Store::Submission> input;
-        co_await file_work([&] {
-            (void)programs::Files(configuration_.directory / "programs", fixed.plan().owner())
-                .verify(prepared.execution().program_artifact());
-            const auto path = configuration_.directory / id / "input.pb";
-            if (!std::filesystem::exists(path)) {
-                const auto restored = payload::publish(path, fixed, payload::max_input_bytes);
-                if (restored.digest != prepared.record().input_digest()
-                    || restored.size != prepared.record().input_bytes())
-                    throw std::invalid_argument(
-                        "reconstructed model descriptor differs from preparation");
             }
             input.emplace(storage_->resume_submission(id));
         });
@@ -369,50 +291,6 @@ PolledTask<> ResearchHost::abandon_preparation(Call& call)
             reply->set_state(resource::proto::ReleaseDecision::RELEASED);
             co_return;
         }
-        if (prepared.execution().has_model_training()) {
-            const auto& fixed = prepared.execution().model_training();
-            protocol::validate_model_training_input(fixed);
-            if (fixed.plan().owner().node_id() != node
-                || fixed.plan().owner().service_id() != configuration_.service)
-                throw Error(
-                    ErrorCode::conflict,
-                    "model preparation belongs to another Research service");
-            resource::proto::Object object;
-            *object.mutable_owner() = fixed.plan().owner();
-            object.set_kind("model_training");
-            object.set_id(id);
-            object.set_version(prepared.record().input_digest());
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            (void)co_await commit(storage_->abandon_preparation(prepared, object));
-            auto* reply = call.response.mutable_release_decision();
-            *reply->mutable_object() = object;
-            reply->set_state(resource::proto::ReleaseDecision::RELEASED);
-            co_return;
-        }
-        if (prepared.execution().has_model_time()) {
-            const auto& fixed = prepared.execution().model_time();
-            protocol::validate_model_time_input(fixed);
-            if (fixed.plan().owner().node_id() != node
-                || fixed.plan().owner().service_id() != configuration_.service)
-                throw Error(
-                    ErrorCode::conflict,
-                    "model preparation belongs to another Research service");
-            resource::proto::Object object;
-            *object.mutable_owner() = fixed.plan().owner();
-            object.set_kind("model_time_validation");
-            object.set_id(id);
-            object.set_version(prepared.record().input_digest());
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            (void)co_await commit(storage_->abandon_preparation(prepared, object));
-            auto* reply = call.response.mutable_release_decision();
-            *reply->mutable_object() = object;
-            reply->set_state(resource::proto::ReleaseDecision::RELEASED);
-            co_return;
-        }
         if (prepared.execution().has_evaluation()) {
             const auto& fixed = prepared.execution().evaluation();
             protocol::validate_evaluation_input(fixed);
@@ -479,66 +357,6 @@ PolledTask<> ResearchHost::retirement(Call& call)
     call.input_in_time();
     auto preview = storage_->retirement(request.id(), node);
     co_await strategy_holders(call, preview);
-    if (storage_->describe(request.id()).kind() == wire::MODEL_TRAINING) {
-        wire::PreparedTaskSubmission prepared;
-        co_await file_work([&] {
-            prepared = storage_->prepared_submission_record(request.id());
-        });
-        const auto& fixed = prepared.execution().model_training();
-        protocol::validate_model_training_input(fixed);
-        if (fixed.plan().owner().node_id() != node
-            || fixed.plan().owner().service_id() != configuration_.service
-            || preview.object().owner().SerializeAsString()
-                != fixed.plan().owner().SerializeAsString()
-            || preview.object().version() != prepared.record().input_digest()
-            || preview.object().kind() != "model_training")
-            throw Error(ErrorCode::conflict, "model retirement original identity changed");
-        if (request.execute() && preview.state() == wire::TaskRetirement::AVAILABLE) {
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            preview = storage_->retirement(request.id(), node);
-            co_await strategy_holders(call, preview);
-            if (preview.state() == wire::TaskRetirement::AVAILABLE) {
-                (void)co_await commit(storage_->retire(preview.object()));
-                preview = storage_->retirement(request.id(), node);
-            }
-        }
-        // Same-domain reference authority; logical retirement preserves all evidence.
-        preview.set_source_release_confirmed(preview.state() == wire::TaskRetirement::RETIRED);
-        *call.response.mutable_retirement() = std::move(preview);
-        co_return;
-    }
-    if (storage_->describe(request.id()).kind() == wire::MODEL_TIME_VALIDATION) {
-        wire::PreparedTaskSubmission prepared;
-        co_await file_work([&] {
-            prepared = storage_->prepared_submission_record(request.id());
-        });
-        const auto& fixed = prepared.execution().model_time();
-        protocol::validate_model_time_input(fixed);
-        if (fixed.plan().owner().node_id() != node
-            || fixed.plan().owner().service_id() != configuration_.service
-            || preview.object().owner().SerializeAsString()
-                != fixed.plan().owner().SerializeAsString()
-            || preview.object().version() != prepared.record().input_digest()
-            || preview.object().kind() != "model_time_validation")
-            throw Error(ErrorCode::conflict, "model retirement original identity changed");
-        if (request.execute() && preview.state() == wire::TaskRetirement::AVAILABLE) {
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            preview = storage_->retirement(request.id(), node);
-            co_await strategy_holders(call, preview);
-            if (preview.state() == wire::TaskRetirement::AVAILABLE) {
-                (void)co_await commit(storage_->retire(preview.object()));
-                preview = storage_->retirement(request.id(), node);
-            }
-        }
-        // Same-domain reference authority; logical retirement preserves all evidence.
-        preview.set_source_release_confirmed(preview.state() == wire::TaskRetirement::RETIRED);
-        *call.response.mutable_retirement() = std::move(preview);
-        co_return;
-    }
     if (storage_->describe(request.id()).kind() == wire::LOGIC_TRIAL) {
         wire::PreparedTaskSubmission prepared;
         co_await file_work([&] {

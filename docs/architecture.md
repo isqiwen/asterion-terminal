@@ -59,7 +59,7 @@ flowchart TB
 | `asterion_node_agent` | 每个节点：服务部署、启停、健康探测、有限重启、资源观察、程序升级 |
 | `asterion_market` | CTP 实时行情、合约目录、事件流、当日分钟线 |
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
-| `asterion_research` | 研究类任务（回测、因子、统计、样本、模型、评估、复核）及研究项目、变量、逻辑、策略包、批次 |
+| `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估、账户复核）及研究项目、变量、逻辑、策略包 |
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |
 
 - 本机使用 Unix Socket，远程使用 TCP + 双向 TLS，消息均为 `protocol/proto/asterion/` 中的 Protobuf。
@@ -118,7 +118,7 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 | 数据 | `data/ctp`、`data/tushare`、`data/shfe`、`data/registry` |
 | 执行 | `execution/paper`（回测撮合）、`execution/ctp` |
 | 存储 | `storage/sqlite`、`storage/filesystem`、`storage/parquet` |
-| 策略 | `strategy/cta`（四条单合约规则与截面排序）、`strategy/models`（线性/岭回归） |
+| 策略 | `strategy/cta`（四条单合约规则与截面排序） |
 | 风控 | `risk/order-limits`、`risk/registry` |
 | 工具 | `tools/chart_indicators`、`tools/factor_analysis`、`tools/performance`、`tools/analytics`（Polars/QuantStats/skfolio 冻结助手） |
 

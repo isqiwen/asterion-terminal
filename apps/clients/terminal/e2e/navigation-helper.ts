@@ -7,7 +7,6 @@ import research from "../plugins/research/locales/en-US.json";
 // Exercise the public product navigation; do not inject internal route state.
 const destinations = {
   logic: ["策略", "策略逻辑", "策略逻辑与事先样例"],
-  models: ["策略", "策略逻辑", "固定来源模型训练"],
   strategies: ["策略", "策略管理与交付"],
   projects: ["分析", "数据探索", "研究项目与假设"],
   samples: ["分析", "数据探索", "独立研究样本"],

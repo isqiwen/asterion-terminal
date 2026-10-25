@@ -104,7 +104,6 @@ TEST(StrategyPackages, PortfolioDefinitionFixesEveryMemberWithoutAnIgnoredSingle
     ASSERT_TRUE(definition.has_portfolio());
     EXPECT_FALSE(definition.has_contract());
     EXPECT_FALSE(definition.has_strategy());
-    EXPECT_FALSE(definition.has_model_replay());
     ASSERT_EQ(definition.portfolio().contracts_size(), 2);
     EXPECT_EQ(
         definition.portfolio().contracts(1).SerializeAsString(),

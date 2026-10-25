@@ -9,7 +9,6 @@ import {
 import type { TaskResult } from "../../src/bridge/client";
 import { t, namespace, type Run } from "./shared";
 import { retiredResearch } from "./shared";
-import { ModelReplaySetup } from "./ModelReplaySetup";
 type Evidence = Pick<
   Extract<TaskResult, { kind: "backtest" }>,
   "id" | "task" | "experiment" | "input_sha256"
@@ -84,24 +83,9 @@ export function BacktestReuse({
   }
   if (retiredResearch(snapshot, evidence.task))
     return <p role="status">{t("原记录已退役，不能新增派生实验")}</p>;
-  if (evidence.experiment.model_replay)
-    return <p>{t("模型模拟已固定原映射与原数据；新方案请从原参考回测明确创建。")}</p>;
   return (
     <section aria-label={t("按此回测创建")}>
       <h4>{t("按此回测创建")}</h4>
-      <ModelReplaySetup
-        key={JSON.stringify([
-          snapshot?.research_service?.owner_node_id,
-          snapshot?.research_service?.service,
-          evidence.id,
-          evidence.task.result_digest,
-        ])}
-        evidence={evidence}
-        snapshot={snapshot}
-        busy={busy}
-        query={query}
-        run={run}
-      />
       <p className="subtle">
         {t(
           "复用经校验的原回测固定输入；同一研究服务内相同内容共享保存，任务与结果仍独立。保留策略、资金、逐日费用、风险、滑点及评价边界，不把重复留出当作新的样本外验证。",

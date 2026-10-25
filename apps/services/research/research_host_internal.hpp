@@ -1,6 +1,5 @@
 #pragma once
 // Internal to the Research host implementation files.
-#include "backtest/model_strategy.hpp"
 #include <asterion/research.pb.h>
 #include "research_host.hpp"
 #include "research_submission.hpp"
@@ -8,13 +7,6 @@
 #include "variable_store.hpp"
 #include "logic_store.hpp"
 #include "strategy_store.hpp"
-#include "batch_store.hpp"
-#include "model_store.hpp"
-#include "research_models.hpp"
-#include <asterion/protocol/research_model.hpp>
-#include "research_batch.hpp"
-#include <asterion/protocol/research_batch.hpp>
-#include <asterion/protocol/research_assessment.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include "research_execution.hpp"
@@ -100,18 +92,11 @@ inline void check_submission_shape(const research::proto::ResearchSubmit& submit
     if (submit.has_research_plan() && !submit.has_factor_request() && !submit.has_sample()
         && !submit.has_statistics() && !submit.has_backtest())
         throw std::invalid_argument("research plan task kind is unsupported");
-    if (submit.derivation().has_batch() && !submit.has_backtest_reuse())
-        throw std::invalid_argument("batch member requires fixed backtest reuse");
 }
 
 inline void check_retry(const wire::Task& task)
 {
     switch (task.kind()) {
-        case wire::MODEL_TRAINING:
-        case wire::MODEL_TIME_VALIDATION:
-            throw Error(
-                ErrorCode::conflict,
-                "model training retry requires a new explicit task admission");
         case wire::BACKTEST:
         case wire::FACTOR:
         case wire::ACCOUNT_REVIEW:
@@ -119,10 +104,6 @@ inline void check_retry(const wire::Task& task)
         case wire::PERFORMANCE_EVALUATION:
         case wire::SAMPLE:
         case wire::LOGIC_TRIAL:
-            if (task.metadata().derivation().has_batch())
-                throw Error(
-                    ErrorCode::conflict,
-                    "batch member retry requires a new explicitly budgeted batch");
             return;
         default:
             throw Error(ErrorCode::conflict, "acquisition belongs to the data service");
@@ -132,8 +113,7 @@ inline void check_retry(const wire::Task& task)
 // Requests that change durable state are refused once an upgrade asked to quiesce.
 inline bool changes_state(const research::proto::ResearchRequest& request)
 {
-    return (request.has_project() && request.project().has_mutation())
-        || (request.has_model() && request.model().has_mutation()) || request.has_submit()
+    return (request.has_project() && request.project().has_mutation()) || request.has_submit()
         || request.has_metadata_edit() || request.has_retry() || request.has_recover_submission()
         || request.has_abandon_preparation()
         || (request.has_retirement() && request.retirement().execute());
@@ -190,10 +170,6 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
     co_await ready(call);
     call.input_in_time();
     refuse_during_upgrade(quiescing_);
-    if (!batch_admission_open(call, id))
-        throw Error(
-            ErrorCode::conflict,
-            "batch stopped or exhausted its budget before member admission");
     storage_->admit_submission(*input);
     try {
         data::proto::DataRetention retention;
@@ -201,8 +177,7 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
             if (!prepared_files)
                 input->prepare_files();
             if (input->execution().has_account_review() || input->execution().has_statistics()
-                || input->execution().has_evaluation() || input->execution().has_logic_trial()
-                || input->execution().has_model_training() || input->execution().has_model_time())
+                || input->execution().has_evaluation() || input->execution().has_logic_trial())
                 return; // Owned fixed evidence; source domains retain their formal publications.
             if (!call.data_route)
                 throw std::logic_error("research submission has no resolved data owner");
@@ -213,28 +188,9 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
                 id);
             save_research_retention(configuration_.directory / id, retention);
         });
-        if (call.request.has_submit() && call.request.submit().derivation().has_batch())
-            co_await verify_prepared_batch(call, *input);
         if (input->execution().has_account_review() || input->execution().has_statistics()
-            || input->execution().has_evaluation() || input->execution().has_logic_trial()
-            || input->execution().has_model_training() || input->execution().has_model_time()) {
+            || input->execution().has_evaluation() || input->execution().has_logic_trial()) {
             co_await ready(call);
-            if (input->execution().has_model_training()) {
-                co_await wait_for_store({}, call.deadline);
-                const auto execution = input->execution();
-                const auto& fixed = execution.model_training().plan();
-                (void)research::Models(*storage_, fixed.owner())
-                    .admission(protocol::model_plan_object(fixed), execution.program_artifact());
-            }
-            if (input->execution().has_model_time()) {
-                co_await wait_for_store({}, call.deadline);
-                const auto execution = input->execution();
-                const auto& fixed = execution.model_time().plan();
-                (void)research::Models(*storage_, fixed.owner())
-                    .time_admission(
-                        protocol::model_time_plan_object(fixed),
-                        execution.program_artifact());
-            }
             if (input->execution().has_logic_trial()) {
                 co_await wait_for_store({}, call.deadline);
                 const auto fixed = input->execution().logic_trial();
@@ -260,23 +216,6 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
             co_await wait_for_store({}, call.deadline);
             research::Strategies(*storage_, input->execution().strategy_use().package().owner())
                 .verify_use(input->execution().strategy_use(), id, true);
-        }
-        if (input->execution().has_model_replay()) {
-            co_await wait_for_store({}, call.deadline);
-            const auto definition = input->execution().model_replay();
-            research::Models models(*storage_, definition.mapping().owner());
-            if (models.mapping(definition.mapping().id()).SerializeAsString()
-                != definition.mapping().SerializeAsString())
-                throw Error(ErrorCode::conflict, "model replay mapping changed before admission");
-            (void)models.time_admission(
-                protocol::model_time_plan_object(definition.training().plan()),
-                input->execution().program_artifact());
-        }
-        while (call.request.has_submit() && call.request.submit().derivation().has_batch()) {
-            bool existing = storage_->find_task(id).has_value();
-            if (existing || batch_admission_open(call, id))
-                break;
-            co_await verify_prepared_batch(call, *input);
         }
         co_return co_await commit(storage_->register_submission(*input));
     } catch (...) {

@@ -9,9 +9,6 @@ import "asterion/research_evaluation.proto";
 import "asterion/research_sample.proto";
 import "asterion/research_strategy.proto";
 import "asterion/research_logic.proto";
-import "asterion/research_batch.proto";
-import "asterion/research_assessment.proto";
-import "asterion/research_model.proto";
 import "asterion/factor.proto";
 import "asterion/backtest.proto";
 import "asterion/data.proto";
@@ -31,8 +28,6 @@ enum TaskKind {
   STATISTICS = 10;
   SAMPLE = 11;
   LOGIC_TRIAL = 12;
-  MODEL_TRAINING = 13;
-  MODEL_TIME_VALIDATION = 14;
   PERFORMANCE_EVALUATION = 15;
 }
 
@@ -43,7 +38,6 @@ message TaskDerivation {
   string data_choice = 3;
   string snapshot = 4;
   string source_instance = 5;
-  asterion.resource.proto.Object batch = 6; // Exact immutable finite manifest, when present.
 }
 message TaskMetadata {
   uint32 revision = 1;
@@ -75,8 +69,6 @@ message Task {
     asterion.research.proto.StatisticsInput statistics = 38;
     asterion.research.proto.SampleInput sample = 39;
     asterion.research.proto.LogicTrialInput logic_trial = 41;
-    asterion.research.proto.ModelTrainingInput model_training = 42;
-    asterion.research.proto.ModelTimeInput model_time = 44;
     asterion.research.proto.EvaluationInput evaluation = 46;
   }
   TaskKind kind = 6;
@@ -98,8 +90,6 @@ message Task {
   string program_artifact = 35;
   asterion.research.proto.ProjectBinding research_plan = 36;
   asterion.research.proto.StrategyUse strategy_use = 40;
-  asterion.resource.proto.Object model_plan = 43;
-  asterion.resource.proto.Object model_time_plan = 45;
   asterion.resource.proto.Object variable_definition = 37;
   string download_authorization = 20;
   string provider_artifact = 21; // Immutable native provider SHA-256 for downloads.
@@ -159,7 +149,6 @@ message TaskId {
 message TaskExecution {
   string input_sha256 = 1;
   string program_artifact = 10;
-  asterion.research.proto.ModelReplayDefinition model_replay = 19;
   asterion.research.proto.ProjectBinding research_plan = 11;
   asterion.research.proto.StrategyUse strategy_use = 15;
   asterion.research.proto.VariableDefinition variable_definition = 12;
@@ -171,8 +160,6 @@ message TaskExecution {
     asterion.research.proto.StatisticsInput statistics = 13;
     asterion.research.proto.SampleExecution sample = 14;
     asterion.research.proto.LogicTrialInput logic_trial = 16;
-    asterion.research.proto.ModelTrainingInput model_training = 17;
-    asterion.research.proto.ModelTimeInput model_time = 18;
     asterion.research.proto.EvaluationInput evaluation = 20;
   }
   repeated asterion.data.proto.DominantSchedule schedules = 4;
@@ -200,8 +187,6 @@ message TaskFinish {
     asterion.research.proto.StatisticsResult statistics = 12;
     asterion.research.proto.SampleResult sample = 13;
     asterion.research.proto.LogicTrialResult logic_trial = 14;
-    asterion.research.proto.ModelTrainingResult model_training = 15;
-    asterion.research.proto.ModelTimeResult model_time = 16;
     asterion.research.proto.EvaluationResult evaluation = 17;
   }
 }
@@ -218,13 +203,6 @@ message TaskHealth {
 message ProjectTaskPage {
   repeated Task tasks = 1;
   uint32 next_before_sequence = 2;
-}
-// A direct Research projection. Member task states come from the original store.
-message ResearchBatchReply {
-  asterion.research.proto.BacktestBatchState state = 1;
-  repeated asterion.research.proto.BacktestBatchState states = 2;
-  string next_after = 3;
-  repeated Task members = 4;
 }
 message TaskResponse {
   reserved 19;
@@ -256,12 +234,7 @@ message TaskResponse {
     asterion.research.proto.StrategyReply strategy = 36;
     asterion.research.proto.LogicTrialResult logic_trial = 37;
     asterion.research.proto.LogicReply logic = 38;
-    ResearchBatchReply batch = 39;
-    asterion.research.proto.ModelTrainingResult model_training = 40;
-    asterion.research.proto.ModelReply model = 41;
-    asterion.research.proto.ModelTimeResult model_time = 42;
     asterion.research.proto.EvaluationResult evaluation = 43;
-    asterion.research.proto.BatchAssessmentReply assessment = 44;
   }
 }
 

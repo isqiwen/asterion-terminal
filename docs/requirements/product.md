@@ -51,6 +51,8 @@
 
 ## 范围与优先级
 
+首个发布只交付其中一条闭环，范围见[首个发布切片 R1](release-r1.md)。
+
 数据模块按三个子模块组织，详细职责、8 项界面对应及目标业务流程见[数据模块详细设计](modules/data/README.md)。[从采集到研究输入](workflows/README.md#jrn-001)可用于逐步评审；[实时中断与补采](workflows/README.md#jrn-002)和[修订与依赖保护](workflows/README.md#jrn-003)用于检查异常。
 
 ### 功能范围

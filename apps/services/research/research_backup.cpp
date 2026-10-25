@@ -4,11 +4,6 @@
 #include "variable_store.hpp"
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
-#include "batch_store.hpp"
-#include "model_store.hpp"
-#include <asterion/protocol/research_model.hpp>
-#include <asterion/protocol/research_batch.hpp>
-#include <asterion/protocol/research_assessment.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include "risk_module.hpp"
 #include <asterion/protocol/research_strategy.hpp>
@@ -59,13 +54,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     std::vector<proto::StatisticsSource> statistics_sources;
     std::vector<proto::EvaluationInput> evaluation_sources;
     std::vector<proto::LogicTrialInput> required_logic;
-    std::vector<proto::ModelTrainingInput> required_models;
-    std::vector<proto::ModelTimeInput> required_times;
-    std::vector<proto::ModelReplayDefinition> required_replays;
-    std::map<std::string, proto::ModelReplayDefinition> replay_sources;
-    std::map<std::string, proto::ModelMapping> retained_mappings;
-    std::map<std::string, proto::ModelTimePlan> retained_time_plans;
-    std::vector<task::proto::StoredTaskRecord> required_batches;
     bool missing_original_program = false;
     std::set<std::string> required_programs;
     std::vector<proto::ProjectBinding> required_plans;
@@ -316,117 +304,10 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
         }
         return input;
     };
-    const auto inspect_model = [&](const task::proto::StoredTaskRecord& record,
-                                   const task::proto::TaskExecution& execution) {
-        if (!execution.has_model_training())
-            throw Error(ErrorCode::conflict, "model backup lacks its fixed training input");
-        const auto& fixed = execution.model_training();
-        protocol::validate_model_training_input(fixed);
-        if (fixed.plan().owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.input_sha256() != record.input_digest()
-            || sha256_bytes(fixed.SerializeAsString()) != record.input_digest()
-            || record.task().model_plan().SerializeAsString()
-                != protocol::model_plan_object(fixed.plan()).SerializeAsString()
-            || !record.task().metadata().has_derivation()
-            || record.task().metadata().derivation().source_id()
-                != fixed.plan().source().result().id()
-            || record.task().metadata().derivation().source_result_digest()
-                != fixed.plan().source().result().version())
-            throw Error(ErrorCode::conflict, "model backup differs from its fixed plan and source");
-        inspect_calculation_program(record, execution);
-        required_models.push_back(fixed);
-        depend(protocol::model_plan_object(fixed.plan()));
-        resource::proto::Object input;
-        *input.mutable_owner() = owner;
-        input.set_kind("model_training");
-        input.set_id(record.task().id());
-        input.set_version(record.input_digest());
-        if (record.task().has_retirement()
-            && record.task().retirement().SerializeAsString() != input.SerializeAsString())
-            throw Error(ErrorCode::conflict, "model retirement backup identity mismatch");
-        result.objects.push_back(input);
-        inputs.emplace(input.id(), input);
-        if (record.task().state() == task::proto::SUCCEEDED) {
-            auto output = input;
-            output.set_kind("model_training_result");
-            output.set_version(record.task().result_digest());
-            result.objects.push_back(std::move(output));
-        }
-        return input;
-    };
-    const auto inspect_model_time = [&](const task::proto::StoredTaskRecord& record,
-                                        const task::proto::TaskExecution& execution) {
-        if (!execution.has_model_time())
-            throw Error(ErrorCode::conflict, "model backup lacks its fixed training input");
-        const auto& fixed = execution.model_time();
-        protocol::validate_model_time_input(fixed);
-        if (fixed.plan().owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.input_sha256() != record.input_digest()
-            || sha256_bytes(fixed.SerializeAsString()) != record.input_digest()
-            || record.task().model_time_plan().SerializeAsString()
-                != protocol::model_time_plan_object(fixed.plan()).SerializeAsString()
-            || !record.task().metadata().has_derivation()
-            || record.task().metadata().derivation().source_id()
-                != fixed.plan().recipe().source().result().id()
-            || record.task().metadata().derivation().source_result_digest()
-                != fixed.plan().recipe().source().result().version())
-            throw Error(ErrorCode::conflict, "model backup differs from its fixed plan and source");
-        inspect_calculation_program(record, execution);
-        required_times.push_back(fixed);
-        depend(protocol::model_time_plan_object(fixed.plan()));
-        resource::proto::Object input;
-        *input.mutable_owner() = owner;
-        input.set_kind("model_time_validation");
-        input.set_id(record.task().id());
-        input.set_version(record.input_digest());
-        if (record.task().has_retirement()
-            && record.task().retirement().SerializeAsString() != input.SerializeAsString())
-            throw Error(ErrorCode::conflict, "model retirement backup identity mismatch");
-        result.objects.push_back(input);
-        inputs.emplace(input.id(), input);
-        if (record.task().state() == task::proto::SUCCEEDED) {
-            auto output = input;
-            output.set_kind("model_time_validation_result");
-            output.set_version(record.task().result_digest());
-            result.objects.push_back(std::move(output));
-        }
-        return input;
-    };
-    const auto inspect_replay = [&](const task::proto::StoredTaskRecord& record,
-                                    const task::proto::TaskExecution& execution) {
-        if (!execution.has_model_replay())
-            return;
-        const auto& fixed = execution.model_replay();
-        protocol::validate_model_replay_definition(fixed);
-        if (record.task().kind() != task::proto::BACKTEST || !execution.has_backtest()
-            || fixed.mapping().owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.program_artifact() != fixed.training().plan().recipe().program_artifact())
-            throw Error(ErrorCode::conflict, "model replay backup identity mismatch");
-        required_replays.push_back(fixed);
-        replay_sources.emplace(record.task().id(), fixed);
-        required_times.push_back(fixed.training());
-        depend(protocol::model_mapping_object(fixed.mapping()));
-        depend(fixed.mapping().specification().model());
-    };
     const auto inspect = [&](const task::proto::StoredTaskRecord& record,
                              const task::proto::TaskExecution& execution) {
         const auto& task = record.task();
-        if (task.metadata().derivation().has_batch()) {
-            required_batches.push_back(record);
-            depend(task.metadata().derivation().batch());
-        }
         source_records.emplace(task.id(), record);
-        inspect_replay(record, execution);
-        if (task.kind() == task::proto::MODEL_TRAINING) {
-            (void)inspect_model(record, execution);
-            origins.push_back(task.metadata());
-            return;
-        }
-        if (task.kind() == task::proto::MODEL_TIME_VALIDATION) {
-            (void)inspect_model_time(record, execution);
-            origins.push_back(task.metadata());
-            return;
-        }
         if (task.kind() == task::proto::LOGIC_TRIAL) {
             (void)inspect_logic(record, execution);
             return;
@@ -500,22 +381,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     const auto inspect_abandoned = [&](const task::proto::PreparedTaskSubmission& evidence,
                                        const resource::proto::Object& decision) {
         const auto& execution = evidence.execution();
-        if (evidence.record().task().metadata().derivation().has_batch()) {
-            required_batches.push_back(evidence.record());
-            depend(evidence.record().task().metadata().derivation().batch());
-        }
-        if (evidence.record().task().kind() == task::proto::MODEL_TRAINING) {
-            if (inspect_model(evidence.record(), execution).SerializeAsString()
-                != decision.SerializeAsString())
-                throw Error(ErrorCode::conflict, "model abandonment backup identity mismatch");
-            return;
-        }
-        if (evidence.record().task().kind() == task::proto::MODEL_TIME_VALIDATION) {
-            if (inspect_model_time(evidence.record(), execution).SerializeAsString()
-                != decision.SerializeAsString())
-                throw Error(ErrorCode::conflict, "model abandonment backup identity mismatch");
-            return;
-        }
         if (evidence.record().task().kind() == task::proto::LOGIC_TRIAL) {
             if (inspect_logic(evidence.record(), execution).SerializeAsString()
                 != decision.SerializeAsString())
@@ -541,7 +406,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             return;
         }
         inspect_calculation_program(evidence.record(), execution);
-        inspect_replay(evidence.record(), execution);
         tasks::ResearchDataRoute route{execution.data_owner(), {}, owner.node_id()};
         const auto retention = tasks::research_retention(
             execution,
@@ -632,64 +496,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             depend(std::move(plan));
         },
         stop);
-    Models::inspect_backup(
-        root,
-        owner,
-        required_models,
-        [&](const proto::ModelDraft& draft) {
-            result.objects.push_back(protocol::model_draft_object(draft));
-            if (draft.specification().has_source())
-                depend(draft.specification().source());
-        },
-        [&](const proto::ModelPlan& plan) {
-            result.objects.push_back(protocol::model_plan_object(plan));
-            depend(plan.source().result());
-            auto source = plan.source().result();
-            source.set_kind("factor");
-            source.set_version(plan.source().input_sha256());
-            depend(std::move(source));
-            if (plan.source().has_variable_definition())
-                depend(plan.source().variable_definition());
-            for (const auto& artifact :
-                {plan.program_artifact(), plan.source().program_artifact()}) {
-                required_programs.insert(artifact);
-                resource::proto::Object program;
-                *program.mutable_owner() = owner;
-                program.set_kind("research_program");
-                program.set_id(artifact);
-                program.set_version(artifact);
-                depend(std::move(program));
-            }
-        },
-        stop,
-        [&](const proto::ModelMapping& mapping) {
-            result.objects.push_back(protocol::model_mapping_object(mapping));
-            retained_mappings.emplace(mapping.id(), mapping);
-            depend(mapping.specification().model());
-            depend(mapping.plan());
-        },
-        [&](const proto::ModelTimePlan& time_plan) {
-            result.objects.push_back(protocol::model_time_plan_object(time_plan));
-            depend(time_plan.specification().recipe());
-            retained_time_plans.emplace(time_plan.id(), time_plan);
-        });
-    for (const auto& replay : required_replays) {
-        const auto found = retained_mappings.find(replay.mapping().id());
-        if (found == retained_mappings.end()
-            || found->second.SerializeAsString() != replay.mapping().SerializeAsString())
-            throw Error(
-                ErrorCode::conflict,
-                "model replay differs from its retained immutable mapping");
-    }
-    for (const auto& input : required_times) {
-        const auto found = retained_time_plans.find(input.plan().id());
-        if (found == retained_time_plans.end()
-            || found->second.SerializeAsString() != input.plan().SerializeAsString())
-            throw Error(
-                ErrorCode::conflict,
-                "model time task differs from its retained immutable plan");
-    }
-
     Variables::inspect_backup(
         root,
         owner,
@@ -710,73 +516,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             depend(value.definition());
         },
         stop);
-    Batches::inspect_backup(
-        root,
-        owner,
-        required_batches,
-        [&](const proto::BacktestBatchState& value) {
-            const auto& definition = value.definition();
-            result.objects.push_back(protocol::backtest_batch_object(definition));
-            depend(definition.request().source());
-            auto input = definition.request().source();
-            input.set_kind("backtest");
-            input.set_version(definition.source_input_sha256());
-            depend(std::move(input));
-            required_programs.insert(definition.program_artifact());
-            resource::proto::Object program;
-            *program.mutable_owner() = owner;
-            program.set_kind("research_program");
-            program.set_id(definition.program_artifact());
-            program.set_version(definition.program_artifact());
-            depend(std::move(program));
-        },
-        stop);
-    std::vector<std::string> assessment_parents;
-    Batches::inspect_assessments(
-        root,
-        owner,
-        [&](const proto::BatchAssessment& value) {
-            result.objects.push_back(protocol::batch_assessment_object(value));
-            depend(value.declaration().batch());
-            if (!value.declaration().previous_id().empty())
-                assessment_parents.push_back(value.declaration().previous_id());
-            const auto keep_program = [&](const std::string& artifact) {
-                required_programs.insert(artifact);
-                resource::proto::Object program;
-                *program.mutable_owner() = owner;
-                program.set_kind("research_program");
-                program.set_id(artifact);
-                program.set_version(artifact);
-                depend(std::move(program));
-            };
-            keep_program(value.program_artifact());
-            const auto keep_original = [&](const proto::BatchAssessmentTask& observed) {
-                resource::proto::Object input;
-                *input.mutable_owner() = owner;
-                input.set_kind("backtest");
-                input.set_id(observed.id());
-                input.set_version(observed.input_sha256());
-                depend(input);
-                if (observed.state() == task::proto::SUCCEEDED) {
-                    input.set_kind("backtest_result");
-                    input.set_version(observed.result_sha256());
-                    depend(std::move(input));
-                }
-                keep_program(observed.program_artifact());
-            };
-            keep_original(value.snapshot().source());
-            for (const auto& observed : value.snapshot().members())
-                keep_original(observed);
-        },
-        stop);
-    for (const auto& id : assessment_parents) {
-        const auto parent = std::ranges::find_if(result.objects, [&](const auto& object) {
-            return object.kind() == "backtest_batch_assessment" && object.id() == id;
-        });
-        if (parent == result.objects.end())
-            throw Error(ErrorCode::conflict, "batch assessment retained source task is missing");
-        depend(*parent);
-    }
     Strategies::inspect_backup(
         root,
         owner,
@@ -784,24 +523,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
         [&](const proto::StrategyPackage& value) {
             result.objects.push_back(protocol::strategy_package_object(value));
             depend(protocol::strategy_source(value));
-            if (value.definition().has_model_replay()) {
-                const auto& fixed = value.definition().model_replay();
-                const auto source = replay_sources.find(value.reference_result().id());
-                if (source == replay_sources.end()
-                    || source->second.SerializeAsString() != fixed.SerializeAsString())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "model package differs from its actual reference simulation");
-                const auto mapping = retained_mappings.find(fixed.mapping().id());
-                if (mapping == retained_mappings.end()
-                    || mapping->second.SerializeAsString() != fixed.mapping().SerializeAsString())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "model package fixed mapping is missing or changed");
-                depend(protocol::model_mapping_object(fixed.mapping()));
-                depend(protocol::model_time_plan_object(fixed.training().plan()));
-                depend(fixed.mapping().specification().model());
-            }
             if (value.has_logic()) {
                 depend(protocol::logic_object(value.logic().definition()));
                 depend(value.logic().example());

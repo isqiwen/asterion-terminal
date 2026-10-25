@@ -1,13 +1,4 @@
 export type QueryCommand =
-  | "research.model.list"
-  | "research.model.read"
-  | "research.model.mapping.preview"
-  | "research.batch.list"
-  | "research.batch.read"
-  | "research.batch.assessment.preview"
-  | "research.batch.assessment.read"
-  | "research.batch.assessment.list"
-  | "research.batch.assessment.export"
   | "research.logic.list"
   | "research.logic.read"
   | "research.logic.examples"

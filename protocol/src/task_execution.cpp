@@ -7,7 +7,6 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_model.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/account_review.hpp>
@@ -48,8 +47,6 @@ task_execution(const task::proto::Task& task, const std::string& input_sha256)
         const auto& input = task.input();
         if (input.has_data_owner())
             *result.mutable_data_owner() = input.data_owner();
-        if (input.has_model_replay())
-            *result.mutable_model_replay() = input.model_replay();
         auto* parameters = result.mutable_backtest();
         if (input.has_performance_assumptions())
             *parameters->mutable_performance_assumptions() = input.performance_assumptions();
@@ -134,23 +131,6 @@ task_execution(const task::proto::Task& task, const std::string& input_sha256)
     } else if (task.has_logic_trial()) {
         validate_logic_trial_input(task.logic_trial());
         *result.mutable_logic_trial() = task.logic_trial();
-    } else if (task.has_model_training()) {
-        validate_model_training_input(task.model_training());
-        const auto& plan = task.model_training().plan();
-        if (!task.has_model_plan()
-            || task.model_plan().SerializeAsString() != model_plan_object(plan).SerializeAsString()
-            || task.program_artifact() != plan.program_artifact())
-            throw std::invalid_argument("model training differs from its fixed plan or program");
-        *result.mutable_model_training() = task.model_training();
-    } else if (task.has_model_time()) {
-        validate_model_time_input(task.model_time());
-        const auto& plan = task.model_time().plan();
-        if (!task.has_model_time_plan()
-            || task.model_time_plan().SerializeAsString()
-                != model_time_plan_object(plan).SerializeAsString()
-            || task.program_artifact() != plan.recipe().program_artifact())
-            throw std::invalid_argument("model training differs from its fixed plan or program");
-        *result.mutable_model_time() = task.model_time();
     } else if (task.has_evaluation()) {
         validate_evaluation_input(task.evaluation());
         *result.mutable_evaluation() = task.evaluation();
@@ -170,7 +150,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
     if (!execution.program_artifact().empty()
         && ((!execution.has_backtest() && !execution.has_factor() && !execution.has_statistics()
                 && !execution.has_sample() && !execution.has_logic_trial()
-                && !execution.has_model_training() && !execution.has_model_time()
                 && !execution.has_evaluation())
             || execution.program_artifact().size() != 64
             || execution.program_artifact().find_first_not_of("0123456789abcdef")
@@ -182,14 +161,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
         validate_strategy_use(execution.strategy_use());
         if (!execution.has_backtest())
             throw std::invalid_argument("invalid fixed strategy use owner or task kind");
-    }
-    if (execution.has_model_replay()) {
-        if (!execution.has_backtest() || !execution.backtest().strategies().empty())
-            throw std::invalid_argument("model replay requires an exclusive backtest definition");
-        validate_model_replay_definition(execution.model_replay());
-        if (execution.program_artifact()
-            != execution.model_replay().training().plan().recipe().program_artifact())
-            throw std::invalid_argument("model replay requires its original calculation program");
     }
     if (execution.has_variable_definition()) {
         if (!execution.has_factor() || !execution.factor().has_variable_definition())
@@ -239,21 +210,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
             || execution.has_historical_margins() || execution.has_research_plan()
             || execution.has_strategy_use() || execution.has_variable_definition())
             throw std::invalid_argument("logic trial execution contains unrelated parameters");
-    } else if (execution.has_model_training()) {
-        validate_model_training_input(execution.model_training());
-        if (execution.program_artifact() != execution.model_training().plan().program_artifact()
-            || execution.has_data_owner() || !execution.schedules().empty()
-            || execution.has_historical_margins() || execution.has_research_plan()
-            || execution.has_strategy_use() || execution.has_variable_definition())
-            throw std::invalid_argument("model training execution contains unrelated parameters");
-    } else if (execution.has_model_time()) {
-        validate_model_time_input(execution.model_time());
-        if (execution.program_artifact()
-                != execution.model_time().plan().recipe().program_artifact()
-            || execution.has_data_owner() || !execution.schedules().empty()
-            || execution.has_historical_margins() || execution.has_research_plan()
-            || execution.has_strategy_use() || execution.has_variable_definition())
-            throw std::invalid_argument("model training execution contains unrelated parameters");
     } else if (execution.has_evaluation()) {
         validate_evaluation_input(execution.evaluation());
         if (execution.program_artifact().empty() || execution.has_data_owner()

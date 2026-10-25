@@ -317,21 +317,11 @@ function ReferenceStrategyPackages({ snapshot, query, trade, busy, navigate }: T
                     .join(" · ")
                 : `${selected.definition.contract.venue}/${selected.definition.contract.symbol}`}
             </dd>
-            <dt>
-              {t(
-                selected.definition.portfolio
-                  ? "固定组合政策"
-                  : selected.definition.model_replay
-                    ? "固定模型决策"
-                    : "固定规则",
-              )}
-            </dt>
+            <dt>{t(selected.definition.portfolio ? "固定组合政策" : "固定规则")}</dt>
             <dd>
               {selected.definition.portfolio
                 ? strategyRule(selected.definition.portfolio.strategy)
-                : selected.definition.model_replay
-                  ? selected.definition.model_replay.mapping.specification.name
-                  : strategyRule(selected.definition.strategy)}
+                : strategyRule(selected.definition.strategy)}
             </dd>
             {selected.definition.portfolio &&
               strategyRows(selected.definition.portfolio.strategy).map(([label, value]) => (
@@ -340,35 +330,6 @@ function ReferenceStrategyPackages({ snapshot, query, trade, busy, navigate }: T
                   <dd>{value}</dd>
                 </Fragment>
               ))}
-            {selected.definition.model_replay && (
-              <>
-                <dt>{t("固定逐折映射")}</dt>
-                <dd>
-                  <code>{selected.definition.model_replay.mapping.object.id}</code> ·{" "}
-                  <code>{selected.definition.model_replay.mapping.object.version}</code>
-                </dd>
-                <dt>{t("固定原时间计划")}</dt>
-                <dd>
-                  <code>{selected.definition.model_replay.training.plan.object.id}</code> ·{" "}
-                  <code>{selected.definition.model_replay.training.plan.object.version}</code>
-                </dd>
-                <dt>{t("模拟原折")}</dt>
-                <dd>{selected.definition.model_replay.fold_index + 1}</dd>
-                <dt>{t("目标手数")}</dt>
-                <dd>
-                  {selected.definition.model_replay.quantity} ·{" "}
-                  {t(
-                    { both: "双向", long: "只做多", short: "只做空" }[
-                      selected.definition.model_replay.sides
-                    ],
-                  )}
-                </dd>
-                <dt>{t("模型处理延迟（bar）")}</dt>
-                <dd>{selected.definition.model_replay.processing_delay_bars}</dd>
-                <dt>{t("模拟时间预算（秒）")}</dt>
-                <dd>{selected.definition.model_replay.time_budget_seconds}</dd>
-              </>
-            )}
             <dt>{t("K线周期（分钟，0为日线）")}</dt>
             <dd>{selected.definition.interval_minutes}</dd>
             <dt>{t("定义身份")}</dt>

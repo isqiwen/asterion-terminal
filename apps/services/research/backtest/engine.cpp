@@ -2,7 +2,6 @@
 #include <asterion/protocol/data.hpp>
 #include "strategy.hpp"
 #include "portfolio_targets.hpp"
-#include "model_strategy.hpp"
 #include "performance.hpp"
 #include <asterion/domain/trading_days.hpp>
 #include "order_limits.hpp"
@@ -129,8 +128,7 @@ backtest::proto::BacktestResult replay(
     const std::string& until,
     std::stop_token stop,
     const std::function<void()>& step,
-    const risk_providers::Module* pinned,
-    const ModelReplayData* model = nullptr)
+    const risk_providers::Module* pinned)
 {
     const auto& p = input.paper();
     auto portfolio = paper_portfolio(p);
@@ -164,14 +162,7 @@ backtest::proto::BacktestResult replay(
         for (const auto& rolls : input.series())
             carry.push_back(protocol::term_carries(rolls, contracts));
     }
-    research::proto::ModelReplayResult model_report;
     std::vector<Follower> followers;
-    if (input.has_model_replay()) {
-        auto& follower = followers.emplace_back();
-        follower.wanted.resize(1);
-        follower.strategies.push_back(
-            make_model_strategy(input.model_replay(), *model, model_report, stop, step));
-    }
     for (const auto* definition : definitions) {
         auto& follower = followers.emplace_back();
         follower.definition = definition;
@@ -247,14 +238,7 @@ backtest::proto::BacktestResult replay(
     std::vector<bool> took_over(series.size());
     for (const auto& rolls : input.series())
         took_over[rolls.rolls(0).contract()] = true;
-    const auto total = input.has_model_replay()
-        ? static_cast<std::size_t>(input.model_replay()
-                  .training()
-                  .plan()
-                  .specification()
-                  .folds(static_cast<int>(input.model_replay().fold_index()))
-                  .validation_end())
-        : execution.size();
+    const auto total = execution.size();
     const auto& account = execution.account();
     std::size_t index = 0, recorded_fills = 0, recorded_portfolio_fills = 0;
     const bool fixed_portfolio =
@@ -265,8 +249,7 @@ backtest::proto::BacktestResult replay(
     });
     // Every day one of the contracts settles on, in order: its bars, where any
     // contract has some, then its settlement.
-    for (std::size_t d = 0; d < schedule.days() && (!input.has_model_replay() || index < total);
-        ++d) {
+    for (std::size_t d = 0; d < schedule.days(); ++d) {
         const auto& day = schedule.day(d);
         const auto& whom = followed[d];
         // A day without bars is settled when its session closes.
@@ -397,19 +380,8 @@ backtest::proto::BacktestResult replay(
                         if (follower.definition && follower.definition->has_fixed_weights())
                             continue;
                         if (!follower.cross) {
-                            if (const auto wanted = follower.strategies[u]->on_bar(seen)) {
+                            if (const auto wanted = follower.strategies[u]->on_bar(seen))
                                 follower.wanted[u] = wanted;
-                                if (input.has_model_replay()) {
-                                    auto& decision = *model_report.mutable_decisions(
-                                        model_report.decisions_size() - 1);
-                                    decision.mutable_target()->set_units(wanted->raw());
-                                    decision.set_intent_id(order);
-                                    decision.set_disposition(
-                                        index + 1 < total
-                                            ? research::proto::ModelReplayDecision::NEXT_BAR
-                                            : research::proto::ModelReplayDecision::OUTSIDE_REPLAY);
-                                }
-                            }
                         } else if (follower.definition->cross().factor()
                             != protocol::proto::TERM_STRUCTURE) {
                             follower.cross->on_bar(u, seen.timestamp_ns, seen.close);
@@ -431,14 +403,9 @@ backtest::proto::BacktestResult replay(
                     observe(bar);
             }
             const Decided decided{current.contract, index, order, bar.close, leading};
-            // No new model target means no replacement order toward an old target.
-            // Earlier accepted intentions are advanced above using the same account rules.
             const bool fixed_portfolio = whom && followers[*whom].definition
                 && followers[*whom].definition->has_fixed_weights();
-            if (!fixed_portfolio
-                && (!input.has_model_replay()
-                    || model_report.decisions(model_report.decisions_size() - 1).disposition()
-                        == research::proto::ModelReplayDecision::NEXT_BAR))
+            if (!fixed_portfolio)
                 issue(decided, whom);
             last[current.contract] = decided;
             together.push_back(decided);
@@ -567,28 +534,12 @@ backtest::proto::BacktestResult replay(
                 }
                 together.clear();
             }
-            if (record_fill_days || input.has_model_replay())
+            if (record_fill_days)
                 while (recorded_fills < account.fills().size()) {
                     const auto& fill = account.fills()[recorded_fills++];
-                    if (record_fill_days) {
-                        auto* observed = result.add_fill_days();
-                        observed->set_fill_id(fill.execution.execution_id);
-                        observed->set_trading_day(bar.trading_day);
-                    }
-                    if (input.has_model_replay()) {
-                        if (index == 0
-                            || model_report.decisions(static_cast<int>(index - 1)).disposition()
-                                != research::proto::ModelReplayDecision::NEXT_BAR)
-                            throw std::logic_error(
-                                "model replay fill has no accepted preceding-bar intention");
-                        auto& observed = *model_report.add_fills();
-                        observed.set_fill_id(fill.execution.execution_id);
-                        observed.set_source_index(static_cast<unsigned>(index));
-                        observed.set_boundary_ns(bar.timestamp_ns);
-                        observed.set_decision_source_index(static_cast<unsigned>(index - 1));
-                        observed.set_intent_id(
-                            model_report.decisions(static_cast<int>(index - 1)).intent_id());
-                    }
+                    auto* observed = result.add_fill_days();
+                    observed->set_fill_id(fill.execution.execution_id);
+                    observed->set_trading_day(bar.trading_day);
                 }
             add_equity(bar.timestamp_ns, backtest::proto::TRADE_MARK, account);
             settled_at = bar.timestamp_ns;
@@ -670,8 +621,6 @@ backtest::proto::BacktestResult replay(
         for (auto& strategy : follower.strategies)
             strategy->stop();
     execution.stop();
-    if (input.has_model_replay())
-        *result.mutable_model_replay() = std::move(model_report);
     return result;
 }
 
@@ -765,28 +714,9 @@ backtest::proto::BacktestResult run(
     const backtest::proto::BacktestInput& input,
     std::stop_token stop,
     const std::function<void(std::size_t, std::size_t)>& progress,
-    const risk_providers::Module* pinned,
-    const ModelReplayData* model)
+    const risk_providers::Module* pinned)
 {
     validate(input);
-    if (input.has_model_replay() != (model != nullptr))
-        throw std::invalid_argument("model replay requires its verified original data projection");
-    if (model) {
-        const auto& data = input.paper().contracts(0).dataset();
-        if (model->plan_digest != input.model_replay().training().plan().digest()
-            || model->fold_index != input.model_replay().fold_index()
-            || model->source_revision != data.revision()
-            || model->data_owner.SerializeAsString() != input.data_owner().SerializeAsString()
-            || model->features.size()
-                != input.model_replay()
-                    .training()
-                    .plan()
-                    .specification()
-                    .folds(static_cast<int>(input.model_replay().fold_index()))
-                    .validation_end())
-            throw std::invalid_argument(
-                "model replay data projection differs from fixed account bars");
-    }
     const auto units = protocol::backtest_work_units(input);
     std::size_t completed = 0;
     const auto step = [&] {
@@ -806,42 +736,6 @@ backtest::proto::BacktestResult run(
             step,
             pinned);
     };
-    if (input.has_model_replay()) {
-        auto result = replay(
-            input,
-            {},
-            std::vector<std::optional<std::size_t>>(days, 0),
-            {},
-            stop,
-            step,
-            pinned,
-            model);
-        const auto& definition = input.model_replay();
-        const auto& fold = definition.training().plan().specification().folds(
-            static_cast<int>(definition.fold_index()));
-        const auto& validation_day = input.paper()
-                                         .contracts(0)
-                                         .dataset()
-                                         .bars(static_cast<int>(fold.validation_begin()))
-                                         .trading_day();
-        const auto first = static_cast<std::size_t>(
-            std::ranges::find_if(
-                result.settlements(),
-                [&](const auto& day) {
-                    return day.trading_day() >= validation_day;
-                })
-            - result.settlements().begin());
-        const auto full = curve(result);
-        const auto first_mark = first ? full.day_end[first - 1] : 0;
-        const auto base =
-            first ? decimal(result.settlements(static_cast<int>(first - 1)).equity()) : deposit;
-        *result.mutable_model_validation() = scored(
-            base,
-            std::span(full.days).subspan(first),
-            std::span(full.marks).subspan(first_mark),
-            performance_context(input, full, first, full.days.size()));
-        return result;
-    }
     if (input.strategies_size() == 1)
         return alone(input.strategies(0), {});
     if (!input.has_walk_forward()) {

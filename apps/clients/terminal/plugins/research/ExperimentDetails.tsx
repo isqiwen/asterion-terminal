@@ -229,15 +229,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     ];
     // A rolling comparison follows several strategies in turn: it lists them
     // all below instead of the fields of one.
-    if (evidence.experiment.model_replay) {
-      const fixed = evidence.experiment.model_replay;
-      rows.push(
-        ["固定逐折映射", fixed.mapping.object.id],
-        ["模拟原折", fixed.fold_index + 1],
-        ["目标手数", fixed.quantity],
-        ["模型处理延迟（bar）", fixed.processing_delay_bars],
-      );
-    } else if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
+    if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
     rows.push(
       ["初始资金", paper.deposit],
       ["单笔数量上限", paper.risk.max_order_quantity],
