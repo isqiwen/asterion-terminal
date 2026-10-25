@@ -1,5 +1,9 @@
 name: Core services and Terminal
 on: [push, pull_request]
+# The packaged desktop supports macOS 13.0; build every macOS job for it so
+# APIs from newer systems fail here, not in the release build.
+env:
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
 jobs:
   style:
     runs-on: ubuntu-24.04

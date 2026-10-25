@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert run('verify-stopped').returncode!=0
         first=pid();definition=home/'Library/LaunchAgents'/f'{name}.plist';original=definition.read_bytes()
         marker=state/'preserved-data';marker.write_text('retain this test-owned data')
-        deployed=run('deploy-market',extra={'--source':str(build/'asterion_market_data'),
+        deployed=run('deploy-market',extra={'--source':str(build/'asterion_market'),
                                            '--provider':str(build/'libasterion_test_ctp.dylib')})
         assert deployed.returncode==0,deployed.stderr
         health=json.loads(run('status').stdout)['health']

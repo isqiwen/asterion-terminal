@@ -58,7 +58,7 @@ data::proto::DataResponse NoticeHost::data_call(
     const node::proto::Service* peer = nullptr;
     for (const auto& service : status.services())
         if (service.id() == owner.service_id()) {
-            if (peer || service.kind() != node::proto::DATA_SERVICE)
+            if (peer || service.kind() != node::proto::DATA)
                 throw Error(ErrorCode::conflict, "intelligence Data owner mismatch");
             peer = &service;
         }

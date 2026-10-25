@@ -1,4 +1,6 @@
 #include "research_backup.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "research_statistics.hpp"
 #include "research_evaluation.hpp"
 #include "research_sample.hpp"
@@ -89,7 +91,7 @@ void seed(const fs::path& root, bool abandoned, bool capture_program = false)
 {
     fs::create_directory(root);
     tasks::Store store(root, {"research-one"});
-    auto submission = store.submission("fixed-run", input());
+    auto submission = task_submission(store, "fixed-run", input());
     if (capture_program) {
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
@@ -243,7 +245,7 @@ TEST(ResearchColdBackup, JointCutChecksBilateralReferencesAndRestoresBothDomains
         fixed.set_dataset_revision(protocol::dataset_revision(fixed.paper()));
         data::Retentions references(data_root, source, data);
         tasks::Store research(research_root, {"research-one"});
-        auto submission = research.submission("joint-run", fixed);
+        auto submission = task_submission(research, "joint-run", fixed);
         research.admit_submission(submission);
         submission.prepare_files();
         const auto evidence = research.prepared_submission_record("joint-run");
@@ -411,7 +413,7 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                 *fixed.mutable_variable_definition() = expected_variable;
             }
             expected = factor::run(fixed);
-            auto submission = research.submission("factor-rows", fixed);
+            auto submission = task_submission(research, "factor-rows", fixed);
             submission.set_program_artifact(artifact);
             submission.set_research_plan(binding);
             research.admit_submission(submission);
@@ -458,7 +460,7 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                     source_result,
                     sha256_file(research_root / "factor-rows/input.pb"),
                     fs::file_size(research_root / "factor-rows/input.pb"));
-                auto statistics = research.submission("statistics-rows", statistics_input);
+                auto statistics = task_submission(research, "statistics-rows", statistics_input);
                 statistics.set_program_artifact(artifact);
                 tasks::submit(research, std::move(statistics));
                 const auto statistics_token =
@@ -602,7 +604,7 @@ TEST(ResearchColdBackup, SharedInputsProduceIndependentBackupAndRestoreWithoutOr
         tasks::Store store(root, {"research-one"});
         const auto token = store.commit(store.claim("fixed-run")).token();
         store.commit(tasks::finish(store, "fixed-run", token, backtest::run(input())));
-        auto child = store.submission("linked-run", input());
+        auto child = task_submission(store, "linked-run", input());
         task::proto::TaskDerivation origin;
         origin.set_source_id("fixed-run");
         origin.set_source_result_digest(store.describe("fixed-run").result_digest());
@@ -700,7 +702,7 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         binding.set_project_id(saved.id());
         binding.set_plan_id(expected_plan.id());
         binding.set_definition_digest(expected_plan.definition_digest());
-        auto submission = research.submission("raw-sample", input);
+        auto submission = task_submission(research, "raw-sample", input);
         submission.set_research_plan(binding);
         submission.set_program_artifact(artifact);
         research.admit_submission(submission);
@@ -738,7 +740,7 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
             original,
             sha256_file(research_root / "raw-sample/input.pb"),
             fs::file_size(research_root / "raw-sample/input.pb"));
-        auto analysis = research.submission("raw-statistics", captured);
+        auto analysis = task_submission(research, "raw-statistics", captured);
         analysis.set_program_artifact(artifact);
         analysis.set_research_plan(binding);
         tasks::submit(research, std::move(analysis));
@@ -864,7 +866,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
             const auto token = store.commit(store.claim(id)).token();
             store.commit(tasks::finish(store, id, token, backtest::run(fixed)));
         };
-        auto reference = store.submission("reference", fixed);
+        auto reference = task_submission(store, "reference", fixed);
         reference.set_program_artifact(artifact);
         submit(std::move(reference), "reference");
         const auto original = tasks::verified_result(store, "reference");
@@ -922,7 +924,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
         binding.set_project_id(expected_plan.project_id());
         binding.set_plan_id(expected_plan.id());
         binding.set_definition_digest(expected_plan.definition_digest());
-        auto calculation = store.submission("delivered", fixed);
+        auto calculation = task_submission(store, "delivered", fixed);
         calculation.set_research_plan(binding);
         calculation.set_program_artifact(artifact);
         calculation.set_strategy_use(use, expected.definition());
@@ -1062,7 +1064,7 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
         fixed = logic.input(protocol::logic_object(logic.apply(save).example()), true);
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
-        auto submission = store.submission("logic-run", fixed);
+        auto submission = task_submission(store, "logic-run", fixed);
         submission.set_program_artifact(artifact);
         tasks::submit(store, std::move(submission));
         const auto token = store.commit(store.claim("logic-run")).token();
@@ -1205,7 +1207,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
         tasks::Store store(root, {"research-one"});
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
-        auto submission = store.submission("rolling-run", fixed);
+        auto submission = task_submission(store, "rolling-run", fixed);
         submission.set_program_artifact(artifact);
         store.admit_submission(submission);
         submission.prepare_files();
@@ -1259,7 +1261,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
             store.confirm_result(std::move(source_read)),
             source_digest,
             source_bytes);
-        auto report = store.submission("rolling-evaluation", evaluation_input);
+        auto report = task_submission(store, "rolling-evaluation", evaluation_input);
         report.set_program_artifact(artifact);
         tasks::submit(store, std::move(report));
         task::proto::TaskFinish finish;
@@ -1311,7 +1313,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
         evaluation_conclusion = projects.apply(conclude).conclusion();
         EXPECT_TRUE(evaluation_conclusion.retrospective());
 
-        auto pending = store.submission("rolling-evaluation-prepared", evaluation_input);
+        auto pending = task_submission(store, "rolling-evaluation-prepared", evaluation_input);
         pending.set_program_artifact(artifact);
         store.admit_submission(pending);
         pending.prepare_files();
@@ -1424,7 +1426,7 @@ TEST(
         const auto submit = [&](const std::string& id,
                                 const backtest::proto::BacktestInput& input,
                                 const task::proto::TaskDerivation* origin) {
-            auto submission = store.submission(id, input);
+            auto submission = task_submission(store, id, input);
             submission.set_program_artifact(artifact);
             if (origin)
                 submission.set_derivation(*origin);
@@ -1592,7 +1594,7 @@ TEST(
             original,
             sha256_file(root / "batch-source/input.pb"),
             fs::file_size(root / "batch-source/input.pb"));
-        auto ledger = store.submission("ledger-evaluation", ledger_input);
+        auto ledger = task_submission(store, "ledger-evaluation", ledger_input);
         ledger.set_program_artifact(artifact);
         tasks::submit(store, std::move(ledger));
         task::proto::TaskFinish finish;
@@ -1603,7 +1605,7 @@ TEST(
         ledger_result = tasks::verified_result(store, finish.id());
         ASSERT_TRUE(ledger_result.evaluation().has_ledger());
         ASSERT_TRUE(ledger_result.evaluation().ledger().reconciled());
-        auto pending_ledger = store.submission("ledger-prepared", ledger_input);
+        auto pending_ledger = task_submission(store, "ledger-prepared", ledger_input);
         pending_ledger.set_program_artifact(artifact);
         store.admit_submission(pending_ledger);
         pending_ledger.prepare_files();
@@ -1658,7 +1660,7 @@ TEST(
             contribution_source,
             sha256_file(root / "contribution-source/input.pb"),
             fs::file_size(root / "contribution-source/input.pb"));
-        auto contribution = store.submission("contribution-evaluation", contribution_input);
+        auto contribution = task_submission(store, "contribution-evaluation", contribution_input);
         contribution.set_program_artifact(artifact);
         tasks::submit(store, std::move(contribution));
         task::proto::TaskFinish contribution_finish;
@@ -1670,7 +1672,8 @@ TEST(
         contribution_result = tasks::verified_result(store, contribution_finish.id());
         ASSERT_EQ(contribution_result.evaluation().contributions().contracts_size(), 2);
         ASSERT_TRUE(contribution_result.evaluation().contributions().reconciled());
-        auto pending_contribution = store.submission("contribution-prepared", contribution_input);
+        auto pending_contribution =
+            task_submission(store, "contribution-prepared", contribution_input);
         pending_contribution.set_program_artifact(artifact);
         store.admit_submission(pending_contribution);
         pending_contribution.prepare_files();
@@ -1729,8 +1732,8 @@ TEST(
         review_page.set_kind("backtest_batch_assessment");
         review_page.set_limit(10);
         EXPECT_EQ(batches.resources(review_page).items_size(), 4);
-        EXPECT_THROW(store.describe("batch-member-2"), std::out_of_range);
-        EXPECT_THROW(store.describe("unknown-member-1"), std::out_of_range);
+        EXPECT_FALSE(store.find_task("batch-member-2"));
+        EXPECT_FALSE(store.find_task("unknown-member-1"));
         EXPECT_EQ(
             tasks::verified_result(store, "ledger-evaluation").SerializeAsString(),
             ledger_result.SerializeAsString());
@@ -1788,7 +1791,7 @@ TEST(
         EXPECT_EQ(interrupted[0].phase(), research::proto::BATCH_INTERRUPTED);
         EXPECT_EQ(interrupted[0].members(0).admission(), research::proto::BATCH_MEMBER_PENDING);
         EXPECT_FALSE(interrupted[0].has_elapsed_ms());
-        EXPECT_THROW(store.describe("unknown-member-1"), std::out_of_range);
+        EXPECT_FALSE(store.find_task("unknown-member-1"));
     }
     {
         sqlite::Database db(restored / "tasks.sqlite", sqlite::Database::Access::writer);
@@ -1846,7 +1849,7 @@ TEST(
         input.set_retain_observations(true);
         tasks::Store store(root, {owner().service_id()});
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
-        auto submit = store.submission("factor-source", input);
+        auto submit = task_submission(store, "factor-source", input);
         submit.set_program_artifact(artifact);
         store.admit_submission(submit);
         submit.prepare_files();
@@ -1949,7 +1952,7 @@ TEST(
         original_time_plan = models.apply(save_time, nullptr, nullptr, &captured_time).time_plan();
         research::proto::ModelTimeInput time_input;
         *time_input.mutable_plan() = original_time_plan;
-        tasks::submit(store, store.submission("time-validation", time_input));
+        tasks::submit(store, task_submission(store, "time-validation", time_input));
         task::proto::TaskFinish time_finish;
         time_finish.set_id("time-validation");
         time_finish.set_token(store.commit(store.claim("time-validation")).token());
@@ -1976,7 +1979,7 @@ TEST(
         revised.mutable_save()->mutable_specification()->set_purpose(
             "A later draft never replaces the original plan");
         (void)models.apply(revised);
-        auto pending = store.submission("prepared-model", training);
+        auto pending = task_submission(store, "prepared-model", training);
         store.admit_submission(pending);
         pending.prepare_files();
         EXPECT_TRUE(store.abandon_submission(pending));
@@ -1988,7 +1991,7 @@ TEST(
         research::proto::ModelTimeInput time_input;
         *time_input.mutable_plan() = original_time_plan;
         {
-            auto abandoned_time = store.submission("abandoned-time", time_input);
+            auto abandoned_time = task_submission(store, "abandoned-time", time_input);
             store.admit_submission(abandoned_time);
             abandoned_time.prepare_files();
             store.release_prepared_reservation(abandoned_time);
@@ -2000,7 +2003,7 @@ TEST(
             identity.set_version(prepared.record().input_digest());
             store.commit(store.abandon_preparation(prepared, identity));
         }
-        auto pending_time = store.submission("prepared-time", time_input);
+        auto pending_time = task_submission(store, "prepared-time", time_input);
         store.admit_submission(pending_time);
         pending_time.prepare_files();
         EXPECT_TRUE(store.abandon_submission(pending_time));
@@ -2083,7 +2086,7 @@ TEST(
                 .plan()
                 .SerializeAsString(),
             original_time_plan.SerializeAsString());
-        EXPECT_THROW(restored.describe("prepared-time"), std::out_of_range);
+        EXPECT_FALSE(restored.find_task("prepared-time"));
         auto resurrection = restored.resume_submission("abandoned-time");
         EXPECT_THROW(restored.admit_submission(resurrection), Error);
         EXPECT_THROW(
@@ -2103,7 +2106,7 @@ TEST(
         ASSERT_TRUE(models.receipt(save));
         EXPECT_EQ(models.receipt(save)->SerializeAsString(), saved_receipt.SerializeAsString());
         EXPECT_THROW(models.admission(protocol::model_plan_object(fixed), artifact), Error);
-        EXPECT_THROW(restored.describe("prepared-model"), std::out_of_range);
+        EXPECT_FALSE(restored.find_task("prepared-model"));
         EXPECT_EQ(
             restored.prepared_submission_record("prepared-model")
                 .execution()

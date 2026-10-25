@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
         call(dict(ssh=dict(params, operation='ENROLL')))
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0)); market_port = listener.getsockname()[1]
-        call(dict(node=dict(id='bootstrap-test', deploy=dict(service='market', kind='MARKET_DATA', port=market_port))))
+        call(dict(node=dict(id='bootstrap-test', deploy=dict(service='market', kind='MARKET', port=market_port))))
         service_config = remote/'deployed/state/services/market/service.json'
         maintain('PREPARE', True)
         call(dict(node=dict(id='bootstrap-test', action=dict(service='market', action='stop'))))

@@ -462,7 +462,7 @@ proto::PublishedDownload Store::publish(const VerifiedPublication& verified)
 {
     const auto& decision = verified.decision_;
     const auto path = operation(decision.identity());
-    // The task service already committed its decision. Retain the exact decision
+    // The acquisition task already committed its decision. Retain the exact decision
     // before making this version visible; a repeated confirmation uses these bytes.
     store_once(path / "publication.pb", decision.SerializeAsString());
     archive_.publish_verified(verified.record_);

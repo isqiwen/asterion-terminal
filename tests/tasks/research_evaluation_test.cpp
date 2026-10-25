@@ -1,4 +1,6 @@
 #include "research_evaluation.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "support/data_discovery.hpp"
 #include "support/task_wait.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -114,7 +116,7 @@ struct EvaluationEvidence : testing::Test
             original.mutable_performance_assumptions()->set_risk_free(
                 backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
         }
-        auto submission = store->submission("source-account", original);
+        auto submission = task_submission(*store, "source-account", original);
         submission.set_program_artifact(artifact);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("source-account")).token();
@@ -266,7 +268,7 @@ TEST_F(
     request.mutable_method()->set_risk_free(backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
     const auto fixed = capture();
     const auto submit = [&](const char* id, const r::EvaluationInput& definition) {
-        auto submission = store->submission(id, definition);
+        auto submission = task_submission(*store, id, definition);
         submission.set_program_artifact(artifact);
         return tasks::submit(*store, std::move(submission));
     };
@@ -355,7 +357,7 @@ TEST_F(
     stress();
     const auto fixed = capture();
     {
-        auto pending = store->submission("pending-evaluation", fixed);
+        auto pending = task_submission(*store, "pending-evaluation", fixed);
         pending.set_program_artifact(artifact);
         store->admit_submission(pending);
         pending.prepare_files();
@@ -374,7 +376,7 @@ TEST_F(
     store->commit(store->cancel("pending-evaluation"));
     EXPECT_EQ(store->get("pending-evaluation").state(), task::proto::CANCELLED);
     EXPECT_THROW(tasks::verified_result(*store, "pending-evaluation"), std::exception);
-    auto running = store->submission("interrupted-evaluation", fixed);
+    auto running = task_submission(*store, "interrupted-evaluation", fixed);
     running.set_program_artifact(artifact);
     tasks::submit(*store, std::move(running));
     store->commit(store->claim("interrupted-evaluation"));
@@ -454,6 +456,8 @@ TEST_F(
                 endpoint + ".health",
                 "--session",
                 owner.service_id(),
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 endpoint + ".discovery",
                 "--file-workers",
@@ -644,7 +648,7 @@ TEST_F(
     {
         tasks::Store pending(root, tasks::Identity{owner.service_id()});
         auto preparation =
-            pending.submission("prepared-evaluation", saved.result_task().evaluation());
+            task_submission(pending, "prepared-evaluation", saved.result_task().evaluation());
         preparation.set_program_artifact(evaluator);
         pending.admit_submission(preparation);
         preparation.prepare_files();
@@ -678,7 +682,7 @@ TEST_F(EvaluationEvidence, RequestedDailyLossPathKeepsOnlyOriginalHoldoutRowsAnd
     request.set_scope(r::EvaluationRequest::HOLDOUT);
     request.set_include_daily_drawdown(true);
     const auto fixed = capture();
-    auto submission = store->submission("daily-loss-report", fixed);
+    auto submission = task_submission(*store, "daily-loss-report", fixed);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("daily-loss-report")).token();
@@ -713,7 +717,7 @@ TEST_F(EvaluationEvidence, RequestedDailyLossPathKeepsOnlyOriginalHoldoutRowsAnd
     auto unrequested = fixed;
     unrequested.mutable_request()->set_include_daily_drawdown(false);
     EXPECT_THROW(protocol::validate_evaluation_result(unrequested, result), std::invalid_argument);
-    auto changed = store->submission("daily-loss-report", unrequested);
+    auto changed = task_submission(*store, "daily-loss-report", unrequested);
     changed.set_program_artifact(artifact);
     EXPECT_THROW(tasks::submit(*store, std::move(changed)), std::invalid_argument);
     const auto document = protocol::decode_evaluation_result(fixed, result);
@@ -768,7 +772,7 @@ TEST_F(
     auto unrequested = fixed;
     unrequested.mutable_request()->set_include_exposure(false);
     EXPECT_THROW(protocol::validate_evaluation_result(unrequested, result), std::invalid_argument);
-    auto submission = store->submission("development-exposure", fixed);
+    auto submission = task_submission(*store, "development-exposure", fixed);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("development-exposure")).token();
@@ -778,7 +782,7 @@ TEST_F(
     *finish.mutable_evaluation() = result;
     store->commit(tasks::finish(*store, finish));
     const auto saved = tasks::verified_result(*store, finish.id());
-    auto changed = store->submission(finish.id(), unrequested);
+    auto changed = task_submission(*store, finish.id(), unrequested);
     changed.set_program_artifact(artifact);
     EXPECT_THROW(tasks::submit(*store, std::move(changed)), std::invalid_argument);
     store.reset();
@@ -838,7 +842,7 @@ TEST_F(
     request.set_include_ledger(true);
     const auto fixed = capture();
     const auto original_bytes = evidence.SerializeAsString();
-    auto submission = store->submission("ledger-report", fixed);
+    auto submission = task_submission(*store, "ledger-report", fixed);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("ledger-report")).token();
@@ -922,7 +926,7 @@ TEST_F(EvaluationEvidence, OriginalContractContributionsPublishFixedAccountAndRo
     request.set_include_contributions(true);
     const auto fixed = capture();
     const auto source = evidence.SerializeAsString();
-    auto submission = store->submission("contract-report", fixed);
+    auto submission = task_submission(*store, "contract-report", fixed);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("contract-report")).token();
@@ -1071,6 +1075,8 @@ TEST_F(
                 endpoint + ".health",
                 "--session",
                 owner.service_id(),
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 endpoint + ".discovery",
                 "--file-workers",
@@ -1142,7 +1148,7 @@ TEST_F(
     {
         tasks::Store pending(root, tasks::Identity{"research-one"});
         auto submission =
-            pending.submission("prepared-contributions", saved.result_task().evaluation());
+            task_submission(pending, "prepared-contributions", saved.result_task().evaluation());
         submission.set_program_artifact(evaluator);
         pending.admit_submission(submission);
         submission.prepare_files();

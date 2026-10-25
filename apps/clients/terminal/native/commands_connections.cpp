@@ -34,19 +34,14 @@ PolledTask<CtpConnection> Application::Impl::market_ctp()
     co_return std::move(*connection);
 }
 
-std::filesystem::path Application::Impl::ctp_record_directory(const std::string& account)
-{
-    return ctp_account_directory(account, false);
-}
-
 json Application::Impl::ctp_accounts() const
 {
     auto accounts = ctp_connections.snapshot();
+    // The execution binding is persisted before any account is created on a
+    // Trading service, local or remote; it is the record of opened trading.
     for (auto& account : accounts)
         if (!account.contains("error"))
-            account["trading_record"] = account.contains("trading")
-                || std::filesystem::exists(
-                    ctp_record_directory(account.at("id").get<std::string>()) / "journal.sqlite");
+            account["trading_record"] = account.contains("trading");
     return accounts;
 }
 
@@ -176,20 +171,8 @@ void Application::Impl::register_connection_commands()
                 "app_id",
                 "trade_front",
                 "market_front"});
-        // A trading record holds its own copy of the counter details; the account
-        // it belongs to keeps them unchanged, so the two never disagree.
+        // CtpConnections::save keeps counter details fixed once trading is bound.
         co_await settings<void>([&] {
-            if (std::filesystem::exists(
-                    ctp_record_directory(text(params, "id")) / "journal.sqlite")) {
-                const auto current = ctp_connections.get(text(params, "id"));
-                if (current.broker_id != text(params, "broker_id")
-                    || current.user_id != text(params, "user_id")
-                    || current.app_id != text(params, "app_id")
-                    || current.trade_front != text(params, "trade_front"))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "this account already trades; its counter details are fixed");
-            }
             ctp_connections.save(
                 {text(params, "id"),
                     text(params, "name"),

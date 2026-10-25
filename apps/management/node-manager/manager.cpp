@@ -27,8 +27,8 @@ deploy_service(ServiceIo& io, AgentClient& node, bool local, const manager::prot
     const auto kind = p.kind();
     if (local
         && (p.port() != 0
-            || (kind != node::proto::RESEARCH && kind != node::proto::DATA_SERVICE
-                && kind != node::proto::LIVE_TRADING && kind != node::proto::INTELLIGENCE)))
+            || (kind != node::proto::RESEARCH && kind != node::proto::DATA
+                && kind != node::proto::TRADING && kind != node::proto::INTELLIGENCE)))
         throw std::invalid_argument("local deployment requires a business service and port zero");
     if (!local
         && (status.health->os() != "linux" || status.health->version() != ASTERION_PRODUCT_VERSION))

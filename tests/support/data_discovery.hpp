@@ -56,7 +56,7 @@ public:
                           for (const auto& [id, endpoint] : others) {
                               auto* data = status->add_services();
                               data->set_id(id);
-                              data->set_kind(node::proto::DATA_SERVICE);
+                              data->set_kind(node::proto::DATA);
                               data->set_state("running");
                               data->set_endpoint(endpoint);
                           }

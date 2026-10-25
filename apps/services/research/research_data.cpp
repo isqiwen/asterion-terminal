@@ -109,7 +109,7 @@ resolve_research_data(const node::proto::Status& status, const data::proto::Data
         validate_id(selected.service_id());
     const node::proto::Service* candidate = nullptr;
     for (const auto& service : status.services()) {
-        if (service.kind() != node::proto::DATA_SERVICE
+        if (service.kind() != node::proto::DATA
             || (!selected.service_id().empty() && service.id() != selected.service_id()))
             continue;
         if (candidate)
@@ -144,7 +144,7 @@ resolve_research_facts(const node::proto::Status& status, const resource::proto:
     for (const auto& service : status.services()) {
         if (service.id() != selected.service_id())
             continue;
-        if (service.kind() != node::proto::LIVE_TRADING)
+        if (service.kind() != node::proto::TRADING)
             throw Error(ErrorCode::conflict, "selected facts owner is not trading");
         if (service.state() != "running" || service.endpoint().empty())
             throw Error(ErrorCode::unavailable, "selected trading facts owner is unavailable");
@@ -356,15 +356,6 @@ ResearchData::observe(std::chrono::milliseconds timeout, std::string parent)
     const auto request = protocol::service_discovery_request(parent);
     const auto raw = co_await PollFuture{discovery_.request(request.SerializeAsString(), timeout)};
     co_return protocol::decode_service_discovery(request, *raw);
-}
-
-PolledTask<std::string> ResearchData::node_id(std::chrono::milliseconds timeout, std::string parent)
-{
-    const auto status = co_await observe(timeout, std::move(parent));
-    if (status.phase() != node::proto::Status::READY || status.has_failure())
-        throw Error(ErrorCode::unavailable, "research owner discovery is not ready");
-    validate_id(status.node_id());
-    co_return status.node_id();
 }
 
 PolledTask<Payload> ResearchData::read(

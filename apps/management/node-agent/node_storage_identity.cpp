@@ -37,7 +37,7 @@ std::string node_storage_identity(const std::filesystem::path& root)
             "existing node has no supported persistent identity; preserve its data");
     const auto id =
         unique_process_id(); // Random identifier, persisted once; never regenerated on restart.
-    write_file_durably(path, Json{{"node_id", id}}.dump());
+    replace_file_durably(path, Json{{"node_id", id}}.dump());
     return id;
 }
 

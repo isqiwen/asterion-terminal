@@ -8,9 +8,10 @@ namespace asterion {
 
 // Largest program the Agent accepts. Sanitizer-instrumented and unoptimized
 // debug builds (embedded DuckDB with symbols) are larger; release builds keep
-// 128 MiB.
+// 128 MiB. Instrumented builds are never distributed, so their limit only has
+// to admit the Linux address/undefined Research program.
 #ifdef ASTERION_SANITIZED
-inline constexpr std::uintmax_t max_artifact_bytes = 512ULL * 1024 * 1024;
+inline constexpr std::uintmax_t max_artifact_bytes = 2048ULL * 1024 * 1024;
 #elif !defined(NDEBUG)
 inline constexpr std::uintmax_t max_artifact_bytes = 256ULL * 1024 * 1024;
 #else

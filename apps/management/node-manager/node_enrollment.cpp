@@ -1144,16 +1144,16 @@ void upload_maintenance(
         auto* service = programs.add_services();
         service->set_kind(kind);
         service->set_executable(stage + "/" + executable);
-        if (kind == node::proto::MARKET_DATA)
+        if (kind == node::proto::MARKET)
             service->set_provider(stage + "/ctp-md.so");
-        if (kind == node::proto::MARKET_DATA || kind == node::proto::LIVE_TRADING)
+        if (kind == node::proto::MARKET || kind == node::proto::TRADING)
             service->set_catalog(stage + "/ctp-trader.so");
         if (kind == node::proto::RESEARCH) {
         }
     };
-    add(node::proto::MARKET_DATA, "asterion_market");
-    add(node::proto::LIVE_TRADING, "asterion_trading");
-    add(node::proto::DATA_SERVICE, "asterion_data");
+    add(node::proto::MARKET, "asterion_market");
+    add(node::proto::TRADING, "asterion_trading");
+    add(node::proto::DATA, "asterion_data");
     add(node::proto::RESEARCH, "asterion_research");
     add(node::proto::INTELLIGENCE, "asterion_intelligence");
     for (const auto& file : files)

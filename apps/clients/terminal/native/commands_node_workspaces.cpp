@@ -31,8 +31,7 @@ void Application::Impl::register_data_task_connection_commands()
         if (data_client && data_client->endpoint().node_id == "local") {
             const auto service = data_client->endpoint().session;
             co_await PollFuture{node->action(service, "start")};
-            address =
-                co_await PollFuture{node->service_endpoint(service, node::proto::DATA_SERVICE)};
+            address = co_await PollFuture{node->service_endpoint(service, node::proto::DATA)};
         } else
             address = co_await PollFuture{node->local_data()};
         auto client = co_await PollFuture{DataClient::open(service_io, address)};
@@ -47,9 +46,8 @@ void Application::Impl::register_data_task_connection_commands()
         fields(p, {"id", "service"});
         const auto generation = data_task_generation;
         const auto node = manager.node(text(p, "id"));
-        const auto address = co_await PollFuture{
-            node->service_endpoint(text(p, "service"), node::proto::DATA_SERVICE)
-        };
+        const auto address =
+            co_await PollFuture{node->service_endpoint(text(p, "service"), node::proto::DATA)};
         auto client = co_await PollFuture{DataClient::open(service_io, address)};
         if (generation != data_task_generation)
             throw Error(

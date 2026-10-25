@@ -1,4 +1,6 @@
 #include "research_batch.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "support/data_discovery.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/durable_file.hpp>
@@ -316,7 +318,7 @@ struct BatchFixture : testing::Test
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", source.owner)
             .preserve(current_executable(), artifact);
-        auto submission = store->submission("source", source.verified.result_task().input());
+        auto submission = task_submission(*store, "source", source.verified.result_task().input());
         submission.set_program_artifact(artifact);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("source")).token();
@@ -385,13 +387,13 @@ TEST_F(BatchFixture, SavedReceiptsKeepOriginalIntentAndRestartDoesNotCreateUnsta
         receipt = saved.SerializeAsString();
         EXPECT_EQ(saved.phase(), research::proto::BATCH_SAVED);
         EXPECT_EQ(batches.source_consumers("source"), std::vector<std::string>{source.draft.id()});
-        EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+        EXPECT_FALSE(store->find_task("scenario-1"));
         EXPECT_EQ(batches.apply(save()).SerializeAsString(), receipt);
         auto changed = save();
         changed.mutable_save()->set_time_budget_seconds(31);
         EXPECT_THROW(batches.apply(changed, &definition), Error);
         EXPECT_EQ(batches.apply(start()).phase(), research::proto::BATCH_RUNNING);
-        EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+        EXPECT_FALSE(store->find_task("scenario-1"));
     }
     store.reset();
     store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
@@ -400,7 +402,7 @@ TEST_F(BatchFixture, SavedReceiptsKeepOriginalIntentAndRestartDoesNotCreateUnsta
     ASSERT_EQ(interrupted.size(), 1U);
     EXPECT_EQ(interrupted[0].phase(), research::proto::BATCH_INTERRUPTED);
     EXPECT_FALSE(interrupted[0].has_elapsed_ms());
-    EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("scenario-1"));
     EXPECT_EQ(recovered.apply(save()).SerializeAsString(), receipt);
     auto retry = start();
     retry.set_id("another-start");
@@ -436,7 +438,7 @@ TEST_F(BatchFixture, DurableStopFencesPendingAdmissionsAndKeepsUnknownSeparateFr
     const auto stopped = batches.finish(source.draft.id(), 10);
     EXPECT_EQ(stopped.phase(), research::proto::BATCH_STOPPED);
     EXPECT_EQ(stopped.members(1).admission(), research::proto::BATCH_MEMBER_WAITING);
-    EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("scenario-1"));
 }
 
 TEST_F(BatchFixture, OnlyMatchingActualTasksConfirmMembersAndCompleteResultsRemainOwnedByTaskStore)
@@ -448,7 +450,7 @@ TEST_F(BatchFixture, OnlyMatchingActualTasksConfirmMembersAndCompleteResultsRema
     const auto digest = sha256_bytes(fixed.SerializeAsString());
     batches.begin_member(source.draft.id(), "scenario-1", digest);
     EXPECT_THROW(batches.confirm_member(source.draft.id(), "scenario-1"), Error);
-    auto submission = store->submission("scenario-1", fixed);
+    auto submission = task_submission(*store, "scenario-1", fixed);
     submission.set_program_artifact(definition.program_artifact());
     task::proto::TaskDerivation derivation;
     derivation.set_source_id("source");
@@ -480,7 +482,7 @@ TEST_F(BatchFixture, OnlyMatchingActualTasksConfirmMembersAndCompleteResultsRema
     const auto completed = batches.finish(source.draft.id(), 20);
     EXPECT_EQ(completed.phase(), research::proto::BATCH_COMPLETED);
     EXPECT_EQ(completed.members(1).admission(), research::proto::BATCH_MEMBER_REJECTED);
-    EXPECT_THROW(store->describe("scenario-2"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("scenario-2"));
     EXPECT_EQ(
         tasks::verified_result(*store, "scenario-1").SerializeAsString(),
         actual.SerializeAsString());
@@ -506,7 +508,7 @@ TEST_F(
     const auto fixed = input(1);
     const auto digest = sha256_bytes(fixed.SerializeAsString());
     batches.begin_member(source.draft.id(), "scenario-1", digest);
-    auto submission = store->submission("scenario-1", fixed);
+    auto submission = task_submission(*store, "scenario-1", fixed);
     submission.set_program_artifact(definition.program_artifact());
     task::proto::TaskDerivation origin;
     origin.set_source_id("source");
@@ -527,7 +529,7 @@ TEST_F(
     consumer.set_version(digest);
     store->release_prepared_reservation(submission);
     store->commit(store->abandon_preparation(prepared, consumer));
-    EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("scenario-1"));
     EXPECT_EQ(
         store->abandoned_preparation("scenario-1")->SerializeAsString(),
         consumer.SerializeAsString());
@@ -538,7 +540,7 @@ TEST_F(
     batches.reject_member(source.draft.id(), "scenario-1", refused);
     EXPECT_EQ(batches.finish(source.draft.id(), 10).phase(), research::proto::BATCH_STOPPED);
     auto unrelated =
-        store->submission("independent-after-stop", source.verified.result_task().input());
+        task_submission(*store, "independent-after-stop", source.verified.result_task().input());
     unrelated.set_program_artifact(definition.program_artifact());
     EXPECT_NO_THROW(tasks::submit(*store, std::move(unrelated)));
     EXPECT_EQ(store->describe("independent-after-stop").state(), task::proto::QUEUED);
@@ -552,7 +554,7 @@ TEST_F(BatchFixture, ConfirmedTaskCancellationIsNotConfusedWithUnadmittedPrepara
     const auto fixed = input(1);
     const auto digest = sha256_bytes(fixed.SerializeAsString());
     batches.begin_member(source.draft.id(), "scenario-1", digest);
-    auto submission = store->submission("scenario-1", fixed);
+    auto submission = task_submission(*store, "scenario-1", fixed);
     submission.set_program_artifact(definition.program_artifact());
     task::proto::TaskDerivation origin;
     origin.set_source_id("source");
@@ -580,7 +582,7 @@ TEST_F(BatchFixture, UnrelatedTargetIdentityIsNeitherAdoptedNorCancelledAsABatch
     research::Batches batches(*store, source.owner, sqlite::Database::Access::writer);
     batches.apply(save(), &definition);
     batches.apply(start());
-    auto unrelated = store->submission("scenario-1", source.verified.result_task().input());
+    auto unrelated = task_submission(*store, "scenario-1", source.verified.result_task().input());
     unrelated.set_program_artifact(definition.program_artifact());
     tasks::submit(*store, std::move(unrelated));
     const auto actual = store->describe("scenario-1").SerializeAsString();
@@ -667,7 +669,7 @@ TEST_F(BatchFixture, NativeProjectionRequiresActualAdmittedTaskAndKeepsTerminalM
     batches.apply(start());
     const auto fixed = input(1);
     batches.begin_member(source.draft.id(), "scenario-1", sha256_bytes(fixed.SerializeAsString()));
-    auto submission = store->submission("scenario-1", fixed);
+    auto submission = task_submission(*store, "scenario-1", fixed);
     submission.set_program_artifact(definition.program_artifact());
     task::proto::TaskDerivation origin;
     origin.set_source_id("source");
@@ -948,7 +950,7 @@ TEST_F(
     research::Batches view(*store, source.owner);
     EXPECT_EQ(view.assessment("assessment-one").SerializeAsString(), saved);
     EXPECT_EQ(view.assessments(source.draft.id(), {}, 10).size(), 1U);
-    EXPECT_THROW(store->describe("scenario-1"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("scenario-1"));
 }
 
 TEST_F(
@@ -998,7 +1000,7 @@ TEST_F(
     const auto fixed = input(1);
     const auto digest = sha256_bytes(fixed.SerializeAsString());
     batches.begin_member(source.draft.id(), "scenario-1", digest);
-    auto submission = store->submission("scenario-1", fixed);
+    auto submission = task_submission(*store, "scenario-1", fixed);
     submission.set_program_artifact(definition.program_artifact());
     task::proto::TaskDerivation derivation;
     derivation.set_source_id("source");
@@ -1128,6 +1130,8 @@ TEST_F(BatchFixture, AssessmentRealResearchPreviewDoesNotAdmitMembersAndSaveRepl
                 endpoint + ".health",
                 "--session",
                 source.owner.service_id(),
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 endpoint + ".discovery",
                 "--file-workers",

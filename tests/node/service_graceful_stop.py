@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp", ignore_cleanup_
                     "--ctp-library", trader_sdk],
         "market": ["--session", "stop", "--directory", str(root / "data")],
         "research": ["--config", str(Path(executable).parent / "config/research.json"), "--session", "stop", "--directory", str(root / "data"),
-                 "--discovery-endpoint", str(root / "discovery.sock")],
+                 "--node-id", "fixture-node", "--discovery-endpoint", str(root / "discovery.sock")],
     }[kind]
     if kind == "trading":
         args += ["--health-endpoint", str(root / "health.sock")]

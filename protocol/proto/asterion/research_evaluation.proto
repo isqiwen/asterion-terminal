@@ -133,7 +133,8 @@ message EvaluationRequest {
   EvaluationStressScenario static_stress =
     7; // Explicit optional new report, fixed original holdings.
   bool include_ledger = 8; // Explicit full-account single-contract daily ledger bridge.
-  bool include_contributions = 9; // Explicit full-account all-daily original contract contributions.
+  bool include_contributions =
+    9; // Explicit full-account all-daily original contract contributions.
   bool include_daily_drawdown = 5; // Explicit new report section; never appended to an old result.
 }
 // Captured from verified ResultRead; never accepted as client-authored provenance.

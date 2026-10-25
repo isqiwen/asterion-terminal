@@ -34,8 +34,8 @@ struct Identity
     std::string instance;
 };
 
-// Serialized application-level durable task state. Agent owns OS processes;
-// attempt tokens fence late worker reports after retry or service restart.
+// Serialized application-level durable task state owned by one service. Attempt
+// tokens fence late execution reports after cancellation, retry or service restart.
 class Store
 {
     struct Impl;
@@ -106,7 +106,14 @@ public:
         void prepare_files();
         // File-worker projection of the exact prepared calculation input.
         task::proto::TaskExecution execution() const;
+
+        const task::proto::Task& task() const
+        {
+            return task_;
+        }
+
         void set_derivation(task::proto::TaskDerivation);
+        void set_reuse_digest(std::string);
         void set_program_artifact(std::string);
         void set_research_plan(research::proto::ProjectBinding);
         void
@@ -133,20 +140,10 @@ public:
     abandon_preparation(const task::proto::PreparedTaskSubmission&, const resource::proto::Object&);
     std::optional<resource::proto::Object> abandoned_preparation(const std::string& id) const;
     task::proto::PreparedTaskSubmission abandoned_preparation_record(const std::string& id) const;
-    // Definition validation may be expensive; construct submissions on the file worker.
-    Submission submission(const std::string&, backtest::proto::BacktestInput) const;
-    Submission submission(const std::string&, factor::proto::FactorInput) const;
-    Submission submission(const std::string&, research::proto::AccountReviewInput) const;
-    Submission submission(const std::string&, research::proto::NoticeReviewInput) const;
-    Submission submission(const std::string&, research::proto::EventSetReviewInput) const;
-    Submission submission(const std::string&, research::proto::StatisticsInput) const;
-    Submission submission(const std::string&, research::proto::EvaluationInput) const;
-    Submission submission(const std::string&, research::proto::ModelTrainingInput) const;
-    Submission submission(const std::string&, research::proto::ModelTimeInput) const;
-    Submission submission(const std::string&, research::proto::SampleInput) const;
-    Submission submission(const std::string&, research::proto::LogicTrialInput) const;
-    Submission submission(const data::proto::DownloadAuthorization&) const;
-    Submission submission(data::proto::MaterialInput) const;
+    // Owning services construct their typed submissions (see research_submission.hpp and
+    // data_submission.hpp) on a file worker; definition validation may be expensive.
+    Submission submission(task::proto::Task) const;
+    const std::string& instance() const;
     [[nodiscard]] Change edit_metadata(const task::proto::TaskMetadataEdit&);
     void admit_submission(Submission&);
     [[nodiscard]] Change register_submission(Submission&);
@@ -190,8 +187,9 @@ public:
     task::proto::Task confirm_input(InputRead) const;
     task::proto::TaskAttempt confirm_attempt(InputRead) const;
 
-    // Capture metadata under the host lock, verify owned input/result files outside
-    // it, then confirm identity under the lock. Reads never execute an algorithm.
+    // Capture metadata under the host lock, read owned input/result files outside
+    // it, then confirm identity under the lock. Results were validated when the
+    // task finished; reads only parse them and never execute an algorithm.
     class ResultRead
     {
     public:
@@ -210,19 +208,16 @@ public:
     private:
         friend class Store;
         ResultRead(
-            Identity,
             task::proto::Task,
             std::filesystem::path,
             std::string,
             std::uint64_t,
-            bool verify_content,
             bool include_input);
         task::proto::Task task_;
         std::filesystem::path directory_;
         std::string input_digest_;
         std::uint64_t input_bytes_;
-        Identity identity_;
-        bool verify_content_, include_input_, verified_ = false;
+        bool include_input_, verified_ = false;
         task::proto::TaskResponse response_;
     };
 
@@ -260,13 +255,15 @@ public:
     Completion prepare_finish(const task::proto::TaskFinish& result);
     [[nodiscard]] Change finish(Completion completion);
     // Cancellation and publication are ordered by the same durable task writer.
-    // A confirmed PUBLISHING change transfers custody; the worker lease no longer applies.
+    // A confirmed PUBLISHING change transfers custody to the publication step.
     [[nodiscard]] Change prepare_publication(Completion, const data::proto::PreparedDownload&);
     std::vector<data::proto::DownloadPublication> pending_publications() const;
     [[nodiscard]] Change confirm_publication(const data::proto::PublishedDownload&);
     // Full immutable input is loaded and integrity-checked only for explicit reads.
     task::proto::Task get(const std::string& id) const;
+    // describe() and other lookups throw Error(not_found) for an unknown id.
     task::proto::Task describe(const std::string& id) const;
+    std::optional<task::proto::Task> find_task(const std::string& id) const;
     task::proto::TaskList list(unsigned limit = 200, unsigned before_sequence = 0) const;
     task::proto::ProjectTaskPage
     project_tasks(const std::string& project, unsigned limit, unsigned before_sequence) const;

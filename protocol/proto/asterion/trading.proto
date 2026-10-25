@@ -483,6 +483,7 @@ message TradingFactsReceipt {
     ADMITTED = 1;
     PUBLISHED = 2;
   }
+
   asterion.resource.proto.Object reference = 1;
   State state = 2;
   int64 admitted_at_ms = 3;

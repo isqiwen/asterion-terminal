@@ -13,7 +13,7 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion durable research service (service-owned execution)"};
     app.set_version_flag("--version", "asterion_research " ASTERION_PRODUCT_VERSION);
-    std::string directory, service, health_endpoint, discovery_endpoint, local_endpoint;
+    std::string directory, service, node_id, health_endpoint, discovery_endpoint, local_endpoint;
     std::string configuration;
     app.add_option("--config", configuration, "Service instance task policy")->required();
     unsigned file_workers = 2;
@@ -29,6 +29,7 @@ int main(int argc, char** argv)
     app.add_option("--tls-ca", transport.tls.ca_file);
     app.add_option("--tls-cert", transport.tls.certificate_file);
     app.add_option("--tls-key", transport.tls.private_key_file);
+    app.add_option("--node-id", node_id, "Stable owning Agent identity")->required();
     app.add_option("--discovery-endpoint", discovery_endpoint)->required();
     app.add_option("--health-endpoint", health_endpoint);
     app.add_option("--owner-pid", owner_pid);
@@ -46,6 +47,7 @@ int main(int argc, char** argv)
         if (!plugin_directory.empty())
             asterion::configure_native_plugins(plugin_directory);
         asterion::validate_id(service);
+        asterion::validate_id(node_id);
         if (discovery_endpoint.empty())
             throw std::invalid_argument("research requires the local Agent discovery endpoint");
         if (directory.empty())
@@ -57,6 +59,7 @@ int main(int argc, char** argv)
         ResearchHost tasks(
             {directory,
                 service,
+                node_id,
                 discovery_endpoint,
                 file_workers,
                 asterion::tasks::load_task_concurrency(configuration)});

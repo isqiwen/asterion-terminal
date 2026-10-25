@@ -77,6 +77,15 @@ TEST(FeatureExpressions, RealZeroUndefinedDenominatorAndOverflowRemainDifferent)
     EXPECT_EQ(early[2].reason, FeatureUndefined::zero_denominator);
 }
 
+TEST(FeatureExpressions, NumericConstantsAcceptFractionsAndExponents)
+{
+    const auto output = FeatureExpression("0.5 + .25 + 2.5e-1 + 1E1").evaluate(prices({1}), 2);
+    ASSERT_TRUE(output[0].value);
+    EXPECT_EQ(*output[0].value, 11);
+    EXPECT_THROW(FeatureExpression("1e"), std::exception);
+    EXPECT_THROW(FeatureExpression("."), std::exception);
+}
+
 TEST(FeatureExpressions, RollingMeanSampleDeviationAndExtremesKeepPriceUnits)
 {
     const auto input = prices({100, 102, 101, 103});

@@ -106,6 +106,8 @@ struct Node
             endpoint,
             "--session",
             "table-test",
+            "--node-id",
+            "fixture-node",
             "--discovery-endpoint",
             endpoint + ".discovery",
             "--plugin-directory",

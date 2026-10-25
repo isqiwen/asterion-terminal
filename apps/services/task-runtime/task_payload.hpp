@@ -41,6 +41,10 @@ void check(
     std::string_view digest,
     std::uint64_t maximum,
     std::uint64_t expected_size = 0);
+// Reads bytes this owner published. Verifying the digest belongs to trust
+// boundaries such as cold backup inspection, not to ordinary reads.
+std::string
+load(const std::filesystem::path&, std::uint64_t maximum, std::uint64_t expected_size = 0);
 std::string read(
     const std::filesystem::path&,
     std::string_view digest,

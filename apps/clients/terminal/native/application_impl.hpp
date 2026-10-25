@@ -150,7 +150,6 @@ struct Application::Impl
     // The one CTP account that supplies market data.
     PolledTask<CtpConnection> market_ctp();
     // Where a CTP account keeps its trading record; one record per account.
-    static std::filesystem::path ctp_record_directory(const std::string& account);
     // Stored accounts, each with whether it has a trading record.
     json ctp_accounts() const;
     // The credential a download of this source uses: the one typed for this

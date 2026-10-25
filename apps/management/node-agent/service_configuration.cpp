@@ -73,20 +73,20 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
     configuration.plugin_artifacts =
         document.at("plugin_artifacts").get<std::vector<std::string>>();
     if (document.contains("catalog_artifact")) {
-        if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::LIVE_TRADING)
+        if (configuration.kind != wire::MARKET && configuration.kind != wire::TRADING)
             throw std::invalid_argument(
                 "CTP trader library only belongs to market data or live trading");
         configuration.catalog_artifact = document.at("catalog_artifact").get<std::string>();
         validate_artifact_digest(configuration.catalog_artifact);
     }
-    if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::RESEARCH
-        && configuration.kind != wire::LIVE_TRADING && configuration.kind != wire::DATA_SERVICE
+    if (configuration.kind != wire::MARKET && configuration.kind != wire::RESEARCH
+        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA
         && configuration.kind != wire::INTELLIGENCE)
         throw std::invalid_argument("unsupported service kind");
     if (configuration.kind == wire::INTELLIGENCE && !configuration.plugin_artifacts.empty())
         throw std::invalid_argument("intelligence does not load native provider plugins");
     if (!configuration.provider_artifact.empty()) {
-        if (configuration.kind != wire::MARKET_DATA)
+        if (configuration.kind != wire::MARKET)
             throw std::invalid_argument("provider library only belongs to market data");
         validate_artifact_digest(configuration.provider_artifact);
     }
@@ -94,7 +94,7 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
         if (!configuration.provider_artifact.empty())
             throw std::invalid_argument("research service does not load a market provider");
     }
-    if (configuration.kind == wire::LIVE_TRADING && configuration.catalog_artifact.empty())
+    if (configuration.kind == wire::TRADING && configuration.catalog_artifact.empty())
         throw std::invalid_argument("live trading requires the CTP trader library");
     configuration.artifact = document.at("artifact").get<std::string>();
     validate_artifact_digest(configuration.artifact);

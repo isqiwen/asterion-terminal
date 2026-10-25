@@ -1,4 +1,6 @@
 #include <asterion/protocol/task_execution.hpp>
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "data/history_fixture.hpp"
 #include "tasks/paper_input.hpp"
 #include "support/task_wait.hpp"
@@ -119,7 +121,7 @@ protected:
 
     void deploy_fixture(bool task, const std::string& name)
     {
-        const auto kind = task ? node::proto::RESEARCH : node::proto::MARKET_DATA;
+        const auto kind = task ? node::proto::RESEARCH : node::proto::MARKET;
         client
             ->deploy(
                 {.service = name,
@@ -311,9 +313,9 @@ TEST_F(NodeSupervision, DataInstanceRunsIndependentlyWithoutReverseBinding)
     client
         ->deploy(
             {.service = "data-one",
-                .kind = node::proto::DATA_SERVICE,
+                .kind = node::proto::DATA,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::proto::DATA_SERVICE),
+                .programs = local_service_programs(node::proto::DATA),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     auto ready = [&] {
@@ -399,7 +401,7 @@ TEST_F(NodeSupervision, ResearchStartsWithoutDataAndKeepsIndependentOwnershipAcr
     (void)ready("research-two");
     EXPECT_EQ(health().at("services").size(), 2U);
     for (const auto* id : {"data-one", "data-two"}) {
-        deploy(id, node::proto::DATA_SERVICE);
+        deploy(id, node::proto::DATA);
         (void)ready(id);
         client->action(id, "stop").get();
     }
@@ -422,9 +424,9 @@ TEST_F(NodeSupervision, SlowProcessReleaseKeepsStatusAndConfirmedStopIntentVisib
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::proto::MARKET_DATA,
+                .kind = node::proto::MARKET,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::proto::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     // Inject the fault into an initialized service, after it has installed its
@@ -468,9 +470,9 @@ TEST_F(NodeSupervision, FailedCommitFreezesMutationsAndPreservesConfirmedConfigu
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::proto::MARKET_DATA,
+                .kind = node::proto::MARKET,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::proto::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     const auto before = state();
@@ -508,9 +510,9 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
     client
         ->deploy(
             {.service = "observed",
-                .kind = node::proto::MARKET_DATA,
+                .kind = node::proto::MARKET,
                 .platform = current_platform(),
-                .programs = local_service_programs(node::proto::MARKET_DATA),
+                .programs = local_service_programs(node::proto::MARKET),
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     client.reset();
@@ -586,7 +588,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
             std::this_thread::sleep_for(20ms);
         }
     };
-    deploy("data-one", node::proto::DATA_SERVICE);
+    deploy("data-one", node::proto::DATA);
     const auto data_root = fs::path(ready("data-one").at("directory").get<std::string>());
     client->action("data-one", "stop").get();
     const auto selected = test::seed_history(
@@ -604,7 +606,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
         "data-one");
     client->action("data-one", "start").get();
     (void)ready("data-one");
-    auto data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    auto data_address = client->service_endpoint("data-one", node::proto::DATA).get();
     protocol::DataClient data(data_address.endpoint, "data-one");
     data::proto::DataRequest dataset;
     auto* selection = dataset.mutable_bar_dataset();
@@ -621,7 +623,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
     data::proto::DataRetention retention;
     {
         tasks::Store store(research_root, {"research-one"});
-        auto draft = store.submission("pending-release", input);
+        auto draft = task_submission(store, "pending-release", input);
         store.admit_submission(draft);
         draft.prepare_files();
         tasks::ResearchDataRoute route{
@@ -726,7 +728,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
     restart();
     (void)ready("data-one");
     (void)ready("research-one");
-    data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    data_address = client->service_endpoint("data-one", node::proto::DATA).get();
     EXPECT_EQ(data_address.owner_node_id, node);
     data = protocol::DataClient(data_address.endpoint, "data-one");
     research_address = client->service_endpoint("research-one", node::proto::RESEARCH).get();
@@ -752,7 +754,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
     restart();
     (void)ready("data-one");
     (void)ready("research-one");
-    data_address = client->service_endpoint("data-one", node::proto::DATA_SERVICE).get();
+    data_address = client->service_endpoint("data-one", node::proto::DATA).get();
     data = protocol::DataClient(data_address.endpoint, "data-one");
     research_address = client->service_endpoint("research-one", node::proto::RESEARCH).get();
     EXPECT_EQ(research(retire).retirement().state(), task::proto::TaskRetirement::RETIRED);

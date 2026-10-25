@@ -85,7 +85,6 @@ public:
         std::string parent);
     PolledTask<Payload>
     read(const ResearchFactsRoute&, std::string request, std::chrono::milliseconds timeout);
-    PolledTask<std::string> node_id(std::chrono::milliseconds timeout, std::string parent);
     void poll();
 
 private:

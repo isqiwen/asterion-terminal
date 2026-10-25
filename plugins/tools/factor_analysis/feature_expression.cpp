@@ -5,6 +5,9 @@
 #include <cctype>
 #include <cmath>
 #include <deque>
+#include <locale>
+#include <sstream>
+#include <string>
 #include <string_view>
 
 namespace asterion {
@@ -170,12 +173,37 @@ private:
             fail("expected expression");
         const auto c = source_[position_];
         if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') {
+            // Floating-point from_chars requires macOS 26; the desktop supports 13.0.
+            // Scan the same digits, point and exponent, then parse them in the classic locale.
+            const auto digits = [&] {
+                while (position_ < source_.size()
+                    && std::isdigit(static_cast<unsigned char>(source_[position_])))
+                    ++position_;
+            };
+            const auto start = position_;
+            digits();
+            if (position_ < source_.size() && source_[position_] == '.') {
+                ++position_;
+                digits();
+            }
+            if (position_ < source_.size()
+                && (source_[position_] == 'e' || source_[position_] == 'E')) {
+                auto exponent = position_ + 1;
+                if (exponent < source_.size()
+                    && (source_[exponent] == '+' || source_[exponent] == '-'))
+                    ++exponent;
+                if (exponent < source_.size()
+                    && std::isdigit(static_cast<unsigned char>(source_[exponent]))) {
+                    position_ = exponent;
+                    digits();
+                }
+            }
+            std::istringstream text(std::string(source_.substr(start, position_ - start)));
+            text.imbue(std::locale::classic());
             double value = 0;
-            const auto end = source_.data() + source_.size();
-            const auto parsed = std::from_chars(source_.data() + position_, end, value);
-            if (parsed.ec != std::errc{} || !std::isfinite(value))
+            if (!(text >> value) || text.peek() != std::char_traits<char>::eof()
+                || !std::isfinite(value))
                 fail("numeric constant must be finite");
-            position_ = static_cast<std::size_t>(parsed.ptr - source_.data());
             auto node = make(Op::constant, at);
             node->constant = value;
             return node;

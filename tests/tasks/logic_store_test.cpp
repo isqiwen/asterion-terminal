@@ -1,4 +1,6 @@
 #include "logic_store.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "research_logic.hpp"
 #include "strategy_store.hpp"
 #include "risk_module.hpp"
@@ -259,9 +261,9 @@ TEST_F(LogicStore, ActualTaskPublishesPriorComparisonAndReopensWithoutDataOrChan
     }
     const auto artifact = sha256_file(current_executable());
     (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
-    auto missing_program = store->submission("missing-program", fixed);
+    auto missing_program = task_submission(*store, "missing-program", fixed);
     EXPECT_THROW(tasks::submit(*store, std::move(missing_program)), Error);
-    auto submission = store->submission("prior-comparison", fixed);
+    auto submission = task_submission(*store, "prior-comparison", fixed);
     submission.set_program_artifact(artifact);
     EXPECT_EQ(tasks::submit(*store, std::move(submission)).kind(), task::proto::LOGIC_TRIAL);
     auto read = store->prepare_input("prior-comparison");
@@ -307,7 +309,7 @@ TEST_F(LogicStore, MatchingPriorTrialCanAssembleANonRunningPackageAndDraftWithou
     }
     const auto artifact = sha256_file(current_executable());
     (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
-    auto submission = store->submission("matching-trial", fixed);
+    auto submission = task_submission(*store, "matching-trial", fixed);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("matching-trial")).token();

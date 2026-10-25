@@ -1,4 +1,6 @@
 #include "data_backup.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "domain_backup.hpp"
 #include "data_store.hpp"
 #include "data_retentions.hpp"
@@ -147,7 +149,7 @@ TEST(DataColdBackup, DeclaresQueuedAcquisitionAndItsMissingProgramWithoutRunning
     fs::create_directory(directory.path / "acquisition-tasks");
     {
         tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
-        auto submission = store.submission(authorization);
+        auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();
         (void)store.commit(store.register_submission(submission));
@@ -185,7 +187,7 @@ TEST(DataColdBackup, RestoresRetiredAcquisitionEvidenceWithoutResurrectingExecut
     resource::proto::Object decision;
     {
         tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
-        auto submission = store.submission(authorization);
+        auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();
         (void)store.commit(store.register_submission(submission));
@@ -329,7 +331,7 @@ TEST(DataColdBackup, RetainsExactlyAuthorizedProviderAndRestoresWithoutLoadingOr
     fs::create_directory(directory.path / "acquisition-tasks");
     {
         tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
-        auto submission = store.submission(authorization);
+        auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();
         (void)store.commit(store.register_submission(submission));

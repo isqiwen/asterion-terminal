@@ -503,8 +503,6 @@ std::function<void()> DataHost::prepare(
                 *response.mutable_acquisition_task() = refresh_->handle(request.acquisition_task());
             } catch (const std::invalid_argument& error) {
                 fail(response, error);
-            } catch (const std::out_of_range&) {
-                fail(response, Error(ErrorCode::not_found, "unknown task"));
             } catch (const Error& error) {
                 if (error.code() != ErrorCode::invalid_request
                     && error.code() != ErrorCode::conflict

@@ -1,4 +1,6 @@
 #include "strategy_store.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include <asterion/research.pb.h>
 #include <asterion/protocol/research_batch.hpp>
 #include "support/task_wait.hpp"
@@ -1063,7 +1065,7 @@ TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculat
         input_hash = sha256_file(directory.path / "original/input.pb");
         result_hash = sha256_file(directory.path / "original/results/1.pb");
         digest = store.describe("original").result_digest();
-        auto submission = store.submission("derived", spec);
+        auto submission = task_submission(store, "derived", spec);
         task::proto::TaskDerivation source;
         source.set_source_id("original");
         source.set_source_result_digest(digest);
@@ -1389,28 +1391,6 @@ TEST(TaskStore, MissingOrUnsupportedIdentityIsNeverFilledIntoExistingStore)
     }
 }
 
-TEST(TaskStore, ModifiedResultNeverLoadsAsSuccess)
-{
-    TaskDirectory directory;
-    {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
-        tasks::submit(store, "done", input());
-        store.commit(
-            tasks::finish(
-                store,
-                "done",
-                store.commit(store.claim("done")).token(),
-                backtest::run(input())));
-    }
-    {
-        std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
-        file << " ";
-    }
-    EXPECT_THROW(
-        tasks::Store corrupted(directory.path, tasks::Identity{"task"}),
-        std::invalid_argument);
-}
-
 TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult)
 {
     {
@@ -1465,7 +1445,7 @@ TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
     TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task"});
     tasks::submit(store, "existing", input());
-    auto pending = store.submission("new", input());
+    auto pending = task_submission(store, "new", input());
     store.admit_submission(pending);
     EXPECT_TRUE(store.has_submission());
     EXPECT_FALSE(std::filesystem::exists(directory.path / "new"));
@@ -1493,7 +1473,7 @@ TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
     EXPECT_EQ(store.list().capacity().active_used(), 1U);
 
     // Duplicate input verification cannot restore an obsolete state snapshot.
-    auto duplicate = store.submission("new", input());
+    auto duplicate = task_submission(store, "new", input());
     store.admit_submission(duplicate);
     auto verified = std::async(std::launch::async, [&] {
         duplicate.prepare_files();
@@ -1723,22 +1703,6 @@ TEST(TaskStore, VerificationAdmissionReservesBothCompletionsAndReleasesAfterFail
     EXPECT_NO_THROW(slots.acquire(true, "second"));
 }
 
-TEST(TaskStore, RepeatedVerifiedReadsStillDetectChangedResultBytes)
-{
-    TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
-    tasks::submit(store, "done", input());
-    const auto expected = backtest::run(input());
-    store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
-    for (int i = 0; i < 3; ++i)
-        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-    {
-        std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
-        file << " ";
-    }
-    EXPECT_THROW(tasks::result(store, "done"), std::invalid_argument);
-}
-
 TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything)
 {
     TaskDirectory directory;
@@ -1878,6 +1842,8 @@ struct TaskProcess : testing::Test
                 endpoint + ".health",
                 "--session",
                 "task",
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 endpoint + ".discovery",
                 "--file-workers",
@@ -2069,7 +2035,7 @@ struct TaskProcess : testing::Test
     task::proto::Task persist(tasks::Store& store, const std::string& id, Input input)
     {
         preserve_program();
-        auto submission = store.submission(id, std::move(input));
+        auto submission = task_submission(store, id, std::move(input));
         submission.set_program_artifact(preserved_program);
         return tasks::submit(store, std::move(submission));
     }
@@ -2477,6 +2443,26 @@ TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership)
     EXPECT_THROW(testing_support::LocalListener duplicate(endpoint), Error);
 }
 
+// Research knows its node from its launch arguments; its own records must not
+// depend on the Agent staying reachable.
+TEST_F(TaskProcess, MetadataRequestsDoNotNeedAgentDiscovery)
+{
+    discovery.reset();
+    research::proto::ResearchRequest registration;
+    auto& operation = *registration.mutable_logic()->mutable_mutation();
+    operation.set_id("register-without-agent");
+    auto& rule = *operation.mutable_registration();
+    rule.set_id("two-means");
+    rule.set_name("Synthetic two means");
+    rule.set_purpose("Pure causal logic, not market performance");
+    rule.set_fast(1);
+    rule.set_slow(3);
+    rule.set_input(research::proto::LogicDefinition::COMPLETED_CLOSE);
+    rule.set_output(research::proto::LogicDefinition::TARGET_SIGN);
+    const auto definition = call(registration).logic().definition();
+    EXPECT_EQ(definition.owner().node_id(), "fixture-node");
+}
+
 TEST_F(
     TaskProcess,
     LogicTrialsUsePriorFictionalExpectationsWithoutDataAndKeepOriginalAfterDeprecation)
@@ -2548,7 +2534,8 @@ TEST_F(
     service.reset();
     {
         tasks::Store store(directory.path, tasks::Identity{"task"});
-        auto prepared = store.submission("logic-prepared", original.result_task().logic_trial());
+        auto prepared =
+            task_submission(store, "logic-prepared", original.result_task().logic_trial());
         prepared.set_program_artifact(fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
@@ -2572,7 +2559,8 @@ TEST_F(
     service.reset();
     {
         tasks::Store store(directory.path, tasks::Identity{"task"});
-        auto prepared = store.submission("logic-abandoned", original.result_task().logic_trial());
+        auto prepared =
+            task_submission(store, "logic-abandoned", original.result_task().logic_trial());
         prepared.set_program_artifact(fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
@@ -3417,7 +3405,7 @@ TEST_F(TaskProcess, CausalVariablesPersistDefinitionsAndActualFactorEvidenceAcro
         service.reset();
         {
             tasks::Store store(directory.path, {"task"});
-            auto prepared = store.submission(id, spec);
+            auto prepared = task_submission(store, id, spec);
             prepared.set_program_artifact(fixture_program_artifact);
             store.admit_submission(prepared);
             prepared.prepare_files();
@@ -3514,7 +3502,7 @@ TEST_F(TaskProcess, RawSamplesUseFixedDataWithoutAnyFactorAndRestoreMissingPrepa
     service.reset();
     {
         tasks::Store store(directory.path, {"task"});
-        auto preparation = store.submission("raw-prepared", owned);
+        auto preparation = task_submission(store, "raw-prepared", owned);
         preparation.set_program_artifact(fixture_program_artifact);
         store.admit_submission(preparation);
         preparation.prepare_files();
@@ -3879,7 +3867,7 @@ TEST_F(TaskProcess, ModelTrainingFixesOriginalEvidenceAndPublishesWithDataOfflin
         tasks::Store store(directory.path, tasks::Identity{"task"});
         research::proto::ModelTimeInput input;
         *input.mutable_plan() = time_plan;
-        auto prepared = store.submission("time-prepared", input);
+        auto prepared = task_submission(store, "time-prepared", input);
         store.admit_submission(prepared);
         prepared.prepare_files();
         std::filesystem::remove(directory.path / "time-prepared/input.pb");
@@ -3933,7 +3921,7 @@ TEST_F(TaskProcess, ModelTrainingFixesOriginalEvidenceAndPublishesWithDataOfflin
         tasks::Store store(directory.path, tasks::Identity{"task"});
         research::proto::ModelTimeInput input;
         *input.mutable_plan() = time_plan;
-        auto pending = store.submission("time-abandoned", input);
+        auto pending = task_submission(store, "time-abandoned", input);
         store.admit_submission(pending);
         pending.prepare_files();
         std::filesystem::remove(directory.path / "time-abandoned/input.pb");
@@ -4025,7 +4013,7 @@ TEST_F(TaskProcess, StatisticsConsumeOriginalFactorWithoutDataAndRecoverExactPre
         tasks::Store store(directory.path, {"task"});
         EXPECT_EQ(store.retirement("statistics-source", "fixture-node").consumers_size(), 1);
         const auto captured = store.get("statistics-report").statistics();
-        auto prepared = store.submission("statistics-prepared", captured);
+        auto prepared = task_submission(store, "statistics-prepared", captured);
         prepared.set_program_artifact(fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
@@ -4123,7 +4111,7 @@ TEST_F(TaskProcess, FixedExpressionHoldoutRecoversOriginalRolesAndValuesWithoutD
     service.reset();
     {
         tasks::Store store(directory.path, {"task"});
-        auto prepared = store.submission("expression-held-prepared", spec);
+        auto prepared = task_submission(store, "expression-held-prepared", spec);
         prepared.set_program_artifact(fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
@@ -4399,7 +4387,7 @@ TEST_F(
         service.reset();
         {
             tasks::Store store(directory.path, {"task"});
-            auto prepared = store.submission(id, spec);
+            auto prepared = task_submission(store, id, spec);
             prepared.set_program_artifact(fixture_program_artifact);
             prepared.set_research_plan(binding);
             store.admit_submission(prepared);
@@ -4433,13 +4421,13 @@ TEST_F(
     data_service.reset();
     {
         tasks::Store store(directory.path, {"task"});
-        auto pending = store.submission("cancelled-plan", spec);
+        auto pending = task_submission(store, "cancelled-plan", spec);
         pending.set_program_artifact(fixture_program_artifact);
         pending.set_research_plan(binding);
         store.admit_submission(pending);
         pending.prepare_files();
         store.commit(store.register_submission(pending));
-        auto unrelated = store.submission("unrelated-factor", spec);
+        auto unrelated = task_submission(store, "unrelated-factor", spec);
         unrelated.set_program_artifact(fixture_program_artifact);
         store.admit_submission(unrelated);
         unrelated.prepare_files();
@@ -4835,16 +4823,12 @@ TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
         std::filesystem::file_size(directory.path / "binary/results/1.pb"),
         expected.ByteSizeLong());
     EXPECT_EQ(tasks::result(store, "binary").SerializeAsString(), expected.SerializeAsString());
-    auto corrupt = original;
-    corrupt.back() ^= 1;
-    write_file_durably(path, corrupt);
-    EXPECT_THROW(store.get("binary"), std::invalid_argument);
-    EXPECT_THROW(tasks::result(store, "binary"), std::invalid_argument);
 }
 
 TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
 {
-    for (const auto& mode : {"missing", "truncated", "changed", "symlink", "protobuf", "old"}) {
+    // Opening does not rescan payloads; reading the fixed input rejects a damaged one.
+    for (const auto& mode : {"missing", "truncated", "symlink", "protobuf", "old"}) {
         SCOPED_TRACE(mode);
         TaskDirectory directory;
         {
@@ -4862,11 +4846,7 @@ TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
             std::filesystem::remove(path);
         else if (kind == "truncated")
             std::filesystem::resize_file(path, 1);
-        else if (kind == "changed") {
-            auto raw = input().SerializeAsString();
-            raw.back() ^= 1;
-            write_file_durably(path, raw);
-        } else if (kind == "symlink") {
+        else if (kind == "symlink") {
             std::filesystem::rename(path, directory.path / "preserve/other.pb");
             std::filesystem::create_symlink("other.pb", path);
         } else {
@@ -4889,13 +4869,15 @@ TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
                 "UPDATE tasks SET manifest=? WHERE id='preserve'");
             update.bind(1, manifest.dump()).step();
         }
-        const auto db_hash = sha256_file(directory.path / "tasks.sqlite");
         const auto input_hash =
             std::filesystem::is_regular_file(path) && !std::filesystem::is_symlink(path)
             ? sha256_file(path)
             : std::string{};
         EXPECT_THROW(
-            tasks::Store rejected(directory.path, tasks::Identity{"task"}),
+            {
+                tasks::Store store(directory.path, tasks::Identity{"task"});
+                (void)store.get("preserve");
+            },
             std::exception);
         EXPECT_THROW(
             tasks::Store::inspect_history_usage(
@@ -4903,7 +4885,6 @@ TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
                 tasks::Identity{"task"},
                 std::string(64, 'a')),
             std::exception);
-        EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), db_hash);
         if (!input_hash.empty())
             EXPECT_EQ(sha256_file(path), input_hash);
         if (kind == "missing")
@@ -6721,7 +6702,7 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
     EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
     EXPECT_EQ(store.commit(store.cancel("queued-0")).task().state(), task::proto::CANCELLED);
     EXPECT_EQ(store.list().capacity().active_used(), 999);
-    auto pending = store.submission("next", spec);
+    auto pending = task_submission(store, "next", spec);
     store.admit_submission(pending);
     EXPECT_EQ(store.list().capacity().active_reserved(), 1U);
     EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
@@ -7124,43 +7105,6 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         EXPECT_EQ(
             tasks::verified_result(store, "refresh").table_update().SerializeAsString(),
             result.SerializeAsString());
-        // Simulate an older writer accepting mismatched evidence with a valid digest.
-        // Offline reads must recheck the task relation, not just file integrity.
-        owned_store.reset();
-        wrong = finish;
-        wrong.mutable_table_update()->mutable_refresh_observation()->set_task_instance(
-            "another-task-service");
-        const auto raw = wrong.table_update().SerializeAsString();
-        replace_file_durably(directory.path / "refresh/results/1.pb", raw);
-        {
-            sqlite::Database db(directory.path / "tasks.sqlite");
-            task::proto::StoredTaskRecord record;
-            Json event;
-            {
-                sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='refresh'");
-                ASSERT_TRUE(read.step());
-                ASSERT_TRUE(record.ParseFromString(read.blob(0)));
-                sqlite::Database::Statement last(
-                    db,
-                    "SELECT body FROM task_events WHERE task_id='refresh' ORDER BY sequence DESC LIMIT 1");
-                ASSERT_TRUE(last.step());
-                event = Json::parse(last.text(0));
-            }
-            record.mutable_task()->set_result_digest(sha256_bytes(raw));
-            event["digest"] = sha256_bytes(raw);
-            sqlite::Database::Statement write(db, "UPDATE tasks SET record=? WHERE id='refresh'");
-            write.bind_blob(1, record.SerializeAsString()).step();
-            sqlite::Database::Statement last(
-                db,
-                "UPDATE task_events SET body=? WHERE task_id='refresh' AND sequence=?");
-            last.bind(1, event.dump())
-                .bind(2, static_cast<std::int64_t>(record.event_sequence()))
-                .step();
-        }
-        tasks::Store recovered(directory.path, {"historical-data"});
-        EXPECT_EQ(recovered.describe("refresh").state(), task::proto::SUCCEEDED);
-        EXPECT_THROW(tasks::verified_result(recovered, "refresh"), std::invalid_argument);
-        EXPECT_EQ(sha256_file(directory.path / "refresh/results/1.pb"), sha256_bytes(raw));
     }
 }
 
@@ -7362,7 +7306,7 @@ TEST(ResearchDataDiscovery, ResolvesStableOwnerWithoutPersistingItsLocator)
     status.set_node_id("node-one");
     status.set_instance_id("generation-one");
     auto* data = status.add_services();
-    data->set_kind(node::proto::DATA_SERVICE);
+    data->set_kind(node::proto::DATA);
     data->set_id("data-one");
     data->set_state("running");
     data->set_endpoint("/first/data.sock");
@@ -7383,7 +7327,7 @@ TEST(ResearchDataDiscovery, AmbiguousOrUnavailableOwnerCannotSilentlyChangeSourc
     status.set_node_id("node-one");
     for (const auto* id : {"data-one", "data-two"}) {
         auto* data = status.add_services();
-        data->set_kind(node::proto::DATA_SERVICE);
+        data->set_kind(node::proto::DATA);
         data->set_id(id);
         data->set_state("running");
         data->set_endpoint(std::string("/") + id + ".sock");
@@ -7417,7 +7361,7 @@ TEST(ResearchFactsDiscovery, ExactOwnerIsResolvedWithoutADataServiceOrSubstituti
     status.set_phase(node::proto::Status::READY);
     status.set_node_id("node-one");
     auto* service = status.add_services();
-    service->set_kind(node::proto::LIVE_TRADING);
+    service->set_kind(node::proto::TRADING);
     service->set_id("trading-one");
     service->set_state("running");
     service->set_endpoint("/trading.sock");
@@ -7638,7 +7582,7 @@ TEST(TaskPreparation, ExplicitResumeReusesOwnedInputAndAllowsIndependentAccepted
     TaskDirectory directory;
     {
         tasks::Store store(directory.path, {"task"});
-        auto draft = store.submission("pending", input());
+        auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files(); // Stop before the task index commit.
         EXPECT_EQ(store.list().tasks_size(), 0);
@@ -7667,7 +7611,7 @@ TEST(TaskPreparation, MissingPayloadKeepsRecoveryMetadataAndUnknownOrChangedReco
     TaskDirectory directory;
     {
         tasks::Store store(directory.path, {"task"});
-        auto draft = store.submission("pending", input());
+        auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files();
     }
@@ -7707,7 +7651,7 @@ TEST_F(TaskProcess, PreparedReferenceRecoversWithAndWithoutPublishedInputAndRepl
         data::proto::DataRetention retention;
         {
             tasks::Store store(directory.path, {"task"});
-            auto pending = store.submission(id, spec);
+            auto pending = task_submission(store, id, spec);
             preserve_program();
             pending.set_program_artifact(preserved_program);
             store.admit_submission(pending);
@@ -7782,7 +7726,7 @@ TEST(TaskPreparation, AbandonmentPersistsBeyondPayloadCleanupAndCannotReleaseAcc
     TaskDirectory directory;
     {
         tasks::Store store(directory.path, {"task"});
-        auto draft = store.submission("abandoned", input());
+        auto draft = task_submission(store, "abandoned", input());
         store.admit_submission(draft);
         draft.prepare_files();
     }
@@ -7844,7 +7788,7 @@ TEST(TaskPreparation, AbandonmentPersistsBeyondPayloadCleanupAndCannotReleaseAcc
         EXPECT_EQ(
             restored.abandoned_preparation("abandoned")->SerializeAsString(),
             released.SerializeAsString());
-        auto reuse = restored.submission("abandoned", input());
+        auto reuse = task_submission(restored, "abandoned", input());
         EXPECT_THROW(restored.admit_submission(reuse), Error);
         EXPECT_EQ(restored.describe("accepted").state(), task::proto::QUEUED);
     }
@@ -7865,7 +7809,7 @@ TEST(TaskPreparation, FailedAbandonmentCommitCannotAuthorizeRelease)
     TaskDirectory directory;
     {
         tasks::Store store(directory.path, {"task"});
-        auto draft = store.submission("pending", input());
+        auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files();
     }
@@ -7917,7 +7861,7 @@ TEST(TaskRetirement, DurableLifecycleKeepsEvidenceAndCannotResumeOrReuseTheIdent
             input().SerializeAsString());
         EXPECT_FALSE(store.commit(store.retire(object)).needs_write());
         EXPECT_THROW(store.retry("retired-run"), Error);
-        auto reuse = store.submission("retired-run", input());
+        auto reuse = task_submission(store, "retired-run", input());
         EXPECT_THROW(store.admit_submission(reuse), Error);
     }
     tasks::Store restored(directory.path, {"task"});
@@ -7938,7 +7882,7 @@ TEST(TaskRetirement, NewDerivationAndRetirementShareOneAdmissionBoundary)
     const auto token = store.commit(store.claim("parent")).token();
     store.commit(tasks::finish(store, "parent", token, backtest::run(input())));
     const auto object = store.retirement("parent", "fixture-node").object();
-    auto child = store.submission("child", input());
+    auto child = task_submission(store, "child", input());
     task::proto::TaskDerivation origin;
     origin.set_source_id("parent");
     origin.set_source_result_digest(store.describe("parent").result_digest());
@@ -7953,7 +7897,7 @@ TEST(TaskRetirement, NewDerivationAndRetirementShareOneAdmissionBoundary)
     store.commit(store.cancel("child"));
     store.commit(store.retire(store.retirement("child", "fixture-node").object()));
     auto retirement = store.retire(object);
-    auto later = store.submission("later", input());
+    auto later = task_submission(store, "later", input());
     later.set_derivation(origin);
     EXPECT_THROW(store.admit_submission(later), Error);
     retirement.persist();
@@ -7993,7 +7937,7 @@ TEST(TaskInputReference, IdenticalInputUsesOwnedImmutableStorageAndPreparedRecov
         const auto token = store.commit(store.claim("reference-parent")).token();
         store.commit(tasks::finish(store, "reference-parent", token, backtest::run(spec)));
         parent_digest = store.describe("reference-parent").result_digest();
-        auto child = store.submission("reference-child", spec);
+        auto child = task_submission(store, "reference-child", spec);
         task::proto::TaskDerivation origin;
         origin.set_source_id("reference-parent");
         origin.set_source_result_digest(parent_digest);
@@ -8046,7 +7990,7 @@ TEST(TaskInputReference, DifferentInputsDoNotAliasAndCorruptSourcesCannotBeRepub
     origin.set_data_choice("fixed");
     auto changed_spec = spec;
     *changed_spec.mutable_strategies(0) = testing_support::moving_average(1, 3, "2");
-    auto changed = store.submission("changed", changed_spec);
+    auto changed = task_submission(store, "changed", changed_spec);
     changed.set_derivation(origin);
     store.admit_submission(changed);
     changed.prepare_files();
@@ -8057,7 +8001,7 @@ TEST(TaskInputReference, DifferentInputsDoNotAliasAndCorruptSourcesCannotBeRepub
             directory.path / "changed/input.pb"));
     const auto changed_hash = sha256_file(directory.path / "changed/input.pb");
     replace_file_durably(directory.path / "source/input.pb", "corrupt synthetic source");
-    auto candidate = store.submission("candidate", spec);
+    auto candidate = task_submission(store, "candidate", spec);
     candidate.set_derivation(origin);
     store.admit_submission(candidate);
     EXPECT_THROW(candidate.prepare_files(), std::invalid_argument);
@@ -8188,7 +8132,7 @@ TEST(TaskRetirement, SnapshotHoldsRejectUncommittedAndCorruptAcquisitionEvidence
     TaskDirectory directory;
     tasks::Store store(directory.path, {"historical-data"});
     const auto authorization = refresh_authorization("held-evidence");
-    auto submission = store.submission(authorization);
+    auto submission = task_submission(store, authorization);
     store.admit_submission(submission);
     submission.prepare_files();
     EXPECT_THROW(store.table_snapshot_holds(std::string(64, 'c')), Error);
@@ -8594,7 +8538,7 @@ TEST_F(
     {
         tasks::Store pending(directory.path, {"task"});
         auto preparation =
-            pending.submission("causal-model-prepared", result.result_task().input());
+            task_submission(pending, "causal-model-prepared", result.result_task().input());
         preparation.set_program_artifact(fixture_program_artifact);
         pending.admit_submission(preparation);
         preparation.prepare_files();
@@ -9161,7 +9105,8 @@ TEST_F(
     service.reset();
     {
         tasks::Store store(directory.path, {"task"});
-        auto preparation = store.submission("fixed-weight-prepared", result.result_task().input());
+        auto preparation =
+            task_submission(store, "fixed-weight-prepared", result.result_task().input());
         preparation.set_program_artifact(fixture_program_artifact);
         store.admit_submission(preparation);
         preparation.prepare_files();

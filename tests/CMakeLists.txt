@@ -11,13 +11,22 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 find_package(GTest CONFIG REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 include(GoogleTest)
+# macOS limits Unix socket paths to 104 bytes and its default TMPDIR is long;
+# fixtures place sockets under the temporary directory, so use the short one
+# (its real path: durable files refuse the /tmp symbolic link).
+set(asterion_test_environment)
+if(APPLE)
+  set(asterion_test_environment ENVIRONMENT "TMPDIR=/private/tmp")
+endif()
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.
 function(asterion_unit_tests target source library)
   add_executable(${target} ${source})
   target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(${target} PRIVATE ${library} GTest::gtest_main)
-  set(test_timeout 30)
+  # Process tests take seconds alone; 60 s keeps a parallel run under load from
+  # failing healthy tests while still ending a real hang.
+  set(test_timeout 60)
   if(ARGC GREATER 3)
     set(test_timeout ${ARGV3})
   endif()
@@ -31,7 +40,7 @@ function(asterion_unit_tests target source library)
   # Instrumented binaries can need more than CMake's five-second default to
   # start while other targets run. This changes discovery, not case budgets.
   gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-    PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial})
+    PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial} ${asterion_test_environment})
 endfunction()
 enable_language(C)
 # In this tree the sample plugin builds against this checkout's SDK headers.
@@ -287,7 +296,7 @@ if(ASTERION_SANITIZERS)
 endif()
 gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
   DISCOVERY_TIMEOUT 30
-  PROPERTIES TIMEOUT ${asterion_terminal_test_timeout})
+  PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} ${asterion_test_environment})
 asterion_unit_tests(asterion_plugin_management_tests terminal/plugin_management_test.cpp asterion_terminal_api)
 target_link_libraries(asterion_plugin_management_tests PRIVATE asterion_node_storage)
 target_include_directories(asterion_plugin_management_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
@@ -421,3 +430,30 @@ asterion_unit_tests(asterion_research_batch_tests tasks/research_batch_test.cpp 
 target_link_libraries(asterion_research_batch_tests PRIVATE asterion_backtest_engine asterion_program_files asterion_task_store)
 target_compile_definitions(asterion_research_batch_tests PRIVATE ASTERION_RESEARCH_PATH=\"$<TARGET_FILE:asterion_research>\")
 add_dependencies(asterion_research_batch_tests asterion_research)
+
+# Typed task submissions are owned by the Research and Data services.
+target_link_libraries(asterion_data_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_factor_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_material_task_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_test_minutes PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_trading_backup_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_data_backup_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_notice_store_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_node_supervision_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_account_review_store_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_logic_store_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_backup_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_batch_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_evaluation_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_model_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_sample_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_research_statistics_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_strategy_store_tests PRIVATE asterion_research_submission asterion_data_submission)
+target_link_libraries(asterion_task_execution_tests PRIVATE asterion_research_submission asterion_data_submission)
+
+# Applied last so every directly registered test receives it.
+if(APPLE)
+  get_property(asterion_tests DIRECTORY PROPERTY TESTS)
+  set_property(TEST ${asterion_tests} APPEND PROPERTY ENVIRONMENT "TMPDIR=/private/tmp")
+endif()

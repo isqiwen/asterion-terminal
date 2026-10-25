@@ -1,4 +1,5 @@
 #include "acquisition_tasks.hpp"
+#include "data_submission.hpp"
 #include "acquisition_execution.hpp"
 #include "material_providers.hpp"
 #include <asterion/kernel/process/child.hpp>
@@ -40,10 +41,8 @@ proto::AcquisitionTaskResponse AcquisitionTasks::handle(
         owner.set_service_id(service_);
         owner.set_domain("data");
         std::optional<task::proto::Task> previous;
-        try {
+        if (tasks_.find_task(requested.id()))
             previous = tasks_.get(requested.id());
-        } catch (const std::out_of_range&) {
-        }
         if (previous) {
             if (!previous->has_material() || previous->has_retirement()
                 || previous->material().SerializeAsString() != fixed.SerializeAsString())
@@ -68,7 +67,7 @@ proto::AcquisitionTaskResponse AcquisitionTasks::handle(
         if (requested.max_bytes() > selected->max_bytes)
             throw std::invalid_argument("material response limit exceeds source capability");
         material_providers::preserve(requested, program_directory_);
-        auto submission = tasks_.submission(std::move(fixed));
+        auto submission = task_submission(tasks_, std::move(fixed));
         tasks_.admit_submission(submission);
         try {
             submission.prepare_files();
@@ -86,7 +85,7 @@ proto::AcquisitionTaskResponse AcquisitionTasks::handle(
             || authorization.task_instance() != service_
             || (!authorization.has_table_update() && !authorization.has_minutes()))
             throw Error(ErrorCode::conflict, "acquisition belongs to the data service");
-        auto submission = tasks_.submission(authorization);
+        auto submission = task_submission(tasks_, authorization);
         tasks_.admit_submission(submission);
         try {
             submission.prepare_files();

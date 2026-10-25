@@ -24,6 +24,7 @@ message AccountReviewResult {
     UNSPECIFIED = 0;
     EVIDENCE_INSUFFICIENT = 1;
   }
+
   asterion.resource.proto.Object source = 1;
   string account_id = 2;
   asterion.protocol.proto.TradingEnvironment environment = 3;

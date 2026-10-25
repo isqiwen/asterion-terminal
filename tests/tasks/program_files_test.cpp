@@ -53,7 +53,9 @@ TEST(ProgramFiles, ExactNativeProgramIsPreservedOnceAndReadOnlyListingDoesNotCre
     const auto entries = archive.catalogue();
     ASSERT_EQ(entries.size(), 1U);
     EXPECT_EQ(entries[0].digest, expected);
-    EXPECT_EQ(fs::last_write_time(archive.path(expected)), before);
+    EXPECT_EQ(
+        fs::last_write_time(archive.path(expected)).time_since_epoch().count(),
+        before.time_since_epoch().count());
 }
 
 TEST(ProgramFiles, OwnerDriftMissingAuthorityAndCorruptBytesCannotBeReplacedOrRebound)

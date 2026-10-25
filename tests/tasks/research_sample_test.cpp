@@ -1,4 +1,6 @@
 #include "research_sample.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "project_store.hpp"
 #include "research_statistics.hpp"
 #include "task_store.hpp"
@@ -217,7 +219,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         binding.set_plan_id(plan.id());
         binding.set_definition_digest(plan.definition_digest());
         projects.verify_binding(binding);
-        auto submission = store.submission("raw-sample", input);
+        auto submission = task_submission(store, "raw-sample", input);
         submission.set_research_plan(binding);
         submission.set_program_artifact(artifact);
         const auto admitted = tasks::submit(store, std::move(submission));
@@ -263,7 +265,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
             original,
             sha256_file(folder.path / "raw-sample/input.pb"),
             fs::file_size(folder.path / "raw-sample/input.pb"));
-        auto statistics = store.submission("raw-statistics", captured);
+        auto statistics = task_submission(store, "raw-statistics", captured);
         statistics.set_program_artifact(artifact);
         statistics.set_research_plan(binding);
         tasks::submit(store, std::move(statistics));
@@ -287,7 +289,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         auto grouped_input = captured;
         grouped_input.mutable_request()->set_grouping(
             research::proto::StatisticsRequest::TRADING_DAY);
-        auto grouped_submission = store.submission("raw-day-groups", grouped_input);
+        auto grouped_submission = task_submission(store, "raw-day-groups", grouped_input);
         grouped_submission.set_program_artifact(artifact);
         const auto grouped_task = tasks::submit(store, std::move(grouped_submission));
         EXPECT_EQ(grouped_task.total(), 24U);

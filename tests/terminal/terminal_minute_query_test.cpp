@@ -236,7 +236,8 @@ struct MinuteService
     MinuteService()
     {
         service::reset_stop_request();
-        root = std::filesystem::path("/tmp") / ("ast-query-" + unique_process_id().substr(0, 12));
+        root = std::filesystem::temp_directory_path()
+            / ("ast-query-" + unique_process_id().substr(0, 12));
         endpoint = (root / "service").string();
         std::filesystem::create_directory(root);
         host = std::make_unique<testing_support::BlockingService>(

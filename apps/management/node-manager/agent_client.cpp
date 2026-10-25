@@ -337,7 +337,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         std::vector<HistoryService> result;
         const bool local = !endpoint.endpoint.empty();
         for (const auto& service : health.services()) {
-            if (service.kind() != wire::RESEARCH && service.kind() != wire::DATA_SERVICE)
+            if (service.kind() != wire::RESEARCH && service.kind() != wire::DATA)
                 continue;
             if (result.size() >= 1000)
                 throw std::invalid_argument("historical service inspection limit exceeded");
@@ -430,8 +430,8 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             if (existing.id() == service)
                 throw std::invalid_argument(
                     "service already exists; its program and ledger are not replaced");
-        if (kind != wire::MARKET_DATA && kind != wire::RESEARCH && kind != wire::LIVE_TRADING
-            && kind != wire::DATA_SERVICE && kind != wire::INTELLIGENCE)
+        if (kind != wire::MARKET && kind != wire::RESEARCH && kind != wire::TRADING
+            && kind != wire::DATA && kind != wire::INTELLIGENCE)
             throw std::invalid_argument("invalid service kind");
         const auto hash = (co_await upload_artifact(path, os, arch, stop));
         const auto library = programs.provider.empty()
@@ -449,13 +449,13 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             programs.catalog.empty()
                 ? std::string{}
                 : (co_await upload_artifact(programs.catalog, os, arch, stop)));
-        const bool risk = kind == wire::LIVE_TRADING;
-        if ((kind == wire::RESEARCH || kind == wire::DATA_SERVICE || risk) && deployment.plugins) {
+        const bool risk = kind == wire::TRADING;
+        if ((kind == wire::RESEARCH || kind == wire::DATA || risk) && deployment.plugins) {
             for (const auto& artifact : *deployment.plugins) {
                 d->add_plugin_artifacts(
                     co_await upload_artifact(artifact.path, os, arch, stop, artifact.sha256));
             }
-        } else if (kind == wire::RESEARCH || kind == wire::DATA_SERVICE || risk) {
+        } else if (kind == wire::RESEARCH || kind == wire::DATA || risk) {
             const auto paths = co_await io.admin<std::vector<std::filesystem::path>>([&] {
                 auto folder = path.parent_path() / "plugins";
                 if (os == current_platform().os && arch == current_platform().arch)
@@ -537,8 +537,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         for (const auto& item : observed.services())
             if (item.id() == service)
                 current = &item;
-        if (!current
-            || (current->kind() != wire::RESEARCH && current->kind() != wire::DATA_SERVICE))
+        if (!current || (current->kind() != wire::RESEARCH && current->kind() != wire::DATA))
             throw std::invalid_argument("service does not support managed native plugins");
         if (current->desired_running() || current->state() != "stopped")
             throw std::invalid_argument("stop the service before configuring plugins");
@@ -571,7 +570,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
     PolledTask<ServiceEndpoint>
     local_session(const std::filesystem::path& directory, std::stop_token stop)
     {
-        const auto kind = wire::LIVE_TRADING;
+        const auto kind = wire::TRADING;
         if (endpoint.endpoint.empty())
             throw std::invalid_argument("local Agent required");
         const auto value = co_await io.admin<std::string>([&] {
@@ -613,7 +612,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
     {
         const auto observed = co_await ready(stop);
         const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
-        if (found == observed.services().end() || found->kind() != wire::LIVE_TRADING)
+        if (found == observed.services().end() || found->kind() != wire::TRADING)
             throw std::invalid_argument("choose a deployed trading service instance");
         co_await action(service, "start", stop);
         co_return co_await wait_trading(service, stop);
@@ -626,7 +625,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         // Wait here, before any account creation or trading command is submitted.
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
-            const auto address = (co_await service_endpoint(service, wire::LIVE_TRADING, stop));
+            const auto address = (co_await service_endpoint(service, wire::TRADING, stop));
             const auto status = snapshot();
             for (const auto& item : status.health->services())
                 if (item.id() == service && item.last_heartbeat_ms()
@@ -655,7 +654,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         }
         if (!exists) {
             auto programs = co_await io.admin<ServicePrograms>([] {
-                auto programs = local_service_programs(wire::MARKET_DATA);
+                auto programs = local_service_programs(wire::MARKET);
                 // The optional CTP libraries need not be installed when the service is created.
                 if (!std::filesystem::exists(programs.provider))
                     programs.provider.clear();
@@ -665,13 +664,13 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             });
             (co_await deploy(
                 {.service = service,
-                    .kind = wire::MARKET_DATA,
+                    .kind = wire::MARKET,
                     .platform = current_platform(),
                     .programs = programs},
                 stop));
         } else
             (co_await action(service, "start", stop));
-        co_return (co_await service_endpoint(service, wire::MARKET_DATA, stop));
+        co_return (co_await service_endpoint(service, wire::MARKET, stop));
     }
 
     PolledTask<ServiceEndpoint> local_data(std::stop_token stop)
@@ -683,20 +682,20 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
         if (found == observed.services().end()) {
             const auto programs = co_await io.admin<ServicePrograms>([] {
-                return local_service_programs(wire::DATA_SERVICE);
+                return local_service_programs(wire::DATA);
             });
             co_await deploy(
                 {.service = service,
-                    .kind = wire::DATA_SERVICE,
+                    .kind = wire::DATA,
                     .platform = current_platform(),
                     .programs = programs},
                 stop);
         } else {
-            if (found->kind() != wire::DATA_SERVICE)
+            if (found->kind() != wire::DATA)
                 throw std::invalid_argument("service kind mismatch");
             co_await action(service, "start", stop);
         }
-        co_return co_await service_endpoint(service, wire::DATA_SERVICE, stop);
+        co_return co_await service_endpoint(service, wire::DATA, stop);
     }
 
     PolledTask<ServiceEndpoint> local_intelligence(std::stop_token stop)

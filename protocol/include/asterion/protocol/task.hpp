@@ -6,11 +6,9 @@
 
 namespace asterion::protocol {
 
-// Result file verification has a separate budget from request admission and worker
-// liveness. The worker continues to renew its lease while awaiting completion.
+// Result file verification has a separate budget from request admission.
 inline constexpr auto task_verification_timeout = std::chrono::minutes(5);
-// Preparing a bounded immutable input is separate from the small progress RPC.
-// Its lease starts only after input preparation has finished.
+// Preparing a bounded immutable input has its own budget, separate from admission.
 inline constexpr auto task_input_timeout = std::chrono::seconds(30);
 Json decode_task(const task::proto::Task& task);
 Json decode_task_retirement(

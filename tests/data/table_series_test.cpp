@@ -989,6 +989,8 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
             "table-tasks",
             "--endpoint",
             task_endpoint,
+            "--node-id",
+            "fixture-node",
             "--discovery-endpoint",
             task_endpoint + ".discovery"});
     discovery.research("table-tasks", task_process.id(), sha256_file(ASTERION_RESEARCH_PATH));

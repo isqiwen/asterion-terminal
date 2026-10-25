@@ -40,48 +40,95 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Every task kind once: its owning domain, retirement resource name, the
+// definition field of Task and the result field of TaskResponse.
+struct KindSpec
+{
+    wire::TaskKind kind;
+    std::string_view domain, retirement, definition, result;
+};
+
+constexpr KindSpec kind_specs[] = {
+    {wire::BACKTEST, "research", "backtest", "input", "backtest"},
+    {wire::FACTOR, "research", "factor", "factor", "factor"},
+    {wire::ACCOUNT_REVIEW, "research", "account_review", "account_review", "account_review"},
+    {wire::NOTICE_REVIEW, "research", "notice_review", "notice_review", "notice_review"},
+    {wire::EVENT_SET_REVIEW,
+        "research",
+        "event_set_review",
+        "event_set_review",
+        "event_set_review"},
+    {wire::STATISTICS, "research", "statistics", "statistics", "statistics"},
+    {wire::PERFORMANCE_EVALUATION,
+        "research",
+        "performance_evaluation",
+        "evaluation",
+        "evaluation"},
+    {wire::SAMPLE, "research", "sample", "sample", "sample"},
+    {wire::LOGIC_TRIAL, "research", "logic_trial", "logic_trial", "logic_trial"},
+    {wire::MODEL_TRAINING, "research", "model_training", "model_training", "model_training"},
+    {wire::MODEL_TIME_VALIDATION, "research", "model_time_validation", "model_time", "model_time"},
+    {wire::MINUTE_DOWNLOAD, "data", "minutes", "minutes", "minutes"},
+    {wire::TABLE_UPDATE, "data", "table_update", "table_update", "table_update"},
+    {wire::MATERIAL_ACQUISITION, "data", "material_acquisition_task", "material", "material"},
+};
+
+struct KindFields
+{
+    const google::protobuf::FieldDescriptor *definition, *result;
+};
+
+const KindFields& kind_fields(wire::TaskKind kind)
+{
+    // Resolved once; a missing field name is a programming error in the table.
+    static const auto fields = [] {
+        std::map<wire::TaskKind, KindFields> result;
+        for (const auto& spec : kind_specs) {
+            const auto* definition =
+                wire::Task::descriptor()->FindFieldByName(std::string(spec.definition));
+            const auto* output =
+                wire::TaskResponse::descriptor()->FindFieldByName(std::string(spec.result));
+            if (!definition || !output
+                || definition->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE
+                || output->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE)
+                throw std::logic_error("task kind table names a missing message field");
+            result.emplace(spec.kind, KindFields{definition, output});
+        }
+        return result;
+    }();
+    const auto found = fields.find(kind);
+    if (found == fields.end())
+        throw std::invalid_argument("unsupported task manifest type");
+    return found->second;
+}
+
+const KindSpec& kind_spec(wire::TaskKind kind)
+{
+    for (const auto& spec : kind_specs)
+        if (spec.kind == kind)
+            return spec;
+    throw Error(ErrorCode::conflict, "unsupported task kind");
+}
+
 bool research_calculation(wire::TaskKind kind)
 {
-    return kind == wire::BACKTEST || kind == wire::FACTOR || kind == wire::ACCOUNT_REVIEW
-        || kind == wire::NOTICE_REVIEW || kind == wire::EVENT_SET_REVIEW || kind == wire::STATISTICS
-        || kind == wire::SAMPLE || kind == wire::LOGIC_TRIAL || kind == wire::MODEL_TRAINING
-        || kind == wire::MODEL_TIME_VALIDATION || kind == wire::PERFORMANCE_EVALUATION;
+    return kind_spec(kind).domain == "research";
 }
 
 std::pair<std::string_view, std::string_view> retirement_identity(wire::TaskKind kind)
 {
-    switch (kind) {
-        case wire::BACKTEST:
-            return {"research", "backtest"};
-        case wire::FACTOR:
-            return {"research", "factor"};
-        case wire::ACCOUNT_REVIEW:
-            return {"research", "account_review"};
-        case wire::NOTICE_REVIEW:
-            return {"research", "notice_review"};
-        case wire::EVENT_SET_REVIEW:
-            return {"research", "event_set_review"};
-        case wire::STATISTICS:
-            return {"research", "statistics"};
-        case wire::PERFORMANCE_EVALUATION:
-            return {"research", "performance_evaluation"};
-        case wire::SAMPLE:
-            return {"research", "sample"};
-        case wire::LOGIC_TRIAL:
-            return {"research", "logic_trial"};
-        case wire::MODEL_TRAINING:
-            return {"research", "model_training"};
-        case wire::MODEL_TIME_VALIDATION:
-            return {"research", "model_time_validation"};
-        case wire::MINUTE_DOWNLOAD:
-            return {"data", "minutes"};
-        case wire::TABLE_UPDATE:
-            return {"data", "table_update"};
-        case wire::MATERIAL_ACQUISITION:
-            return {"data", "material_acquisition_task"};
-        default:
-            throw Error(ErrorCode::conflict, "unsupported task retirement kind");
-    }
+    const auto& spec = kind_spec(kind);
+    return {spec.domain, spec.retirement};
+}
+
+google::protobuf::Message& mutable_definition(wire::Task& task)
+{
+    return *task.GetReflection()->MutableMessage(&task, kind_fields(task.kind()).definition);
+}
+
+google::protobuf::Message& mutable_result(wire::TaskResponse& response, wire::TaskKind kind)
+{
+    return *response.GetReflection()->MutableMessage(&response, kind_fields(kind).result);
 }
 
 data::proto::DownloadIdentity download_identity(const Identity& owner, const wire::Task& task)
@@ -329,35 +376,10 @@ void prepare(wire::Task& task)
 
 const google::protobuf::Message& definition(const wire::Task& task)
 {
-    if (task.kind() == wire::MINUTE_DOWNLOAD && task.has_minutes())
-        return task.minutes();
-    if (task.kind() == wire::TABLE_UPDATE && task.has_table_update())
-        return task.table_update();
-    if (task.kind() == wire::MATERIAL_ACQUISITION && task.has_material())
-        return task.material();
-    if (task.kind() == wire::FACTOR && task.has_factor())
-        return task.factor();
-    if (task.kind() == wire::ACCOUNT_REVIEW && task.has_account_review())
-        return task.account_review();
-    if (task.kind() == wire::NOTICE_REVIEW && task.has_notice_review())
-        return task.notice_review();
-    if (task.kind() == wire::EVENT_SET_REVIEW && task.has_event_set_review())
-        return task.event_set_review();
-    if (task.kind() == wire::STATISTICS && task.has_statistics())
-        return task.statistics();
-    if (task.kind() == wire::PERFORMANCE_EVALUATION && task.has_evaluation())
-        return task.evaluation();
-    if (task.kind() == wire::MODEL_TRAINING && task.has_model_training())
-        return task.model_training();
-    if (task.kind() == wire::MODEL_TIME_VALIDATION && task.has_model_time())
-        return task.model_time();
-    if (task.kind() == wire::SAMPLE && task.has_sample())
-        return task.sample();
-    if (task.kind() == wire::LOGIC_TRIAL && task.has_logic_trial())
-        return task.logic_trial();
-    if (task.kind() == wire::BACKTEST && task.has_input())
-        return task.input();
-    throw std::invalid_argument("task kind and input disagree");
+    const auto* field = kind_fields(task.kind()).definition;
+    if (!task.GetReflection()->HasField(task, field))
+        throw std::invalid_argument("task kind and input disagree");
+    return task.GetReflection()->GetMessage(task, field);
 }
 
 // Lists, dispatch and durable transitions need bounded metadata, never a copy
@@ -544,62 +566,19 @@ void transition(
 // Parse the exact bytes already checked against their durable digest.
 wire::Task parse_input(wire::Task task, const std::string& raw)
 {
-    switch (task.kind()) {
-        case wire::MINUTE_DOWNLOAD:
-            payload::parse(raw, *task.mutable_minutes());
-            break;
-        case wire::TABLE_UPDATE:
-            payload::parse(raw, *task.mutable_table_update());
-            break;
-        case wire::MATERIAL_ACQUISITION:
-            payload::parse(raw, *task.mutable_material());
-            break;
-        case wire::ACCOUNT_REVIEW:
-            payload::parse(raw, *task.mutable_account_review());
-            break;
-        case wire::NOTICE_REVIEW:
-            payload::parse(raw, *task.mutable_notice_review());
-            break;
-        case wire::EVENT_SET_REVIEW:
-            payload::parse(raw, *task.mutable_event_set_review());
-            break;
-        case wire::STATISTICS:
-            payload::parse(raw, *task.mutable_statistics());
-            break;
-        case wire::PERFORMANCE_EVALUATION:
-            payload::parse(raw, *task.mutable_evaluation());
-            break;
-        case wire::MODEL_TRAINING:
-            payload::parse(raw, *task.mutable_model_training());
-            protocol::validate_model_training_input(task.model_training());
-            if (task.model_plan().SerializeAsString()
-                    != protocol::model_plan_object(task.model_training().plan()).SerializeAsString()
-                || task.program_artifact() != task.model_training().plan().program_artifact())
-                throw std::invalid_argument("model task differs from its fixed input");
-            break;
-        case wire::MODEL_TIME_VALIDATION:
-            payload::parse(raw, *task.mutable_model_time());
-            protocol::validate_model_time_input(task.model_time());
-            if (task.model_time_plan().SerializeAsString()
-                    != protocol::model_time_plan_object(task.model_time().plan())
-                        .SerializeAsString()
-                || task.program_artifact() != task.model_time().plan().recipe().program_artifact())
-                throw std::invalid_argument("model task differs from its fixed input");
-            break;
-        case wire::SAMPLE:
-            payload::parse(raw, *task.mutable_sample());
-            break;
-        case wire::LOGIC_TRIAL:
-            payload::parse(raw, *task.mutable_logic_trial());
-            break;
-        case wire::FACTOR:
-            payload::parse(raw, *task.mutable_factor());
-            break;
-        case wire::BACKTEST:
-            payload::parse(raw, *task.mutable_input());
-            break;
-        default:
-            throw std::invalid_argument("unsupported task manifest type");
+    payload::parse(raw, mutable_definition(task));
+    if (task.kind() == wire::MODEL_TRAINING) {
+        protocol::validate_model_training_input(task.model_training());
+        if (task.model_plan().SerializeAsString()
+                != protocol::model_plan_object(task.model_training().plan()).SerializeAsString()
+            || task.program_artifact() != task.model_training().plan().program_artifact())
+            throw std::invalid_argument("model task differs from its fixed input");
+    } else if (task.kind() == wire::MODEL_TIME_VALIDATION) {
+        protocol::validate_model_time_input(task.model_time());
+        if (task.model_time_plan().SerializeAsString()
+                != protocol::model_time_plan_object(task.model_time().plan()).SerializeAsString()
+            || task.program_artifact() != task.model_time().plan().recipe().program_artifact())
+            throw std::invalid_argument("model task differs from its fixed input");
     }
     const bool variable = task.has_factor() && task.factor().has_variable_definition();
     if (task.has_variable_definition() != variable)
@@ -611,8 +590,18 @@ wire::Task parse_input(wire::Task task, const std::string& raw)
     return task;
 }
 
-wire::Task
-read_input(wire::Task task, const fs::path& path, const std::string& digest, std::uint64_t bytes)
+// The owner published this input; reading it again does not re-verify its digest.
+wire::Task read_input(wire::Task task, const fs::path& path, std::uint64_t bytes)
+{
+    return parse_input(std::move(task), payload::load(path, payload::max_input_bytes, bytes));
+}
+
+// Cold backup inspection reads files it did not write and verifies them.
+wire::Task read_verified_input(
+    wire::Task task,
+    const fs::path& path,
+    const std::string& digest,
+    std::uint64_t bytes)
 {
     return parse_input(
         std::move(task),
@@ -621,52 +610,10 @@ read_input(wire::Task task, const fs::path& path, const std::string& digest, std
 
 wire::Task attach_definition(wire::Task task, wire::Task source)
 {
-    switch (task.kind()) {
-        case wire::MINUTE_DOWNLOAD:
-            *task.mutable_minutes() = std::move(*source.mutable_minutes());
-            break;
-        case wire::TABLE_UPDATE:
-            *task.mutable_table_update() = std::move(*source.mutable_table_update());
-            break;
-        case wire::MATERIAL_ACQUISITION:
-            *task.mutable_material() = std::move(*source.mutable_material());
-            break;
-        case wire::ACCOUNT_REVIEW:
-            *task.mutable_account_review() = std::move(*source.mutable_account_review());
-            break;
-        case wire::NOTICE_REVIEW:
-            *task.mutable_notice_review() = std::move(*source.mutable_notice_review());
-            break;
-        case wire::EVENT_SET_REVIEW:
-            *task.mutable_event_set_review() = std::move(*source.mutable_event_set_review());
-            break;
-        case wire::STATISTICS:
-            *task.mutable_statistics() = std::move(*source.mutable_statistics());
-            break;
-        case wire::PERFORMANCE_EVALUATION:
-            *task.mutable_evaluation() = std::move(*source.mutable_evaluation());
-            break;
-        case wire::MODEL_TRAINING:
-            *task.mutable_model_training() = std::move(*source.mutable_model_training());
-            break;
-        case wire::MODEL_TIME_VALIDATION:
-            *task.mutable_model_time() = std::move(*source.mutable_model_time());
-            break;
-        case wire::SAMPLE:
-            *task.mutable_sample() = std::move(*source.mutable_sample());
-            break;
-        case wire::LOGIC_TRIAL:
-            *task.mutable_logic_trial() = std::move(*source.mutable_logic_trial());
-            break;
-        case wire::FACTOR:
-            *task.mutable_factor() = std::move(*source.mutable_factor());
-            break;
-        case wire::BACKTEST:
-            *task.mutable_input() = std::move(*source.mutable_input());
-            break;
-        default:
-            throw std::invalid_argument("unsupported task manifest type");
-    }
+    if (task.kind() != source.kind())
+        throw std::logic_error("task definition comes from another task kind");
+    auto& target = mutable_definition(task);
+    target.GetReflection()->Swap(&target, &mutable_definition(source));
     return task;
 }
 
@@ -834,7 +781,7 @@ struct Store::Impl
         event_log =
             std::make_unique<sqlite::TaskEvents>(*database, root / "event-segments", read_only);
         if (read_only || !existing)
-            load(bounded_inspection, inspection_stop);
+            load(bounded_inspection, inspection_stop, cold_inspection);
         // Recovery retains bounded active metadata, one input and one event segment.
         // Terminal history is validated and then released, never copied into current.
         if (read_only)
@@ -851,7 +798,7 @@ struct Store::Impl
         }
     }
 
-    void load(bool bounded_inspection, std::stop_token inspection_stop)
+    void load(bool bounded_inspection, std::stop_token inspection_stop, bool cold_inspection)
     {
         std::uint64_t inspection_bytes = 0, inspection_records = 0;
         const auto inspect_size = [&](std::int64_t bytes, std::int64_t maximum) {
@@ -1067,13 +1014,14 @@ struct Store::Impl
                     throw std::invalid_argument("invalid risk plugin artifact");
             } else if (!entry.task.risk_artifact().empty())
                 throw std::invalid_argument("unexpected task risk artifact");
-            // Recovery checks durable bytes and index/event consistency. Claim and
-            // result reads validate the fixed input against its admitted work.
-            payload::check(
-                root / id / "input.pb",
-                entry.input_digest,
-                payload::max_input_bytes,
-                entry.input_bytes);
+            // Opening checks index/event consistency. Only cold backup inspection,
+            // reading files this process did not write, verifies payload digests.
+            if (cold_inspection)
+                payload::check(
+                    root / id / "input.pb",
+                    entry.input_digest,
+                    payload::max_input_bytes,
+                    entry.input_bytes);
             if (manifest.contains("derivation")) {
                 auto metadata = read_metadata(Json{{"derivation", manifest.at("derivation")}});
                 *entry.task.mutable_metadata() = std::move(metadata);
@@ -1180,7 +1128,9 @@ struct Store::Impl
                 && (entry.task.publication().identity().task_instance() != identity.instance
                     || entry.task.publication().identity().data_instance() != identity.instance))
                 throw std::invalid_argument("task publication belongs to another service binding");
-            if (entry.task.state() == wire::SUCCEEDED || entry.task.state() == wire::PUBLISHING)
+            if (cold_inspection
+                && (entry.task.state() == wire::SUCCEEDED
+                    || entry.task.state() == wire::PUBLISHING))
                 check_result_digest(entry);
             if (occupies_slot(entry.task.state())) {
                 if (current.size() == 1000)
@@ -1281,6 +1231,14 @@ struct Store::Impl
 
     Entry find(const std::string& id) const
     {
+        auto entry = lookup(id);
+        if (!entry)
+            throw Error(ErrorCode::not_found, "unknown task");
+        return std::move(*entry);
+    }
+
+    std::optional<Entry> lookup(const std::string& id) const
+    {
         validate_id(id);
         if (const auto found = current.find(id); found != current.end())
             return found->second;
@@ -1289,7 +1247,7 @@ struct Store::Impl
             "SELECT CASE WHEN length(record)<=65536 THEN record END, " "state, attempt, updated_at_ms, sequence FROM tasks WHERE id=?");
         query.bind(1, id);
         if (!query.step())
-            throw std::out_of_range("task does not exist");
+            return std::nullopt;
         wire::StoredTaskRecord stored;
         const auto raw = query.blob(0);
         if (raw.empty() || !stored.ParseFromString(raw))
@@ -1300,7 +1258,7 @@ struct Store::Impl
             || stored.task().updated_at_ms() != query.integer(3)
             || stored.task().submission_sequence() != query.integer(4))
             throw std::invalid_argument("task index does not match state history");
-        return {
+        return Entry{
             stored.task(),
             stored.input_digest(),
             stored.input_bytes(),
@@ -1439,23 +1397,14 @@ struct Store::Impl
         payload::check(result_path(entry), entry.task.result_digest(), payload::max_result_bytes);
     }
 
-    ResultRead prepare_read(const Entry& entry, bool deep, bool include_input) const
+    ResultRead prepare_read(const Entry& entry, bool include_input) const
     {
         return ResultRead(
-            identity,
             entry.task,
             root / entry.task.id(),
             entry.input_digest,
             entry.input_bytes,
-            deep,
             include_input);
-    }
-
-    wire::TaskResponse read_result(const Entry& entry, bool deep = true) const
-    {
-        auto read = prepare_read(entry, deep, false);
-        read.verify();
-        return std::move(read.response_);
     }
 };
 
@@ -1609,107 +1558,30 @@ sqlite::Database& Store::research_metadata(std::string_view service, bool writer
 }
 
 Store::ResultRead::ResultRead(
-    Identity identity,
     wire::Task task,
     fs::path directory,
     std::string digest,
     std::uint64_t bytes,
-    bool verify_content,
     bool include_input)
     : task_(std::move(task)),
       directory_(std::move(directory)),
       input_digest_(std::move(digest)),
       input_bytes_(bytes),
-      identity_(std::move(identity)),
-      verify_content_(verify_content),
       include_input_(include_input)
 {}
 
 void Store::ResultRead::verify()
 {
     verified_ = false;
-    // Parse the exact bytes whose digest was checked, never a second file read.
-    const auto raw = payload::read(
-        (directory_ / "results" / (std::to_string(task_.attempt()) + ".pb")),
-        task_.result_digest(),
+    // The owner validated this result against its input when the task finished.
+    // An ordinary read parses the published bytes; it does not verify them again.
+    const auto raw = payload::load(
+        directory_ / "results" / (std::to_string(task_.attempt()) + ".pb"),
         payload::max_result_bytes);
     wire::TaskResponse result;
-    const bool verify = verify_content_;
-    auto task = verify || include_input_
-        ? read_input(task_, directory_ / "input.pb", input_digest_, input_bytes_)
-        : wire::Task{};
-    if (!verify && !include_input_)
-        payload::check(
-            directory_ / "input.pb",
-            input_digest_,
-            payload::max_input_bytes,
-            input_bytes_);
-    if (task_.kind() == wire::MINUTE_DOWNLOAD) {
-        payload::parse(raw, *result.mutable_minutes());
-
-    } else if (task_.kind() == wire::TABLE_UPDATE) {
-        payload::parse(raw, *result.mutable_table_update());
-        if (verify)
-            protocol::validate_table_update_result(
-                task.table_update(),
-                download_identity(identity_, task),
-                result.table_update());
-
-    } else if (task_.kind() == wire::MATERIAL_ACQUISITION) {
-        payload::parse(raw, *result.mutable_material());
-        if (verify)
-            protocol::validate_material_result(task.material(), result.material());
-    } else if (task_.kind() == wire::LOGIC_TRIAL) {
-        payload::parse(raw, *result.mutable_logic_trial());
-        if (verify)
-            protocol::validate_logic_trial_result(task.logic_trial(), result.logic_trial());
-    } else if (task_.kind() == wire::SAMPLE) {
-        payload::parse(raw, *result.mutable_sample());
-        if (verify)
-            protocol::validate_sample_result(task.sample(), result.sample());
-    } else if (task_.kind() == wire::MODEL_TRAINING) {
-        payload::parse(raw, *result.mutable_model_training());
-        if (verify)
-            protocol::validate_model_training_result(
-                task.model_training(),
-                result.model_training());
-    } else if (task_.kind() == wire::MODEL_TIME_VALIDATION) {
-        payload::parse(raw, *result.mutable_model_time());
-        if (verify)
-            protocol::validate_model_time_result(task.model_time(), result.model_time());
-    } else if (task_.kind() == wire::PERFORMANCE_EVALUATION) {
-        payload::parse(raw, *result.mutable_evaluation());
-        if (verify)
-            protocol::validate_evaluation_result(task.evaluation(), result.evaluation());
-    } else if (task_.kind() == wire::STATISTICS) {
-        payload::parse(raw, *result.mutable_statistics());
-        if (verify)
-            protocol::validate_statistics_result(task.statistics(), result.statistics());
-    } else if (task_.kind() == wire::EVENT_SET_REVIEW) {
-        payload::parse(raw, *result.mutable_event_set_review());
-        if (verify)
-            protocol::validate_event_set_review_result(
-                task.event_set_review(),
-                result.event_set_review());
-    } else if (task_.kind() == wire::NOTICE_REVIEW) {
-        payload::parse(raw, *result.mutable_notice_review());
-        if (verify)
-            protocol::validate_notice_review_result(task.notice_review(), result.notice_review());
-    } else if (task_.kind() == wire::ACCOUNT_REVIEW) {
-        payload::parse(raw, *result.mutable_account_review());
-        if (verify)
-            protocol::validate_account_review_result(
-                task.account_review(),
-                result.account_review());
-    } else if (task_.kind() == wire::FACTOR) {
-        payload::parse(raw, *result.mutable_factor());
-        if (verify)
-            protocol::validate_factor_result(task.factor(), result.factor());
-    } else {
-        payload::parse(raw, *result.mutable_backtest());
-        if (verify)
-            protocol::validate_backtest_result(task.input(), result.backtest());
-    }
+    auto task =
+        include_input_ ? read_input(task_, directory_ / "input.pb", input_bytes_) : wire::Task{};
+    payload::parse(raw, mutable_result(result, task_.kind()));
 
     if (include_input_)
         *result.mutable_result_task() = std::move(task);
@@ -1722,7 +1594,7 @@ Store::ResultRead Store::prepare_result(const std::string& id) const
     const auto entry = impl_->find(id);
     if (entry.task.state() != wire::SUCCEEDED)
         throw std::invalid_argument("task has no confirmed result");
-    return impl_->prepare_read(entry, true, true);
+    return impl_->prepare_read(entry, true);
 }
 
 wire::TaskResponse Store::confirm_result(ResultRead read) const
@@ -1750,209 +1622,19 @@ Store::Submission::Submission(Impl* owner, fs::path root, wire::Task task)
     prepare(task_);
 }
 
-Store::Submission
-Store::submission(const std::string& id, backtest::proto::BacktestInput input) const
+Store::Submission Store::submission(wire::Task task) const
 {
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_input() = std::move(input);
-    task.set_risk_artifact(risk_providers::Module::selected().artifact());
     return Submission(impl_.get(), impl_->root, std::move(task));
 }
 
-Store::Submission Store::submission(const std::string& id, factor::proto::FactorInput input) const
+const std::string& Store::instance() const
 {
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_factor() = std::move(input);
-    return Submission(impl_.get(), impl_->root, std::move(task));
+    return impl_->identity.instance;
 }
 
-Store::Submission
-Store::submission(const std::string& id, research::proto::AccountReviewInput input) const
+void Store::Submission::set_reuse_digest(std::string digest)
 {
-    protocol::validate_account_review_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "account review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_account_review() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.account_review().SerializeAsString());
-    return submission;
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::NoticeReviewInput input) const
-{
-    protocol::validate_notice_review_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "notice review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_notice_review() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.notice_review().SerializeAsString());
-    return submission;
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::EventSetReviewInput input) const
-{
-    protocol::validate_event_set_review_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "event set review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_event_set_review() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ =
-        sha256_bytes(submission.task_.event_set_review().SerializeAsString());
-    return submission;
-}
-
-Store::Submission Store::submission(const std::string& id, research::proto::SampleInput input) const
-{
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "invalid research sample owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_sample() = std::move(input);
-    return Submission(impl_.get(), impl_->root, std::move(task));
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::LogicTrialInput input) const
-{
-    protocol::validate_logic_trial_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "invalid research logic trial owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_logic_trial() = std::move(input);
-    return Submission(impl_.get(), impl_->root, std::move(task));
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::EvaluationInput input) const
-{
-    protocol::validate_evaluation_input(input);
-    if (input.request().source().owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "evaluation source must belong to this Research service");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_evaluation() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.evaluation().SerializeAsString());
-    wire::TaskDerivation origin;
-    origin.set_source_id(submission.task_.evaluation().request().source().id());
-    origin.set_source_result_digest(submission.task_.evaluation().request().source().version());
-    origin.set_source_instance(impl_->identity.instance);
-    origin.set_data_choice("fixed");
-    submission.set_derivation(std::move(origin));
-    return submission;
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::StatisticsInput input) const
-{
-    protocol::validate_statistics_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "statistics source must belong to this Research service");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_statistics() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.statistics().SerializeAsString());
-    wire::TaskDerivation origin;
-    origin.set_source_id(submission.task_.statistics().source().result().id());
-    origin.set_source_result_digest(submission.task_.statistics().source().result().version());
-    origin.set_source_instance(impl_->identity.instance);
-    origin.set_data_choice("fixed");
-    submission.set_derivation(std::move(origin));
-    return submission;
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::ModelTrainingInput input) const
-{
-    protocol::validate_model_training_input(input);
-    if (input.plan().owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "model plan must belong to this Research service");
-    wire::Task task;
-    task.set_id(id);
-    task.set_program_artifact(input.plan().program_artifact());
-    *task.mutable_model_plan() = protocol::model_plan_object(input.plan());
-    *task.mutable_model_training() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.model_training().SerializeAsString());
-    const auto& source = submission.task_.model_training().plan().source().result();
-    wire::TaskDerivation origin;
-    origin.set_source_id(source.id());
-    origin.set_source_result_digest(source.version());
-    origin.set_source_instance(impl_->identity.instance);
-    origin.set_data_choice("fixed");
-    submission.set_derivation(std::move(origin));
-    return submission;
-}
-
-Store::Submission
-Store::submission(const std::string& id, research::proto::ModelTimeInput input) const
-{
-    protocol::validate_model_time_input(input);
-    if (input.plan().owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "model plan must belong to this Research service");
-    wire::Task task;
-    task.set_id(id);
-    task.set_program_artifact(input.plan().recipe().program_artifact());
-    *task.mutable_model_time_plan() = protocol::model_time_plan_object(input.plan());
-    *task.mutable_model_time() = std::move(input);
-    Submission submission(impl_.get(), impl_->root, std::move(task));
-    submission.reuse_digest_ = sha256_bytes(submission.task_.model_time().SerializeAsString());
-    const auto& source = submission.task_.model_time().plan().recipe().source().result();
-    wire::TaskDerivation origin;
-    origin.set_source_id(source.id());
-    origin.set_source_result_digest(source.version());
-    origin.set_source_instance(impl_->identity.instance);
-    origin.set_data_choice("fixed");
-    submission.set_derivation(std::move(origin));
-    return submission;
-}
-
-Store::Submission Store::submission(data::proto::MaterialInput input) const
-{
-    protocol::validate_material_input(input);
-    if (input.owner().service_id() != impl_->identity.instance)
-        throw Error(ErrorCode::conflict, "material acquisition belongs to another Data owner");
-    wire::Task task;
-    task.set_id(input.request().id());
-    *task.mutable_material() = std::move(input);
-    return Submission(impl_.get(), impl_->root, std::move(task));
-}
-
-Store::Submission Store::submission(const data::proto::DownloadAuthorization& authorization) const
-{
-    protocol::validate_message(authorization);
-    validate_id(authorization.task_id());
-    if (authorization.data_instance() != impl_->identity.instance
-        || authorization.task_instance() != impl_->identity.instance
-        || authorization.id().size() != 64
-        || authorization.id().find_first_not_of("0123456789abcdef") != std::string::npos
-        || authorization.provider_artifact().size() != 64
-        || authorization.provider_artifact().find_first_not_of("0123456789abcdef")
-            != std::string::npos)
-        throw std::invalid_argument("invalid task download authorization");
-    wire::Task task;
-    task.set_id(authorization.task_id());
-    task.set_download_authorization(authorization.id());
-    task.set_provider_artifact(authorization.provider_artifact());
-    if (authorization.has_minutes())
-        *task.mutable_minutes() = authorization.minutes();
-    else if (authorization.has_table_update())
-        *task.mutable_table_update() = authorization.table_update();
-    else
-        throw std::invalid_argument("download definition is missing");
-    return Submission(impl_.get(), impl_->root, std::move(task));
+    reuse_digest_ = std::move(digest);
 }
 
 void Store::Submission::set_program_artifact(std::string artifact)
@@ -2133,19 +1815,11 @@ Store::Submission Store::resume_submission(const std::string& id) const
 {
     const auto value = prepared_submission_record(id);
     const auto& record = value.record();
-    auto task = read_input(
-        record.task(),
-        impl_->root / id / "input.pb",
-        record.input_digest(),
-        record.input_bytes());
+    auto task = read_input(record.task(), impl_->root / id / "input.pb", record.input_bytes());
     Submission input(impl_.get(), impl_->root, std::move(task));
     if (summary(input.task_).SerializeAsString() != record.task().SerializeAsString())
         throw std::invalid_argument("prepared input does not match admitted work");
-    if ((input.task_.has_input() || input.task_.has_factor() || input.task_.has_account_review()
-            || input.task_.has_notice_review() || input.task_.has_event_set_review()
-            || input.task_.has_statistics() || input.task_.has_sample()
-            || input.task_.has_logic_trial() || input.task_.has_model_training()
-            || input.task_.has_model_time() || input.task_.has_evaluation())
+    if (research_calculation(input.task_.kind())
         && protocol::task_execution(input.task_, record.input_digest()).SerializeAsString()
             != value.execution().SerializeAsString())
         throw std::invalid_argument("prepared execution does not match fixed input");
@@ -2453,11 +2127,8 @@ void Store::Submission::prepare_files()
         throw std::logic_error("task submission is not awaiting file preparation");
     const auto directory = root_ / task_.id();
     if (existing_) {
-        const auto current = read_input(
-            existing_->task(),
-            directory / "input.pb",
-            existing_->input_digest(),
-            existing_->input_bytes());
+        const auto current =
+            read_input(existing_->task(), directory / "input.pb", existing_->input_bytes());
         if (current.kind() != task_.kind()
             || current.download_authorization() != task_.download_authorization()
             || current.provider_artifact() != task_.provider_artifact()
@@ -2501,11 +2172,7 @@ void Store::Submission::prepare_files()
                 *record->mutable_task() = summary(task_);
                 record->set_input_digest(input.digest);
                 record->set_input_bytes(input.size);
-                if (task_.has_input() || task_.has_factor() || task_.has_account_review()
-                    || task_.has_notice_review() || task_.has_event_set_review()
-                    || task_.has_statistics() || task_.has_sample() || task_.has_logic_trial()
-                    || task_.has_model_training() || task_.has_model_time()
-                    || task_.has_evaluation())
+                if (research_calculation(task_.kind()))
                     *preparation.mutable_execution() =
                         protocol::task_execution(task_, input.digest);
                 replace_file_durably(directory / "prepared.pb", preparation.SerializeAsString());
@@ -2742,7 +2409,7 @@ Store::InputRead::InputRead(wire::Task task, fs::path path, std::string digest, 
 void Store::InputRead::load()
 {
     loaded_ = false;
-    task_ = read_input(summary(task_), path_, digest_, bytes_);
+    task_ = read_input(summary(task_), path_, bytes_);
     loaded_ = true;
 }
 
@@ -2762,10 +2429,7 @@ void Store::InputRead::load_for_claim()
         prepare(task_);
         if (task_.total() != admitted)
             throw std::invalid_argument("task input does not match admitted work");
-        if (task_.has_input() || task_.has_factor() || task_.has_account_review()
-            || task_.has_notice_review() || task_.has_event_set_review() || task_.has_statistics()
-            || task_.has_sample() || task_.has_logic_trial() || task_.has_model_training()
-            || task_.has_model_time() || task_.has_evaluation())
+        if (research_calculation(task_.kind()))
             execution_ = protocol::task_execution(task_, digest_);
     } catch (const std::exception& error) {
         refusal_ = error.what();
@@ -2784,32 +2448,10 @@ wire::TaskAttempt Store::confirm_attempt(InputRead read) const
     if (read.execution_.parameters_case() != wire::TaskExecution::PARAMETERS_NOT_SET) {
         *result.mutable_task() = describe(read.task_.id());
         *result.mutable_execution() = std::move(read.execution_);
-        if (read.task_.has_account_review())
-            *result.mutable_task()->mutable_account_review() =
-                std::move(*read.task_.mutable_account_review());
-        if (read.task_.has_event_set_review())
-            *result.mutable_task()->mutable_event_set_review() =
-                std::move(*read.task_.mutable_event_set_review());
-        if (read.task_.has_sample())
-            *result.mutable_task()->mutable_sample() = std::move(*read.task_.mutable_sample());
-        if (read.task_.has_logic_trial())
-            *result.mutable_task()->mutable_logic_trial() =
-                std::move(*read.task_.mutable_logic_trial());
-        if (read.task_.has_model_training())
-            *result.mutable_task()->mutable_model_training() =
-                std::move(*read.task_.mutable_model_training());
-        if (read.task_.has_model_time())
-            *result.mutable_task()->mutable_model_time() =
-                std::move(*read.task_.mutable_model_time());
-        if (read.task_.has_evaluation())
-            *result.mutable_task()->mutable_evaluation() =
-                std::move(*read.task_.mutable_evaluation());
-        if (read.task_.has_statistics())
-            *result.mutable_task()->mutable_statistics() =
-                std::move(*read.task_.mutable_statistics());
-        if (read.task_.has_notice_review())
-            *result.mutable_task()->mutable_notice_review() =
-                std::move(*read.task_.mutable_notice_review());
+        // Backtest and factor executions carry their data in the execution.
+        if (read.task_.kind() != wire::BACKTEST && read.task_.kind() != wire::FACTOR)
+            *result.mutable_task() =
+                attach_definition(std::move(*result.mutable_task()), std::move(read.task_));
     } else {
         *result.mutable_task() = confirm_input(std::move(read));
     }
@@ -2850,6 +2492,13 @@ wire::Task Store::describe(const std::string& id) const
     return summary(impl_->find(id).task);
 }
 
+std::optional<wire::Task> Store::find_task(const std::string& id) const
+{
+    if (auto entry = impl_->lookup(id))
+        return summary(entry->task);
+    return std::nullopt;
+}
+
 std::vector<std::string> Store::table_snapshot_holds(const std::string& snapshot) const
 {
     payload::validate_digest(snapshot);
@@ -2868,18 +2517,15 @@ std::vector<std::string> Store::table_snapshot_holds(const std::string& snapshot
         const auto entry = impl_->find(rows.text(0));
         if (entry.task.kind() != wire::TABLE_UPDATE || entry.task.has_retirement())
             continue;
-        const auto input = read_input(
-            entry.task,
-            impl_->root / entry.task.id() / "input.pb",
-            entry.input_digest,
-            entry.input_bytes);
+        const auto input =
+            read_input(entry.task, impl_->root / entry.task.id() / "input.pb", entry.input_bytes);
         bool held = input.table_update().has_refresh()
             && input.table_update().refresh().previous_snapshot() == snapshot;
         // Before an unrestricted update's final receipt exists, its published
         // prefix set is incomplete. Never report that interval as unheld.
         held |= occupies_slot(entry.task.state()) && !input.table_update().has_refresh();
         if (entry.task.state() == wire::SUCCEEDED) {
-            auto read = impl_->prepare_read(entry, true, false);
+            auto read = impl_->prepare_read(entry, false);
             read.verify();
             const auto& output = read.response_.table_update();
             held |=
@@ -2948,11 +2594,7 @@ void Store::HistoryRead::load_page()
             || entry.task().kind() == wire::PERFORMANCE_EVALUATION)
             continue; // No Data-owned versions; leave unrelated account facts unread.
         const auto& id = entry.task().id();
-        auto task = read_input(
-            entry.task(),
-            root_ / id / "input.pb",
-            entry.input_digest(),
-            entry.input_bytes());
+        auto task = read_input(entry.task(), root_ / id / "input.pb", entry.input_bytes());
         bool market = false;
         const auto inspect = [&](const data::proto::BarDataset& data) {
             market |= std::ranges::find(data.source_dataset_ids(), dataset_id)
@@ -3242,7 +2884,7 @@ void Store::Completion::prepare_payload()
 {
     prepared_ = false;
     if (task_.state() != wire::CANCEL_REQUESTED) {
-        task_ = read_input(std::move(task_), directory_ / "input.pb", input_digest_, input_bytes_);
+        task_ = read_input(std::move(task_), directory_ / "input.pb", input_bytes_);
         if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
             protocol::validate_message(result_.minutes());
         else if (result_.has_table_update() && task_.kind() == wire::TABLE_UPDATE
@@ -3339,7 +2981,7 @@ void Store::Completion::prepare_payload()
             default:
                 throw std::logic_error("missing verified task output");
         }
-        // A prepared file is not a completion decision. Cancellation, lease expiry
+        // A prepared file is not a completion decision. Cancellation, interruption
         // or a newer attempt can win while this immutable snapshot is being written.
         // Retain such files as unconfirmed evidence, just as after a process crash.
         const auto path = directory_ / "results" / (std::to_string(task_.attempt()) + ".pb");
@@ -3367,7 +3009,7 @@ Store::Change Store::finish(Completion completion)
     if (!completion.prepared_)
         throw std::invalid_argument("task result payload has not been prepared");
     const auto& result = completion.result_;
-    // Cancellation, interruption, retry and lease expiry may have happened
+    // Cancellation, interruption or retry may have happened
     // during verification. A verified result is not authority to bypass them.
     auto entry = impl_->fenced(result.id(), result.token());
     if (entry.task.state() == wire::CANCEL_REQUESTED) {
@@ -3591,7 +3233,7 @@ Store::BackupCatalogue Store::inspect_backup(
             throw std::logic_error("task backup record encoding failed");
         task_files(id, record, false);
         if (admitted) {
-            const auto fixed = read_input(
+            const auto fixed = read_verified_input(
                 entry.task,
                 directory / id / "input.pb",
                 entry.input_digest,

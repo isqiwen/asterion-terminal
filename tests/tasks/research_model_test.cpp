@@ -1,4 +1,6 @@
 #include "research_models.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "research_execution.hpp"
 #include "backtest/engine.hpp"
 #include "backtest/model_strategy.hpp"
@@ -71,7 +73,7 @@ struct ModelSourceFixture : testing::Test
         input.set_retain_observations(true);
         program = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), program);
-        auto submission = store->submission("factor-source", input);
+        auto submission = task_submission(*store, "factor-source", input);
         submission.set_program_artifact(program);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("factor-source")).token();
@@ -155,7 +157,7 @@ struct ModelSourceFixture : testing::Test
         models.apply(fix(saved), &fixed);
         research::proto::ModelTrainingInput input;
         *input.mutable_plan() = fixed;
-        tasks::submit(*store, store->submission("mapping-model", input));
+        tasks::submit(*store, task_submission(*store, "mapping-model", input));
         const auto token = store->commit(store->claim("mapping-model")).token();
         task::proto::TaskFinish finish;
         finish.set_id("mapping-model");
@@ -313,7 +315,7 @@ TEST_F(
             models.apply(fixed, &original).plan().SerializeAsString(),
             original.SerializeAsString());
         EXPECT_EQ(models.apply(fixed).plan().SerializeAsString(), original.SerializeAsString());
-        EXPECT_THROW(store->describe("model-plan"), std::out_of_range);
+        EXPECT_FALSE(store->find_task("model-plan"));
         auto changed = save();
         changed.set_id("revise-draft");
         changed.mutable_save()->set_expected_digest(saved.draft().digest());
@@ -336,7 +338,7 @@ TEST_F(
     EXPECT_EQ(restored.draft(draft.id())->digest(), revised);
     EXPECT_EQ(restored.receipt(fixed)->plan().SerializeAsString(), original.SerializeAsString());
     EXPECT_EQ(restored.plan("model-plan").SerializeAsString(), original.SerializeAsString());
-    EXPECT_THROW(store->describe("model-plan"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("model-plan"));
 }
 
 TEST_F(ModelSourceFixture, FailedDraftCommitLeavesNoReceiptAndStaleDraftCannotFixPlan)
@@ -450,7 +452,7 @@ TEST_F(
     auto future = evidence.result_task().factor();
     *future.mutable_series(0)->mutable_bars() = test::dataset(bars);
     future.set_dataset_revision(protocol::factor_revision(future.series()));
-    auto submission = store->submission("future-source", future);
+    auto submission = task_submission(*store, "future-source", future);
     submission.set_program_artifact(program);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("future-source")).token();
@@ -588,7 +590,7 @@ TEST_F(ModelSourceFixture, OriginalTaskPublishesModelAndReopensExactResultWithou
     draft.mutable_specification()->set_standardize(true);
     research::proto::ModelTrainingInput input;
     *input.mutable_plan() = capture();
-    auto submission = store->submission("model-training", input);
+    auto submission = task_submission(*store, "model-training", input);
     const auto admitted = tasks::submit(*store, std::move(submission));
     EXPECT_EQ(admitted.kind(), task::proto::MODEL_TRAINING);
     EXPECT_EQ(admitted.total(), 122U);
@@ -630,7 +632,7 @@ TEST_F(ModelSourceFixture, OriginalTaskPublishesModelAndReopensExactResultWithou
     const auto replayed = tasks::submit(*store, "model-training", input);
     EXPECT_EQ(replayed.state(), task::proto::SUCCEEDED);
     EXPECT_EQ(replayed.result_digest(), original.result_task().result_digest());
-    auto wrong_program = store->submission("wrong-program", input);
+    auto wrong_program = task_submission(*store, "wrong-program", input);
     EXPECT_THROW(wrong_program.set_program_artifact(std::string(64, 'b')), Error);
 }
 
@@ -1026,7 +1028,7 @@ TEST_F(
         EXPECT_THROW(
             models.time_admission(protocol::model_time_plan_object(retained), std::string(64, 'b')),
             Error);
-        EXPECT_THROW(store->describe("time-plan"), std::out_of_range);
+        EXPECT_FALSE(store->find_task("time-plan"));
         const auto consumers = models.source_consumers("factor-source");
         EXPECT_TRUE(std::ranges::any_of(consumers, [](const auto& value) {
             return value == "model-time-plan:time-plan";
@@ -1061,7 +1063,7 @@ TEST_F(
         EXPECT_THROW(models.time_plan(candidate.id()), Error);
         *formal_input.mutable_plan() = retained;
         const auto queued =
-            tasks::submit(*store, store->submission("time-validation", formal_input));
+            tasks::submit(*store, task_submission(*store, "time-validation", formal_input));
         EXPECT_EQ(queued.kind(), task::proto::MODEL_TIME_VALIDATION);
         EXPECT_EQ(queued.total(), 2U);
         EXPECT_EQ(
@@ -1165,7 +1167,7 @@ TEST_F(
         EXPECT_EQ(tail.rows_size(), 7);
         EXPECT_FALSE(tail.has_next_begin());
         EXPECT_EQ(tail.rows(6).time_observation().observation().event_index(), 27U);
-        tasks::submit(*store, store->submission("cancelled-time", formal_input));
+        tasks::submit(*store, task_submission(*store, "cancelled-time", formal_input));
         store->commit(store->cancel("cancelled-time"));
         EXPECT_EQ(store->describe("cancelled-time").state(), task::proto::CANCELLED);
     }
@@ -1375,7 +1377,7 @@ struct ModelReplayFixture : ModelSourceFixture
         const auto plan = models.apply(save, nullptr, nullptr, &captured).time_plan();
         research::proto::ModelTimeInput training;
         *training.mutable_plan() = plan;
-        tasks::submit(*store, store->submission("replay-time", training));
+        tasks::submit(*store, task_submission(*store, "replay-time", training));
         task::proto::TaskFinish finished;
         finished.set_id("replay-time");
         finished.set_token(store->commit(store->claim("replay-time")).token());
@@ -1594,7 +1596,7 @@ TEST_F(
     ambiguous = selection;
     ambiguous["quantity"] = "1.5";
     EXPECT_THROW(protocol::encode_model_replay_selection(ambiguous), std::invalid_argument);
-    auto submission = store->submission("model-account", input);
+    auto submission = task_submission(*store, "model-account", input);
     submission.set_program_artifact(program);
     const auto admitted = tasks::submit(*store, std::move(submission));
     EXPECT_EQ(admitted.kind(), task::proto::BACKTEST);
@@ -1628,7 +1630,7 @@ TEST_F(
     const auto restored = tasks::verified_result(*store, "model-account");
     EXPECT_EQ(restored.SerializeAsString(), original.SerializeAsString());
     EXPECT_EQ(restored.result_task().input().SerializeAsString(), input.SerializeAsString());
-    auto duplicate = store->submission("model-account", input);
+    auto duplicate = task_submission(*store, "model-account", input);
     duplicate.set_program_artifact(program);
     const auto replayed = tasks::submit(*store, std::move(duplicate));
     EXPECT_EQ(replayed.state(), task::proto::SUCCEEDED);
@@ -1640,7 +1642,7 @@ TEST_F(
     FixedModelCandidateUsesTheExistingPackageDeliveryAndExactBacktestDefinitionGate)
 {
     const auto input = seed();
-    auto source = store->submission("model-reference", input);
+    auto source = task_submission(*store, "model-reference", input);
     source.set_program_artifact(program);
     tasks::submit(*store, std::move(source));
     const auto token = store->commit(store->claim("model-reference")).token();
@@ -1695,12 +1697,12 @@ TEST_F(
     deliver.mutable_deliver()->set_target_task_id("model-package-child");
     const auto delivery = packages.apply(deliver).delivery();
     EXPECT_EQ(packages.apply(deliver).delivery().SerializeAsString(), delivery.SerializeAsString());
-    EXPECT_THROW(store->describe("model-package-child"), std::out_of_range);
+    EXPECT_FALSE(store->find_task("model-package-child"));
     research::proto::StrategyUse use;
     *use.mutable_package() = protocol::strategy_package_object(saved);
     *use.mutable_delivery() = protocol::strategy_delivery_object(delivery);
     packages.verify_use(use, "model-package-child", true);
-    auto child = store->submission("model-package-child", input);
+    auto child = task_submission(*store, "model-package-child", input);
     child.set_program_artifact(program);
     child.set_strategy_use(use, saved.definition());
     tasks::submit(*store, std::move(child));
@@ -1715,7 +1717,7 @@ TEST_F(
     EXPECT_EQ(published.result_task().input().SerializeAsString(), input.SerializeAsString());
     auto altered = input;
     altered.mutable_model_replay()->set_processing_delay_bars(11);
-    auto wrong = store->submission("different-model-policy", altered);
+    auto wrong = task_submission(*store, "different-model-policy", altered);
     wrong.set_program_artifact(program);
     EXPECT_THROW(wrong.set_strategy_use(use, saved.definition()), Error);
     research::proto::StrategyMutation retire;

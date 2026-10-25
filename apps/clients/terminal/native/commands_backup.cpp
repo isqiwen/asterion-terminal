@@ -31,8 +31,8 @@ local_backup_selections(const std::vector<NodeSnapshot>& nodes, const json& ids)
             continue;
         if (service.desired_running() || service.pid())
             throw Error(ErrorCode::conflict, "stop selected business services before cold backup");
-        if (service.kind() != node::proto::DATA_SERVICE && service.kind() != node::proto::RESEARCH
-            && service.kind() != node::proto::LIVE_TRADING
+        if (service.kind() != node::proto::DATA && service.kind() != node::proto::RESEARCH
+            && service.kind() != node::proto::TRADING
             && service.kind() != node::proto::INTELLIGENCE)
             throw std::invalid_argument(
                 "cold backup currently supports Data, Intelligence, Research and Trading only");
@@ -40,7 +40,7 @@ local_backup_selections(const std::vector<NodeSnapshot>& nodes, const json& ids)
         owner.set_node_id(node->health->node_id());
         owner.set_service_id(service.id());
         owner.set_domain(
-            service.kind() == node::proto::DATA_SERVICE       ? "data"
+            service.kind() == node::proto::DATA               ? "data"
                 : service.kind() == node::proto::RESEARCH     ? "research"
                 : service.kind() == node::proto::INTELLIGENCE ? "intelligence"
                                                               : "trading");

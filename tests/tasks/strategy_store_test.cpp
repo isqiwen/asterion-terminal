@@ -1,4 +1,6 @@
 #include "strategy_store.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "tasks/paper_input.hpp"
@@ -95,7 +97,7 @@ struct StrategyStore : testing::Test
         input.mutable_data_owner()->set_service_id("fixture-data");
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
-        auto submission = store->submission("reference-backtest", input);
+        auto submission = task_submission(*store, "reference-backtest", input);
         submission.set_program_artifact(artifact);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("reference-backtest")).token();
@@ -186,7 +188,7 @@ TEST_F(StrategyStore, PortfolioPackageAndDeliveryRetainAllMembersAcrossRestartWi
             frozen.SerializeAsString());
         draft = strategies.apply(deliver(frozen)).delivery();
         EXPECT_FALSE(strategies.delivery_status(draft.id()).target_accepted());
-        EXPECT_THROW((void)store->describe(draft.target_task_id()), std::out_of_range);
+        EXPECT_FALSE(store->find_task(draft.target_task_id()));
         auto conflict = request;
         conflict.mutable_freeze()->set_name("Conflicting same operation");
         EXPECT_THROW(strategies.apply(conflict, &captured), Error);
@@ -203,7 +205,7 @@ TEST_F(StrategyStore, PortfolioPackageAndDeliveryRetainAllMembersAcrossRestartWi
             strategies.receipt(request)->package().SerializeAsString(),
             frozen.SerializeAsString());
         EXPECT_FALSE(strategies.delivery_status(draft.id()).target_accepted());
-        EXPECT_THROW((void)store->describe(draft.target_task_id()), std::out_of_range);
+        EXPECT_FALSE(store->find_task(draft.target_task_id()));
     }
 }
 
@@ -267,7 +269,7 @@ TEST_F(StrategyStore, DeliveryIsDurableDraftAndAConflictingTargetNeverBecomesAcc
     duplicate.mutable_deliver()->set_id("different-delivery");
     EXPECT_THROW(write.apply(duplicate), Error);
     EXPECT_EQ(write.deliveries("candidate-one", "", 10).size(), 1U);
-    auto unrelated = store->submission("candidate-backtest", input);
+    auto unrelated = task_submission(*store, "candidate-backtest", input);
     unrelated.set_program_artifact(reference.result_task().program_artifact());
     tasks::submit(*store, std::move(unrelated));
     EXPECT_THROW(write.delivery_status("delivery-one"), Error);
@@ -343,11 +345,11 @@ TEST_F(StrategyStore, AdmissionBindingAndCompletedUseSurviveDeprecationAndColdMe
         *use.mutable_delivery() = protocol::strategy_delivery_object(draft);
         auto wrong_input = input;
         wrong_input.mutable_strategies(0)->mutable_moving_average()->set_slow(4);
-        auto wrong = store->submission("wrong-definition", wrong_input);
+        auto wrong = task_submission(*store, "wrong-definition", wrong_input);
         wrong.set_program_artifact(pkg.definition().program_artifact());
         EXPECT_THROW(wrong.set_strategy_use(use, pkg.definition()), Error);
         EXPECT_FALSE(fs::exists(root / "wrong-definition"));
-        auto submitted = store->submission(draft.target_task_id(), input);
+        auto submitted = task_submission(*store, draft.target_task_id(), input);
         submitted.set_program_artifact(pkg.definition().program_artifact());
         submitted.set_strategy_use(use, pkg.definition());
         task::proto::TaskDerivation origin;
@@ -384,7 +386,7 @@ TEST_F(StrategyStore, AdmissionBindingAndCompletedUseSurviveDeprecationAndColdMe
         EXPECT_TRUE(write.delivery_status(draft.id()).target_accepted());
         auto changed_use = use;
         changed_use.mutable_delivery()->set_version(std::string(64, 'e'));
-        auto replay = store->submission(draft.target_task_id(), input);
+        auto replay = task_submission(*store, draft.target_task_id(), input);
         replay.set_program_artifact(pkg.definition().program_artifact());
         replay.set_strategy_use(changed_use, pkg.definition());
         replay.set_derivation(origin);

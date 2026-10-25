@@ -691,6 +691,8 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
             "tasks-one",
             "--endpoint",
             task_endpoint,
+            "--node-id",
+            "fixture-node",
             "--discovery-endpoint",
             task_endpoint + ".discovery"});
     discovery.research("tasks-one", task_process.id(), sha256_file(ASTERION_RESEARCH_PATH));

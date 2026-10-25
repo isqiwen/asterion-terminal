@@ -90,22 +90,21 @@ int main(int argc, char** argv)
                 client
                     ->deploy(
                         {.service = "market-running",
-                            .kind = asterion::node::proto::MARKET_DATA,
+                            .kind = asterion::node::proto::MARKET,
                             .platform = platform,
                             .programs = {.executable = path(source), .provider = path(provider)}})
                     .get();
                 client
                     ->deploy(
                         {.service = "market-stopped",
-                            .kind = asterion::node::proto::MARKET_DATA,
+                            .kind = asterion::node::proto::MARKET,
                             .platform = platform,
                             .programs = {.executable = path(source), .provider = path(provider)}})
                     .get();
                 client->action("market-stopped", "stop").get();
                 auto market = asterion::terminal::MarketClient::open(
                     io,
-                    client->service_endpoint("market-running", asterion::node::proto::MARKET_DATA)
-                        .get())
+                    client->service_endpoint("market-running", asterion::node::proto::MARKET).get())
                                   .get();
                 // A no-op Agent upgrade must preserve this session. The SDK double's
                 // default user injects a timed reconnect, which would race that check.
@@ -121,8 +120,7 @@ int main(int argc, char** argv)
             if (operation == "market-status") {
                 auto market = asterion::terminal::MarketClient::open(
                     io,
-                    client->service_endpoint("market-running", asterion::node::proto::MARKET_DATA)
-                        .get())
+                    client->service_endpoint("market-running", asterion::node::proto::MARKET).get())
                                   .get();
                 std::cout << market->snapshot().get().dump() << '\n';
                 return 0;

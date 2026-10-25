@@ -102,7 +102,8 @@ struct Identity
         const auto count = BIO_get_mem_data(bio.get(), &data);
         check(count > 0);
         // Created 0600 from the first byte; a key never exists with wider access.
-        write_file_durably(path, std::string_view(data, static_cast<std::size_t>(count)));
+        // Replaced whole, so an interrupted enrollment never leaves a truncated file.
+        replace_file_durably(path, std::string_view(data, static_cast<std::size_t>(count)));
     }
 };
 
@@ -120,13 +121,14 @@ void create_node_identity(const std::filesystem::path& root, const std::string& 
         trading("Asterion trading client", 4, &ca, {}, ipc::PeerRole::client);
     ca.save(root / "ca.crt", false);
     client.save(root / "client.crt", false);
-    client.save(root / "client.key", true);
     // Business-only identity to hand to other operators: it cannot deploy,
     // upload or run programs on the node.
     trading.save(root / "trading-client.crt", false);
     trading.save(root / "trading-client.key", true);
     server.save(root / "server.crt", false);
     server.save(root / "server.key", true);
+    // Enrollment treats an existing client key as a complete identity: write it last.
+    client.save(root / "client.key", true);
     // CA signing key stays in memory and is destroyed; never uploaded or persisted.
 }
 

@@ -31,7 +31,7 @@ public:
     struct Configuration
     {
         std::filesystem::path directory;
-        std::string service, discovery_endpoint;
+        std::string service, node_id, discovery_endpoint;
         unsigned file_workers = 2;
         unsigned task_concurrency = 1;
     };
@@ -146,6 +146,8 @@ private:
     PolledTask<task::proto::TaskResponse>
     respond(std::string frame, Lane lane, Clock::time_point deadline);
     PolledTask<> handle(Call& call, std::string frame);
+    PolledTask<> resources_operation(Call& call);
+    PolledTask<> submit_operation(Call& call);
     // Wait for the task's own pending durable change.
     PolledTask<Clock::time_point>
     ready(const Call& call, Clock::time_point deadline = Clock::time_point::max());

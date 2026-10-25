@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory() as folder:
  extra=root/'protocol/extra.proto';extra.write_text('new schema');assert fingerprint(root)!=before
  extra.unlink();assert fingerprint(root)==before
  # Moved management/service and shared-control inputs still invalidate bundles.
- for name in ('apps/management/node-agent/main.cpp', 'apps/services/research-service/backtest/engine.cpp',
+ for name in ('apps/management/node-agent/main.cpp', 'apps/services/research/backtest/engine.cpp',
               'apps/common/control/service_io.cpp'):
   changed=root/name; changed.parent.mkdir(parents=True,exist_ok=True)
   changed.write_text('source input'); assert fingerprint(root)!=before

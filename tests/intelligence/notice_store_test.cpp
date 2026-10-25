@@ -1,4 +1,6 @@
 #include "notice_store.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "research_execution.hpp"
 #include "research_data.hpp"
 #include "research_backup.hpp"
@@ -498,7 +500,7 @@ public:
                           status.set_phase(node::proto::Status::READY);
                           auto* data = status.add_services();
                           data->set_id("historical-data");
-                          data->set_kind(node::proto::DATA_SERVICE);
+                          data->set_kind(node::proto::DATA);
                           data->set_state("running");
                           data->set_endpoint(data_endpoint);
                           auto* intel = status.add_services();
@@ -815,6 +817,8 @@ TEST(NoticeProcess, HumanReviewPublishesThroughRealDataSaveAndRestartReplaysOrig
                 "research-one",
                 "--config",
                 policy.string(),
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 discovery,
                 "--endpoint",
@@ -977,7 +981,7 @@ TEST(NoticeProcess, HumanReviewPublishesThroughRealDataSaveAndRestartReplaysOrig
     {
         tasks::Store writer(research_root, {"research-one"});
         auto pending =
-            writer.submission("notice-pending", audit_result.result_task().notice_review());
+            task_submission(writer, "notice-pending", audit_result.result_task().notice_review());
         writer.admit_submission(pending);
         pending.prepare_files();
         pending_binding = tasks::notice_consumer_binding(pending.execution(), "notice-pending");
@@ -1648,7 +1652,7 @@ TEST(NoticeJointBackup, ExactThreeDomainCutClosesSavedContentAndSemanticEvidence
         tasks::Store store(root, {"research-one"});
         programs::Files programmes(root / "programs", input.owner());
         (void)programmes.preserve(current_executable(), input.program_artifact());
-        auto submission = store.submission("joint-audit", input);
+        auto submission = task_submission(store, "joint-audit", input);
         store.admit_submission(submission);
         submission.prepare_files();
         const auto binding = tasks::notice_consumer_binding(submission.execution(), "joint-audit");
@@ -1662,7 +1666,7 @@ TEST(NoticeJointBackup, ExactThreeDomainCutClosesSavedContentAndSemanticEvidence
             tasks::finish(
                 store,
                 tasks::execute(attempt, root, {}, [](auto, auto) {}, input.program_artifact())));
-        auto set_submission = store.submission("joint-set-audit", collection);
+        auto set_submission = task_submission(store, "joint-set-audit", collection);
         store.admit_submission(set_submission);
         set_submission.prepare_files();
         const auto set_binding =

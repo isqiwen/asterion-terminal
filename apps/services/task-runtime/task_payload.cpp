@@ -88,13 +88,8 @@ void check(
         throw std::invalid_argument("task payload digest mismatch");
 }
 
-std::string read(
-    const fs::path& path,
-    std::string_view digest,
-    std::uint64_t maximum,
-    std::uint64_t expected_size)
+std::string load(const fs::path& path, std::uint64_t maximum, std::uint64_t expected_size)
 {
-    validate_digest(digest);
     const auto count = size(path, maximum);
     if (expected_size && count != expected_size)
         throw std::invalid_argument("task payload size mismatch");
@@ -103,6 +98,17 @@ std::string read(
     if (!file.read(raw.data(), static_cast<std::streamsize>(count))
         || file.peek() != std::char_traits<char>::eof() || file.bad())
         throw std::invalid_argument("task payload read failed");
+    return raw;
+}
+
+std::string read(
+    const fs::path& path,
+    std::string_view digest,
+    std::uint64_t maximum,
+    std::uint64_t expected_size)
+{
+    validate_digest(digest);
+    auto raw = load(path, maximum, expected_size);
     if (sha256_bytes(raw) != digest)
         throw std::invalid_argument("task payload digest mismatch");
     return raw;

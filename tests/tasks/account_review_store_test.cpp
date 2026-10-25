@@ -1,4 +1,6 @@
 #include "task_store.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "research_execution.hpp"
 #include "domain_backup.hpp"
 #include "research_backup.hpp"
@@ -217,7 +219,7 @@ TEST(AccountReviewStore, OwnedPreparationResumesAndAChangedScopeCannotOverwriteA
     Folder folder;
     {
         tasks::Store store(folder.path, {"research-one"});
-        auto preparation = store.submission("prepared", input());
+        auto preparation = task_submission(store, "prepared", input());
         store.admit_submission(preparation);
         preparation.prepare_files();
         EXPECT_TRUE(store.abandon_submission(preparation));
@@ -351,7 +353,7 @@ TEST(AccountReviewProcess, DirectFixedEvidenceRunsWithoutDataAndReplaysAfterSour
                 research->set_artifact(artifact);
                 auto* source = status.add_services();
                 source->set_id("trading-one");
-                source->set_kind(node::proto::LIVE_TRADING);
+                source->set_kind(node::proto::TRADING);
                 source->set_state(online ? "running" : "stopped");
                 source->set_endpoint(source_endpoint);
                 peer.send(reply.SerializeAsString(), 200ms);
@@ -423,6 +425,8 @@ TEST(AccountReviewProcess, DirectFixedEvidenceRunsWithoutDataAndReplaysAfterSour
                 endpoint,
                 "--health-endpoint",
                 endpoint + ".health",
+                "--node-id",
+                "fixture-node",
                 "--discovery-endpoint",
                 discovery_endpoint,
                 "--file-workers",
@@ -487,13 +491,15 @@ TEST(AccountReviewProcess, DirectFixedEvidenceRunsWithoutDataAndReplaysAfterSour
     EXPECT_EQ(catalogue.items(0).object().version(), artifact);
     EXPECT_EQ(catalogue.items(0).object().owner().node_id(), "fixture-node");
     EXPECT_TRUE(catalogue.next_after().empty());
-    EXPECT_EQ(fs::last_write_time(root / "programs" / artifact), program_time);
+    EXPECT_EQ(
+        fs::last_write_time(root / "programs" / artifact).time_since_epoch().count(),
+        program_time.time_since_epoch().count());
     // Simulate acceptance interrupted before its index commit in this isolated owner.
     service.reset();
     const auto owned = original.result_task().account_review();
     for (const auto* id : {"prepared-owned", "prepared-missing"}) {
         tasks::Store store(root, {"research-one"});
-        auto draft = store.submission(id, owned);
+        auto draft = task_submission(store, id, owned);
         store.admit_submission(draft);
         draft.prepare_files();
         // Each simulated crash ends its single preparation owner before reopening.

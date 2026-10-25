@@ -240,7 +240,7 @@ class Agent
         validate_artifact_digest(request.expected_revision());
         auto& current = services_.at(request.service_id());
         if (current.configuration.kind != wire::RESEARCH
-            && current.configuration.kind != wire::DATA_SERVICE)
+            && current.configuration.kind != wire::DATA)
             throw std::invalid_argument("service does not support managed native plugins");
         if (current.configuration.desired || (current.process && !current.process->exited()))
             throw std::invalid_argument("stop the service before configuring plugins");
@@ -302,13 +302,13 @@ class Agent
             "--health-endpoint",
             result.health_endpoint
         };
-        if (configuration.kind == wire::RESEARCH || configuration.kind == wire::LIVE_TRADING
-            || configuration.kind == wire::DATA_SERVICE)
+        if (configuration.kind == wire::RESEARCH || configuration.kind == wire::TRADING
+            || configuration.kind == wire::DATA)
             args.insert(
                 args.end(),
                 {"--plugin-directory",
                     utf8(plugins_.materialize(name, configuration.plugin_artifacts))});
-        if (configuration.kind == wire::DATA_SERVICE)
+        if (configuration.kind == wire::DATA)
             args.insert(
                 args.end(),
                 {"--internal-endpoint",
@@ -317,7 +317,7 @@ class Agent
                     node_id_,
                     "--discovery-endpoint",
                     discovery_endpoint()});
-        if ((configuration.kind == wire::DATA_SERVICE || configuration.kind == wire::RESEARCH
+        if ((configuration.kind == wire::DATA || configuration.kind == wire::RESEARCH
                 || configuration.kind == wire::INTELLIGENCE)
             && configuration.port != 0)
             args.insert(args.end(), {"--local-endpoint", result.endpoint});
@@ -335,12 +335,14 @@ class Agent
                 args.end(),
                 {"--config",
                     utf8(root_ / "config" / "services" / name / "research.json"),
+                    "--node-id",
+                    node_id_,
                     "--discovery-endpoint",
                     discovery_endpoint()});
         }
-        if (configuration.kind == wire::MARKET_DATA || configuration.kind == wire::LIVE_TRADING)
+        if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING)
             args.insert(args.end(), {"--node-id", node_id_});
-        if (configuration.kind == wire::MARKET_DATA && !configuration.provider_artifact.empty()) {
+        if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty()) {
             const auto source = binary(configuration.provider_artifact);
             const auto library = root_ / "services" / name
                 / (configuration.provider_artifact
@@ -354,7 +356,7 @@ class Agent
                 throw std::runtime_error("provider library changed");
             args.insert(args.end(), {"--ctp-library", utf8(library)});
         }
-        if ((configuration.kind == wire::MARKET_DATA || configuration.kind == wire::LIVE_TRADING)
+        if ((configuration.kind == wire::MARKET || configuration.kind == wire::TRADING)
             && !configuration.catalog_artifact.empty()) {
             const auto source = binary(configuration.catalog_artifact);
             const auto library = root_ / "services" / name
@@ -369,8 +371,7 @@ class Agent
                 throw std::runtime_error("catalog library changed");
             args.insert(
                 args.end(),
-                {configuration.kind == wire::LIVE_TRADING ? "--ctp-library"
-                                                          : "--ctp-catalog-library",
+                {configuration.kind == wire::TRADING ? "--ctp-library" : "--ctp-catalog-library",
                     utf8(library)});
         }
         if (local_)
@@ -502,7 +503,7 @@ class Agent
             }
             ready = false;
             try {
-                if (s.configuration.kind == wire::MARKET_DATA)
+                if (s.configuration.kind == wire::MARKET)
                     co_await quiesce_service<market::proto::Request, market::proto::Response>(
                         name,
                         s,
@@ -515,7 +516,7 @@ class Agent
                     co_await quiesce_service<
                         research::proto::ResearchRequest,
                         task::proto::TaskResponse>(name, s, true);
-                else if (s.configuration.kind == wire::DATA_SERVICE)
+                else if (s.configuration.kind == wire::DATA)
                     co_await quiesce_service<data::proto::DataRequest, data::proto::DataResponse>(
                         name,
                         s,
@@ -550,10 +551,8 @@ class Agent
             if (!maintenance_.empty())
                 throw std::runtime_error("Agent is already in maintenance");
             for (const auto& [name, s] : services_)
-                if ((s.configuration.desired || s.process)
-                    && s.configuration.kind != wire::MARKET_DATA
-                    && s.configuration.kind != wire::RESEARCH
-                    && s.configuration.kind != wire::DATA_SERVICE
+                if ((s.configuration.desired || s.process) && s.configuration.kind != wire::MARKET
+                    && s.configuration.kind != wire::RESEARCH && s.configuration.kind != wire::DATA
                     && s.configuration.kind != wire::INTELLIGENCE)
                     throw std::runtime_error(
                         "service lacks an automatic upgrade recovery boundary: " + name);
@@ -977,20 +976,19 @@ class Agent
         const auto& d = r.deploy();
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
-        if (d.kind() != wire::MARKET_DATA && d.kind() != wire::RESEARCH
-            && d.kind() != wire::LIVE_TRADING && d.kind() != wire::DATA_SERVICE
-            && d.kind() != wire::INTELLIGENCE)
+        if (d.kind() != wire::MARKET && d.kind() != wire::RESEARCH && d.kind() != wire::TRADING
+            && d.kind() != wire::DATA && d.kind() != wire::INTELLIGENCE)
             throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
-            if (d.kind() != wire::MARKET_DATA)
+            if (d.kind() != wire::MARKET)
                 throw std::invalid_argument("provider library only belongs to market data");
             validate_artifact_digest(d.provider_artifact());
             co_await verify_artifact(d.provider_artifact(), "provider artifact not installed");
         }
-        if (d.kind() == wire::LIVE_TRADING && d.catalog_artifact().empty())
+        if (d.kind() == wire::TRADING && d.catalog_artifact().empty())
             throw std::invalid_argument("live trading requires the CTP trader library");
         if (!d.catalog_artifact().empty()) {
-            if (d.kind() != wire::MARKET_DATA && d.kind() != wire::LIVE_TRADING)
+            if (d.kind() != wire::MARKET && d.kind() != wire::TRADING)
                 throw std::invalid_argument(
                     "CTP trader library only belongs to market data or live trading");
             validate_artifact_digest(d.catalog_artifact());
@@ -1022,7 +1020,7 @@ class Agent
         s.configuration.catalog_artifact = d.catalog_artifact();
         s.configuration.artifact = d.sha256();
         s.configuration.port = static_cast<unsigned short>(d.port());
-        const bool ledger = s.configuration.kind == wire::LIVE_TRADING;
+        const bool ledger = s.configuration.kind == wire::TRADING;
         if (local_ && ledger && !d.directory().empty()) {
             const fs::path ledger(std::u8string(d.directory().begin(), d.directory().end()));
             co_await prepare([&] {
@@ -1094,16 +1092,16 @@ class Agent
             });
         };
         co_await verified(u.artifact());
-        if (current.configuration.kind == wire::LIVE_TRADING && u.catalog_artifact().empty())
+        if (current.configuration.kind == wire::TRADING && u.catalog_artifact().empty())
             throw std::invalid_argument("live trading requires the CTP trader library");
         if (!u.catalog_artifact().empty()) {
-            if (current.configuration.kind != wire::MARKET_DATA
-                && current.configuration.kind != wire::LIVE_TRADING)
+            if (current.configuration.kind != wire::MARKET
+                && current.configuration.kind != wire::TRADING)
                 throw std::invalid_argument(
                     "CTP trader library only belongs to market data or live trading");
             co_await verified(u.catalog_artifact());
         }
-        if (current.configuration.kind == wire::MARKET_DATA) {
+        if (current.configuration.kind == wire::MARKET) {
             if (!u.provider_artifact().empty())
                 co_await verified(u.provider_artifact());
         } else if (!u.provider_artifact().empty())
@@ -1174,7 +1172,7 @@ public:
             // This socket is private to the node. A TCP deployment's public local
             // socket is intentionally not part of its remote management view.
             for (auto& service : *response.mutable_status()->mutable_services())
-                if (service.kind() == wire::DATA_SERVICE || service.kind() == wire::RESEARCH
+                if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH
                     || service.kind() == wire::INTELLIGENCE)
                     service.set_endpoint(service_endpoint(service.id()));
         } catch (const std::exception& error) {
@@ -1274,11 +1272,7 @@ public:
         }};
         // Stop Data consumers before their source services.
         for (const auto kind :
-            {wire::RESEARCH,
-                wire::INTELLIGENCE,
-                wire::LIVE_TRADING,
-                wire::MARKET_DATA,
-                wire::DATA_SERVICE})
+            {wire::RESEARCH, wire::INTELLIGENCE, wire::TRADING, wire::MARKET, wire::DATA})
             for (auto& [name, service] : services_)
                 if (service.configuration.kind == kind)
                     co_await stop_processes(service);

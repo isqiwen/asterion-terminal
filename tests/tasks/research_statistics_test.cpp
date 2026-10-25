@@ -1,4 +1,6 @@
 #include "research_statistics.hpp"
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "factor_engine.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
@@ -53,7 +55,7 @@ struct ResearchStatistics : testing::Test
         factor_input.set_retain_observations(true);
         artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
-        auto submitted = store->submission("source-factor", factor_input);
+        auto submitted = task_submission(*store, "source-factor", factor_input);
         submitted.set_program_artifact(artifact);
         tasks::submit(*store, std::move(submitted));
         const auto token = store->commit(store->claim("source-factor")).token();
@@ -187,7 +189,7 @@ TEST_F(ResearchStatistics, EmptyEligibleRangeKeepsMissingStatesAndTheTypedReques
 
 TEST_F(ResearchStatistics, PersistentStatisticsPublishAndRestartKeepTheirExactSource)
 {
-    auto submission = store->submission("statistics-one", input);
+    auto submission = task_submission(*store, "statistics-one", input);
     submission.set_program_artifact(artifact);
     const auto accepted = tasks::submit(*store, std::move(submission));
     EXPECT_EQ(accepted.kind(), task::proto::STATISTICS);
@@ -219,22 +221,22 @@ TEST_F(ResearchStatistics, PersistentStatisticsPublishAndRestartKeepTheirExactSo
 
 TEST_F(ResearchStatistics, FinalAdmissionRejectsChangedSourceCaptureAndMissingExecutionProgram)
 {
-    auto missing = store->submission("statistics-missing-program", input);
+    auto missing = task_submission(*store, "statistics-missing-program", input);
     EXPECT_THROW(store->admit_submission(missing), Error);
     auto changed = input;
     changed.mutable_source()->set_attempt(input.source().attempt() + 1);
-    auto submission = store->submission("statistics-wrong-attempt", changed);
+    auto submission = task_submission(*store, "statistics-wrong-attempt", changed);
     submission.set_program_artifact(artifact);
     EXPECT_THROW(store->admit_submission(submission), Error);
     EXPECT_FALSE(fs::exists(root / "statistics-wrong-attempt/input.pb"));
-    auto valid = store->submission("statistics-valid", input);
+    auto valid = task_submission(*store, "statistics-valid", input);
     valid.set_program_artifact(artifact);
     EXPECT_EQ(tasks::submit(*store, std::move(valid)).kind(), task::proto::STATISTICS);
 }
 
 TEST_F(ResearchStatistics, CancellationCannotPublishAndExplicitRetryKeepsOriginalSource)
 {
-    auto submission = store->submission("statistics-cancelled", input);
+    auto submission = task_submission(*store, "statistics-cancelled", input);
     submission.set_program_artifact(artifact);
     tasks::submit(*store, std::move(submission));
     const auto original_input = sha256_file(root / "statistics-cancelled/input.pb");

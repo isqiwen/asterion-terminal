@@ -36,7 +36,7 @@ market::proto::ObservationCapture fetch_market_observation(
     const node::proto::Service* peer = nullptr;
     for (const auto& service : status.services())
         if (service.id() == source.owner().service_id()) {
-            if (peer || service.kind() != node::proto::MARKET_DATA)
+            if (peer || service.kind() != node::proto::MARKET)
                 throw Error(ErrorCode::conflict, "market observation owner mismatch");
             peer = &service;
         }

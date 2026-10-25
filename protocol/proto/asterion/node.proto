@@ -29,13 +29,13 @@ message Finish {
   string sha256 = 1;
 }
 
-// LIVE_TRADING carries the CTP trader SDK as its catalog artifact.
+// TRADING carries the CTP trader SDK as its catalog artifact.
 enum ServiceKind {
   UNSPECIFIED_SERVICE = 0;
-  MARKET_DATA = 1;
+  MARKET = 1;
   RESEARCH = 2;
-  LIVE_TRADING = 3;
-  DATA_SERVICE = 4;
+  TRADING = 3;
+  DATA = 4;
   INTELLIGENCE = 5;
 }
 

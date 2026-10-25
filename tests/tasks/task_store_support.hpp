@@ -1,4 +1,6 @@
 #pragma once
+#include "research_submission.hpp"
+#include "data_submission.hpp"
 #include "task_store.hpp"
 #include <stdexcept>
 #include <utility>
@@ -24,7 +26,7 @@ inline task::proto::Task submit(Store& store, Store::Submission submission)
 template <class... Input>
 task::proto::Task submit(Store& store, Input&&... input)
 {
-    return submit(store, store.submission(std::forward<Input>(input)...));
+    return submit(store, task_submission(store, std::forward<Input>(input)...));
 }
 
 inline Store::Change finish(Store& store, task::proto::TaskFinish request)

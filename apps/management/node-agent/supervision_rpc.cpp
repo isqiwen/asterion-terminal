@@ -20,7 +20,7 @@ PolledTask<HealthObservation> probe_service_health(
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
     const auto correlation = "health." + unique_process_id();
-    if (kind == node::proto::MARKET_DATA) {
+    if (kind == node::proto::MARKET) {
         market::proto::Request ping;
         ping.set_version(1);
         ping.set_service_id(name);
@@ -49,7 +49,7 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    if (kind == node::proto::DATA_SERVICE) {
+    if (kind == node::proto::DATA) {
         data::proto::DataRequest ping;
         ping.set_version(1);
         ping.set_service_id(name);

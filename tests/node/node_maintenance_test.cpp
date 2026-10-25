@@ -76,7 +76,9 @@ TEST_F(NodeProgramPublication, ConfigurationDeploymentPreservesOperatorEdits)
     install_node_configuration(root, defaults);
     std::ifstream preserved(file);
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(preserved), {}), edited);
-    EXPECT_EQ(fs::last_write_time(file), timestamp);
+    EXPECT_EQ(
+        fs::last_write_time(file).time_since_epoch().count(),
+        timestamp.time_since_epoch().count());
 }
 
 TEST_F(NodeProgramPublication, DirectorySyncFailureKeepsRecoveryIntentUntilAnExplicitRetrySyncs)
@@ -184,7 +186,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     client
         ->deploy(
             {.service = "account",
-                .kind = node::proto::LIVE_TRADING,
+                .kind = node::proto::TRADING,
                 .platform = platform,
                 .programs =
                     {.executable = ASTERION_TRADE_PATH, .catalog = ASTERION_FAKE_CTP_TRADER},
@@ -517,7 +519,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
         client
             ->deploy(
                 {.service = name,
-                    .kind = node::proto::MARKET_DATA,
+                    .kind = node::proto::MARKET,
                     .platform = platform,
                     .programs =
                         {.executable = ASTERION_MARKET_PATH, .provider = ASTERION_FAKE_CTP}})
@@ -589,12 +591,12 @@ protected:
         fs::copy_file(ASTERION_AGENT_PATH, root / "artifacts" / (old + ".bin"));
         for (const auto& name : {"market", "trading"}) {
             agent::ServiceConfiguration config;
-            config.kind = std::string(name) == "market" ? node::proto::MARKET_DATA
-                                                        : node::proto::LIVE_TRADING;
+            config.kind =
+                std::string(name) == "market" ? node::proto::MARKET : node::proto::TRADING;
             config.artifact = old;
             config.catalog_artifact = old;
-            config.provider_artifact = config.kind == node::proto::MARKET_DATA ? old : "";
-            config.desired = config.kind == node::proto::MARKET_DATA;
+            config.provider_artifact = config.kind == node::proto::MARKET ? old : "";
+            config.desired = config.kind == node::proto::MARKET;
             config.directory = (root / "services" / name / "ledger").string();
             agent::save_service_configuration(root / "services" / name, config);
             write_file_durably(fs::path(config.directory) / "retained", "business data");
@@ -739,7 +741,7 @@ TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
     environment.set("ASTERION_NODE_DIRECTORY", root.string());
     fs::create_directory(root / "bundled-plugins");
     environment.set("ASTERION_PLUGIN_DIRECTORY", (root / "bundled-plugins").string());
-    const auto invalid = Json{{"kind", static_cast<int>(node::proto::MARKET_DATA)}}.dump();
+    const auto invalid = Json{{"kind", static_cast<int>(node::proto::MARKET)}}.dump();
     replace_file_durably(root / "services/market/service.json", invalid);
     try {
         prepare_local_programs(root, ASTERION_AGENT_PATH);
