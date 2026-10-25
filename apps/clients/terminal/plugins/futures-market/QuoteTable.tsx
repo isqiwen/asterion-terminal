@@ -3,20 +3,6 @@ import "./quotes.css";
 import { getLocale, translate } from "../contract";
 import type { LiveMarket } from "../../src/bridge/client";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function marketPhase(market: LiveMarket | null | undefined) {
-  if (!market) return t("行情服务未启动");
-  if (!market.transport_online) return t("行情服务失联");
-  const keys: Record<string, string> = {
-    disconnected: "未登录",
-    connecting: "连接中",
-    logging_in: "登录中",
-    connected: "已登录",
-    reconnecting: "重连中",
-    error: "连接失败",
-    sdk_unavailable: "当前平台缺少 CTP 行情组件",
-  };
-  return t(keys[market.phase] ?? "连接失败");
-}
 export function quoteStatus(
   market: LiveMarket,
   row: LiveMarket["subscriptions"][number],

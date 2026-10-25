@@ -595,7 +595,7 @@
   "业务子模块": "Business Sections",
   "子模块视图": "Section Views",
   "此子模块的完整功能尚未实现。": "This section is not fully implemented yet.",
-  "资料备份、恢复和诊断导出尚未实现。": "Backup, restore and diagnostic export are not implemented yet.",
+  "诊断导出尚未实现。": "Diagnostic export is not implemented yet.",
   "管理本机配置，查看任务与服务状态。": "Manage local configuration and inspect tasks and service status.",
   "主机资源尚无观测": "Host resources have not been observed yet",
   "主机资源观测": "Host resource observation",

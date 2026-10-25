@@ -393,7 +393,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                             </>
                           )}
                           {route.section.id === "records" && (
-                            <p>{t("资料备份、恢复和诊断导出尚未实现。")}</p>
+                            <>
+                              <button onClick={() => showSettings("backup")}>
+                                {t("数据备份与恢复")}
+                              </button>
+                              <p>{t("诊断导出尚未实现。")}</p>
+                            </>
                           )}
                         </>
                       ) : (
