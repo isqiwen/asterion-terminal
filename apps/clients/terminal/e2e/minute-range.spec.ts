@@ -11,7 +11,7 @@ test("explicit range audits fixed minute coverage including unobserved target ed
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await archive
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "查看数据", exact: true })

@@ -1,4 +1,4 @@
-import { taskRpc } from "./dataset-fixture";
+import { taskRpc, openResearch as openResearchService } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -87,7 +87,7 @@ test("research chain integration @joint: fixed evidence through revision recover
         revision: service.revision,
         plugins: [...plugins, candidate.sha256],
       });
-      await rpc(page.request, "node.research.local.open");
+      await openResearchService(page.request);
       for (const [i, product] of ["rb", "cu", "al"].entries()) {
         const seeded = await seedHistory(
           page.request,
@@ -392,7 +392,7 @@ test("research chain integration @joint: fixed evidence through revision recover
         await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
       for (const service of services)
         await rpc(page.request, "node.action", { id: "local", service, action: "start" });
-      await rpc(page.request, "node.research.local.open");
+      await openResearchService(page.request);
       await expect
         .poll(
           async () => {

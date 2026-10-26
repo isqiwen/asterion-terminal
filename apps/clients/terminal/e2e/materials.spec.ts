@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc } from "./dataset-fixture";
+import { rpc, openData } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { resolve, join } from "node:path";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -50,7 +50,7 @@ test("@journey material acquisition uses real Data and Native, preserves source-
       revision: own.revision,
       plugins,
     });
-    await rpc(page.request, "node.data.local.open");
+    await openData(page.request);
     await expect
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).data.online, {
         timeout: 10000,
@@ -61,7 +61,7 @@ test("@journey material acquisition uses real Data and Native, preserves source-
   await configure([...new Set([...base, candidate.sha256])]);
   await page.goto("/");
   await openView(page, "materials");
-  const panel = page.getByRole("region", { name: "情报材料", exact: true });
+  const panel = page.getByRole("region", { name: "资料", exact: true });
   await panel.getByRole("button", { name: "刷新材料来源", exact: true }).click();
   await expect(panel.getByRole("combobox", { name: "材料来源", exact: true })).toHaveValue(
     "fixture-material",

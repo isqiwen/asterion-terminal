@@ -121,6 +121,7 @@ test("fixed CTA candidate saves a non-running draft and requires explicit backte
   expect(result.result).toEqual(reference.result);
   await workspace.getByRole("button", { name: "查看交付回测正式结果", exact: true }).click();
   await workspace.getByText("实验参数", { exact: true }).click();
+  await workspace.getByText("数据与程序身份", { exact: true }).first().click();
   await expect(workspace.getByText("接纳时固定策略候选", { exact: true })).toBeVisible();
   await expect(
     workspace.getByText(

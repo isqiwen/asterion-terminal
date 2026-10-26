@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { rpc, seedDataset } from "./dataset-fixture";
+import { rpc, seedDataset, taskRpc } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
 import { join } from "node:path";
@@ -51,7 +51,9 @@ test("durable task order and dates survive reload independently of task IDs", as
       return state.research_service.tasks.find((task: { id: string }) => task.id === newer)?.state;
     })
     .toBe("succeeded");
-  await call("task.page", { before_sequence: metadata.submission_sequence });
+  await taskRpc(page.request, "research", "task.page", {
+    before_sequence: metadata.submission_sequence,
+  });
   const records = page.getByRole("region", { name: "研究任务", exact: true });
   await expect(records.locator("tbody tr code").first()).toHaveText(older);
   await records.getByRole("button", { name: "最新记录", exact: true }).click();

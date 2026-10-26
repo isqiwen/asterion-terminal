@@ -204,8 +204,8 @@ export function BacktestComparison({
     </tr>
   );
   return (
-    <section className="research-result" aria-label={t("回测实验比较")}>
-      <h3>{t("回测实验比较")}</h3>
+    <section className="research-result" aria-label={t("回测比较")}>
+      <h3>{t("回测比较")}</h3>
       <p className="subtle">
         {t(
           "选择 2–3 个已完成实验，只读取固定结果。首列为对照；口径不同仅独立列示，不排序、不合并，也不重新选参。",

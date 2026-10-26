@@ -192,7 +192,7 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
   const last = Math.max(0, Math.ceil(selectedRows.length / 50) - 1);
   const current = Math.min(page, last);
   return (
-    <ResearchPage title={t("探索统计")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>
         {t("读取固定研究样本或原因子证据；不重算因子，不用未来标签筛选同期特征，不探索留出区间。")}
       </p>

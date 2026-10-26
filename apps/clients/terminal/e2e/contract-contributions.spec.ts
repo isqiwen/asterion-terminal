@@ -89,7 +89,7 @@ test("original multi-contract contributions keep real fills, account residual an
   expect(original.result.fill_days).toHaveLength(original.result.account.fills.length);
   await page.goto("/");
   await openView(page, "risk");
-  const risk = page.getByRole("region", { name: "风险分析与资金事实", exact: true });
+  const risk = page.getByRole("region", { name: "风险", exact: true });
   await risk
     .getByRole("combobox", { name: "评估来源", exact: true })
     .selectOption({ value: "contribution-source" });

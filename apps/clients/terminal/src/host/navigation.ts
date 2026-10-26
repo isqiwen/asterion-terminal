@@ -1,119 +1,53 @@
 import type { IconName } from "../ui/Icon";
 
-// Product organization is independent of plugin ownership. IDs below name the
-// current contributed views, never an alternate or historical routing contract.
+// Product organization is independent of plugin ownership. Each module lists
+// its views in tab order; IDs name the current contributed views.
 export const modules = [
   {
     id: "market",
     title: "行情",
     icon: "market",
-    sections: [
-      {
-        id: "quotes",
-        title: "行情与自选",
-        views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
-      },
-    ],
+    views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
   },
   {
     id: "data",
     title: "数据",
     icon: "data",
-    sections: [
-      {
-        id: "acquisition",
-        title: "接入与采集",
-        views: ["workspace.history", "workspace.materials"],
-      },
-      { id: "quality", title: "加工与质量", views: [] },
-      { id: "management", title: "管理与服务", views: ["workspace.tables", "workspace.records"] },
-    ],
+    views: ["workspace.history", "workspace.tables", "workspace.records", "workspace.materials"],
   },
   {
     id: "analysis",
     title: "分析",
     icon: "info",
-    sections: [
-      {
-        id: "exploration",
-        title: "数据探索",
-        views: [
-          "workspace.research-projects",
-          "workspace.research-statistics",
-          "workspace.research-samples",
-        ],
-      },
-      {
-        id: "features",
-        title: "特征与因子",
-        views: ["workspace.factor", "workspace.research-variables"],
-      },
-      { id: "evaluation", title: "有效性评价与筛选", views: ["workspace.factor-comparison"] },
+    views: [
+      "workspace.factor",
+      "workspace.factor-comparison",
+      "workspace.research-projects",
+      "workspace.research-samples",
+      "workspace.research-statistics",
+      "workspace.research-variables",
     ],
   },
   {
     id: "strategy",
     title: "策略",
     icon: "plugins",
-    sections: [
-      {
-        id: "logic",
-        title: "策略逻辑",
-        views: ["workspace.research-logic"],
-      },
-      { id: "portfolio", title: "组合与仓位", views: [] },
-      { id: "delivery", title: "策略管理与交付", views: ["workspace.strategy-packages"] },
-    ],
+    views: ["workspace.research-logic", "workspace.strategy-packages"],
   },
-  {
-    id: "backtest",
-    title: "回测",
-    icon: "backtest",
-    sections: [
-      { id: "experiments", title: "实验管理", views: ["workspace.backtest"] },
-      { id: "simulation", title: "交易与账户模拟", views: [] },
-    ],
-  },
+  { id: "backtest", title: "回测", icon: "backtest", views: ["workspace.backtest"] },
   {
     id: "evaluation",
     title: "评估",
     icon: "contract",
-    sections: [
-      { id: "performance", title: "绩效与归因", views: ["workspace.performance"] },
-      { id: "risk", title: "风险与压力", views: ["workspace.risk"] },
-      { id: "validation", title: "稳健性与综合评价", views: ["workspace.backtest-comparison"] },
-    ],
+    views: ["workspace.performance", "workspace.risk", "workspace.backtest-comparison"],
   },
   {
     id: "live",
     title: "实盘",
     icon: "trading",
-    sections: [
-      {
-        id: "operations",
-        title: "准备与运行",
-        views: [],
-      },
-      { id: "execution", title: "订单与成交", views: ["workspace.trading"] },
-      { id: "accounts", title: "账户与核对", views: ["workspace.account-review"] },
-    ],
+    views: ["workspace.trading", "workspace.account-review"],
   },
-  {
-    id: "system",
-    title: "系统管理",
-    icon: "settings",
-    sections: [
-      { id: "setup", title: "安装与配置", views: [] },
-      { id: "tasks", title: "任务与节点", views: [] },
-      { id: "records", title: "资料与诊断", views: [] },
-    ],
-  },
-] satisfies {
-  id: string;
-  title: string;
-  icon: IconName;
-  sections: { id: string; title: string; views: string[] }[];
-}[];
+] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
 export type NavigationOptions = {
   marketMode?: "live" | "history";
   page?: string;
@@ -121,7 +55,8 @@ export type NavigationOptions = {
 };
 export type NavigationState = {
   module: string;
-  routes: Record<string, { section: string; view?: string }>;
+  // The view last shown in each module.
+  routes: Record<string, string>;
   locations: Record<string, NavigationOptions>;
 };
 export function initialNavigation(saved?: unknown): NavigationState {
@@ -129,51 +64,34 @@ export function initialNavigation(saved?: unknown): NavigationState {
   if (!saved || typeof saved !== "object") return initial;
   const location = saved as Record<string, unknown>;
   const module = modules.find(item => item.id === location.module);
-  const section = module?.sections.find(item => item.id === location.section);
-  if (!module || !section) return initial;
-  const view = typeof location.view === "string" ? location.view : undefined;
-  if (section.views.length ? !view || !section.views.includes(view) : location.view !== undefined)
-    return initial;
-  return { ...initial, module: module.id, routes: { [module.id]: { section: section.id, view } } };
+  const view = location.view;
+  if (!module || typeof view !== "string" || !module.views.includes(view)) return initial;
+  return { ...initial, module: module.id, routes: { [module.id]: view } };
 }
 export function currentRoute(state: NavigationState) {
   const module = modules.find(item => item.id === state.module)!;
-  const saved = state.routes[module.id];
-  const section = module.sections.find(item => item.id === saved?.section) ?? module.sections[0];
-  const view = saved?.view ?? section.views[0];
-  return { module, section, view, options: view ? (state.locations[view] ?? {}) : {} };
+  const view = state.routes[module.id] ?? module.views[0];
+  return { module, view, options: state.locations[view] ?? {} };
 }
 // Persist only the destination, never object parameters or in-memory drafts.
 export function navigationLocation(state: NavigationState) {
-  const { module, section, view } = currentRoute(state);
-  return { module: module.id, section: section.id, view };
+  const { module, view } = currentRoute(state);
+  return { module: module.id, view };
 }
 export function selectModule(state: NavigationState, id: string): NavigationState {
   if (!modules.some(item => item.id === id)) throw new Error(`Unknown module: ${id}`);
   return { ...state, module: id };
-}
-export function selectSection(state: NavigationState, id: string): NavigationState {
-  const { module } = currentRoute(state);
-  const section = module.sections.find(item => item.id === id);
-  if (!section) throw new Error(`Unknown section: ${id}`);
-  return {
-    ...state,
-    routes: { ...state.routes, [module.id]: { section: id, view: section.views[0] } },
-  };
 }
 export function selectView(
   state: NavigationState,
   id: string,
   options?: NavigationOptions,
 ): NavigationState {
-  for (const module of modules) {
-    const section = module.sections.find(item => item.views.includes(id));
-    if (section)
-      return {
-        module: module.id,
-        routes: { ...state.routes, [module.id]: { section: section.id, view: id } },
-        locations: options ? { ...state.locations, [id]: options } : state.locations,
-      };
-  }
-  throw new Error(`Unknown view: ${id}`);
+  const module = modules.find(item => (item.views as string[]).includes(id));
+  if (!module) throw new Error(`Unknown view: ${id}`);
+  return {
+    module: module.id,
+    routes: { ...state.routes, [module.id]: id },
+    locations: options ? { ...state.locations, [id]: options } : state.locations,
+  };
 }

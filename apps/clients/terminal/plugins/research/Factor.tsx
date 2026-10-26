@@ -90,7 +90,7 @@ export function Factor({
     setShown(false);
   }, [shown, shownResult]);
   return (
-    <ResearchPage title={t("因子分析")} taskService={taskService} error={error}>
+    <ResearchPage taskService={taskService} error={error}>
       <div className="research-layout">
         <section className="research-config" aria-label={t("因子设置")}>
           <nav className="research-inputs" aria-label={t("因子数据")}>

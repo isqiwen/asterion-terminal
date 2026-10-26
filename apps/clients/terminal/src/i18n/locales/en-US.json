@@ -849,7 +849,6 @@
   "已固定（只读）": "Fixed (read-only)",
   "在研究项目入口读取原计划与人工结论；此目录不提供修改或删除。": "Read original plans and human conclusions in Research projects. This catalogue does not modify or delete them.",
   "当前支持 Data 固定数据/材料/保存内容、Intelligence 候选/准备/发布与程序、Research 项目/计划/人工结论与固定输入/结果；目录不授权删除。": "Currently includes Data fixed data, materials and saved content; Intelligence candidates, preparations, publications and programs; and Research projects, plans, human conclusions, fixed inputs and results. The catalogue does not authorize deletion.",
-  "研究变量定义": "Research variable definitions",
   "在研究变量入口读取原定义；此目录不提供修改或删除。": "Read the original definition in Research variables. This catalogue provides no modification or deletion.",
   "统计固定输入": "Fixed statistics input",
   "统计正式报告": "Formal statistics report",
@@ -873,5 +872,6 @@
   "净名义权重预算": "Net nominal weight budget",
   "名义权重": "Nominal weight",
   "行情": "Market",
-  "行情与自选": "Quotes & Watchlist"
+  "行情与自选": "Quotes & Watchlist",
+  "变量": "Variables"
 }

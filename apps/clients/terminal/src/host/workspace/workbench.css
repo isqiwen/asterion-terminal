@@ -222,27 +222,31 @@ html[lang="en-US"] .activity-rail.expanded {
   flex-direction: column;
   overflow: hidden;
 }
-.module-sections,
+/* One row of views per module: quiet text tabs, the current one underlined. */
 .module-views {
   display: flex;
   flex: none;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 2px;
+  padding: 0 var(--space-page);
   overflow-x: auto;
   border-bottom: 1px solid var(--line);
 }
-.module-sections button,
 .module-views button {
   flex-shrink: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
 }
-.module-sections [aria-current="page"],
+.module-views button:enabled:hover {
+  background: transparent;
+  color: var(--text-strong);
+}
 .module-views [aria-current="page"] {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.module-empty {
-  padding: 24px;
-}
-.module-empty button {
-  margin: 6px 8px 0 0;
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
 }

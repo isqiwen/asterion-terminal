@@ -244,16 +244,18 @@ test("dense market board links real dataset commands, sorting, pagination and co
   });
   await page.goto("/");
   await openView(page, "market");
-  const assets = page.getByRole("navigation", { name: "资产类别" });
+  // Only categories with a connected source are offered.
   const categories = page.getByRole("navigation", { name: "期货分类" });
-  await expect(assets.getByRole("button")).toHaveCount(7);
-  await expect(categories.getByRole("button")).toHaveCount(13);
-  await assets.getByRole("button", { name: "外汇", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("该资产行情源尚未接入");
-  await expect(page.locator(".market-exchange-groups")).toHaveCount(0);
-  await assets.getByRole("button", { name: "期货", exact: true }).click();
-  await categories.getByRole("button", { name: "商品指数", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("该指数行情源尚未接入");
+  await expect(categories.getByRole("button")).toHaveText([
+    "期货全景",
+    "主力合约",
+    "中金所",
+    "上期所",
+    "大商所",
+    "郑商所",
+    "广期所",
+    "上能源",
+  ]);
   await categories.getByRole("button", { name: "上期所", exact: true }).click();
   await expect(page.locator(".market-exchange-groups tbody tr")).toHaveCount(8);
   await categories.getByRole("button", { name: "主力合约", exact: true }).click();

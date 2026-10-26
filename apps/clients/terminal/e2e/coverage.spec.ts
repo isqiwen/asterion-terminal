@@ -9,7 +9,7 @@ test("archive coverage check lists trading days per contract", async ({ page }) 
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await expect(archive.getByRole("button", { name: "覆盖核对", exact: true })).toBeDisabled();
   await archive.getByLabel("品种", { exact: true }).fill("rb");
   await archive.getByRole("button", { name: "覆盖核对", exact: true }).click();

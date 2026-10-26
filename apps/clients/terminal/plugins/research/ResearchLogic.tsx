@@ -165,7 +165,7 @@ export function ResearchLogic({ snapshot, query, trade, busy, navigate }: Termin
   }
   const task = service?.tasks.find(value => value.id === taskId);
   return (
-    <ResearchPage title={t("策略逻辑与事先样例")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>{t("仅支持完成收盘上的双均线目标方向。虚构样例不进入Data，不证明收益或授权交易。")}</p>
       <button
         disabled={blocked}

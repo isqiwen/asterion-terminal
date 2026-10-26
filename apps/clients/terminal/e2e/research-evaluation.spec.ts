@@ -59,7 +59,7 @@ test("fixed performance evaluation preserves the original account through restar
   const source = (await taskRpc(page.request, "research", "task.result.read", { id: sourceId }))
     .task_result;
   await openView(page, "risk");
-  const evaluation = page.getByRole("region", { name: "风险分析与资金事实", exact: true });
+  const evaluation = page.getByRole("region", { name: "风险", exact: true });
   await expect(evaluation).toContainText("尾部估计、动态压力和完整策略归因仍未实现");
   await evaluation.getByRole("combobox", { name: "评估来源", exact: true }).selectOption(sourceId);
   await evaluation.getByRole("button", { name: "读取评估来源", exact: true }).click();

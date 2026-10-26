@@ -112,8 +112,8 @@ test("a product's months backtest as its dominant series and roll at real prices
       name: "权益曲线",
     }),
   ).toBeVisible();
-  // Reattaching the same store keeps the series; switching stores must not
-  // retain month identities from the original archive.
+  // The selection names Data versions, so it follows the Data service, not
+  // the Research store: switching stores bound to the same Data keeps it.
   const originalService = state.research_service!.service;
   const reattached = await rpc(page.request, "node.research.attach", {
     id: "local",
@@ -125,19 +125,19 @@ test("a product's months backtest as its dominant series and roll at real prices
   const deployed = await rpc(page.request, "node.deploy", {
     id: "local",
     service,
-    kind: "task",
+    kind: "research",
     port: "0",
   });
   expect(deployed.dataset_series).toEqual(state.dataset_series);
   const switched = await rpc(page.request, "node.research.attach", { id: "local", service });
   checkSnapshot("new store after dominant series", switched);
-  expect(switched.datasets).toEqual([]);
-  expect(switched.dataset_series).toEqual([]);
+  expect(switched.datasets).toEqual(state.datasets);
+  expect(switched.dataset_series).toEqual(state.dataset_series);
   const restored = await rpc(page.request, "node.research.attach", {
     id: "local",
     service: originalService,
   });
-  expect(restored.dataset_series).toEqual([]);
+  expect(restored.dataset_series).toEqual(state.dataset_series);
   expect(
     (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result.result,
   ).toEqual(result);

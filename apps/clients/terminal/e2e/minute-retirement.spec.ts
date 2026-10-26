@@ -1,6 +1,6 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import { rpc, seedHistory } from "./dataset-fixture";
+import { rpc, seedHistory, openData } from "./dataset-fixture";
 
 test("@journey minute payload cleanup is explicit, Data-owned and survives service restart", async ({
   page,
@@ -18,7 +18,7 @@ test("@journey minute payload cleanup is explicit, Data-owned and survives servi
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await archive
     .locator(`[data-dataset-id="${id}"]`)
     .getByRole("button", { name: "维护此版本", exact: true })
@@ -38,7 +38,7 @@ test("@journey minute payload cleanup is explicit, Data-owned and survives servi
     service: "historical-data",
     action: "stop",
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   await expect
     .poll(async () => (await rpc(page.request, "runtime.snapshot")).data?.online, {
       timeout: 10000,
@@ -62,7 +62,7 @@ test("draft use and a named dataset cannot be overridden by deletion confirmatio
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await archive
     .locator(`[data-dataset-id="${id}"]`)
     .getByRole("button", { name: "维护此版本", exact: true })

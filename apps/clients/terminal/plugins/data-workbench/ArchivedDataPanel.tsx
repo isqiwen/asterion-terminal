@@ -100,8 +100,8 @@ export function ArchivedDataPanel(context: TerminalContext) {
     return cancel;
   }, [online, connection, load, cancel]);
   return (
-    <section className="futures-data data-archive" aria-label={t("历史数据仓库")}>
-      <h2>{t("历史数据仓库")}</h2>
+    <section className="futures-data data-archive" aria-label={t("数据仓库")}>
+      <h2>{t("数据仓库")}</h2>
       <MinuteRetirementList
         key={`retirements:${connection}`}
         context={context}

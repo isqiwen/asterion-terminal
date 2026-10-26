@@ -131,6 +131,7 @@ test("checked logic assembles a package and a non-running draft before explicit 
   await progress.getByRole("button", { name: "查看结果", exact: true }).click();
   const result = workspace.getByRole("region", { name: "回测结果", exact: true });
   await result.getByText("实验参数", { exact: true }).click();
+  await result.getByText("数据与程序身份", { exact: true }).first().click();
   await expect(result.getByText("接纳时固定策略候选", { exact: true })).toBeVisible();
   await expect(result).toContainText(candidate.object.id);
   const prior = (

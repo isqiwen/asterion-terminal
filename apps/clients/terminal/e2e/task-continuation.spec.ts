@@ -47,8 +47,8 @@ test("a fresh local task store preserves the original tasks and requires an expl
   const name = "backtest-factor-continued";
   for (const params of [
     { id: "local", service: name, kind: "market", port: "0" },
-    { id: "local", service: name, kind: "task", port: "7443" },
-    { id: "local", service: originalService, kind: "task", port: "0" },
+    { id: "local", service: name, kind: "research", port: "7443" },
+    { id: "local", service: originalService, kind: "research", port: "0" },
   ]) {
     const response = await page.request.post("/__asterion/api", {
       data: { version: 1, method: "node.deploy", params },
@@ -60,7 +60,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await settings
     .getByRole("list", { name: "当前运行位置" })
     .getByRole("listitem")
-    .filter({ hasText: "任务服务" })
+    .filter({ hasText: "研究服务" })
     .getByRole("button", { name: "管理", exact: true })
     .click();
   await settings.getByRole("button", { name: "部署服务", exact: true }).click();
@@ -108,7 +108,8 @@ test("a fresh local task store preserves the original tasks and requires an expl
   checkSnapshot("fresh continuation store", fresh);
   expect(fresh.research_service!.service).toBe(name);
   expect(fresh.research_service!.tasks).toEqual([]);
-  expect(fresh.datasets).toEqual([]);
+  // The selection names Data versions; the new store uses the same Data.
+  expect(fresh.datasets).toEqual(original.datasets);
   expect(fresh.research_service!.capacity).toEqual({
     retained_tasks: 0,
     active_used: 0,
@@ -118,7 +119,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   });
   await closeSettingsWindow(settings);
   await openView(page, "backtest");
-  await expect(page.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(page.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await rpc(page.request, "node.action", { id: "local", service: name, action: "stop" });
   await page.getByRole("button", { name: "重试准备", exact: true }).click();
   await expect
@@ -132,7 +133,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   await settings
     .getByRole("list", { name: "当前运行位置" })
     .getByRole("listitem")
-    .filter({ hasText: "任务服务" })
+    .filter({ hasText: "研究服务" })
     .getByRole("button", { name: "管理", exact: true })
     .click();
   for (const service of [name, fresh.data!.service])
@@ -143,6 +144,6 @@ test("a fresh local task store preserves the original tasks and requires an expl
   const restored = await rpc(page.request, "runtime.snapshot");
   checkSnapshot("original task store remains accessible", restored);
   expect(restored.research_service!.tasks).toEqual(originalTasks);
-  expect(restored.datasets).toEqual([]);
+  expect(restored.datasets).toEqual(original.datasets);
   expect(restored.research_service!.capacity!.retained_tasks).toBe(originalTasks.length);
 });

@@ -25,7 +25,7 @@ test("opening connection settings only reads the monitor established by startup"
   });
   for (let visit = 0; visit < 2; visit++) {
     await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
-    await expect(settings.getByRole("list", { name: "当前运行位置" })).toContainText("task");
+    await expect(settings.getByRole("list", { name: "当前运行位置" })).toContainText("research");
     await settings.getByRole("button", { name: "机器管理", exact: true }).click();
     await expect(settings.getByRole("button", { name: "本机 在线", exact: true })).toBeVisible();
     await expect(settings.getByRole("alert")).toHaveCount(0);

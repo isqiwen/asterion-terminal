@@ -1777,3 +1777,60 @@ h2,
 * {
   scrollbar-color: var(--line) transparent;
 }
+
+/* A workspace page reads top to bottom with one rhythm and one gutter.
+   Zero-specificity selectors: a page with its own layout keeps it. */
+:where(.page-body) {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px var(--space-page) 32px;
+  min-width: 0;
+}
+:where(.page-body) > :where(p.notice, p.alert) {
+  margin: 0;
+}
+/* A field reads its label above its control. */
+:where(.terminal-business)
+  :where(label):has(> :where(input:not([type="checkbox"], [type="radio"]), select, textarea)) {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 12px;
+}
+:where(.terminal-business)
+  :where(label)
+  > :where(input:not([type="checkbox"], [type="radio"]), select, textarea) {
+  min-width: 180px;
+  color: var(--text);
+  font-size: 13px;
+}
+/* Several fields side by side wrap as one row, controls aligned. */
+:where(.terminal-business)
+  :where(div, form, fieldset):has(
+    > label > :where(input:not([type="checkbox"], [type="radio"]), select, textarea)
+  ) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+/* Options are one per line, box before text. */
+:where(.terminal-business) :where(label):has(> input[type="checkbox"], > input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+:where(.page-body) :where(h3) {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--text-strong);
+}
+:where(.page-body) :where(p) {
+  margin: 0;
+}
+:where(.page-body) > :where(button) {
+  align-self: flex-start;
+}

@@ -14,7 +14,7 @@ const kinds = {
   download: "来源下载",
   backtest: "回测任务",
   factor: "因子任务",
-  sample: "独立研究样本",
+  sample: "样本",
   saved_dataset: "已保存数据集",
 };
 const roles = { market: "行情输入", output: "下载产物" };

@@ -181,7 +181,7 @@ test("a contract's days and a product's months backtest from the daily table", a
   expect(
     (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result,
   ).toEqual(evidence);
-  const comparison = workspace.getByRole("region", { name: "回测实验比较", exact: true });
+  const comparison = workspace.getByRole("region", { name: "回测比较", exact: true });
   for (const id of [task.id, fixedId, revisedId])
     await comparison.getByLabel(id + " · " + evidence.task.instrument, { exact: true }).check();
   const selectedBefore = (await rpc(page.request, "runtime.snapshot")).task_result;

@@ -18,7 +18,7 @@ export function Evaluation({
   navigate,
   focus = "performance",
 }: TerminalContext & { focus?: "performance" | "risk" }) {
-  const heading = focus === "risk" ? "风险分析与资金事实" : "绩效与归因";
+  const heading = focus === "risk" ? "风险" : "绩效与归因";
   const connection = snapshot?.research_service?.connection_id;
   const sourceId =
     workspaceParams?.connection_id === connection &&

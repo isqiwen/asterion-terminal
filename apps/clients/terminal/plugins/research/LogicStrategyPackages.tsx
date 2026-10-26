@@ -173,7 +173,7 @@ export function LogicStrategyPackages({
   const supported =
     source && source.id === form.source && source.result.all_match && source.result.decisions > 0;
   return (
-    <ResearchPage title={t("已核对逻辑包与交付")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>{t("包引用原规则和已匹配虚构试算，不是市场收益证据。保存包和交付草稿均不运行回测。")}</p>
       <button
         disabled={blocked}

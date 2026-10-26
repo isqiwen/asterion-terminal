@@ -20,7 +20,10 @@ test("the market tables page lists what the data source offers", async ({ page }
   await expect(
     coverage.getByRole("row").filter({ hasText: "日线" }).filter({ hasText: "GFEX" }),
   ).toContainText("尚未下载");
-  // Without a credential nothing can be asked of the source.
+  // Without a credential nothing can be asked of a source that needs one.
+  await tables
+    .getByRole("combobox", { name: "数据源", exact: true })
+    .selectOption("asterion.data.tushare");
   await expect(tables.getByRole("button", { name: "开始更新", exact: true })).toBeDisabled();
   // What the core answers fits the Terminal's types.
   const state = await rpc(page.request, "data.tables.coverage", {});

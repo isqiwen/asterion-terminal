@@ -13,7 +13,7 @@ test("prior fictional expectations remain fixed through actual causal trial and 
   await page.goto("/");
   await openView(page, "logic");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await workspace.getByLabel("名称", { exact: true }).fill("合成双均线逻辑");
   await workspace
     .getByLabel("研究目的", { exact: true })

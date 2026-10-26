@@ -11,7 +11,7 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   const minute = archive.locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`);
   // The daily table is not a second archive version.
   await expect(archive.locator("[data-dataset-id]")).toHaveCount(1);
@@ -67,7 +67,7 @@ test("owner ledger retains offline consumers and an unavailable authority is nev
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await archive
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "使用情况", exact: true })
@@ -110,7 +110,7 @@ test("unconnected node registrations do not replace Data reference authority or 
       .getByRole("button", { name: "数据", exact: true })
       .click();
     await openView(page, "records");
-    const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+    const archive = page.getByRole("region", { name: "数据仓库", exact: true });
     await archive
       .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
       .getByRole("button", { name: "使用情况", exact: true })

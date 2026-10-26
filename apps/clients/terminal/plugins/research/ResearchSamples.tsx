@@ -109,7 +109,7 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
   const last = Math.max(0, Math.ceil((report?.result.rows.length ?? 0) / 50) - 1);
   const current = Math.min(page, last);
   return (
-    <ResearchPage title={t("独立研究样本")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>
         {t("固定单合约标准数据版本，无需先生成因子；保留原始收盘价和实际观察，不补齐缺失行情。")}
       </p>

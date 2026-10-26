@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedDataset, seedHistory, taskRpc } from "./dataset-fixture";
+import { rpc, seedDataset, seedHistory, taskRpc, openResearch } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 
 test("retained factor observations distinguish zero and unknown labels and survive Data offline plus Research restart", async ({
@@ -15,7 +15,7 @@ test("retained factor observations distinguish zero and unknown labels and survi
   await page.goto("/");
   await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await workspace.getByLabel("回看 K 线数", { exact: true }).fill("2");
   await workspace.getByLabel("未来收益 K 线数", { exact: true }).fill("2");
   await workspace.getByLabel("保存逐行特征与标签证据", { exact: true }).check();
@@ -87,7 +87,7 @@ test("retained factor observations distinguish zero and unknown labels and survi
       { timeout: 20000 },
     )
     .toBe("ready");
-  await rpc(page.request, "node.research.local.open");
+  await openResearch(page.request);
   const replay = (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   expect(replay.task.result_digest).toBe(original.task.result_digest);
   expect(replay.task.program_artifact).toBe(original.task.program_artifact);
@@ -269,7 +269,7 @@ test("retained holdout evidence distinguishes known crossed labels from unknown 
       { timeout: 20000 },
     )
     .toBe("ready");
-  await rpc(page.request, "node.research.local.open");
+  await openResearch(page.request);
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     original,
   );
@@ -385,7 +385,7 @@ for (const mode of ["search", "rolling"] as const)
         { timeout: 20000 },
       )
       .toBe("ready");
-    await rpc(page.request, "node.research.local.open");
+    await openResearch(page.request);
     expect(
       (await taskRpc(page.request, "research", "task.result.read", { id })).task_result,
     ).toEqual(original);

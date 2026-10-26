@@ -123,7 +123,7 @@ export const plugin: TerminalPlugin = {
       )
       .map(task => ({
         id: `research:${context.snapshot?.research_service?.node_id}:${context.snapshot?.research_service?.service}:${task.id}`,
-        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("独立研究样本") : task.kind === "statistics" ? t("探索统计") : task.kind === "account_review" ? t("账户观察审阅") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
+        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("样本") : task.kind === "statistics" ? t("统计") : task.kind === "account_review" ? t("账户核对") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
         status: t(
           task.retired
             ? "已退役"
@@ -176,7 +176,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.research-samples",
       get title() {
-        return t("独立研究样本");
+        return t("样本");
       },
       component: context => (
         <WorkloadAccess context={context}>{ready => <ResearchSamples {...ready} />}</WorkloadAccess>
@@ -185,7 +185,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.research-statistics",
       get title() {
-        return t("探索统计");
+        return t("统计");
       },
       component: context => (
         <WorkloadAccess context={context}>
@@ -196,7 +196,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.research-projects",
       get title() {
-        return t("研究项目与假设");
+        return t("研究项目");
       },
       component: context => (
         <WorkloadAccess context={context}>
@@ -207,7 +207,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.account-review",
       get title() {
-        return t("账户观察审阅");
+        return t("账户核对");
       },
       component: context => (
         <WorkloadAccess context={context}>{ready => <AccountReview {...ready} />}</WorkloadAccess>
@@ -236,7 +236,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.research-logic",
       get title() {
-        return t("策略逻辑与事先样例");
+        return t("规则");
       },
       component: context => (
         <WorkloadAccess context={context}>{ready => <ResearchLogic {...ready} />}</WorkloadAccess>
@@ -245,7 +245,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.strategy-packages",
       get title() {
-        return t("固定策略候选与交付");
+        return t("策略包");
       },
       component: context => (
         <WorkloadAccess context={context}>
@@ -256,7 +256,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.research-variables",
       get title() {
-        return t("研究变量定义");
+        return t("变量");
       },
       component: context => (
         <WorkloadAccess context={context}>
@@ -267,7 +267,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.factor-comparison",
       get title() {
-        return t("因子实验比较");
+        return t("因子比较");
       },
 
       component: context => (
@@ -279,7 +279,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.backtest-comparison",
       get title() {
-        return t("回测实验比较");
+        return t("回测比较");
       },
 
       component: context => (
@@ -291,7 +291,7 @@ export const plugin: TerminalPlugin = {
     {
       id: "workspace.risk",
       get title() {
-        return t("风险分析与资金事实");
+        return t("风险");
       },
       component: context => (
         <WorkloadAccess context={context}>

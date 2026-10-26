@@ -3,7 +3,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { test, expect } from "./test";
-import { seedHistory, rpc } from "./dataset-fixture";
+import { seedHistory, rpc, openResearch } from "./dataset-fixture";
 
 test(
   "named portfolio survives service restart and restores exact inputs atomically",
@@ -46,7 +46,7 @@ test(
     await rpc(page.request, "data.dataset.clear");
     await openView(page, "watchlist");
     await rpc(page.request, "node.action", { id: "local", service: "research", action: "stop" });
-    await rpc(page.request, "node.research.local.open");
+    await openResearch(page.request);
     await page.reload();
     await openView(page, "backtest");
     await page.getByRole("button", { name: "新建回测", exact: true }).click();

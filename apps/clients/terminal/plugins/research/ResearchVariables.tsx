@@ -131,7 +131,7 @@ export function ResearchVariables({ snapshot, query, trade, busy, navigate }: Te
   }
   const discard = () => !dirty || globalThis.window.confirm(t("放弃当前未保存的研究草稿？"));
   return (
-    <ResearchPage title={t("研究变量定义")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>
         {t(
           "定义固定因果表达式、用途与窗口；数据和未来标签在任务中单独选择。检查不读取行情，也不计算样本。",

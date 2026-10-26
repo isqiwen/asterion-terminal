@@ -9,7 +9,7 @@ test("Terminal registry drives settings and workspace navigation", async ({ page
   await expect(settings.getByText("内置 · 随应用发布", { exact: true })).toHaveCount(4);
   const page = await closeSettingsWindow(settings);
   await openView(page, "backtest");
-  await expect(page.getByRole("heading", { name: "策略回测", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建回测", exact: true })).toBeVisible();
   await openView(page, "trading");
   await expect(page.getByRole("heading", { name: "CTP 交易", exact: true })).toBeVisible();
 });

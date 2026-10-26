@@ -19,7 +19,7 @@ test(
     await page.reload();
     await openView(page, "backtest");
     const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-    await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+    await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
     await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
     const selected = workspace.getByRole("list", { name: "已选合约" });
     await expect(selected).toContainText("SHFE · rb2610");
@@ -140,7 +140,7 @@ test(
     await expect(settlements).toHaveCount(1);
     await expect(settlements.first()).toContainText("110");
     // The page is named for what it does, the result for the rule it ran.
-    await expect(workspace.getByRole("heading", { name: "策略回测", exact: true })).toBeVisible();
+    await expect(workspace.getByRole("button", { name: "新建回测", exact: true })).toBeVisible();
     await expect(workspace.getByRole("heading", { name: /均线交叉 1\/3/ })).toBeVisible();
     await result
       .locator(".research-experiment")

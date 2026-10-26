@@ -201,7 +201,7 @@ export function ResearchProjects({ snapshot, query, trade, busy, navigate }: Ter
     });
   }
   return (
-    <ResearchPage title={t("研究项目与假设")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>
         {t("研究草稿、固定计划、计算结果与人工结论分别保存。修改标准不会改写旧计划或正式结果。")}
       </p>

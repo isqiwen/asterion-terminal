@@ -1,4 +1,4 @@
-import { taskRpc } from "./dataset-fixture";
+import { taskRpc, openResearch } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
@@ -229,7 +229,7 @@ test("data/task access prepares a stopped local service once and does not replac
 }) => {
   await page.goto("/");
   await openView(page, "trading");
-  const opened = await rpc(page.request, "node.research.local.open");
+  const opened = await openResearch(page.request);
   await rpc(page.request, "node.action", {
     id: "local",
     service: opened.research_service.service,

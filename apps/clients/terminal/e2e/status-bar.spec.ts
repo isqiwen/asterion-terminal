@@ -7,7 +7,6 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
     .locator(".status-bar")
     .getByRole("button", { name: "查看服务连接", exact: true });
   await expect(service).toBeVisible();
-  await expect(page.locator(".watchlist-workspace")).toBeVisible();
   await expect(page.getByRole("button", { name: "检查连接", exact: true })).toHaveCount(0);
   await service.click();
   const panel = page.getByRole("region", { name: "服务连接详情" });

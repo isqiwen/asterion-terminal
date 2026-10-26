@@ -93,9 +93,9 @@ export const plugin: TerminalPlugin = {
       })),
   workspaces: [
     ["history", "历史数据"],
-    ["materials", "情报材料"],
+    ["materials", "资料"],
     ["tables", "全市场数据"],
-    ["records", "历史数据仓库"],
+    ["records", "数据仓库"],
   ].map(([page, title]) => ({
     id: `workspace.${page}`,
     get title() {

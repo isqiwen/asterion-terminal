@@ -19,7 +19,7 @@ test("fixed archive previews incremental ranges and whole-day repair without sub
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   const row = archive.locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`);
   await row.getByRole("button", { name: "下载后续数据", exact: true }).click();
   const extension = archive.getByRole("region", { name: "下载后续数据", exact: true });
@@ -84,7 +84,7 @@ test("reviewed closure conflicts explain blocked repair and reject submit before
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await openView(page, "records");
-  const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
   await archive.getByLabel("品种", { exact: true }).fill("rb");
   await archive.getByRole("button", { name: "覆盖核对", exact: true }).click();
   await archive

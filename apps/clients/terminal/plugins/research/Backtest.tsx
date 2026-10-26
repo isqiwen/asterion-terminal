@@ -449,7 +449,7 @@ export function Backtest({
     [result?.result.equity],
   );
   return (
-    <ResearchPage title={t("策略回测")} taskService={taskService} error={error}>
+    <ResearchPage taskService={taskService} error={error}>
       <div className="workflow-heading research-navigation">
         <h3>
           {t(

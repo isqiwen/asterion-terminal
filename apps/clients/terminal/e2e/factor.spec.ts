@@ -23,7 +23,7 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       await page.reload();
       await openView(page, "factor");
       const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-      await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+      await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
       await openView(page, "factor");
       await expect(workspace.getByLabel("初始资金", { exact: true })).toHaveCount(0);
       await workspace.getByLabel("回看 K 线数", { exact: true }).fill(search ? "2,5,10" : "2");
@@ -56,8 +56,8 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       await row.getByRole("button", { name: "查看结果", exact: true }).click();
       await expect(
         page
-          .getByRole("navigation", { name: "业务子模块", exact: true })
-          .getByRole("button", { name: "特征与因子", exact: true }),
+          .getByRole("navigation", { name: "子模块视图", exact: true })
+          .getByRole("button", { name: "因子", exact: true }),
       ).toHaveAttribute("aria-current", "page");
       await expect(workspace.getByLabel("初始资金", { exact: true })).toHaveCount(0);
       const result = workspace.getByRole("region", { name: "因子结果", exact: true });
@@ -144,8 +144,8 @@ for (const mode of ["full", "holdout", "search", "rolling"])
         await openView(page, "factor");
         await expect(
           page
-            .getByRole("navigation", { name: "Business Sections", exact: true })
-            .getByRole("button", { name: "Features & Factors", exact: true }),
+            .getByRole("navigation", { name: "Section Views", exact: true })
+            .getByRole("button", { name: "Factors", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         const english = page.getByRole("region", { name: "Factor Results", exact: true });
         await expect(
@@ -171,7 +171,7 @@ test("three contracts are compared with each other at every bar", async ({ page 
   await page.reload();
   await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await openView(page, "factor");
   await expect(
     workspace.getByText("多个合约 · 在每根 K 线上比较当时有数据的合约的因子值与未来收益", {
@@ -242,7 +242,7 @@ test("volatility is evaluated as the deviation of a window's returns", async ({ 
   await page.reload();
   await openView(page, "factor");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await openView(page, "factor");
   await workspace.getByLabel("因子", { exact: true }).selectOption("volatility");
   await expect(workspace.getByText(/波动率 · 回看窗口内逐条收益率/)).toBeVisible();

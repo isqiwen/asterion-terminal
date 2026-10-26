@@ -55,7 +55,7 @@ export function AccountReview(context: TerminalContext) {
       ? snapshot.task_result
       : null;
   return (
-    <ResearchPage title={t("账户观察审阅")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>{t("审阅固定账户观察的覆盖与缺口，不计算完整账本绩效，不登录或授权交易。")}</p>
       {selection ? (
         <section aria-label={t("待审阅固定事实")}>

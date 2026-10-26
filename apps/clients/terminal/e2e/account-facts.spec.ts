@@ -148,8 +148,8 @@ test("fixed account facts publish through the UI without trading and survive sou
     .getByRole("button", { name: "实盘", exact: true })
     .click();
   await page
-    .getByRole("navigation", { name: "业务子模块", exact: true })
-    .getByRole("button", { name: "账户与核对", exact: true })
+    .getByRole("navigation", { name: "子模块视图", exact: true })
+    .getByRole("button", { name: "账户核对", exact: true })
     .click();
   await expect(page.getByRole("button", { name: "查看结果", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "查看结果", exact: true }).click();

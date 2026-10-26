@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { ctpConnection, rpc } from "./dataset-fixture";
+import { ctpConnection, rpc, openData } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 
 test("Market observation is published by Data and remains exactly readable without its producer", async ({
@@ -15,7 +15,7 @@ test("Market observation is published by Data and remains exactly readable witho
     password: "synthetic-ui-observation",
     instruments: [{ venue: "SHFE", symbol: "rb2610" }],
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   await expect
     .poll(
       async () => {
@@ -26,8 +26,8 @@ test("Market observation is published by Data and remains exactly readable witho
     )
     .toBe(true);
   await page.goto("/");
-  await openView(page, "market");
-  await page.getByRole("tab", { name: "实时行情", exact: true }).click();
+  // Archiving observed quotes is a Data operation, on the archive page.
+  await openView(page, "records");
   const panel = page.getByRole("region", { name: "观察归档", exact: true });
   await panel.getByRole("button", { name: "固定观察预览", exact: true }).click();
   await expect(
@@ -66,7 +66,7 @@ test("Market observation is published by Data and remains exactly readable witho
     service: original.archive.service,
     action: "stop",
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   await page.reload();
   // The shared fixture acknowledges startup notices; SetupGate tests verify their exact text.
   await openView(page, "records");

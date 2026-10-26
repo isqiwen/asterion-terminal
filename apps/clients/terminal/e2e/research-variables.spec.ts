@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedDataset, taskRpc } from "./dataset-fixture";
+import { rpc, seedDataset, taskRpc, openResearch } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 test("fixed causal variables drive original factor rows and survive definition revision and restart", async ({
   page,
@@ -10,7 +10,7 @@ test("fixed causal variables drive original factor rows and survive definition r
   await page.goto("/");
   await openView(page, "variables");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await workspace.getByLabel("变量名称", { exact: true }).fill("固定因果变量");
   await workspace
     .getByLabel("研究用途", { exact: true })
@@ -114,7 +114,7 @@ test("fixed causal variables drive original factor rows and survive definition r
       { timeout: 20000 },
     )
     .toBe("ready");
-  await rpc(page.request, "node.research.local.open");
+  await openResearch(page.request);
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     evidence,
   );

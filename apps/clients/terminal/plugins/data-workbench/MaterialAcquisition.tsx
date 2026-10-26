@@ -113,8 +113,8 @@ export function MaterialAcquisition({ context }: { context: TerminalContext }) {
     if (current === epoch.current) setStatus(reply.material_task);
   }
   return (
-    <section aria-label={t("情报材料")}>
-      <h3>{t("情报材料")}</h3>
+    <section aria-label={t("资料")}>
+      <h3>{t("资料")}</h3>
       <p>{t("从已安装来源取得固定原件。取得、可读范围、语义提取和人工发布分别记录。")}</p>
       <p>
         {t("当前 Data")}：

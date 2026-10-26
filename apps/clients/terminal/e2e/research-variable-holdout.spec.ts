@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedDataset, taskRpc } from "./dataset-fixture";
+import { rpc, seedDataset, taskRpc, openResearch } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 test("fixed expression holdout displays original roles, crossing labels and tail without recomputation", async ({
   page,
@@ -119,7 +119,7 @@ test("fixed expression holdout displays original roles, crossing labels and tail
       { timeout: 20000 },
     )
     .toBe("ready");
-  await rpc(page.request, "node.research.local.open");
+  await openResearch(page.request);
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     evidence,
   );

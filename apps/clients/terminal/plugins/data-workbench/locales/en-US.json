@@ -108,7 +108,6 @@
   "交易计量单位": "Trading unit",
   "报价单位": "Quotation unit",
   "保留数据源原始字段；合约乘数与每手交易单位不自动互换，缺失值不推算。": "Original provider fields: contract multiplier and units per lot are not interchangeable. Missing values are not inferred.",
-  "历史数据仓库": "Historical data archive",
   "品种": "Product",
   "合约身份": "Contract identity",
   "查询": "Search",
@@ -547,7 +546,6 @@
   "使用本机 Data": "Use local Data",
   "Data 接纳记录时间（上海）": "Data admission record time (Shanghai)",
   "本次发布记录时间（上海）": "Publication record time (Shanghai)",
-  "情报材料": "Intelligence materials",
   "取得中": "Acquiring",
   "从已安装来源取得固定原件。取得、可读范围、语义提取和人工发布分别记录。": "Acquire immutable originals from installed sources. Acquisition, readable coverage, semantic extraction and human publication are separate outcomes.",
   "刷新材料来源": "Refresh material sources",
@@ -580,5 +578,7 @@
   "该材料格式尚不支持基础读取，取得记录仍保留。": "Basic reading is unavailable for this format. Acquisition evidence is retained.",
   "现有来源需要凭据或费用准入，当前取得路径不可用。": "Installed sources require credential or cost admission. This acquisition path is unavailable.",
   "人工核验此材料": "Review this material",
-  "独立研究样本": "Independent research sample"
+  "样本": "Samples",
+  "资料": "Materials",
+  "数据仓库": "Archive"
 }

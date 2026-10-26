@@ -180,7 +180,7 @@ function ReferenceStrategyPackages({ snapshot, query, trade, busy, navigate }: T
         evidence.input_sha256 === selected.source_input_sha256));
   const actual = service?.tasks.find(task => task.id === delivery?.target_task_id);
   return (
-    <ResearchPage title={t("固定策略候选与交付")} taskService={service} error={error}>
+    <ResearchPage taskService={service} error={error}>
       <p>
         {t(
           "候选保存原单合约或完整组合决策及参考回测；历史可得未知和事后参考限制仍保留，不证明预测有效，也不授权实盘。交付草稿不启动任务。",

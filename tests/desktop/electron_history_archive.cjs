@@ -128,7 +128,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       .getByRole("button", { name: "数据", exact: true })
       .click();
     await openView(page, "records");
-    const panel = page.getByRole("region", { name: "历史数据仓库", exact: true });
+    const panel = page.getByRole("region", { name: "数据仓库", exact: true });
     await expect(panel.locator(".publication-row")).toHaveCount(2);
     await panel.getByLabel("合约身份", { exact: true }).fill("SHFE/cu/2023-10");
     await panel.getByRole("button", { name: "查询", exact: true }).click();

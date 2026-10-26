@@ -23,8 +23,8 @@ test("language switches every workspace, preserves preferences and survives relo
   await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(4);
   page = await closeSettingsWindow(page);
   for (const workspace of [
+    "Market",
     "Data",
-    "Intelligence",
     "Analysis",
     "Strategy",
     "Backtest",
@@ -64,7 +64,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
   await expect(
-    page.locator(".module-views").getByRole("button", { name: "自选", exact: true }),
+    page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -48,6 +48,25 @@ type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 // Returns the data.dataset.select parameters for the seeded minute versions
 // and daily table snapshot of the SHFE `product` contract. `keep` adds to the
 // current selection instead of starting a new one.
+// A service answers business requests once its stores are open, after it reports online.
+export async function openData(request: APIRequestContext) {
+  await rpc(request, "node.data.local.open");
+  await expect
+    .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
+    .toBe(true);
+  return rpc(request, "runtime.snapshot");
+}
+
+export async function openResearch(request: APIRequestContext) {
+  await rpc(request, "node.research.local.open");
+  await expect
+    .poll(async () => (await rpc(request, "runtime.snapshot")).research_service?.online, {
+      timeout: 10000,
+    })
+    .toBe(true);
+  return rpc(request, "runtime.snapshot");
+}
+
 export async function seedHistory(
   request: APIRequestContext,
   prices: number[],
@@ -85,7 +104,7 @@ export async function seedHistory(
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
   if (!keep) await rpc(request, "data.dataset.clear");
-  await rpc(request, "node.data.local.open");
+  await openData(request);
   // The daily table is seeded under the sources the installed data source
   // offers: those are the ones the Terminal's pages read.
   const offered: { table: string; source: string; plugin_id: string }[] = (
@@ -145,10 +164,7 @@ export async function seedHistory(
     ],
     { encoding: "utf8" },
   );
-  await rpc(request, "node.data.local.open");
-  await expect
-    .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
-    .toBe(true);
+  await openData(request);
   const { source_dataset_ids, daily, begin_day, end_day } = JSON.parse(output);
   const selection: {
     source_dataset_ids: string[];

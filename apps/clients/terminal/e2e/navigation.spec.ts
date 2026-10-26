@@ -2,9 +2,7 @@ import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
-test("seven business modules and separate system administration preserve navigation without starting work", async ({
-  page,
-}) => {
+test("seven business modules preserve navigation without starting work", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".environment-label")).toHaveText("开发环境");
   await expect(page).toHaveTitle(/开发环境/);
@@ -14,8 +12,8 @@ test("seven business modules and separate system administration preserve navigat
   });
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   await expect(nav.getByRole("button")).toHaveText([
+    "行情",
     "数据",
-    "情报",
     "分析",
     "策略",
     "回测",
@@ -27,7 +25,7 @@ test("seven business modules and separate system administration preserve navigat
     "page",
   );
   await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
-  for (const [index, name] of ["数据", "情报", "分析", "策略", "回测", "评估", "实盘"].entries()) {
+  for (const [index, name] of ["行情", "数据", "分析", "策略", "回测", "评估", "实盘"].entries()) {
     await page.keyboard.press(`Control+${index + 1}`);
     await expect(nav.getByRole("button", { name, exact: true })).toHaveAttribute(
       "aria-current",
@@ -43,10 +41,12 @@ test("seven business modules and separate system administration preserve navigat
     page.locator(".workspace-tabs").getByRole("button", { name: "实盘", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "CTP 交易账户", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "系统管理", exact: true }).click();
-  await expect(page.getByRole("navigation", { name: "业务子模块" }).getByRole("button")).toHaveText(
-    ["安装与配置", "任务与节点", "资料与诊断"],
+  // Each module shows its views in one row; a module with one view shows none.
+  await expect(page.getByRole("navigation", { name: "子模块视图" }).getByRole("button")).toHaveText(
+    ["交易", "账户核对"],
   );
+  await openView(page, "backtest");
+  await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
   expect(
     methods.filter(method => method.startsWith("live.") || method.endsWith(".submit")),
   ).toEqual([]);
@@ -78,8 +78,9 @@ test("service and task failures remain visible from every workspace", async ({ p
       health: "unavailable",
       error: "Test-only service failure",
     };
-    data.result.research_service.failed_count = 1;
-    data.result.research_service.tasks = [
+    // Downloads belong to the Data service.
+    data.result.data.failed_count = 1;
+    data.result.data.tasks = [
       {
         id: "failed-download",
         kind: "minute_download",
@@ -115,7 +116,7 @@ test("service and task failures remain visible from every workspace", async ({ p
   await expect(
     page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }),
   ).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("navigation", { name: "业务子模块", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "子模块视图", exact: true })).toBeVisible();
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-issues.png" });
   issues = false;
   await expect(footer).not.toContainText("1 项任务异常");

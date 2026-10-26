@@ -116,34 +116,31 @@ export function useRun(trade: TerminalContext["trade"]) {
 
 /** A research page: its title, where its tasks run, and its last error. */
 export function ResearchPage({
-  title,
   taskService,
   error,
   children,
 }: {
-  title: string;
   taskService: TaskService | null | undefined;
   error: DisplayError;
   children: ReactNode;
 }) {
   return (
+    // The tab names the page; the service only speaks up when it is unavailable.
     <section className="research-workspace" aria-label={t("期货研究")}>
-      <div className="panel-heading">
-        <h2>{title}</h2>
-        <span className="panel-spacer" />
-        {taskService && (
-          <span className="subtle">
-            {taskService.remote ? `${taskService.host} · ${taskService.service}` : t("本机")}
-          </span>
+      <div className="page-body">
+        {!taskService?.online && (
+          <p className="notice" role="status">
+            {t("研究服务未连接")}
+            {taskService?.remote && ` · ${taskService.host} · ${taskService.service}`}
+          </p>
         )}
-        <span role="status">{taskService?.online ? t("研究服务已连接") : t("研究服务未连接")}</span>
+        {error && (
+          <p className="alert" role="alert">
+            <ErrorNotice error={error} namespace={namespace} />
+          </p>
+        )}
+        {children}
       </div>
-      {error && (
-        <p className="alert" role="alert">
-          <ErrorNotice error={error} namespace={namespace} />
-        </p>
-      )}
-      {children}
     </section>
   );
 }

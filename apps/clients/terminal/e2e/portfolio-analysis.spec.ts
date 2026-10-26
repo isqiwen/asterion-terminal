@@ -78,7 +78,7 @@ test("verified backtests flow through Polars and skfolio into portfolio research
   }
   await page.goto("/");
   await openView(page, "backtest");
-  const comparison = page.getByRole("region", { name: "回测实验比较", exact: true });
+  const comparison = page.getByRole("region", { name: "回测比较", exact: true });
   for (const id of ids) await comparison.getByRole("checkbox", { name: new RegExp(id) }).check();
   await comparison.getByRole("button", { name: "读取并比较", exact: true }).click();
   const portfolio = comparison.getByRole("region", { name: "回测组合研究", exact: true });

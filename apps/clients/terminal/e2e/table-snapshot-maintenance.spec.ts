@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedHistory } from "./dataset-fixture";
+import { rpc, seedHistory, openData } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 
 test("snapshot maintenance preserves shared contents, requires confirmation and survives restart", async ({
@@ -43,7 +43,7 @@ test("snapshot maintenance preserves shared contents, requires confirmation and 
     service: before.data.service,
     action: "stop",
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   const inventory = (await rpc(page.request, "data.tables.retirements", { after: "" }))
     .table_retirements.items;
   expect(inventory.find((item: { id: string }) => item.id === id).state).toBe("removed");

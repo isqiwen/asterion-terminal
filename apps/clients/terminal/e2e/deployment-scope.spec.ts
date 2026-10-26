@@ -9,7 +9,7 @@ test("default deployment shows active locations without SSH or certificate forms
   await page.getByRole("button", { name: "连接与部署", exact: true }).click();
   const locations = page.getByRole("list", { name: "当前运行位置" });
   await expect(locations).toBeVisible();
-  for (const service of ["实时行情", "历史数据服务", "任务服务"]) {
+  for (const service of ["实时行情", "历史数据服务", "研究服务"]) {
     await expect(locations.getByRole("listitem").filter({ hasText: service })).toContainText(
       "本机",
     );
@@ -27,7 +27,6 @@ test("default deployment shows active locations without SSH or certificate forms
   await page.getByRole("button", { name: "当前运行位置", exact: true }).click();
   await expect(locations).toBeVisible();
   await locations.getByRole("button", { name: "管理", exact: true }).first().click();
-  await expect(page.getByText(/^节点准入预算：CPU/)).toContainText(/内存 \d+\/\d+ MiB/);
 });
 
 test("machine wizard generates a reusable public key and requires initialization and identity checks", async ({

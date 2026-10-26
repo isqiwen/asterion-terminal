@@ -1,4 +1,4 @@
-import { taskRpc } from "./dataset-fixture";
+import { taskRpc, openData } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -40,7 +40,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
       candidate.sha256,
     ],
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   const days = Array.from({ length: 56 }, (_, i) =>
     new Date(Date.UTC(2024, 2, 1 + i)).toISOString().slice(0, 10),
   ).filter(day => ![0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay()));
@@ -324,7 +324,7 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
     service: beforeRestart.data.service,
     action: "stop",
   });
-  await rpc(page.request, "node.data.local.open");
+  await openData(page.request);
   await expect
     .poll(async () => !!(await rpc(page.request, "runtime.snapshot")).data?.online, {
       timeout: 30000,

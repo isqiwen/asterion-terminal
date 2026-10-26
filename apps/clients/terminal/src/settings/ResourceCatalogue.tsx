@@ -74,7 +74,7 @@ const names: Record<string, string> = {
   research_project: "研究项目草稿",
   research_plan: "研究固定假设计划",
   research_conclusion: "研究人工结论",
-  research_variable: "研究变量定义",
+  research_variable: "变量",
   logic_definition: "独立逻辑定义",
   logic_case: "事先虚构样例",
   logic_trial: "固定逻辑试算",

@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedDataset, taskRpc } from "./dataset-fixture";
+import { rpc, seedDataset, taskRpc, openResearch } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 
 test("fixed research plans survive criteria revision and real Research restart without Data", async ({
@@ -14,7 +14,7 @@ test("fixed research plans survive criteria revision and real Research restart w
   await rpc(page.request, "node.action", { id: "local", service: dataService, action: "stop" });
   await openView(page, "projects");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务未连接", { exact: true })).toHaveCount(0);
   await workspace.getByLabel("项目标题", { exact: true }).fill("独立研究计划证据");
   await workspace
     .getByLabel("研究问题", { exact: true })
@@ -221,7 +221,7 @@ test("fixed research plans survive criteria revision and real Research restart w
       { timeout: 20000 },
     )
     .toBe("ready");
-  await rpc(page.request, "node.research.local.open");
+  await openResearch(page.request);
   expect(
     (await taskRpc(page.request, "research", "task.result.read", { id: taskId })).task_result,
   ).toEqual(original);

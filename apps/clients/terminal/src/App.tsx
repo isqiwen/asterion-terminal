@@ -23,7 +23,6 @@ import {
   currentRoute,
   navigationLocation,
   selectModule,
-  selectSection,
   selectView,
 } from "./host/navigation";
 import { scopedContext } from "./host/plugin-registry";
@@ -78,13 +77,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   });
   const route = currentRoute(navigation);
   const view = route.view;
-  const sectionsRef = useRef<HTMLElement>(null);
+  const viewsRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    sectionsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
+    viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
     });
-  }, [navigation.module, route.section.id]);
+  }, [navigation.module, view]);
   useEffect(() => {
     if (settingsWindow) return;
     try {
@@ -283,16 +282,14 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         <Workbench
           title={t(route.module.title)}
           showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-          navigation={modules
-            .filter(item => item.id !== "system")
-            .map((item, index) => ({
-              id: item.id,
-              title: t(item.title),
-              icon: <Icon name={item.icon} />,
-              active: item.id === navigation.module,
-              shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
-              select: () => setNavigation(previous => selectModule(previous, item.id)),
-            }))}
+          navigation={modules.map((item, index) => ({
+            id: item.id,
+            title: t(item.title),
+            icon: <Icon name={item.icon} />,
+            active: item.id === navigation.module,
+            shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
+            select: () => setNavigation(previous => selectModule(previous, item.id)),
+          }))}
           rail={
             <>
               <button
@@ -304,10 +301,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 <Icon name="tasks" />
               </button>
               <button
-                aria-label={t("系统管理")}
-                title={t("系统管理")}
-                aria-current={navigation.module === "system" ? "page" : undefined}
-                onClick={() => setNavigation(previous => selectModule(previous, "system"))}
+                aria-label={t("连接与部署")}
+                title={t("连接与部署")}
+                onClick={() => showSettings("connections")}
               >
                 <Icon name="connections" />
               </button>
@@ -338,20 +334,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           }
           body={
             <div className="module-workspace">
-              <nav ref={sectionsRef} className="module-sections" aria-label={t("业务子模块")}>
-                {route.module.sections.map(section => (
-                  <button
-                    key={section.id}
-                    aria-current={section.id === route.section.id ? "page" : undefined}
-                    onClick={() => setNavigation(previous => selectSection(previous, section.id))}
-                  >
-                    {t(section.title)}
-                  </button>
-                ))}
-              </nav>
-              {route.section.views.length > 1 && (
-                <nav className="module-views" aria-label={t("子模块视图")}>
-                  {route.section.views.map(id => (
+              {route.module.views.length > 1 && (
+                <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+                  {route.module.views.map(id => (
                     <button
                       key={id}
                       aria-current={view === id ? "page" : undefined}
@@ -364,56 +349,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               )}
               <main className="terminal-business">
                 <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                  {Panel && currentPlugin ? (
+                  {Panel && currentPlugin && (
                     <WorkspaceDraftScope store={drafts} namespace={current!.id}>
                       <Panel {...panelContext} />
                     </WorkspaceDraftScope>
-                  ) : (
-                    <section className="module-empty" aria-label={t(route.section.title)}>
-                      <h2>{t(route.section.title)}</h2>
-                      {navigation.module === "system" ? (
-                        <>
-                          <p>{t("管理本机配置，查看任务与服务状态。")}</p>
-                          {route.section.id === "setup" && (
-                            <>
-                              <button onClick={() => showSettings("preferences")}>
-                                {t("偏好设置")}
-                              </button>
-                              <button onClick={() => showSettings("sources")}>{t("数据源")}</button>
-                              <button onClick={() => showSettings("ctp")}>{t("CTP 账户")}</button>
-                              <button onClick={() => showSettings("plugins")}>{t("插件")}</button>
-                            </>
-                          )}
-                          {route.section.id === "tasks" && (
-                            <>
-                              <button onClick={() => setTasks(true)}>{t("任务中心")}</button>
-                              <button onClick={() => showSettings("connections")}>
-                                {t("连接与部署")}
-                              </button>
-                            </>
-                          )}
-                          {route.section.id === "records" && (
-                            <>
-                              <button onClick={() => showSettings("backup")}>
-                                {t("数据备份与恢复")}
-                              </button>
-                              <p>{t("诊断导出尚未实现。")}</p>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <p role="status">{t("此子模块的完整功能尚未实现。")}</p>
-                          {route.module.sections
-                            .flatMap(section => section.views)
-                            .map(id => (
-                              <button key={id} onClick={() => context.navigate(id)}>
-                                {workspaces.find(item => item.id === id)!.title}
-                              </button>
-                            ))}
-                        </>
-                      )}
-                    </section>
                   )}
                 </Suspense>
               </main>
