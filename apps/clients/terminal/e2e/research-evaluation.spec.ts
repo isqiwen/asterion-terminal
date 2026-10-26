@@ -64,6 +64,9 @@ test("fixed performance evaluation preserves the original account through restar
   await evaluation.getByRole("combobox", { name: "评估来源", exact: true }).selectOption(sourceId);
   await evaluation.getByRole("button", { name: "读取评估来源", exact: true }).click();
   const form = evaluation.getByRole("region", { name: "固定绩效评价", exact: true });
+  const creation = form.locator("details.evaluation-create");
+  if (!(await creation.evaluate(element => (element as HTMLDetailsElement).open)))
+    await creation.getByText("新建正式评价", { exact: true }).click();
   await expect(form.getByLabel("年期数A（日结算）", { exact: true })).toHaveValue("");
   await expect(form.getByLabel("明确采用零无风险年收益假设", { exact: true })).not.toBeChecked();
   await form

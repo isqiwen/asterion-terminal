@@ -166,31 +166,37 @@ export function ResearchLogic({ snapshot, query, trade, busy, navigate }: Termin
   const task = service?.tasks.find(value => value.id === taskId);
   return (
     <ResearchPage taskService={service} error={error}>
-      <p>{t("仅支持完成收盘上的双均线目标方向。虚构样例不进入Data，不证明收益或授权交易。")}</p>
-      <button
-        disabled={blocked}
-        onClick={() => {
-          setSelected(null);
-          setEditor(fresh());
-          setSaved(null);
-          setReport(null);
-        }}
-      >
-        {t("新建逻辑定义")}
-      </button>
-      <button disabled={blocked} onClick={() => void action(() => list())}>
-        {t("刷新")}
-      </button>
-      <ul>
-        {items.map(item => (
-          <li key={item.object.id}>
-            <button disabled={blocked} onClick={() => void action(() => inspect(item.object.id))}>
-              {item.name}
-            </button>{" "}
-            {item.retirement_reason ? t("已停用") : t("可新建试算")}
-          </li>
-        ))}
-      </ul>
+      <div className="inline-actions">
+        <button
+          disabled={blocked}
+          onClick={() => {
+            setSelected(null);
+            setEditor(fresh());
+            setSaved(null);
+            setReport(null);
+          }}
+        >
+          {t("新建逻辑定义")}
+        </button>
+        <button disabled={blocked} onClick={() => void action(() => list())}>
+          {t("刷新")}
+        </button>
+        <span className="subtle">
+          {t("仅支持完成收盘上的双均线目标方向。虚构样例不进入Data，不证明收益或授权交易。")}
+        </span>
+      </div>
+      {items.length > 0 && (
+        <ul>
+          {items.map(item => (
+            <li key={item.object.id}>
+              <button disabled={blocked} onClick={() => void action(() => inspect(item.object.id))}>
+                {item.name}
+              </button>{" "}
+              {item.retirement_reason ? t("已停用") : t("可新建试算")}
+            </li>
+          ))}
+        </ul>
+      )}
       {after && (
         <button disabled={blocked} onClick={() => void action(() => list(after))}>
           {t("更多")}

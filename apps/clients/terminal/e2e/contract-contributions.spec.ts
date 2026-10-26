@@ -95,6 +95,9 @@ test("original multi-contract contributions keep real fills, account residual an
     .selectOption({ value: "contribution-source" });
   await risk.getByRole("button", { name: "读取评估来源", exact: true }).click();
   const panel = risk.getByRole("region", { name: "固定绩效评价", exact: true });
+  const creation = panel.locator("details.evaluation-create");
+  if (!(await creation.evaluate(element => (element as HTMLDetailsElement).open)))
+    await creation.getByText("新建正式评价", { exact: true }).click();
   const option = panel.getByLabel("保存原合约贡献（仅完整账户、全部日线）", { exact: true });
   await expect(option).not.toBeChecked();
   await option.check();

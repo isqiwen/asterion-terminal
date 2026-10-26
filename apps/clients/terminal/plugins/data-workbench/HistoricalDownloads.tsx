@@ -616,11 +616,6 @@ export function HistoricalDownloads(context: TerminalContext) {
   return (
     <section className="futures-data history-page" aria-label={t("历史数据")}>
       <header className="history-heading">
-        <div>
-          <span className="history-eyebrow">DATA / HISTORY</span>
-          <h2>{t("历史数据")}</h2>
-          <p className="subtle">{t("保存可追溯的合约历史数据")}</p>
-        </div>
         <label>
           {t("数据源")}
           <select
@@ -635,15 +630,17 @@ export function HistoricalDownloads(context: TerminalContext) {
             ))}
           </select>
         </label>
-      </header>
-      {source ? (
-        <>
+        {source && (
           <div className="history-capabilities">
             <span>{t(source.asset)}</span>
             <span>{t(source.dataType)}</span>
             <span>{source.intervals.map(value => `${value} min`).join(" / ")}</span>
             <span>{source.timezone}</span>
           </div>
+        )}
+      </header>
+      {source ? (
+        <>
           <SourceDownloads
             key={JSON.stringify([source.id, context.snapshot?.data?.connection_id])}
             {...context}

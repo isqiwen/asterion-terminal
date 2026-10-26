@@ -136,6 +136,7 @@ test(
       .getByRole("region", { name: "研究任务", exact: true })
       .getByRole("row")
       .filter({ has: page.locator("td > details > code").filter({ hasText: child }) });
+    await childRecord.getByText("详情", { exact: true }).click();
     await childRecord.getByRole("button", { name: "维护研究记录", exact: true }).click();
     const childMaintenance = childRecord.getByRole("region", { name: "研究记录维护", exact: true });
     await expect(childMaintenance).toContainText("可退役");
@@ -157,6 +158,7 @@ test(
       .getByRole("region", { name: "研究任务", exact: true })
       .getByRole("row")
       .filter({ has: page.locator("td > details > code").filter({ hasText: id }) });
+    await record.getByText("详情", { exact: true }).click();
     await record.getByRole("button", { name: "维护研究记录", exact: true }).click();
     const maintenance = record.getByRole("region", { name: "研究记录维护", exact: true });
     await expect(maintenance).toContainText("可退役");

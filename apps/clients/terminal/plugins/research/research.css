@@ -12,8 +12,12 @@
 .terminal-business section.research-workspace > .panel-heading h2 {
   font-size: 14px;
 }
+/* The page gives the gutter; a research page adds no margin of its own. */
 .research-navigation {
-  margin: 14px 24px 0;
+  margin: 0;
+}
+.research-navigation .source-actions {
+  padding: 0;
 }
 /* Which data the factor is evaluated on, above its form. */
 .research-inputs {
@@ -58,7 +62,7 @@
 }
 
 .research-layout {
-  padding: 16px 24px 24px;
+  padding: 0;
 }
 .research-config {
   max-width: 980px;
@@ -296,6 +300,13 @@
   overflow-wrap: anywhere;
 }
 
-.evaluation-workspace {
-  padding: 20px var(--space-page);
+.evaluation-workspace > section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.strategy-origin {
+  padding: 16px var(--space-page) 0;
+  margin-bottom: 0;
 }

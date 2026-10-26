@@ -47,14 +47,19 @@ export function QuantStatsReport({
   return (
     <section aria-label={t("QuantStats 绩效分析")}>
       <h4>{t("QuantStats 绩效分析")}</h4>
-      <p className="subtle">
-        {t(
-          "按全程实际结算权益计算扣费后日收益，包含训练段；不补齐缺失交易日。年化按 252 日，无风险利率为 0。至少需要 20 个结算日且权益始终为正。",
-        )}
-      </p>
-      <button disabled={busy || pending} onClick={() => void analyze()}>
-        {t(pending ? "正在分析…" : "生成 QuantStats 报告")}
-      </button>
+      <div className="inline-actions">
+        <button disabled={busy || pending} onClick={() => void analyze()}>
+          {t(pending ? "正在分析…" : "生成 QuantStats 报告")}
+        </button>
+        <details className="subtle">
+          <summary>{t("说明")}</summary>
+          <p>
+            {t(
+              "按全程实际结算权益计算扣费后日收益，包含训练段；不补齐缺失交易日。年化按 252 日，无风险利率为 0。至少需要 20 个结算日且权益始终为正。",
+            )}
+          </p>
+        </details>
+      </div>
       <ErrorNotice error={error} namespace={namespace} />
       {report && (
         <>

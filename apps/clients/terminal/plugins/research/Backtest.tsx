@@ -6,7 +6,6 @@ import {
 } from "./SettlementMargins";
 import { QuantStatsReport } from "./QuantStatsReport";
 import { ResearchExport } from "./ResearchExport";
-import { BacktestComparison } from "./BacktestComparison";
 import { BacktestReuse } from "./BacktestReuse";
 import { TargetRejectionEvidence } from "./TargetRejectionEvidence";
 import { PortfolioBudget } from "./PortfolioBudget";
@@ -551,22 +550,31 @@ export function Backtest({
             </p>
             <form hidden={step !== 1} onSubmit={event => void submit(event)}>
               <fieldset disabled={busy || !dataReady || step !== 1}>
-                <ResearchPlanPicker
-                  snapshot={snapshot}
-                  query={query}
-                  binding={plan}
-                  onChange={setPlan}
-                  onReady={setPlanReady}
-                />
-                <p>{t("研究计划记录原问题与判断标准，不替代时间划分或证明未提前见过样本。")}</p>
-                <fieldset disabled={Boolean(binding)}>
-                  <PortfolioPolicyEditor
-                    draft={portfolioEditorDraft}
-                    datasets={datasets}
-                    eligible={eligiblePortfolio}
-                    disabled={Boolean(binding)}
-                    onChange={setPortfolioDraft}
+                {/* Research plans and fixed-weight portfolios are optional; the
+                    rule and its windows come first. */}
+                <details className="backtest-options" open={Boolean(plan) || portfolioMode}>
+                  <summary>{t("更多选项：研究计划、固定权重组合")}</summary>
+                  <ResearchPlanPicker
+                    snapshot={snapshot}
+                    query={query}
+                    binding={plan}
+                    onChange={setPlan}
+                    onReady={setPlanReady}
                   />
+                  <p className="subtle">
+                    {t("研究计划记录原问题与判断标准，不替代时间划分或证明未提前见过样本。")}
+                  </p>
+                  <fieldset disabled={Boolean(binding)}>
+                    <PortfolioPolicyEditor
+                      draft={portfolioEditorDraft}
+                      datasets={datasets}
+                      eligible={eligiblePortfolio}
+                      disabled={Boolean(binding)}
+                      onChange={setPortfolioDraft}
+                    />
+                  </fieldset>
+                </details>
+                <fieldset disabled={Boolean(binding)}>
                   {!portfolioMode && (
                     <StrategyFields
                       className="research-fields"
@@ -591,13 +599,14 @@ export function Backtest({
                   </p>
                 )}
                 {!portfolioMode && (
-                  <>
-                    <p className="subtle">
+                  <details className="subtle">
+                    <summary>{t("窗口可用逗号填多个值，生成多个候选并比较")}</summary>
+                    <p>
                       {t(
                         "窗口里可以用逗号填多个值，排序规则还可以两个方向都比较；所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选要选一种比较方式：留出，只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日；滚动验证，每一轮用一段训练交易日比较，账户在随后的验证交易日里跟随这一轮夏普比率最高的那个，再整体向后移一轮。",
                       )}
                     </p>
-                  </>
+                  </details>
                 )}
                 {candidates.length > 1 && (
                   <div className="research-fields">
@@ -997,9 +1006,6 @@ export function Backtest({
                 }}
               />
             )}
-            {(view === "records" || view === "result") && (
-              <BacktestComparison snapshot={snapshot} busy={busy} query={query} />
-            )}
             {view === "result" && result && result.id === selectedTask && (
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
@@ -1158,11 +1164,6 @@ export function Backtest({
                     )}
                   </>
                 )}
-                <p className="subtle">
-                  {t(
-                    "按原固定账户事实读取统计，不改写账本或原发布评分。年化收益使用实际观测秒数和365.2425天；波动率和夏普使用明确年期数与无风险假设，缺项分别显示原因。",
-                  )}
-                </p>
                 <TradeStatistics key={result.id} trades={result.trades} />
                 <AccountReconciliation key={`audit-${result.id}`} audit={result.reconciliation} />
                 <PortfolioBudget

@@ -94,15 +94,17 @@ export function Evaluation({
     }
   }
   return (
-    <section className="evaluation-workspace" aria-label={t(heading)}>
-      <h2>{t(heading)}</h2>
-      <p className="subtle">
-        {t(
-          focus === "risk"
-            ? "可固定原日采样损失、末日敞口资金及显式单合约静态压力；尾部估计、动态压力和完整策略归因仍未实现。"
-            : "读取固定账户事实并显式保存绩效与所选风险情景；完整归因、尾部、动态压力与独立性仍有缺项，人工解释另行明确记录。",
-        )}
-      </p>
+    <section className="evaluation-workspace page-body" aria-label={t(heading)}>
+      <details className="subtle">
+        <summary>{t("说明")}</summary>
+        <p>
+          {t(
+            focus === "risk"
+              ? "可固定原日采样损失、末日敞口资金及显式单合约静态压力；尾部估计、动态压力和完整策略归因仍未实现。"
+              : "读取固定账户事实并显式保存绩效与所选风险情景；完整归因、尾部、动态压力与独立性仍有缺项，人工解释另行明确记录。",
+          )}
+        </p>
+      </details>
       <fieldset disabled={busy || loading || !snapshot?.research_service?.online}>
         <label>
           {t("评估来源")}
@@ -132,14 +134,6 @@ export function Evaluation({
         </button>
       </fieldset>
       <ErrorNotice error={error} namespace={namespace} />
-      <EvaluationReports
-        snapshot={snapshot}
-        query={query}
-        trade={trade}
-        busy={busy}
-        workspaceParams={workspaceParams}
-        source={fixedSource}
-      />
       {result && (
         <>
           <p>
@@ -156,11 +150,6 @@ export function Evaluation({
             {t("查看原始实验")}
           </button>
           <Figures label={t("绩效")} value={result.performance} />
-          <p className="subtle">
-            {t(
-              "按原固定账户事实读取统计，不改写账本或原发布评分。年化收益使用实际观测秒数和365.2425天；波动率和夏普使用明确年期数与无风险假设，缺项分别显示原因。",
-            )}
-          </p>
           <MonthlyContributions months={result.performance.by_month} />
           <TradeStatistics trades={result.trades} />
           <QuantStatsReport
@@ -172,6 +161,14 @@ export function Evaluation({
           />
         </>
       )}
+      <EvaluationReports
+        snapshot={snapshot}
+        query={query}
+        trade={trade}
+        busy={busy}
+        workspaceParams={workspaceParams}
+        source={fixedSource}
+      />
     </section>
   );
 }

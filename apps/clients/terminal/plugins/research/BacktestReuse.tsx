@@ -107,11 +107,14 @@ export function BacktestReuse({
   return (
     <section aria-label={t("按此回测创建")}>
       <h4>{t("按此回测创建")}</h4>
-      <p className="subtle">
-        {t(
-          "复用经校验的原回测固定输入；同一研究服务内相同内容共享保存，任务与结果仍独立。保留策略、资金、逐日费用、风险、滑点及评价边界，不把重复留出当作新的样本外验证。",
-        )}
-      </p>
+      <details className="subtle">
+        <summary>{t("说明")}</summary>
+        <p>
+          {t(
+            "复用经校验的原回测固定输入；同一研究服务内相同内容共享保存，任务与结果仍独立。保留策略、资金、逐日费用、风险、滑点及评价边界，不把重复留出当作新的样本外验证。",
+          )}
+        </p>
+      </details>
       <p>
         {t("原任务")}: <code>{evidence.id}</code>
       </p>

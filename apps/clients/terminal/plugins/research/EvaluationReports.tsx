@@ -245,167 +245,6 @@ export function EvaluationReports({
   return (
     <section aria-label={t("固定绩效评价")}>
       <h3>{t("固定绩效评价")}</h3>
-      <p className="subtle">
-        {t(
-          "固定原账户事实与本次方法生成正式评价；不重跑原回测，不覆盖原发布评分，不自动产生人工结论或交易资格。",
-        )}
-      </p>
-      {!source && <p>{t("先读取原回测，核对其固定身份后再创建评价。")}</p>}
-      {source && !source.object.node && (
-        <p role="status">{t("Research稳定业务身份不可用，不能固定来源")}</p>
-      )}
-      {currentSource && (
-        <>
-          {currentSource.retired && <p role="status">{t("原来源已退役，不能创建新评价。")}</p>}
-          <p>
-            {t("固定来源")}：{currentSource.object.id} · <code>{currentSource.object.version}</code>
-          </p>
-          <p>
-            {t("原生产程序")}：<code>{currentSource.program || t("未记录")}</code>
-          </p>
-          {!currentSource.program && (
-            <p role="status">{t("原生产程序缺证据，不能创建固定评价。")}</p>
-          )}
-        </>
-      )}
-      <fieldset disabled={blocked || !currentSource}>
-        <label>
-          {t("评价问题与用途")}
-          <input
-            maxLength={4096}
-            value={draft.question}
-            onChange={event => setDraft({ ...draft, question: event.target.value })}
-          />
-        </label>
-        <label>
-          {t("评价范围")}
-          <select
-            value={draft.scope}
-            onChange={event => setDraft({ ...draft, scope: event.target.value as EvaluationScope })}
-          >
-            {(currentSource?.scopes ?? ["full_account" as const]).map(scope => (
-              <option key={scope} value={scope}>
-                {t(scopes[scope])}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {t("年期数A（日结算）")}
-          <input
-            type="number"
-            min="0"
-            max="366"
-            step="any"
-            value={draft.annual}
-            onChange={event => setDraft({ ...draft, annual: event.target.value })}
-          />
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={draft.zero}
-            onChange={event => setDraft({ ...draft, zero: event.target.checked })}
-          />
-          {t("明确采用零无风险年收益假设")}
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={Boolean(draft.ledger)}
-            onChange={event => setDraft({ ...draft, ledger: event.target.checked })}
-          />
-          {t("保存原账本归因桥接（仅完整账户、单合约日线）")}
-        </label>
-        {draft.ledger && (
-          <p>{t("仅使用固定原成交和日结；不支持范围将明确拒绝，不代表完整多维归因或独立验证。")}</p>
-        )}
-        <label>
-          <input
-            type="checkbox"
-            checked={draft.contributions}
-            onChange={e => setDraft({ ...draft, contributions: e.target.checked })}
-          />
-          {t("保存原合约贡献（仅完整账户、全部日线）")}
-        </label>
-        {draft.contributions && (
-          <p>{t("按原合约与原成交日期解释金额；缺证据拒绝，不分摊账户本金或未解释差额。")}</p>
-        )}
-        <label>
-          <input
-            type="checkbox"
-            checked={draft.daily}
-            onChange={event => setDraft({ ...draft, daily: event.target.checked })}
-          />
-          {t("保存日采样损失路径（不代表盘中最大风险）")}
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={draft.exposure}
-            onChange={event => setDraft({ ...draft, exposure: event.target.checked })}
-          />
-          {t("保存本范围末日敞口和资金观察（非盘中峰值）")}
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={draft.stress}
-            onChange={event => setDraft({ ...draft, stress: event.target.checked })}
-          />
-          {t("保存显式静态价格与保证金压力")}
-        </label>
-        {draft.stress && (
-          <fieldset>
-            <legend>{t("固定持仓静态情景")}</legend>
-            <p>
-              {t(
-                "仅一个原合约且原总手数和资金完整；先选择原末日敞口。无成交、调仓、费用变化或自动补资。",
-              )}
-            </p>
-            <label>
-              {t("压力用途与范围")}
-              <input
-                maxLength={4096}
-                value={draft.stressPurpose}
-                onChange={event => setDraft({ ...draft, stressPurpose: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("情景价格（原价格单位）")}
-              <input
-                value={draft.stressPrice}
-                onChange={event => setDraft({ ...draft, stressPrice: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("假设保证金率（比例，0.4表示40%）")}
-              <input
-                value={draft.stressRate}
-                onChange={event => setDraft({ ...draft, stressRate: event.target.value })}
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={draft.stressFunds}
-                onChange={event => setDraft({ ...draft, stressFunds: event.target.checked })}
-              />
-              {t("明确采用原纸面资金模型：余额与权益取小，减保证金及原冻结")}
-            </label>
-          </fieldset>
-        )}
-        <p>{t("未选择年期数或无风险假设时，分别固定不可计算原因，不从原实验或样本跨度补值。")}</p>
-        <button disabled={!valid} onClick={() => void submit()}>
-          {t(operation ? "重试同一评价请求" : "计算固定绩效评价")}
-        </button>
-      </fieldset>
-      {operation && (
-        <p role="status">
-          {t("接纳不等于发布；结果不确定时保留同一请求ID，先核对原任务。")}:{" "}
-          <code>{operation}</code>
-        </p>
-      )}
       <fieldset disabled={blocked}>
         <label>
           {t("已保存绩效评价")}
@@ -432,6 +271,175 @@ export function EvaluationReports({
           {t("读取固定绩效评价")}
         </button>
       </fieldset>
+      <details className="evaluation-create" open={Boolean(operation)}>
+        <summary>{t("新建正式评价")}</summary>
+        <p className="subtle">
+          {t(
+            "固定原账户事实与本次方法生成正式评价；不重跑原回测，不覆盖原发布评分，不自动产生人工结论或交易资格。",
+          )}
+        </p>
+        {!source && <p>{t("先读取原回测，核对其固定身份后再创建评价。")}</p>}
+        {source && !source.object.node && (
+          <p role="status">{t("Research稳定业务身份不可用，不能固定来源")}</p>
+        )}
+        {currentSource && (
+          <>
+            {currentSource.retired && <p role="status">{t("原来源已退役，不能创建新评价。")}</p>}
+            <p>
+              {t("固定来源")}：{currentSource.object.id} ·{" "}
+              <code>{currentSource.object.version}</code>
+            </p>
+            <p>
+              {t("原生产程序")}：<code>{currentSource.program || t("未记录")}</code>
+            </p>
+            {!currentSource.program && (
+              <p role="status">{t("原生产程序缺证据，不能创建固定评价。")}</p>
+            )}
+          </>
+        )}
+        <fieldset disabled={blocked || !currentSource}>
+          <label>
+            {t("评价问题与用途")}
+            <input
+              maxLength={4096}
+              value={draft.question}
+              onChange={event => setDraft({ ...draft, question: event.target.value })}
+            />
+          </label>
+          <label>
+            {t("评价范围")}
+            <select
+              value={draft.scope}
+              onChange={event =>
+                setDraft({ ...draft, scope: event.target.value as EvaluationScope })
+              }
+            >
+              {(currentSource?.scopes ?? ["full_account" as const]).map(scope => (
+                <option key={scope} value={scope}>
+                  {t(scopes[scope])}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("年期数A（日结算）")}
+            <input
+              type="number"
+              min="0"
+              max="366"
+              step="any"
+              value={draft.annual}
+              onChange={event => setDraft({ ...draft, annual: event.target.value })}
+            />
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={draft.zero}
+              onChange={event => setDraft({ ...draft, zero: event.target.checked })}
+            />
+            {t("明确采用零无风险年收益假设")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.ledger)}
+              onChange={event => setDraft({ ...draft, ledger: event.target.checked })}
+            />
+            {t("保存原账本归因桥接（仅完整账户、单合约日线）")}
+          </label>
+          {draft.ledger && (
+            <p>
+              {t("仅使用固定原成交和日结；不支持范围将明确拒绝，不代表完整多维归因或独立验证。")}
+            </p>
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={draft.contributions}
+              onChange={e => setDraft({ ...draft, contributions: e.target.checked })}
+            />
+            {t("保存原合约贡献（仅完整账户、全部日线）")}
+          </label>
+          {draft.contributions && (
+            <p>{t("按原合约与原成交日期解释金额；缺证据拒绝，不分摊账户本金或未解释差额。")}</p>
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={draft.daily}
+              onChange={event => setDraft({ ...draft, daily: event.target.checked })}
+            />
+            {t("保存日采样损失路径（不代表盘中最大风险）")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={draft.exposure}
+              onChange={event => setDraft({ ...draft, exposure: event.target.checked })}
+            />
+            {t("保存本范围末日敞口和资金观察（非盘中峰值）")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={draft.stress}
+              onChange={event => setDraft({ ...draft, stress: event.target.checked })}
+            />
+            {t("保存显式静态价格与保证金压力")}
+          </label>
+          {draft.stress && (
+            <fieldset>
+              <legend>{t("固定持仓静态情景")}</legend>
+              <p>
+                {t(
+                  "仅一个原合约且原总手数和资金完整；先选择原末日敞口。无成交、调仓、费用变化或自动补资。",
+                )}
+              </p>
+              <label>
+                {t("压力用途与范围")}
+                <input
+                  maxLength={4096}
+                  value={draft.stressPurpose}
+                  onChange={event => setDraft({ ...draft, stressPurpose: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("情景价格（原价格单位）")}
+                <input
+                  value={draft.stressPrice}
+                  onChange={event => setDraft({ ...draft, stressPrice: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("假设保证金率（比例，0.4表示40%）")}
+                <input
+                  value={draft.stressRate}
+                  onChange={event => setDraft({ ...draft, stressRate: event.target.value })}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.stressFunds}
+                  onChange={event => setDraft({ ...draft, stressFunds: event.target.checked })}
+                />
+                {t("明确采用原纸面资金模型：余额与权益取小，减保证金及原冻结")}
+              </label>
+            </fieldset>
+          )}
+          <p>{t("未选择年期数或无风险假设时，分别固定不可计算原因，不从原实验或样本跨度补值。")}</p>
+          <button disabled={!valid} onClick={() => void submit()}>
+            {t(operation ? "重试同一评价请求" : "计算固定绩效评价")}
+          </button>
+        </fieldset>
+        {operation && (
+          <p role="status">
+            {t("接纳不等于发布；结果不确定时保留同一请求ID，先核对原任务。")}:{" "}
+            <code>{operation}</code>
+          </p>
+        )}
+      </details>
       <ErrorNotice error={error} namespace={namespace} />
       {report && <EvaluationReportView report={report} />}
       {report && saved && (

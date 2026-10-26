@@ -1287,7 +1287,6 @@
   "候选评分缺少明确年期数或零无风险选择。": "Candidate scoring requires explicit annual periods and the zero risk-free choice.",
   "明确零无风险": "Explicit zero risk-free return",
   "无风险收益未配置": "Risk-free return is not configured",
-  "按原固定账户事实读取统计，不改写账本或原发布评分。年化收益使用实际观测秒数和365.2425天；波动率和夏普使用明确年期数与无风险假设，缺项分别显示原因。": "Statistics read the fixed account facts without rewriting the ledger or published scores. Annual return uses actual observation seconds and 365.2425 days. Volatility and Sharpe use explicit annual periods and risk-free assumptions, with separate unavailable reasons.",
   "原观测时刻未记录": "Original observation time was not recorded",
   "实际观测时长不为正": "Actual observation duration is not positive",
   "不足两个完整结算收益周期": "Fewer than two complete settlement return periods",
@@ -1561,5 +1560,9 @@
   "变量": "Variables",
   "因子比较": "Factor comparison",
   "回测比较": "Backtest comparison",
-  "风险": "Risk"
+  "风险": "Risk",
+  "更多选项：研究计划、固定权重组合": "More options: research plan, fixed-weight portfolio",
+  "窗口可用逗号填多个值，生成多个候选并比较": "Separate window values with commas to compare several candidates",
+  "说明": "Details",
+  "新建正式评价": "New formal evaluation"
 }

@@ -99,7 +99,6 @@ test("reads the selected original result without submitting an experiment or run
   });
   expect(screen.queryByText(/无风险利率取 0/)).toBeNull();
   expect(screen.getByText("本记录未提供明确绩效方法上下文。")).toBeTruthy();
-  expect(screen.getByText(/缺项分别显示原因/)).toBeTruthy();
   expect(screen.getByText("d".repeat(64))).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "查看原始实验" }));
   expect(props.navigate).toHaveBeenCalledWith("workspace.backtest", {

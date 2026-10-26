@@ -36,9 +36,13 @@ export function StrategyPackages(context: TerminalContext) {
   }, [incoming, setMode]);
   return (
     <>
-      <div role="group" aria-label={t("策略包来源")}>
-        <button onClick={() => setMode("reference")}>{t("回测参考候选")}</button>
-        <button onClick={() => setMode("logic")}>{t("已核对逻辑包")}</button>
+      <div className="research-inputs strategy-origin" role="group" aria-label={t("策略包来源")}>
+        <button aria-pressed={mode === "reference"} onClick={() => setMode("reference")}>
+          {t("回测参考候选")}
+        </button>
+        <button aria-pressed={mode === "logic"} onClick={() => setMode("logic")}>
+          {t("已核对逻辑包")}
+        </button>
       </div>
       {mode === "logic" ? (
         <LogicStrategyPackages {...context} />
@@ -181,45 +185,52 @@ function ReferenceStrategyPackages({ snapshot, query, trade, busy, navigate }: T
   const actual = service?.tasks.find(task => task.id === delivery?.target_task_id);
   return (
     <ResearchPage taskService={service} error={error}>
-      <p>
-        {t(
-          "候选保存原单合约或完整组合决策及参考回测；历史可得未知和事后参考限制仍保留，不证明预测有效，也不授权实盘。交付草稿不启动任务。",
-        )}
-      </p>
-      <button
-        disabled={blocked}
-        onClick={() => {
-          if (
-            !selected &&
-            (editor.name || editor.purpose || editor.limitations) &&
-            !window.confirm(t("放弃当前未保存的研究草稿？"))
-          )
-            return;
-          setSelected(null);
-          setEditor(fresh());
-          setEvidence(null);
-          setConfirmed(false);
-        }}
-      >
-        {t("新建策略候选")}
-      </button>
-      <button disabled={blocked} onClick={() => void perform(() => list())}>
-        {t("刷新候选列表")}
-      </button>
-      <ul>
-        {items.map(value => (
-          <li key={value.object.id}>
-            <button disabled={blocked} onClick={() => setSelected(value)}>
-              {value.name} · {value.object.id}
-            </button>
-            {value.retirement_reason && (
-              <span>
-                {t("已弃用")} · {value.retirement_reason}
-              </span>
+      <div className="inline-actions">
+        <button
+          disabled={blocked}
+          onClick={() => {
+            if (
+              !selected &&
+              (editor.name || editor.purpose || editor.limitations) &&
+              !window.confirm(t("放弃当前未保存的研究草稿？"))
+            )
+              return;
+            setSelected(null);
+            setEditor(fresh());
+            setEvidence(null);
+            setConfirmed(false);
+          }}
+        >
+          {t("新建策略候选")}
+        </button>
+        <button disabled={blocked} onClick={() => void perform(() => list())}>
+          {t("刷新候选列表")}
+        </button>
+        <details className="subtle">
+          <summary>{t("说明")}</summary>
+          <p>
+            {t(
+              "候选保存原单合约或完整组合决策及参考回测；历史可得未知和事后参考限制仍保留，不证明预测有效，也不授权实盘。交付草稿不启动任务。",
             )}
-          </li>
-        ))}
-      </ul>
+          </p>
+        </details>
+      </div>
+      {items.length > 0 && (
+        <ul>
+          {items.map(value => (
+            <li key={value.object.id}>
+              <button disabled={blocked} onClick={() => setSelected(value)}>
+                {value.name} · {value.object.id}
+              </button>
+              {value.retirement_reason && (
+                <span>
+                  {t("已弃用")} · {value.retirement_reason}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {after && (
         <button disabled={blocked} onClick={() => void perform(() => list(after))}>
           {t("更多候选")}

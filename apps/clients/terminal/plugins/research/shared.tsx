@@ -202,14 +202,6 @@ export function TaskRecords({
                         trade={trade}
                         query={query}
                       />
-                      <ResearchRetirementPanel
-                        key={`retire:${taskService.connection_id}:${task.id}`}
-                        id={task.id}
-                        owner={taskOwner(taskService, "research")}
-                        busy={busy || !taskService.online}
-                        query={query}
-                        trade={trade}
-                      />
                       {describe && <span className="subtle">{describe(task)}</span>}
                       <details>
                         <summary>{t("详情")}</summary>
@@ -220,6 +212,14 @@ export function TaskRecords({
                           {new Date(task.updated_at_ms).toLocaleString(getLocale())}
                         </p>
                         {task.error && <p>{task.error}</p>}
+                        <ResearchRetirementPanel
+                          key={`retire:${taskService.connection_id}:${task.id}`}
+                          id={task.id}
+                          owner={taskOwner(taskService, "research")}
+                          busy={busy || !taskService.online}
+                          query={query}
+                          trade={trade}
+                        />
                       </details>
                     </td>
                     <td>

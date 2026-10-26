@@ -117,21 +117,16 @@
   box-shadow: inset 0 -2px var(--accent);
 }
 .history-page {
-  padding: 28px 24px;
+  padding: 16px var(--space-page) 32px;
 }
 .history-heading {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 24px;
-}
-.history-heading h2 {
-  margin: 8px 0;
-}
-.history-eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  color: var(--muted);
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
 }
 .history-heading label {
   display: grid;
@@ -144,9 +139,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px 24px;
-  padding: 20px 0;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -335,8 +328,7 @@
 .history-activity .publication-row:has(> button + button) {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
-.history-page:has(.history-viewer) > .history-heading,
-.history-page:has(.history-viewer) > .history-capabilities {
+.history-page:has(.history-viewer) > .history-heading {
   display: none;
 }
 

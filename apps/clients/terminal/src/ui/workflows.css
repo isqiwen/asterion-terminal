@@ -49,6 +49,10 @@
   margin-top: 22px;
 }
 .workflow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   padding: 32px 0;
   color: var(--muted);
 }
@@ -141,8 +145,9 @@
   font-size: 13px;
   font-weight: 500;
 }
-.ctp-account-panel > .workflow-empty {
-  padding-block: 32px;
+.ctp-account-panel > .workflow-empty,
+.paper-trading > .workflow-empty {
+  padding: 32px var(--space-page);
 }
 .ctp-account-panel .source-actions {
   padding: 0 0 16px;

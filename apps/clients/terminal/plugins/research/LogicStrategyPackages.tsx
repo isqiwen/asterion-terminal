@@ -174,35 +174,44 @@ export function LogicStrategyPackages({
     source && source.id === form.source && source.result.all_match && source.result.decisions > 0;
   return (
     <ResearchPage taskService={service} error={error}>
-      <p>{t("包引用原规则和已匹配虚构试算，不是市场收益证据。保存包和交付草稿均不运行回测。")}</p>
-      <button
-        disabled={blocked}
-        onClick={() => {
-          setSelected(null);
-          setForm(fresh());
-          setSource(null);
-          setDraft(null);
-        }}
-      >
-        {t("新建逻辑策略包")}
-      </button>
-      <button disabled={blocked} onClick={() => void perform(() => list())}>
-        {t("刷新候选列表")}
-      </button>
-      <ul>
-        {items.map(item => (
-          <li key={item.object.id}>
-            <button disabled={blocked} onClick={() => void perform(() => inspect(item.object.id))}>
-              {item.name} · {item.object.id}
-            </button>
-            {item.retirement_reason && (
-              <span>
-                {t("已弃用")} · {item.retirement_reason}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+      <div className="inline-actions">
+        <button
+          disabled={blocked}
+          onClick={() => {
+            setSelected(null);
+            setForm(fresh());
+            setSource(null);
+            setDraft(null);
+          }}
+        >
+          {t("新建逻辑策略包")}
+        </button>
+        <button disabled={blocked} onClick={() => void perform(() => list())}>
+          {t("刷新候选列表")}
+        </button>
+        <span className="subtle">
+          {t("包引用原规则和已匹配虚构试算，不是市场收益证据。保存包和交付草稿均不运行回测。")}
+        </span>
+      </div>
+      {items.length > 0 && (
+        <ul>
+          {items.map(item => (
+            <li key={item.object.id}>
+              <button
+                disabled={blocked}
+                onClick={() => void perform(() => inspect(item.object.id))}
+              >
+                {item.name} · {item.object.id}
+              </button>
+              {item.retirement_reason && (
+                <span>
+                  {t("已弃用")} · {item.retirement_reason}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {after && (
         <button disabled={blocked} onClick={() => void perform(() => list(after))}>
           {t("更多")}
