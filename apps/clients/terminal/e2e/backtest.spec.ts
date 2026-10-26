@@ -19,7 +19,7 @@ test(
     await page.reload();
     await openView(page, "backtest");
     const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-    await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+    await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
     await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
     const selected = workspace.getByRole("list", { name: "已选合约" });
     await expect(selected).toContainText("SHFE · rb2610");

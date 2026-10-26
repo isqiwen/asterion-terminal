@@ -71,7 +71,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   });
   await rpc(page.request, "data.dataset.clear");
   await openView(page, "watchlist");
-  await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
+  await rpc(page.request, "node.action", { id: "local", service: "research", action: "stop" });
   await rpc(page.request, "node.research.local.open");
   await rpc(page.request, "data.dataset.use", { id: saved.id });
   expect((await rpc(page.request, "runtime.snapshot")).datasets).toEqual(selected);

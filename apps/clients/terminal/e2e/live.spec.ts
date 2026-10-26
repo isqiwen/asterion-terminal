@@ -58,7 +58,9 @@ test(
         await panel.getByLabel(label, { exact: true }).fill(value);
       await panel.getByLabel("添加合约", { exact: true }).fill("SHFE.rb2610");
       await panel.getByRole("button", { name: "添加", exact: true }).click();
-      await panel.getByLabel("柜台环境", { exact: true }).selectOption("simulation");
+      await panel
+        .getByRole("combobox", { name: "柜台环境", exact: true })
+        .selectOption("simulation");
       await panel.getByRole("button", { name: "下一步", exact: true }).click();
       await panel.getByRole("button", { name: "创建 CTP 账户", exact: true }).click();
       await expect(panel.getByTestId("live-phase")).toHaveText("未连接", { timeout: 20000 });

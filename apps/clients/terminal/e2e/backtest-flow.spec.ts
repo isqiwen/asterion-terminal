@@ -83,10 +83,10 @@ test(
     expect(id).toBeTruthy();
     await evaluation.getByRole("button", { name: "读取评估来源" }).click();
     await expect(evaluation.getByRole("region", { name: "绩效", exact: true })).toBeVisible();
-    await expect(evaluation).toContainText("无风险利率取 0");
+    await expect(evaluation).toContainText("未配置无风险收益假设");
     const evidence = (await taskRpc(page.request, "research", "task.result.read", { id }))
       .task_result;
-    await expect(evaluation.getByText(evidence.task.result_digest, { exact: true })).toBeVisible();
+    await expect(evaluation).toContainText(evidence.task.result_digest);
     expect(evidence.task.program_artifact).toMatch(/^[0-9a-f]{64}$/);
     await evaluation.getByRole("button", { name: "查看原始实验" }).click();
     await expect(

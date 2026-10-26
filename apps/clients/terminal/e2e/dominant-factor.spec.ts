@@ -33,7 +33,7 @@ test("a factor reads a product's months as one dominant series", async ({ page }
   await page.reload();
   await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
   await openView(page, "factor");
   await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
   const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });
@@ -127,7 +127,7 @@ test("the term structure of a dominant series is evaluated as a factor", async (
   await page.reload();
   await openView(page, "backtest");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await expect(workspace.getByText("研究服务已连接", { exact: true })).toBeVisible();
   await openView(page, "factor");
   await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
   const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });

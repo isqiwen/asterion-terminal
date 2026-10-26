@@ -45,7 +45,7 @@ test(
     ).toHaveLength(2);
     await rpc(page.request, "data.dataset.clear");
     await openView(page, "watchlist");
-    await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
+    await rpc(page.request, "node.action", { id: "local", service: "research", action: "stop" });
     await rpc(page.request, "node.research.local.open");
     await page.reload();
     await openView(page, "backtest");

@@ -39,6 +39,9 @@ test("@journey minute payload cleanup is explicit, Data-owned and survives servi
     action: "stop",
   });
   await rpc(page.request, "node.data.local.open");
+  await expect
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).data?.online, { timeout: 10000 })
+    .toBe(true);
   await archive.getByRole("button", { name: "查看封存与清理记录", exact: true }).click();
   const inventory = archive.getByRole("region", { name: "封存与清理记录", exact: true });
   await expect(inventory).toContainText(id);
