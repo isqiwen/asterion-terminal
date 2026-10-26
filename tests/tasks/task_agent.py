@@ -45,6 +45,15 @@ def completed(process, task_id="agent-recovery"):
     raise AssertionError(snapshot)
 
 
+def open_research(process):
+    call(process, "node.research.local.open")
+    deadline = time.monotonic() + 15
+    while not call(process, "runtime.snapshot")["research_service"]["online"]:
+        if time.monotonic() >= deadline:
+            raise AssertionError("isolated research service did not become available")
+        time.sleep(.05)
+
+
 selections = {}
 def select(process, identity):
     return call(process,"data.dataset.select",selections[identity])
@@ -56,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         invoke=lambda method,params=None:call(process,method,params)
         selections["short"] = {k:v for k,v in seed(invoke,[100,101,102,101,104,103,102,103],"short")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
         selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
-        call(process,"node.research.local.open")
+        open_research(process)
         select(process,"short")
         call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None,"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
@@ -66,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
     # Service-owned immutable history and admitted tasks survive the submitting process.
     process=launch()
     try:
-        call(process,"node.research.local.open")
+        open_research(process)
         saved={}
         for identity,count in [("agent-recovery",8),("factor-recovery",160),("rolling-recovery",160)]:
             task=completed(process,identity)
@@ -87,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
     finally:close(process)
     process=launch()
     try:
-        call(process,"node.research.local.open")
+        open_research(process)
         for identity,(task,result) in saved.items():
             assert completed(process,identity)==task
             assert call(process,"task.result",{"id":identity})["task_result"]==result
@@ -99,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         completed(process,"repeated-factor")
         assert call(process,"task.result",{"id":"repeated-factor"})["task_result"]["result"]==factor["result"]
         call(process,"node.action",{"id":"local","service":"research","action":"stop"})
-        call(process,"node.research.local.open")
+        open_research(process)
         assert completed(process,"agent-recovery") == saved["agent-recovery"][0]
         assert call(process,"task.result",{"id":"agent-recovery"})["task_result"]==saved["agent-recovery"][1]
     finally:close(process)

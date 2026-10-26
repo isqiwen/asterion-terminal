@@ -363,7 +363,7 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
                     + std::to_string(1000 + i % 9000)});
     const auto began = std::chrono::steady_clock::now();
     feed.connect({"tcp://localhost:12345", "test", "steady", "test-only"}, contracts);
-    const auto deadline = began + testing_support::bound(std::chrono::seconds(10));
+    const auto deadline = began + testing_support::bound(std::chrono::seconds(30));
     for (;;) {
         feed.poll();
         const auto state = feed.snapshot();

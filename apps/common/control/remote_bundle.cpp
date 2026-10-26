@@ -59,7 +59,7 @@ fs::path checked_resource(const std::string& arch, const std::string& name)
     // their selected resource, without rescanning unrelated service programs.
     const auto file = folder / name;
     if (fs::is_symlink(file.parent_path()) || fs::is_symlink(file) || !fs::is_regular_file(file)
-        || fs::file_size(file) > 256 * 1024 * 1024
+        || fs::file_size(file) > max_artifact_bytes
         || sha256_file(file) != info.at("files").at(name).get<std::string>())
         throw std::invalid_argument("bundled Linux resource verification failed");
     if (name != "initialize-linux.py") {

@@ -69,7 +69,8 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         request.set_version(1);
         request.set_correlation_id(next_correlation_id());
 #ifdef ASTERION_SANITIZED
-        const auto mutation = 60s;
+        // Instrumented deployments copy and start much larger programs.
+        const auto mutation = 180s;
 #else
         const auto mutation = 10s;
 #endif

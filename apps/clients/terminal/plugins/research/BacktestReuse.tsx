@@ -13,6 +13,22 @@ type Evidence = Pick<
   Extract<TaskResult, { kind: "backtest" }>,
   "id" | "task" | "experiment" | "input_sha256"
 >;
+// Research varies one cost of a single-contract, full-sample daily momentum
+// backtest on its original fixed data; other inputs have no cost variant.
+function costVariable(value: Evidence) {
+  const e = value.experiment;
+  return (
+    e.paper.contracts.length === 1 &&
+    e.paper.contracts[0].dataset.interval_minutes === 0 &&
+    !e.series?.length &&
+    e.strategies.length === 1 &&
+    e.strategies[0].rule.kind === "momentum" &&
+    !e.holdout_day &&
+    !e.walk_forward
+  );
+}
+type Cost =
+  { kind: "" } | { kind: "slippage"; ticks: string } | { kind: "fee"; multiplier: string };
 export function BacktestReuse({
   evidence,
   snapshot,
@@ -22,6 +38,7 @@ export function BacktestReuse({
 }: Pick<TerminalContext, "snapshot" | "busy" | "query"> & { evidence: Evidence; run: Run }) {
   const [mode, setMode] = useState<"" | "fixed" | "snapshot">("");
   const [selected, setSelected] = useState("");
+  const [cost, setCost] = useState<Cost>({ kind: "" });
   const [error, setError] = useState<DisplayError>("");
   const [created, setCreated] = useState("");
   const connection = JSON.stringify([
@@ -37,6 +54,7 @@ export function BacktestReuse({
       evidence.input_sha256,
       mode,
       selected,
+      cost,
     ]),
   );
   useEffect(() => {
@@ -60,6 +78,7 @@ export function BacktestReuse({
   const choose = (value: "fixed" | "snapshot") => {
     setMode(value);
     setSelected("");
+    setCost({ kind: "" });
     setError("");
     setCreated("");
   };
@@ -75,6 +94,8 @@ export function BacktestReuse({
         source_input_sha256: evidence.input_sha256,
         mode,
         snapshot: mode === "fixed" ? "" : selected,
+        ...(cost.kind === "slippage" && { slippage_ticks: Number(cost.ticks) }),
+        ...(cost.kind === "fee" && { fee_multiplier: cost.multiplier }),
       })
     ) {
       setCreated(id);
@@ -130,6 +151,52 @@ export function BacktestReuse({
                 <code>{value}</code>
               </p>
             ))}
+            {costVariable(evidence) && (
+              <fieldset>
+                <legend>{t("成本变体（可选）")}</legend>
+                <p className="subtle">
+                  {t("只改变一项成本，其余固定输入不变；结果与原回测在比较中并列查看。")}
+                </p>
+                <select
+                  aria-label={t("成本变体")}
+                  value={cost.kind}
+                  onChange={event => {
+                    const kind = event.target.value;
+                    setCost(
+                      kind === "slippage"
+                        ? { kind, ticks: "" }
+                        : kind === "fee"
+                          ? { kind, multiplier: "" }
+                          : { kind: "" },
+                    );
+                  }}
+                >
+                  <option value="">{t("不改变成本")}</option>
+                  <option value="slippage">{t("滑点跳数")}</option>
+                  <option value="fee">{t("手续费倍数")}</option>
+                </select>
+                {cost.kind === "slippage" && (
+                  <label>
+                    {t("滑点跳数（0–100 的整数）")}
+                    <input
+                      inputMode="numeric"
+                      value={cost.ticks}
+                      onChange={event => setCost({ kind: "slippage", ticks: event.target.value })}
+                    />
+                  </label>
+                )}
+                {cost.kind === "fee" && (
+                  <label>
+                    {t("手续费倍数（0–100）")}
+                    <input
+                      inputMode="decimal"
+                      value={cost.multiplier}
+                      onChange={event => setCost({ kind: "fee", multiplier: event.target.value })}
+                    />
+                  </label>
+                )}
+              </fieldset>
+            )}
           </>
         )}
         {mode === "snapshot" && (
@@ -148,6 +215,8 @@ export function BacktestReuse({
           disabled={
             !mode ||
             (mode === "snapshot" && !selected) ||
+            (cost.kind === "slippage" && !/^\d{1,3}$/.test(cost.ticks)) ||
+            (cost.kind === "fee" && !/^\d+(\.\d+)?$/.test(cost.multiplier)) ||
             !snapshot?.data?.online ||
             !snapshot?.research_service?.online
           }

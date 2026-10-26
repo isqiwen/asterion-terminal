@@ -1553,5 +1553,13 @@
   "新配置锁定全部组合政策，需另行确认Data版本、资金、费用与风险；打开配置不接纳任务。": "A new configuration locks the complete portfolio policy and requires explicit Data version, funds, costs and risk. Opening it admits no task.",
   "按固定组合新配置回测": "Configure a new backtest from the fixed portfolio",
   "另建独立交付草稿": "Create another independent delivery draft",
-  "全部合约、权重、预算和调仓间隔来自固定包；请显式确认本次Data版本、资金、费用与风险。": "Every contract, weight, budget and rebalance interval comes from the fixed package. Explicitly confirm the Data version, funds, costs and risk for this run."
+  "全部合约、权重、预算和调仓间隔来自固定包；请显式确认本次Data版本、资金、费用与风险。": "Every contract, weight, budget and rebalance interval comes from the fixed package. Explicitly confirm the Data version, funds, costs and risk for this run.",
+  "成本变体（可选）": "Cost variant (optional)",
+  "只改变一项成本，其余固定输入不变；结果与原回测在比较中并列查看。": "Changes one cost and keeps every other fixed input; compare the result side by side with the original backtest.",
+  "成本变体": "Cost variant",
+  "不改变成本": "Keep the original costs",
+  "滑点跳数": "Slippage ticks",
+  "手续费倍数": "Fee multiplier",
+  "滑点跳数（0–100 的整数）": "Slippage ticks (integer 0–100)",
+  "手续费倍数（0–100）": "Fee multiplier (0–100)"
 }

@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <optional>
 #include <future>
+#include <mutex>
 #include <set>
 #include <csignal>
 using namespace asterion;
@@ -127,7 +128,15 @@ struct Node
         return reply;
     }
 
+    // A test may poll one task from another thread while it submits the next.
+    std::mutex refresh_mutex;
     std::set<std::string> refresh_ids;
+
+    bool refresh(const std::string& id)
+    {
+        std::lock_guard lock(refresh_mutex);
+        return refresh_ids.contains(id);
+    }
 
     task::proto::TaskResponse call(research::proto::ResearchRequest request)
     {
@@ -138,7 +147,7 @@ struct Node
             : request.has_cancel()           ? request.cancel().id()
             : request.has_retry()            ? request.retry().id()
                                              : std::string();
-        if (!refresh_ids.contains(id))
+        if (!refresh(id))
             return task_call(std::move(request));
         data::proto::DataRequest query;
         auto* operation = query.mutable_acquisition_task();
@@ -218,7 +227,10 @@ struct Node
     {
         data::proto::DataRequest authorize;
         auto* request = authorize.mutable_authorize_download();
-        refresh_ids.insert(id);
+        {
+            std::lock_guard lock(refresh_mutex);
+            refresh_ids.insert(id);
+        }
         request->set_task_instance("fixture-data");
         request->set_task_id(id);
         request->set_credential(credential);

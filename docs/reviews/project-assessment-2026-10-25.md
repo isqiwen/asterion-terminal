@@ -333,6 +333,8 @@
 | P1.1 | 完成：`docs/requirements/release-r1.md`（支持集合、R1 页面编号、冻结与删除、外部条件、完成判据），`product.md`/`delivery.md`/需求导航加链接 | — | — |
 | 本机测试 | 删除后 `ctest -j 6`：960 项中 952 项通过。失败 8 项：`market_observation_archive`、`task_agent_recovery`（改动前即失败），QuantStats/Portfolio 6 项（`build/electron-resources/analytics` 中仍是改名前的 `asterion-analytics`，需重新 `pnpm desktop --prepare-analytics`）。界面：tsc、lint、205 项单元测试通过 | — | — |
 | 本机测试（任务库拆分后） | `ctest -j 6`：960 项中 952 项通过；8 项失败同上（QuantStats/Portfolio 6 项分析助手未重新准备、`market_observation_archive`、`task_agent_recovery`），无新增失败。界面单元测试 205 项通过 | — | — |
+| CI 基线 | 修复：两处进程测试在服务就绪前就发请求（改为等 `online`）；恢复期健康检查测试不再要求恰好观察到恢复中（P2.5 后恢复太快）；Linux 包资源大小改用内核的 `max_artifact_bytes`（ASan 程序超过 256 MiB，导致 `node_deployment`/`ssh_bootstrap` 失败）；消毒器下的 Agent 部署时限 60→180 秒、测试 IPC 时限按 `bound()` 放大；表刷新夹具的共享集合加锁（TSan）；最大因子输入容量测试与其他容量测试一样不在消毒器作业运行。本机全套通过 | — | — |
+| A（成本变体） | 完成：回测“按此回测创建”在符合条件（单合约日线、单一动量规则、全样本）且沿用原固定数据时，可选滑点跳数或手续费倍数之一 | — | — |
 | 第 3—5 阶段 | 下一步：D5 由 Protobuf 生成界面类型（含 P2.7、P3.1/P3.2） | — | — |
 
 ## 附录 A：本机 CTest 结果

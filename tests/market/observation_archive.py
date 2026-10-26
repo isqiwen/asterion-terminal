@@ -36,6 +36,7 @@ try:
     assert preview["aggregate_only"] and not preview["complete_history"],preview
     assert preview["minutes"]["first_observation_ms"]>0 and preview["minutes"]["interrupted"],preview
     call("node.data.local.open")
+    wait(lambda s:s["data"]["online"])
     admission=dict(id="fixed-observation",source=preview["reference"])
     first=call("data.observation.admit",admission)["observation_archive"]
     assert first["state"]=="admitted" and "capture" not in first,first
@@ -60,6 +61,7 @@ try:
     assert call("data.observation.read",dict(id="fixed-observation"))["observation_archive"]==original
     call("node.action",dict(id="local",service=original["archive"]["service"],action="stop"))
     call("node.data.local.open")
+    wait(lambda s:s["data"]["online"])
     assert call("data.observation.read",dict(id="fixed-observation"))["observation_archive"]==original
     assert call("data.observation.read",dict(id="missing-original"))["observation_archive"]==pending
 finally:

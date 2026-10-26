@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/research.pb.h>
 #include <asterion/task.pb.h>
+#include "timing.hpp"
 #include <chrono>
 #include <thread>
 #include <stdexcept>
@@ -13,7 +14,7 @@ task::proto::Task wait_task(
     const std::string& id,
     std::chrono::seconds timeout = std::chrono::seconds(60))
 {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    const auto deadline = std::chrono::steady_clock::now() + bound(timeout);
     research::proto::ResearchRequest request;
     request.mutable_metadata_get()->set_id(id);
     for (;;) {
