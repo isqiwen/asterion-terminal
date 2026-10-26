@@ -10,7 +10,7 @@ import { backtestEvidence } from "./testing/backtestEvidence";
 registerTerminalPlugins([plugin]);
 
 function setup(evidence = backtestEvidence("original")) {
-  const run = vi.fn(async () => true);
+  const run = vi.fn(async (_method: string, _params?: Record<string, unknown>) => true);
   render(
     <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="reuse">
       <BacktestReuse
