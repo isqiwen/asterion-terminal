@@ -378,7 +378,7 @@ TEST_F(FactorTasks, RetainedRowsPersistAcrossRestartAndCancelledRowsNeverBecomeF
     spec.set_retain_observations(true);
     const auto expected = factor::run(spec);
     {
-        tasks::Store store(root, {"factor-tests"});
+        tasks::Store store(asterion::research::task_domain(), root, {"factor-tests"});
         tasks::submit(store, "retained", spec);
         const auto token = store.commit(store.claim("retained")).token();
         auto incomplete = expected;
@@ -394,7 +394,7 @@ TEST_F(FactorTasks, RetainedRowsPersistAcrossRestartAndCancelledRowsNeverBecomeF
         EXPECT_EQ(store.describe("cancelled-rows").state(), task::proto::CANCELLED);
         EXPECT_TRUE(store.describe("cancelled-rows").result_digest().empty());
     }
-    tasks::Store restored(root, {"factor-tests"});
+    tasks::Store restored(asterion::research::task_domain(), root, {"factor-tests"});
     EXPECT_TRUE(restored.get("retained").factor().retain_observations());
     EXPECT_EQ(
         tasks::factor_result(restored, "retained").SerializeAsString(),
@@ -422,7 +422,10 @@ TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingA
     result.mutable_samples(0)->set_value(std::nextafter(result.samples(0).value(), 1.0));
     EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         tasks::submit(store, "accepted", spec);
         store.commit(
             tasks::finish(
@@ -431,7 +434,7 @@ TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingA
                 store.commit(store.claim("accepted")).token(),
                 result));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests"});
+    tasks::Store restored(asterion::research::task_domain(), root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(restored, "accepted").SerializeAsString(),
         result.SerializeAsString());
@@ -441,7 +444,10 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult)
 {
     asterion::factor::proto::FactorResult expected = factor::run(input());
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         auto task = tasks::submit(store, "factor", input());
         EXPECT_EQ(task.kind(), wire::FACTOR);
         EXPECT_EQ(tasks::submit(store, "factor", input()).id(), task.id());
@@ -469,7 +475,10 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult)
         EXPECT_THROW(tasks::result(store, "factor"), std::invalid_argument);
     }
     {
-        tasks::Store recovered(root, tasks::Identity{"factor-tests"});
+        tasks::Store recovered(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         EXPECT_EQ(
             tasks::factor_result(recovered, "factor").SerializeAsString(),
             expected.SerializeAsString());
@@ -563,7 +572,10 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery)
     const auto value = holdout_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         tasks::submit(store, "holdout", value);
         auto changed = value;
         changed.set_holdout_start(51);
@@ -581,7 +593,10 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery)
             std::invalid_argument);
         store.commit(tasks::finish(store, "holdout", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
+    tasks::Store recovered(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "holdout").SerializeAsString(),
         expected.SerializeAsString());
@@ -698,7 +713,10 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
     const auto value = search_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         EXPECT_EQ(tasks::submit(store, "search", value).total(), 250U);
         const auto token = store.commit(store.claim("search")).token();
         auto bad = expected;
@@ -713,7 +731,10 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
             std::invalid_argument);
         store.commit(tasks::finish(store, "search", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
+    tasks::Store recovered(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "search").SerializeAsString(),
         expected.SerializeAsString());
@@ -722,7 +743,7 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
 TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration)
 {
     const auto spec = search_input();
-    tasks::Store store(root, tasks::Identity{"factor-tests"});
+    tasks::Store store(asterion::research::task_domain(), root, tasks::Identity{"factor-tests"});
     tasks::submit(store, "factor", spec);
     store.commit(
         tasks::finish(
@@ -895,7 +916,7 @@ TEST_F(FactorTasks, RetainedFoldEvidencePersistsAndCancelledWorkDoesNotPublish)
     spec.set_retain_observations(true);
     const auto expected = factor::run(spec);
     {
-        tasks::Store store(root, {"factor-tests"});
+        tasks::Store store(asterion::research::task_domain(), root, {"factor-tests"});
         tasks::submit(store, "rolling-rows", spec);
         const auto token = store.commit(store.claim("rolling-rows")).token();
         auto bad = expected;
@@ -910,7 +931,7 @@ TEST_F(FactorTasks, RetainedFoldEvidencePersistsAndCancelledWorkDoesNotPublish)
         store.commit(tasks::finish(store, "cancelled-fold-rows", cancelled, expected));
         EXPECT_TRUE(store.describe("cancelled-fold-rows").result_digest().empty());
     }
-    tasks::Store restored(root, {"factor-tests"});
+    tasks::Store restored(asterion::research::task_domain(), root, {"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(restored, "rolling-rows").SerializeAsString(),
         expected.SerializeAsString());
@@ -950,7 +971,10 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
     const auto value = rolling_input();
     const auto expected = factor::run(value);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         EXPECT_EQ(tasks::submit(store, "rolling", value).total(), 720U);
         const auto token = store.commit(store.claim("rolling")).token();
         auto bad = expected;
@@ -965,7 +989,10 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
             std::invalid_argument);
         store.commit(tasks::finish(store, "rolling", token, expected));
     }
-    tasks::Store recovered(root, tasks::Identity{"factor-tests"});
+    tasks::Store recovered(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(recovered, "rolling").SerializeAsString(),
         expected.SerializeAsString());
@@ -1527,7 +1554,10 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore)
     check_members(holdout, selected);
     check_members(rolling, folds);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         const auto task = tasks::submit(store, "selected", holdout);
         EXPECT_EQ(task.instrument(), "SHFE/rb2610 + SHFE/rb2611 + SHFE/rb2612");
         store.commit(
@@ -1540,7 +1570,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore)
         store.commit(
             tasks::finish(store, "rolling", store.commit(store.claim("rolling")).token(), folds));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests"});
+    tasks::Store restored(asterion::research::task_domain(), root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         tasks::factor_result(restored, "selected").SerializeAsString(),
         selected.SerializeAsString());
@@ -2199,7 +2229,10 @@ TEST_F(FactorTasks, FixedLiquidityRuleAndMemberEvidenceSurviveRecoveryAndExecuti
     const auto spec = liquidity_input();
     const auto result = factor::run(spec);
     {
-        tasks::Store store(root, tasks::Identity{"factor-tests"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"factor-tests"});
         const auto admitted = tasks::submit(store, "eligible", spec);
         const auto execution =
             protocol::task_execution(admitted, sha256_bytes(spec.SerializeAsString()));
@@ -2216,7 +2249,7 @@ TEST_F(FactorTasks, FixedLiquidityRuleAndMemberEvidenceSurviveRecoveryAndExecuti
                 store.commit(store.claim("eligible")).token(),
                 result));
     }
-    tasks::Store restored(root, tasks::Identity{"factor-tests"});
+    tasks::Store restored(asterion::research::task_domain(), root, tasks::Identity{"factor-tests"});
     EXPECT_EQ(
         restored.get("eligible").factor().liquidity().SerializeAsString(),
         spec.liquidity().SerializeAsString());

@@ -33,7 +33,10 @@ struct StrategyStore : testing::Test
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
         owner.set_domain("research");
-        store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        store = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
     }
 
     void TearDown() override
@@ -98,7 +101,7 @@ struct StrategyStore : testing::Test
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
         auto submission = task_submission(*store, "reference-backtest", input);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("reference-backtest")).token();
         store->commit(tasks::finish(*store, "reference-backtest", token, backtest::run(input)));
@@ -195,7 +198,10 @@ TEST_F(StrategyStore, PortfolioPackageAndDeliveryRetainAllMembersAcrossRestartWi
         EXPECT_EQ(strategies.package(frozen.id()).SerializeAsString(), frozen.SerializeAsString());
     }
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     {
         research::Strategies strategies(*store, owner);
         EXPECT_EQ(strategies.package(frozen.id()).SerializeAsString(), frozen.SerializeAsString());
@@ -238,7 +244,10 @@ TEST_F(StrategyStore, FrozenCandidateKeepsReferenceOnlyEvidenceAndDurableReceipt
             "reference_only");
     }
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     research::Strategies recovered(*store, owner);
     ASSERT_TRUE(recovered.receipt(req));
     EXPECT_EQ(recovered.receipt(req)->SerializeAsString(), original.SerializeAsString());
@@ -270,7 +279,7 @@ TEST_F(StrategyStore, DeliveryIsDurableDraftAndAConflictingTargetNeverBecomesAcc
     EXPECT_THROW(write.apply(duplicate), Error);
     EXPECT_EQ(write.deliveries("candidate-one", "", 10).size(), 1U);
     auto unrelated = task_submission(*store, "candidate-backtest", input);
-    unrelated.set_program_artifact(reference.result_task().program_artifact());
+    asterion::tasks::set_program_artifact(unrelated, reference.result_task().program_artifact());
     tasks::submit(*store, std::move(unrelated));
     EXPECT_THROW(write.delivery_status("delivery-one"), Error);
 }
@@ -319,7 +328,10 @@ TEST_F(StrategyStore, PartialSchemaAndWrongOwnerRemainRejectedWithoutRepairingEx
         sqlite::Database db(root / "tasks.sqlite");
         db.execute("DROP TABLE research_strategy_deliveries");
     }
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_THROW(
         research::Strategies(*store, owner, sqlite::Database::Access::writer),
         std::invalid_argument);
@@ -346,12 +358,14 @@ TEST_F(StrategyStore, AdmissionBindingAndCompletedUseSurviveDeprecationAndColdMe
         auto wrong_input = input;
         wrong_input.mutable_strategies(0)->mutable_moving_average()->set_slow(4);
         auto wrong = task_submission(*store, "wrong-definition", wrong_input);
-        wrong.set_program_artifact(pkg.definition().program_artifact());
-        EXPECT_THROW(wrong.set_strategy_use(use, pkg.definition()), Error);
+        asterion::tasks::set_program_artifact(wrong, pkg.definition().program_artifact());
+        EXPECT_THROW(
+            asterion::tasks::set_strategy_use(*store, wrong, use, pkg.definition()),
+            Error);
         EXPECT_FALSE(fs::exists(root / "wrong-definition"));
         auto submitted = task_submission(*store, draft.target_task_id(), input);
-        submitted.set_program_artifact(pkg.definition().program_artifact());
-        submitted.set_strategy_use(use, pkg.definition());
+        asterion::tasks::set_program_artifact(submitted, pkg.definition().program_artifact());
+        asterion::tasks::set_strategy_use(*store, submitted, use, pkg.definition());
         task::proto::TaskDerivation origin;
         origin.set_source_id(pkg.reference_result().id());
         origin.set_source_result_digest(pkg.reference_result().version());
@@ -387,8 +401,8 @@ TEST_F(StrategyStore, AdmissionBindingAndCompletedUseSurviveDeprecationAndColdMe
         auto changed_use = use;
         changed_use.mutable_delivery()->set_version(std::string(64, 'e'));
         auto replay = task_submission(*store, draft.target_task_id(), input);
-        replay.set_program_artifact(pkg.definition().program_artifact());
-        replay.set_strategy_use(changed_use, pkg.definition());
+        asterion::tasks::set_program_artifact(replay, pkg.definition().program_artifact());
+        asterion::tasks::set_strategy_use(*store, replay, changed_use, pkg.definition());
         replay.set_derivation(origin);
         EXPECT_THROW(store->admit_submission(replay), Error);
     }
@@ -409,7 +423,10 @@ TEST_F(StrategyStore, AdmissionBindingAndCompletedUseSurviveDeprecationAndColdMe
         });
     EXPECT_EQ(candidates, 1U);
     EXPECT_EQ(drafts, 1U);
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     {
         research::Strategies restored(*store, owner);
         EXPECT_TRUE(restored.delivery_status("delivery-one").target_accepted());

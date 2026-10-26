@@ -22,7 +22,7 @@ AcquisitionTasks::AcquisitionTasks(
       node_(std::move(node)),
       program_directory_(std::filesystem::absolute(directory).parent_path() / "programs"),
       materials_(materials),
-      tasks_(std::move(directory), {service_})
+      tasks_(task_domain(), std::move(directory), {service_})
 {}
 
 proto::AcquisitionTaskResponse AcquisitionTasks::handle(
@@ -143,7 +143,7 @@ proto::AcquisitionTaskResponse AcquisitionTasks::handle(
 
 std::vector<std::string> AcquisitionTasks::snapshot_holds(const std::string& snapshot)
 {
-    auto result = tasks_.table_snapshot_holds(snapshot);
+    auto result = table_snapshot_holds(tasks_, snapshot);
     for (const auto& observer : data_.tables().snapshot_observers(snapshot)) {
         if (observer.data_instance != service_ || observer.task_instance != service_)
             throw Error(
@@ -220,9 +220,10 @@ bool AcquisitionTasks::advance(bool admitting, bool stopping)
             auto completion = tasks_.prepare_finish(result);
             completion.prepare_payload();
             if (result.has_minutes()) {
-                const auto verified = data_.verify_download(completion.download_preparation());
+                const auto verified =
+                    data_.verify_download(download_preparation(completion, tasks_.instance()));
                 const auto prepared = data_.prepare(verified);
-                tasks_.commit(tasks_.prepare_publication(std::move(completion), prepared));
+                tasks_.commit(prepare_publication(tasks_, std::move(completion), prepared));
             } else
                 tasks_.commit(tasks_.finish(std::move(completion)));
         }
@@ -234,7 +235,7 @@ bool AcquisitionTasks::advance(bool admitting, bool stopping)
     for (const auto& decision : tasks_.pending_publications()) {
         const auto verified = data_.verify_publication(decision);
         const auto published = data_.publish(verified);
-        tasks_.commit(tasks_.confirm_publication(published));
+        tasks_.commit(confirm_publication(tasks_, published));
     }
     if (!admitting || stopping)
         return std::none_of(executions_.begin(), executions_.end(), [](const auto& execution) {

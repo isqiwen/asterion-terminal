@@ -71,7 +71,7 @@ flowchart TB
 ## 任务
 
 任务属于各自的业务服务，不存在中央任务服务。Data 拥有分钟下载、表更新、单分区重取和材料采集；
-Research 拥有研究类任务。两者共用 `apps/services/task-runtime` 的持久任务存储：
+Research 拥有研究类任务。两者共用 `apps/services/common/tasks` 的持久任务机制，任务种类的含义由各服务的 `TaskDomain` 提供：
 
 - `tasks.sqlite` 保存任务索引与状态事件；固定输入为任务目录下的 `input.pb`，各次尝试的结果为
   `results/<尝试>.pb`。SHA-256 摘要是固定输入与结果的身份。

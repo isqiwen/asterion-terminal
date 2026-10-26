@@ -1,3 +1,4 @@
+#include "research_tasks.hpp"
 #include "variable_store.hpp"
 #include "task_store.hpp"
 #include <asterion/protocol/research_variable.hpp>
@@ -24,7 +25,10 @@ struct ResearchVariables : testing::Test
         owner.set_domain("research");
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
-        tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        tasks = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
     }
 
     void TearDown() override
@@ -106,7 +110,10 @@ TEST_F(ResearchVariables, SameNameNewDefinitionKeepsOriginalContentAndReceiptAcr
         EXPECT_THROW(write.apply(registration("register-one", "different-feature", 2)), Error);
     }
     tasks.reset();
-    tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    tasks = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     research::Variables read(*tasks, owner);
     EXPECT_EQ(read.definition(original.id()).SerializeAsString(), original.SerializeAsString());
     EXPECT_EQ(read.list("", 1).front().id(), "feature-one");
@@ -174,7 +181,10 @@ TEST_F(ResearchVariables, PartialMetadataSchemaIsNotSilentlyRecreated)
         sqlite::Database database(root / "tasks.sqlite");
         database.execute("DROP TABLE research_variable_commands");
     }
-    tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    tasks = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_THROW(
         research::Variables(*tasks, owner, sqlite::Database::Access::writer),
         std::invalid_argument);

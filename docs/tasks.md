@@ -2,7 +2,7 @@
 
 任务是业务服务内的持久工作，不对应独立进程。Data 接纳并执行分钟下载、表更新和单分区刷新，拥有取消、发布与恢复；Research 接纳并执行研究类任务（回测、因子、统计、样本、逻辑试算、评估与账户复核）。Terminal 按节点、服务、连接和任务身份聚合与控制。不存在独立 Task 服务或通用 Task 提交协议。
 
-公共记录和持久化机制位于 `apps/services/task-runtime`，未迁入 Core；每个所有者保留自己的账本。`research.proto` 定义研究业务请求，`data_service.proto` 定义 Data 采集请求，`task.proto` 仅保留公共记录与观察结构。
+持久化机制是 `apps/services/common/tasks/` 中的共享库 `asterion_task_store`：任务状态机、尝试令牌、固定输入与结果文件、恢复、退役与准备/放弃记录。它不认识任何业务任务种类；每个服务提供一个 `TaskDomain`（`research/research_tasks.cpp`、`data/data_tasks.cpp`），声明自己的任务种类并负责定义校验与摘要、清单附加字段、接纳规则、执行描述与结果校验。Research 的资源目录与项目任务查询、Data 的快照占用与下载发布证据也在各自服务内。每个所有者保留自己的账本，一个 Data 任务库只接受 Data 的种类，反之亦然。`research.proto` 定义研究业务请求，`data_service.proto` 定义 Data 采集请求，`task.proto` 仅保留公共记录与观察结构。
 
 任务目录的 `instance.json` 固定保存 任务所有者与所引用 Data 的稳定身份。启动和离线引用检查都先核对该身份，
 再读取或恢复任务账本；错误实例、错误绑定、不支持的身份格式或已有目录缺失身份均明确拒绝。

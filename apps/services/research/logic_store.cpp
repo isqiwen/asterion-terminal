@@ -126,7 +126,7 @@ Logic::Logic(
     Database::Access access,
     std::shared_ptr<const Clock> clock)
     : Logic(
-          store.research_metadata(expected.service_id(), access == Database::Access::writer),
+          store.database(expected.service_id(), access == Database::Access::writer),
           expected,
           access,
           std::move(clock))

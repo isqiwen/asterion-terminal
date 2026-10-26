@@ -1,33 +1,19 @@
-#include "risk_module.hpp"
-#include "history_minutes.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <fstream>
 #include "task_store.hpp"
-#include <asterion/protocol/research_project.hpp>
-#include <asterion/protocol/research_variable.hpp>
-#include <asterion/protocol/research_statistics.hpp>
-#include <asterion/protocol/research_evaluation.hpp>
-#include <asterion/protocol/research_sample.hpp>
-#include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_strategy.hpp>
-#include <asterion/protocol/resource.hpp>
-#include <asterion/protocol/task_execution.hpp>
-#include <asterion/protocol/data.hpp>
-#include <asterion/protocol/backtest.hpp>
+#include "task_events.hpp"
 #include "task_payload.hpp"
 #include "sqlite_database.hpp"
-#include "task_events.hpp"
-#include <algorithm>
-#include <asterion/foundation/decimal.hpp>
 #include <asterion/foundation/error.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/foundation/id.hpp>
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
-#include <asterion/protocol/factor.hpp>
-#include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/material.hpp>
-#include <map>
+#include <asterion/protocol/data.hpp>
+#include <asterion/protocol/resource.hpp>
+#include <algorithm>
+#include <charconv>
+#include <fstream>
 #include <limits>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <google/protobuf/util/json_util.h>
@@ -36,108 +22,103 @@ namespace asterion::tasks {
 namespace wire = task::proto;
 namespace fs = std::filesystem;
 
+// A domain's kinds with their message fields resolved once.
+class Kinds
+{
+public:
+    struct Kind
+    {
+        const KindSpec* spec;
+        const google::protobuf::FieldDescriptor *definition, *result, *finish;
+    };
+
+    explicit Kinds(const TaskDomain& source)
+        : domain(source)
+    {
+        const auto field = [](const google::protobuf::Descriptor* message, std::string_view name) {
+            const auto* found = message->FindFieldByName(std::string(name));
+            // A missing field name is a programming error in the domain's table.
+            if (!found || found->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE)
+                throw std::logic_error("task kind names a missing message field");
+            return found;
+        };
+        for (const auto& spec : domain.kinds())
+            kinds_.emplace(
+                spec.kind,
+                Kind{
+                    &spec,
+                    field(wire::Task::descriptor(), spec.definition),
+                    field(wire::TaskResponse::descriptor(), spec.result),
+                    field(wire::TaskFinish::descriptor(), spec.finish)
+                });
+    }
+
+    const TaskDomain& domain;
+
+    const Kind& at(wire::TaskKind kind) const
+    {
+        const auto found = kinds_.find(kind);
+        if (found == kinds_.end())
+            throw Error(ErrorCode::conflict, "unsupported task kind");
+        return found->second;
+    }
+
+    bool has(wire::TaskKind kind) const
+    {
+        return kinds_.contains(kind);
+    }
+
+    const KindSpec& spec(wire::TaskKind kind) const
+    {
+        return *at(kind).spec;
+    }
+
+    const Kind* manifest(std::string_view type) const
+    {
+        for (const auto& [_, kind] : kinds_)
+            if (kind.spec->manifest == type)
+                return &kind;
+        return nullptr;
+    }
+
+    // The kind whose definition a submitted task carries.
+    wire::TaskKind of(const wire::Task& task) const
+    {
+        for (const auto& [kind, resolved] : kinds_)
+            if (task.GetReflection()->HasField(task, resolved.definition))
+                return kind;
+        throw std::invalid_argument("task requires an explicit input type");
+    }
+
+    bool reserved(std::string_view name) const
+    {
+        return std::ranges::find(domain.directories(), name) != domain.directories().end();
+    }
+
+private:
+    std::map<wire::TaskKind, Kind> kinds_;
+};
+
 namespace {
 
-// Every task kind once: its owning domain, retirement resource name, the
-// definition field of Task and the result field of TaskResponse.
-struct KindSpec
+google::protobuf::Message& mutable_definition(const Kinds& kinds, wire::Task& task)
 {
-    wire::TaskKind kind;
-    std::string_view domain, retirement, definition, result;
-};
-
-constexpr KindSpec kind_specs[] = {
-    {wire::BACKTEST, "research", "backtest", "input", "backtest"},
-    {wire::FACTOR, "research", "factor", "factor", "factor"},
-    {wire::ACCOUNT_REVIEW, "research", "account_review", "account_review", "account_review"},
-    {wire::STATISTICS, "research", "statistics", "statistics", "statistics"},
-    {wire::PERFORMANCE_EVALUATION,
-        "research",
-        "performance_evaluation",
-        "evaluation",
-        "evaluation"},
-    {wire::SAMPLE, "research", "sample", "sample", "sample"},
-    {wire::LOGIC_TRIAL, "research", "logic_trial", "logic_trial", "logic_trial"},
-    {wire::MINUTE_DOWNLOAD, "data", "minutes", "minutes", "minutes"},
-    {wire::TABLE_UPDATE, "data", "table_update", "table_update", "table_update"},
-    {wire::MATERIAL_ACQUISITION, "data", "material_acquisition_task", "material", "material"},
-};
-
-struct KindFields
-{
-    const google::protobuf::FieldDescriptor *definition, *result;
-};
-
-const KindFields& kind_fields(wire::TaskKind kind)
-{
-    // Resolved once; a missing field name is a programming error in the table.
-    static const auto fields = [] {
-        std::map<wire::TaskKind, KindFields> result;
-        for (const auto& spec : kind_specs) {
-            const auto* definition =
-                wire::Task::descriptor()->FindFieldByName(std::string(spec.definition));
-            const auto* output =
-                wire::TaskResponse::descriptor()->FindFieldByName(std::string(spec.result));
-            if (!definition || !output
-                || definition->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE
-                || output->type() != google::protobuf::FieldDescriptor::TYPE_MESSAGE)
-                throw std::logic_error("task kind table names a missing message field");
-            result.emplace(spec.kind, KindFields{definition, output});
-        }
-        return result;
-    }();
-    const auto found = fields.find(kind);
-    if (found == fields.end())
-        throw std::invalid_argument("unsupported task manifest type");
-    return found->second;
+    return *task.GetReflection()->MutableMessage(&task, kinds.at(task.kind()).definition);
 }
 
-const KindSpec& kind_spec(wire::TaskKind kind)
+google::protobuf::Message&
+mutable_result(const Kinds& kinds, wire::TaskResponse& response, wire::TaskKind kind)
 {
-    for (const auto& spec : kind_specs)
-        if (spec.kind == kind)
-            return spec;
-    throw Error(ErrorCode::conflict, "unsupported task kind");
+    return *response.GetReflection()->MutableMessage(&response, kinds.at(kind).result);
 }
 
-bool research_calculation(wire::TaskKind kind)
-{
-    return kind_spec(kind).domain == "research";
-}
-
-std::pair<std::string_view, std::string_view> retirement_identity(wire::TaskKind kind)
-{
-    const auto& spec = kind_spec(kind);
-    return {spec.domain, spec.retirement};
-}
-
-google::protobuf::Message& mutable_definition(wire::Task& task)
-{
-    return *task.GetReflection()->MutableMessage(&task, kind_fields(task.kind()).definition);
-}
-
-google::protobuf::Message& mutable_result(wire::TaskResponse& response, wire::TaskKind kind)
-{
-    return *response.GetReflection()->MutableMessage(&response, kind_fields(kind).result);
-}
-
-data::proto::DownloadIdentity download_identity(const Identity& owner, const wire::Task& task)
-{
-    data::proto::DownloadIdentity result;
-    result.set_data_instance(owner.instance);
-    result.set_task_instance(owner.instance);
-    result.set_task_id(task.id());
-    result.set_attempt(task.attempt());
-    return result;
-}
-
-void validate_task_id(const std::string& id)
+void validate_task_id(const Kinds& kinds, const std::string& id)
 {
     validate_id(id);
     if (id.find_first_of("/\\") != std::string::npos || id == "." || id == ".."
         || id == "manager.lock")
         throw std::invalid_argument("invalid task id");
-    if (id == "history" || id == "event-segments" || id == "programs")
+    if (id == "history" || id == "event-segments" || kinds.reserved(id))
         throw std::invalid_argument("reserved task identifier");
 }
 
@@ -147,236 +128,55 @@ void safe(const fs::path& path)
         throw std::invalid_argument("task store rejects symbolic links");
 }
 
-// How a list names a dominant series: the product by the first and last month
-// it is read from.
-std::string series_name(const data::proto::BarDataset& first, const data::proto::BarDataset& last)
+void prepare(const Kinds& kinds, wire::Task& task)
 {
-    const auto& contract = first.contract();
-    const auto months = contract.symbol() == last.contract().symbol()
-        ? contract.symbol()
-        : contract.symbol() + "-" + last.contract().symbol();
-    return contract.venue() + "/" + contract.product() + " (" + months + ")";
-}
-
-// What a list says a dataset was read from: its own revision, or for daily
-// bars of the daily table the snapshot, which datasets read together name
-// once.
-void name_source(std::string& sources, const data::proto::BarDataset& dataset)
-{
-    const auto& name =
-        dataset.source_dataset_ids().empty() ? dataset.daily().snapshot() : dataset.revision();
-    if (!sources.ends_with(name))
-        sources += (sources.empty() ? "" : " + ") + name;
-}
-
-void prepare(wire::Task& task)
-{
-    if (task.has_minutes()) {
-        const auto range = history_files::minute_range(task.minutes());
-        task.set_kind(wire::MINUTE_DOWNLOAD);
-        task.set_source_name(task.minutes().source() + " " + task.minutes().contract_id());
-        task.set_instrument(range.instrument.key());
-        task.set_total(
-            static_cast<unsigned>((range.end_ns - range.begin_ns) / 86400000000000LL + 1));
-    } else if (task.has_table_update()) {
-        const auto& update = task.table_update();
-        protocol::validate_table_update(update);
-        task.set_kind(wire::TABLE_UPDATE);
-        std::string tables;
-        for (const auto& table : update.tables())
-            tables += (tables.empty() ? "" : " + ") + table;
-        if (update.has_refresh()) {
-            *task.mutable_table_refresh() = update.refresh();
-            tables += " " + update.refresh().partition().exchange() + " "
-                + update.refresh().partition().period();
-        }
-        task.set_source_name(update.provider());
-        task.set_instrument(tables);
-        task.set_trading_day(
-            update.begin_day().empty() && update.end_day().empty()
-                ? std::string()
-                : update.begin_day() + " / " + update.end_day());
-        // What an update reads is decided when it runs: progress is a percentage.
-        task.set_total(100);
-    } else if (task.has_material()) {
-        protocol::validate_material_input(task.material());
-        if (task.material().request().id() != task.id())
-            throw std::invalid_argument("material acquisition task identity mismatch");
-        task.set_kind(wire::MATERIAL_ACQUISITION);
-        task.set_provider_artifact(task.material().request().provider_artifact());
-        task.set_source_name(task.material().request().source_id());
-        task.set_instrument(task.material().request().resource_id());
-        task.set_total(1);
-    } else if (task.has_logic_trial()) {
-        protocol::validate_logic_trial_input(task.logic_trial());
-        task.set_kind(wire::LOGIC_TRIAL);
-        task.set_source_name("fictional_logic_examples");
-        task.set_instrument(task.logic_trial().definition().name());
-        task.set_total(static_cast<unsigned>(task.logic_trial().example().observations_size()));
-    } else if (task.has_sample()) {
-        protocol::validate_sample_input(task.sample());
-        task.set_kind(wire::SAMPLE);
-        task.set_source_name(task.sample().dataset().source());
-        task.set_instrument(task.sample().request().selection().contract());
-        task.set_total(2 * static_cast<unsigned>(task.sample().dataset().bars_size()));
-    } else if (task.has_evaluation()) {
-        protocol::validate_evaluation_input(task.evaluation());
-        task.set_kind(wire::PERFORMANCE_EVALUATION);
-        task.set_source_name(task.evaluation().request().source().owner().service_id());
-        task.set_instrument(task.evaluation().request().source().id());
-        task.set_total(
-            task.evaluation().source().end_settlement()
-            - task.evaluation().source().first_settlement());
-    } else if (task.has_statistics()) {
-        protocol::validate_statistics_input(task.statistics());
-        task.set_kind(wire::STATISTICS);
-        task.set_source_name(task.statistics().request().source().owner().service_id());
-        task.set_instrument(task.statistics().request().source().id());
-        task.set_total(
-            (task.statistics().request().grouping()
-                        == research::proto::StatisticsRequest::TRADING_DAY
-                    ? 4
-                    : 2)
-            * (task.statistics().request().end_index()
-                - task.statistics().request().begin_index()));
-    } else if (task.has_account_review()) {
-        protocol::validate_account_review_input(task.account_review());
-        const auto& facts = task.account_review().evidence().capture().facts();
-        task.set_kind(wire::ACCOUNT_REVIEW);
-        task.set_source_name(
-            task.account_review().evidence().operation().reference().owner().service_id());
-        task.set_instrument(facts.account_id());
-        task.set_trading_day(facts.trading_day());
-        task.set_total(1);
-    } else if (task.has_factor()) {
-        protocol::validate_factor_input(task.factor());
-        if (task.factor().has_variable_definition())
-            *task.mutable_variable_definition() =
-                protocol::variable_object(task.factor().variable_definition());
-        else if (task.has_variable_definition())
-            throw std::invalid_argument("research variable definition missing from fixed input");
-        task.set_kind(wire::FACTOR);
-        std::string instruments, sources;
-        for (const auto& series : task.factor().series()) {
-            const auto separator = instruments.empty() ? "" : " + ";
-            if (series.has_bars()) {
-                const auto& c = series.bars().contract();
-                instruments += separator + c.venue() + "/" + c.symbol();
-                name_source(sources, series.bars());
-            } else if (series.has_dominant()) {
-                const auto& months = series.dominant().months();
-                instruments += separator + series_name(*months.begin(), *months.rbegin());
-                for (const auto& month : months)
-                    name_source(sources, month);
-            } else {
-                // Every instrument of one snapshot names it once.
-                instruments += separator + series.table().instrument();
-                if (!sources.ends_with(series.table().snapshot()))
-                    sources += separator + series.table().snapshot();
-            }
-        }
-        task.set_instrument(instruments);
-        task.set_source_name(sources);
-        task.set_total(static_cast<unsigned>(protocol::factor_work_units(task.factor())));
-        task.clear_trading_day();
-    } else if (task.has_input()) {
-        (void)protocol::decode_backtest(task.input(), protocol::DatasetView::metadata);
-        task.set_kind(wire::BACKTEST);
-        const auto& paper = task.input().paper();
-        const auto dataset = [&](unsigned contract) -> const data::proto::BarDataset& {
-            return paper.contracts(static_cast<int>(contract)).dataset();
-        };
-        // The series each contract is a month of, if any.
-        std::vector<const data::proto::DominantSchedule*> series(
-            static_cast<std::size_t>(paper.contracts_size()));
-        for (const auto& schedule : task.input().series())
-            for (const auto& roll : schedule.rolls())
-                series[roll.contract()] = &schedule;
-        // Contracts outside a series share their trading days; a series runs from
-        // its first month's first day to its last month's last.
-        std::string instruments, sources;
-        auto first = dataset(0).days(0).trading_day(), last = first;
-        for (unsigned c = 0; c < series.size(); ++c) {
-            first = std::min(first, dataset(c).days(0).trading_day());
-            last = std::max(last, dataset(c).days().rbegin()->trading_day());
-            const auto separator = instruments.empty() ? "" : " + ";
-            if (!series[c]) {
-                const auto& contract = dataset(c).contract();
-                instruments += separator + contract.venue() + "/" + contract.symbol();
-                name_source(sources, dataset(c));
-            } else if (series[c]->rolls(0).contract() == c) {
-                // Named once, where its first month stands.
-                instruments += separator
-                    + series_name(dataset(c), dataset(series[c]->rolls().rbegin()->contract()));
-                for (const auto& roll : series[c]->rolls())
-                    name_source(sources, dataset(roll.contract()));
-            }
-        }
-        task.set_instrument(instruments);
-        task.set_source_name(sources);
-        task.set_trading_day(first == last ? first : first + " / " + last);
-        task.set_total(static_cast<unsigned>(protocol::backtest_work_units(task.input())));
-    } else
-        throw std::invalid_argument("task requires an explicit input type");
-    task.set_data_source(
-        task.has_minutes()            ? task.minutes().source()
-            : task.has_table_update() ? task.table_update().provider()
-            : task.has_material()     ? task.material().request().source_id()
-                                      : std::string{});
-    task.set_minute_interval_minutes(task.has_minutes() ? task.minutes().interval_minutes() : 0);
+    task.set_kind(kinds.of(task));
+    kinds.domain.describe(task);
     task.set_state(wire::QUEUED);
 }
 
-const google::protobuf::Message& definition(const wire::Task& task)
+const google::protobuf::Message& definition(const Kinds& kinds, const wire::Task& task)
 {
-    const auto* field = kind_fields(task.kind()).definition;
+    const auto* field = kinds.at(task.kind()).definition;
     if (!task.GetReflection()->HasField(task, field))
         throw std::invalid_argument("task kind and input disagree");
     return task.GetReflection()->GetMessage(task, field);
 }
 
 // Lists, dispatch and durable transitions need bounded metadata, never a copy
-// of the immutable task dataset. Definitions are loaded from owned files on demand.
+// of the immutable task dataset: every field but the definition. Definitions
+// are loaded from owned files on demand.
 wire::Task summary(const wire::Task& task)
 {
     wire::Task result;
-    result.set_id(task.id());
-    if (task.has_metadata())
-        *result.mutable_metadata() = task.metadata();
-    if (task.has_retirement())
-        *result.mutable_retirement() = task.retirement();
-    if (task.has_table_refresh())
-        *result.mutable_table_refresh() = task.table_refresh();
-    result.set_kind(task.kind());
-    result.set_state(task.state());
-    result.set_attempt(task.attempt());
-    result.set_completed(task.completed());
-    result.set_total(task.total());
-    result.set_error(task.error());
-    result.set_error_code(task.error_code());
-    result.set_result_digest(task.result_digest());
-    result.set_trading_day(task.trading_day());
-    result.set_instrument(task.instrument());
-    result.set_source_name(task.source_name());
-    result.set_data_source(task.has_minutes() ? task.minutes().source() : task.data_source());
-    result.set_history_dataset_id(task.history_dataset_id());
-    if (task.has_publication())
-        *result.mutable_publication() = task.publication();
-    result.set_risk_artifact(task.risk_artifact());
-    result.set_program_artifact(task.program_artifact());
-    if (task.has_research_plan())
-        *result.mutable_research_plan() = task.research_plan();
-    if (task.has_strategy_use())
-        *result.mutable_strategy_use() = task.strategy_use();
-    if (task.has_variable_definition())
-        *result.mutable_variable_definition() = task.variable_definition();
-    result.set_provider_artifact(task.provider_artifact());
-    result.set_download_authorization(task.download_authorization());
-    result.set_minute_interval_minutes(
-        task.has_minutes() ? task.minutes().interval_minutes() : task.minute_interval_minutes());
-    result.set_submission_sequence(task.submission_sequence());
-    result.set_submitted_at_ms(task.submitted_at_ms());
-    result.set_updated_at_ms(task.updated_at_ms());
+    const auto* reflection = task.GetReflection();
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    reflection->ListFields(task, &fields);
+    for (const auto* field : fields) {
+        if (field->real_containing_oneof())
+            continue;
+        using Type = google::protobuf::FieldDescriptor::CppType;
+        switch (field->cpp_type()) {
+            case Type::CPPTYPE_MESSAGE:
+                reflection->MutableMessage(&result, field)
+                    ->CopyFrom(reflection->GetMessage(task, field));
+                break;
+            case Type::CPPTYPE_STRING:
+                reflection->SetString(&result, field, reflection->GetString(task, field));
+                break;
+            case Type::CPPTYPE_UINT32:
+                reflection->SetUInt32(&result, field, reflection->GetUInt32(task, field));
+                break;
+            case Type::CPPTYPE_INT64:
+                reflection->SetInt64(&result, field, reflection->GetInt64(task, field));
+                break;
+            case Type::CPPTYPE_ENUM:
+                reflection->SetEnumValue(&result, field, reflection->GetEnumValue(task, field));
+                break;
+            default:
+                throw std::logic_error("task summary has an unsupported field type");
+        }
+    }
     return result;
 }
 
@@ -431,13 +231,14 @@ void admit_as(wire::Task& task, const wire::Task& admitted)
 }
 
 void transition(
+    const Kinds& kinds,
     const wire::Task& before,
     const std::string& old_token,
     const wire::Task& after,
     const std::string& token)
 {
     if (before.has_retirement())
-        throw Error(ErrorCode::conflict, "retired research task cannot execute again");
+        throw Error(ErrorCode::conflict, "retired task cannot execute again");
     const auto a = before.state(), b = after.state();
     const bool start = a == wire::QUEUED && b == wire::RUNNING;
     const bool launch_failed = a == wire::QUEUED && b == wire::FAILED;
@@ -469,7 +270,7 @@ void transition(
             throw std::invalid_argument("inactive attempt retains token");
     } else if (token != old_token)
         throw std::invalid_argument("task token changed mid-attempt");
-    const bool download = after.kind() == wire::MINUTE_DOWNLOAD;
+    const bool download = kinds.spec(after.kind()).publishes;
     if (b == wire::PUBLISHING || (download && b == wire::SUCCEEDED)) {
         const auto& publication = after.publication();
         const auto& identity = publication.identity();
@@ -502,43 +303,43 @@ void transition(
 }
 
 // Parse the exact bytes already checked against their durable digest.
-wire::Task parse_input(wire::Task task, const std::string& raw)
+wire::Task parse_input(const Kinds& kinds, wire::Task task, const std::string& raw)
 {
-    payload::parse(raw, mutable_definition(task));
-    const bool variable = task.has_factor() && task.factor().has_variable_definition();
-    if (task.has_variable_definition() != variable)
-        throw std::invalid_argument("research variable differs from its fixed input");
-    if (variable)
-        protocol::verify_variable_reference(
-            task.variable_definition(),
-            task.factor().variable_definition());
+    payload::parse(raw, mutable_definition(kinds, task));
+    kinds.domain.verify_input(task);
     return task;
 }
 
 // The owner published this input; reading it again does not re-verify its digest.
-wire::Task read_input(wire::Task task, const fs::path& path, std::uint64_t bytes)
+wire::Task
+read_input(const Kinds& kinds, wire::Task task, const fs::path& path, std::uint64_t bytes)
 {
-    return parse_input(std::move(task), payload::load(path, payload::max_input_bytes, bytes));
+    return parse_input(
+        kinds,
+        std::move(task),
+        payload::load(path, payload::max_input_bytes, bytes));
 }
 
 // Cold backup inspection reads files it did not write and verifies them.
 wire::Task read_verified_input(
+    const Kinds& kinds,
     wire::Task task,
     const fs::path& path,
     const std::string& digest,
     std::uint64_t bytes)
 {
     return parse_input(
+        kinds,
         std::move(task),
         payload::read(path, digest, payload::max_input_bytes, bytes));
 }
 
-wire::Task attach_definition(wire::Task task, wire::Task source)
+wire::Task attach_definition(const Kinds& kinds, wire::Task task, wire::Task source)
 {
     if (task.kind() != source.kind())
         throw std::logic_error("task definition comes from another task kind");
-    auto& target = mutable_definition(task);
-    target.GetReflection()->Swap(&target, &mutable_definition(source));
+    auto& target = mutable_definition(kinds, task);
+    target.GetReflection()->Swap(&target, &mutable_definition(kinds, source));
     return task;
 }
 
@@ -578,12 +379,13 @@ struct Store::Impl
         bool resumed_submission = false;
     };
 
+    std::shared_ptr<const Kinds> kinds;
     fs::path root;
     Identity identity;
     std::unique_ptr<FileLock> owner;
     // Task index and state history: one row per task, one per state change.
     std::unique_ptr<sqlite::Database> database;
-    std::unique_ptr<sqlite::TaskEvents> event_log;
+    std::unique_ptr<TaskEvents> event_log;
 
     // A submission interrupted after creating its directory but before its index
     // commit leaves the directory; it is not loaded and its ID stays reserved.
@@ -603,7 +405,8 @@ struct Store::Impl
         return value;
     }
 
-    explicit Impl(
+    Impl(
+        std::shared_ptr<const Kinds> resolved,
         fs::path directory,
         Identity binding,
         std::shared_ptr<const Clock> source,
@@ -612,7 +415,8 @@ struct Store::Impl
         std::unique_ptr<FileLock> ownership = {},
         std::stop_token inspection_stop = {},
         bool cold_inspection = false)
-        : root(std::move(directory)),
+        : kinds(std::move(resolved)),
+          root(std::move(directory)),
           identity(std::move(binding)),
           owner(std::move(ownership)),
           read_only(inspect),
@@ -664,7 +468,7 @@ struct Store::Impl
         if (!read_only && existing) {
             // Keep exclusive ownership across read-only validation and writer open.
             // Invalid stores are rejected before enabling writer journal state.
-            Impl inspected(root, identity, clock, true, false, std::move(owner));
+            Impl inspected(kinds, root, identity, clock, true, false, std::move(owner));
             owner = std::move(inspected.owner);
             current = std::move(inspected.current);
             uncommitted = inspected.uncommitted;
@@ -695,16 +499,18 @@ struct Store::Impl
             database->execute("CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state, sequence)");
             database->execute(
                 "CREATE INDEX IF NOT EXISTS tasks_input ON tasks(kind, json_extract(manifest, '$.input_sha256'))");
-            database->execute(
-                "CREATE INDEX IF NOT EXISTS tasks_research_project ON tasks(json_extract(manifest,'$.research_plan.project_id'),sequence)");
+            for (const auto& index : kinds->domain.indexes())
+                database->execute(
+                    "CREATE INDEX IF NOT EXISTS " + std::string(index.name)
+                    + " ON tasks(json_extract(manifest,'" + std::string(index.path)
+                    + "'),sequence)");
             database->execute(
                 "CREATE TABLE IF NOT EXISTS preparation_decisions(id TEXT PRIMARY KEY, input_digest TEXT NOT NULL, resource BLOB NOT NULL, evidence BLOB NOT NULL) STRICT");
             database->execute(
                 "CREATE TABLE IF NOT EXISTS task_events(task_id TEXT NOT NULL" " REFERENCES tasks(id), sequence INTEGER NOT NULL, body TEXT NOT NULL," " PRIMARY KEY(task_id, sequence)) STRICT");
             schema.commit();
         }
-        event_log =
-            std::make_unique<sqlite::TaskEvents>(*database, root / "event-segments", read_only);
+        event_log = std::make_unique<TaskEvents>(*database, root / "event-segments", read_only);
         if (read_only || !existing)
             load(bounded_inspection, inspection_stop, cold_inspection);
         // Recovery retains bounded active metadata, one input and one event segment.
@@ -737,7 +543,7 @@ struct Store::Impl
         for (const auto& item : fs::directory_iterator(root)) {
             safe(item.path());
             const auto name = item.path().filename().string();
-            if ((name == "event-segments" || name == "programs") && item.is_directory())
+            if ((name == "event-segments" || kinds->reserved(name)) && item.is_directory())
                 continue;
             if (item.is_regular_file()
                 && (name == "instance.json" || name == "manager.lock" || name == "tasks.sqlite"
@@ -777,29 +583,24 @@ struct Store::Impl
             inspect_size(tasks.integer(2), 65536);
             const auto manifest = parse_json(tasks.text(1), 65536);
             Entry entry;
-            auto manifest_fields = manifest;
-            manifest_fields.erase("derivation");
-            manifest_fields.erase("research_plan");
-            manifest_fields.erase("strategy_use");
-            manifest_fields.erase("variable_definition");
-            const bool calculation_program = manifest.at("type") == "backtest.task"
-                || manifest.at("type") == "factor.task" || manifest.at("type") == "statistics.task"
-                || manifest.at("type") == "performance_evaluation.task"
-                || manifest.at("type") == "sample.task"
-                || manifest.at("type") == "logic_trial.task";
-            if (calculation_program)
-                manifest_fields.erase("program_artifact");
+            // Shared fields here; the remainder belongs to the domain.
+            auto shared = Json::object(), extra = Json::object();
+            for (const auto& [key, value] : manifest.items())
+                (key == "type" || key == "input_sha256" || key == "input_bytes" || key == "id"
+                            || key == "submission_sequence" || key == "submitted_at_ms"
+                            || key == "derivation"
+                        ? shared
+                        : extra)[key] = value;
+            auto required = shared;
+            required.erase("derivation");
             require_fields(
-                manifest_fields,
+                required,
                 {"type",
                     "input_sha256",
                     "input_bytes",
                     "id",
                     "submission_sequence",
-                    "submitted_at_ms",
-                    "provider_artifact",
-                    "risk_artifact",
-                    "download_authorization"});
+                    "submitted_at_ms"});
             if (manifest.at("id") != id)
                 throw std::invalid_argument("unsupported task manifest");
             if (!manifest.at("submission_sequence").is_number_unsigned()
@@ -824,91 +625,13 @@ struct Store::Impl
                 || tasks.integer(3) != last_sequence)
                 throw std::invalid_argument("task submission sequence has missing records");
             entry.task.set_id(id);
-            if (manifest.at("type") == "minutes.task")
-                entry.task.set_kind(wire::MINUTE_DOWNLOAD);
-            else if (manifest.at("type") == "tables.task")
-                entry.task.set_kind(wire::TABLE_UPDATE);
-            else if (manifest.at("type") == "backtest.task")
-                entry.task.set_kind(wire::BACKTEST);
-            else if (manifest.at("type") == "factor.task")
-                entry.task.set_kind(wire::FACTOR);
-            else if (manifest.at("type") == "material.task")
-                entry.task.set_kind(wire::MATERIAL_ACQUISITION);
-            else if (manifest.at("type") == "account_review.task")
-                entry.task.set_kind(wire::ACCOUNT_REVIEW);
-            else if (manifest.at("type") == "statistics.task")
-                entry.task.set_kind(wire::STATISTICS);
-            else if (manifest.at("type") == "performance_evaluation.task")
-                entry.task.set_kind(wire::PERFORMANCE_EVALUATION);
-            else if (manifest.at("type") == "sample.task")
-                entry.task.set_kind(wire::SAMPLE);
-            else if (manifest.at("type") == "logic_trial.task")
-                entry.task.set_kind(wire::LOGIC_TRIAL);
-            else
+            const auto* kind = manifest.at("type").is_string()
+                ? kinds->manifest(manifest.at("type").get<std::string>())
+                : nullptr;
+            if (!kind)
                 throw std::invalid_argument("unsupported task manifest type");
-            entry.task.set_provider_artifact(manifest.at("provider_artifact").get<std::string>());
-            entry.task.set_download_authorization(
-                manifest.at("download_authorization").get<std::string>());
-            if (entry.task.kind() == wire::MINUTE_DOWNLOAD
-                || entry.task.kind() == wire::TABLE_UPDATE) {
-                if (entry.task.download_authorization().size() != 64
-                    || entry.task.download_authorization().find_first_not_of("0123456789abcdef")
-                        != std::string::npos)
-                    throw std::invalid_argument("invalid task download authorization");
-                const auto& hash = entry.task.provider_artifact();
-                if (hash.size() != 64 || !std::ranges::all_of(hash, [](char c) {
-                        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-                    }))
-                    throw std::invalid_argument("invalid task provider artifact");
-            } else if (entry.task.kind() == wire::MATERIAL_ACQUISITION) {
-                payload::validate_digest(entry.task.provider_artifact());
-                if (!entry.task.download_authorization().empty())
-                    throw std::invalid_argument(
-                        "material acquisition has unexpected download authorization");
-            } else if (!entry.task.provider_artifact().empty()
-                || !entry.task.download_authorization().empty())
-                throw std::invalid_argument("unexpected task provider artifact");
-            if (calculation_program) {
-                entry.task.set_program_artifact(manifest.at("program_artifact").get<std::string>());
-                if (!entry.task.program_artifact().empty() || entry.task.kind() == wire::STATISTICS
-                    || entry.task.kind() == wire::PERFORMANCE_EVALUATION
-                    || entry.task.kind() == wire::SAMPLE || entry.task.kind() == wire::LOGIC_TRIAL)
-                    payload::validate_digest(entry.task.program_artifact());
-            }
-            if (manifest.contains("research_plan")) {
-                *entry.task.mutable_research_plan() =
-                    protocol::encode_project_binding(manifest.at("research_plan"));
-                if ((entry.task.kind() != wire::FACTOR && entry.task.kind() != wire::SAMPLE
-                        && entry.task.kind() != wire::STATISTICS
-                        && entry.task.kind() != wire::BACKTEST)
-                    || entry.task.research_plan().owner().service_id() != identity.instance)
-                    throw std::invalid_argument("invalid fixed research plan owner or task kind");
-            }
-            if (manifest.contains("strategy_use")) {
-                *entry.task.mutable_strategy_use() =
-                    protocol::encode_strategy_use(manifest.at("strategy_use"));
-                if (entry.task.kind() != wire::BACKTEST
-                    || entry.task.strategy_use().package().owner().service_id()
-                        != identity.instance)
-                    throw std::invalid_argument("invalid fixed strategy use owner or task kind");
-            }
-            if (manifest.contains("variable_definition")) {
-                *entry.task.mutable_variable_definition() =
-                    protocol::encode_variable_reference(manifest.at("variable_definition"));
-                if (entry.task.kind() != wire::FACTOR
-                    || entry.task.variable_definition().owner().service_id() != identity.instance)
-                    throw std::invalid_argument(
-                        "invalid fixed research variable owner or task kind");
-            }
-            entry.task.set_risk_artifact(manifest.at("risk_artifact").get<std::string>());
-            if (entry.task.kind() == wire::BACKTEST) {
-                const auto& hash = entry.task.risk_artifact();
-                if (hash.size() != 64 || !std::ranges::all_of(hash, [](char c) {
-                        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-                    }))
-                    throw std::invalid_argument("invalid risk plugin artifact");
-            } else if (!entry.task.risk_artifact().empty())
-                throw std::invalid_argument("unexpected task risk artifact");
+            entry.task.set_kind(kind->spec->kind);
+            kinds->domain.read_manifest(extra, entry.task, identity.instance);
             // Opening checks index/event consistency. Only cold backup inspection,
             // reading files this process did not write, verifies payload digests.
             if (cold_inspection)
@@ -946,22 +669,23 @@ struct Store::Impl
                         if (!event.at("updated_at_ms").is_number_integer()
                             || event.at("updated_at_ms") <= 0
                             || event.at("updated_at_ms") > 9223372036854LL)
-                            throw std::invalid_argument("invalid research retirement time");
+                            throw std::invalid_argument("invalid task retirement time");
                         entry.task.set_updated_at_ms(event.at("updated_at_ms").get<std::int64_t>());
                         if (entry.task.has_retirement() || occupies_slot(entry.task.state())
                             || !google::protobuf::util::JsonStringToMessage(
                                 event.at("object").dump(),
                                 entry.task.mutable_retirement())
                                 .ok())
-                            throw std::invalid_argument("invalid persisted research retirement");
+                            throw std::invalid_argument("invalid persisted task retirement");
                         const auto& object = entry.task.retirement();
-                        const auto [domain, kind] = retirement_identity(entry.task.kind());
+                        const auto domain = kinds->domain.name();
+                        const auto kind = kinds->spec(entry.task.kind()).resource;
                         protocol::validate_message(object);
                         validate_id(object.owner().node_id());
                         if (object.owner().service_id() != identity.instance
                             || object.owner().domain() != domain || object.id() != id
                             || object.version() != entry.input_digest || object.kind() != kind)
-                            throw std::invalid_argument("research retirement identity mismatch");
+                            throw std::invalid_argument("task retirement identity mismatch");
                         return;
                     }
                     // Failure codes are optional observations. Service interruptions may have
@@ -1015,7 +739,7 @@ struct Store::Impl
                             .ok())
                         throw std::invalid_argument("invalid persisted publication decision");
                     entry.token = event.at("token").get<std::string>();
-                    transition(previous, old_token, entry.task, entry.token);
+                    transition(*kinds, previous, old_token, entry.task, entry.token);
                 });
             if (encode(entry) != encode(indexed))
                 throw std::invalid_argument("task index does not match state history");
@@ -1035,6 +759,50 @@ struct Store::Impl
         }
     }
 
+    static wire::StoredTaskRecord stored(const Entry& entry)
+    {
+        wire::StoredTaskRecord record;
+        *record.mutable_task() = entry.task;
+        record.set_input_digest(entry.input_digest);
+        record.set_input_bytes(entry.input_bytes);
+        return record;
+    }
+
+    // The records a domain's admission rules consult.
+    class View final : public Records
+    {
+    public:
+        explicit View(const Impl& owner)
+            : owner_(owner)
+        {}
+
+        wire::StoredTaskRecord find(const std::string& id) const override
+        {
+            return stored(owner_.find(id));
+        }
+
+        bool retired(const std::string& id) const override
+        {
+            return owner_.find(id).task.has_retirement() || owner_.retiring.contains(id);
+        }
+
+        std::optional<wire::StoredTaskRecord>
+        same_input(wire::TaskKind kind, const std::string& digest) const override
+        {
+            sqlite::Database::Statement same(
+                *owner_.database,
+                "SELECT id FROM tasks WHERE kind=? AND json_extract(manifest,'$.input_sha256')=? LIMIT 1");
+            same.bind(1, std::string(owner_.kinds->spec(kind).manifest));
+            same.bind(2, digest);
+            if (!same.step())
+                return std::nullopt;
+            return stored(owner_.find(same.text(0)));
+        }
+
+    private:
+        const Impl& owner_;
+    };
+
     static std::string encode(const Entry& entry)
     {
         wire::StoredTaskRecord record;
@@ -1050,7 +818,7 @@ struct Store::Impl
 
     std::optional<resource::proto::Object> abandoned_preparation(const std::string& id) const
     {
-        validate_task_id(id);
+        validate_task_id(*kinds, id);
         sqlite::Database::Statement query(
             *database,
             "SELECT input_digest,CASE WHEN length(resource)<=4096 THEN resource END FROM preparation_decisions WHERE id=?");
@@ -1063,8 +831,7 @@ struct Store::Impl
         protocol::validate_message(object);
         validate_id(object.owner().node_id());
         if (object.id() != id || object.owner().service_id() != identity.instance
-            || object.version() != query.text(0)
-            || (object.owner().domain() != "research" && object.owner().domain() != "data"))
+            || object.version() != query.text(0) || object.owner().domain() != kinds->domain.name())
             throw std::invalid_argument("preparation release decision identity mismatch");
         payload::validate_digest(object.version());
         return object;
@@ -1175,7 +942,7 @@ struct Store::Impl
     {
         writable();
         next.set_updated_at_ms(now_ms());
-        transition(entry.task, entry.token, next, token);
+        transition(*kinds, entry.task, entry.token, next, token);
         PendingChange change;
         change.next = {
             std::move(next),
@@ -1295,6 +1062,7 @@ struct Store::Impl
     ResultRead prepare_read(const Entry& entry, bool include_input) const
     {
         return ResultRead(
+            kinds,
             entry.task,
             root / entry.task.id(),
             entry.input_digest,
@@ -1417,11 +1185,16 @@ Store::Change Store::commit(Change change)
     return change;
 }
 
-Store::Store(fs::path directory, Identity identity, std::shared_ptr<const Clock> clock)
-    : Store(std::move(directory), std::move(identity), std::move(clock), false)
+Store::Store(
+    const TaskDomain& domain,
+    fs::path directory,
+    Identity identity,
+    std::shared_ptr<const Clock> clock)
+    : Store(domain, std::move(directory), std::move(identity), std::move(clock), false)
 {}
 
 Store::Store(
+    const TaskDomain& domain,
     fs::path directory,
     Identity identity,
     std::shared_ptr<const Clock> clock,
@@ -1431,6 +1204,7 @@ Store::Store(
     std::stop_token stop)
     : impl_(
           std::make_unique<Impl>(
+              std::make_shared<const Kinds>(domain),
               std::move(directory),
               std::move(identity),
               std::move(clock),
@@ -1443,22 +1217,24 @@ Store::Store(
 
 Store::~Store() = default;
 
-sqlite::Database& Store::research_metadata(std::string_view service, bool writer)
+sqlite::Database& Store::database(std::string_view service, bool writer)
 {
     if (impl_->identity.instance != service)
-        throw Error(ErrorCode::conflict, "research project owner mismatch");
+        throw Error(ErrorCode::conflict, "task store owner mismatch");
     if (writer && impl_->read_only)
-        throw Error(ErrorCode::permission_denied, "research project access is read only");
+        throw Error(ErrorCode::permission_denied, "task store access is read only");
     return *impl_->database;
 }
 
 Store::ResultRead::ResultRead(
+    std::shared_ptr<const Kinds> kinds,
     wire::Task task,
     fs::path directory,
     std::string digest,
     std::uint64_t bytes,
     bool include_input)
-    : task_(std::move(task)),
+    : kinds_(std::move(kinds)),
+      task_(std::move(task)),
       directory_(std::move(directory)),
       input_digest_(std::move(digest)),
       input_bytes_(bytes),
@@ -1474,9 +1250,9 @@ void Store::ResultRead::verify()
         directory_ / "results" / (std::to_string(task_.attempt()) + ".pb"),
         payload::max_result_bytes);
     wire::TaskResponse result;
-    auto task =
-        include_input_ ? read_input(task_, directory_ / "input.pb", input_bytes_) : wire::Task{};
-    payload::parse(raw, mutable_result(result, task_.kind()));
+    auto task = include_input_ ? read_input(*kinds_, task_, directory_ / "input.pb", input_bytes_)
+                               : wire::Task{};
+    payload::parse(raw, mutable_result(*kinds_, result, task_.kind()));
 
     if (include_input_)
         *result.mutable_result_task() = std::move(task);
@@ -1512,9 +1288,8 @@ Store::Submission::Submission(Impl* owner, fs::path root, wire::Task task)
       root_(std::move(root)),
       task_(std::move(task))
 {
-    const auto& id = task_.id();
-    validate_task_id(id);
-    prepare(task_);
+    validate_task_id(*owner_->kinds, task_.id());
+    prepare(*owner_->kinds, task_);
 }
 
 Store::Submission Store::submission(wire::Task task) const
@@ -1532,45 +1307,16 @@ void Store::Submission::set_reuse_digest(std::string digest)
     reuse_digest_ = std::move(digest);
 }
 
-void Store::Submission::set_program_artifact(std::string artifact)
+void Store::Submission::amend(const std::function<void(wire::Task&)>& change)
 {
-    if (admitted_ || prepared_
-        || (task_.kind() != wire::BACKTEST && task_.kind() != wire::FACTOR
-            && task_.kind() != wire::STATISTICS && task_.kind() != wire::SAMPLE
-            && task_.kind() != wire::LOGIC_TRIAL && task_.kind() != wire::PERFORMANCE_EVALUATION))
-        throw std::logic_error("program identity requires an unprepared calculation submission");
-    payload::validate_digest(artifact);
-    task_.set_program_artifact(std::move(artifact));
-}
-
-void Store::Submission::set_research_plan(research::proto::ProjectBinding binding)
-{
-    if (admitted_ || prepared_
-        || (task_.kind() != wire::FACTOR && task_.kind() != wire::SAMPLE
-            && task_.kind() != wire::STATISTICS && task_.kind() != wire::BACKTEST))
-        throw std::logic_error("plan identity requires an unprepared research submission");
-    protocol::validate_project_binding(binding);
-    if (binding.owner().service_id() != owner_->identity.instance)
-        throw std::invalid_argument("invalid fixed research plan owner or task kind");
-    *task_.mutable_research_plan() = std::move(binding);
-}
-
-void Store::Submission::set_strategy_use(
-    research::proto::StrategyUse use,
-    const research::proto::StrategyDefinition& fixed)
-{
-    if (admitted_ || prepared_ || task_.kind() != wire::BACKTEST || !task_.has_input())
-        throw std::logic_error("strategy identity requires an unprepared backtest submission");
-    protocol::validate_strategy_use(use);
-    const auto actual = protocol::strategy_definition(
-        task_.input(),
-        task_.program_artifact(),
-        task_.risk_artifact());
-    if (use.package().owner().service_id() != owner_->identity.instance
-        || actual.SerializeAsString() != fixed.SerializeAsString()
-        || protocol::strategy_digest(fixed) != use.package().version())
-        throw Error(ErrorCode::conflict, "backtest differs from its fixed strategy package");
-    *task_.mutable_strategy_use() = std::move(use);
+    if (admitted_ || prepared_)
+        throw std::logic_error("task submission identity is already admitted");
+    const auto id = task_.id();
+    const auto kind = task_.kind();
+    const auto definition = task_.definition_case();
+    change(task_);
+    if (task_.id() != id || task_.kind() != kind || task_.definition_case() != definition)
+        throw std::logic_error("task submission amendment changed its definition");
 }
 
 void Store::Submission::set_derivation(wire::TaskDerivation derivation)
@@ -1584,8 +1330,8 @@ Store::Change Store::edit_metadata(const wire::TaskMetadataEdit& edit)
 {
     impl_->writable();
     const auto entry = impl_->find(edit.id());
-    if (!research_calculation(entry.task.kind()))
-        throw std::invalid_argument("experiment metadata requires a research task");
+    if (!impl_->kinds->spec(entry.task.kind()).calculation)
+        throw std::invalid_argument("experiment metadata requires a calculation task");
     if (edit.expected_revision() != entry.task.metadata().revision())
         throw Error(ErrorCode::conflict, "experiment metadata changed; reload before saving");
     auto next = entry;
@@ -1610,7 +1356,7 @@ Store::Change Store::edit_metadata(const wire::TaskMetadataEdit& edit)
 
 wire::PreparedTaskSubmission Store::prepared_submission_record(const std::string& id) const
 {
-    validate_task_id(id);
+    validate_task_id(*impl_->kinds, id);
     const auto directory = impl_->root / id;
     safe(directory);
     const auto path = directory / "prepared.pb";
@@ -1631,48 +1377,8 @@ wire::PreparedTaskSubmission Store::prepared_submission_record(const std::string
         || record.input_bytes() > payload::max_input_bytes)
         throw std::invalid_argument("task preparation ownership or state mismatch");
     payload::validate_digest(record.input_digest());
-    if (record.task().research_plan().SerializeAsString()
-        != value.execution().research_plan().SerializeAsString())
-        throw std::invalid_argument("task preparation research plan mismatch");
-    if (record.task().strategy_use().SerializeAsString()
-        != value.execution().strategy_use().SerializeAsString())
-        throw std::invalid_argument("task preparation strategy use mismatch");
-    if (record.task().has_strategy_use()) {
-        protocol::validate_strategy_use(record.task().strategy_use());
-        if (record.task().kind() != wire::BACKTEST
-            || record.task().strategy_use().package().owner().service_id()
-                != impl_->identity.instance)
-            throw std::invalid_argument("invalid fixed strategy use owner or task kind");
-    }
-    if (record.task().has_research_plan()) {
-        protocol::validate_project_binding(record.task().research_plan());
-        if ((record.task().kind() != wire::FACTOR && record.task().kind() != wire::SAMPLE
-                && record.task().kind() != wire::STATISTICS
-                && record.task().kind() != wire::BACKTEST)
-            || record.task().research_plan().owner().service_id() != impl_->identity.instance)
-            throw std::invalid_argument("invalid fixed research plan owner or task kind");
-    }
-    if (record.task().has_variable_definition() != value.execution().has_variable_definition())
-        throw std::invalid_argument("task preparation research variable mismatch");
-    if (record.task().has_variable_definition()) {
-        protocol::verify_variable_reference(
-            record.task().variable_definition(),
-            value.execution().variable_definition());
-        if (record.task().kind() != wire::FACTOR
-            || record.task().variable_definition().owner().service_id() != impl_->identity.instance)
-            throw std::invalid_argument("invalid fixed research variable owner or task kind");
-    }
-    if (record.task().kind() == wire::PERFORMANCE_EVALUATION) {
-        if (!value.execution().has_evaluation()
-            || value.execution().program_artifact() != record.task().program_artifact()
-            || value.execution().evaluation().request().source().owner().service_id()
-                != impl_->identity.instance)
-            throw std::invalid_argument(
-                "evaluation preparation differs from its fixed source or program");
-        (void)protocol::task_data_references(value.execution());
-    } else if (value.execution().has_evaluation())
-        throw std::invalid_argument("unexpected evaluation preparation parameters");
-    if ((research_calculation(record.task().kind()))
+    impl_->kinds->domain.validate_preparation(value, impl_->identity.instance);
+    if (impl_->kinds->spec(record.task().kind()).calculation
         && value.execution().input_sha256() != record.input_digest())
         throw std::invalid_argument("task preparation input identity mismatch");
     return value;
@@ -1682,12 +1388,14 @@ Store::Submission Store::resume_submission(const std::string& id) const
 {
     const auto value = prepared_submission_record(id);
     const auto& record = value.record();
-    auto task = read_input(record.task(), impl_->root / id / "input.pb", record.input_bytes());
+    const auto& kinds = *impl_->kinds;
+    auto task =
+        read_input(kinds, record.task(), impl_->root / id / "input.pb", record.input_bytes());
     Submission input(impl_.get(), impl_->root, std::move(task));
     if (summary(input.task_).SerializeAsString() != record.task().SerializeAsString())
         throw std::invalid_argument("prepared input does not match admitted work");
-    if (research_calculation(input.task_.kind())
-        && protocol::task_execution(input.task_, record.input_digest()).SerializeAsString()
+    if (kinds.spec(input.task_.kind()).calculation
+        && kinds.domain.execution(input.task_, record.input_digest()).SerializeAsString()
             != value.execution().SerializeAsString())
         throw std::invalid_argument("prepared execution does not match fixed input");
     input.digest_ = record.input_digest();
@@ -1721,7 +1429,7 @@ wire::PreparedTaskSubmission Store::abandoned_preparation_record(const std::stri
         || record.task().state() != wire::QUEUED || record.task().attempt()
         || !record.token().empty() || record.event_sequence() || !record.input_bytes()
         || record.input_bytes() > payload::max_input_bytes
-        || ((research_calculation(record.task().kind()))
+        || (impl_->kinds->spec(record.task().kind()).calculation
             && evidence.execution().input_sha256() != record.input_digest()))
         throw std::invalid_argument("abandoned preparation ownership or state mismatch");
     return evidence;
@@ -1736,35 +1444,19 @@ Store::Change Store::abandon_preparation(
     protocol::validate_message(resource);
     const auto& record = prepared.record();
     const auto& id = record.task().id();
-    validate_task_id(id);
+    const auto& kinds = *impl_->kinds;
+    validate_task_id(kinds, id);
     validate_id(resource.owner().node_id());
     payload::validate_digest(resource.version());
     if (record.task().state() != wire::QUEUED || record.task().attempt()
         || record.task().definition_case() != wire::Task::DEFINITION_NOT_SET
-        || !record.token().empty() || record.event_sequence()
-        || (record.task().kind() != wire::BACKTEST && record.task().kind() != wire::FACTOR
-            && record.task().kind() != wire::MINUTE_DOWNLOAD
-            && record.task().kind() != wire::TABLE_UPDATE
-            && record.task().kind() != wire::ACCOUNT_REVIEW
-            && record.task().kind() != wire::STATISTICS && record.task().kind() != wire::SAMPLE
-            && record.task().kind() != wire::LOGIC_TRIAL
-            && record.task().kind() != wire::PERFORMANCE_EVALUATION
-            && record.task().kind() != wire::MATERIAL_ACQUISITION))
+        || !record.token().empty() || record.event_sequence() || !kinds.has(record.task().kind()))
         throw Error(ErrorCode::conflict, "invalid unadmitted preparation state");
-    const bool calculation = research_calculation(record.task().kind());
-    if (calculation && prepared.execution().input_sha256() != record.input_digest())
+    const auto& spec = kinds.spec(record.task().kind());
+    if (spec.calculation && prepared.execution().input_sha256() != record.input_digest())
         throw Error(ErrorCode::conflict, "preparation input identity mismatch");
-    const auto domain = calculation ? "research" : "data";
-    const auto kind = record.task().kind() == wire::BACKTEST   ? "backtest"
-        : record.task().kind() == wire::FACTOR                 ? "factor"
-        : record.task().kind() == wire::ACCOUNT_REVIEW         ? "account_review"
-        : record.task().kind() == wire::STATISTICS             ? "statistics"
-        : record.task().kind() == wire::PERFORMANCE_EVALUATION ? "performance_evaluation"
-        : record.task().kind() == wire::SAMPLE                 ? "sample"
-        : record.task().kind() == wire::LOGIC_TRIAL            ? "logic_trial"
-        : record.task().kind() == wire::MINUTE_DOWNLOAD        ? "minutes"
-        : record.task().kind() == wire::MATERIAL_ACQUISITION   ? "material_acquisition_task"
-                                                               : "table_update";
+    const auto domain = kinds.domain.name();
+    const auto kind = spec.resource;
     if (prepared.instance_id() != impl_->identity.instance || resource.owner().domain() != domain
         || resource.owner().service_id() != impl_->identity.instance || resource.id() != id
         || resource.version() != record.input_digest() || resource.kind() != kind)
@@ -1794,133 +1486,41 @@ void Store::admit_submission(Submission& input)
 {
     impl_->writable();
     if (impl_->contains(input.task_.id()) && impl_->find(input.task_.id()).task.has_retirement())
-        throw Error(ErrorCode::conflict, "retired research identity cannot be reused");
+        throw Error(ErrorCode::conflict, "retired task identity cannot be reused");
     if (impl_->abandoned_preparation(input.task_.id()))
         throw Error(ErrorCode::conflict, "preparation was durably abandoned");
     if (input.owner_ != impl_.get() || input.admitted_)
         throw std::logic_error("invalid task submission admission");
-    if (input.task_.kind() == wire::SAMPLE || input.task_.kind() == wire::LOGIC_TRIAL) {
-        if (input.task_.program_artifact().empty())
-            throw Error(ErrorCode::conflict, "calculation requires its fixed execution program");
-        payload::validate_digest(input.task_.program_artifact());
-    }
-    if (input.task_.kind() == wire::PERFORMANCE_EVALUATION) {
-        if (input.task_.program_artifact().empty())
-            throw Error(ErrorCode::conflict, "evaluation requires its fixed execution program");
-        payload::validate_digest(input.task_.program_artifact());
-        if (!input.task_.metadata().has_derivation())
-            throw std::invalid_argument("invalid experiment derivation");
-    }
-    if (input.task_.kind() == wire::STATISTICS) {
-        if (input.task_.program_artifact().empty())
-            throw Error(ErrorCode::conflict, "statistics require its fixed execution program");
-        payload::validate_digest(input.task_.program_artifact());
-        if (!input.task_.metadata().has_derivation())
-            throw std::invalid_argument("invalid experiment derivation");
-    }
     if (input.task_.metadata().has_derivation()) {
-        auto* source = input.task_.mutable_metadata()->mutable_derivation();
-        source->set_source_instance(impl_->identity.instance);
+        input.task_.mutable_metadata()->mutable_derivation()->set_source_instance(
+            impl_->identity.instance);
         validate_metadata(input.task_.metadata());
-        const auto original_entry = impl_->find(source->source_id());
-        const auto& original = original_entry.task;
-        if (original.has_retirement() || impl_->retiring.contains(source->source_id()))
-            throw Error(
-                ErrorCode::conflict,
-                "retired research source cannot accept new derivations");
-        const bool statistics = input.task_.kind() == wire::STATISTICS;
-        const bool evaluation = input.task_.kind() == wire::PERFORMANCE_EVALUATION;
-        if (source->source_id() == input.task_.id() || original.state() != wire::SUCCEEDED
-            || (statistics
-                    ? !((original.kind() == wire::FACTOR
-                            && input.task_.statistics().source().result().kind() == "factor_result")
-                          || (original.kind() == wire::SAMPLE
-                              && input.task_.statistics().source().result().kind()
-                                  == "sample_result"))
-                    : evaluation ? original.kind() != wire::BACKTEST
-                                 : original.kind() != input.task_.kind())
-            || original.result_digest() != source->source_result_digest())
-            throw std::invalid_argument("invalid experiment derivation");
-        if (evaluation) {
-            const auto& fixed = input.task_.evaluation();
-            const auto& identity = fixed.request().source();
-            const auto& proof = fixed.source();
-            if (source->data_choice() != "fixed" || source->source_id() != identity.id()
-                || source->source_result_digest() != identity.version()
-                || proof.input_sha256() != original_entry.input_digest
-                || proof.input_bytes() != original_entry.input_bytes
-                || proof.attempt() != original.attempt()
-                || proof.program_artifact() != original.program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "evaluation source evidence differs from its captured identity");
-            // Account bytes are the parent evidence, not reusable evaluation input.
-        } else if (statistics) {
-            const auto& fixed = input.task_.statistics().source();
-            if (source->data_choice() != "fixed" || source->source_id() != fixed.result().id()
-                || source->source_result_digest() != fixed.result().version()
-                || fixed.input_sha256() != original_entry.input_digest
-                || fixed.input_bytes() != original_entry.input_bytes
-                || fixed.attempt() != original.attempt()
-                || fixed.program_artifact() != original.program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "statistics source evidence does not match its captured identity");
-            // The parent is factor evidence, not reusable statistics input bytes.
-        } else {
-            input.reusable_.emplace();
-            *input.reusable_->mutable_task() = summary(original);
-            input.reusable_->set_input_digest(original_entry.input_digest);
-            input.reusable_->set_input_bytes(original_entry.input_bytes);
-        }
     }
-    if (input.task_.has_variable_definition()
-        && input.task_.variable_definition().owner().service_id() != impl_->identity.instance)
-        throw std::invalid_argument("invalid fixed research variable owner or task kind");
     const auto& id = input.task_.id();
-    if (impl_->contains(id)) {
-        const auto entry = impl_->find(id);
-        if (input.task_.research_plan().SerializeAsString()
-            != entry.task.research_plan().SerializeAsString())
-            throw Error(ErrorCode::conflict, "task research plan changed");
-        if (input.task_.strategy_use().SerializeAsString()
-            != entry.task.strategy_use().SerializeAsString())
-            throw Error(ErrorCode::conflict, "task strategy use changed");
-        if (input.task_.variable_definition().SerializeAsString()
-            != entry.task.variable_definition().SerializeAsString())
-            throw Error(ErrorCode::conflict, "task research variable changed");
-        input.existing_.emplace();
-        *input.existing_->mutable_task() = entry.task;
-        input.existing_->set_input_digest(entry.input_digest);
-        input.existing_->set_input_bytes(entry.input_bytes);
+    std::optional<wire::StoredTaskRecord> existing;
+    if (impl_->contains(id))
+        existing = Impl::stored(impl_->find(id));
+    const Impl::View records(*impl_);
+    Admission admission{
+        input.task_,
+        records,
+        impl_->identity.instance,
+        input.reuse_digest_,
+        existing ? &*existing : nullptr,
+        {}
+    };
+    impl_->kinds->domain.admit(admission);
+    input.reusable_ = std::move(admission.reusable);
+    if (existing) {
         if (input.prepared_
-            && (input.digest_ != entry.input_digest || input.bytes_ != entry.input_bytes
-                || input.task_.risk_artifact() != entry.task.risk_artifact()
-                || input.task_.program_artifact() != entry.task.program_artifact()
+            && (input.digest_ != existing->input_digest() || input.bytes_ != existing->input_bytes()
+                || input.task_.risk_artifact() != existing->task().risk_artifact()
+                || input.task_.program_artifact() != existing->task().program_artifact()
                 || input.task_.metadata().derivation().SerializeAsString()
-                    != entry.task.metadata().derivation().SerializeAsString()))
+                    != existing->task().metadata().derivation().SerializeAsString()))
             throw Error(ErrorCode::conflict, "prepared submission differs from admitted task");
+        input.existing_ = std::move(existing);
     } else {
-        // Validate the fixed definition before reserving new work. A prepared-file
-        // execution descriptor is not available at this admission boundary.
-        if (input.task_.has_input())
-            protocol::require_backtest_scoring_assumptions(
-                static_cast<std::size_t>(input.task_.input().strategies_size()),
-                input.task_.input().performance_assumptions());
-        if (input.task_.has_account_review() && !input.reusable_) {
-            sqlite::Database::Statement same(
-                *impl_->database,
-                "SELECT id FROM tasks WHERE kind=? AND json_extract(manifest,'$.input_sha256')=? LIMIT 1");
-            same.bind(1, "account_review.task");
-            same.bind(2, input.reuse_digest_);
-            if (same.step()) {
-                const auto original = impl_->find(same.text(0));
-                input.reusable_.emplace();
-                *input.reusable_->mutable_task() = summary(original.task);
-                input.reusable_->set_input_digest(original.input_digest);
-                input.reusable_->set_input_bytes(original.input_bytes);
-            }
-        }
         if (impl_->submitting)
             throw Error(ErrorCode::resource_exhausted, "task submission is already being prepared");
         impl_->admit();
@@ -1938,20 +1538,19 @@ void Store::Submission::prepare_files()
 {
     if (!admitted_ || prepared_)
         throw std::logic_error("task submission is not awaiting file preparation");
+    const auto& kinds = *owner_->kinds;
     const auto directory = root_ / task_.id();
     if (existing_) {
         const auto current =
-            read_input(existing_->task(), directory / "input.pb", existing_->input_bytes());
+            read_input(kinds, existing_->task(), directory / "input.pb", existing_->input_bytes());
         if (current.kind() != task_.kind()
             || current.download_authorization() != task_.download_authorization()
             || current.provider_artifact() != task_.provider_artifact()
-            || current.research_plan().SerializeAsString()
-                != task_.research_plan().SerializeAsString()
-            || current.strategy_use().SerializeAsString()
-                != task_.strategy_use().SerializeAsString()
+            || !kinds.domain.same_submission(current, task_)
             || current.metadata().derivation().SerializeAsString()
                 != task_.metadata().derivation().SerializeAsString()
-            || definition(current).SerializeAsString() != definition(task_).SerializeAsString())
+            || definition(kinds, current).SerializeAsString()
+                != definition(kinds, task_).SerializeAsString())
             throw std::invalid_argument("task id already belongs to different input");
     } else {
         safe(directory);
@@ -1959,12 +1558,7 @@ void Store::Submission::prepare_files()
             throw std::invalid_argument("task directory exists without committed submission");
         created_ = true;
         fs::create_directory(directory / "results");
-        if (task_.has_input()) {
-            const auto module = risk_providers::Module::selected();
-            if (module.artifact() != task_.risk_artifact())
-                throw std::invalid_argument("risk plugin artifact changed before capture");
-            module.capture(directory);
-        }
+        kinds.domain.capture(task_, directory);
         sync_directory(directory / "results");
         sync_directory(directory);
         sync_directory(root_);
@@ -1976,7 +1570,7 @@ void Store::Submission::prepare_files()
             };
         const auto stored = payload::publish(
             directory / "input.pb",
-            definition(task_),
+            definition(kinds, task_),
             payload::max_input_bytes,
             [&](const payload::Identity& input) {
                 wire::PreparedTaskSubmission preparation;
@@ -1985,9 +1579,8 @@ void Store::Submission::prepare_files()
                 *record->mutable_task() = summary(task_);
                 record->set_input_digest(input.digest);
                 record->set_input_bytes(input.size);
-                if (research_calculation(task_.kind()))
-                    *preparation.mutable_execution() =
-                        protocol::task_execution(task_, input.digest);
+                if (kinds.spec(task_.kind()).calculation)
+                    *preparation.mutable_execution() = kinds.domain.execution(task_, input.digest);
                 replace_file_durably(directory / "prepared.pb", preparation.SerializeAsString());
             },
             reference ? &*reference : nullptr);
@@ -2001,7 +1594,8 @@ wire::TaskRetirement Store::retirement(const std::string& id, const std::string&
 {
     validate_id(node_id);
     const auto entry = impl_->find(id);
-    const auto [domain, kind] = retirement_identity(entry.task.kind());
+    const auto domain = impl_->kinds->domain.name();
+    const auto kind = impl_->kinds->spec(entry.task.kind()).resource;
     wire::TaskRetirement result;
     *result.mutable_task() = summary(entry.task);
     auto* object = result.mutable_object();
@@ -2013,7 +1607,7 @@ wire::TaskRetirement Store::retirement(const std::string& id, const std::string&
     object->set_version(entry.input_digest);
     if (entry.task.has_retirement()) {
         if (entry.task.retirement().SerializeAsString() != object->SerializeAsString())
-            throw Error(ErrorCode::conflict, "research retirement belongs to another owner");
+            throw Error(ErrorCode::conflict, "task retirement belongs to another owner");
         result.set_state(wire::TaskRetirement::RETIRED);
         return result;
     }
@@ -2042,13 +1636,11 @@ Store::Change Store::retire(const resource::proto::Object& expected)
     impl_->writable();
     const auto preview = retirement(expected.id(), expected.owner().node_id());
     if (preview.object().SerializeAsString() != expected.SerializeAsString())
-        throw Error(ErrorCode::conflict, "research retirement object changed");
+        throw Error(ErrorCode::conflict, "task retirement object changed");
     if (preview.state() == wire::TaskRetirement::RETIRED)
         return impl_->unchanged(impl_->find(expected.id()));
     if (preview.state() != wire::TaskRetirement::AVAILABLE)
-        throw Error(
-            ErrorCode::conflict,
-            "research retirement is blocked by activity or references");
+        throw Error(ErrorCode::conflict, "task retirement is blocked by activity or references");
     auto state = std::make_unique<Change::State>();
     state->owner = impl_.get();
     auto& change = state->pending.emplace();
@@ -2059,7 +1651,7 @@ Store::Change Store::retire(const resource::proto::Object& expected)
     change.record = Impl::encode(change.next);
     std::string object;
     if (!google::protobuf::util::MessageToJsonString(expected, &object).ok())
-        throw std::logic_error("cannot encode research retirement");
+        throw std::logic_error("cannot encode task retirement");
     change.event = Json{
         {"type", "retirement"},
         {"object", parse_json(object)},
@@ -2073,7 +1665,7 @@ wire::TaskExecution Store::Submission::execution() const
 {
     if (!prepared_)
         throw std::logic_error("task submission files are not prepared");
-    return protocol::task_execution(task_, existing_ ? existing_->input_digest() : digest_);
+    return owner_->kinds->domain.execution(task_, existing_ ? existing_->input_digest() : digest_);
 }
 
 Store::Change Store::register_submission(Submission& input)
@@ -2086,15 +1678,7 @@ Store::Change Store::register_submission(Submission& input)
         return impl_->unchanged(impl_->find(task.id()));
     if (impl_->submitting != task.id())
         throw std::logic_error("task submission has no reserved capacity");
-    if (task.kind() == wire::PERFORMANCE_EVALUATION) {
-        const auto& source = task.evaluation().request().source();
-        const auto original = impl_->find(source.id()).task;
-        if (original.has_retirement() || impl_->retiring.contains(source.id())
-            || original.state() != wire::SUCCEEDED || original.result_digest() != source.version())
-            throw Error(
-                ErrorCode::conflict,
-                "evaluation source is no longer available for admission");
-    }
+    impl_->kinds->domain.confirm_admission(task, Impl::View(*impl_));
     auto state = std::make_unique<Change::State>();
     state->owner = impl_.get();
     auto& change = state->pending.emplace();
@@ -2104,47 +1688,19 @@ Store::Change Store::register_submission(Submission& input)
     change.next = {summary(task), input.digest_, input.bytes_, "", 0};
     change.record = Impl::encode(change.next);
     change.active_entry = Impl::active_entry(change.next);
-    change.kind = task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
-        : task.kind() == wire::TABLE_UPDATE            ? "tables.task"
-        : task.kind() == wire::FACTOR                  ? "factor.task"
-        : task.kind() == wire::ACCOUNT_REVIEW          ? "account_review.task"
-        : task.kind() == wire::STATISTICS              ? "statistics.task"
-        : task.kind() == wire::PERFORMANCE_EVALUATION  ? "performance_evaluation.task"
-        : task.kind() == wire::SAMPLE                  ? "sample.task"
-        : task.kind() == wire::LOGIC_TRIAL             ? "logic_trial.task"
-        : task.kind() == wire::MATERIAL_ACQUISITION    ? "material.task"
-                                                       : "backtest.task";
-    change.manifest = Json{
-        {"provider_artifact", task.provider_artifact()},
-        {"download_authorization", task.download_authorization()},
-        {"risk_artifact", task.risk_artifact()},
+    change.kind = std::string(impl_->kinds->spec(task.kind()).manifest);
+    auto manifest = Json{
         {"submission_sequence", task.submission_sequence()},
         {"submitted_at_ms", task.submitted_at_ms()},
         {"type", change.kind},
         {"input_sha256", input.digest_},
         {"input_bytes", input.bytes_},
         {"id", task.id()}
-    }.dump();
-    if (task.kind() == wire::BACKTEST || task.kind() == wire::FACTOR
-        || task.kind() == wire::STATISTICS || task.kind() == wire::SAMPLE
-        || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::PERFORMANCE_EVALUATION
-        || task.metadata().has_derivation()) {
-        auto manifest = Json::parse(change.manifest);
-        if (task.kind() == wire::BACKTEST || task.kind() == wire::FACTOR
-            || task.kind() == wire::STATISTICS || task.kind() == wire::SAMPLE
-            || task.kind() == wire::LOGIC_TRIAL || task.kind() == wire::PERFORMANCE_EVALUATION)
-            manifest["program_artifact"] = task.program_artifact();
-        if (task.metadata().has_derivation())
-            manifest["derivation"] = metadata_json(task.metadata()).at("derivation");
-        if (task.has_research_plan())
-            manifest["research_plan"] = protocol::decode_project_binding(task.research_plan());
-        if (task.has_strategy_use())
-            manifest["strategy_use"] = protocol::decode_strategy_use(task.strategy_use());
-        if (task.has_variable_definition())
-            manifest["variable_definition"] =
-                protocol::decode_variable_reference(task.variable_definition());
-        change.manifest = manifest.dump();
-    }
+    };
+    if (task.metadata().has_derivation())
+        manifest["derivation"] = metadata_json(task.metadata()).at("derivation");
+    impl_->kinds->domain.write_manifest(task, manifest);
+    change.manifest = manifest.dump();
     return Change(std::move(state));
 }
 
@@ -2187,8 +1743,14 @@ wire::Task Store::get(const std::string& id) const
     return confirm_input(std::move(read));
 }
 
-Store::InputRead::InputRead(wire::Task task, fs::path path, std::string digest, std::uint64_t bytes)
-    : task_(std::move(task)),
+Store::InputRead::InputRead(
+    std::shared_ptr<const Kinds> kinds,
+    wire::Task task,
+    fs::path path,
+    std::string digest,
+    std::uint64_t bytes)
+    : kinds_(std::move(kinds)),
+      task_(std::move(task)),
       path_(std::move(path)),
       digest_(std::move(digest)),
       bytes_(bytes)
@@ -2197,7 +1759,7 @@ Store::InputRead::InputRead(wire::Task task, fs::path path, std::string digest, 
 void Store::InputRead::load()
 {
     loaded_ = false;
-    task_ = read_input(summary(task_), path_, bytes_);
+    task_ = read_input(*kinds_, summary(task_), path_, bytes_);
     loaded_ = true;
 }
 
@@ -2207,23 +1769,20 @@ void Store::InputRead::load_for_claim()
     // queue. Durable bytes and the originally admitted progress remain intact.
     const auto admitted = task_.total();
     // This identity is admitted metadata even when the calculation bytes are invalid.
-    execution_.set_program_artifact(task_.program_artifact());
-    if (task_.has_research_plan())
-        *execution_.mutable_research_plan() = task_.research_plan();
-    if (task_.has_strategy_use())
-        *execution_.mutable_strategy_use() = task_.strategy_use();
+    const auto& spec = kinds_->spec(task_.kind());
+    kinds_->domain.admitted_execution(task_, execution_);
     try {
         load();
-        prepare(task_);
+        prepare(*kinds_, task_);
         if (task_.total() != admitted)
             throw std::invalid_argument("task input does not match admitted work");
-        if (research_calculation(task_.kind()))
-            execution_ = protocol::task_execution(task_, digest_);
+        if (spec.calculation)
+            execution_ = kinds_->domain.execution(task_, digest_);
     } catch (const std::exception& error) {
         refusal_ = error.what();
         loaded_ = true;
     }
-    if (task_.has_input() || task_.has_factor())
+    if (spec.execution_carries_input)
         task_.clear_definition(); // Release full evidence on this file worker.
 }
 
@@ -2236,10 +1795,11 @@ wire::TaskAttempt Store::confirm_attempt(InputRead read) const
     if (read.execution_.parameters_case() != wire::TaskExecution::PARAMETERS_NOT_SET) {
         *result.mutable_task() = describe(read.task_.id());
         *result.mutable_execution() = std::move(read.execution_);
-        // Backtest and factor executions carry their data in the execution.
-        if (read.task_.kind() != wire::BACKTEST && read.task_.kind() != wire::FACTOR)
-            *result.mutable_task() =
-                attach_definition(std::move(*result.mutable_task()), std::move(read.task_));
+        if (!impl_->kinds->spec(read.task_.kind()).execution_carries_input)
+            *result.mutable_task() = attach_definition(
+                *impl_->kinds,
+                std::move(*result.mutable_task()),
+                std::move(read.task_));
     } else {
         *result.mutable_task() = confirm_input(std::move(read));
     }
@@ -2250,6 +1810,7 @@ Store::InputRead Store::prepare_input(const std::string& id) const
 {
     const auto entry = impl_->find(id);
     return InputRead(
+        impl_->kinds,
         entry.task,
         impl_->root / id / "input.pb",
         entry.input_digest,
@@ -2272,7 +1833,7 @@ wire::Task Store::confirm_input(InputRead read) const
     validate_input(read);
     const auto entry = impl_->find(read.task_.id());
     auto task = entry.task;
-    return attach_definition(std::move(task), std::move(read.task_));
+    return attach_definition(*impl_->kinds, std::move(task), std::move(read.task_));
 }
 
 wire::Task Store::describe(const std::string& id) const
@@ -2287,54 +1848,12 @@ std::optional<wire::Task> Store::find_task(const std::string& id) const
     return std::nullopt;
 }
 
-std::vector<std::string> Store::table_snapshot_holds(const std::string& snapshot) const
-{
-    payload::validate_digest(snapshot);
-    if (impl_->submitting || impl_->uncommitted)
-        throw Error(
-            ErrorCode::unavailable,
-            "uncommitted acquisition input requires recovery before snapshot maintenance");
-    sqlite::Database::Statement rows(*impl_->database, "SELECT id FROM tasks ORDER BY sequence");
-    std::vector<std::string> result;
-    unsigned count = 0;
-    while (rows.step()) {
-        if (++count > 100000)
-            throw Error(
-                ErrorCode::resource_exhausted,
-                "snapshot acquisition scan exceeds capacity");
-        const auto entry = impl_->find(rows.text(0));
-        if (entry.task.kind() != wire::TABLE_UPDATE || entry.task.has_retirement())
-            continue;
-        const auto input =
-            read_input(entry.task, impl_->root / entry.task.id() / "input.pb", entry.input_bytes);
-        bool held = input.table_update().has_refresh()
-            && input.table_update().refresh().previous_snapshot() == snapshot;
-        // Before an unrestricted update's final receipt exists, its published
-        // prefix set is incomplete. Never report that interval as unheld.
-        held |= occupies_slot(entry.task.state()) && !input.table_update().has_refresh();
-        if (entry.task.state() == wire::SUCCEEDED) {
-            auto read = impl_->prepare_read(entry, false);
-            read.verify();
-            const auto& output = read.response_.table_update();
-            held |=
-                output.snapshot() == snapshot || output.refreshed_revision().snapshot() == snapshot;
-        }
-        if (held)
-            result.push_back(entry.task.id());
-        if (result.size() > 10000)
-            throw Error(
-                ErrorCode::resource_exhausted,
-                "snapshot acquisition holds exceed capacity");
-    }
-    return result;
-}
-
 Store::HistoryRead Store::prepare_history_usage(const std::string& dataset_id) const
 {
     data::proto::HistoryUsage check;
     check.set_dataset_id(dataset_id);
     (void)protocol::decode_history_usage(check);
-    return HistoryRead(impl_->root, dataset_id, impl_->last_sequence);
+    return HistoryRead(impl_->kinds, impl_->root, dataset_id, impl_->last_sequence);
 }
 
 data::proto::HistoryUsage
@@ -2373,115 +1892,28 @@ void Store::HistoryRead::load_page()
     for (const auto& entry : page_) {
         if (active_only_ && entry.task().has_retirement())
             continue;
-        if (entry.task().kind() == wire::ACCOUNT_REVIEW || entry.task().kind() == wire::STATISTICS
-            || entry.task().kind() == wire::LOGIC_TRIAL
-            || entry.task().kind() == wire::PERFORMANCE_EVALUATION)
+        if (!kinds_->spec(entry.task().kind()).references_history)
             continue; // No Data-owned versions; leave unrelated account facts unread.
         const auto& id = entry.task().id();
-        auto task = read_input(entry.task(), root_ / id / "input.pb", entry.input_bytes());
-        bool market = false;
-        const auto inspect = [&](const data::proto::BarDataset& data) {
-            market |= std::ranges::find(data.source_dataset_ids(), dataset_id)
-                != data.source_dataset_ids().end();
-        };
-        auto kind = data::proto::HISTORY_REFERENCE_UNSPECIFIED;
-        if (task.has_input()) {
-            kind = data::proto::HISTORY_BACKTEST;
-            for (const auto& contract : task.input().paper().contracts())
-                inspect(contract.dataset());
-        } else if (task.has_sample()) {
-            kind = data::proto::HISTORY_SAMPLE;
-            inspect(task.sample().dataset());
-        } else if (task.has_factor()) {
-            kind = data::proto::HISTORY_FACTOR;
-            for (const auto& series : task.factor().series()) {
-                if (series.has_bars())
-                    inspect(series.bars());
-                for (const auto& month : series.dominant().months())
-                    inspect(month);
-            }
-        }
-        const bool output = task.history_dataset_id() == dataset_id && task.has_minutes();
-        if (!market && !output)
-            continue;
-        auto* row = result.add_references();
-        row->set_id(id);
-        row->set_kind(output ? data::proto::HISTORY_DOWNLOAD : kind);
-        if (market)
-            row->add_roles(data::proto::HISTORY_MARKET);
-        if (output)
-            row->add_roles(data::proto::HISTORY_OUTPUT);
+        const auto task =
+            read_input(*kinds_, entry.task(), root_ / id / "input.pb", entry.input_bytes());
+        kinds_->domain.history_references(task, dataset_id, result);
         if (result.references_size() > 10000)
             throw std::invalid_argument("historical usage exceeds reference limit");
     }
 }
 
-resource::proto::Catalogue
-Store::resources(const std::string& node, const resource::proto::CatalogueQuery& query) const
+void Store::visit(
+    const std::string& after_id,
+    const std::function<bool(const wire::StoredTaskRecord&)>& visitor) const
 {
-    const auto limit = protocol::catalogue_limit(query);
-    validate_id(node);
-    const bool output = query.kind() == "backtest_result" || query.kind() == "factor_result"
-        || query.kind() == "account_review_result" || query.kind() == "statistics_result"
-        || query.kind() == "sample_result" || query.kind() == "logic_trial_result"
-        || query.kind() == "performance_evaluation_result";
-    const auto kind = query.kind() == "backtest" || query.kind() == "backtest_result"
-        ? wire::BACKTEST
-        : query.kind() == "factor" || query.kind() == "factor_result" ? wire::FACTOR
-        : query.kind() == "account_review" || query.kind() == "account_review_result"
-        ? wire::ACCOUNT_REVIEW
-        : query.kind() == "performance_evaluation"
-            || query.kind() == "performance_evaluation_result"
-        ? wire::PERFORMANCE_EVALUATION
-        : query.kind() == "statistics" || query.kind() == "statistics_result" ? wire::STATISTICS
-        : query.kind() == "sample" || query.kind() == "sample_result"         ? wire::SAMPLE
-        : query.kind() == "logic_trial" || query.kind() == "logic_trial_result"
-        ? wire::LOGIC_TRIAL
-        : wire::TASK_KIND_UNSPECIFIED;
-    if (kind == wire::TASK_KIND_UNSPECIFIED)
-        throw Error(ErrorCode::invalid_request, "resource kind is not implemented by Research");
-    resource::proto::Catalogue result;
-    auto* owner = result.mutable_owner();
-    owner->set_node_id(node);
-    owner->set_service_id(impl_->identity.instance);
-    owner->set_domain("research");
-    result.set_kind(query.kind());
     sqlite::Database::Statement rows(
         *impl_->database,
         "SELECT id FROM tasks WHERE id>? ORDER BY id");
-    rows.bind(1, query.after());
-    unsigned inspected = 0;
-    while (rows.step()) {
-        if (++inspected > 100000)
-            throw Error(ErrorCode::resource_exhausted, "Research resource scan exceeds capacity");
-        const auto entry = impl_->find(rows.text(0));
-        if (entry.task.kind() != kind || (output && entry.task.state() != wire::SUCCEEDED))
-            continue;
-        if (result.items_size() == static_cast<int>(limit)) {
-            result.set_next_after(result.items(result.items_size() - 1).object().id());
-            break;
-        }
-        auto* row = result.add_items();
-        auto* object = row->mutable_object();
-        *object->mutable_owner() = *owner;
-        object->set_kind(query.kind());
-        object->set_id(entry.task.id());
-        object->set_version(output ? entry.task.result_digest() : entry.input_digest);
-        row->set_state(
-            entry.task.has_retirement() ? resource::proto::CatalogueEntry::RETIRED
-                                        : resource::proto::CatalogueEntry::REGISTERED);
-        row->set_name(entry.task.metadata().name());
-        if (output)
-            row->set_relative_location(
-                (fs::path(entry.task.id()) / "results"
-                    / (std::to_string(entry.task.attempt()) + ".pb"))
-                    .generic_string());
-        else {
-            row->set_relative_location((fs::path(entry.task.id()) / "input.pb").generic_string());
-            row->set_logical_bytes(entry.input_bytes);
-        }
-    }
-    return result;
+    rows.bind(1, after_id);
+    while (rows.step())
+        if (!visitor(Impl::stored(impl_->find(rows.text(0)))))
+            return;
 }
 
 std::vector<wire::Task> Store::active_tasks() const
@@ -2529,19 +1961,26 @@ wire::TaskList Store::list(unsigned limit, unsigned before_sequence) const
     return result;
 }
 
-wire::ProjectTaskPage
-Store::project_tasks(const std::string& project, unsigned limit, unsigned before_sequence) const
+wire::TaskList Store::list_indexed(
+    std::string_view index,
+    const std::string& value,
+    unsigned limit,
+    unsigned before_sequence) const
 {
-    validate_id(project);
+    const auto& indexes = impl_->kinds->domain.indexes();
+    const auto found = std::ranges::find(indexes, index, &ManifestIndex::name);
+    if (found == indexes.end())
+        throw std::logic_error("task store has no such manifest index");
     if (!limit || limit > 200)
         throw std::invalid_argument("task page limit must be 1..200");
-    wire::ProjectTaskPage result;
+    wire::TaskList result;
     sqlite::Database::Statement page(
         *impl_->database,
-        "SELECT id FROM tasks WHERE json_extract(manifest,'$.research_plan.project_id')=?1 AND sequence<?2 ORDER BY sequence DESC LIMIT ?3");
+        "SELECT id FROM tasks WHERE json_extract(manifest,'" + std::string(found->path)
+            + "')=?1 AND sequence<?2 ORDER BY sequence DESC LIMIT ?3");
     const auto before = before_sequence ? static_cast<std::int64_t>(before_sequence)
                                         : static_cast<std::int64_t>(impl_->last_sequence) + 1;
-    page.bind(1, project).bind(2, before).bind(3, static_cast<std::int64_t>(limit) + 1);
+    page.bind(1, value).bind(2, before).bind(3, static_cast<std::int64_t>(limit) + 1);
     while (page.step()) {
         if (result.tasks_size() == static_cast<int>(limit)) {
             result.set_next_before_sequence(
@@ -2641,13 +2080,15 @@ Store::Change Store::retry(const std::string& id)
 }
 
 Store::Completion::Completion(
+    std::shared_ptr<const Kinds> kinds,
     Identity identity,
     wire::Task task,
     wire::TaskFinish result,
     fs::path directory,
     std::string input_digest,
     std::uint64_t input_bytes)
-    : task_(std::move(task)),
+    : kinds_(std::move(kinds)),
+      task_(std::move(task)),
       directory_(std::move(directory)),
       input_digest_(std::move(input_digest)),
       input_bytes_(input_bytes),
@@ -2659,80 +2100,17 @@ void Store::Completion::prepare_payload()
 {
     prepared_ = false;
     if (task_.state() != wire::CANCEL_REQUESTED) {
-        task_ = read_input(std::move(task_), directory_ / "input.pb", input_bytes_);
-        if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
-            protocol::validate_message(result_.minutes());
-        else if (result_.has_table_update() && task_.kind() == wire::TABLE_UPDATE
-            && task_.has_table_update())
-            protocol::validate_table_update_result(
-                task_.table_update(),
-                download_identity(identity_, task_),
-                result_.table_update());
-        else if (result_.has_result() && task_.kind() == wire::BACKTEST && task_.has_input())
-            protocol::validate_backtest_result(task_.input(), result_.result());
-        else if (result_.has_factor() && task_.kind() == wire::FACTOR && task_.has_factor())
-            protocol::validate_factor_result(task_.factor(), result_.factor());
-        else if (result_.has_material() && task_.kind() == wire::MATERIAL_ACQUISITION
-            && task_.has_material())
-            protocol::validate_material_result(task_.material(), result_.material());
-        else if (result_.has_logic_trial() && task_.kind() == wire::LOGIC_TRIAL
-            && task_.has_logic_trial())
-            protocol::validate_logic_trial_result(task_.logic_trial(), result_.logic_trial());
-        else if (result_.has_sample() && task_.kind() == wire::SAMPLE && task_.has_sample())
-            protocol::validate_sample_result(task_.sample(), result_.sample());
-        else if (result_.has_evaluation() && task_.kind() == wire::PERFORMANCE_EVALUATION
-            && task_.has_evaluation())
-            protocol::validate_evaluation_result(task_.evaluation(), result_.evaluation());
-        else if (result_.has_statistics() && task_.kind() == wire::STATISTICS
-            && task_.has_statistics())
-            protocol::validate_statistics_result(task_.statistics(), result_.statistics());
-        else if (result_.has_account_review() && task_.kind() == wire::ACCOUNT_REVIEW
-            && task_.has_account_review())
-            protocol::validate_account_review_result(
-                task_.account_review(),
-                result_.account_review());
-        else
+        task_ = read_input(*kinds_, std::move(task_), directory_ / "input.pb", input_bytes_);
+        const auto* field = kinds_->at(task_.kind()).finish;
+        if (!result_.GetReflection()->HasField(result_, field))
             throw std::invalid_argument("task result kind does not match its input");
-        const google::protobuf::Message* output = nullptr;
-        switch (result_.output_case()) {
-            case wire::TaskFinish::kMinutes:
-                output = &result_.minutes();
-                break;
-            case wire::TaskFinish::kTableUpdate:
-                output = &result_.table_update();
-                break;
-            case wire::TaskFinish::kResult:
-                output = &result_.result();
-                break;
-            case wire::TaskFinish::kFactor:
-                output = &result_.factor();
-                break;
-            case wire::TaskFinish::kAccountReview:
-                output = &result_.account_review();
-                break;
-            case wire::TaskFinish::kStatistics:
-                output = &result_.statistics();
-                break;
-            case wire::TaskFinish::kEvaluation:
-                output = &result_.evaluation();
-                break;
-            case wire::TaskFinish::kSample:
-                output = &result_.sample();
-                break;
-            case wire::TaskFinish::kLogicTrial:
-                output = &result_.logic_trial();
-                break;
-            case wire::TaskFinish::kMaterial:
-                output = &result_.material();
-                break;
-            default:
-                throw std::logic_error("missing verified task output");
-        }
+        kinds_->domain.validate_result(task_, result_, identity_.instance);
+        const auto& output = result_.GetReflection()->GetMessage(result_, field);
         // A prepared file is not a completion decision. Cancellation, interruption
         // or a newer attempt can win while this immutable snapshot is being written.
         // Retain such files as unconfirmed evidence, just as after a process crash.
         const auto path = directory_ / "results" / (std::to_string(task_.attempt()) + ".pb");
-        result_digest_ = payload::publish(path, *output, payload::max_result_bytes).digest;
+        result_digest_ = payload::publish(path, output, payload::max_result_bytes).digest;
     }
     prepared_ = true;
 }
@@ -2743,6 +2121,7 @@ Store::Completion Store::prepare_finish(const wire::TaskFinish& result)
     if (result.output_case() == wire::TaskFinish::OUTPUT_NOT_SET)
         throw std::invalid_argument("missing task result");
     return Completion(
+        impl_->kinds,
         impl_->identity,
         std::move(entry.task),
         result,
@@ -2762,7 +2141,7 @@ Store::Change Store::finish(Completion completion)
     if (entry.task.state() == wire::CANCEL_REQUESTED) {
         return acknowledge_cancel(result.id(), result.token());
     }
-    if (result.has_minutes())
+    if (impl_->kinds->spec(entry.task.kind()).publishes)
         throw std::invalid_argument("download completion requires a prepared publication");
     auto next = summary(entry.task);
     next.set_state(wire::SUCCEEDED);
@@ -2771,47 +2150,29 @@ Store::Change Store::finish(Completion completion)
     return impl_->change(entry, std::move(next), entry.token);
 }
 
-data::proto::DownloadPreparation Store::Completion::download_preparation() const
-{
-    if (!prepared_ || !result_.has_minutes())
-        throw std::invalid_argument("download result has not been verified");
-    data::proto::DownloadPreparation preparation;
-    auto* identity = preparation.mutable_identity();
-    identity->set_data_instance(identity_.instance);
-    identity->set_task_instance(identity_.instance);
-    identity->set_task_id(task_.id());
-    identity->set_attempt(task_.attempt());
-    auto* record = preparation.mutable_record();
-    *record->mutable_minutes() = task_.minutes();
-    *record->mutable_minute_result() = result_.minutes();
-    return preparation;
-}
-
-Store::Change
-Store::prepare_publication(Completion completion, const data::proto::PreparedDownload& prepared)
+Store::Change Store::prepare_publication(
+    Completion completion,
+    const data::proto::DownloadIdentity& identity,
+    std::string candidate_digest,
+    std::string dataset_id)
 {
     const auto& result = completion.result_;
     auto entry = impl_->fenced(result.id(), result.token());
     if (entry.task.state() == wire::CANCEL_REQUESTED) {
         return acknowledge_cancel(result.id(), result.token());
     }
-    protocol::validate_message(prepared);
-    const auto preparation = completion.download_preparation();
-    const auto& dataset = result.minutes().manifest_sha256();
-    if (preparation.identity().SerializeAsString() != prepared.identity().SerializeAsString()
-        || sha256_bytes(preparation.SerializeAsString()) != prepared.candidate_digest()
-        || dataset != prepared.dataset_id())
-        throw std::invalid_argument("prepared download does not match task completion");
+    if (!completion.prepared_ || !impl_->kinds->spec(entry.task.kind()).publishes)
+        throw std::invalid_argument("task completion has no verified publication candidate");
     auto next = summary(entry.task);
     next.set_state(wire::PUBLISHING);
     next.set_completed(next.total());
-    next.set_history_dataset_id(dataset);
+    next.set_history_dataset_id(std::move(dataset_id));
     auto* publication = next.mutable_publication();
-    *publication->mutable_identity() = prepared.identity();
-    publication->set_candidate_digest(prepared.candidate_digest());
+    *publication->mutable_identity() = identity;
+    publication->set_candidate_digest(std::move(candidate_digest));
     publication->set_publication_id(unique_process_id());
     // The immutable result is already durable. This small journal transition
-    // alone authorizes Data to expose the prepared candidate.
+    // alone authorizes the service to expose the prepared candidate.
     next.set_result_digest(completion.result_digest_);
     return impl_->change(entry, std::move(next), "");
 }
@@ -2820,24 +2181,18 @@ std::vector<data::proto::DownloadPublication> Store::pending_publications() cons
 {
     std::vector<data::proto::DownloadPublication> result;
     for (const auto& task : active_tasks())
-        if (task.state() == wire::PUBLISHING && task.kind() == wire::MINUTE_DOWNLOAD)
+        if (task.state() == wire::PUBLISHING)
             result.push_back(task.publication());
     return result;
 }
 
-Store::Change Store::confirm_publication(const data::proto::PublishedDownload& published)
+Store::Change Store::confirm_publication(const data::proto::DownloadPublication& decision)
 {
-    protocol::validate_message(published);
-    auto entry = impl_->find(published.decision().identity().task_id());
+    auto entry = impl_->find(decision.identity().task_id());
     if ((entry.task.state() != wire::PUBLISHING && entry.task.state() != wire::SUCCEEDED)
         || !entry.task.has_publication()
-        || entry.task.publication().SerializeAsString() != published.decision().SerializeAsString())
+        || entry.task.publication().SerializeAsString() != decision.SerializeAsString())
         throw std::invalid_argument("published download does not match task decision");
-    data::proto::DownloadPreparation preparation;
-    *preparation.mutable_identity() = published.decision().identity();
-    *preparation.mutable_record() = published.record();
-    if (sha256_bytes(preparation.SerializeAsString()) != published.decision().candidate_digest())
-        throw std::invalid_argument("published download evidence changed");
     if (entry.task.state() == wire::SUCCEEDED)
         return impl_->unchanged(std::move(entry));
     auto next = summary(entry.task);
@@ -2889,10 +2244,13 @@ Store::Change Store::acknowledge_cancel(const std::string& id, const std::string
 
 namespace asterion::tasks {
 
-data::proto::HistoryUsage
-Store::inspect_history_usage(const fs::path& directory, Identity identity, const std::string& id)
+data::proto::HistoryUsage Store::inspect_history_usage(
+    const TaskDomain& domain,
+    const fs::path& directory,
+    Identity identity,
+    const std::string& id)
 {
-    Store store(directory, std::move(identity), std::make_shared<SystemClock>(), true);
+    Store store(domain, directory, std::move(identity), std::make_shared<SystemClock>(), true);
     return store.history_usage(id);
 }
 
@@ -2901,6 +2259,7 @@ Store::inspect_history_usage(const fs::path& directory, Identity identity, const
 namespace asterion::tasks {
 
 Store::BackupCatalogue Store::inspect_backup(
+    const TaskDomain& domain,
     const fs::path& directory,
     Identity identity,
     const BackupVisitor& admitted,
@@ -2909,7 +2268,16 @@ Store::BackupCatalogue Store::inspect_backup(
         abandoned,
     std::stop_token stop)
 {
-    Store store(directory, identity, std::make_shared<SystemClock>(), true, false, true, stop);
+    Store store(
+        domain,
+        directory,
+        identity,
+        std::make_shared<SystemClock>(),
+        true,
+        false,
+        true,
+        stop);
+    const auto& kinds = *store.impl_->kinds;
     BackupCatalogue result;
     const auto add = [&](const fs::path& path) {
         if (stop.stop_requested())
@@ -2944,13 +2312,8 @@ Store::BackupCatalogue Store::inspect_backup(
             (void)store.prepared_submission_record(id);
             add(fs::path(id) / "prepared.pb");
         }
-        if (!record.task().risk_artifact().empty()
-            && (!released || fs::exists(risk_providers::Module::filename(directory / id)))) {
-            const auto path = risk_providers::Module::filename(directory / id);
-            if (sha256_file(path) != record.task().risk_artifact())
-                throw std::invalid_argument("captured task algorithm is missing or corrupt");
-            add(fs::path(id) / path.filename());
-        }
+        for (const auto& captured : domain.captured(record, directory / id, released))
+            add(fs::path(id) / captured);
         const auto outputs = directory / id / "results";
         safe(outputs);
         if (released && !fs::exists(outputs))
@@ -2981,15 +2344,15 @@ Store::BackupCatalogue Store::inspect_backup(
         task_files(id, record, false);
         if (admitted) {
             const auto fixed = read_verified_input(
+                kinds,
                 entry.task,
                 directory / id / "input.pb",
                 entry.input_digest,
                 entry.input_bytes);
             admitted(
                 record,
-                research_calculation(fixed.kind())
-                    ? protocol::task_execution(fixed, entry.input_digest)
-                    : wire::TaskExecution{});
+                kinds.spec(fixed.kind()).calculation ? domain.execution(fixed, entry.input_digest)
+                                                     : wire::TaskExecution{});
         }
     }
     sqlite::Database::Statement decisions(
@@ -3014,7 +2377,7 @@ Store::BackupCatalogue Store::inspect_backup(
     }
     for (const auto& item : fs::directory_iterator(directory)) {
         if (!item.is_directory() || item.path().filename() == "event-segments"
-            || item.path().filename() == "programs")
+            || kinds.reserved(item.path().filename().string()))
             continue;
         const auto id = item.path().filename().string();
         if (store.impl_->contains(id))

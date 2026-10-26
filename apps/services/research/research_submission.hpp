@@ -1,5 +1,5 @@
 #pragma once
-#include "task_store.hpp"
+#include "research_tasks.hpp"
 
 namespace asterion::tasks {
 
@@ -21,5 +21,14 @@ Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::EvaluationInput input);
 Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::StatisticsInput input);
+
+// Admitted identity a calculation carries beside its definition, set before admission.
+void set_program_artifact(Store::Submission&, std::string artifact);
+void set_research_plan(const Store&, Store::Submission&, research::proto::ProjectBinding);
+void set_strategy_use(
+    const Store&,
+    Store::Submission&,
+    research::proto::StrategyUse,
+    const research::proto::StrategyDefinition&);
 
 } // namespace asterion::tasks

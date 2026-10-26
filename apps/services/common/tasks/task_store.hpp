@@ -1,4 +1,5 @@
 #pragma once
+#include "task_domain.hpp"
 #include <asterion/foundation/time.hpp>
 #include <asterion/protocol/task.hpp>
 #include <filesystem>
@@ -9,17 +10,6 @@
 #include <string_view>
 #include <functional>
 #include <stop_token>
-
-namespace asterion::research {
-
-class Projects;
-class Variables;
-class Strategies;
-class Logic;
-class Batches;
-class Models;
-
-} // namespace asterion::research
 
 namespace asterion::sqlite {
 
@@ -34,14 +24,18 @@ struct Identity
     std::string instance;
 };
 
-// Serialized application-level durable task state owned by one service. Attempt
-// tokens fence late execution reports after cancellation, retry or service restart.
+class Kinds;
+
+// Serialized durable task state owned by one service. Attempt tokens fence late
+// execution reports after cancellation, retry or service restart. The store is
+// a mechanism: what each task kind means comes from the service's TaskDomain.
 class Store
 {
     struct Impl;
 
 public:
-    explicit Store(
+    Store(
+        const TaskDomain& domain,
         std::filesystem::path directory,
         Identity identity,
         std::shared_ptr<const Clock> clock = std::make_shared<SystemClock>());
@@ -57,6 +51,7 @@ public:
         void(const task::proto::StoredTaskRecord&, const task::proto::TaskExecution&)>;
     // The caller retains its domain cold lock after this read-only inspection.
     static BackupCatalogue inspect_backup(
+        const TaskDomain&,
         const std::filesystem::path&,
         Identity,
         const BackupVisitor&,
@@ -114,10 +109,9 @@ public:
 
         void set_derivation(task::proto::TaskDerivation);
         void set_reuse_digest(std::string);
-        void set_program_artifact(std::string);
-        void set_research_plan(research::proto::ProjectBinding);
-        void
-        set_strategy_use(research::proto::StrategyUse, const research::proto::StrategyDefinition&);
+        // The owning service completes its admitted identity before admission.
+        // The task id, kind and definition stay as submitted.
+        void amend(const std::function<void(task::proto::Task&)>&);
 
     private:
         friend class Store;
@@ -172,7 +166,13 @@ public:
 
     private:
         friend class Store;
-        InputRead(task::proto::Task, std::filesystem::path, std::string, std::uint64_t);
+        InputRead(
+            std::shared_ptr<const Kinds>,
+            task::proto::Task,
+            std::filesystem::path,
+            std::string,
+            std::uint64_t);
+        std::shared_ptr<const Kinds> kinds_;
         task::proto::Task task_;
         std::filesystem::path path_;
         std::string digest_;
@@ -208,11 +208,13 @@ public:
     private:
         friend class Store;
         ResultRead(
+            std::shared_ptr<const Kinds>,
             task::proto::Task,
             std::filesystem::path,
             std::string,
             std::uint64_t,
             bool include_input);
+        std::shared_ptr<const Kinds> kinds_;
         task::proto::Task task_;
         std::filesystem::path directory_;
         std::string input_digest_;
@@ -231,17 +233,29 @@ public:
     {
     public:
         void prepare_payload();
-        data::proto::DownloadPreparation download_preparation() const;
+
+        // The fixed input, loaded by prepare_payload(), and the reported result.
+        const task::proto::Task& task() const
+        {
+            return task_;
+        }
+
+        const task::proto::TaskFinish& result() const
+        {
+            return result_;
+        }
 
     private:
         friend class Store;
         Completion(
+            std::shared_ptr<const Kinds>,
             Identity identity,
             task::proto::Task task,
             task::proto::TaskFinish result,
             std::filesystem::path directory,
             std::string input_digest,
             std::uint64_t input_bytes);
+        std::shared_ptr<const Kinds> kinds_;
         task::proto::Task task_;
         std::filesystem::path directory_;
         std::string input_digest_;
@@ -254,21 +268,33 @@ public:
 
     Completion prepare_finish(const task::proto::TaskFinish& result);
     [[nodiscard]] Change finish(Completion completion);
-    // Cancellation and publication are ordered by the same durable task writer.
-    // A confirmed PUBLISHING change transfers custody to the publication step.
-    [[nodiscard]] Change prepare_publication(Completion, const data::proto::PreparedDownload&);
+    // For publishing kinds. Cancellation and publication are ordered by the same
+    // durable task writer; a confirmed PUBLISHING change transfers custody to the
+    // service's publication step, which has verified the candidate.
+    [[nodiscard]] Change prepare_publication(
+        Completion,
+        const data::proto::DownloadIdentity&,
+        std::string candidate_digest,
+        std::string dataset_id);
     std::vector<data::proto::DownloadPublication> pending_publications() const;
-    [[nodiscard]] Change confirm_publication(const data::proto::PublishedDownload&);
+    [[nodiscard]] Change confirm_publication(const data::proto::DownloadPublication&);
     // Full immutable input is loaded and integrity-checked only for explicit reads.
     task::proto::Task get(const std::string& id) const;
     // describe() and other lookups throw Error(not_found) for an unknown id.
     task::proto::Task describe(const std::string& id) const;
     std::optional<task::proto::Task> find_task(const std::string& id) const;
     task::proto::TaskList list(unsigned limit = 200, unsigned before_sequence = 0) const;
-    task::proto::ProjectTaskPage
-    project_tasks(const std::string& project, unsigned limit, unsigned before_sequence) const;
-    resource::proto::Catalogue
-    resources(const std::string& node, const resource::proto::CatalogueQuery&) const;
+    // A page of tasks whose manifest has `value` in one of the domain's indexes,
+    // newest last; only tasks and next_before_sequence are set.
+    task::proto::TaskList list_indexed(
+        std::string_view index,
+        const std::string& value,
+        unsigned limit,
+        unsigned before_sequence) const;
+    // Every record after `after_id` in id order, until the visitor returns false.
+    void visit(
+        const std::string& after_id,
+        const std::function<bool(const task::proto::StoredTaskRecord&)>&) const;
     std::vector<task::proto::Task> active_tasks() const;
 
     class HistoryRead
@@ -284,13 +310,19 @@ public:
     private:
         friend class Store;
 
-        HistoryRead(std::filesystem::path root, std::string dataset, std::uint32_t sequence)
-            : root_(std::move(root)),
+        HistoryRead(
+            std::shared_ptr<const Kinds> kinds,
+            std::filesystem::path root,
+            std::string dataset,
+            std::uint32_t sequence)
+            : kinds_(std::move(kinds)),
+              root_(std::move(root)),
               through_(sequence)
         {
             result_.set_dataset_id(std::move(dataset));
         }
 
+        std::shared_ptr<const Kinds> kinds_;
         std::filesystem::path root_;
         std::uint32_t through_, after_ = 0;
         bool active_only_ = false;
@@ -298,12 +330,12 @@ public:
         data::proto::HistoryUsage result_;
     };
 
-    std::vector<std::string> table_snapshot_holds(const std::string&) const;
     HistoryRead prepare_history_usage(const std::string&) const;
     bool next_history_page(HistoryRead&) const; // State owner; at most 200 metadata rows.
     data::proto::HistoryUsage
     history_usage(const std::string& dataset_id, bool active_only = false) const;
     static data::proto::HistoryUsage inspect_history_usage(
+        const TaskDomain&,
         const std::filesystem::path& directory,
         Identity identity,
         const std::string& dataset_id);
@@ -328,17 +360,13 @@ public:
     interrupt(const std::string& id, const std::string& token, const std::string& error);
     [[nodiscard]] Change acknowledge_cancel(const std::string& id, const std::string& token);
 
+    // The owning service's own metadata shares this connection and its serialized
+    // journal. Never expose it through a business RPC.
+    sqlite::Database& database(std::string_view service, bool writer);
+
 private:
-    friend class asterion::research::Projects;
-    friend class asterion::research::Variables;
-    friend class asterion::research::Strategies;
-    friend class asterion::research::Logic;
-    friend class asterion::research::Batches;
-    friend class asterion::research::Models;
-    // Domain-owned metadata shares this connection and its serialized journal.
-    // Never expose a general database handle through a business RPC.
-    sqlite::Database& research_metadata(std::string_view service, bool writer);
     Store(
+        const TaskDomain&,
         std::filesystem::path,
         Identity,
         std::shared_ptr<const Clock>,

@@ -1,11 +1,14 @@
 #include "research_submission.hpp"
 #include "risk_module.hpp"
+#include "task_payload.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
+#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_statistics.hpp>
+#include <asterion/protocol/research_strategy.hpp>
 
 namespace asterion::tasks {
 namespace wire = task::proto;
@@ -107,6 +110,57 @@ task_submission(const Store& store, const std::string& id, research::proto::Stat
     origin.set_data_choice("fixed");
     submission.set_derivation(std::move(origin));
     return submission;
+}
+
+void set_program_artifact(Store::Submission& submission, std::string artifact)
+{
+    const auto kind = submission.task().kind();
+    if (kind != wire::BACKTEST && kind != wire::FACTOR && kind != wire::STATISTICS
+        && kind != wire::SAMPLE && kind != wire::LOGIC_TRIAL
+        && kind != wire::PERFORMANCE_EVALUATION)
+        throw std::logic_error("program identity requires an unprepared calculation submission");
+    payload::validate_digest(artifact);
+    submission.amend([&](wire::Task& task) {
+        task.set_program_artifact(std::move(artifact));
+    });
+}
+
+void set_research_plan(
+    const Store& store,
+    Store::Submission& submission,
+    research::proto::ProjectBinding binding)
+{
+    const auto kind = submission.task().kind();
+    if (kind != wire::FACTOR && kind != wire::SAMPLE && kind != wire::STATISTICS
+        && kind != wire::BACKTEST)
+        throw std::logic_error("plan identity requires an unprepared research submission");
+    protocol::validate_project_binding(binding);
+    if (binding.owner().service_id() != store.instance())
+        throw std::invalid_argument("invalid fixed research plan owner or task kind");
+    submission.amend([&](wire::Task& task) {
+        *task.mutable_research_plan() = std::move(binding);
+    });
+}
+
+void set_strategy_use(
+    const Store& store,
+    Store::Submission& submission,
+    research::proto::StrategyUse use,
+    const research::proto::StrategyDefinition& fixed)
+{
+    const auto& task = submission.task();
+    if (task.kind() != wire::BACKTEST || !task.has_input())
+        throw std::logic_error("strategy identity requires an unprepared backtest submission");
+    protocol::validate_strategy_use(use);
+    const auto actual =
+        protocol::strategy_definition(task.input(), task.program_artifact(), task.risk_artifact());
+    if (use.package().owner().service_id() != store.instance()
+        || actual.SerializeAsString() != fixed.SerializeAsString()
+        || protocol::strategy_digest(fixed) != use.package().version())
+        throw Error(ErrorCode::conflict, "backtest differs from its fixed strategy package");
+    submission.amend([&](wire::Task& amended) {
+        *amended.mutable_strategy_use() = std::move(use);
+    });
 }
 
 } // namespace asterion::tasks

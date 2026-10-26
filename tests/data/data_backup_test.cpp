@@ -148,7 +148,10 @@ TEST(DataColdBackup, DeclaresQueuedAcquisitionAndItsMissingProgramWithoutRunning
     }
     fs::create_directory(directory.path / "acquisition-tasks");
     {
-        tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            directory.path / "acquisition-tasks",
+            {"historical-data"});
         auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();
@@ -186,7 +189,10 @@ TEST(DataColdBackup, RestoresRetiredAcquisitionEvidenceWithoutResurrectingExecut
     fs::create_directory(directory.path / "acquisition-tasks");
     resource::proto::Object decision;
     {
-        tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            directory.path / "acquisition-tasks",
+            {"historical-data"});
         auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();
@@ -213,7 +219,10 @@ TEST(DataColdBackup, RestoresRetiredAcquisitionEvidenceWithoutResurrectingExecut
         auto verified = data::cold_backup(copied, owner());
         EXPECT_FALSE(verified.snapshot.files.empty());
     }
-    tasks::Store store(copied / "acquisition-tasks", {"historical-data"});
+    tasks::Store store(
+        asterion::data::task_domain(),
+        copied / "acquisition-tasks",
+        {"historical-data"});
     const auto recovered = store.retirement(authorization.task_id(), owner().node_id());
     ASSERT_EQ(recovered.state(), task::proto::TaskRetirement::RETIRED);
     EXPECT_EQ(recovered.object().SerializeAsString(), decision.SerializeAsString());
@@ -330,7 +339,10 @@ TEST(DataColdBackup, RetainsExactlyAuthorizedProviderAndRestoresWithoutLoadingOr
     }
     fs::create_directory(directory.path / "acquisition-tasks");
     {
-        tasks::Store store(directory.path / "acquisition-tasks", {"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            directory.path / "acquisition-tasks",
+            {"historical-data"});
         auto submission = task_submission(store, authorization);
         store.admit_submission(submission);
         submission.prepare_files();

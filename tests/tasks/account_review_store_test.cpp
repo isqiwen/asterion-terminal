@@ -139,7 +139,7 @@ TEST(AccountReviewStore, FixedInputIsReusedAndResultsRemainReadableWithoutAnyBus
     Folder folder;
     std::string result_digest;
     {
-        tasks::Store store(folder.path, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
         const auto first = tasks::submit(store, "review-one", input());
         EXPECT_EQ(first.kind(), task::proto::ACCOUNT_REVIEW);
         EXPECT_EQ(first.total(), 1U);
@@ -167,12 +167,12 @@ TEST(AccountReviewStore, FixedInputIsReusedAndResultsRemainReadableWithoutAnyBus
         resource::proto::CatalogueQuery query;
         query.set_kind("account_review_result");
         query.set_limit(20);
-        const auto resources = store.resources("fixture-node", query);
+        const auto resources = asterion::research::task_resources(store, "fixture-node", query);
         ASSERT_EQ(resources.items_size(), 1);
         EXPECT_EQ(resources.items(0).object().version(), result_digest);
     }
     {
-        tasks::Store recovered(folder.path, {"research-one"});
+        tasks::Store recovered(asterion::research::task_domain(), folder.path, {"research-one"});
         const auto response = tasks::verified_result(recovered, "review-one");
         EXPECT_EQ(response.result_task().result_digest(), result_digest);
         EXPECT_EQ(
@@ -189,7 +189,7 @@ TEST(AccountReviewStore, CancellationWinsAndInterruptedAttemptsRetainTheirExactO
     Folder folder;
     std::string original_token;
     {
-        tasks::Store store(folder.path, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
         tasks::submit(store, "cancelled", input());
         const auto token = claim(store, "cancelled");
         store.commit(store.cancel("cancelled"));
@@ -201,7 +201,7 @@ TEST(AccountReviewStore, CancellationWinsAndInterruptedAttemptsRetainTheirExactO
         original_token = claim(store, "interrupted");
     }
     {
-        tasks::Store recovered(folder.path, {"research-one"});
+        tasks::Store recovered(asterion::research::task_domain(), folder.path, {"research-one"});
         EXPECT_EQ(recovered.describe("interrupted").state(), task::proto::INTERRUPTED);
         EXPECT_EQ(
             recovered.get("interrupted").account_review().SerializeAsString(),
@@ -218,14 +218,14 @@ TEST(AccountReviewStore, OwnedPreparationResumesAndAChangedScopeCannotOverwriteA
 {
     Folder folder;
     {
-        tasks::Store store(folder.path, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
         auto preparation = task_submission(store, "prepared", input());
         store.admit_submission(preparation);
         preparation.prepare_files();
         EXPECT_TRUE(store.abandon_submission(preparation));
     }
     {
-        tasks::Store recovered(folder.path, {"research-one"});
+        tasks::Store recovered(asterion::research::task_domain(), folder.path, {"research-one"});
         const auto marker = recovered.prepared_submission_record("prepared");
         EXPECT_TRUE(marker.execution().has_account_review());
         EXPECT_FALSE(marker.execution().has_data_owner());
@@ -254,7 +254,7 @@ TEST(AccountReviewStore, OwnedPreparationResumesAndAChangedScopeCannotOverwriteA
 TEST(AccountReviewExecution, OwnedEvidenceRunsWithoutSourcesAndRefusesAnotherProgram)
 {
     Folder folder;
-    tasks::Store store(folder.path, {"research-one"});
+    tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
     tasks::submit(store, "review-one", input());
     auto read = store.prepare_input("review-one");
     read.load_for_claim();
@@ -498,14 +498,14 @@ TEST(AccountReviewProcess, DirectFixedEvidenceRunsWithoutDataAndReplaysAfterSour
     service.reset();
     const auto owned = original.result_task().account_review();
     for (const auto* id : {"prepared-owned", "prepared-missing"}) {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         auto draft = task_submission(store, id, owned);
         store.admit_submission(draft);
         draft.prepare_files();
         // Each simulated crash ends its single preparation owner before reopening.
     }
     {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         auto wrong_program = owned;
         wrong_program.set_program_artifact(std::string(64, 'e'));
         tasks::submit(store, "wrong-program", wrong_program);
@@ -555,7 +555,7 @@ TEST(AccountReviewBackup, RestoresOwnedEvidenceAndActualProgramWithoutPretending
     const auto artifact = sha256_file(current_executable());
     fixed.set_program_artifact(artifact);
     {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         (void)programs::Files(root / "programs", fixed.owner())
             .preserve(current_executable(), artifact);
         tasks::submit(store, "review-one", fixed);
@@ -610,7 +610,7 @@ TEST(AccountReviewBackup, RestoresOwnedEvidenceAndActualProgramWithoutPretending
         EXPECT_EQ(inspected.objects.size(), 3U);
     }
     {
-        tasks::Store store(restored, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), restored, {"research-one"});
         const auto evidence = tasks::verified_result(store, "review-one");
         EXPECT_EQ(
             evidence.result_task().account_review().SerializeAsString(),

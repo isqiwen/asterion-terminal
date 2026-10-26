@@ -36,7 +36,10 @@ struct LogicStore : testing::Test
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
         owner.set_domain("research");
-        store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        store = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
     }
 
     void TearDown() override
@@ -127,7 +130,10 @@ TEST_F(LogicStore, PriorExpectationsAndOriginalReceiptsRemainExactAcrossRestartA
         EXPECT_EQ(write.example(saved.id()).SerializeAsString(), saved.SerializeAsString());
     }
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     research::Logic view(*store, owner);
     EXPECT_EQ(view.definition(definition.id()).SerializeAsString(), definition.SerializeAsString());
     EXPECT_EQ(view.example(saved.id()).SerializeAsString(), saved.SerializeAsString());
@@ -188,7 +194,10 @@ TEST_F(LogicStore, WrongOwnerAndPartialSchemaCannotBeSilentlyRepaired)
         sqlite::Database database(root / "tasks.sqlite", sqlite::Database::Access::writer);
         database.execute("DROP TABLE research_logic_examples");
     }
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_THROW(research::Logic read(*store, owner), std::invalid_argument);
     EXPECT_THROW(
         research::Logic write(*store, owner, sqlite::Database::Access::writer),
@@ -264,7 +273,7 @@ TEST_F(LogicStore, ActualTaskPublishesPriorComparisonAndReopensWithoutDataOrChan
     auto missing_program = task_submission(*store, "missing-program", fixed);
     EXPECT_THROW(tasks::submit(*store, std::move(missing_program)), Error);
     auto submission = task_submission(*store, "prior-comparison", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     EXPECT_EQ(tasks::submit(*store, std::move(submission)).kind(), task::proto::LOGIC_TRIAL);
     auto read = store->prepare_input("prior-comparison");
     read.load_for_claim();
@@ -288,7 +297,10 @@ TEST_F(LogicStore, ActualTaskPublishesPriorComparisonAndReopensWithoutDataOrChan
     EXPECT_EQ(store->history_usage(std::string(64, 'a')).references_size(), 0);
     EXPECT_EQ(original.result_task().program_artifact(), artifact);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "prior-comparison").SerializeAsString(),
         original.SerializeAsString());
@@ -310,7 +322,7 @@ TEST_F(LogicStore, MatchingPriorTrialCanAssembleANonRunningPackageAndDraftWithou
     const auto artifact = sha256_file(current_executable());
     (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
     auto submission = task_submission(*store, "matching-trial", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("matching-trial")).token();
     task::proto::TaskFinish finish;

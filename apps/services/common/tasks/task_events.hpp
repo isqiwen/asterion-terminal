@@ -4,14 +4,14 @@
 #include <functional>
 #include <asterion/task.pb.h>
 
-namespace asterion::sqlite {
+namespace asterion::tasks {
 
 // Uses the task database's transaction for admission. Immutable segment bytes
 // become durable before their references replace rows in the active log.
 class TaskEvents
 {
 public:
-    TaskEvents(Database&, std::filesystem::path directory, bool read_only);
+    TaskEvents(sqlite::Database&, std::filesystem::path directory, bool read_only);
     using Visitor = std::function<void(const std::string&, std::uint64_t, const std::string&)>;
     void read(const Visitor&) const;
     void read_task(const std::string& task, const Visitor&) const;
@@ -19,7 +19,7 @@ public:
     void append(const std::string& task, std::uint64_t sequence, const std::string& body);
 
 private:
-    Database& database_;
+    sqlite::Database& database_;
     std::filesystem::path directory_;
     bool read_only_;
     // One immutable segment, shared by adjacent per-task restore reads.
@@ -30,4 +30,4 @@ private:
     std::filesystem::path path(std::uint64_t) const;
 };
 
-} // namespace asterion::sqlite
+} // namespace asterion::tasks

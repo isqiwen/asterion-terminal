@@ -174,11 +174,11 @@ PolledTask<> ResearchHost::submit_backtest(Call& call)
     *call.response.mutable_task() = (co_await submit(call, [&] {
         input.set_dataset_revision(protocol::dataset_revision(input.paper()));
         auto submission = task_submission(*storage_, p.id(), std::move(input));
-        submission.set_program_artifact(programme.artifact);
+        set_program_artifact(submission, programme.artifact);
         if (p.has_research_plan())
-            submission.set_research_plan(p.research_plan());
+            set_research_plan(*storage_, submission, p.research_plan());
         if (candidate)
-            submission.set_strategy_use(use, candidate->definition());
+            set_strategy_use(*storage_, submission, use, candidate->definition());
         return submission;
     })).task();
 }
@@ -385,9 +385,9 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
                       Decimal::from_raw(reuse.fee_multiplier().units()))
                 : protocol::backtest_slippage_variant(input, reuse.slippage_ticks());
         auto submission = task_submission(*storage_, p.id(), std::move(input));
-        submission.set_program_artifact(programme.artifact);
+        set_program_artifact(submission, programme.artifact);
         if (candidate)
-            submission.set_strategy_use(p.strategy_use(), candidate->definition());
+            set_strategy_use(*storage_, submission, p.strategy_use(), candidate->definition());
         wire::TaskDerivation source;
         source.set_source_id(reuse.source_id());
         source.set_source_result_digest(reuse.source_result_digest());
@@ -487,9 +487,9 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
             && input.dataset_revision() != f.expected_dataset_revision())
             throw std::invalid_argument("reused factor data does not match the original revision");
         auto submission = task_submission(*storage_, p.id(), std::move(input));
-        submission.set_program_artifact(programme.artifact);
+        set_program_artifact(submission, programme.artifact);
         if (binding)
-            submission.set_research_plan(*binding);
+            set_research_plan(*storage_, submission, *binding);
         if (p.has_derivation())
             submission.set_derivation(p.derivation());
         return submission;
@@ -591,7 +591,7 @@ PolledTask<> ResearchHost::submit_logic_trial(Call& call)
     auto input = research::Logic(*storage_, programme.owner).input(selected, true);
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
-        accepted.set_program_artifact(programme.artifact);
+        set_program_artifact(accepted, programme.artifact);
         return accepted;
     })).task();
 }
@@ -643,9 +643,9 @@ PolledTask<> ResearchHost::submit_sample(Call& call)
     *input.mutable_dataset() = std::move(*source.mutable_bar_dataset());
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
-        accepted.set_program_artifact(programme.artifact);
+        set_program_artifact(accepted, programme.artifact);
         if (submission.has_research_plan())
-            accepted.set_research_plan(submission.research_plan());
+            set_research_plan(*storage_, accepted, submission.research_plan());
         return accepted;
     })).task();
 }
@@ -694,7 +694,7 @@ PolledTask<> ResearchHost::submit_evaluation(Call& call)
     });
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
-        accepted.set_program_artifact(observed.artifact);
+        set_program_artifact(accepted, observed.artifact);
         return accepted;
     })).task();
 }
@@ -742,9 +742,9 @@ PolledTask<> ResearchHost::submit_statistics(Call& call)
         capture_statistics_input(observed.owner, selected, source, input_digest, input_bytes);
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
-        accepted.set_program_artifact(observed.artifact);
+        set_program_artifact(accepted, observed.artifact);
         if (submission.has_research_plan())
-            accepted.set_research_plan(submission.research_plan());
+            set_research_plan(*storage_, accepted, submission.research_plan());
         return accepted;
     })).task();
 }

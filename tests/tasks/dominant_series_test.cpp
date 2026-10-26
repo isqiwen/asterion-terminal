@@ -434,12 +434,18 @@ TEST(DominantSeries, PersistedRollingResultSurvivesRestart)
     const auto input = rolling();
     const auto expected = backtest::run(input);
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "rolling", input);
         const auto token = store.commit(store.claim("rolling")).token();
         store.commit(tasks::finish(store, "rolling", token, expected));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(restored.get("rolling").state(), task::proto::SUCCEEDED);
     EXPECT_EQ(restored.get("rolling").input().SerializeAsString(), input.SerializeAsString());
     EXPECT_EQ(tasks::result(restored, "rolling").SerializeAsString(), expected.SerializeAsString());
@@ -1242,7 +1248,10 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
     }
     // The Task service accepts this result as that of the input and keeps it.
     {
-        tasks::Store kept(directory.path / "tasks", tasks::Identity{"task"});
+        tasks::Store kept(
+            asterion::research::task_domain(),
+            directory.path / "tasks",
+            tasks::Identity{"task"});
         tasks::submit(kept, "daily", input);
         const auto token = kept.commit(kept.claim("daily")).token();
         kept.commit(tasks::finish(kept, "daily", token, result));

@@ -194,7 +194,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
     task::proto::TaskResponse original_statistics;
     task::proto::TaskResponse original_grouped;
     {
-        tasks::Store store(folder.path, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
         (void)programs::Files(folder.path / "programs", input.owner())
             .preserve(current_executable(), artifact);
         research::Projects projects(store, input.owner(), sqlite::Database::Access::writer);
@@ -220,8 +220,8 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         binding.set_definition_digest(plan.definition_digest());
         projects.verify_binding(binding);
         auto submission = task_submission(store, "raw-sample", input);
-        submission.set_research_plan(binding);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_research_plan(store, submission, binding);
+        asterion::tasks::set_program_artifact(submission, artifact);
         const auto admitted = tasks::submit(store, std::move(submission));
         EXPECT_EQ(admitted.kind(), task::proto::SAMPLE);
         auto read = store.prepare_input("raw-sample");
@@ -266,8 +266,8 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
             sha256_file(folder.path / "raw-sample/input.pb"),
             fs::file_size(folder.path / "raw-sample/input.pb"));
         auto statistics = task_submission(store, "raw-statistics", captured);
-        statistics.set_program_artifact(artifact);
-        statistics.set_research_plan(binding);
+        asterion::tasks::set_program_artifact(statistics, artifact);
+        asterion::tasks::set_research_plan(store, statistics, binding);
         tasks::submit(store, std::move(statistics));
         EXPECT_EQ(store.retirement("raw-sample", "fixture-node").consumers_size(), 1);
         const auto statistics_token = store.commit(store.claim("raw-statistics")).token();
@@ -290,7 +290,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         grouped_input.mutable_request()->set_grouping(
             research::proto::StatisticsRequest::TRADING_DAY);
         auto grouped_submission = task_submission(store, "raw-day-groups", grouped_input);
-        grouped_submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(grouped_submission, artifact);
         const auto grouped_task = tasks::submit(store, std::move(grouped_submission));
         EXPECT_EQ(grouped_task.total(), 24U);
         EXPECT_FALSE(grouped_task.has_research_plan()); // Never inherit the source's plan.
@@ -334,7 +334,9 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         EXPECT_THROW(
             protocol::validate_statistics_result(grouped_input, wrong_group),
             std::invalid_argument);
-        EXPECT_EQ(store.project_tasks(plan.project_id(), 10, 0).tasks_size(), 2);
+        EXPECT_EQ(
+            asterion::research::project_tasks(store, plan.project_id(), 10, 0).tasks_size(),
+            2);
         for (const auto* formal : {&original, &original_statistics}) {
             research::proto::ProjectMutation conclude;
             conclude.set_id("conclude-" + formal->result_task().id());
@@ -366,7 +368,7 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
             EXPECT_THROW(projects.apply(wrong), Error);
         }
     }
-    tasks::Store restored(folder.path, {"research-one"});
+    tasks::Store restored(asterion::research::task_domain(), folder.path, {"research-one"});
     EXPECT_EQ(
         tasks::verified_result(restored, "raw-sample").SerializeAsString(),
         original.SerializeAsString());

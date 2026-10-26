@@ -283,7 +283,7 @@ TEST(TradingColdBackup, JointResearchCutClosesOnlyTheExactPublishedSourceAndRest
         protocol::make_account_review_input(research_owner, selected, source.published, program);
     std::string result_digest;
     {
-        tasks::Store store(research_root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), research_root, {"research-one"});
         (void)programs::Files(research_root / "programs", research_owner)
             .preserve(current_executable(), program);
         tasks::submit(store, "review-one", fixed);
@@ -349,7 +349,7 @@ TEST(TradingColdBackup, JointResearchCutClosesOnlyTheExactPublishedSourceAndRest
         for (const auto& dependency : restored_plan.at("dependencies"))
             EXPECT_TRUE(dependency.at("included"));
     }
-    tasks::Store store(restored_research, {"research-one"});
+    tasks::Store store(asterion::research::task_domain(), restored_research, {"research-one"});
     const auto result = tasks::verified_result(store, "review-one");
     EXPECT_EQ(result.result_task().result_digest(), result_digest);
     EXPECT_EQ(result.result_task().account_review().SerializeAsString(), fixed.SerializeAsString());

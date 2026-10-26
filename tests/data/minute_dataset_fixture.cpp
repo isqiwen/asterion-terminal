@@ -72,6 +72,7 @@ int main(int argc, char** argv)
         {
             data::Store warehouse(data_directory, "historical-data");
             tasks::Store store(
+                asterion::data::task_domain(),
                 std::filesystem::path(directory) / "acquisition-tasks",
                 tasks::Identity{
                     "historical-data"
@@ -136,15 +137,22 @@ int main(int argc, char** argv)
             *finish.mutable_minutes() = history_files::minute_result(attempt.output_directory());
             auto completion = store.prepare_finish(finish);
             completion.prepare_payload();
-            const auto prepared =
-                warehouse.prepare(warehouse.verify_download(completion.download_preparation()));
-            if (!(store.commit(store.prepare_publication(std::move(completion), prepared))
+            const auto prepared = warehouse.prepare(warehouse.verify_download(
+                asterion::data::download_preparation(completion, store.instance())));
+            if (!(store.commit(
+                           asterion::data::prepare_publication(
+                               store,
+                               std::move(completion),
+                               prepared))
                         .task()
                         .state()
                     == asterion::task::proto::PUBLISHING))
                 throw std::runtime_error("fixture publication was cancelled");
-            store.commit(store.confirm_publication(warehouse.publish(
-                warehouse.verify_publication(store.pending_publications().front()))));
+            store.commit(
+                asterion::data::confirm_publication(
+                    store,
+                    warehouse.publish(
+                        warehouse.verify_publication(store.pending_publications().front()))));
 
             // Another contract's download, left QUEUED: only the real Agent-dispatched
             // worker may claim and finish it after Electron starts the isolated task

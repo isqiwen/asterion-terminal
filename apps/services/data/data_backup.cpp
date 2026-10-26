@@ -1,7 +1,7 @@
 #include "data_backup.hpp"
 #include "observation_store.hpp"
 #include "material_store.hpp"
-#include "task_store.hpp"
+#include "data_tasks.hpp"
 #include "history_archive.hpp"
 #include "history_tables.hpp"
 #include "history_minutes.hpp"
@@ -482,6 +482,7 @@ cold_backup(const fs::path& directory, const proto::DataOwner& owner, std::stop_
             snapshot.dependencies.push_back({std::move(required), false});
         };
         const auto catalogue = tasks::Store::inspect_backup(
+            task_domain(),
             root / "acquisition-tasks",
             {owner.service_id()},
             program_dependency,

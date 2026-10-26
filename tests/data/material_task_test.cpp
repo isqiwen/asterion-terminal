@@ -73,7 +73,7 @@ TEST(MaterialTask, DurableRequestAndReceiptUseExistingQueueAndSurviveSourceOffli
     Folder f;
     std::string digest;
     {
-        tasks::Store store(f.path, {"data-one"});
+        tasks::Store store(asterion::data::task_domain(), f.path, {"data-one"});
         const auto submitted = tasks::submit(store, input("one"));
         EXPECT_EQ(submitted.kind(), task::proto::MATERIAL_ACQUISITION);
         EXPECT_EQ(submitted.total(), 1);
@@ -90,7 +90,7 @@ TEST(MaterialTask, DurableRequestAndReceiptUseExistingQueueAndSurviveSourceOffli
         digest = store.describe("one").result_digest();
         EXPECT_FALSE(store.describe("one").has_material());
     }
-    tasks::Store reopened(f.path, {"data-one"});
+    tasks::Store reopened(asterion::data::task_domain(), f.path, {"data-one"});
     const auto result = tasks::verified_result(reopened, "one");
     EXPECT_EQ(result.result_task().result_digest(), digest);
     EXPECT_EQ(
@@ -106,7 +106,7 @@ TEST(MaterialTask, CancellationAndInterruptedRetryKeepInputAndFenceLateAttempt)
     Folder f;
     std::string old;
     {
-        tasks::Store store(f.path, {"data-one"});
+        tasks::Store store(asterion::data::task_domain(), f.path, {"data-one"});
         tasks::submit(store, input("cancelled"));
         const auto token = claim(store, "cancelled");
         store.commit(store.cancel("cancelled"));
@@ -116,7 +116,7 @@ TEST(MaterialTask, CancellationAndInterruptedRetryKeepInputAndFenceLateAttempt)
         tasks::submit(store, input("interrupted"));
         old = claim(store, "interrupted");
     }
-    tasks::Store reopened(f.path, {"data-one"});
+    tasks::Store reopened(asterion::data::task_domain(), f.path, {"data-one"});
     EXPECT_EQ(reopened.describe("interrupted").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(
         reopened.get("interrupted").material().SerializeAsString(),
@@ -132,7 +132,7 @@ TEST(MaterialTask, CancellationAndInterruptedRetryKeepInputAndFenceLateAttempt)
 TEST(MaterialTask, ForeignOwnerOrChangedAcquisitionCannotBecomeConfirmedResult)
 {
     Folder f;
-    tasks::Store store(f.path, {"data-one"});
+    tasks::Store store(asterion::data::task_domain(), f.path, {"data-one"});
     tasks::submit(store, input("one"));
     const auto token = claim(store, "one");
     const auto wrong = input("other");

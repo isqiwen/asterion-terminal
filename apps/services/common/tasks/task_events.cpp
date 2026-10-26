@@ -6,7 +6,7 @@
 #include <fstream>
 #include <charconv>
 
-namespace asterion::sqlite {
+namespace asterion::tasks {
 namespace {
 
 constexpr std::uint64_t maximum_event = 65536;
@@ -28,7 +28,7 @@ std::string bytes(const std::filesystem::path& path, std::uint64_t size)
 
 } // namespace
 
-TaskEvents::TaskEvents(Database& database, std::filesystem::path directory, bool read_only)
+TaskEvents::TaskEvents(sqlite::Database& database, std::filesystem::path directory, bool read_only)
     : database_(database),
       directory_(std::move(directory)),
       read_only_(read_only)
@@ -56,7 +56,7 @@ std::filesystem::path TaskEvents::path(std::uint64_t id) const
 task::proto::StoredTaskEventSegment TaskEvents::live() const
 {
     task::proto::StoredTaskEventSegment result;
-    Database::Statement events(
+    sqlite::Database::Statement events(
         database_,
         "SELECT CASE WHEN length(CAST(task_id AS BLOB)) <= 128 THEN task_id END, sequence, " "CASE WHEN length(CAST(body AS BLOB)) <= 65536 THEN body END " "FROM task_events ORDER BY rowid");
     std::uint64_t total = 0;
@@ -79,7 +79,7 @@ task::proto::StoredTaskEventSegment TaskEvents::live() const
 void TaskEvents::read(const Visitor& visit) const
 {
     std::uint64_t last = 0;
-    Database::Statement segments(
+    sqlite::Database::Statement segments(
         database_,
         "SELECT id, CASE WHEN length(sha256)=64 THEN sha256 END, " "bytes, records FROM task_event_segments ORDER BY id");
     const auto consume = [&](const task::proto::StoredTaskEventSegment& segment) {
@@ -105,7 +105,7 @@ void TaskEvents::read(const Visitor& visit) const
         std::set<std::string> members;
         for (const auto& event : segment.events())
             members.insert(event.task_id());
-        Database::Statement index(
+        sqlite::Database::Statement index(
             database_,
             "SELECT task_id FROM task_event_members WHERE segment=? ORDER BY task_id");
         index.bind(1, last);
@@ -116,7 +116,7 @@ void TaskEvents::read(const Visitor& visit) const
             throw std::invalid_argument("task event membership index differs from segment");
         consume(segment);
     }
-    Database::Statement orphan(
+    sqlite::Database::Statement orphan(
         database_,
         "SELECT 1 FROM task_event_members m LEFT JOIN task_event_segments s " "ON s.id=m.segment WHERE s.id IS NULL LIMIT 1");
     if (orphan.step())
@@ -146,7 +146,7 @@ const task::proto::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id)
 {
     if (cached_id_ == id)
         return cached_segment_;
-    Database::Statement index(
+    sqlite::Database::Statement index(
         database_,
         "SELECT sha256, bytes, records FROM task_event_segments WHERE id=?");
     index.bind(1, id);
@@ -164,7 +164,7 @@ const task::proto::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id)
 
 void TaskEvents::read_task(const std::string& task, const Visitor& visit) const
 {
-    Database::Statement segments(
+    sqlite::Database::Statement segments(
         database_,
         "SELECT segment FROM task_event_members WHERE task_id=? ORDER BY segment");
     segments.bind(1, task);
@@ -172,7 +172,7 @@ void TaskEvents::read_task(const std::string& task, const Visitor& visit) const
         for (const auto& event : segment(segments.integer(0)).events())
             if (event.task_id() == task)
                 visit(task, event.sequence(), event.body());
-    Database::Statement tail(
+    sqlite::Database::Statement tail(
         database_,
         "SELECT sequence, body FROM task_events WHERE task_id=? ORDER BY sequence");
     tail.bind(1, task);
@@ -186,13 +186,13 @@ void TaskEvents::rotate()
         throw std::logic_error("task event log is read only");
     std::int64_t count = 0, size = 0, last = 0;
     {
-        Database::Statement usage(
+        sqlite::Database::Statement usage(
             database_,
             "SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))),0) FROM task_events");
         usage.step();
         count = usage.integer(0);
         size = usage.integer(1);
-        Database::Statement segments(
+        sqlite::Database::Statement segments(
             database_,
             "SELECT COALESCE(MAX(id),0) FROM task_event_segments");
         segments.step();
@@ -209,8 +209,10 @@ void TaskEvents::rotate()
         sync_file_durably(file);
     } else
         replace_file_durably(file, raw);
-    Database::Transaction transaction(database_);
-    Database::Statement insert(database_, "INSERT INTO task_event_segments VALUES(?,?,?,?)");
+    sqlite::Database::Transaction transaction(database_);
+    sqlite::Database::Statement insert(
+        database_,
+        "INSERT INTO task_event_segments VALUES(?,?,?,?)");
     insert.bind(1, last + 1)
         .bind(2, sha256_bytes(raw))
         .bind(3, static_cast<std::int64_t>(raw.size()))
@@ -229,8 +231,8 @@ void TaskEvents::append(const std::string& task, std::uint64_t sequence, const s
         throw std::logic_error("task event log is read only");
     if (body.empty() || body.size() > maximum_event)
         throw std::invalid_argument("invalid task state event size");
-    Database::Statement insert(database_, "INSERT INTO task_events VALUES(?,?,?)");
+    sqlite::Database::Statement insert(database_, "INSERT INTO task_events VALUES(?,?,?)");
     insert.bind(1, task).bind(2, static_cast<std::int64_t>(sequence)).bind(3, body).step();
 }
 
-} // namespace asterion::sqlite
+} // namespace asterion::tasks

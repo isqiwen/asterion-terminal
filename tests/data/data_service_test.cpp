@@ -517,7 +517,7 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
 {
     Folder tasks, warehouse;
     data::Store data(warehouse.path, "data-one");
-    tasks::Store store(tasks.path, tasks::Identity{"data-one"});
+    tasks::Store store(asterion::data::task_domain(), tasks.path, tasks::Identity{"data-one"});
     auto request = allocation();
     const auto id = request.identity().task_id();
     tasks::submit(store, test::authorize_download(data, "data-one", id, request.minutes()));
@@ -541,7 +541,9 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate)
     const auto prepared = data.prepare(data.verify_download(candidate));
     EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::proto::CANCEL_REQUESTED);
     EXPECT_FALSE(
-        (store.commit(store.prepare_publication(std::move(completion), prepared)).task().state()
+        (store.commit(asterion::data::prepare_publication(store, std::move(completion), prepared))
+                .task()
+                .state()
             == asterion::task::proto::PUBLISHING));
     EXPECT_EQ(store.describe(id).state(), task::proto::CANCELLED);
     EXPECT_TRUE(store.pending_publications().empty());
@@ -560,7 +562,7 @@ TEST(DownloadPublication, DataRestartResumesTheOriginalDecisionAndRetainsConfirm
     {
         data::Store data(warehouse.path, "data-one");
         fs::create_directory(ledger);
-        tasks::Store store(ledger, tasks::Identity{"data-one"});
+        tasks::Store store(asterion::data::task_domain(), ledger, tasks::Identity{"data-one"});
         tasks::submit(store, test::authorize_download(data, "data-one", id, request.minutes()));
         token = store.commit(store.claim(id)).token();
         const auto candidate =
@@ -574,7 +576,10 @@ TEST(DownloadPublication, DataRestartResumesTheOriginalDecisionAndRetainsConfirm
         auto completion = store.prepare_finish(finish);
         completion.prepare_payload();
         ASSERT_TRUE(
-            (store.commit(store.prepare_publication(std::move(completion), prepared)).task().state()
+            (store.commit(
+                      asterion::data::prepare_publication(store, std::move(completion), prepared))
+                    .task()
+                    .state()
                 == asterion::task::proto::PUBLISHING));
         EXPECT_EQ(store.describe(id).state(), task::proto::PUBLISHING);
         EXPECT_EQ(store.commit(store.cancel(id)).task().state(), task::proto::PUBLISHING);

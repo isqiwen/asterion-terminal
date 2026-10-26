@@ -17,6 +17,7 @@ void ResearchHost::open()
 {
     opening_ = files_.submit([this](std::stop_token) {
         storage_ = std::make_unique<Store>(
+            research::task_domain(),
             std::filesystem::absolute(configuration_.directory),
             Identity{configuration_.service});
     });
@@ -241,7 +242,8 @@ PolledTask<> ResearchHost::resources_operation(Call& call)
         });
         *response.mutable_resources() = std::move(catalogue);
     } else
-        *response.mutable_resources() = storage_->resources(node, request.resources());
+        *response.mutable_resources() =
+            research::task_resources(*storage_, node, request.resources());
 }
 
 PolledTask<> ResearchHost::submit_operation(Call& call)
@@ -340,8 +342,11 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
         case Operation::kProjectTasks: {
             co_await wait_for_store({}, call.deadline);
             const auto& query = request.project_tasks();
-            *response.mutable_project_tasks() =
-                storage_->project_tasks(query.project_id(), query.limit(), query.before_sequence());
+            *response.mutable_project_tasks() = research::project_tasks(
+                *storage_,
+                query.project_id(),
+                query.limit(),
+                query.before_sequence());
             break;
         }
         case Operation::kReleaseDecision:

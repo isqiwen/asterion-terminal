@@ -1,3 +1,4 @@
+#include "research_tasks.hpp"
 #include "research_evaluation.hpp"
 #include "research_submission.hpp"
 #include "data_submission.hpp"
@@ -51,7 +52,10 @@ struct EvaluationEvidence : testing::Test
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
         owner.set_domain("research");
-        store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        store = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
         artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
     }
@@ -117,7 +121,7 @@ struct EvaluationEvidence : testing::Test
                 backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
         }
         auto submission = task_submission(*store, "source-account", original);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
         tasks::submit(*store, std::move(submission));
         const auto token = store->commit(store->claim("source-account")).token();
         auto computed = backtest::run(original);
@@ -269,7 +273,7 @@ TEST_F(
     const auto fixed = capture();
     const auto submit = [&](const char* id, const r::EvaluationInput& definition) {
         auto submission = task_submission(*store, id, definition);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
         return tasks::submit(*store, std::move(submission));
     };
     const auto admitted = submit("evaluation-report", fixed);
@@ -324,12 +328,14 @@ TEST_F(
     EXPECT_EQ(saved.result_task().program_artifact(), artifact);
     resource::proto::CatalogueQuery catalogue_query;
     catalogue_query.set_kind("performance_evaluation_result");
-    const auto catalogue = store->resources(owner.node_id(), catalogue_query);
+    const auto catalogue =
+        asterion::research::task_resources(*store, owner.node_id(), catalogue_query);
     ASSERT_EQ(catalogue.items_size(), 1);
     EXPECT_EQ(catalogue.items(0).object().version(), saved.result_task().result_digest());
     EXPECT_EQ(catalogue.items(0).relative_location(), "evaluation-report/results/1.pb");
     catalogue_query.set_kind("performance_evaluation");
-    const auto inputs = store->resources(owner.node_id(), catalogue_query);
+    const auto inputs =
+        asterion::research::task_resources(*store, owner.node_id(), catalogue_query);
     ASSERT_EQ(inputs.items_size(), 1);
     EXPECT_EQ(inputs.items(0).object().version(), report_read.input_digest());
     EXPECT_EQ(inputs.items(0).relative_location(), "evaluation-report/input.pb");
@@ -339,7 +345,10 @@ TEST_F(
         evidence.result_task().program_artifact());
     EXPECT_EQ(submit("evaluation-report", fixed).attempt(), 1U);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "evaluation-report").SerializeAsString(),
         saved.SerializeAsString());
@@ -358,7 +367,7 @@ TEST_F(
     const auto fixed = capture();
     {
         auto pending = task_submission(*store, "pending-evaluation", fixed);
-        pending.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(pending, artifact);
         store->admit_submission(pending);
         pending.prepare_files();
         EXPECT_TRUE(
@@ -366,7 +375,10 @@ TEST_F(
         EXPECT_TRUE(store->abandon_submission(pending));
     }
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     auto resumed = store->resume_submission("pending-evaluation");
     store->admit_submission(resumed);
     store->commit(store->register_submission(resumed));
@@ -377,11 +389,14 @@ TEST_F(
     EXPECT_EQ(store->get("pending-evaluation").state(), task::proto::CANCELLED);
     EXPECT_THROW(tasks::verified_result(*store, "pending-evaluation"), std::exception);
     auto running = task_submission(*store, "interrupted-evaluation", fixed);
-    running.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(running, artifact);
     tasks::submit(*store, std::move(running));
     store->commit(store->claim("interrupted-evaluation"));
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(store->get("interrupted-evaluation").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(
         store->get("interrupted-evaluation").evaluation().SerializeAsString(),
@@ -646,10 +661,13 @@ TEST_F(
         original_source.result_task().SerializeAsString());
     service.reset();
     {
-        tasks::Store pending(root, tasks::Identity{owner.service_id()});
+        tasks::Store pending(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{owner.service_id()});
         auto preparation =
             task_submission(pending, "prepared-evaluation", saved.result_task().evaluation());
-        preparation.set_program_artifact(evaluator);
+        asterion::tasks::set_program_artifact(preparation, evaluator);
         pending.admit_submission(preparation);
         preparation.prepare_files();
         fs::remove(root / "prepared-evaluation/input.pb");
@@ -683,7 +701,7 @@ TEST_F(EvaluationEvidence, RequestedDailyLossPathKeepsOnlyOriginalHoldoutRowsAnd
     request.set_include_daily_drawdown(true);
     const auto fixed = capture();
     auto submission = task_submission(*store, "daily-loss-report", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("daily-loss-report")).token();
     auto prepared = store->prepare_input("daily-loss-report");
@@ -718,12 +736,15 @@ TEST_F(EvaluationEvidence, RequestedDailyLossPathKeepsOnlyOriginalHoldoutRowsAnd
     unrequested.mutable_request()->set_include_daily_drawdown(false);
     EXPECT_THROW(protocol::validate_evaluation_result(unrequested, result), std::invalid_argument);
     auto changed = task_submission(*store, "daily-loss-report", unrequested);
-    changed.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(changed, artifact);
     EXPECT_THROW(tasks::submit(*store, std::move(changed)), std::invalid_argument);
     const auto document = protocol::decode_evaluation_result(fixed, result);
     EXPECT_EQ(document.at("daily_drawdown").at("points").size(), 5U);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "daily-loss-report").SerializeAsString(),
         saved.SerializeAsString());
@@ -773,7 +794,7 @@ TEST_F(
     unrequested.mutable_request()->set_include_exposure(false);
     EXPECT_THROW(protocol::validate_evaluation_result(unrequested, result), std::invalid_argument);
     auto submission = task_submission(*store, "development-exposure", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("development-exposure")).token();
     task::proto::TaskFinish finish;
@@ -783,10 +804,13 @@ TEST_F(
     store->commit(tasks::finish(*store, finish));
     const auto saved = tasks::verified_result(*store, finish.id());
     auto changed = task_submission(*store, finish.id(), unrequested);
-    changed.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(changed, artifact);
     EXPECT_THROW(tasks::submit(*store, std::move(changed)), std::invalid_argument);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, finish.id()).SerializeAsString(),
         saved.SerializeAsString());
@@ -843,7 +867,7 @@ TEST_F(
     const auto fixed = capture();
     const auto original_bytes = evidence.SerializeAsString();
     auto submission = task_submission(*store, "ledger-report", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("ledger-report")).token();
     auto prepared = store->prepare_input("ledger-report");
@@ -900,7 +924,10 @@ TEST_F(
         30U);
     EXPECT_EQ(tasks::verified_result(*store, "source-account").SerializeAsString(), original_bytes);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "ledger-report").SerializeAsString(),
         saved.SerializeAsString());
@@ -927,7 +954,7 @@ TEST_F(EvaluationEvidence, OriginalContractContributionsPublishFixedAccountAndRo
     const auto fixed = capture();
     const auto source = evidence.SerializeAsString();
     auto submission = task_submission(*store, "contract-report", fixed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto token = store->commit(store->claim("contract-report")).token();
     auto prepared = store->prepare_input("contract-report");
@@ -997,7 +1024,10 @@ TEST_F(EvaluationEvidence, OriginalContractContributionsPublishFixedAccountAndRo
     EXPECT_EQ(json.at("contributions").at("contracts").size(), 2U);
     EXPECT_EQ(tasks::verified_result(*store, "source-account").SerializeAsString(), source);
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "contract-report").SerializeAsString(),
         saved.SerializeAsString());
@@ -1146,10 +1176,13 @@ TEST_F(
         original_source.backtest().SerializeAsString());
     service.reset();
     {
-        tasks::Store pending(root, tasks::Identity{"research-one"});
+        tasks::Store pending(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
         auto submission =
             task_submission(pending, "prepared-contributions", saved.result_task().evaluation());
-        submission.set_program_artifact(evaluator);
+        asterion::tasks::set_program_artifact(submission, evaluator);
         pending.admit_submission(submission);
         submission.prepare_files();
         EXPECT_TRUE(pending.abandon_submission(submission));

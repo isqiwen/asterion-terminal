@@ -318,13 +318,13 @@
 | P2.11 | 本机完成：“已开通交易”以 Terminal 账户记录中的执行绑定为准；删除命令层按本机 `journal.sqlite` 的重复检查（`CtpConnections::save` 已在文件锁内强制同一规则） | — | — |
 | P2.5 | 本机完成：普通启动不再哈希每个任务的输入与结果，普通读取不再哈希、不再重跑结果语义校验；完成任务时的校验与冷备检查保留。删除 2 项只验证读取/启动重校验的测试并收窄 2 项 | — | — |
 | P2.3 | 本机完成：`handle()` 按 `operation_case()`/`definition_case()` 分派，重试检查合并为一次 `describe`，去掉三连 `admitted()`；4,972 行的 `research_host.cpp` 按模块拆为 7 个文件（最大 957 行）与内部头文件 `research_host_internal.hpp`。改为多个类的拆分未做（成员共享同一状态拥有者，收益不足以抵消改动） |
-| P2.2 | 部分完成：Store 的 13 个按类型重载移回所属服务——研究类 11 个到 `research/research_submission.cpp`，数据类 2 个到 `data/data_submission.cpp`；Store 只保留通用的 `submission(Task)`。各类型的输入/结果校验仍在 Store 中，下一步需要 Store 构造时接收服务提供的类型注册表；研究元数据仍借用 Store 的连接 |
+| P2.2 | 完成：`task-runtime` 改为 `apps/services/common/tasks` 下的纯机制库。新增 `TaskDomain` 接口，Data 与 Research 各自实现（`data_tasks.cpp`、`research_tasks.cpp`）：任务种类表、定义校验与列表摘要、清单附加字段、接纳与派生规则、执行描述、风控捕获、结果校验、历史引用。Research 资源目录与项目任务查询、Data 快照占用与下载发布证据移回服务；`task_events` 从 sqlite 插件移入任务库；Research 元数据经 `Store::database()` 访问，删除友元类。持久格式（清单字段、索引名）不变 |
 | P2.12 | 评估后不做：10 ms 节拍还承担宿主存活、停止信号、会话超时与服务内务的兜底推进；线程池完成时已主动唤醒。每秒 100 次唤醒成本很小，改为按截止时间唤醒需梳理所有不主动通知的工作，风险大于收益 |
 | 测试 | 默认单测超时 30 → 60 秒：冷备等进程测试单独运行 3—12 秒，并行负载下超过 30 秒导致误报 |
 | P2.7 | 暂缓：服务端也把这些 JSON 映射用作持久格式（任务清单、交易日志），不能直接拆成“只给界面用”的库；随 D5（界面契约生成）一起重新设计 |
 | P3.3 | 部分完成：`LivePanel.tsx` 1,246 行拆为 `LivePanel`/`CreateLive`/`LiveAccount` 与共享模块（最大 750 行）。`Backtest.tsx` 是单个 1,200 行组件，需要真正重构状态，暂缓 |
 | A01 | 本机完成：需求正文 `setup.md` 删除实施状态表述；主题文档中旧 Task 服务、worker 等表述已清理 |
-| P2.1 | 部分完成：task-runtime 新增任务类型表（域、退役名、定义字段、结果字段），以 Protobuf 反射取字段，替换 `definition()`、`parse_input`、`attach_definition`、结果解析、`confirm_attempt` 和 3 处研究类枚举链。Store 仍认识两个服务的输入类型（P2.2 未做） |
+| P2.1 | 完成：见 P2.2，任务种类表由各服务的 `TaskDomain` 提供 |
 | P2.8 | 本机完成：源码目录改为 `apps/services/{market,data,research}`；`ServiceKind` 枚举改为 `MARKET/DATA/RESEARCH/INTELLIGENCE/TRADING`（整数值不变）。命名空间迁移（`asterion::tasks` → `asterion::research`）涉及十余个文件与测试，收益仅为外观，暂不做；持久的实例 ID（如 `market-data`）与日志程序名不改 |
 | 文档 | 本机完成：删除 80 份按日期的评审与 9,185 行整改日志；25 份 research-* 等碎片合并为 `research.md`，情报 3 份合并为 `intelligence.md`，交易与行情交接文档并入主题文档；`data-paths.md`、目标设计移入 `docs/architecture/`；重写 AGENTS.md、README、docs 导航、架构与现状；派生 HTML 不再入库。Markdown 54,859 → 30,491 行，docs 文件 160 → 66，失效链接 0 |
 | P2.4 | 暂缓：写连接为 `locking_mode=EXCLUSIVE`（冷备依赖无共享内存旁路文件），并发读连接会改变持久化与冷备语义；P0.5 已去掉主要延迟来源，按“先测量再优化”在有负载数据前不改 | — | — |
@@ -332,6 +332,7 @@
 | D6 | 完成：行情为独立一级入口 | — | — |
 | P1.1 | 完成：`docs/requirements/release-r1.md`（支持集合、R1 页面编号、冻结与删除、外部条件、完成判据），`product.md`/`delivery.md`/需求导航加链接 | — | — |
 | 本机测试 | 删除后 `ctest -j 6`：960 项中 952 项通过。失败 8 项：`market_observation_archive`、`task_agent_recovery`（改动前即失败），QuantStats/Portfolio 6 项（`build/electron-resources/analytics` 中仍是改名前的 `asterion-analytics`，需重新 `pnpm desktop --prepare-analytics`）。界面：tsc、lint、205 项单元测试通过 | — | — |
+| 本机测试（任务库拆分后） | `ctest -j 6`：960 项中 952 项通过；8 项失败同上（QuantStats/Portfolio 6 项分析助手未重新准备、`market_observation_archive`、`task_agent_recovery`），无新增失败。界面单元测试 205 项通过 | — | — |
 | 第 3—5 阶段 | 下一步：D5 由 Protobuf 生成界面类型（含 P2.7、P3.1/P3.2） | — | — |
 
 ## 附录 A：本机 CTest 结果

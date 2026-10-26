@@ -621,7 +621,7 @@ TEST_F(NodeSupervision, DataQueriesDurableResearchReleaseAndKeepsUnknownOrAccept
     client->action("research-one", "stop").get();
     data::proto::DataRetention retention;
     {
-        tasks::Store store(research_root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), research_root, {"research-one"});
         auto draft = task_submission(store, "pending-release", input);
         store.admit_submission(draft);
         draft.prepare_files();

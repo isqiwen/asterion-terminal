@@ -35,7 +35,10 @@ struct ResearchStatistics : testing::Test
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
         owner.set_domain("research");
-        store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        store = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
         std::vector<MarketBar> prices;
         for (int i = 0; i < 90; ++i)
             prices.push_back(
@@ -56,7 +59,7 @@ struct ResearchStatistics : testing::Test
         artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner).preserve(current_executable(), artifact);
         auto submitted = task_submission(*store, "source-factor", factor_input);
-        submitted.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submitted, artifact);
         tasks::submit(*store, std::move(submitted));
         const auto token = store->commit(store->claim("source-factor")).token();
         store->commit(tasks::finish(*store, "source-factor", token, factor::run(factor_input)));
@@ -190,7 +193,7 @@ TEST_F(ResearchStatistics, EmptyEligibleRangeKeepsMissingStatesAndTheTypedReques
 TEST_F(ResearchStatistics, PersistentStatisticsPublishAndRestartKeepTheirExactSource)
 {
     auto submission = task_submission(*store, "statistics-one", input);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     const auto accepted = tasks::submit(*store, std::move(submission));
     EXPECT_EQ(accepted.kind(), task::proto::STATISTICS);
     EXPECT_EQ(accepted.metadata().derivation().source_id(), "source-factor");
@@ -210,7 +213,10 @@ TEST_F(ResearchStatistics, PersistentStatisticsPublishAndRestartKeepTheirExactSo
     EXPECT_EQ(original.result_task().program_artifact(), artifact);
     EXPECT_EQ(original.statistics().source().version(), evidence.result_task().result_digest());
     store.reset();
-    store = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    store = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_EQ(
         tasks::verified_result(*store, "statistics-one").SerializeAsString(),
         original.SerializeAsString());
@@ -226,18 +232,18 @@ TEST_F(ResearchStatistics, FinalAdmissionRejectsChangedSourceCaptureAndMissingEx
     auto changed = input;
     changed.mutable_source()->set_attempt(input.source().attempt() + 1);
     auto submission = task_submission(*store, "statistics-wrong-attempt", changed);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     EXPECT_THROW(store->admit_submission(submission), Error);
     EXPECT_FALSE(fs::exists(root / "statistics-wrong-attempt/input.pb"));
     auto valid = task_submission(*store, "statistics-valid", input);
-    valid.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(valid, artifact);
     EXPECT_EQ(tasks::submit(*store, std::move(valid)).kind(), task::proto::STATISTICS);
 }
 
 TEST_F(ResearchStatistics, CancellationCannotPublishAndExplicitRetryKeepsOriginalSource)
 {
     auto submission = task_submission(*store, "statistics-cancelled", input);
-    submission.set_program_artifact(artifact);
+    asterion::tasks::set_program_artifact(submission, artifact);
     tasks::submit(*store, std::move(submission));
     const auto original_input = sha256_file(root / "statistics-cancelled/input.pb");
     const auto token = store->commit(store->claim("statistics-cancelled")).token();

@@ -226,7 +226,7 @@ Projects::Projects(
     Database::Access access,
     std::shared_ptr<const Clock> clock)
     : Projects(
-          store.research_metadata(expected.service_id(), access == Database::Access::writer),
+          store.database(expected.service_id(), access == Database::Access::writer),
           expected,
           access,
           std::move(clock))

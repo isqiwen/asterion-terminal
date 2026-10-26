@@ -8,8 +8,8 @@ There is no independent Task service or generic task submission endpoint.
 Research binds an explicit Data instance through its public service endpoint.
 Multiple Research instances may bind the same Data service. Each has its own
 ledger and bounded calculation pool; Agent only supervises service lifecycle.
-Shared task records and persistence mechanics live in `apps/services/task-runtime`,
-not Core. Terminal aggregates tasks with their node, service and connection owner.
+The durable task mechanism is the shared `apps/services/common/tasks` library;
+what Research's task kinds mean is `research_tasks.cpp`, its `TaskDomain`. Terminal aggregates tasks with their node, service and connection owner.
 
 The I/O owner serializes state transitions. Computation receives immutable input,
 cooperative cancellation and a progress channel. Restart interrupts unconfirmed

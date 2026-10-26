@@ -83,12 +83,12 @@ backtest::proto::BacktestInput input()
 void seed(const fs::path& root, bool abandoned, bool capture_program = false)
 {
     fs::create_directory(root);
-    tasks::Store store(root, {"research-one"});
+    tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
     auto submission = task_submission(store, "fixed-run", input());
     if (capture_program) {
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
     }
     store.admit_submission(submission);
     submission.prepare_files();
@@ -116,7 +116,9 @@ TEST(ResearchColdBackup, RestoresFixedInputsWithoutOriginalRootAndReportsMissing
     for (const auto& dependency : exported.snapshot.dependencies)
         EXPECT_FALSE(dependency.included);
     EXPECT_FALSE(exported.snapshot.limitations.empty());
-    EXPECT_THROW(tasks::Store writer(root, {"research-one"}), std::runtime_error);
+    EXPECT_THROW(
+        tasks::Store writer(asterion::research::task_domain(), root, {"research-one"}),
+        std::runtime_error);
     std::vector<backup_files::Snapshot> snapshots;
     snapshots.push_back(std::move(exported.snapshot));
     backup_files::Cut cut(std::move(snapshots));
@@ -188,7 +190,7 @@ TEST(ResearchColdBackup, PreservesAbandonmentProofWithAndWithoutRemainingPayload
     const auto root = folder.path / "source";
     seed(root, true);
     {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         const auto evidence = store.prepared_submission_record("fixed-run");
         tasks::ResearchDataRoute route{evidence.execution().data_owner(), {}, "fixture-node"};
         const auto retained =
@@ -237,7 +239,7 @@ TEST(ResearchColdBackup, JointCutChecksBilateralReferencesAndRestoresBothDomains
             data::resolve_bar_dataset(data.tables(), data.sources(query));
         fixed.set_dataset_revision(protocol::dataset_revision(fixed.paper()));
         data::Retentions references(data_root, source, data);
-        tasks::Store research(research_root, {"research-one"});
+        tasks::Store research(asterion::research::task_domain(), research_root, {"research-one"});
         auto submission = task_submission(research, "joint-run", fixed);
         research.admit_submission(submission);
         submission.prepare_files();
@@ -359,7 +361,10 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
             fixed.set_retain_observations(true);
 
             data::Retentions references(data_root, source, data);
-            tasks::Store research(research_root, {"research-one"});
+            tasks::Store research(
+                asterion::research::task_domain(),
+                research_root,
+                {"research-one"});
             asterion::research::Projects projects(
                 research,
                 owner(),
@@ -407,8 +412,8 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
             }
             expected = factor::run(fixed);
             auto submission = task_submission(research, "factor-rows", fixed);
-            submission.set_program_artifact(artifact);
-            submission.set_research_plan(binding);
+            asterion::tasks::set_program_artifact(submission, artifact);
+            asterion::tasks::set_research_plan(research, submission, binding);
             research.admit_submission(submission);
             submission.prepare_files();
             tasks::ResearchDataRoute route{source, {}, "fixture-node"};
@@ -454,7 +459,7 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                     sha256_file(research_root / "factor-rows/input.pb"),
                     fs::file_size(research_root / "factor-rows/input.pb"));
                 auto statistics = task_submission(research, "statistics-rows", statistics_input);
-                statistics.set_program_artifact(artifact);
+                asterion::tasks::set_program_artifact(statistics, artifact);
                 tasks::submit(research, std::move(statistics));
                 const auto statistics_token =
                     research.commit(research.claim("statistics-rows")).token();
@@ -490,7 +495,10 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                 EXPECT_TRUE(dependency.at("included"));
         }
         {
-            tasks::Store restored(folder.path / "restore/owners/1", {"research-one"});
+            tasks::Store restored(
+                asterion::research::task_domain(),
+                folder.path / "restore/owners/1",
+                {"research-one"});
             asterion::research::Projects projects(restored, owner());
             EXPECT_EQ(
                 projects.plan(expected_plan.id()).SerializeAsString(),
@@ -594,7 +602,7 @@ TEST(ResearchColdBackup, SharedInputsProduceIndependentBackupAndRestoreWithoutOr
     const auto root = folder.path / "source";
     seed(root, false);
     {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         const auto token = store.commit(store.claim("fixed-run")).token();
         store.commit(tasks::finish(store, "fixed-run", token, backtest::run(input())));
         auto child = task_submission(store, "linked-run", input());
@@ -671,7 +679,7 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         request.set_use_scope("Synthetic independent raw-close backup");
         request.set_development_end(4);
         *input.mutable_dataset() = data::resolve_bar_dataset(data.tables(), data.sources(query));
-        tasks::Store research(research_root, {"research-one"});
+        tasks::Store research(asterion::research::task_domain(), research_root, {"research-one"});
         (void)programs::Files(research_root / "programs", owner())
             .preserve(current_executable(), artifact);
         research::Projects projects(research, owner(), sqlite::Database::Access::writer);
@@ -696,8 +704,8 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         binding.set_plan_id(expected_plan.id());
         binding.set_definition_digest(expected_plan.definition_digest());
         auto submission = task_submission(research, "raw-sample", input);
-        submission.set_research_plan(binding);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_research_plan(research, submission, binding);
+        asterion::tasks::set_program_artifact(submission, artifact);
         research.admit_submission(submission);
         submission.prepare_files();
         tasks::ResearchDataRoute route{source, {}, "fixture-node"};
@@ -734,8 +742,8 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
             sha256_file(research_root / "raw-sample/input.pb"),
             fs::file_size(research_root / "raw-sample/input.pb"));
         auto analysis = task_submission(research, "raw-statistics", captured);
-        analysis.set_program_artifact(artifact);
-        analysis.set_research_plan(binding);
+        asterion::tasks::set_program_artifact(analysis, artifact);
+        asterion::tasks::set_research_plan(research, analysis, binding);
         tasks::submit(research, std::move(analysis));
         const auto analysis_token = research.commit(research.claim("raw-statistics")).token();
         expected_statistics = tasks::compute_statistics(captured, research_root);
@@ -781,7 +789,10 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
             EXPECT_TRUE(dependency.at("included"));
     }
     {
-        tasks::Store restored(restored_research, {"research-one"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            restored_research,
+            {"research-one"});
         EXPECT_EQ(
             tasks::verified_result(restored, "raw-sample").sample().SerializeAsString(),
             expected_sample.SerializeAsString());
@@ -841,7 +852,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
         const auto dataset = data::resolve_bar_dataset(data.tables(), data.sources(query));
         auto fixed = testing_support::backtest_input(dataset);
         *fixed.mutable_data_owner() = source;
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
         data::Retentions references(data_root, source, data);
@@ -860,7 +871,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
             store.commit(tasks::finish(store, id, token, backtest::run(fixed)));
         };
         auto reference = task_submission(store, "reference", fixed);
-        reference.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(reference, artifact);
         submit(std::move(reference), "reference");
         const auto original = tasks::verified_result(store, "reference");
         research::Strategies strategies(store, owner(), sqlite::Database::Access::writer);
@@ -918,9 +929,9 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
         binding.set_plan_id(expected_plan.id());
         binding.set_definition_digest(expected_plan.definition_digest());
         auto calculation = task_submission(store, "delivered", fixed);
-        calculation.set_research_plan(binding);
-        calculation.set_program_artifact(artifact);
-        calculation.set_strategy_use(use, expected.definition());
+        asterion::tasks::set_research_plan(store, calculation, binding);
+        asterion::tasks::set_program_artifact(calculation, artifact);
+        asterion::tasks::set_strategy_use(store, calculation, use, expected.definition());
         task::proto::TaskDerivation derivation;
         derivation.set_source_id("reference");
         derivation.set_source_result_digest(origin.version());
@@ -966,7 +977,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
             EXPECT_TRUE(dependency.at("included"));
     }
     {
-        tasks::Store store(restored, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), restored, {"research-one"});
         research::Strategies strategies(store, owner());
         research::Projects projects(store, owner());
         EXPECT_EQ(
@@ -1023,7 +1034,7 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
     research::proto::LogicTrialInput fixed;
     research::proto::StrategyPackage expected_package;
     {
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         research::Logic logic(store, owner(), sqlite::Database::Access::writer);
         research::proto::LogicMutation registration;
         registration.set_id("register-rule");
@@ -1058,7 +1069,7 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
         auto submission = task_submission(store, "logic-run", fixed);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
         tasks::submit(store, std::move(submission));
         const auto token = store.commit(store.claim("logic-run")).token();
         task::proto::TaskFinish finish;
@@ -1122,7 +1133,7 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
             EXPECT_TRUE(dependency.at("included"));
     }
     {
-        tasks::Store store(restored, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), restored, {"research-one"});
         EXPECT_EQ(
             tasks::verified_result(store, "logic-run").SerializeAsString(),
             original.SerializeAsString());
@@ -1197,11 +1208,11 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
             backtest::proto::PerformanceAssumptions::EXPLICIT_ZERO);
         fixed.mutable_walk_forward()->set_training_days(20);
         fixed.mutable_walk_forward()->set_validation_days(5);
-        tasks::Store store(root, {"research-one"});
+        tasks::Store store(asterion::research::task_domain(), root, {"research-one"});
         const auto artifact = sha256_file(current_executable());
         (void)programs::Files(root / "programs", owner()).preserve(current_executable(), artifact);
         auto submission = task_submission(store, "rolling-run", fixed);
-        submission.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(submission, artifact);
         store.admit_submission(submission);
         submission.prepare_files();
         tasks::ResearchDataRoute route{source, {}, owner().node_id()};
@@ -1255,7 +1266,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
             source_digest,
             source_bytes);
         auto report = task_submission(store, "rolling-evaluation", evaluation_input);
-        report.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(report, artifact);
         tasks::submit(store, std::move(report));
         task::proto::TaskFinish finish;
         finish.set_id("rolling-evaluation");
@@ -1307,7 +1318,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
         EXPECT_TRUE(evaluation_conclusion.retrospective());
 
         auto pending = task_submission(store, "rolling-evaluation-prepared", evaluation_input);
-        pending.set_program_artifact(artifact);
+        asterion::tasks::set_program_artifact(pending, artifact);
         store.admit_submission(pending);
         pending.prepare_files();
         EXPECT_TRUE(store.abandon_submission(pending));
@@ -1328,7 +1339,7 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
             {{data_owner, folder.path / "restored/owners/0"}, {owner(), restored_root}});
         (void)checked.preview("restored-rolling");
     }
-    tasks::Store restored(restored_root, {"research-one"});
+    tasks::Store restored(asterion::research::task_domain(), restored_root, {"research-one"});
     {
         research::Projects projects(restored, owner());
         EXPECT_EQ(

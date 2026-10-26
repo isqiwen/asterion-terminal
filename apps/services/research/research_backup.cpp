@@ -10,7 +10,7 @@
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
-#include "task_store.hpp"
+#include "research_tasks.hpp"
 #include "task_payload.hpp"
 #include "program_files.hpp"
 #include <asterion/protocol/account_review.hpp>
@@ -421,6 +421,7 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
         result.objects.push_back(decision);
     };
     const auto catalogue = tasks::Store::inspect_backup(
+        research::task_domain(),
         root,
         {owner.service_id()},
         inspect,

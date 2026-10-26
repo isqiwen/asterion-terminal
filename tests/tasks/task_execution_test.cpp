@@ -1055,7 +1055,10 @@ TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculat
     const auto expected = backtest::run(spec);
     std::string input_hash, result_hash, digest;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "original", spec);
         const auto token = store.commit(store.claim("original")).token();
         store.commit(tasks::finish(store, "original", token, expected));
@@ -1102,7 +1105,10 @@ TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculat
         store.commit(tasks::finish(store, "derived", derived_token, expected));
     }
     {
-        tasks::Store restored(directory.path, tasks::Identity{"task"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         const auto original = restored.describe("original"), derived = restored.describe("derived");
         EXPECT_EQ(original.metadata().name(), "baseline");
         EXPECT_EQ(original.metadata().note(), "first line\nsecond line");
@@ -1126,7 +1132,7 @@ TEST(TaskEventSegments, FailedIndexCommitKeepsActiveEvidenceAndConfirmsOnlyTheOr
     {
         sqlite::Database database(root / "events.sqlite");
         database.execute("CREATE TABLE task_events(task_id TEXT, sequence INTEGER, body TEXT)");
-        sqlite::TaskEvents log(database, segments, false);
+        tasks::TaskEvents log(database, segments, false);
         {
             sqlite::Database::Transaction transaction(database);
             for (unsigned sequence = 1; sequence <= 1000; ++sequence)
@@ -1152,7 +1158,7 @@ TEST(TaskEventSegments, FailedIndexCommitKeepsActiveEvidenceAndConfirmsOnlyTheOr
         transaction.commit();
     }
     sqlite::Database database(root / "events.sqlite", sqlite::Database::Access::read_only);
-    sqlite::TaskEvents restored(database, segments, true);
+    tasks::TaskEvents restored(database, segments, true);
     unsigned count = 0;
     restored.read([&](const auto&, auto sequence, const auto&) {
         EXPECT_EQ(sequence, ++count);
@@ -1181,7 +1187,10 @@ TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery)
     const auto expected = backtest::run(spec);
     std::string token, input_hash, result_hash, segment_hash;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "long-run", spec);
         input_hash = sha256_file(directory.path / "long-run/input.pb");
         token = store.commit(store.claim("long-run")).token();
@@ -1193,7 +1202,10 @@ TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery)
         segment_hash = sha256_file(directory.path / "event-segments/1.pb");
     }
     {
-        tasks::Store restored(directory.path, tasks::Identity{"task"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         EXPECT_EQ(restored.describe("long-run").submission_sequence(), 1);
         EXPECT_EQ(restored.describe("long-run").attempt(), 1);
         EXPECT_EQ(
@@ -1212,14 +1224,16 @@ TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery)
             "DELETE FROM task_events WHERE task_id='long-run' AND sequence=" "(SELECT MAX(sequence) FROM task_events WHERE task_id='long-run')");
     }
     const auto database_hash = sha256_file(directory.path / "tasks.sqlite");
-    EXPECT_THROW((tasks::Store(directory.path, tasks::Identity{"task"})), std::invalid_argument);
+    EXPECT_THROW(
+        (tasks::Store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"})),
+        std::invalid_argument);
     EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), database_hash);
 }
 
 TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     const auto spec = input();
     tasks::submit(store, "first", spec);
     tasks::submit(store, "second", spec);
@@ -1251,7 +1265,7 @@ TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions
 TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     auto spec = input();
     const auto first = tasks::submit(store, "job1", spec);
     EXPECT_EQ(tasks::submit(store, "job1", spec).SerializeAsString(), first.SerializeAsString());
@@ -1282,7 +1296,7 @@ TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
 TEST(TaskStore, PreparationFailureRequiresExplicitRetryAndCannotOverwriteCompletedResults)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, {"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
     tasks::submit(store, "queued", input());
     store.commit(store.fail_start("queued", 1, "input preparation failed", "operation_failed"));
     EXPECT_EQ(store.get("queued").state(), task::proto::FAILED);
@@ -1302,7 +1316,10 @@ TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "queued", input());
         tasks::submit(store, "working", input());
         tasks::submit(store, "done", input());
@@ -1315,11 +1332,17 @@ TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
                 store.commit(store.claim("done")).token(),
                 backtest::run(input())));
         EXPECT_THROW(
-            tasks::Store other(directory.path, tasks::Identity{"task"}),
+            tasks::Store other(
+                asterion::research::task_domain(),
+                directory.path,
+                tasks::Identity{"task"}),
             std::runtime_error);
     }
     {
-        tasks::Store restored(directory.path, tasks::Identity{"task"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         EXPECT_EQ(restored.get("queued").state(), task::proto::QUEUED);
         EXPECT_EQ(restored.get("working").state(), task::proto::INTERRUPTED);
         EXPECT_EQ(restored.get("working").completed(), 2U);
@@ -1330,7 +1353,7 @@ TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
         restored.commit(restored.retry("working")).task();
         EXPECT_EQ(restored.get("working").state(), task::proto::QUEUED);
     }
-    tasks::Store again(directory.path, tasks::Identity{"task"});
+    tasks::Store again(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     EXPECT_EQ(again.get("working").state(), task::proto::QUEUED);
 }
 
@@ -1339,7 +1362,7 @@ TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery)
     TaskDirectory directory;
     const tasks::Identity identity{"task-one"};
     {
-        tasks::Store store(directory.path, identity);
+        tasks::Store store(asterion::research::task_domain(), directory.path, identity);
         tasks::submit(store, "working", input());
         (void)store.commit(store.claim("working")).token();
     }
@@ -1348,14 +1371,20 @@ TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery)
     const auto database_hash = sha256_file(database);
     const auto seal_hash = sha256_file(seal);
     for (const tasks::Identity wrong : {tasks::Identity{"task-two"}, tasks::Identity{"data-one"}}) {
-        EXPECT_THROW(tasks::Store rejected(directory.path, wrong), std::invalid_argument);
         EXPECT_THROW(
-            tasks::Store::inspect_history_usage(directory.path, wrong, std::string(64, 'a')),
+            tasks::Store rejected(asterion::research::task_domain(), directory.path, wrong),
+            std::invalid_argument);
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(
+                asterion::research::task_domain(),
+                directory.path,
+                wrong,
+                std::string(64, 'a')),
             std::invalid_argument);
         EXPECT_EQ(sha256_file(database), database_hash);
         EXPECT_EQ(sha256_file(seal), seal_hash);
     }
-    tasks::Store restored(directory.path, identity);
+    tasks::Store restored(asterion::research::task_domain(), directory.path, identity);
     EXPECT_EQ(restored.get("working").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(sha256_file(seal), seal_hash);
 }
@@ -1367,7 +1396,7 @@ TEST(TaskStore, MissingOrUnsupportedIdentityIsNeverFilledIntoExistingStore)
         TaskDirectory directory;
         const tasks::Identity identity{"task-one"};
         {
-            tasks::Store store(directory.path, identity);
+            tasks::Store store(asterion::research::task_domain(), directory.path, identity);
             tasks::submit(store, "working", input());
             (void)store.commit(store.claim("working")).token();
         }
@@ -1378,9 +1407,15 @@ TEST(TaskStore, MissingOrUnsupportedIdentityIsNeverFilledIntoExistingStore)
             replace_file_durably(seal, Json{{"task_instance", "different-task"}}.dump());
         const auto database_hash = sha256_file(directory.path / "tasks.sqlite");
         const auto seal_hash = missing ? std::string{} : sha256_file(seal);
-        EXPECT_THROW(tasks::Store rejected(directory.path, identity), std::invalid_argument);
         EXPECT_THROW(
-            tasks::Store::inspect_history_usage(directory.path, identity, std::string(64, 'a')),
+            tasks::Store rejected(asterion::research::task_domain(), directory.path, identity),
+            std::invalid_argument);
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(
+                asterion::research::task_domain(),
+                directory.path,
+                identity,
+                std::string(64, 'a')),
             std::invalid_argument);
         EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), database_hash);
         EXPECT_EQ(std::filesystem::exists(seal), !missing);
@@ -1395,15 +1430,20 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
         TaskDirectory directory;
         const tasks::Identity identity{"task-one"};
         fail_next_directory_syncs_for_testing(1);
-        EXPECT_THROW(tasks::Store store(directory.path, identity), std::runtime_error);
+        EXPECT_THROW(
+            tasks::Store store(asterion::research::task_domain(), directory.path, identity),
+            std::runtime_error);
         fail_next_directory_syncs_for_testing(0);
         EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
-        tasks::Store restored(directory.path, identity);
+        tasks::Store restored(asterion::research::task_domain(), directory.path, identity);
         EXPECT_TRUE(restored.list().tasks().empty());
     }
     {
         TaskDirectory directory;
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         fail_next_directory_syncs_for_testing(1);
         EXPECT_THROW(tasks::submit(store, "unpublished", input()), std::runtime_error);
         fail_next_directory_syncs_for_testing(0);
@@ -1415,7 +1455,10 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
     }
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "job", input());
         const auto token = store.commit(store.claim("job")).token();
         const auto result = backtest::run(input());
@@ -1425,7 +1468,10 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
         EXPECT_EQ(store.get("job").state(), task::proto::RUNNING);
         EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(restored.get("job").state(), task::proto::INTERRUPTED);
     EXPECT_TRUE(std::filesystem::is_regular_file(directory.path / "job/results/1.pb"));
     restored.commit(restored.retry("job")).task();
@@ -1441,7 +1487,7 @@ TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult
 TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "existing", input());
     auto pending = task_submission(store, "new", input());
     store.admit_submission(pending);
@@ -1488,7 +1534,7 @@ TEST(TaskStore, JournalWaitKeepsActiveStateAvailableAndRequiresOwnerConfirmation
 {
     using namespace std::chrono_literals;
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "job", input());
     tasks::submit(store, "other", input());
     auto claimed = store.claim("job");
@@ -1529,7 +1575,10 @@ TEST(TaskStore, FailedStateCommitKeepsTheLastConfirmedActiveState)
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "job", input());
         const auto token = store.commit(store.claim("job")).token();
         store.commit(store.progress("job", token, 1));
@@ -1544,7 +1593,10 @@ TEST(TaskStore, FailedStateCommitKeepsTheLastConfirmedActiveState)
         EXPECT_EQ(store.list().capacity().active_used(), 1U);
         EXPECT_THROW(store.commit(store.progress("job", token, 2)), std::runtime_error);
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(restored.describe("job").state(), task::proto::INTERRUPTED);
     EXPECT_EQ(restored.describe("job").completed(), 1U);
     EXPECT_TRUE(restored.active_tasks().empty());
@@ -1557,7 +1609,10 @@ TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt)
     for (const bool retry : {false, true}) {
         SCOPED_TRACE(retry);
         TaskDirectory directory;
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "job", input());
         task::proto::TaskFinish request;
         request.set_id("job");
@@ -1595,7 +1650,7 @@ TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt)
 TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "job", input());
     task::proto::TaskFinish request;
     request.set_id("job");
@@ -1614,7 +1669,7 @@ TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit)
 TEST(TaskStore, InputReadPreservesConcurrentCancellationAndRejectsForeignOrChangedFiles)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "job", input());
     auto read = store.prepare_input("job");
     EXPECT_THROW(store.confirm_input(read), std::invalid_argument);
@@ -1625,7 +1680,10 @@ TEST(TaskStore, InputReadPreservesConcurrentCancellationAndRejectsForeignOrChang
     store.commit(store.cancel("job")).task();
     loading.get();
     TaskDirectory foreign_directory;
-    tasks::Store foreign(foreign_directory.path, tasks::Identity{"task"});
+    tasks::Store foreign(
+        asterion::research::task_domain(),
+        foreign_directory.path,
+        tasks::Identity{"task"});
     tasks::submit(foreign, "job", input());
     EXPECT_THROW(foreign.confirm_input(read), std::invalid_argument);
     EXPECT_THROW((void)foreign.claim(read), std::invalid_argument);
@@ -1645,12 +1703,15 @@ TEST(TaskStore, ResultReadOwnsItsSnapshotAndChecksFilesBeforeCacheConfirmation)
     TaskDirectory directory;
     const auto expected = backtest::run(input());
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "done", input());
         store.commit(
             tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
     }
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "other", input());
     const auto token = store.commit(store.claim("other")).token();
     auto read = store.prepare_result("done");
@@ -1662,7 +1723,10 @@ TEST(TaskStore, ResultReadOwnsItsSnapshotAndChecksFilesBeforeCacheConfirmation)
     store.commit(store.cancel("other")).task();
     verifying.get();
     TaskDirectory other_directory;
-    tasks::Store other(other_directory.path, tasks::Identity{"task"});
+    tasks::Store other(
+        asterion::research::task_domain(),
+        other_directory.path,
+        tasks::Identity{"task"});
     tasks::submit(other, "done", input());
     other.commit(tasks::finish(other, "done", other.commit(other.claim("done")).token(), expected));
     EXPECT_THROW(other.confirm_result(read), std::invalid_argument);
@@ -1704,7 +1768,7 @@ TEST(TaskStore, VerificationAdmissionReservesBothCompletionsAndReleasesAfterFail
 TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     auto spec = input();
     spec.set_dataset_revision("invalid");
     EXPECT_THROW(tasks::submit(store, "invalid", spec), std::invalid_argument);
@@ -1931,7 +1995,7 @@ struct TaskProcess : testing::Test
     {
         preserve_program();
         auto submission = task_submission(store, id, std::move(input));
-        submission.set_program_artifact(preserved_program);
+        asterion::tasks::set_program_artifact(submission, preserved_program);
         return tasks::submit(store, std::move(submission));
     }
 
@@ -1939,7 +2003,10 @@ struct TaskProcess : testing::Test
     {
         service.reset();
         {
-            tasks::Store store(directory.path, tasks::Identity{"task"});
+            tasks::Store store(
+                asterion::research::task_domain(),
+                directory.path,
+                tasks::Identity{"task"});
             persist(store, id, process_input());
         }
         start();
@@ -2007,7 +2074,7 @@ TEST_F(TaskProcess, QueuedCalculationWaitsForCurrentProcessObservationWithoutBlo
     auto fixed = process_input();
     service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         persist(store, "waiting-for-current-process", fixed);
     }
     // Retain the stopped observation until this test explicitly publishes the new PID.
@@ -2205,7 +2272,10 @@ TEST_F(TaskProcess, ExecutionRejectsDataEvidenceDifferentFromTheAcceptedInput)
     evidence->set_acquired_at_ns(evidence->acquired_at_ns() + 1);
     service.reset();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         persist(store, "different-evidence", spec);
     }
     start();
@@ -2230,7 +2300,10 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
     const auto spec = process_input();
     service.reset();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         persist(store, "other-rules", spec);
         persist(store, "other-messages", spec);
     }
@@ -2428,10 +2501,13 @@ TEST_F(
     EXPECT_EQ(original.result_task().program_artifact(), fixture_program_artifact);
     service.reset();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         auto prepared =
             task_submission(store, "logic-prepared", original.result_task().logic_trial());
-        prepared.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
         std::filesystem::remove(directory.path / "logic-prepared/input.pb");
@@ -2453,10 +2529,13 @@ TEST_F(
         original.logic_trial().SerializeAsString());
     service.reset();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         auto prepared =
             task_submission(store, "logic-abandoned", original.result_task().logic_trial());
-        prepared.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
         std::filesystem::remove(directory.path / "logic-abandoned/input.pb");
@@ -3053,9 +3132,9 @@ TEST_F(TaskProcess, CausalVariablesPersistDefinitionsAndActualFactorEvidenceAcro
             missing ? "expression-prepared-missing" : "expression-prepared-present";
         service.reset();
         {
-            tasks::Store store(directory.path, {"task"});
+            tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
             auto prepared = task_submission(store, id, spec);
-            prepared.set_program_artifact(fixture_program_artifact);
+            asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
             store.admit_submission(prepared);
             prepared.prepare_files();
             const auto captured = store.prepared_submission_record(id);
@@ -3150,9 +3229,9 @@ TEST_F(TaskProcess, RawSamplesUseFixedDataWithoutAnyFactorAndRestoreMissingPrepa
     EXPECT_EQ(retained.retention().consumer().SerializeAsString(), consumer.SerializeAsString());
     service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto preparation = task_submission(store, "raw-prepared", owned);
-        preparation.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(preparation, fixture_program_artifact);
         store.admit_submission(preparation);
         preparation.prepare_files();
         EXPECT_LT(
@@ -3312,11 +3391,11 @@ TEST_F(TaskProcess, StatisticsConsumeOriginalFactorWithoutDataAndRecoverExactPre
     EXPECT_EQ(report.statistics().source().SerializeAsString(), object.SerializeAsString());
     service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         EXPECT_EQ(store.retirement("statistics-source", "fixture-node").consumers_size(), 1);
         const auto captured = store.get("statistics-report").statistics();
         auto prepared = task_submission(store, "statistics-prepared", captured);
-        prepared.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
         std::filesystem::remove(directory.path / "statistics-prepared/input.pb");
@@ -3412,9 +3491,9 @@ TEST_F(TaskProcess, FixedExpressionHoldoutRecoversOriginalRolesAndValuesWithoutD
     EXPECT_FALSE(evidence.factor().observations(89).has_forward_return());
     service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto prepared = task_submission(store, "expression-held-prepared", spec);
-        prepared.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
         store.admit_submission(prepared);
         prepared.prepare_files();
         EXPECT_EQ(
@@ -3688,10 +3767,10 @@ TEST_F(
         const std::string id = missing ? "plan-prepared-missing" : "plan-prepared-present";
         service.reset();
         {
-            tasks::Store store(directory.path, {"task"});
+            tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
             auto prepared = task_submission(store, id, spec);
-            prepared.set_program_artifact(fixture_program_artifact);
-            prepared.set_research_plan(binding);
+            asterion::tasks::set_program_artifact(prepared, fixture_program_artifact);
+            asterion::tasks::set_research_plan(store, prepared, binding);
             store.admit_submission(prepared);
             prepared.prepare_files();
             const auto record = store.prepared_submission_record(id);
@@ -3722,15 +3801,15 @@ TEST_F(
     service.reset();
     data_service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto pending = task_submission(store, "cancelled-plan", spec);
-        pending.set_program_artifact(fixture_program_artifact);
-        pending.set_research_plan(binding);
+        asterion::tasks::set_program_artifact(pending, fixture_program_artifact);
+        asterion::tasks::set_research_plan(store, pending, binding);
         store.admit_submission(pending);
         pending.prepare_files();
         store.commit(store.register_submission(pending));
         auto unrelated = task_submission(store, "unrelated-factor", spec);
-        unrelated.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(unrelated, fixture_program_artifact);
         store.admit_submission(unrelated);
         unrelated.prepare_files();
         store.commit(store.register_submission(unrelated));
@@ -3819,7 +3898,7 @@ TEST_F(TaskProcess, ServiceOwnsConcurrencyCancellationAndUpgradeDrain)
         published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "pool-input");
     spec.set_dataset_revision(spec.series(0).bars().revision());
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         persist(store, "first", spec);
         persist(store, "second", spec);
     }
@@ -3874,7 +3953,10 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
         published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "maximum");
     spec.set_dataset_revision(spec.series(0).bars().revision());
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         persist(store, "maximum", spec);
         persist(store, "other", input());
     }
@@ -3926,7 +4008,7 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
 TEST(TaskStore, RejectsMismatchedResultContractAndMetrics)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "job", input());
     const auto token = store.commit(store.claim("job")).token();
     auto result = backtest::run(input());
@@ -3943,7 +4025,7 @@ TEST(TaskStore, RejectsMismatchedResultContractAndMetrics)
 TEST(TaskStore, RejectsResultWithDifferentRiskConfiguration)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     const auto spec = input();
     tasks::submit(store, "risk-result", spec);
     const auto token = store.commit(store.claim("risk-result")).token();
@@ -3984,7 +4066,11 @@ TEST(TaskStore, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart)
     auto clock = std::make_shared<TaskClock>();
     task::proto::Task first, latest;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"}, clock);
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"},
+            clock);
         first = tasks::submit(store, "z-first", input());
         tasks::submit(store, "a-second", input()); // Same millisecond, opposite ID order.
         clock->value -= 60000000000LL;
@@ -3999,7 +4085,11 @@ TEST(TaskStore, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart)
             first.SerializeAsString());
         EXPECT_EQ(latest.submission_sequence(), 3U);
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"}, clock);
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"},
+        clock);
     EXPECT_EQ(restored.get("z-first").SerializeAsString(), first.SerializeAsString());
     EXPECT_EQ(restored.get("m-latest").SerializeAsString(), latest.SerializeAsString());
     EXPECT_EQ(restored.list().tasks(2).id(), "m-latest");
@@ -4023,7 +4113,10 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
     spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
     const auto original = spec.SerializeAsString();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "large", spec);
         EXPECT_EQ(store.list().capacity().retained_tasks(), 1U);
         EXPECT_EQ(store.list().capacity().uncommitted(), 0U);
@@ -4063,7 +4156,10 @@ TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
         store.commit(store.progress("large", token, 55));
         EXPECT_EQ(store.get("large").input().SerializeAsString(), original);
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     const auto recovered = restored.get("large");
     EXPECT_EQ(recovered.state(), task::proto::INTERRUPTED);
     EXPECT_EQ(recovered.attempt(), 3U);
@@ -4088,7 +4184,10 @@ TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
     const auto spec = input();
     const auto original = spec.SerializeAsString();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "binary", spec);
     }
     const auto path = directory.path / "binary/input.pb";
@@ -4104,7 +4203,7 @@ TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
         EXPECT_FALSE(manifest.contains("input"));
         EXPECT_LT(read.text(0).size(), 1024U);
     }
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     // Metadata operations never read or retain the input. Explicit input reads
     // and worker claims must still reject missing or changed owned bytes.
     std::filesystem::remove(path);
@@ -4134,7 +4233,10 @@ TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
         SCOPED_TRACE(mode);
         TaskDirectory directory;
         {
-            tasks::Store store(directory.path, tasks::Identity{"task"});
+            tasks::Store store(
+                asterion::research::task_domain(),
+                directory.path,
+                tasks::Identity{"task"});
             tasks::submit(
                 store,
                 "first",
@@ -4177,12 +4279,16 @@ TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
             : std::string{};
         EXPECT_THROW(
             {
-                tasks::Store store(directory.path, tasks::Identity{"task"});
+                tasks::Store store(
+                    asterion::research::task_domain(),
+                    directory.path,
+                    tasks::Identity{"task"});
                 (void)store.get("preserve");
             },
             std::exception);
         EXPECT_THROW(
             tasks::Store::inspect_history_usage(
+                asterion::research::task_domain(),
                 directory.path,
                 tasks::Identity{"task"},
                 std::string(64, 'a')),
@@ -4211,7 +4317,7 @@ TEST(TaskStore, BacktestBeyondTwentyThousandBarsHasReadableResult)
     dataset->set_revision(protocol::bar_dataset_revision(*dataset));
     spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
     const auto expected = backtest::run(spec);
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     tasks::submit(store, "beyond-old-limit", spec);
     store.commit(
         tasks::finish(
@@ -4237,7 +4343,10 @@ TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions)
     auto spec = maximum_factor_input();
     std::vector<std::string> expected;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         for (int i = 0; i < count; ++i) {
             auto* dataset = factor_bars(spec);
             auto* last = dataset->mutable_bars(dataset->bars_size() - 1);
@@ -4311,7 +4420,10 @@ TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
     const auto spec = maximum_factor_input();
     const auto expected = factor::run(spec);
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "batch-0", spec);
         store.commit(
             tasks::finish(
@@ -4375,7 +4487,10 @@ TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
     }
     const auto start = std::chrono::steady_clock::now();
     {
-        tasks::Store restored(directory.path, tasks::Identity{"task"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         const auto list = restored.list();
         EXPECT_EQ(list.tasks_size(), count);
         for (const auto& task : list.tasks()) {
@@ -4401,6 +4516,7 @@ TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
     // total-I/O budget must not prevent a valid writer from reopening its store.
     EXPECT_THROW(
         tasks::Store::inspect_history_usage(
+            asterion::research::task_domain(),
             directory.path,
             tasks::Identity{"task"},
             std::string(64, 'a')),
@@ -4413,7 +4529,11 @@ TEST(TaskStore, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries)
     auto clock = std::make_shared<TaskClock>();
     task::proto::Task retried;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"}, clock);
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"},
+            clock);
         const auto original = tasks::submit(store, "first", input());
         tasks::submit(store, "second", input());
         clock->value += 1000000000;
@@ -4440,7 +4560,11 @@ TEST(TaskStore, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries)
         missing.clear_submitted_at_ms();
         EXPECT_THROW(protocol::decode_task(missing), std::invalid_argument);
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"}, clock);
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"},
+        clock);
     EXPECT_EQ(restored.describe("first").SerializeAsString(), retried.SerializeAsString());
 }
 
@@ -4450,7 +4574,10 @@ TEST(TaskStore, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence)
         SCOPED_TRACE(mode);
         TaskDirectory directory;
         {
-            tasks::Store store(directory.path, tasks::Identity{"task"});
+            tasks::Store store(
+                asterion::research::task_domain(),
+                directory.path,
+                tasks::Identity{"task"});
             tasks::submit(store, "first", input());
             tasks::submit(store, "second", input());
         }
@@ -4482,7 +4609,10 @@ TEST(TaskStore, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence)
             write.bind(1, record.dump()).step();
         }
         EXPECT_THROW(
-            tasks::Store rejected(directory.path, tasks::Identity{"task"}),
+            tasks::Store rejected(
+                asterion::research::task_domain(),
+                directory.path,
+                tasks::Identity{"task"}),
             std::exception);
         EXPECT_EQ(manifest(), record);
     }
@@ -4501,7 +4631,10 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "evidence", input());
         store.commit(
             tasks::finish(
@@ -4510,7 +4643,10 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
                 store.commit(store.claim("evidence")).token(),
                 backtest::run(input())));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     task::proto::TaskResponse response;
     *response.mutable_backtest() = tasks::result(restored, "evidence");
     *response.mutable_result_task() = restored.get("evidence");
@@ -4728,7 +4864,7 @@ TEST(Backtest, ADayWithoutBarsIsSettled)
     EXPECT_EQ(result.equity(5).timestamp_ns(), result.settlements(1).timestamp_ns());
     // The Task service takes this result as that of the input.
     TaskDirectory root;
-    tasks::Store store(root.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), root.path, tasks::Identity{"task"});
     tasks::submit(store, "idle-day", spec);
     const auto token = store.commit(store.claim("idle-day")).token();
     store.commit(tasks::finish(store, "idle-day", token, result));
@@ -4753,7 +4889,7 @@ TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
     const auto wrong = backtest::run(altered);
     EXPECT_EQ(wrong.account().equity().units(), expected.account().equity().units());
     {
-        tasks::Store store(root.path, tasks::Identity{"task"});
+        tasks::Store store(asterion::research::task_domain(), root.path, tasks::Identity{"task"});
         tasks::submit(store, "multiday", spec);
         const auto token = store.commit(store.claim("multiday")).token();
         EXPECT_THROW(
@@ -4772,7 +4908,7 @@ TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
             std::invalid_argument);
         store.commit(tasks::finish(store, "multiday", token, expected));
     }
-    tasks::Store restored(root.path, tasks::Identity{"task"});
+    tasks::Store restored(asterion::research::task_domain(), root.path, tasks::Identity{"task"});
     EXPECT_EQ(
         tasks::result(restored, "multiday").SerializeAsString(),
         expected.SerializeAsString());
@@ -4786,7 +4922,10 @@ TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm)
     const auto expected = backtest::run(input());
     const auto file = risk_providers::Module::filename(directory.path / "done");
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         artifact = tasks::submit(store, "done", input()).risk_artifact();
         EXPECT_EQ(artifact, sha256_file(file));
         store.commit(
@@ -4807,7 +4946,10 @@ TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm)
         std::filesystem::remove(file);
         std::filesystem::rename(saved, file);
     }
-    tasks::Store recovered(directory.path, tasks::Identity{"task"});
+    tasks::Store recovered(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(recovered.get("done").risk_artifact(), artifact);
     EXPECT_EQ(tasks::result(recovered, "done").SerializeAsString(), expected.SerializeAsString());
 }
@@ -4998,7 +5140,10 @@ TEST(TaskStore, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults)
         expected.account().contracts(0).cost_schedule().SerializeAsString(),
         schedule->SerializeAsString());
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "dated", spec);
         const auto token = store.commit(store.claim("dated")).token();
         auto forged = expected;
@@ -5021,7 +5166,10 @@ TEST(TaskStore, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults)
             std::invalid_argument);
         store.commit(tasks::finish(store, "dated", token, expected));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(tasks::result(restored, "dated").SerializeAsString(), expected.SerializeAsString());
     EXPECT_EQ(restored.get("dated").input().SerializeAsString(), spec.SerializeAsString());
 }
@@ -5661,7 +5809,10 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart)
     const auto seeded = test::seed_history(warehouse.path, prices, "usage");
     const auto request = composed_request({seeded});
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         data::Store data_store(warehouse.path, "historical-data");
         const auto data =
             data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
@@ -5712,7 +5863,10 @@ TEST_F(TaskProcess, HistoryUsageFindsImportedTaskWithoutLocalArchiveCopy)
     service.reset();
     const auto spec = input();
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         persist(store, "external-origin", spec);
         store.commit(store.cancel("external-origin")).task();
     }
@@ -5758,7 +5912,10 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
     const auto seeded = test::seed_history(warehouse.path, {100, 101, 102}, "stopped-usage");
     const auto request = composed_request({seeded});
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         data::Store data_store(warehouse.path, "historical-data");
         const auto data =
             data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
@@ -5769,6 +5926,7 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
         (void)store.commit(store.claim("running")).token();
         EXPECT_THROW(
             tasks::Store::inspect_history_usage(
+                asterion::research::task_domain(),
                 directory.path,
                 tasks::Identity{"task"},
                 seeded.at("source_dataset_ids")[0]),
@@ -5784,6 +5942,7 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
     };
     const auto before = fingerprints();
     const auto usage = tasks::Store::inspect_history_usage(
+        asterion::research::task_domain(),
         directory.path,
         tasks::Identity{"task"},
         seeded.at("source_dataset_ids")[0]);
@@ -5808,17 +5967,22 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
     std::filesystem::remove(lock);
     EXPECT_THROW(
         tasks::Store::inspect_history_usage(
+            asterion::research::task_domain(),
             directory.path,
             tasks::Identity{"task"},
             seeded.at("source_dataset_ids")[0]),
         std::exception);
     EXPECT_FALSE(std::filesystem::exists(lock));
     EXPECT_THROW(
-        tasks::Store rejected(directory.path, tasks::Identity{"task"}),
+        tasks::Store rejected(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"}),
         std::runtime_error);
     EXPECT_FALSE(std::filesystem::exists(lock));
     EXPECT_THROW(
         tasks::Store::inspect_history_usage(
+            asterion::research::task_domain(),
             directory.path / "missing",
             tasks::Identity{"task"},
             std::string(64, 'a')),
@@ -5830,7 +5994,10 @@ TEST(HistoryUsage, StoppedInspectionRejectsCorruptStateWithoutRepair)
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "bad", input());
     }
     {
@@ -5840,6 +6007,7 @@ TEST(HistoryUsage, StoppedInspectionRejectsCorruptStateWithoutRepair)
     const auto before = sha256_file(directory.path / "tasks.sqlite");
     EXPECT_THROW(
         tasks::Store::inspect_history_usage(
+            asterion::research::task_domain(),
             directory.path,
             tasks::Identity{"task"},
             std::string(64, 'a')),
@@ -5855,7 +6023,10 @@ TEST(TaskStore, MixedHistoricalWarehouseIsRejectedWithoutChangingFiles)
     const auto evidence = directory.path / "history" / "preserve.bin";
     replace_file_durably(evidence, "owned historical data");
     EXPECT_THROW(
-        tasks::Store rejected(directory.path, tasks::Identity{"task"}),
+        tasks::Store rejected(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"}),
         std::invalid_argument);
     EXPECT_EQ(sha256_file(evidence), sha256_bytes("owned historical data"));
     EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
@@ -5871,7 +6042,12 @@ TEST(TaskStore, ForeignStoreIsRejectedBeforeCreatingTaskSchema)
         database.execute("INSERT INTO foreign_data VALUES('preserve')");
     }
     const auto before = sha256_file(directory.path / "tasks.sqlite");
-    EXPECT_THROW(tasks::Store rejected(directory.path, tasks::Identity{"task"}), std::exception);
+    EXPECT_THROW(
+        tasks::Store rejected(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"}),
+        std::exception);
     EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), before);
     EXPECT_FALSE(std::filesystem::exists(directory.path / "manager.lock"));
     EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
@@ -5905,7 +6081,10 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
     const auto dataset_id = selection.at("source_dataset_ids").at(0).get<std::string>();
     std::string original_hash;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         for (unsigned i = 0; i < 1001; ++i) {
             const auto id = "experiment-" + std::to_string(i);
             const auto submitted = tasks::submit(store, id, spec);
@@ -5939,7 +6118,10 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
         EXPECT_EQ(usage.take().references_size(), 1001);
     }
     {
-        tasks::Store restored(directory.path, tasks::Identity{"task"});
+        tasks::Store restored(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         EXPECT_EQ(
             tasks::factor_result(restored, "experiment-0").SerializeAsString(),
             expected.SerializeAsString());
@@ -5973,7 +6155,9 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
         database.execute("DELETE FROM task_event_members WHERE task_id='experiment-0'");
     }
     const auto evidence = sha256_file(directory.path / "tasks.sqlite");
-    EXPECT_THROW((tasks::Store(directory.path, tasks::Identity{"task"})), std::invalid_argument);
+    EXPECT_THROW(
+        (tasks::Store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"})),
+        std::invalid_argument);
     EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), evidence);
 }
 
@@ -5996,7 +6180,7 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
     spec.add_lookbacks(1);
     spec.set_horizon(1);
     spec.set_full_sample(true);
-    tasks::Store store(directory.path, tasks::Identity{"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, tasks::Identity{"task"});
     for (unsigned i = 0; i < 1000; ++i)
         tasks::submit(store, "queued-" + std::to_string(i), spec);
     EXPECT_EQ(store.list().capacity().active_used(), 1000);
@@ -6026,7 +6210,10 @@ TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores)
     const auto spec = comparison();
     const auto result = backtest::run(spec);
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         const auto task = tasks::submit(store, "compared", spec);
         EXPECT_EQ(task.total(), 80U);
         const auto token = store.commit(store.claim("compared")).token();
@@ -6045,7 +6232,10 @@ TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores)
             std::invalid_argument);
         store.commit(tasks::finish(store, "compared", token, result));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(restored.get("compared").state(), task::proto::SUCCEEDED);
 }
 
@@ -6055,7 +6245,10 @@ TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers)
     const auto spec = rolling_comparison();
     const auto result = backtest::run(spec);
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         const auto task = tasks::submit(store, "rolled", spec);
         EXPECT_EQ(task.total(), 180U);
         const auto token = store.commit(store.claim("rolled")).token();
@@ -6101,7 +6294,10 @@ TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers)
         }
         store.commit(tasks::finish(store, "rolled", token, result));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     EXPECT_EQ(restored.get("rolled").state(), task::proto::SUCCEEDED);
 }
 
@@ -6111,7 +6307,10 @@ TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitR
     const auto spec = input();
     std::string original;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "typed-failure", spec);
         original = store.get("typed-failure").input().SerializeAsString();
         const auto token = store.commit(store.claim("typed-failure")).token();
@@ -6123,7 +6322,10 @@ TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitR
         store.commit(store.fail("unknown-failure", other, "fixture source unavailable"));
     }
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         EXPECT_EQ(store.get("typed-failure").error_code(), "unavailable");
         EXPECT_TRUE(store.get("unknown-failure").error_code().empty());
         EXPECT_EQ(store.list().tasks(0).error_code(), "unavailable");
@@ -6133,7 +6335,10 @@ TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitR
         EXPECT_EQ(store.get("typed-failure").input().SerializeAsString(), original);
     }
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         EXPECT_TRUE(store.get("typed-failure").error_code().empty());
         EXPECT_EQ(store.get("typed-failure").state(), task::proto::QUEUED);
     }
@@ -6202,7 +6407,10 @@ TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
     auto authorization = refresh_authorization("completed-refresh");
     std::string completed, failed, result;
     {
-        tasks::Store store(directory.path, tasks::Identity{"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            directory.path,
+            tasks::Identity{"historical-data"});
         tasks::submit(store, authorization);
         const auto token = store.commit(store.claim("completed-refresh")).token();
         task::proto::TaskFinish finish;
@@ -6220,7 +6428,10 @@ TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
         failed = store.get("failed-refresh").SerializeAsString();
     }
     {
-        tasks::Store store(directory.path, tasks::Identity{"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            directory.path,
+            tasks::Identity{"historical-data"});
         EXPECT_EQ(store.get("completed-refresh").SerializeAsString(), completed);
         EXPECT_EQ(store.get("failed-refresh").SerializeAsString(), failed);
         EXPECT_EQ(tasks::verified_result(store, "completed-refresh").SerializeAsString(), result);
@@ -6240,7 +6451,7 @@ TEST(ResearchHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
     service::reset_stop_request();
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         tasks::submit(store, "queued", input());
     }
     {
@@ -6327,7 +6538,7 @@ TEST(ResearchHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
         EXPECT_FALSE(response.has_error());
         EXPECT_EQ(response.task().state(), task::proto::CANCELLED);
     }
-    tasks::Store recovered(directory.path, {"task"});
+    tasks::Store recovered(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_EQ(recovered.describe("queued").state(), task::proto::CANCELLED);
     EXPECT_EQ(recovered.describe("queued").attempt(), 0U);
     EXPECT_EQ(recovered.list().tasks_size(), 1);
@@ -6339,8 +6550,10 @@ TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAn
         SCOPED_TRACE(unchanged);
         TaskDirectory directory;
         const auto authorization = refresh_authorization("refresh");
-        auto owned_store =
-            std::make_unique<tasks::Store>(directory.path, tasks::Identity{"historical-data"});
+        auto owned_store = std::make_unique<tasks::Store>(
+            asterion::data::task_domain(),
+            directory.path,
+            tasks::Identity{"historical-data"});
         auto& store = *owned_store;
         tasks::submit(store, authorization);
         const auto token = store.commit(store.claim("refresh")).token();
@@ -6481,12 +6694,18 @@ TEST(Backtest, SettlementMarginRevaluesAfterPnlAndSurvivesTaskRestart)
 
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, tasks::Identity{"task"});
+        tasks::Store store(
+            asterion::research::task_domain(),
+            directory.path,
+            tasks::Identity{"task"});
         tasks::submit(store, "margin", input);
         const auto token = store.commit(store.claim("margin")).token();
         store.commit(tasks::finish(store, "margin", token, result));
     }
-    tasks::Store restored(directory.path, tasks::Identity{"task"});
+    tasks::Store restored(
+        asterion::research::task_domain(),
+        directory.path,
+        tasks::Identity{"task"});
     const auto fixed = restored.get("margin");
     EXPECT_EQ(fixed.input().SerializeAsString(), input.SerializeAsString());
     EXPECT_EQ(tasks::result(restored, "margin").SerializeAsString(), result.SerializeAsString());
@@ -6564,12 +6783,12 @@ TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndExecutionProjectio
     const auto task_directory = directory.path / "task";
     std::filesystem::create_directory(task_directory);
     {
-        tasks::Store store(task_directory, {"task"});
+        tasks::Store store(asterion::research::task_domain(), task_directory, {"task"});
         tasks::submit(store, "official-margin", input);
         const auto token = store.commit(store.claim("official-margin")).token();
         store.commit(tasks::finish(store, "official-margin", token, result));
     }
-    tasks::Store restored(task_directory, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), task_directory, {"task"});
     const auto task = restored.get("official-margin");
     EXPECT_EQ(task.input().SerializeAsString(), input.SerializeAsString());
     const auto execution = protocol::task_execution(task, sha256_bytes(input.SerializeAsString()));
@@ -6883,7 +7102,7 @@ TEST(TaskPreparation, ExplicitResumeReusesOwnedInputAndAllowsIndependentAccepted
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files(); // Stop before the task index commit.
@@ -6891,7 +7110,7 @@ TEST(TaskPreparation, ExplicitResumeReusesOwnedInputAndAllowsIndependentAccepted
     }
     const auto payload = directory.path / "pending/input.pb";
     const auto before = sha256_file(payload);
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_EQ(restored.list().capacity().uncommitted(), 1U);
     tasks::submit(restored, "independent", input());
     auto draft = restored.resume_submission("pending");
@@ -6912,7 +7131,7 @@ TEST(TaskPreparation, MissingPayloadKeepsRecoveryMetadataAndUnknownOrChangedReco
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files();
@@ -6922,7 +7141,7 @@ TEST(TaskPreparation, MissingPayloadKeepsRecoveryMetadataAndUnknownOrChangedReco
     const auto digest = sha256_file(payload);
     std::filesystem::remove(
         payload); // Isolated simulation: stopped before atomic payload publication.
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     const auto prepared = restored.prepared_submission_record("pending");
     EXPECT_EQ(prepared.record().input_digest(), digest);
     EXPECT_EQ(prepared.execution().input_sha256(), digest);
@@ -6952,10 +7171,10 @@ TEST_F(TaskProcess, PreparedReferenceRecoversWithAndWithoutPublishedInputAndRepl
         service.reset();
         data::proto::DataRetention retention;
         {
-            tasks::Store store(directory.path, {"task"});
+            tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
             auto pending = task_submission(store, id, spec);
             preserve_program();
-            pending.set_program_artifact(preserved_program);
+            asterion::tasks::set_program_artifact(pending, preserved_program);
             store.admit_submission(pending);
             pending.prepare_files();
             tasks::ResearchDataRoute route{spec.data_owner(), endpoint + ".data", "fixture-node"};
@@ -7027,14 +7246,14 @@ TEST(TaskPreparation, AbandonmentPersistsBeyondPayloadCleanupAndCannotReleaseAcc
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto draft = task_submission(store, "abandoned", input());
         store.admit_submission(draft);
         draft.prepare_files();
     }
     resource::proto::Object released;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         const auto pending = store.prepared_submission_record("abandoned");
         released = prepared_resource(pending);
         auto decision = store.abandon_preparation(pending, released);
@@ -7059,6 +7278,7 @@ TEST(TaskPreparation, AbandonmentPersistsBeyondPayloadCleanupAndCannotReleaseAcc
         unsigned accepted = 0;
         unsigned abandoned = 0;
         const auto catalogue = tasks::Store::inspect_backup(
+            asterion::research::task_domain(),
             directory.path,
             {"task"},
             [&](const auto& record, const auto&) {
@@ -7084,7 +7304,7 @@ TEST(TaskPreparation, AbandonmentPersistsBeyondPayloadCleanupAndCannotReleaseAcc
         directory.path / "abandoned"); // Isolated payload cleanup; authority stays in SQLite.
     inspect_cold(false);
     {
-        tasks::Store restored(directory.path, {"task"});
+        tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
         EXPECT_EQ(restored.list().capacity().uncommitted(), 0U);
         ASSERT_TRUE(restored.abandoned_preparation("abandoned"));
         EXPECT_EQ(
@@ -7110,13 +7330,13 @@ TEST(TaskPreparation, FailedAbandonmentCommitCannotAuthorizeRelease)
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto draft = task_submission(store, "pending", input());
         store.admit_submission(draft);
         draft.prepare_files();
     }
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         const auto pending = store.prepared_submission_record("pending");
         sqlite::fail_next_commits_for_testing(1);
         EXPECT_THROW(
@@ -7125,7 +7345,7 @@ TEST(TaskPreparation, FailedAbandonmentCommitCannotAuthorizeRelease)
         EXPECT_FALSE(store.abandoned_preparation("pending"));
         EXPECT_EQ(store.list().capacity().uncommitted(), 1U);
     }
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_FALSE(restored.abandoned_preparation("pending"));
     EXPECT_EQ(restored.list().capacity().uncommitted(), 1U);
     const auto pending = restored.prepared_submission_record("pending");
@@ -7139,7 +7359,7 @@ TEST(TaskRetirement, DurableLifecycleKeepsEvidenceAndCannotResumeOrReuseTheIdent
     TaskDirectory directory;
     resource::proto::Object object;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         tasks::submit(store, "retired-run", input());
         EXPECT_EQ(
             store.retirement("retired-run", "fixture-node").state(),
@@ -7166,7 +7386,7 @@ TEST(TaskRetirement, DurableLifecycleKeepsEvidenceAndCannotResumeOrReuseTheIdent
         auto reuse = task_submission(store, "retired-run", input());
         EXPECT_THROW(store.admit_submission(reuse), Error);
     }
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_EQ(
         restored.retirement("retired-run", "fixture-node").state(),
         task::proto::TaskRetirement::RETIRED);
@@ -7179,7 +7399,7 @@ TEST(TaskRetirement, DurableLifecycleKeepsEvidenceAndCannotResumeOrReuseTheIdent
 TEST(TaskRetirement, NewDerivationAndRetirementShareOneAdmissionBoundary)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, {"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
     tasks::submit(store, "parent", input());
     const auto token = store.commit(store.claim("parent")).token();
     store.commit(tasks::finish(store, "parent", token, backtest::run(input())));
@@ -7212,7 +7432,7 @@ TEST(TaskRetirement, FailedPersistenceCannotAuthorizeSourceRelease)
 {
     TaskDirectory directory;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         tasks::submit(store, "candidate", input());
         store.commit(store.cancel("candidate"));
         const auto object = store.retirement("candidate", "fixture-node").object();
@@ -7222,7 +7442,7 @@ TEST(TaskRetirement, FailedPersistenceCannotAuthorizeSourceRelease)
         sqlite::fail_next_commits_for_testing(0);
         EXPECT_FALSE(store.describe("candidate").has_retirement());
     }
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_EQ(
         restored.retirement("candidate", "fixture-node").state(),
         task::proto::TaskRetirement::AVAILABLE);
@@ -7234,7 +7454,7 @@ TEST(TaskInputReference, IdenticalInputUsesOwnedImmutableStorageAndPreparedRecov
     const auto spec = input();
     std::string parent_digest;
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         tasks::submit(store, "reference-parent", spec);
         const auto token = store.commit(store.claim("reference-parent")).token();
         store.commit(tasks::finish(store, "reference-parent", token, backtest::run(spec)));
@@ -7254,7 +7474,7 @@ TEST(TaskInputReference, IdenticalInputUsesOwnedImmutableStorageAndPreparedRecov
         EXPECT_EQ(store.list().tasks_size(), 1);
         // Simulated interruption after complete immutable publication, before admission.
     }
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     auto child = restored.resume_submission("reference-child");
     restored.admit_submission(child);
     restored.commit(restored.register_submission(child));
@@ -7281,7 +7501,7 @@ TEST(TaskInputReference, IdenticalInputUsesOwnedImmutableStorageAndPreparedRecov
 TEST(TaskInputReference, DifferentInputsDoNotAliasAndCorruptSourcesCannotBeRepublished)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, {"task"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
     const auto spec = input();
     tasks::submit(store, "source", spec);
     const auto token = store.commit(store.claim("source")).token();
@@ -7323,7 +7543,7 @@ TEST(TaskRetirement, DataAcquisitionKeepsAuthorizationAndRetiresDurably)
     std::string digest;
     resource::proto::Object object;
     {
-        tasks::Store store(directory.path, {"historical-data"});
+        tasks::Store store(asterion::data::task_domain(), directory.path, {"historical-data"});
         tasks::submit(store, authorization);
         EXPECT_EQ(
             store.retirement(authorization.task_id(), "fixture-node").state(),
@@ -7335,7 +7555,7 @@ TEST(TaskRetirement, DataAcquisitionKeepsAuthorizationAndRetiresDurably)
         finish.mutable_table_update()->set_unpublished(1);
         store.commit(tasks::finish(store, finish));
         EXPECT_EQ(
-            store.table_snapshot_holds(std::string(64, 'c')),
+            asterion::data::table_snapshot_holds(store, std::string(64, 'c')),
             std::vector<std::string>{authorization.task_id()});
         const auto preview = store.retirement(authorization.task_id(), "fixture-node");
         ASSERT_EQ(preview.state(), task::proto::TaskRetirement::AVAILABLE);
@@ -7344,12 +7564,12 @@ TEST(TaskRetirement, DataAcquisitionKeepsAuthorizationAndRetiresDurably)
         EXPECT_EQ(object.kind(), "table_update");
         digest = sha256_file(directory.path / authorization.task_id() / "input.pb");
         store.commit(store.retire(object));
-        EXPECT_TRUE(store.table_snapshot_holds(std::string(64, 'c')).empty());
+        EXPECT_TRUE(asterion::data::table_snapshot_holds(store, std::string(64, 'c')).empty());
         EXPECT_FALSE(store.commit(store.retire(object)).needs_write());
         EXPECT_THROW((void)store.retry(authorization.task_id()), std::invalid_argument);
         EXPECT_TRUE(tasks::verified_result(store, authorization.task_id()).has_table_update());
     }
-    tasks::Store restored(directory.path, {"historical-data"});
+    tasks::Store restored(asterion::data::task_domain(), directory.path, {"historical-data"});
     const auto retired = restored.retirement(authorization.task_id(), "fixture-node");
     ASSERT_EQ(retired.state(), task::proto::TaskRetirement::RETIRED);
     EXPECT_EQ(retired.object().SerializeAsString(), object.SerializeAsString());
@@ -7367,7 +7587,10 @@ TEST_F(TaskProcess, DataAcquisitionRetirementUsesOwnerProtocolAndSurvivesRestart
     }
     std::filesystem::create_directories(warehouse.path / "acquisition-tasks");
     {
-        tasks::Store store(warehouse.path / "acquisition-tasks", {"historical-data"});
+        tasks::Store store(
+            asterion::data::task_domain(),
+            warehouse.path / "acquisition-tasks",
+            {"historical-data"});
         tasks::submit(store, refresh_authorization("rpc-retire"));
         store.commit(store.cancel("rpc-retire"));
     }
@@ -7415,7 +7638,7 @@ TEST(TaskRetirement, ActiveUsageExcludesRetiredRecordsButHistoryKeepsEvidence)
     *backtest.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
     backtest.set_dataset_revision(protocol::dataset_revision(backtest.paper()));
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         tasks::submit(store, "usage", backtest);
         store.commit(store.cancel("usage"));
         EXPECT_EQ(store.history_usage(id, true).references_size(), 1);
@@ -7424,7 +7647,7 @@ TEST(TaskRetirement, ActiveUsageExcludesRetiredRecordsButHistoryKeepsEvidence)
         EXPECT_EQ(store.history_usage(id, true).references_size(), 0);
         EXPECT_EQ(store.get("usage").input().SerializeAsString(), backtest.SerializeAsString());
     }
-    tasks::Store restored(directory.path, {"task"});
+    tasks::Store restored(asterion::research::task_domain(), directory.path, {"task"});
     EXPECT_EQ(restored.history_usage(id).references_size(), 1);
     EXPECT_EQ(restored.history_usage(id, true).references_size(), 0);
 }
@@ -7432,20 +7655,20 @@ TEST(TaskRetirement, ActiveUsageExcludesRetiredRecordsButHistoryKeepsEvidence)
 TEST(TaskRetirement, SnapshotHoldsRejectUncommittedAndCorruptAcquisitionEvidence)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, {"historical-data"});
+    tasks::Store store(asterion::data::task_domain(), directory.path, {"historical-data"});
     const auto authorization = refresh_authorization("held-evidence");
     auto submission = task_submission(store, authorization);
     store.admit_submission(submission);
     submission.prepare_files();
-    EXPECT_THROW(store.table_snapshot_holds(std::string(64, 'c')), Error);
+    EXPECT_THROW(asterion::data::table_snapshot_holds(store, std::string(64, 'c')), Error);
     store.commit(store.register_submission(submission));
     EXPECT_EQ(
-        store.table_snapshot_holds(std::string(64, 'c')),
+        asterion::data::table_snapshot_holds(store, std::string(64, 'c')),
         std::vector<std::string>{authorization.task_id()});
     store.commit(store.cancel(authorization.task_id()));
     const auto path = directory.path / authorization.task_id() / "input.pb";
     replace_file_durably(path, "SYNTHETIC_CORRUPT_INPUT");
-    EXPECT_THROW(store.table_snapshot_holds(std::string(64, 'c')), std::exception);
+    EXPECT_THROW(asterion::data::table_snapshot_holds(store, std::string(64, 'c')), std::exception);
     std::ifstream remaining(path, std::ios::binary);
     EXPECT_EQ(
         std::string(std::istreambuf_iterator<char>(remaining), {}),
@@ -7519,7 +7742,7 @@ TEST_F(TaskProcess, TableRetirementRejectsChangedReviewedObjectScope)
 TEST(ResearchResourceCatalogue, FixedInputAndResultIdentitySurviveRetirementAndReadOnlyPaging)
 {
     TaskDirectory directory;
-    tasks::Store store(directory.path, {"research-one"});
+    tasks::Store store(asterion::research::task_domain(), directory.path, {"research-one"});
     tasks::submit(store, "alpha", input());
     const auto token = store.commit(store.claim("alpha")).token();
     store.commit(tasks::finish(store, "alpha", token, backtest::run(input())));
@@ -7527,7 +7750,7 @@ TEST(ResearchResourceCatalogue, FixedInputAndResultIdentitySurviveRetirementAndR
     resource::proto::CatalogueQuery query;
     query.set_kind("backtest");
     query.set_limit(1);
-    const auto first = store.resources("fixture-node", query);
+    const auto first = asterion::research::task_resources(store, "fixture-node", query);
     ASSERT_EQ(first.items_size(), 1);
     EXPECT_EQ(first.items(0).object().id(), "alpha");
     EXPECT_EQ(first.next_after(), "alpha");
@@ -7535,19 +7758,19 @@ TEST(ResearchResourceCatalogue, FixedInputAndResultIdentitySurviveRetirementAndR
         first.items(0).logical_bytes(),
         std::filesystem::file_size(directory.path / "alpha/input.pb"));
     query.set_after(first.next_after());
-    const auto second = store.resources("fixture-node", query);
+    const auto second = asterion::research::task_resources(store, "fixture-node", query);
     ASSERT_EQ(second.items_size(), 1);
     EXPECT_EQ(second.items(0).object().id(), "beta");
     EXPECT_TRUE(second.next_after().empty());
     query.set_after("");
     query.set_kind("backtest_result");
-    const auto completed = store.resources("fixture-node", query);
+    const auto completed = asterion::research::task_resources(store, "fixture-node", query);
     ASSERT_EQ(completed.items_size(), 1);
     EXPECT_EQ(completed.items(0).object().version(), store.describe("alpha").result_digest());
     EXPECT_FALSE(completed.items(0).has_logical_bytes());
     const auto hash = sha256_file(directory.path / "alpha/results/1.pb");
     store.commit(store.retire(store.retirement("alpha", "fixture-node").object()));
-    const auto retired = store.resources("fixture-node", query);
+    const auto retired = asterion::research::task_resources(store, "fixture-node", query);
     ASSERT_EQ(retired.items_size(), 1);
     EXPECT_EQ(retired.items(0).state(), resource::proto::CatalogueEntry::RETIRED);
     EXPECT_EQ(
@@ -7556,7 +7779,7 @@ TEST(ResearchResourceCatalogue, FixedInputAndResultIdentitySurviveRetirementAndR
     EXPECT_EQ(sha256_file(directory.path / "alpha/results/1.pb"), hash);
     EXPECT_NO_THROW(protocol::decode_resource_catalogue(retired, query, retired.owner()));
     query.set_kind("model");
-    EXPECT_THROW(store.resources("fixture-node", query), Error);
+    EXPECT_THROW(asterion::research::task_resources(store, "fixture-node", query), Error);
 }
 
 TEST_F(TaskProcess, ResourceCataloguesStayWithTheirOwnersWhenDataGoesOffline)
@@ -7565,7 +7788,7 @@ TEST_F(TaskProcess, ResourceCataloguesStayWithTheirOwnersWhenDataGoesOffline)
     data_service.reset();
     const auto seeded = test::seed_history(warehouse.path, {100, 101}, "catalogue-rpc");
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         persist(store, "catalogued-input", input());
         store.commit(store.cancel("catalogued-input"));
     }
@@ -8046,10 +8269,10 @@ TEST_F(
     EXPECT_EQ(restored.result_task().SerializeAsString(), result.result_task().SerializeAsString());
     service.reset();
     {
-        tasks::Store store(directory.path, {"task"});
+        tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
         auto preparation =
             task_submission(store, "fixed-weight-prepared", result.result_task().input());
-        preparation.set_program_artifact(fixture_program_artifact);
+        asterion::tasks::set_program_artifact(preparation, fixture_program_artifact);
         store.admit_submission(preparation);
         preparation.prepare_files();
         EXPECT_TRUE(store.prepared_submission_record("fixed-weight-prepared")

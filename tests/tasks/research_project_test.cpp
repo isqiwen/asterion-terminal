@@ -1,3 +1,4 @@
+#include "research_tasks.hpp"
 #include "project_store.hpp"
 #include <asterion/protocol/research_project.hpp>
 #include "task_store.hpp"
@@ -23,7 +24,10 @@ struct ResearchProjects : testing::Test
         owner.set_domain("research");
         owner.set_node_id("fixture-node");
         owner.set_service_id("research-one");
-        tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+        tasks = std::make_unique<tasks::Store>(
+            asterion::research::task_domain(),
+            root,
+            tasks::Identity{"research-one"});
     }
 
     void TearDown() override
@@ -119,7 +123,10 @@ TEST_F(ResearchProjects, ImmutablePlansKeepOriginalStandardsAndRevisionReasonsAc
         EXPECT_NE(revised.definition_digest(), first.definition_digest());
     }
     tasks.reset();
-    tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    tasks = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     research::Projects reopened(*tasks, owner);
     EXPECT_EQ(reopened.plan(first.id()).SerializeAsString(), first.SerializeAsString());
     EXPECT_EQ(reopened.plan(revised.id()).parent_plan_id(), first.id());
@@ -155,7 +162,10 @@ TEST_F(ResearchProjects, CommitFailureRollsBackBothDefinitionAndIdempotencyRecei
         EXPECT_FALSE(write.draft("question-one"));
     }
     tasks.reset();
-    tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    tasks = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     research::Projects recovered(*tasks, owner, sqlite::Database::Access::writer);
     const auto result = recovered.apply(request);
     EXPECT_EQ(recovered.apply(request).SerializeAsString(), result.SerializeAsString());
@@ -211,7 +221,10 @@ TEST_F(ResearchProjects, PartialSchemaIsRejectedWithoutRecreatingMissingAuthorit
         sqlite::Database db(root / "tasks.sqlite");
         db.execute("DROP TABLE research_project_commands");
     }
-    tasks = std::make_unique<tasks::Store>(root, tasks::Identity{"research-one"});
+    tasks = std::make_unique<tasks::Store>(
+        asterion::research::task_domain(),
+        root,
+        tasks::Identity{"research-one"});
     EXPECT_THROW(
         research::Projects(*tasks, owner, sqlite::Database::Access::writer),
         std::invalid_argument);

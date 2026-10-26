@@ -1,5 +1,5 @@
 add_subdirectory(market)
 add_subdirectory(trading)
-add_subdirectory(task-runtime)
+add_subdirectory(common/tasks)
 add_subdirectory(data)
 add_subdirectory(research)
