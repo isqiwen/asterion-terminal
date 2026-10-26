@@ -38,6 +38,8 @@ r::EvaluationMetric::State state(PerformanceUnavailable value)
             return r::EvaluationMetric::NO_DRAWDOWN;
         case PerformanceUnavailable::numerical_overflow:
             return r::EvaluationMetric::NON_FINITE_STATISTIC;
+        case PerformanceUnavailable::shorter_than_one_year:
+            return r::EvaluationMetric::SHORTER_THAN_ONE_YEAR;
     }
     throw std::logic_error("unknown performance availability reason");
 }

@@ -945,8 +945,23 @@ NodeEndpoint replace_node_identity(ServiceIo& io, const Json& p)
         }
     };
     // An interruption after the node took the new set leaves only this
-    // machine's half: the node is not stopped a second time.
-    if (!fs::exists(next) || !answers(next)) {
+    // machine's half: the node is not stopped a second time. Right after that
+    // interruption its Agent may still be starting, answering to neither set.
+    const auto took_next = [&] {
+#ifdef ASTERION_SANITIZED
+        const auto deadline = std::chrono::steady_clock::now() + 60s;
+#else
+        const auto deadline = std::chrono::steady_clock::now() + 15s;
+#endif
+        for (;;) {
+            if (answers(next))
+                return true;
+            if (answers(root) || std::chrono::steady_clock::now() >= deadline)
+                return false;
+            std::this_thread::sleep_for(250ms);
+        }
+    };
+    if (!fs::exists(next) || !took_next()) {
         if (!initialized_host(ssh))
             throw std::runtime_error(
                 "SSH verification failed; check host identity, authentication, " "Linux platform and host initialization");

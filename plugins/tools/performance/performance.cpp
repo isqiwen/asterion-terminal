@@ -39,6 +39,8 @@ std::string_view performance_unavailable_name(PerformanceUnavailable reason)
             return "no_drawdown";
         case PerformanceUnavailable::numerical_overflow:
             return "non_finite_statistic";
+        case PerformanceUnavailable::shorter_than_one_year:
+            return "observation_shorter_than_one_year";
     }
     throw std::logic_error("unknown performance availability reason");
 }
@@ -91,12 +93,16 @@ Performance performance(
     }
     if (context.begin_ns) {
         const auto elapsed = *context.end_ns - *context.begin_ns;
+        const long double years =
+            static_cast<long double>(elapsed) / 1000000000.0L / performance_year_seconds;
+        result.short_calendar_span = elapsed && years < 1;
         if (!elapsed)
             result.annual_return_reason = PerformanceUnavailable::non_positive_duration;
+        // A return over less than a year is not annualized: compounding a short
+        // span to a year turns days of noise into meaningless magnitudes.
+        else if (result.short_calendar_span)
+            result.annual_return_reason = PerformanceUnavailable::shorter_than_one_year;
         else {
-            const long double years =
-                static_cast<long double>(elapsed) / 1000000000.0L / performance_year_seconds;
-            result.short_calendar_span = years < 1;
             const auto relative = change(deposit, days.back().equity);
             // Small changes need log1p; a very large loss must not round its positive growth to zero.
             const auto log_growth = std::abs(relative) < 0.5L
@@ -104,12 +110,9 @@ Performance performance(
                 : std::log(
                       static_cast<long double>(days.back().equity.raw())
                       / static_cast<long double>(deposit.raw()));
-            const auto rate = static_cast<double>(std::expm1(log_growth / years));
-            if (std::isfinite(rate)) {
-                result.annual_return = rate;
-                result.annual_return_reason = PerformanceUnavailable::none;
-            } else
-                result.annual_return_reason = PerformanceUnavailable::numerical_overflow;
+            // At least a year of Decimal-bounded growth keeps the rate finite.
+            result.annual_return = static_cast<double>(std::expm1(log_growth / years));
+            result.annual_return_reason = PerformanceUnavailable::none;
         }
     }
     if (returns.size() < 2)

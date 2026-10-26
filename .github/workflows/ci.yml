@@ -59,9 +59,10 @@ jobs:
           sudo systemctl start "user@$(id -u).service"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
-      - name: Native Agent upgrade and recovery
+      - name: Manager and Agent as OS user services
+        if: runner.os == 'Linux'
         timeout-minutes: 5
-        run: python tests/acceptance/native_agent_upgrade.py --build build/Debug --allow-user-service
+        run: python tests/acceptance/node_manager_services.py --build build/Debug --allow-user-services
       - name: Install SSH acceptance prerequisites
         if: runner.os == 'Linux'
         run: |

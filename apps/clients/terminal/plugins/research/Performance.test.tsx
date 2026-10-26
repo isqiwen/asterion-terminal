@@ -28,7 +28,7 @@ test("missing method evidence remains unavailable while original monetary facts 
 test("read-time figures preserve supplied values and distinguish absent risk-free from explicit zero", () => {
   const fixed: PerformanceFigures = {
     ...raw,
-    annual_return: 0.123,
+    annual_return: null,
     annual_volatility: 0.45,
     calculation: {
       begin_ns: "1767571200000000000",
@@ -42,7 +42,7 @@ test("read-time figures preserve supplied values and distinguish absent risk-fre
       short_calendar_span: true,
       derived_on_read: true,
       unavailable: {
-        annual_return: null,
+        annual_return: "observation_shorter_than_one_year",
         annual_volatility: null,
         sharpe: "risk_free_not_configured",
         calmar: "no_drawdown",
@@ -53,12 +53,11 @@ test("read-time figures preserve supplied values and distinguish absent risk-fre
   render(<Figures label="固定绩效" value={fixed} />);
   const region = screen.getByRole("region", { name: "固定绩效" });
   fireEvent.click(within(region).getByText("绩效方法与不可计算原因"));
-  expect(region.textContent).toContain("12.30%");
   expect(region.textContent).toContain("45.00%");
   expect(region.textContent).toContain("无风险收益未配置");
   expect(region.textContent).toContain("无回撤，卡玛分母为零");
   expect(region.textContent).toContain("开端短周期");
-  expect(region.textContent).toContain("观测不足一年");
+  expect(region.textContent).toContain("观测不足一年，不年化");
   expect(region.textContent).not.toContain("明确零无风险");
   expect(JSON.stringify(fixed)).toBe(before);
 });

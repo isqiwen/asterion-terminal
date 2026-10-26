@@ -464,7 +464,7 @@ void contributions_shape(const r::EvaluationInput& input, const r::EvaluationRes
 void metric_shape(const r::EvaluationMetric& value)
 {
     if (value.state() < r::EvaluationMetric::AVAILABLE
-        || value.state() > r::EvaluationMetric::ZERO_GROSS_NOTIONAL
+        || value.state() > r::EvaluationMetric::SHORTER_THAN_ONE_YEAR
         || value.has_value() != (value.state() == r::EvaluationMetric::AVAILABLE)
         || (value.has_value() && !std::isfinite(value.value())))
         invalid_result();

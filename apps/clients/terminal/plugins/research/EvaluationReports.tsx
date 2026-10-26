@@ -533,7 +533,6 @@ export function EvaluationReportView({ report }: { report: Report }) {
         )}
       </p>
       <p>{t("正式评价数值由Research固定发布，页面只格式化显示；修改草稿不会重算或替换本报告。")}</p>
-      {report.result.short_calendar_span && <p>{t("观测不足一年；年化仅为方法缩放值。")}</p>}
       <p>{t("年化收益使用实际秒数和365.2425天；波动率与夏普按sqrt(A)缩放，未作自相关调整。")}</p>
       {report.result.daily_drawdown && (
         <DailyDrawdownView

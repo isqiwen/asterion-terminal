@@ -168,6 +168,7 @@ message EvaluationMetric {
     GROSS_NOT_RECORDED = 12;
     MARGIN_NOT_RECORDED = 13;
     ZERO_GROSS_NOTIONAL = 14;
+    SHORTER_THAN_ONE_YEAR = 15;
   }
 
   State state = 1;

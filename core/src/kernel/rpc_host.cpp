@@ -36,7 +36,7 @@ using Tls = asio::ssl::stream<Tcp::socket>;
 struct LocalListener
 {
     Local::acceptor acceptor;
-    const std::string endpoint;
+    std::string endpoint;
 
     LocalListener(asio::io_context& io, std::string path)
         : acceptor(io),
@@ -63,7 +63,18 @@ struct LocalListener
 
     ~LocalListener()
     {
-        ::unlink(endpoint.c_str());
+        release();
+    }
+
+    // Stop accepting and remove the socket file. Also used when the host ends
+    // without destroying its owners, so a later start can bind the path again.
+    void release()
+    {
+        asio::error_code ignored;
+        acceptor.close(ignored);
+        if (!endpoint.empty())
+            ::unlink(endpoint.c_str());
+        endpoint.clear();
     }
 };
 
@@ -584,6 +595,11 @@ struct RpcHost::Impl
                 // The caller must exit without destroying owners. Pending replies can
                 // own suspended locals still referenced by accepted worker operations.
                 // Keep them alive until that exit, not merely until run() returns false.
+                // Socket files are not owners: remove them now.
+                if (local)
+                    local->release();
+                for (auto& listener : auxiliary)
+                    listener->release();
                 io.stop();
                 return;
             }

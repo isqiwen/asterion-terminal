@@ -10,6 +10,7 @@ const reasons: Record<PerformanceUnavailable, string> = {
   constant_returns: "收益恒定，夏普分母为零",
   no_drawdown: "无回撤，卡玛分母为零",
   non_finite_statistic: "统计值超出有限数值范围",
+  observation_shorter_than_one_year: "观测不足一年，不年化",
 };
 // Performance figures are statistics; an absent one was not computed.
 export const percent = (value: number | null) =>
@@ -64,9 +65,6 @@ export function Figures({ label, value }: { label: string; value: PerformanceFig
               "年化收益按实际秒数除以365.2425天；波动率与夏普使用sqrt(A)缩放，未作自相关调整。这些是读取时统计，不替换原发布评分。",
             )}
           </p>
-          {value.calculation.short_calendar_span && (
-            <p>{t("观测不足一年；年化仅为方法缩放值。")}</p>
-          )}
           {(
             [
               ["annual_return", "年化收益率"],

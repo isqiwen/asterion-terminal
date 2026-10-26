@@ -180,7 +180,8 @@ TEST_F(EvaluationEvidence, ExplicitNewMethodDoesNotBackfillOriginalAssumptionsOr
         r::EvaluationMetric::ANNUAL_PERIODS_NOT_CONFIGURED);
     EXPECT_EQ(result.sharpe().state(), r::EvaluationMetric::ANNUAL_PERIODS_NOT_CONFIGURED);
     EXPECT_FALSE(result.sharpe().has_value());
-    EXPECT_TRUE(result.annual_return().has_value());
+    // Thirty trading days are not annualized, with or without a method.
+    EXPECT_EQ(result.annual_return().state(), r::EvaluationMetric::SHORTER_THAN_ONE_YEAR);
     EXPECT_EQ(result.opening_equity().units(), original.paper().deposit().units());
     EXPECT_EQ(
         result.closing_equity().units(),

@@ -64,21 +64,24 @@ TEST(Performance, AnnualReturnUsesOriginalSecondsWhileVolatilityUsesTheExplicitP
         252; // Explicit method, independent of this sample's covered calendar span.
     const double deviation = 0.225 * std::sqrt(20.0 / 19);
     EXPECT_DOUBLE_EQ(result.total_return, 0);
-    EXPECT_NEAR(*result.annual_return, 0, 1e-12);
+    // Twenty days are not annualized; volatility and Sharpe use the explicit A.
+    EXPECT_FALSE(result.annual_return || result.calmar);
+    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::shorter_than_one_year);
+    EXPECT_EQ(result.calmar_reason, PerformanceUnavailable::shorter_than_one_year);
     EXPECT_NEAR(*result.annual_volatility, deviation * std::sqrt(periods), 1e-9);
     EXPECT_NEAR(*result.sharpe, 0.025 / deviation * std::sqrt(periods), 1e-9);
     EXPECT_DOUBLE_EQ(result.max_drawdown, 0.2);
-    EXPECT_NEAR(*result.calmar, 0, 1e-12);
     EXPECT_DOUBLE_EQ(result.winning_days, 0.5);
-    // One more day up: a quarter gained over 21 calendar days.
+    EXPECT_TRUE(result.short_calendar_span);
+    // The same quarter gained over two calendar years is annualized.
     record.push_back({record.back().day + std::chrono::days{1}, d("125000")});
     marks.push_back(d("125000"));
-    context.end_ns = duration_cast<nanoseconds>(record.back().day.time_since_epoch()).count();
+    context.end_ns =
+        *context.begin_ns + static_cast<std::int64_t>(performance_year_seconds * 2 * 1000000000.0L);
     result = performance(d("100000"), record, marks, context);
     ASSERT_TRUE(result.annual_return);
-    EXPECT_NEAR(*result.annual_return, std::pow(1.25, 365.2425 / 21) - 1, 1e-6);
-    EXPECT_EQ(result.return_periods, 21U);
-    EXPECT_TRUE(result.short_calendar_span);
+    EXPECT_NEAR(*result.annual_return, std::sqrt(1.25) - 1, 1e-9);
+    EXPECT_FALSE(result.short_calendar_span);
     EXPECT_NEAR(*result.calmar, *result.annual_return / 0.2, 1e-9);
 }
 
@@ -103,7 +106,7 @@ TEST(Performance, UndefinedFiguresStayAbsentAndInvalidRecordsAreRefused)
     EXPECT_DOUBLE_EQ(*result.annual_volatility, 0);
     EXPECT_FALSE(result.sharpe || result.calmar);
     EXPECT_EQ(result.sharpe_reason, PerformanceUnavailable::zero_deviation);
-    EXPECT_EQ(result.calmar_reason, PerformanceUnavailable::zero_drawdown);
+    EXPECT_EQ(result.calmar_reason, PerformanceUnavailable::shorter_than_one_year);
     EXPECT_DOUBLE_EQ(result.winning_days, 0);
     // An account that lost everything has no yearly rate.
     record[10].equity = d("0");
@@ -166,7 +169,7 @@ TEST(Performance, InadequateCompletePeriodsAndOverflowKeepIndependentUnavailable
     context.explicitly_zero_risk_free = true;
     const auto result = performance(d("10000"), record, marks, context);
     EXPECT_FALSE(result.annual_return || result.annual_volatility || result.sharpe);
-    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::numerical_overflow);
+    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::shorter_than_one_year);
     EXPECT_EQ(result.sharpe_reason, PerformanceUnavailable::insufficient_periods);
     EXPECT_EQ(result.return_periods, 0U);
     const auto small = record_of({"0.00000001"});

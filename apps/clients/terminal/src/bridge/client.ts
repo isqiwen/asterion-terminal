@@ -1372,7 +1372,8 @@ export type PerformanceUnavailable =
   | "risk_free_not_configured"
   | "constant_returns"
   | "no_drawdown"
-  | "non_finite_statistic";
+  | "non_finite_statistic"
+  | "observation_shorter_than_one_year";
 export type PerformanceCalculation = {
   begin_ns: string | null;
   end_ns: string | null;
@@ -1433,7 +1434,8 @@ export type EvaluationMetricState =
   | "FEWER_THAN_TWO_OBSERVATIONS"
   | "GROSS_NOT_RECORDED"
   | "MARGIN_NOT_RECORDED"
-  | "ZERO_GROSS_NOTIONAL";
+  | "ZERO_GROSS_NOTIONAL"
+  | "SHORTER_THAN_ONE_YEAR";
 export type EvaluationMetric = { state: EvaluationMetricState; value: number | null };
 export type EvaluationLimitation =
   | "CASH_FLOWS_NOT_EVALUATED"

@@ -16,4 +16,5 @@ export const evaluationMetricReasons: Record<
   GROSS_NOT_RECORDED: "原总手数未记录",
   MARGIN_NOT_RECORDED: "原保证金未记录",
   ZERO_GROSS_NOTIONAL: "所列总名义金额为零，集中度不适用",
+  SHORTER_THAN_ONE_YEAR: "观测不足一年，不年化",
 };

@@ -30,7 +30,8 @@ enum class PerformanceUnavailable
     missing_risk_free,
     zero_deviation,
     zero_drawdown,
-    numerical_overflow
+    numerical_overflow,
+    shorter_than_one_year
 };
 std::string_view performance_unavailable_name(PerformanceUnavailable);
 inline constexpr long double performance_year_seconds = 31556952.0L; // 365.2425 days

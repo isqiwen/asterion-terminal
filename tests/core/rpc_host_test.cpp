@@ -302,6 +302,8 @@ TEST(RpcHost, ShutdownDeadlineIncludesResourceOwnersAfterRepliesDrain)
     EXPECT_FALSE(server.run());
     EXPECT_GE(std::chrono::steady_clock::now() - started, 50ms);
     EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
+    // The caller exits without destroying owners; the socket must not outlive it.
+    EXPECT_FALSE(std::filesystem::exists(transport.endpoint));
 }
 
 TEST(RpcHost, IncompleteDrainRetainsAdmittedReplyUntilProcessExit)

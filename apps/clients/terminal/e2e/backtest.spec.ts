@@ -443,7 +443,7 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await development.getByText("绩效方法与不可计算原因", { exact: true }).click();
   await expect(development).toContainText("明确零无风险");
   await expect(development).toContainText("252");
-  await expect(development).toContainText("观测不足一年；年化仅为方法缩放值。");
+  await expect(development).toContainText("观测不足一年，不年化");
   const snapshot = await rpc(page.request, "runtime.snapshot", {});
   const fixed = snapshot.task_result;
   expect(fixed.experiment.performance_assumptions).toEqual({
