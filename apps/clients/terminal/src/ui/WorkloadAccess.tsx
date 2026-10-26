@@ -53,26 +53,28 @@ export function WorkloadAccess({
     : 0;
   return (
     <>
-      {enabled && taskService?.online && capacity && (
-        <div className="data-task-access" aria-label={t("活动任务容量")}>
-          <span>
-            {t("活动名额剩余 {remaining} / {limit}", { remaining, limit: capacity.active_limit })}
-          </span>
-          {capacity.uncommitted > 0 && (
+      {enabled &&
+        taskService?.online &&
+        capacity &&
+        (remaining * 10 < capacity.active_limit || capacity.uncommitted > 0) && (
+          <div className="data-task-access" aria-label={t("活动任务容量")}>
             <span>
-              {t("保留了 {count} 个未完成提交目录，不占用活动名额", {
-                count: capacity.uncommitted,
-              })}
+              {t("活动名额剩余 {remaining} / {limit}", { remaining, limit: capacity.active_limit })}
             </span>
-          )}
-          <span>{t("已保管 {count} 项任务", { count: capacity.retained_tasks })}</span>
-          {remaining === 0 && (
-            <span role="status">
-              {t("活动任务已满；等待任务结束或取消排队任务后，可在当前服务继续提交。")}
-            </span>
-          )}
-        </div>
-      )}
+            {capacity.uncommitted > 0 && (
+              <span>
+                {t("保留了 {count} 个未完成提交目录，不占用活动名额", {
+                  count: capacity.uncommitted,
+                })}
+              </span>
+            )}
+            {remaining === 0 && (
+              <span role="status">
+                {t("活动任务已满；等待任务结束或取消排队任务后，可在当前服务继续提交。")}
+              </span>
+            )}
+          </div>
+        )}
       {unavailable && (
         <div className="data-task-access" role="status">
           <span>

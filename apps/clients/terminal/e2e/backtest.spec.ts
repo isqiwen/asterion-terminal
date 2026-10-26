@@ -129,6 +129,8 @@ test(
     await expect(parameter("初始资金")).toHaveText("10000");
     await expect(parameter("平今手续费")).toHaveText("3");
     await expect(parameter("输入 K 线")).toHaveText("8");
+    for (const identity of await result.getByText("数据与程序身份", { exact: true }).all())
+      await identity.click();
     await expect(parameter("K 线数据版本")).toHaveText(seeded.datasets[0].source_dataset_ids[0]);
     // Settlement prices are the daily table's, under the snapshot selected with.
     await expect(parameter("数据表快照")).toHaveText(seeded.datasets[0].daily.snapshot);

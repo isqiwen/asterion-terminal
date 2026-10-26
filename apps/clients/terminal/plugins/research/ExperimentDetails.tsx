@@ -165,7 +165,19 @@ function tableRows(input: Extract<FactorSeriesEvidence, { kind: "table" }>): Blo
       : undefined,
   };
 }
-function Fields({ rows }: { rows: Rows }) {
+// Digests and source tables identify the evidence; they are kept, folded,
+// below the parameters a reader compares.
+const identities = new Set([
+  "执行程序标识",
+  "接纳时固定策略候选",
+  "接纳时固定交付草稿",
+  "K 线数据版本",
+  "数据表快照",
+  "日线来源",
+  "交易日历来源",
+  "合约表来源",
+]);
+function List({ rows }: { rows: Rows }) {
   return (
     <dl className="experiment-fields">
       {rows.map(([label, value]) => (
@@ -175,6 +187,20 @@ function Fields({ rows }: { rows: Rows }) {
         </div>
       ))}
     </dl>
+  );
+}
+function Fields({ rows }: { rows: Rows }) {
+  const identity = rows.filter(([label]) => identities.has(label));
+  return (
+    <>
+      <List rows={rows.filter(([label]) => !identities.has(label))} />
+      {identity.length > 0 && (
+        <details className="experiment-identity">
+          <summary>{t("数据与程序身份")}</summary>
+          <List rows={identity} />
+        </details>
+      )}
+    </>
   );
 }
 export function ExperimentDetails({ evidence }: { evidence: Evidence }) {

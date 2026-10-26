@@ -93,6 +93,8 @@ for (const mode of ["full", "holdout", "search", "rolling"])
           .locator("dd");
       await expect(parameter("候选回看 K 线数")).toHaveText(search ? "2, 5, 10" : "2");
       await expect(parameter("未来收益 K 线数")).toHaveText("1");
+      for (const identity of await result.getByText("数据与程序身份", { exact: true }).all())
+        await identity.click();
       await expect(parameter("执行程序标识")).toHaveText(/^[0-9a-f]{64}$/);
       await expect(parameter("评价方式")).toHaveText(
         rolling ? "滚动验证" : holdout ? "时间留出评价" : "全样本评价",

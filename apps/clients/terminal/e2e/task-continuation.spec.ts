@@ -118,7 +118,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   });
   await closeSettingsWindow(settings);
   await openView(page, "backtest");
-  await expect(page.getByLabel("活动任务容量")).toBeVisible();
+  await expect(page.getByText("研究服务已连接", { exact: true })).toBeVisible();
   await rpc(page.request, "node.action", { id: "local", service: name, action: "stop" });
   await page.getByRole("button", { name: "重试准备", exact: true }).click();
   await expect

@@ -5,7 +5,7 @@ export function HistoryAvailability({ versions }: { versions: HistoryVersionEvid
   return (
     <section aria-label={t("历史可知性")}>
       <p className="subtle">
-        {t("来源公布时间未知。结果用于事后统计与模型回放，不能证明历史当时可交易。")}
+        {t("来源公布时间未知。结果用于事后统计与回放，不能证明历史当时可交易。")}
       </p>
       <details>
         <summary>{t("版本取得证据")}</summary>
