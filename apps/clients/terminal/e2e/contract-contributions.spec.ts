@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, taskRpc, seedHistory } from "./dataset-fixture";
+import { restartServices, rpc, taskRpc, seedHistory } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -275,21 +275,18 @@ test("original multi-contract contributions keep real fills, account residual an
       expect((await wrong.json()).error).toBeTruthy();
       expect(existsSync(wrongPath)).toBe(false);
     }
-    await rpc(page.request, "node.action", {
-      id: "local",
-      service: context.service,
-      action: "stop",
+    await restartServices(page.request, [context.service], async () => {
+      await rpc(page.request, "node.action", {
+        id: "local",
+        service: context.service,
+        action: "stop",
+      });
+      await rpc(page.request, "node.action", {
+        id: "local",
+        service: context.service,
+        action: "start",
+      });
     });
-    await rpc(page.request, "node.action", {
-      id: "local",
-      service: context.service,
-      action: "start",
-    });
-    await expect
-      .poll(async () => (await rpc(page.request, "runtime.snapshot")).research_service?.online, {
-        timeout: 10000,
-      })
-      .toBe(true);
     expect(
       (await taskRpc(page.request, "research", "task.result.read", { id })).task_result,
     ).toEqual(report);

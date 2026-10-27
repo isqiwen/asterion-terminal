@@ -1,5 +1,5 @@
 import { test, expect } from "./test";
-import { rpc, seedDataset, taskRpc } from "./dataset-fixture";
+import { restartServices, rpc, seedDataset, taskRpc } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -247,16 +247,10 @@ test("fixed performance evaluation preserves the original account through restar
     (await taskRpc(page.request, "research", "task.result.read", { id: sourceId })).task_result,
   ).toEqual(source);
   const state = await rpc(page.request, "runtime.snapshot");
-  await rpc(page.request, "node.action", {
-    id: "local",
-    service: state.research_service.service,
-    action: "restart",
-  });
-  await expect
-    .poll(async () => (await rpc(page.request, "runtime.snapshot")).research_service?.online, {
-      timeout: 15000,
-    })
-    .toBe(true);
+  const service = state.research_service.service;
+  await restartServices(page.request, [service], () =>
+    rpc(page.request, "node.action", { id: "local", service, action: "restart" }),
+  );
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     first,
   );

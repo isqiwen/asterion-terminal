@@ -1,4 +1,4 @@
-import { taskRpc, openResearch as openResearchService } from "./dataset-fixture";
+import { taskRpc, openResearch as openResearchService, restartServices } from "./dataset-fixture";
 import { openView } from "./navigation-helper";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -17,11 +17,18 @@ test("research chain integration @joint: fixed evidence through revision recover
     (await taskRpc(page.request, "research", "task.result.read", { id })).task_result;
   const state = async () => rpc(page.request, "runtime.snapshot");
   const tasks = async () => (await state()).research_service.tasks;
+  // Table updates are Data's tasks; the rest are Research's.
   async function wait(id: string, expected = "succeeded") {
     await expect
-      .poll(async () => (await tasks()).find((t: { id: string }) => t.id === id)?.state, {
-        timeout: 30000,
-      })
+      .poll(
+        async () => {
+          const s = await state();
+          return [...s.research_service.tasks, ...(s.data?.tasks ?? [])].find(
+            (t: { id: string }) => t.id === id,
+          )?.state;
+        },
+        { timeout: 30000 },
+      )
       .toBe(expected);
   }
   async function screenshot(name: string) {
@@ -343,7 +350,7 @@ test("research chain integration @joint: fixed evidence through revision recover
       await screenshot("04-refresh-recovery");
       await panel.getByRole("button", { name: "重试此任务", exact: true }).click();
       await wait(id);
-      expect((await tasks()).find((t: { id: string }) => t.id === id).attempt).toBe(2);
+      expect((await state()).data.tasks.find((t: { id: string }) => t.id === id).attempt).toBe(2);
       expect(await head()).not.toBe(beforeFailure);
       await panel.getByRole("button", { name: "读取当前分区", exact: true }).click();
       await expect(partition.getByRole("table", { name: "分区数据", exact: true })).toContainText(
@@ -388,10 +395,12 @@ test("research chain integration @joint: fixed evidence through revision recover
         .find((n: { id: string }) => n.id === "local")
         .health.services.filter((s: { id: string }) => services.includes(s.id))
         .map((s: { id: string; pid: number }) => ({ id: s.id, pid: s.pid }));
-      for (const service of [...services].reverse())
-        await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
-      for (const service of services)
-        await rpc(page.request, "node.action", { id: "local", service, action: "start" });
+      await restartServices(page.request, services, async () => {
+        for (const service of [...services].reverse())
+          await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+        for (const service of services)
+          await rpc(page.request, "node.action", { id: "local", service, action: "start" });
+      });
       await openResearchService(page.request);
       await expect
         .poll(

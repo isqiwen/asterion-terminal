@@ -145,6 +145,35 @@ export async function minuteStrategyPackage(
   return id;
 }
 
+type ServiceHealth = { id: string; pid: number; state: string; health: string };
+const localServices = async (request: APIRequestContext): Promise<ServiceHealth[]> =>
+  (await rpc(request, "runtime.snapshot")).nodes.find((n: { id: string }) => n.id === "local")
+    .health.services;
+
+// Restarts local services through `restart` and returns once each runs as a new
+// process that reports ready. A snapshot's `online` can still describe the
+// previous process for a moment after it stopped.
+export async function restartServices(
+  request: APIRequestContext,
+  services: string[],
+  restart: () => Promise<unknown>,
+) {
+  const before = new Map((await localServices(request)).map(s => [s.id, s.pid]));
+  await restart();
+  await expect
+    .poll(
+      async () => {
+        const current = await localServices(request);
+        return services.every(id => {
+          const s = current.find(item => item.id === id);
+          return s && s.pid !== before.get(id) && s.state === "running" && s.health === "ready";
+        });
+      },
+      { timeout: 20000 },
+    )
+    .toBe(true);
+}
+
 export async function seedHistory(
   request: APIRequestContext,
   prices: number[],

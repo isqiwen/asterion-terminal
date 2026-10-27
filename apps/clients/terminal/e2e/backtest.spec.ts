@@ -421,7 +421,7 @@ test("several strategies are compared before a holdout and one is replayed", asy
       version: 1,
       method: "task.quantstats.analyze",
       params: {
-        id: await analytics.locator("details > p").textContent(),
+        id: await analytics.locator("details", { hasText: "分析来源" }).locator("p").textContent(),
         result_digest: "0".repeat(64),
       },
     },
