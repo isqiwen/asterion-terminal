@@ -238,10 +238,12 @@ TEST(RpcHost, PendingRepliesLeaveReadAndControlConnectionsAvailable)
         observed = control.receive(1s);
     } while (observed != "24" && std::chrono::steady_clock::now() < deadline);
     ASSERT_EQ(observed, "24");
-    control.send(std::string(32, 'x'), 1s);
+    // The 24 pending four-byte inputs retain 96 bytes of the 128 even after their
+    // handlers have taken ownership. The last two-byte reply stays retained
+    // until the host's write completes, which may be after this side read it,
+    // so 30 more always fit; 33 never do and are rejected before allocation.
+    control.send(std::string(30, 'x'), 1s);
     EXPECT_EQ(control.receive(1s), "24");
-    // The 24 pending four-byte inputs retain 96 bytes even after their handlers
-    // have taken ownership. 32 more fit; 33 must be rejected before allocation.
     auto excess = ipc::Channel::connect(endpoint, 1s);
     excess.send(std::string(33, 'x'), 1s);
     EXPECT_THROW(excess.receive(1s), Error);
