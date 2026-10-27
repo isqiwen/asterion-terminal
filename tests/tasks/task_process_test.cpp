@@ -336,11 +336,10 @@ TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
         write.bind_blob(1, record.SerializeAsString()).step();
     }
     // The store agrees with itself, so the service opens it and lists the task
-    // as it was stored.
+    // with its stored work. The attempt may already have run by this read.
     start();
     research::proto::ResearchRequest get;
     get.mutable_get()->set_id("other-rules");
-    EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
     EXPECT_EQ(call(get).task().total(), admitted);
     // The invalid attempt fails once and leaves the queue.
     EXPECT_EQ(
