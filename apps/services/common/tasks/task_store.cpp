@@ -1254,8 +1254,10 @@ void Store::ResultRead::verify()
                                : wire::Task{};
     payload::parse(raw, mutable_result(*kinds_, result, task_.kind()));
 
-    if (include_input_)
+    if (include_input_) {
         *result.mutable_result_task() = std::move(task);
+        result.set_result_input_sha256(input_digest_);
+    }
     response_ = std::move(result);
     verified_ = true;
 }

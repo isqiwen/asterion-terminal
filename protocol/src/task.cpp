@@ -301,7 +301,7 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["result"] = decode_material_receipt(response.material());
     } else if (task.kind() == task::proto::BACKTEST && task.has_input()
         && response.has_backtest()) {
-        envelope["input_sha256"] = sha256_bytes(task.input().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         auto experiment = decode_backtest(task.input(), DatasetView::metadata);
         if (response.backtest().dataset_revision() != task.input().dataset_revision())
             throw std::invalid_argument("backtest result does not belong to input data");
@@ -316,26 +316,26 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["result"] = decode_factor_result(task.factor(), response.factor());
     } else if (task.kind() == task::proto::LOGIC_TRIAL && task.has_logic_trial()
         && response.has_logic_trial()) {
-        envelope["input_sha256"] = sha256_bytes(task.logic_trial().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_logic_trial_input(task.logic_trial());
         envelope["result"] = decode_logic_trial_result(task.logic_trial(), response.logic_trial());
     } else if (task.kind() == task::proto::SAMPLE && task.has_sample() && response.has_sample()) {
-        envelope["input_sha256"] = sha256_bytes(task.sample().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_sample_input(task.sample());
         envelope["result"] = decode_sample_result(task.sample(), response.sample());
     } else if (task.kind() == task::proto::PERFORMANCE_EVALUATION && task.has_evaluation()
         && response.has_evaluation()) {
-        envelope["input_sha256"] = sha256_bytes(task.evaluation().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_evaluation_input(task.evaluation());
         envelope["result"] = decode_evaluation_result(task.evaluation(), response.evaluation());
     } else if (task.kind() == task::proto::STATISTICS && task.has_statistics()
         && response.has_statistics()) {
-        envelope["input_sha256"] = sha256_bytes(task.statistics().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_statistics_input(task.statistics());
         envelope["result"] = decode_statistics_result(task.statistics(), response.statistics());
     } else if (task.kind() == task::proto::ACCOUNT_REVIEW && task.has_account_review()
         && response.has_account_review()) {
-        envelope["input_sha256"] = sha256_bytes(task.account_review().SerializeAsString());
+        envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_account_review_input(task.account_review());
         envelope["result"] =
             decode_account_review_result(task.account_review(), response.account_review());

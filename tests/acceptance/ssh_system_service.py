@@ -105,6 +105,17 @@ def main():
                 return [*sudo, 'systemctl', action, label]
             return [*sudo, 'launchctl', 'kickstart', '-k', 'system/' + label]
 
+        def restart_service():
+            # A unit that fails to come back is reported with its own record.
+            if subprocess.run(service_command('restart'), timeout=30).returncode == 0:
+                return
+            if linux:
+                for command in (['systemctl', 'status', '--no-pager', label],
+                                ['journalctl', '-u', label, '-n', '120', '--no-pager']):
+                    report = subprocess.run([*sudo, *command], capture_output=True, text=True, timeout=30)
+                    print(report.stdout + report.stderr, flush=True)
+            raise RuntimeError('the Agent service did not restart')
+
         if linux:
             # This opt-in fixture must never adopt a pre-existing account or policy.
             try:
@@ -161,10 +172,10 @@ def main():
                 assert agent_pid() not in ('0', previous_agent), 'the Agent was not restarted on its new identity'
                 wait(service_running)
             old_pid = health()['health']['services'][0]['pid']
-            run(service_command('restart'))
+            restart_service()
             wait(lambda: service_running() and health()['health']['services'][0]['pid'] != old_pid)
             call('node.action', dict(id=identity, service='account-acceptance', action='stop'))
-            run(service_command('restart'))
+            restart_service()
             # Reattach after restart: explicit stopped state must survive.
             time.sleep(2)
             call('node.disconnect', dict(id=identity))

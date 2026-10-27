@@ -211,6 +211,8 @@ message TaskResponse {
   string correlation_id = 3;
   // Present only with a completed result, captured under the same store lock.
   Task result_task = 4;
+  // The digest of result_task's input as the owner stored it at admission.
+  string result_input_sha256 = 5;
   oneof result {
     Task task = 10;
     TaskList tasks = 11;
