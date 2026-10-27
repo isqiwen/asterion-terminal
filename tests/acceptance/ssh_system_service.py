@@ -122,7 +122,16 @@ def main():
             if linux:
                 # Longer than the initializer's own 60 s per-command limit so a
                 # stuck step is reported by name instead of killed silently.
-                run([*sudo, '/usr/bin/python3', '-I', str(Path(__file__).resolve().parents[2] / 'scripts/node/initialize-linux.py'), '--public-key', str(root / 'client.pub')], timeout=150)
+                initializer = subprocess.Popen([*sudo, '/usr/bin/python3', '-I', str(Path(__file__).resolve().parents[2] / 'scripts/node/initialize-linux.py'), '--public-key', str(root / 'client.pub')])
+                try:
+                    initializer.wait(timeout=40)
+                except subprocess.TimeoutExpired:
+                    # A step this slow is waiting on something: record what.
+                    stuck = subprocess.run([*sudo, 'sh', '-c', 'ps -eo pid,ppid,stat,wchan:32,etime,cmd --forest; ls -l /etc/.pwd.lock /etc/passwd.lock /etc/shadow.lock /etc/group.lock /etc/gshadow.lock 2>&1; fuser -v /etc/.pwd.lock /etc/passwd /etc/shadow /etc/group 2>&1'], capture_output=True, text=True, timeout=20)
+                    print('initializer still running after 40 s:\n' + stuck.stdout + stuck.stderr, flush=True)
+                    initializer.wait(timeout=110)
+                if initializer.returncode:
+                    raise subprocess.CalledProcessError(initializer.returncode, initializer.args)
             with (root / 'sshd.log').open('w') as log:
                 sshd = subprocess.Popen([*sudo, '/usr/sbin/sshd', '-D', '-e', '-f', str(config)], stdout=log, stderr=log)
             time.sleep(1)
