@@ -1,6 +1,7 @@
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/domain/futures.hpp>
 #include <asterion/protocol/data.hpp>
+#include <asterion/protocol/research_strategy.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
@@ -765,6 +766,7 @@ proto::Command encode_command(const Json& c)
                 "venue",
                 "symbol",
                 "strategy",
+                "package",
                 "market_endpoint",
                 "market_service"});
         auto* start = result.mutable_strategy_start();
@@ -772,6 +774,7 @@ proto::Command encode_command(const Json& c)
         start->set_symbol(c.at("symbol").get<std::string>());
         InstrumentId{start->venue(), start->symbol()}.validate();
         *start->mutable_strategy() = encode_strategy(c.at("strategy"));
+        *start->mutable_package() = encode_strategy_object(c.at("package"), "strategy_package");
         start->set_market_endpoint(c.at("market_endpoint").get<std::string>());
         start->set_market_service(c.at("market_service").get<std::string>());
     } else if (action == "strategy_stop") {
@@ -824,6 +827,7 @@ Json decode_command(const proto::Command& c)
             result.update(
                 {{"action", "strategy_start"},
                     {"strategy", decode_strategy(start.strategy())},
+                    {"package", decode_strategy_object(start.package())},
                     {"market_endpoint", start.market_endpoint()},
                     {"market_service", start.market_service()}});
             result.update(instrument_fields(start.venue(), start.symbol()));
@@ -1324,6 +1328,7 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
         item.update(
             {{"id", run.id()},
                 {"strategy", decode_strategy(run.strategy())},
+                {"package", decode_strategy_object(run.package())},
                 {"warmup", run.warmup()},
                 {"state", run.state()},
                 {"reason", run.reason()},

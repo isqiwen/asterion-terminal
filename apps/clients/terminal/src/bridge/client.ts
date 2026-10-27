@@ -240,6 +240,8 @@ export type LiveSession = {
     venue: string;
     symbol: string;
     strategy: StrategyDefinition;
+    // The strategy package the run trades.
+    package: ResourceObject;
     // Completed bars the rule needs before it gives a target.
     warmup: number;
     state: "running" | "stopped";

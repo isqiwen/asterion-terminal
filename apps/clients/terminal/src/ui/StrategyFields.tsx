@@ -200,11 +200,6 @@ export function strategiesOf(draft: StrategyDraft): StrategyDefinition[] {
       : { quantity: draft.quantity, sides: draft.sides, rule },
   );
 }
-/** The definition a draft with one value in every window submits. */
-export function strategyOf(draft: StrategyDraft): StrategyDefinition {
-  return strategiesOf(draft)[0];
-}
-
 /** A strategy's rule with its windows, as one reads it in a heading. */
 export function strategyRule(definition: StrategyDefinition): string {
   if (isFixedWeights(definition))

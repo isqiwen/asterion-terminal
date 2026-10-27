@@ -62,7 +62,6 @@ export {
   StrategyFields,
   strategyDefaults,
   strategiesOf,
-  strategyOf,
   strategyRows,
   strategyRule,
   strategySides,

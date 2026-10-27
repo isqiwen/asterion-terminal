@@ -204,6 +204,7 @@ private:
         std::string id;
         Instrument instrument;
         protocol::proto::Strategy strategy;
+        resource::proto::Object package;
         std::int64_t started_ms = 0;
         std::unique_ptr<StrategyHost> host;
         std::uint64_t bars = 0;

@@ -22,8 +22,9 @@ export function LiveAccount({
   connection,
   snapshot,
   busy,
+  query,
   run,
-}: Pick<TerminalContext, "snapshot" | "busy"> & {
+}: Pick<TerminalContext, "snapshot" | "busy" | "query"> & {
   account: CtpConnection;
   live: LiveSession;
   connection: Snapshot["live"][string]["connection"];
@@ -406,12 +407,13 @@ export function LiveAccount({
           <StrategyStart
             live={live}
             busy={busy}
-            onStart={params =>
+            query={query}
+            onStart={packageId =>
               void run("live.strategy.start", {
                 request_id: crypto.randomUUID(),
                 account_id: live.account_id,
                 policy_revision: live.policy_revision,
-                ...params,
+                package: packageId,
               })
             }
           />

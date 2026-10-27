@@ -1,6 +1,7 @@
 #include "account_records.hpp"
 #include <asterion/protocol/trading_facts.hpp>
 #include <asterion/foundation/id.hpp>
+#include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <stdexcept>
 
@@ -168,9 +169,11 @@ AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command
             if (result.id.size() > 64)
                 throw std::invalid_argument("strategy run identity is too long");
             validate_id(start.market_service());
+            protocol::validate_strategy_object(start.package(), "strategy_package");
             result.operation = StartStrategy{
                 {start.venue(), start.symbol()},
                 start.strategy(),
+                start.package(),
                 required_text(start.market_endpoint()),
                 start.market_service()
             };

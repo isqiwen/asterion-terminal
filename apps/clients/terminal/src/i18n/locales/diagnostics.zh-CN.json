@@ -2089,5 +2089,7 @@
   "portfolio candidate requires ordinary daily data": "组合候选需要普通日线数据。",
   "task store owner mismatch": "任务存储所有者不匹配",
   "task store access is read only": "任务存储当前为只读",
-  "cannot encode task retirement": "无法编码任务退役记录"
+  "cannot encode task retirement": "无法编码任务退役记录",
+  "a retired strategy package cannot start a run": "已停用的策略包不能启动运行。",
+  "a live run requires a single-contract one-minute strategy package": "实盘运行只接受 1 分钟单合约策略包。"
 }

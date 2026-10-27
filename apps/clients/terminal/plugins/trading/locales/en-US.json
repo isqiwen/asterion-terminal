@@ -176,7 +176,6 @@
   "无": "None",
   "启动策略": "Start strategy",
   "上次运行已停止：{reason}": "The last run stopped: {reason}",
-  "策略合约": "Strategy contract",
   "下单方式": "Order origin",
   "手动下单": "Manual orders",
   "策略运行期间不能手动下单；撤单、撤销授权和停止策略始终可用。账户未连接或未同步时策略等待，不发送委托。停止只撤销策略的挂单，持仓保留。": "Manual orders are refused while a strategy runs; cancelling, revoking and stopping are always available. While the account is not connected and synchronized the strategy waits and sends nothing. Stopping only cancels the strategy's working orders and keeps positions.",
@@ -186,7 +185,6 @@
   "空 {n} 手": "Short {n} lots",
   "多 {n} 手": "Long {n} lots",
   "{venue} · {symbol} · {rule} · {size} · {sides}": "{venue} · {symbol} · {rule} · {size} · {sides}",
-  "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "A position the contract already holds on one side is taken over. The strategy reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts.",
   "运行实例：{node} / {service}": "Instance: {node} / {service}",
   "运行节点": "Node",
   "本机": "Local machine",
@@ -242,5 +240,11 @@
   "最近查询完成时间（上海）": "Last query completion time (Shanghai)",
   "从未完成查询": "No query has completed",
   "固定来源错误码": "Fixed source error code",
-  "在 Research 审阅此固定事实": "Review These Fixed Facts in Research"
+  "在 Research 审阅此固定事实": "Review These Fixed Facts in Research",
+  "策略包": "Strategy package",
+  "运行的策略包": "Strategy package to run",
+  "{rule} · {size} · {sides}": "{rule} · {size} · {sides}",
+  "刷新策略包": "Refresh packages",
+  "没有可运行的策略包。实盘运行只接受 1 分钟单合约策略包，且合约须在账户风控允许的合约中；请先在研究中用 1 分钟数据建立策略包。": "No strategy package can run. A live run takes only a single-contract one-minute strategy package whose contract the account's risk policy allows; build one from one-minute data in Research first.",
+  "策略按策略包固定的规则运行，使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单；该合约已有的单边持仓由策略接管。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "The run follows the package's fixed rule on one-minute bars from this machine's market service and places limit orders at each bar's close; it takes over the contract's existing one-sided position. Once started it alone places orders and continues across reconnections and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts."
 }

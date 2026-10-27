@@ -2089,5 +2089,7 @@
   "portfolio candidate requires ordinary daily data": "Portfolio candidate requires ordinary daily data.",
   "task store owner mismatch": "task store owner mismatch",
   "task store access is read only": "task store access is read only",
-  "cannot encode task retirement": "cannot encode task retirement"
+  "cannot encode task retirement": "cannot encode task retirement",
+  "a retired strategy package cannot start a run": "a retired strategy package cannot start a run",
+  "a live run requires a single-contract one-minute strategy package": "a live run requires a single-contract one-minute strategy package"
 }

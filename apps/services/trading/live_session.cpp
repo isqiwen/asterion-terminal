@@ -604,6 +604,7 @@ AccountCommand LiveAccountState::start_strategy(
     run_->id = request.id;
     run_->instrument = terms;
     run_->strategy = start.strategy;
+    run_->package = start.package;
     run_->started_ms = now_ms();
     try {
         run_->host = std::make_unique<StrategyHost>(
@@ -1145,6 +1146,7 @@ protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
         item->set_venue(run_->instrument.id.venue);
         item->set_symbol(run_->instrument.id.symbol);
         *item->mutable_strategy() = run_->strategy;
+        *item->mutable_package() = run_->package;
         item->set_warmup(protocol::strategy_warmup(run_->strategy));
         item->set_state(running() ? "running" : "stopped");
         item->set_reason(run_->ended);

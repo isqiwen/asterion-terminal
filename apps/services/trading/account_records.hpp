@@ -54,6 +54,8 @@ struct StartStrategy
 {
     InstrumentId instrument;
     protocol::proto::Strategy strategy;
+    // The strategy package the contract and strategy were taken from.
+    resource::proto::Object package;
     // The market service on this machine whose minute bars the run reads.
     std::string market_endpoint, market_service;
 };

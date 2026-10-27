@@ -385,8 +385,21 @@ public:
             {"venue", "SHFE"},
             {"symbol", "rb2610"},
             {"strategy", {{"quantity", quantity}, {"sides", sides}, {"rule", std::move(rule)}}},
+            {"package", package()},
             {"market_endpoint", endpoint_},
             {"market_service", "market"}
+        };
+    }
+
+    static Json package()
+    {
+        return {
+            {"node", "node-1"},
+            {"service", "research"},
+            {"domain", "research"},
+            {"kind", "strategy_package"},
+            {"id", "strategy-minute"},
+            {"version", std::string(64, 'a')}
         };
     }
 
@@ -1677,6 +1690,7 @@ TEST_F(Live, StrategyRunOwnsTheAccountAndItsTargetsTakeTheOrderPath)
     EXPECT_EQ(order.at("limit_price"), "3501") << "the deciding bar's close";
     EXPECT_EQ(state.at("strategy").at("state"), "running");
     EXPECT_EQ(state.at("strategy").at("target"), "1");
+    EXPECT_EQ(state.at("strategy").at("package"), FakeMarket::package());
     try {
         act(session, submit("manual", "1"));
         FAIL() << "a manual order was accepted while a strategy controls the account";

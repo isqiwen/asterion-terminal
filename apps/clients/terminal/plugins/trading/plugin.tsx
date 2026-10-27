@@ -21,6 +21,7 @@ export const plugin: TerminalPlugin = {
     "live.facts.read",
     "live.act",
     "live.strategy.start",
+    "research.strategy.list",
     "live.close",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },

@@ -202,27 +202,37 @@ void Application::Impl::register_live_commands()
             co_await with_live_account(p, execute);
         co_return snapshot();
     });
-    // The run reads minute bars from the market service on this machine; its
-    // address comes from the attached service, never from the page.
+    // The run trades a one-minute strategy package as Research recorded it, and
+    // reads minute bars from the market service on this machine; neither the
+    // rule nor the market address comes from the page.
     command("live.strategy.start", [this](const json& p) -> PolledTask<Response> {
-        fields(
-            p,
-            {"account",
-                "request_id",
-                "account_id",
-                "policy_revision",
-                "venue",
-                "symbol",
-                "strategy"});
+        fields(p, {"account", "request_id", "account_id", "policy_revision", "package"});
         const auto source = market ? market->endpoint() : ServiceEndpoint{};
         const auto trading = live_account(p)->client->endpoint();
         if (source.endpoint.empty() || trading.endpoint.empty())
             throw Error(
                 ErrorCode::unavailable,
                 "strategy execution currently requires local market and trading services");
+        const auto research = research_client;
+        if (!research)
+            throw Error(ErrorCode::unavailable, "select a Research service first");
+        research::proto::StrategyRequest read;
+        read.mutable_get()->set_id(text(p, "package"));
+        const auto package = (co_await PollFuture{research->strategy(read)}).at("package");
+        const auto& definition = package.at("definition");
+        if (!package.at("retirement_reason").get<std::string>().empty())
+            throw Error(ErrorCode::conflict, "a retired strategy package cannot start a run");
+        if (!definition.contains("strategy") || definition.at("interval_minutes") != 1)
+            throw Error(
+                ErrorCode::invalid_request,
+                "a live run requires a single-contract one-minute strategy package");
         auto command = p;
         command.erase("account");
         command["action"] = "strategy_start";
+        command["venue"] = definition.at("contract").at("venue");
+        command["symbol"] = definition.at("contract").at("symbol");
+        command["strategy"] = definition.at("strategy");
+        command["package"] = package.at("object");
         command["market_endpoint"] = source.endpoint;
         command["market_service"] = source.session;
         co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {

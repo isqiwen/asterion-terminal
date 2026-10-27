@@ -14,9 +14,10 @@ The market password and the trading password are asked for separately.
 
 Checks, in order: market quotes; account synchronization; an order refused
 before authorization; one resting limit order accepted and cancelled; the
-authorization kept across a disconnect and reconnect; a strategy run that takes
-the account, refuses manual orders, receives minute bars and places its orders
-at the deciding bar's close; stopping it. Run it during trading hours. The
+authorization kept across a disconnect and reconnect; a one-minute strategy
+package admitted by the local Research service; a run of that package that
+takes the account, refuses manual orders, receives minute bars and places its
+orders at the deciding bar's close; stopping it. Run it during trading hours. The
 contract's position is reported at the end and left as it is.
 """
 import argparse
@@ -169,6 +170,59 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
         return next((sub.get("quote") for sub in market.get("subscriptions", [])
                      if sub["venue"] == venue and sub["symbol"] == symbol), None)
 
+    def strategy_package(contract):
+        """A one-minute moving-average package on the contract, admitted by Research
+        against a fictional example whose closes make the rule take each side."""
+        call("node.research.local.open")
+        deadline = time.monotonic() + args.timeout
+        while not (call("runtime.snapshot").get("research_service") or {}).get("online"):
+            if time.monotonic() > deadline:
+                raise RuntimeError("the local Research service did not come online")
+            time.sleep(0.5)
+        logic, example, trial, package = (f"{kind}-{uuid.uuid4()}"
+                                          for kind in ("logic", "case", "trial", "strategy"))
+        call("research.logic.register", {
+            "id": str(uuid.uuid4()),
+            "definition": {"id": logic, "name": f"{args.fast}/{args.slow} moving average",
+                           "purpose": "CTP simulation acceptance",
+                           "fast": args.fast, "slow": args.slow}})
+        definition = call("research.logic.read", {"id": logic})["research_logic"]["definition"]
+        closes = ["10"] * (args.slow - 1) + ["13", "7"]
+        rows = [{"state": "warmup"}] * (args.slow - 1) + [
+            {"state": "target_sign", "value": 1}, {"state": "target_sign", "value": -1}]
+        call("research.logic.example.save", {"id": str(uuid.uuid4()), "example": {
+            "id": example, "definition": definition["object"], "name": "fixed directions",
+            "use_scope": "fictional closes", "fictional": True,
+            "observations": [{"closed_at_ns": str((i + 1) * 60_000_000_000),
+                              "available_at_ns": str((i + 1) * 60_000_000_000),
+                              "close": close, "expected": expected}
+                             for i, (close, expected) in enumerate(zip(closes, rows))]}})
+        saved = call("research.logic.example.read", {"id": example})["research_logic"]["example"]
+        call("research.logic.trial", {"id": trial, "example": saved["object"]})
+        deadline = time.monotonic() + args.timeout
+        while True:
+            service = call("runtime.snapshot")["research_service"]
+            state = next((t["state"] for t in service["tasks"] if t["id"] == trial), None)
+            if state == "succeeded":
+                break
+            if state in ("failed", "cancelled") or time.monotonic() > deadline:
+                raise RuntimeError(f"logic trial ended {state}")
+            time.sleep(0.5)
+        result = call("task.result.read", {"id": trial, "owner": {
+            "kind": "research", "node_id": service["node_id"], "service": service["service"],
+            "connection_id": service["connection_id"]}})["task_result"]
+        call("research.strategy.logic.freeze", {"id": str(uuid.uuid4()), "registration": {
+            "id": package, "name": f"{args.instrument} one-minute acceptance",
+            "purpose": "CTP simulation acceptance", "limitations": "fictional check only",
+            "source": {"node": service["owner_node_id"], "service": service["service"],
+                       "domain": "research", "kind": "logic_trial_result", "id": trial,
+                       "version": result["task"]["result_digest"]},
+            "contract": contract, "interval_minutes": 1,
+            "strategy": {"quantity": "1", "sides": args.sides,
+                         "rule": {"kind": "moving_average",
+                                  "fast": args.fast, "slow": args.slow}}}})
+        return package
+
     try:
         step("local market service", bool(call("market.local").get("market")))
         call("ctp.connections.save", {"id": ACCOUNT, "name": ACCOUNT, "revision": "",
@@ -252,13 +306,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
                     f"phase={live and live['phase']}"):
             raise RuntimeError("the account did not synchronize again")
 
+        package = strategy_package(live["contracts"][0])
+        step("one-minute strategy package", True, package)
         call("live.strategy.start", {"account": ACCOUNT, "request_id": str(uuid.uuid4()),
                                      "account_id": live["account_id"],
                                      "policy_revision": live["policy_revision"],
-                                     "venue": venue, "symbol": symbol,
-                                     "strategy": {"quantity": "1", "sides": args.sides,
-                                                  "rule": {"kind": "moving_average",
-                                                           "fast": args.fast, "slow": args.slow}}})
+                                     "package": package})
         run = session()["strategy"]
         step("strategy started", run and run["state"] == "running", f"run={run and run['id']}")
         refused("manual order refused while the strategy runs", "strategy controls",

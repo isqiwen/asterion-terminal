@@ -67,6 +67,84 @@ export async function openResearch(request: APIRequestContext) {
   return rpc(request, "runtime.snapshot");
 }
 
+// A one-minute strategy package on an account's contract, checked against a
+// fictional example: the offline way Research admits a package without history.
+export async function minuteStrategyPackage(
+  request: APIRequestContext,
+  contract: Record<string, string>,
+) {
+  const service = (await openResearch(request)).research_service;
+  const logic = `logic-${crypto.randomUUID()}`;
+  await rpc(request, "research.logic.register", {
+    id: `logic-register-${crypto.randomUUID()}`,
+    definition: { id: logic, name: "1/3 均线", purpose: "实盘运行验收", fast: 1, slow: 3 },
+  });
+  const definition = (await rpc(request, "research.logic.read", { id: logic })).research_logic
+    .definition.object;
+  const example = `case-${crypto.randomUUID()}`;
+  const observations = [
+    ["10", { state: "warmup" }],
+    ["10", { state: "warmup" }],
+    ["13", { state: "target_sign", value: 1 }],
+    ["7", { state: "target_sign", value: -1 }],
+  ].map(([close, expected], index) => {
+    const ns = String(BigInt(index + 1) * 60000000000n);
+    return { closed_at_ns: ns, available_at_ns: ns, close, expected };
+  });
+  await rpc(request, "research.logic.example.save", {
+    id: `logic-case-save-${crypto.randomUUID()}`,
+    example: {
+      id: example,
+      definition,
+      name: "事先明确方向",
+      use_scope: "四个虚构收盘",
+      fictional: true,
+      observations,
+    },
+  });
+  const saved = (await rpc(request, "research.logic.example.read", { id: example })).research_logic
+    .example.object;
+  const trial = `logic-trial-${crypto.randomUUID()}`;
+  await rpc(request, "research.logic.trial", { id: trial, example: saved });
+  await expect
+    .poll(
+      async () =>
+        (await rpc(request, "runtime.snapshot")).research_service.tasks.find(
+          (task: { id: string }) => task.id === trial,
+        )?.state,
+      { timeout: 30000 },
+    )
+    .toBe("succeeded");
+  const result = (await taskRpc(request, "research", "task.result.read", { id: trial }))
+    .task_result;
+  const id = `strategy-${crypto.randomUUID()}`;
+  await rpc(request, "research.strategy.logic.freeze", {
+    id: `strategy-freeze-${crypto.randomUUID()}`,
+    registration: {
+      id,
+      name: "1/3 均线一分钟",
+      purpose: "实盘运行验收",
+      limitations: "虚构样例核对，不证明收益",
+      source: {
+        node: service.owner_node_id,
+        service: service.service,
+        domain: "research",
+        kind: "logic_trial_result",
+        id: trial,
+        version: result.task.result_digest,
+      },
+      contract,
+      interval_minutes: 1,
+      strategy: {
+        quantity: "1",
+        sides: "long",
+        rule: { kind: "moving_average", fast: 1, slow: 3 },
+      },
+    },
+  });
+  return id;
+}
+
 export async function seedHistory(
   request: APIRequestContext,
   prices: number[],

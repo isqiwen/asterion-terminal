@@ -487,7 +487,7 @@ export type CommandParams = {
   "live.disconnect": { account: string };
   "live.costs": { account: string };
   "live.act": AccountCommand & LiveAction;
-  "live.strategy.start": AccountCommand & InstrumentKey & { strategy: StrategyDefinition };
+  "live.strategy.start": AccountCommand & { package: string };
   "live.close": { account: string };
   "node.bootstrap": {
     id: string;
