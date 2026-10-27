@@ -18,6 +18,22 @@ set(asterion_test_environment)
 if(APPLE)
   set(asterion_test_environment ENVIRONMENT "TMPDIR=/private/tmp")
 endif()
+# Labels: `unit` tests run in memory and finish within a second each
+# (`ctest -L unit` is the quick local check); `process` tests start service
+# processes, sockets or slow stores. A test program that has any such test is
+# `process`; directly registered script tests below are all `process`.
+set(asterion_process_test_targets
+  asterion_account_review_store_tests asterion_ctp_catalog_tests asterion_ctp_tests
+  asterion_ctp_trader_tests asterion_data_backup_tests asterion_data_credential_tests
+  asterion_data_tests asterion_dominant_series_tests asterion_kernel_tests asterion_live_tests
+  asterion_logic_store_tests asterion_market_snapshot_tests asterion_material_lifecycle_tests
+  asterion_material_process_tests asterion_node_maintenance_tests asterion_node_supervision_tests
+  asterion_paper_tests asterion_portfolio_tests asterion_quantstats_tests
+  asterion_research_backup_tests asterion_research_evaluation_tests asterion_research_sample_tests
+  asterion_research_statistics_tests asterion_rpc_host_tests asterion_shfe_margin_tests
+  asterion_strategy_store_tests asterion_task_execution_tests asterion_terminal_query_tests
+  asterion_trading_backup_tests asterion_trading_process_tests
+  asterion_tushare_tests)
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.
 function(asterion_unit_tests target source library)
@@ -39,8 +55,13 @@ function(asterion_unit_tests target source library)
   endif()
   # Instrumented binaries can need more than CMake's five-second default to
   # start while other targets run. This changes discovery, not case budgets.
+  set(label unit)
+  if(target IN_LIST asterion_process_test_targets)
+    set(label process)
+  endif()
   gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-    PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial} ${asterion_test_environment})
+    PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial} LABELS ${label}
+    ${asterion_test_environment})
 endfunction()
 enable_language(C)
 # In this tree the sample plugin builds against this checkout's SDK headers.
@@ -295,7 +316,7 @@ if(ASTERION_SANITIZERS)
 endif()
 gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
   DISCOVERY_TIMEOUT 30
-  PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} ${asterion_test_environment})
+  PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
 asterion_unit_tests(asterion_plugin_management_tests terminal/plugin_management_test.cpp asterion_terminal_api)
 target_link_libraries(asterion_plugin_management_tests PRIVATE asterion_node_storage)
 target_include_directories(asterion_plugin_management_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
@@ -429,8 +450,9 @@ target_link_libraries(asterion_research_statistics_tests PRIVATE asterion_resear
 target_link_libraries(asterion_strategy_store_tests PRIVATE asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_task_execution_tests PRIVATE asterion_research_tasks asterion_data_tasks)
 
-# Applied last so every directly registered test receives it.
+# Applied last so every directly registered test receives them.
+get_property(asterion_tests DIRECTORY PROPERTY TESTS)
+set_property(TEST ${asterion_tests} PROPERTY LABELS process)
 if(APPLE)
-  get_property(asterion_tests DIRECTORY PROPERTY TESTS)
   set_property(TEST ${asterion_tests} APPEND PROPERTY ENVIRONMENT "TMPDIR=/private/tmp")
 endif()
