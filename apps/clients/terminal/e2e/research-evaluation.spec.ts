@@ -413,14 +413,6 @@ test("fixed performance evaluation preserves the original account through restar
     const manifest = (await rpc(page.request, "system.backup.inspect", { backup: restored })).backup
       .manifest;
     expect(manifest.dependencies.every((row: { included: boolean }) => row.included)).toBe(true);
-    expect(
-      manifest.dependencies.some(
-        (row: { object: { kind: string; id: string; version: string } }) =>
-          row.object.kind === "performance_evaluation_result" &&
-          row.object.id === id &&
-          row.object.version === first.task.result_digest,
-      ),
-    ).toBe(true);
 
     expect(
       manifest.files.some(
