@@ -1,20 +1,13 @@
-import type { LiveAction } from "../../src/bridge/commands";
-import { AccountPolicyEditor } from "./AccountPolicyEditor";
-import { ActivityTabs, type Activity } from "./ActivityTabs";
-import { StrategyStart, StrategyStatus } from "./StrategyRun";
-import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
-import {
-  ErrorNotice,
-  explicitCloseBuckets,
-  asDisplayError,
-  saveCostTemplate,
-  useWorkspaceDraft,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import type { LiveAction } from "../../src/bridge/commands";
 import type { CtpConnection, LiveSession, Snapshot } from "../../src/bridge/client";
-import { t, phases, statuses, offsets, key, type Run } from "./live-shared";
+import { FlowSteps } from "../../src/ui/FlowSteps";
+import { useWorkspaceDraft, type TerminalContext } from "../contract";
+import { AccountRecords } from "./AccountRecords";
+import { type Activity } from "./ActivityTabs";
+import { OrderTicket } from "./OrderTicket";
+import { StrategyStart, StrategyStatus } from "./StrategyRun";
+import { t, phases, type Run } from "./live-shared";
 
 export function LiveAccount({
   account,
@@ -49,30 +42,9 @@ export function LiveAccount({
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
   const confirmed = confirmedPolicy === live.policy_revision;
-  const [order, setOrder] = useState<{
-    contract: string;
-    offset: Extract<LiveAction, { action: "submit" }>["offset"];
-    quantity: string;
-    price: string;
-  }>({
-    contract: "",
-    offset: "open",
-    quantity: "1",
-    price: "",
-  });
   const ready = live.phase === "ready";
   const stale = live.storage_state === "recovery_required" || connection.state === "disconnected";
   const authorized = !!live.authorization;
-  const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
-  const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
-  const offset =
-    order.offset === "open"
-      ? "open"
-      : explicitBuckets
-        ? order.offset === "close"
-          ? "close_today"
-          : order.offset
-        : "close";
   const act = (params: LiveAction) =>
     run("live.act", {
       request_id: crypto.randomUUID(),
@@ -94,24 +66,6 @@ export function LiveAccount({
           : !authorized
             ? "authorize"
             : "trade";
-  const quote = snapshot?.market?.subscriptions.find(
-    row => row.venue === traded?.venue && row.symbol === traded?.symbol,
-  )?.quote;
-  // Buying and selling are separate buttons that name the account, so
-  // pressing Enter in a field never sends an order.
-  const submit = (side: "buy" | "sell", form: HTMLFormElement | null) => {
-    if (!traded || !form?.reportValidity()) return;
-    void act({
-      action: "submit",
-      order_id: crypto.randomUUID(),
-      venue: traded.venue,
-      symbol: traded.symbol,
-      side,
-      offset,
-      quantity: order.quantity,
-      price: order.price,
-    }).then(sent => sent && setActivity("orders"));
-  };
   const environmentFields = (
     <div className="environment-check">
       <label>
@@ -419,334 +373,27 @@ export function LiveAccount({
           />
         )}
       {stage === "trade" && !controlled && origin === "manual" && (
-        <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
-          <fieldset disabled={busy}>
-            <div className="futures-fields">
-              <label>
-                {t("合约")}
-                <select
-                  aria-label={t("委托合约")}
-                  value={traded ? key(traded) : ""}
-                  onChange={event => setOrder({ ...order, contract: event.target.value })}
-                >
-                  {live.contracts.map(item => (
-                    <option key={key(item)} value={key(item)}>
-                      {item.venue} · {item.symbol}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("开平仓")}
-                <select
-                  aria-label={t("开平仓")}
-                  value={offset}
-                  onChange={event =>
-                    setOrder({ ...order, offset: event.target.value as typeof order.offset })
-                  }
-                >
-                  <option value="open">{t("开仓")}</option>
-                  {explicitBuckets ? (
-                    <>
-                      <option value="close_today">{t("平今")}</option>
-                      <option value="close_yesterday">{t("平昨")}</option>
-                    </>
-                  ) : (
-                    <option value="close">{t("平仓")}</option>
-                  )}
-                </select>
-              </label>
-              <label>
-                {t("委托手数")}
-                <input
-                  aria-label={t("委托手数")}
-                  inputMode="numeric"
-                  value={order.quantity}
-                  onChange={event => setOrder({ ...order, quantity: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                {t("限价")}
-                <input
-                  aria-label={t("限价")}
-                  inputMode="decimal"
-                  value={order.price}
-                  placeholder={traded ? t("最小变动 {tick}", { tick: traded.price_increment }) : ""}
-                  onChange={event => setOrder({ ...order, price: event.target.value })}
-                  required
-                />
-              </label>
-            </div>
-            {quote && (
-              <div className="order-quotes" role="group" aria-label={t("按行情填入限价")}>
-                {(
-                  [
-                    ["last", "最新 {price}"],
-                    ["bid", "买一 {price}"],
-                    ["ask", "卖一 {price}"],
-                  ] as const
-                ).map(
-                  ([field, label]) =>
-                    quote[field] && (
-                      <button
-                        key={field}
-                        type="button"
-                        onClick={() => setOrder({ ...order, price: quote[field]! })}
-                      >
-                        {t(label, { price: quote[field]! })}
-                      </button>
-                    ),
-                )}
-              </div>
-            )}
-            <div className="source-actions">
-              {(["buy", "sell"] as const).map(side => (
-                <button
-                  key={side}
-                  type="button"
-                  className="primary"
-                  onClick={event => submit(side, event.currentTarget.form)}
-                >
-                  {t(side === "buy" ? "买入" : "卖出")} <small>{account.name}</small>
-                </button>
-              ))}
-              <span className="subtle">
-                {t("委托先写入本机交易记录再发送；断线后不会自动重发。")}
-              </span>
-            </div>
-          </fieldset>
-        </form>
-      )}
-      <ActivityTabs value={activity} onChange={setActivity} />
-      <div hidden={activity !== "positions"}>
-        <div className="paper-table" role="region" aria-label={t("CTP 持仓")} tabIndex={0}>
-          <table aria-label={t("CTP 持仓")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("方向")}</th>
-                <th>{t("今仓")}</th>
-                <th>{t("昨仓")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.positions.map(p => (
-                <tr key={`${key(p)}.${p.side}`}>
-                  <td>{p.symbol}</td>
-                  <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
-                  <td>{p.today}</td>
-                  <td>{p.yesterday}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!live.positions.length && <p className="subtle">{t("暂无持仓")}</p>}
-        </div>
-      </div>
-      <div hidden={activity !== "orders"}>
-        <div className="paper-table" role="region" aria-label={t("CTP 委托记录")} tabIndex={0}>
-          <table aria-label={t("CTP 委托记录")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("方向 / 开平")}</th>
-                <th>{t("限价")}</th>
-                <th>{t("手数")}</th>
-                <th>{t("已成交")}</th>
-                <th>{t("状态")}</th>
-                <th>{t("操作")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.orders
-                .slice()
-                .reverse()
-                .map(o => (
-                  <tr key={o.broker_key}>
-                    <td>{o.symbol}</td>
-                    <td>
-                      {o.side === "buy" ? t("买入") : t("卖出")} / {t(offsets[o.offset])}
-                    </td>
-                    <td>{o.limit_price}</td>
-                    <td>{o.quantity}</td>
-                    <td>{o.filled}</td>
-                    <td>
-                      {t(statuses[o.status])}
-                      {o.error_code ? ` (${o.error_code})` : ""}
-                    </td>
-                    <td>
-                      {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
-                        <button
-                          disabled={
-                            cancelling.includes(o.id) ||
-                            stale ||
-                            !(ready || (live.phase === "error" && live.error_code === -1008))
-                          }
-                          onClick={() => void cancel(o.id)}
-                        >
-                          {t("撤单")}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          {!live.orders.length && <p className="subtle">{t("暂无委托")}</p>}
-        </div>
-      </div>
-      <div hidden={activity !== "fills"}>
-        <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
-          <table aria-label={t("CTP 成交")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("时间")}</th>
-                <th>{t("价格")}</th>
-                <th>{t("手数")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.trades
-                .slice()
-                .reverse()
-                .map(f => (
-                  <tr key={f.id}>
-                    <td>{f.symbol}</td>
-                    <td>{f.trade_time}</td>
-                    <td>{f.price}</td>
-                    <td>{f.quantity}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          {!live.trades.length && <p className="subtle">{t("暂无成交")}</p>}
-        </div>
-      </div>
-      <div hidden={activity !== "rates"}>
-        {ready ? (
-          <AccountRates live={live} busy={busy} run={run} />
-        ) : (
-          <p className="subtle">{t("连接柜台后可查询账户费率。")}</p>
-        )}
-      </div>
-      <div hidden={activity !== "policy"}>
-        <section aria-label={t("风险限制")}>
-          <h3>{t("风险限制")}</h3>
-          <p>
-            {t("单笔数量上限")}: {live.risk.max_order_quantity} · {t("总持仓量上限")}:{" "}
-            {live.risk.max_gross_quantity} · {t("在途委托数上限")}: {live.risk.max_working_orders} ·{" "}
-            {t("价格偏离上限")}: {live.max_price_deviation}
-          </p>
-          <p>
-            {t("可交易合约")}: {live.contracts.map(item => key(item)).join("、")}
-          </p>
-        </section>
-        <AccountPolicyEditor
-          key={live.policy_revision}
+        <OrderTicket
           live={live}
           snapshot={snapshot}
-          disabled={busy || stale}
-          run={run}
+          busy={busy}
+          accountName={account.name}
+          act={act}
+          onSent={() => setActivity("orders")}
         />
-      </div>
+      )}
+      <AccountRecords
+        live={live}
+        snapshot={snapshot}
+        busy={busy}
+        run={run}
+        activity={activity}
+        setActivity={setActivity}
+        ready={ready}
+        stale={stale}
+        cancelling={cancelling}
+        cancel={cancel}
+      />
     </>
-  );
-}
-
-// The account's margin and commission rates as the broker reports them. A
-// row can become the product's fee template for paper trading and backtests.
-function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; run: Run }) {
-  const [saved, setSaved] = useState<string[]>([]);
-  const [error, setError] = useState<DisplayError | null>(null);
-  const day = live.trading_day.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
-  const states: Record<LiveSession["costs"][number]["state"], string> = {
-    querying: "查询中",
-    ready: "已返回",
-    unavailable: "券商未提供",
-  };
-  return (
-    <section className="account-rates" aria-label={t("账户费率")}>
-      {error && (
-        <p role="alert">
-          <ErrorNotice error={error} />
-        </p>
-      )}
-      <div className="source-actions">
-        <button disabled={busy} onClick={() => void run("live.costs")}>
-          {t("查询账户费率")}
-        </button>
-        <span className="subtle">
-          {t("券商对本账户实际收取的保证金率与手续费；多空保证金不同时取较高者。")}
-        </span>
-      </div>
-      {live.costs.length > 0 && (
-        <div className="paper-table" role="region" aria-label={t("账户费率表")} tabIndex={0}>
-          <table aria-label={t("账户费率表")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("保证金 每手 / 比例")}</th>
-                <th>{t("开仓 每手 / 比例")}</th>
-                <th>{t("平今 每手 / 比例")}</th>
-                <th>{t("平昨 每手 / 比例")}</th>
-                <th>{t("状态")}</th>
-                <th>{t("操作")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.costs.map(row => {
-                const contract = live.contracts.find(item => key(item) === key(row));
-                const product = contract ? `${contract.venue}/${contract.product}` : "";
-                const c = row.costs;
-                const versionKey = `${product}@${day}`;
-                return (
-                  <tr key={key(row)}>
-                    <td>{row.symbol}</td>
-                    <td>{c && `${c.margin_per_lot} / ${c.margin_rate}`}</td>
-                    <td>{c && `${c.open_fee} / ${c.open_fee_rate}`}</td>
-                    <td>{c && `${c.close_today_fee} / ${c.close_today_fee_rate}`}</td>
-                    <td>{c && `${c.close_yesterday_fee} / ${c.close_yesterday_fee_rate}`}</td>
-                    <td>
-                      {t(states[row.state])}
-                      {row.error_code ? ` (${row.error_code})` : ""}
-                    </td>
-                    <td>
-                      {c && product && (
-                        <button
-                          disabled={saved.includes(versionKey)}
-                          onClick={() => {
-                            try {
-                              saveCostTemplate(
-                                product,
-                                c,
-                                t("CTP 账户 {broker}/{user}", {
-                                  broker: live.broker.broker_id,
-                                  user: live.broker.user_id,
-                                }),
-                                day,
-                              );
-                              setSaved([...saved, versionKey]);
-                              setError(null);
-                            } catch (reason) {
-                              setError(asDisplayError(reason));
-                            }
-                          }}
-                        >
-                          {saved.includes(versionKey)
-                            ? t("已存为 {product} 模板", { product })
-                            : t("存为 {product} 费率模板", { product })}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
   );
 }
