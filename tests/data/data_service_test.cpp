@@ -714,7 +714,9 @@ TEST(DataInputs, ExecutionsReadFixedVersionsAndResultsRemainReadableWithoutData)
         auto channel = ipc::Channel::connect(task_endpoint, 2s);
         channel.send(request.SerializeAsString(), 2s);
         task::proto::TaskResponse reply;
-        if (!reply.ParseFromString(channel.receive(5s)) || reply.has_error())
+        // A submission reads its data from Data first; sanitizer builds under
+        // parallel load take seconds for it.
+        if (!reply.ParseFromString(channel.receive(30s)) || reply.has_error())
             throw std::runtime_error(reply.DebugString());
         return reply;
     };

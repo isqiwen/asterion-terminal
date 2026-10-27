@@ -577,24 +577,32 @@ TEST(TableRefresh, TransientFailureAndCancellationCanBeExplicitlyRetriedWithTheS
     EXPECT_EQ(node.coverage().snapshot(), after);
 }
 
+// Two tasks fixed on one selection: the second is admitted before the first
+// stores its correction and fetches only after it. Its commit must not replace
+// the correction. (Submitted after the correction it is refused at admission.)
 TEST(TableRefresh, ConcurrentFixedSelectionsCannotOverwriteAnotherCorrection)
 {
     SourceControl control;
     Node node;
     ASSERT_EQ(node.update("seed", "2024-02-29").state(), task::proto::SUCCEEDED);
     const auto plan = node.preview();
+    const auto held = [&] {
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        while (contents(control.path) != "holding" && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(10ms);
+        return contents(control.path) == "holding";
+    };
     control.set("hold-corrected");
     node.submit_definition("first", plan.update());
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
-    while (contents(control.path) != "holding" && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(10ms);
-    ASSERT_EQ(contents(control.path), "holding");
+    ASSERT_TRUE(held());
+    control.set("hold-late");
     node.submit_definition("stale", plan.update());
+    ASSERT_TRUE(held());
     control.set("release");
     ASSERT_EQ(node.run("first").state(), task::proto::SUCCEEDED);
     const auto snapshot = node.coverage().snapshot();
     const auto content = node.page().revision().content();
-    control.set("base");
+    control.set("release-late");
     const auto stale = node.run("stale");
     EXPECT_EQ(stale.state(), task::proto::FAILED);
     EXPECT_NE(stale.error().find("selected table partition changed"), std::string::npos);

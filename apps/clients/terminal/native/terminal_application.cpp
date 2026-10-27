@@ -1,4 +1,7 @@
 #include "application_impl.hpp"
+#include "application_environment.hpp"
+#include <asterion/kernel/durable_file.hpp>
+#include <asterion/kernel/environment.hpp>
 #include <array>
 #include <stdexcept>
 #include <ostream>
@@ -547,10 +550,14 @@ Application::Application()
     const auto logs = node / "logs";
     ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
     initialize_process_logging("terminal");
-    installation_use_ = std::make_unique<FileLock>(
-        local_node_directory(),
-        "terminal.lock",
-        FileLock::Access::shared);
+    // The installer creates an installed node; a development or isolated one is
+    // created here, as the local Manager bootstrap would, before it is locked.
+    if (development_environment() || environment_variable("ASTERION_NODE_DIRECTORY")) {
+        if (std::filesystem::is_symlink(node))
+            throw std::invalid_argument("invalid local node directory");
+        create_directories_durably(node);
+    }
+    installation_use_ = std::make_unique<FileLock>(node, "terminal.lock", FileLock::Access::shared);
     impl_ = std::make_unique<Impl>();
 }
 

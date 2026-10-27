@@ -278,7 +278,10 @@ static AstStatus read_table(
     }
     if (!strcmp(mode, "empty"))
         return AST_OK;
-    if (!strcmp(mode, "hold") || !strcmp(mode, "hold-corrected")) {
+    // hold-late waits for its own release, so a test can let two held fetches
+    // go in a fixed order.
+    if (!strcmp(mode, "hold") || !strcmp(mode, "hold-corrected") || !strcmp(mode, "hold-late")) {
+        const char* release = strcmp(mode, "hold-late") ? "release" : "release-late";
         FILE* f = fopen(control, "w");
         if (f) {
             fputs("holding", f);
@@ -293,7 +296,7 @@ static AstStatus read_table(
                 fgets(next, sizeof(next), f);
                 fclose(f);
             }
-            if (!strcmp(next, "release"))
+            if (!strcmp(next, release))
                 break;
             struct timespec delay = {0, 10000000};
             nanosleep(&delay, NULL);
