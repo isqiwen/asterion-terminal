@@ -5,8 +5,8 @@ import { openView } from "./navigation-helper";
 import { checkSnapshot } from "./snapshot-schema";
 
 // The R1 slice end to end inside the software: fixed one-minute data, a rule
-// backtest with fees and slippage, its result and evidence, a strategy package
-// frozen from that result, and a run of the same package on the simulated
+// backtest with fees and slippage, its result and evidence, a performance and
+// risk evaluation exported as a report, a strategy package frozen from that result, and a run of the same package on the simulated
 // counter. Market data, the counter and the account are the isolated test
 // doubles; the steps in between are the product's own.
 test(
@@ -91,6 +91,55 @@ test(
     await shown.getByRole("button", { name: "导出研究证据", exact: true }).click();
     const evidence = JSON.parse(await readFile((await (await downloading).path())!, "utf8"));
     expect(evidence.result).toEqual(result.result);
+
+    // Performance and risk from the same result, fixed as an evaluation and
+    // exported as a local report.
+    await openView(page, "risk");
+    const risk = page.getByRole("region", { name: "风险", exact: true });
+    await risk.getByRole("combobox", { name: "评估来源", exact: true }).selectOption("r1-backtest");
+    await risk.getByRole("button", { name: "读取评估来源", exact: true }).click();
+    const form = risk.getByRole("region", { name: "固定绩效评价", exact: true });
+    const creation = form.locator("details.evaluation-create");
+    if (!(await creation.evaluate(element => (element as HTMLDetailsElement).open)))
+      await creation.getByText("新建正式评价", { exact: true }).click();
+    await form.getByLabel("评价问题与用途", { exact: true }).fill("R1 规则回测的绩效与损失路径");
+    await form.getByLabel("年期数A（日结算）", { exact: true }).fill("252");
+    await form.getByLabel("明确采用零无风险年收益假设", { exact: true }).check();
+    await form.getByLabel("保存日采样损失路径（不代表盘中最大风险）", { exact: true }).check();
+    await form.getByLabel("保存本范围末日敞口和资金观察（非盘中峰值）", { exact: true }).check();
+    await form.getByRole("button", { name: "计算固定绩效评价", exact: true }).click();
+    let evaluationId = "";
+    await expect
+      .poll(
+        async () => {
+          const task = (await rpc(page.request, "runtime.snapshot")).research_service.tasks.find(
+            (row: { kind: string }) => row.kind === "performance_evaluation",
+          );
+          if (task) evaluationId = task.id;
+          return task?.state;
+        },
+        { timeout: 30000 },
+      )
+      .toBe("succeeded");
+    const evaluated = (
+      await taskRpc(page.request, "research", "task.result.read", { id: evaluationId })
+    ).task_result;
+    await form
+      .getByRole("combobox", { name: "已保存绩效评价", exact: true })
+      .selectOption(evaluationId);
+    await form.getByRole("button", { name: "读取固定绩效评价", exact: true }).click();
+    await expect(form.getByRole("article", { name: "固定评价报告", exact: true })).toContainText(
+      evaluated.task.result_digest,
+    );
+    const output = form.getByRole("region", { name: "固定评价本地导出", exact: true });
+    await output
+      .getByLabel("已核对固定报告、人工解释范围及全部限制，明确导出本地文件", { exact: true })
+      .check();
+    const reportDownload = page.waitForEvent("download");
+    await output.getByRole("button", { name: "导出固定评价报告", exact: true }).click();
+    const report = await readFile((await (await reportDownload).path())!, "utf8");
+    expect(report).toContain(evaluated.task.result_digest);
+    expect(report).toContain(String(evaluated.result.net_profit));
 
     // A strategy package frozen from that result keeps its rule, contract and
     // one-minute interval.
