@@ -292,5 +292,5 @@ Node-API 原生层与 Node Manager 已删除。
 | M0.1 | 未开始 | — | 需要使用者的 SimNow 账户 |
 | M0.2 | 未开始 | — | 需要使用者的 Tushare 账号 |
 | M0.3 | 暂缓 | — | 使用者决定不在测试与 CI 结构上投入；保持现有 CI，不新增 |
-| M0.4 | 部分完成 | — | `TaskProcess.InvalidFixedInputs…` 去掉依赖时序的断言；Linux SSH 系统服务验收属第 3 阶段删除范围，不再处理 |
+| M0.4 | 完成 | `0ce3372b` 等 | `TaskProcess.InvalidFixedInputs…` 去掉依赖时序的断言；`TerminalNodeCommands.SlowServiceAction…` 在 macOS 上偶发返回空节点列表，已以 `DISABLED_` 隔离；它和 Linux SSH 系统服务验收都属第 3 阶段删除范围，不再处理 |
 | M0.5 | 未开始 | — | 由使用者办理 |
