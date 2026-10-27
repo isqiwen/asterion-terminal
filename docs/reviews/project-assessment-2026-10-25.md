@@ -322,7 +322,7 @@
 | P2.12 | 评估后不做：10 ms 节拍还承担宿主存活、停止信号、会话超时与服务内务的兜底推进；线程池完成时已主动唤醒。每秒 100 次唤醒成本很小，改为按截止时间唤醒需梳理所有不主动通知的工作，风险大于收益 |
 | 测试 | 默认单测超时 30 → 60 秒：冷备等进程测试单独运行 3—12 秒，并行负载下超过 30 秒导致误报 |
 | P2.7 | 暂缓：服务端也把这些 JSON 映射用作持久格式（任务清单、交易日志），不能直接拆成“只给界面用”的库；随 D5（界面契约生成）一起重新设计 |
-| P3.3 | 部分完成：`LivePanel.tsx` 1,246 行拆为 `LivePanel`/`CreateLive`/`LiveAccount` 与共享模块（最大 750 行）。`Backtest.tsx` 是单个 1,200 行组件，需要真正重构状态，暂缓 |
+| P3.3 | 完成：`LivePanel.tsx` 拆为 `LivePanel`/`CreateLive`/`LiveAccount`；`LiveAccount` 再拆出 `OrderTicket`、`AccountRecords`（399 行）；`Backtest.tsx`（1,258 行单组件）拆为结果与进度视图、设置分节与运行摘要，候选策略、固定策略交付、研究计划绑定改为 hook（587 行）；`NodeServices` 拆出 `ManagedService`（555 行）。按 `function` 声明统计已无组件超过 600 行（未统计箭头函数组件）。单元测试 207 项、相关 e2e 通过；`backtest.spec.ts` 留出比较与 `portfolio-analysis.spec.ts` 两项在改动前即失败 |
 | A01 | 本机完成：需求正文 `setup.md` 删除实施状态表述；主题文档中旧 Task 服务、worker 等表述已清理 |
 | P2.1 | 完成：见 P2.2，任务种类表由各服务的 `TaskDomain` 提供 |
 | P2.8 | 本机完成：源码目录改为 `apps/services/{market,data,research}`；`ServiceKind` 枚举改为 `MARKET/DATA/RESEARCH/INTELLIGENCE/TRADING`（整数值不变）。命名空间迁移（`asterion::tasks` → `asterion::research`）涉及十余个文件与测试，收益仅为外观，暂不做；持久的实例 ID（如 `market-data`）与日志程序名不改 |
