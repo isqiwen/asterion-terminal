@@ -4,7 +4,13 @@ import type {
   ResearchPlanBinding,
   ResearchProjectDefinition,
 } from "../../src/bridge/client";
-import { ErrorNotice, asDisplayError, type DisplayError, type TerminalContext } from "../contract";
+import {
+  ErrorNotice,
+  asDisplayError,
+  useWorkspaceDraft,
+  type DisplayError,
+  type TerminalContext,
+} from "../contract";
 import { t } from "./shared";
 
 export const projectFields: Record<keyof Omit<ResearchProjectDefinition, "sources">, string> = {
@@ -216,4 +222,37 @@ export function ResearchPlanPicker({
       {binding && <ResearchPlanEvidence binding={binding} query={query} />}
     </section>
   );
+}
+
+// The research plan a backtest records, and a plan handed over in the
+// workspace parameters, taken once; `opened` is told when one arrives.
+export function usePlanBinding(
+  connection: string | undefined,
+  workspaceParams: TerminalContext["workspaceParams"],
+  onOpened: () => void,
+) {
+  const opened = useRef(onOpened);
+  opened.current = onOpened;
+  const [plan, setPlan] = useWorkspaceDraft<ResearchPlanBinding | null>(
+    `backtest-plan:${connection}`,
+    null,
+  );
+  const [planReady, setPlanReady] = useState(false);
+  const planHint = workspaceParams?.plan_id ? JSON.stringify(workspaceParams) : "";
+  const [seenPlanHint, setSeenPlanHint] = useWorkspaceDraft(`backtest-plan-hint:${connection}`, "");
+  useEffect(() => {
+    if (!planHint || planHint === seenPlanHint) return;
+    const params = JSON.parse(planHint) as Record<string, string>;
+    setPlanReady(false);
+    setPlan({
+      project_id: params.project_id,
+      plan_id: params.plan_id,
+      definition_digest: params.definition_digest,
+      owner: { domain: "research", node_id: params.plan_node, service_id: params.plan_service },
+    });
+    setSeenPlanHint(planHint);
+    opened.current();
+  }, [planHint, seenPlanHint, setSeenPlanHint, setPlan]);
+  const researchReady = planReady && (!planHint || planHint === seenPlanHint);
+  return { plan, setPlan, setPlanReady, researchReady };
 }
