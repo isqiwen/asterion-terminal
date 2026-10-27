@@ -7,15 +7,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(
   message(FATAL_ERROR "Linux currently supports x86_64 only")
 endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/services/service_fingerprint.py"
-  OUTPUT_VARIABLE ASTERION_SERVICE_SOURCE_SHA256 OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/services/service_fingerprint.py" --files
-  OUTPUT_VARIABLE ASTERION_SERVICE_INPUTS OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ASTERION_SERVICE_INPUTS})
-# Detect added/deleted inputs as well as edits to the existing source files.
-file(GLOB_RECURSE ASTERION_SERVICE_TREE CONFIGURE_DEPENDS
-  core/* protocol/* plugins/* bindings/* apps/services/* apps/management/* apps/common/* conan/* cmake/* scripts/node/*)
-file(WRITE "${CMAKE_BINARY_DIR}/service-source.sha256" "${ASTERION_SERVICE_SOURCE_SHA256}\n")
 
 # Ship the maintained defaults verbatim; services never create their own policy.
 foreach(name research logging)

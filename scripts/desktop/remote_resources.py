@@ -10,13 +10,11 @@ import tempfile
 from generated_resources import publish_tree
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts/services"))
-from service_fingerprint import fingerprint
 ARCHES = ('x86_64',)
 
 
 class BundleNeedsBuild(ValueError):
-    """The requested build output is missing or belongs to another source/release."""
+    """The requested build output is missing or belongs to another release."""
 
 
 def files_for(arch):
@@ -27,12 +25,10 @@ def files_for(arch):
 
 def validate(manifest, files, arch):
     version = json.loads((ROOT/'apps/clients/terminal/electron/package.json').read_text())['version']
-    if set(manifest) != {'product_version','source_sha256','os','arch','files'} or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
+    if set(manifest) != {'product_version','os','arch','files'} or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
         raise ValueError('Linux service manifest/version/architecture mismatch')
     if manifest['product_version'] != version:
         raise BundleNeedsBuild('Linux service product version differs from this desktop version')
-    if manifest['source_sha256'] != fingerprint():
-        raise BundleNeedsBuild('Linux service source differs from this desktop source; rebuild the remote bundle')
     for name in files_for(arch):
         data = files[name]
         if hashlib.sha256(data).hexdigest() != manifest['files'][name]:

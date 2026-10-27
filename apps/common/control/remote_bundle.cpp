@@ -30,9 +30,8 @@ fs::path checked_resource(const std::string& arch, const std::string& name)
             "desktop package lacks resources for the target Linux architecture; " "reinstall the complete package");
     std::ifstream input(manifest);
     const auto info = nlohmann::json::parse(input);
-    if (info.size() != 5 || info.at("product_version") != ASTERION_PRODUCT_VERSION
-        || info.at("source_sha256") != ASTERION_SERVICE_SOURCE_SHA256 || info.at("os") != "linux"
-        || info.at("arch") != arch)
+    if (info.size() != 4 || info.at("product_version") != ASTERION_PRODUCT_VERSION
+        || info.at("os") != "linux" || info.at("arch") != arch)
         throw std::invalid_argument("bundled Linux service version mismatch");
     std::vector<std::string> names{
         "asterion_node_agent",

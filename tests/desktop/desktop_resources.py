@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as temporary:
     with patch.object(desktop, "run") as builder:
         desktop.prepare_installer_services(archives, destination)
         builder.assert_not_called()
-    for outdated in (None, {"source_sha256": "0" * 64}, {"product_version": "0.0.0"}):
+    for outdated in (None, {"product_version": "0.0.0"}):
         if outdated is None:
             archive.unlink()
         else:

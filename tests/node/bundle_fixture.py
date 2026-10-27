@@ -5,9 +5,6 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/services"))
-from service_fingerprint import fingerprint
 
 
 def make_bundle(root, native=None, *, strip_debug=False):
@@ -28,6 +25,6 @@ def make_bundle(root, native=None, *, strip_debug=False):
                     subprocess.run(['strip','--strip-debug',str(folder/name)],check=True)
             else: (folder/name).write_bytes(header)
         shutil.copyfile(source/'scripts/node/initialize-linux.py',folder/'initialize-linux.py')
-        manifest=dict(source_sha256=fingerprint(),product_version=version,os='linux',arch=arch,files={p.relative_to(folder).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.rglob('*') if p.is_file() and p.name!='manifest.json'})
+        manifest=dict(product_version=version,os='linux',arch=arch,files={p.relative_to(folder).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.rglob('*') if p.is_file() and p.name!='manifest.json'})
         (folder/'manifest.json').write_text(json.dumps(manifest))
     return root

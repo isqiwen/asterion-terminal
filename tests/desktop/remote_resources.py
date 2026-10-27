@@ -7,40 +7,12 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-import shutil
 
 source=Path(__file__).resolve().parents[2]
-sys.path[:0]=[str(source/'tests/node'),str(source/'scripts/services'),str(source/'scripts/desktop')]
+sys.path[:0]=[str(source/'tests/node'),str(source/'scripts/desktop')]
 from bundle_fixture import make_bundle
-from service_fingerprint import fingerprint, FILES
 spec=importlib.util.spec_from_file_location('resources',source/'scripts/desktop/remote_resources.py')
 resources=importlib.util.module_from_spec(spec);spec.loader.exec_module(resources)
-# Fingerprints follow source contents, not checkout location or client UI changes.
-with tempfile.TemporaryDirectory() as folder:
- root=Path(folder)/"source"; root.mkdir()
- for name in FILES:
-  path=root/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_text("build fixture")
- (root/'protocol').mkdir(); protocol=root/'protocol/model.proto';protocol.write_text('schema 1')
- before=fingerprint(root)
- copy=Path(folder)/'copy';shutil.copytree(root,copy);assert fingerprint(copy)==before
- ui=root/'apps/clients/terminal/src/view.tsx';ui.parent.mkdir(parents=True);ui.write_text('client UI')
- assert fingerprint(root)==before
- analytics=root/'plugins/tools/analytics/report.py';analytics.parent.mkdir(parents=True);analytics.write_text('desktop analysis')
- assert fingerprint(root)==before
- protocol.write_text('schema 2');assert fingerprint(root)!=before
- protocol.write_text('schema 1');assert fingerprint(root)==before
- extra=root/'protocol/extra.proto';extra.write_text('new schema');assert fingerprint(root)!=before
- extra.unlink();assert fingerprint(root)==before
- # Moved management/service and shared-control inputs still invalidate bundles.
- for name in ('apps/management/node-agent/main.cpp', 'apps/services/research/backtest/engine.cpp',
-              'apps/common/control/service_io.cpp'):
-  changed=root/name; changed.parent.mkdir(parents=True,exist_ok=True)
-  changed.write_text('source input'); assert fingerprint(root)!=before
-  changed.unlink(); assert fingerprint(root)==before
- rule=root/"cmake/CompilerOptions.cmake";rule.parent.mkdir();rule.write_text("compiler options")
- assert fingerprint(root)!=before
- rule.unlink();assert fingerprint(root)==before
-
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  root=Path(folder); fixture=make_bundle(root/'fixture'); archives=root/'archives'; archives.mkdir()
  for arch in resources.ARCHES:
@@ -60,15 +32,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  resources.stage(archives,target); resources.verify(target)
  assert not (target/'x86_64/plugins/obsolete.so').exists()
  assert not (target/'retired-arch').exists()
- # A matching semantic version and valid file hashes do not permit older sources.
+ # A bundle of another product version is refused, with no partial staging.
  for arch in resources.ARCHES:
   with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip') as archive:
    manifest=json.loads(archive.read('manifest.json'))
    payload={name:archive.read(name) for name in resources.files_for(arch)}
-  old=dict(manifest);old['source_sha256']='0'*64
+  old=dict(manifest);old['product_version']='0.0.0'
   try: resources.validate(old,payload,arch)
-  except ValueError: pass
-  else: raise AssertionError('same-version stale source accepted')
+  except resources.BundleNeedsBuild: pass
+  else: raise AssertionError('another product version accepted')
   with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip','w') as archive:
    archive.writestr('manifest.json',json.dumps(old))
    for name,data in payload.items(): archive.writestr(name,data)
@@ -77,10 +49,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
     '--archives',str(archives),'--directory',str(target)],
    capture_output=True,text=True)
   assert rejected.returncode==1
-  assert 'source differs from this desktop source' in rejected.stderr
+  assert 'product version differs from this desktop version' in rejected.stderr
   assert 'Traceback' not in rejected.stderr
   resources.verify(target)
-  old=dict(manifest);old.pop('source_sha256')
+  old=dict(manifest);old.pop('os')
   try: resources.validate(old,payload,arch)
   except ValueError: pass
   else: raise AssertionError('incomplete manifest accepted')
@@ -105,7 +77,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   assert 'error' in call(export), 'export overwrote an existing file'
   manifest=target/'x86_64/manifest.json';original=manifest.read_text(encoding="utf-8");data=json.loads(original)
   data['product_version']='wrong';manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
-  data=json.loads(original);data['source_sha256']='0'*64;manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
+  data=json.loads(original);data['unexpected']='field';manifest.write_text(json.dumps(data));assert 'error' in call('');manifest.write_text(original)
   # Exporting the initializer does not scan unrelated service programs.
   binary=target/'x86_64/asterion_node_agent'; data=binary.read_bytes();binary.write_bytes(data+b'corruption')
   assert call('')['result']['initializer']['content']==expected

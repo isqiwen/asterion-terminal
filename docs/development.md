@@ -164,15 +164,15 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 
 ## 远程 Linux 服务包
 
-桌面安装包内置 Linux x86_64 服务程序，用于远程部署。包的清单记录服务源码指纹（`scripts/services/service_fingerprint.py`，覆盖 `core`、`protocol`、`plugins`、`bindings`、`apps/services`、`apps/management`、`apps/common`、`conan`、`scripts/node` 和构建脚本）。
+桌面安装包内置 Linux x86_64 服务程序，用于远程部署。包的清单记录产品版本、平台和每个文件的 SHA-256；Terminal 只接受与自身版本相同的服务包，逐文件哈希保证上传到远程机器的程序完整。版本号相同即视为一致：发行版由 CI 从同一提交构建 Terminal 与服务包；开发期间版本号不变，改了服务代码后若要远程部署，先重建服务包。
 
 - `desktop:check` 仅检查本机桌面，不读取或更新远程 Linux 服务包及其 staging 目录。
-- `desktop:build` 和隔离验收打包 `package-test` 复用匹配的 `build/linux-bundles/asterion-services-linux-x86_64.zip`；包缺失、发行版本或服务源码不匹配时，自动调用下方容器构建脚本一次，再校验并准备新资源。压缩包损坏、内容校验失败等其他错误直接报告，不自动重建掩盖错误。
+- `desktop:build` 和隔离验收打包 `package-test` 复用同版本的 `build/linux-bundles/asterion-services-linux-x86_64.zip`；包缺失或版本不匹配时，自动调用下方容器构建脚本一次，再校验并准备新资源。压缩包损坏、内容校验失败等其他错误直接报告，不自动重建掩盖错误。
 - macOS 与 Linux 桌面 CI 下载当前构建的服务包后，显式执行 `python scripts/desktop/remote_resources.py stage` 校验并准备远程资源；失败即停止该作业。
-- `pnpm desktop` 在不一致时只警告，本次开发会话中远程 Linux 部署不可用。
+- `pnpm desktop` 在缺包或版本不一致时只警告，本次开发会话中远程 Linux 部署不可用。
 
 远程资源暂存和发行验证检查整套文件；运行时获取远程程序或导出初始化脚本，只校验所选
-文件以及清单的版本、源码、平台和成员集合，避免每获取一个程序就重复读取整套服务包。
+文件以及清单的版本、平台和成员集合，避免每获取一个程序就重复读取整套服务包。
 
 本机检查通过不代表远程部署或发行验收通过。安装包构建负责按需准备服务包，日常开发及
 `desktop:check` 不自动触发 Linux 编译。容器构建需可用的 Docker／OrbStack；缺少命令或当前

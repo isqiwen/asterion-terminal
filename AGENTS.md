@@ -74,8 +74,7 @@ Details: [docs/architecture.md](docs/architecture.md).
 - Work on `main`; do not push unless asked.
 - Build and test:
   - C++: `cmake --build --preset conan-debug`, then
-    `ctest --preset conan-debug -j 6` (run long suites in the background; do not
-    edit service sources while it runs — the service fingerprint check fails).
+    `ctest --preset conan-debug -j 6` (run long suites in the background).
     `-L unit` runs only in-memory tests (about 20 s); `-L process` the rest.
   - UI: `pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json`,
     `pnpm lint`, `pnpm test:unit`.
