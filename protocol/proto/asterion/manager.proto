@@ -27,9 +27,12 @@ message Node {
   node.proto.Status health = 8;
 }
 
+// sequence increases with every view this Manager process takes, so a reader
+// keeps the latest view when replies to concurrent requests arrive out of order.
 message Snapshot {
   repeated Node nodes = 1;
   uint64 pid = 2;
+  uint64 sequence = 3;
 }
 
 message Service {

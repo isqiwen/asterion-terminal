@@ -17,6 +17,8 @@ struct ManagerClient::Impl : std::enable_shared_from_this<Impl>
     std::string endpoint;
     std::vector<NodeSnapshot> nodes;
     std::uint64_t pid = 0;
+    // The latest view applied; an older one arriving late is ignored.
+    std::uint64_t sequence = 0;
     std::stop_source lifetime;
     bool starting = false;
 
@@ -42,10 +44,13 @@ struct ManagerClient::Impl : std::enable_shared_from_this<Impl>
             throw Error(ErrorCode::unavailable, "invalid node manager response");
         if (response.has_snapshot() || response.has_view()) {
             const auto& snapshot = response.has_snapshot() ? response.snapshot() : response.view();
-            pid = snapshot.pid();
-            nodes.clear();
-            for (const auto& node : snapshot.nodes())
-                nodes.push_back(decode(node));
+            if (snapshot.pid() != pid || snapshot.sequence() > sequence) {
+                pid = snapshot.pid();
+                sequence = snapshot.sequence();
+                nodes.clear();
+                for (const auto& node : snapshot.nodes())
+                    nodes.push_back(decode(node));
+            }
         }
         if (response.has_error())
             throw_remote_error(response.error().code(), response.error().message());

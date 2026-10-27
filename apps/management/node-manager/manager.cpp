@@ -97,6 +97,7 @@ struct NodeManager::Impl
     Json firewall_plan = nullptr, firewall_parameters = nullptr;
     std::chrono::steady_clock::time_point firewall_expiry{};
     bool busy = false;
+    std::uint64_t snapshots = 0;
     std::shared_future<void> initialization;
 
     ~Impl()
@@ -138,10 +139,11 @@ struct NodeManager::Impl
         }
     }
 
-    wire::Snapshot snapshot() const
+    wire::Snapshot snapshot()
     {
         wire::Snapshot result;
         result.set_pid(current_process_id());
+        result.set_sequence(++snapshots);
         for (const auto& [id, node] : nodes)
             encode(*result.add_nodes(), node->owner_view());
         return result;
