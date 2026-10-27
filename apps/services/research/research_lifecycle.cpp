@@ -38,7 +38,7 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         bool missing = false;
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(fixed.program_artifact());
+                .find(fixed.program_artifact());
             missing = !std::filesystem::exists(configuration_.directory / id / "input.pb");
         });
         std::optional<research::proto::AccountReviewInput> recovered;
@@ -82,7 +82,7 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         std::optional<Store::Submission> input;
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(prepared.execution().program_artifact());
+                .find(prepared.execution().program_artifact());
             const auto path = configuration_.directory / id / "input.pb";
             if (!std::filesystem::exists(path)) {
                 const auto restored = payload::publish(path, fixed, payload::max_input_bytes);
@@ -111,7 +111,7 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         std::optional<Store::Submission> input;
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", owner)
-                .verify(prepared.execution().program_artifact());
+                .find(prepared.execution().program_artifact());
             const auto path = configuration_.directory / id / "input.pb";
             if (!std::filesystem::exists(path)) {
                 const auto restored = payload::publish(path, fixed, payload::max_input_bytes);
@@ -139,7 +139,7 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         std::optional<Store::Submission> input;
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(prepared.execution().program_artifact());
+                .find(prepared.execution().program_artifact());
             const auto path = configuration_.directory / id / "input.pb";
             if (!std::filesystem::exists(path)) {
                 const auto restored = payload::publish(path, fixed, payload::max_input_bytes);

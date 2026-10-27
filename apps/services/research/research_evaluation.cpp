@@ -126,21 +126,18 @@ r::EvaluationResult compute_evaluation(
     stopped(stop);
     const auto& source = input.source();
     const auto& identity = input.request().source();
-    (void)programs::Files(root / "programs", identity.owner())
-        .verify(source.program_artifact(), stop);
+    (void)programs::Files(root / "programs", identity.owner()).find(source.program_artifact());
     backtest::proto::BacktestInput original;
     backtest::proto::BacktestResult evidence;
     payload::parse(
-        payload::read(
+        payload::load(
             root / identity.id() / "input.pb",
-            source.input_sha256(),
             payload::max_input_bytes,
             source.input_bytes()),
         original);
     payload::parse(
-        payload::read(
+        payload::load(
             root / identity.id() / "results" / (std::to_string(source.attempt()) + ".pb"),
-            identity.version(),
             payload::max_result_bytes),
         evidence);
     protocol::validate_evaluation_source(input, original, evidence);

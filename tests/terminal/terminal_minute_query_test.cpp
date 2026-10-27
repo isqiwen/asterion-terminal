@@ -1210,6 +1210,8 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
     std::promise<void> entered, release;
     const auto released = release.get_future().share();
     std::atomic<unsigned> actions{0};
+    // A Manager numbers its views; the Terminal keeps the newest.
+    std::atomic<std::uint64_t> views{0};
     std::atomic<bool> busy{false}, connected{true};
     const auto socket = manager_fixture_socket(source.root);
     testing_support::BlockingService host(
@@ -1247,6 +1249,7 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
             }
             auto* view =
                 request.has_snapshot() ? response.mutable_snapshot() : response.mutable_view();
+            view->set_sequence(++views);
             if (connected) {
                 auto* node = view->add_nodes();
                 node->set_id("fixture");

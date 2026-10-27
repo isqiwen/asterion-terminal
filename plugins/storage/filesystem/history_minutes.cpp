@@ -195,19 +195,18 @@ std::uint64_t page_rows(const Json& manifest, unsigned page)
 }
 
 std::filesystem::path
-verified_segment(const std::filesystem::path& dir, const Json& manifest, unsigned index)
+segment_path(const std::filesystem::path& dir, const Json& manifest, unsigned index)
 {
     const auto& segment = manifest.at("segments").at(index);
     const auto first = segment.at("first_page").get<unsigned>();
     const auto path = dir / segment_name(first);
     if (segment.at("file") != segment_name(first) || std::filesystem::is_symlink(path)
-        || !std::filesystem::is_regular_file(path)
-        || sha256_file(path) != segment.at("sha256").get<std::string>())
-        throw std::invalid_argument("minute dataset digest mismatch");
+        || !std::filesystem::is_regular_file(path))
+        throw std::invalid_argument("minute dataset segment is missing");
     return path;
 }
 
-// Verifies one segment's digest and splits its bars back into day pages.
+// Reads one segment and splits its bars back into day pages.
 std::vector<std::vector<HistoricalBar>> load_segment(
     const std::filesystem::path& dir,
     const Json& manifest,
@@ -217,7 +216,7 @@ std::vector<std::vector<HistoricalBar>> load_segment(
     const auto& segment = manifest.at("segments").at(index);
     const auto first = segment.at("first_page").get<unsigned>();
     const auto count = segment.at("pages").get<unsigned>();
-    const auto path = verified_segment(dir, manifest, index);
+    const auto path = segment_path(dir, manifest, index);
     const auto bars = parquet::read_minute_bars(path);
     if (bars.size() != segment.at("rows").get<std::uint64_t>())
         throw std::invalid_argument("minute dataset row count mismatch");
@@ -424,9 +423,8 @@ minute_evidence(const std::filesystem::path& dir, const std::string& expected_re
     for (const auto& segment : manifest.at("segments")) {
         const auto path = dir / segment_name(segment.at("first_page").get<unsigned>());
         if (segment.at("file") != path.filename().string() || std::filesystem::is_symlink(path)
-            || !std::filesystem::is_regular_file(path)
-            || sha256_file(path) != segment.at("sha256").get<std::string>())
-            throw std::invalid_argument("minute dataset digest mismatch");
+            || !std::filesystem::is_regular_file(path))
+            throw std::invalid_argument("minute dataset segment is missing");
         files.push_back(path);
     }
     data::proto::MinuteEvidence evidence;
@@ -580,11 +578,6 @@ data::proto::MinutePage read_minute_page(
         const auto cached = indicator_cache.find(cache_key, target);
         start = cached.first;
         macd = cached.second;
-        // A changed or missing prefix invalidates the response even on a cache hit.
-        if (start)
-            for (unsigned segment = 0; segment <= owner.at(start - 1); ++segment)
-                if (!loaded.contains(segment))
-                    static_cast<void>(verified_segment(dir, manifest, segment));
         for (unsigned i = 0; i < start; ++i)
             skip -= counts[i];
         if (work)

@@ -191,7 +191,7 @@ PolledTask<> ResearchHost::claim(Call& call)
                 "account review requires its fixed execution program and owner");
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .verify(fixed.program_artifact());
+                .find(fixed.program_artifact());
         });
         co_await ready(call);
         call.input_in_time();
@@ -212,7 +212,7 @@ PolledTask<> ResearchHost::claim(Call& call)
             throw Error(ErrorCode::conflict, "calculation requires its fixed execution program");
         co_await file_work([&] {
             (void)programs::Files(configuration_.directory / "programs", programme.owner)
-                .verify(read.execution().program_artifact());
+                .find(read.execution().program_artifact());
         });
         co_await ready(call);
         call.input_in_time();

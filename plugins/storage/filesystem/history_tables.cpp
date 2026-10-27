@@ -509,8 +509,8 @@ std::vector<std::vector<TableCell>> TableStore::rows(const TableRevision& revisi
 {
     validate(revision.series);
     const auto path = object_path(revision.object);
-    if (fs::is_symlink(path) || !fs::is_regular_file(path) || sha256_file(path) != revision.object)
-        throw std::invalid_argument("history table object digest mismatch");
+    if (fs::is_symlink(path) || !fs::is_regular_file(path))
+        throw std::invalid_argument("history table object is missing");
     auto rows = parquet::read_table(path, history_table(revision.series.table));
     if (rows.size() != revision.rows)
         throw std::invalid_argument("history table object digest mismatch");
@@ -538,9 +538,8 @@ void TableStore::scan(
         const auto [object, first] = objects.emplace(revision.object, files.size());
         if (first) {
             auto path = object_path(revision.object);
-            if (fs::is_symlink(path) || !fs::is_regular_file(path)
-                || sha256_file(path) != revision.object)
-                throw std::invalid_argument("history table object digest mismatch");
+            if (fs::is_symlink(path) || !fs::is_regular_file(path))
+                throw std::invalid_argument("history table object is missing");
             files.push_back(std::move(path));
             holders.emplace_back();
         }

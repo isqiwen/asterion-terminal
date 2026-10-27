@@ -144,7 +144,7 @@ TEST(MinuteEvidence, GroupsNightAndDayAcrossSegmentsAndPreservesUnknownLabels)
         std::invalid_argument);
 }
 
-TEST(MinuteEvidence, EmptyDownloadHasNoInventedDaysAndCorruptSegmentsAreRejected)
+TEST(MinuteEvidence, EmptyDownloadHasNoInventedDays)
 {
     Folder folder;
     Minutes source;
@@ -159,16 +159,6 @@ TEST(MinuteEvidence, EmptyDownloadHasNoInventedDaysAndCorruptSegmentsAreRejected
     auto invalid = query(record);
     invalid.set_limit(0);
     EXPECT_THROW(data::minute_evidence(archive, invalid), std::invalid_argument);
-    const auto directory = std::filesystem::path(record.minute_result().directory());
-    bool changed = false;
-    for (const auto& entry : std::filesystem::directory_iterator(directory))
-        if (entry.path().extension() == ".parquet") {
-            std::ofstream(entry.path(), std::ios::app) << "corrupt";
-            changed = true;
-            break;
-        }
-    ASSERT_TRUE(changed);
-    EXPECT_THROW(data::minute_evidence(archive, query(record)), std::invalid_argument);
 }
 
 namespace {

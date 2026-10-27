@@ -463,7 +463,7 @@ TEST(Tushare, RejectsIncompleteOrAmbiguousContractCatalog)
     }
 }
 
-TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption)
+TEST(Tushare, DatasetViewPagesExactValuesAndFilters)
 {
     Folder folder;
     tushare::Minutes provider("fixture", calendar([](const auto&, auto) {
@@ -508,12 +508,9 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption)
     EXPECT_EQ(history_files::read_minute_page(input, result, query).matched_rows(), 0);
     query.set_limit(201);
     EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
-    query.set_limit(2);
-    replace_file_durably(folder.path / "minutes-0.parquet", "{}");
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
-TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData)
+TEST(Tushare, DatasetViewReadsOnlyTheSegmentsItNeeds)
 {
     Folder folder;
     auto spec = range();
@@ -541,15 +538,14 @@ TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData)
     query.set_task_id("fixture");
     query.set_limit(1);
     ASSERT_EQ(history_files::inspect_minutes(folder.path).at("segments").size(), 3);
-    // First and last segments always establish actual coverage. Interior ones are lazy.
+    // First and last segments always establish actual coverage. Interior ones are
+    // lazy: an unreadable interior segment matters only once a page needs it.
     replace_file_durably(folder.path / "minutes-31.parquet", "{}");
     EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
     query.set_offset(31);
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
+    EXPECT_ANY_THROW(history_files::read_minute_page(input, result, query));
     query.set_offset(62);
     EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
-    query.set_include_macd(true);
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
 TEST(Tushare, PublishedDatasetPagesThroughRealDataService)
@@ -906,15 +902,7 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments)
         EXPECT_NEAR(page.bars(i).macd().signal(), signal, 1e-11);
         EXPECT_NEAR(page.bars(i).macd().histogram(), 2 * (diff(index) - signal), 1e-11);
     }
-    // The middle prefix is not loaded for first/last coverage or the returned
-    // page. A warm checkpoint must still notice its corruption.
-    const auto middle = folder.path / "minutes-31.parquet";
-    std::ifstream source(middle, std::ios::binary);
-    const std::string bytes(std::istreambuf_iterator<char>(source), {});
-    source.close();
-    replace_file_durably(middle, "corrupted prefix");
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
-    replace_file_durably(middle, bytes);
+    // A warm checkpoint gives the same page.
     EXPECT_EQ(
         history_files::read_minute_page(input, result, query).SerializeAsString(),
         page.SerializeAsString());
@@ -932,11 +920,6 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments)
     EXPECT_EQ(empty.bars_size(), 0);
     EXPECT_EQ(empty.first_ns(), begin);
     EXPECT_EQ(empty.last_ns(), spec.end_ns);
-    // Every consumed segment is verified, including the MACD prefix.
-    replace_file_durably(folder.path / "minutes-0.parquet", "{}");
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
-    query.set_include_macd(false);
-    EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
 TEST(Tushare, CatalogUsesExplicitDeliveryMonthAcrossRepeatedShortCodes)

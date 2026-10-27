@@ -106,13 +106,18 @@ Files::Entry Files::metadata(const std::string& value) const
     return {value, bytes, platform};
 }
 
-Files::Entry Files::verify(const std::string& value, std::stop_token stop) const
+Files::Entry Files::find(const std::string& value) const
 {
-    cancelled(stop);
     digest(value);
     if (!authority())
         throw Error(ErrorCode::not_found, "program archive is not initialized");
-    auto result = metadata(value);
+    return metadata(value);
+}
+
+Files::Entry Files::verify(const std::string& value, std::stop_token stop) const
+{
+    cancelled(stop);
+    auto result = find(value);
     if (sha256_file(path(value)) != value)
         throw std::invalid_argument("archived program content differs from its identity");
     cancelled(stop);

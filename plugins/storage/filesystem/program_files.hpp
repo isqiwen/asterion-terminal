@@ -24,6 +24,9 @@ public:
         const std::filesystem::path& source,
         const std::string& expected,
         std::stop_token = {});
+    // A preserved program this owner archived: its metadata, without rehashing.
+    Entry find(const std::string& digest) const;
+    // Rehashes the bytes; for a complete backup, which reads files it did not write.
     Entry verify(const std::string& digest, std::stop_token = {}) const;
     // Metadata only: callers verify bytes before execution or a complete backup.
     std::vector<Entry> catalogue(const std::string& after = {}, unsigned limit = 100) const;

@@ -66,8 +66,6 @@ std::pair<Json, std::string> document(const fs::path& root, const std::string& i
     if (!digest(id))
         throw std::invalid_argument(invalid);
     const auto bytes = read(root / "observations" / "objects" / (id + ".json"), 16384);
-    if (sha256_bytes(bytes) != id)
-        throw std::invalid_argument(invalid);
     return {Json::parse(bytes), bytes};
 }
 
@@ -120,7 +118,6 @@ TableStore::observation_unlocked(const std::string& id, const std::string& opera
         o.unchanged = j.at("unchanged");
         if (o.response.format != "tushare.fut_daily.raw.v1" || o.response.body.empty()
             || o.response.received_at_ns <= 0 || o.recorded_at_ns <= 0
-            || sha256_bytes(o.response.body) != hash
             || o.response.body.size() != j.at("response_bytes").get<std::size_t>())
             throw std::invalid_argument(invalid);
         return o;

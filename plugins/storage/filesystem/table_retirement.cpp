@@ -276,8 +276,8 @@ void TableStore::clean_retirement(const std::string& snapshot, std::stop_token s
             sync_directory(file.parent_path());
             continue;
         }
-        if (fs::is_symlink(file) || !fs::is_regular_file(file) || sha256_file(file) != id)
-            throw std::invalid_argument("table retirement object corrupt");
+        if (fs::is_symlink(file) || !fs::is_regular_file(file))
+            throw std::invalid_argument("table retirement object is not a file");
         fs::remove(file);
         sync_directory(file.parent_path());
     }

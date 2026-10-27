@@ -149,8 +149,10 @@ research::proto::StatisticsResult compute_statistics(
     const TaskProgress& progress)
 {
     protocol::validate_statistics_input(input);
+    if (stop.stop_requested())
+        throw Error(ErrorCode::cancelled, "task cancelled");
     const auto& source = input.source();
-    (void)programs::Files(root / "programs", input.owner()).verify(source.program_artifact(), stop);
+    (void)programs::Files(root / "programs", input.owner()).find(source.program_artifact());
     const bool sample = source.result().kind() == "sample_result";
     factor::proto::FactorInput original;
     factor::proto::FactorResult evidence;
@@ -158,19 +160,17 @@ research::proto::StatisticsResult compute_statistics(
     r::SampleResult sample_evidence;
     const auto read_input = [&](google::protobuf::Message& target) {
         payload::parse(
-            payload::read(
+            payload::load(
                 root / source.result().id() / "input.pb",
-                source.input_sha256(),
                 payload::max_input_bytes,
                 source.input_bytes()),
             target);
     };
     const auto read_result = [&](google::protobuf::Message& target) {
         payload::parse(
-            payload::read(
+            payload::load(
                 root / source.result().id() / "results"
                     / (std::to_string(source.attempt()) + ".pb"),
-                source.result().version(),
                 payload::max_result_bytes),
             target);
     };

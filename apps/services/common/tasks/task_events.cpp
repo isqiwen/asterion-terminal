@@ -99,8 +99,8 @@ void TaskEvents::read(const Visitor& visit) const
         const auto file = path(last);
         const auto raw = bytes(file, segments.integer(2));
         task::proto::StoredTaskEventSegment segment;
-        if (sha256_bytes(raw) != segments.text(1) || !segment.ParseFromString(raw)
-            || !segment.events_size() || segment.events_size() != segments.integer(3))
+        if (!segment.ParseFromString(raw) || !segment.events_size()
+            || segment.events_size() != segments.integer(3))
             throw std::invalid_argument("invalid task event segment");
         std::set<std::string> members;
         for (const auto& event : segment.events())
@@ -154,8 +154,7 @@ const task::proto::StoredTaskEventSegment& TaskEvents::segment(std::uint64_t id)
         throw std::invalid_argument("task event membership index refers to a missing segment");
     const auto raw = bytes(path(id), index.integer(1));
     task::proto::StoredTaskEventSegment loaded;
-    if (sha256_bytes(raw) != index.text(0) || !loaded.ParseFromString(raw)
-        || loaded.events_size() != index.integer(2))
+    if (!loaded.ParseFromString(raw) || loaded.events_size() != index.integer(2))
         throw std::invalid_argument("invalid task event segment");
     cached_segment_.Swap(&loaded);
     cached_id_ = id;

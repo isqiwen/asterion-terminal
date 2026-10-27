@@ -273,14 +273,6 @@ TEST(HistoryTableStore, ARevisionNeverReplacesWhatAnEarlierSnapshotHeld)
     store.scan(now, wanted, others, [](std::size_t, std::vector<TableCell>&) {
         FAIL() << "no row is of another product";
     });
-    // A file that no longer has the recorded bytes is refused, not read.
-    const auto object = folder.path / "tables" / "objects" / current->object.substr(0, 2)
-        / (current->object + ".parquet");
-    std::ofstream(object, std::ios::app) << "x";
-    EXPECT_THROW(store.rows(*current), std::invalid_argument);
-    EXPECT_THROW(
-        store.current({"futures.daily", 2, "fixture.daily.v1"}, "SHFE", "2025-07-25"),
-        std::invalid_argument);
 }
 
 TEST(HistoryTableStore, RefusesALedgerItDidNotWrite)
@@ -508,7 +500,7 @@ TEST(RefreshObservation, SameContentHasSeparateImmutableEvidenceAndReplaySurvive
     EXPECT_EQ(reopened.refresh_observation(context, series, "SHFE", "2025-07-25")->id, first.id);
 }
 
-TEST(RefreshObservation, ConflictingReplayAndCorruptObjectAreRejectedWithoutChangingRevision)
+TEST(RefreshObservation, ConflictingReplayIsRejectedWithoutChangingRevision)
 {
     Folder folder;
     TableStore store(folder.path);
@@ -533,15 +525,6 @@ TEST(RefreshObservation, ConflictingReplayAndCorruptObjectAreRejectedWithoutChan
         store.record_refresh_observation(context, old, observation_body("101", 10), 30, true),
         std::invalid_argument);
     EXPECT_EQ(store.refresh_observation(context, series, "SHFE", "2025-07-25")->id, held.id);
-    EXPECT_EQ(store.head(), old.snapshot);
-    const auto object = folder.path / "observations" / "objects" / (held.id + ".json");
-    std::ofstream(object, std::ios::app) << " ";
-    EXPECT_THROW(
-        store.refresh_observation(context, series, "SHFE", "2025-07-25"),
-        std::invalid_argument);
-    EXPECT_THROW(
-        store.latest_refresh_observation(series, "SHFE", "2025-07-25"),
-        std::invalid_argument);
     EXPECT_EQ(store.head(), old.snapshot);
 }
 

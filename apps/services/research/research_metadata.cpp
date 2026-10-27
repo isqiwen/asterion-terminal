@@ -307,7 +307,7 @@ PolledTask<> ResearchHost::strategy_operation(Call& call)
                     module.artifact());
                 programs::Files programs(configuration_.directory / "programs", owner);
                 (void)programs.preserve(module.path(), module.artifact());
-                (void)programs.verify(captured->definition().program_artifact());
+                (void)programs.find(captured->definition().program_artifact());
                 return;
             }
             captured = research::capture_strategy_package(
@@ -316,7 +316,7 @@ PolledTask<> ResearchHost::strategy_operation(Call& call)
                 verified,
                 input_digest);
             programs::Files programs(configuration_.directory / "programs", owner);
-            programs.verify(captured->definition().program_artifact());
+            (void)programs.find(captured->definition().program_artifact());
             risk_providers::Module::pinned(
                 configuration_.directory / source.id(),
                 captured->definition().risk_artifact());

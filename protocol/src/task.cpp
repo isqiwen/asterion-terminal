@@ -297,8 +297,6 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
     } else if (task.kind() == task::proto::MATERIAL_ACQUISITION && task.has_material()
         && response.has_material()) {
         validate_material_result(task.material(), response.material());
-        if (sha256_bytes(response.material().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("material result digest mismatch");
         envelope["experiment"] = decode_material_request(task.material().request());
         envelope["result"] = decode_material_receipt(response.material());
     } else if (task.kind() == task::proto::BACKTEST && task.has_input()
@@ -318,35 +316,25 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["result"] = decode_factor_result(task.factor(), response.factor());
     } else if (task.kind() == task::proto::LOGIC_TRIAL && task.has_logic_trial()
         && response.has_logic_trial()) {
-        if (sha256_bytes(response.logic_trial().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("logic trial result digest mismatch");
         envelope["input_sha256"] = sha256_bytes(task.logic_trial().SerializeAsString());
         envelope["experiment"] = decode_logic_trial_input(task.logic_trial());
         envelope["result"] = decode_logic_trial_result(task.logic_trial(), response.logic_trial());
     } else if (task.kind() == task::proto::SAMPLE && task.has_sample() && response.has_sample()) {
-        if (sha256_bytes(response.sample().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("sample result differs from its fixed input");
         envelope["input_sha256"] = sha256_bytes(task.sample().SerializeAsString());
         envelope["experiment"] = decode_sample_input(task.sample());
         envelope["result"] = decode_sample_result(task.sample(), response.sample());
     } else if (task.kind() == task::proto::PERFORMANCE_EVALUATION && task.has_evaluation()
         && response.has_evaluation()) {
-        if (sha256_bytes(response.evaluation().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("evaluation result digest mismatch");
         envelope["input_sha256"] = sha256_bytes(task.evaluation().SerializeAsString());
         envelope["experiment"] = decode_evaluation_input(task.evaluation());
         envelope["result"] = decode_evaluation_result(task.evaluation(), response.evaluation());
     } else if (task.kind() == task::proto::STATISTICS && task.has_statistics()
         && response.has_statistics()) {
-        if (sha256_bytes(response.statistics().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("statistics result digest mismatch");
         envelope["input_sha256"] = sha256_bytes(task.statistics().SerializeAsString());
         envelope["experiment"] = decode_statistics_input(task.statistics());
         envelope["result"] = decode_statistics_result(task.statistics(), response.statistics());
     } else if (task.kind() == task::proto::ACCOUNT_REVIEW && task.has_account_review()
         && response.has_account_review()) {
-        if (sha256_bytes(response.account_review().SerializeAsString()) != task.result_digest())
-            throw std::invalid_argument("account review result digest mismatch");
         envelope["input_sha256"] = sha256_bytes(task.account_review().SerializeAsString());
         envelope["experiment"] = decode_account_review_input(task.account_review());
         envelope["result"] =

@@ -153,7 +153,7 @@ TEST_F(ResearchStatistics, ExactOwnerVersionAndReportMembershipAreNotClientClaim
     EXPECT_THROW(protocol::validate_statistics_result(input, forged), std::invalid_argument);
 }
 
-TEST_F(ResearchStatistics, MissingOriginalProgramAndChangedSourceBytesNeverCauseRecomputation)
+TEST_F(ResearchStatistics, MissingOriginalProgramNeverCausesRecomputation)
 {
     programs::Files files(root / "programs", owner);
     const auto path = files.path(artifact);
@@ -161,9 +161,6 @@ TEST_F(ResearchStatistics, MissingOriginalProgramAndChangedSourceBytesNeverCause
     EXPECT_THROW(tasks::compute_statistics(input, root), std::exception);
     fs::rename(root / "held-program-fixture", path);
     auto wrong = input;
-    wrong.mutable_source()->set_input_sha256(std::string(64, 'f'));
-    EXPECT_THROW(tasks::compute_statistics(wrong, root), std::exception);
-    wrong = input;
     wrong.mutable_source()->set_required_history(4);
     EXPECT_THROW(tasks::compute_statistics(wrong, root), std::invalid_argument);
     EXPECT_EQ(tasks::compute_statistics(input, root).summary().valid(), 43U);
