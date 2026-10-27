@@ -424,8 +424,7 @@ Linux 必须预装包中 `resources/terminal/resources/native/runtime-requiremen
 系统运行库，并有可用的用户 systemd 会话；安装器不申请 sudo 或自动安装系统依赖。
 macOS 正式分发继续要求 Developer ID 签名和公证。`package-test` 仅用于本机测试。
 
-安装程序、只读策略和业务数据的位置及停机升级责任见
-[安装与配置需求](requirements/modules/system/setup.md#安装升级启动与卸载的责任)。
+安装程序、只读策略和业务数据的位置见上文[本机服务](#本机服务)。
 本机程序存在未完成安装记录时，先回到安装器继续同一操作，再启动 Terminal。
 安装器按登记状态进入安装、升级或维护界面：同版本提供修复／卸载，新版本提供升级／卸载，
 旧安装包不能降级或修复较新版本。修复重新部署程序与服务注册，不回填用户配置或业务资料。

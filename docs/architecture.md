@@ -1,8 +1,8 @@
 # 架构
 
-本文描述当前代码。目标架构见 [architecture/target.md](architecture/target.md)，
-Node Manager 的进程设计见 [architecture/node-manager.md](architecture/node-manager.md)，
-正在进行的整改见 [重构计划](reviews/project-assessment-2026-10-25.md)。
+本文描述当前代码。目标形态和替换顺序见[评估与路线](reviews/project-assessment-2026-10-28.md)：
+Data、Research、共享任务库、Node Manager 与 SSH 编排、Node-API 原生层和手写 JSON 映射都会被替换，
+在被替换之前只做当前阶段需要的修复。Node Manager 的进程设计见 [architecture/node-manager.md](architecture/node-manager.md)。
 
 ## 原则
 
@@ -137,4 +137,4 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 独立安装器负责当前用户安装、同版本修复、停机升级和默认保留资料的卸载；Terminal 普通启动不安装或升级程序。
 远程节点的登记、SSH 与 Agent 管理只经 Manager。整体升级先停业务、冻结节点并更新远程程序，再更新本机，
 最后启动并确认远程 Agent；中断的维护按登记的目标显式继续，不自动回滚。
-流程见[安装与配置需求](requirements/modules/system/setup.md)。
+操作步骤见[服务与部署](services.md)。

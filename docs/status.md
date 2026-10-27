@@ -1,6 +1,6 @@
 # 现状与下一步
 
-本页汇总当前能力和限制。架构见[架构](architecture.md)，正在进行的整改见[重构计划](reviews/project-assessment-2026-10-25.md)。
+本页汇总当前能力和限制。架构见[架构](architecture.md)，路线与当前阶段见[评估与路线](reviews/project-assessment-2026-10-28.md)。
 
 ## 当前能力
 
@@ -36,5 +36,5 @@
 
 ## 下一步
 
-见[重构计划](reviews/project-assessment-2026-10-25.md)：先恢复可信的构建与测试基线，
-再做后端结构精简，之后按[首个发布切片](requirements/release-r1.md)完成“数据 → 策略 → 回测 → 评估 → 模拟 → 柜台仿真”闭环。
+当前处于[评估与路线](reviews/project-assessment-2026-10-28.md)的第 0 阶段：在 SimNow 仿真柜台和真实 Tushare 数据上验收现有链路，
+并把 CI 拆成快速检查和完整检查两档，让主干转绿。CTP 交易目前只在测试替身上验证过。

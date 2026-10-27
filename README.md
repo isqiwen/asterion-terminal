@@ -1,18 +1,20 @@
 # Asterion Terminal
 
 面向中国期货的个人量化研究与交易桌面终端，运行于 macOS（Apple Silicon）与 Linux x86_64。
-C++20 核心与独立服务进程，Electron + React 界面。
+C++20 核心与独立服务进程，Electron + React 界面。目标是用 Python 写策略，同一份策略在回测、仿真柜台和实盘上运行，
+见[产品说明](docs/product.md)。
 
 ## 当前能力
 
 - **行情**：CTP 实时行情、合约目录、自选、五档、分时与分钟 K 线。
 - **历史数据**：Tushare 分钟线与全市场数据表、SHFE 历史保证金（窄范围），固定快照与数据集。
-- **研究**：规则策略回测（均线交叉、通道突破、时序动量、布林回归及截面排序）、因子评价、
-  研究项目与变量、样本与统计、规则逻辑、策略包与评估报告。
+- **研究**：内置规则策略回测（均线交叉、通道突破、时序动量、布林回归及截面排序）、因子评价、
+  变量、样本与统计、规则逻辑、策略包与评估报告。
 - **交易**：CTP 账户（柜台仿真或实盘）：授权、合约白名单、限额与价格风控、先记录后发送、断线不重发。
+  目前只在测试替身上验证过，仿真柜台验收是当前阶段的工作。
 - **节点**：本机完整运行；可通过 SSH 部署到远程 Linux 节点。
 
-能力边界与已知限制见 [现状](docs/status.md)。
+能力边界与已知限制见[现状](docs/status.md)，路线与当前阶段见[评估与路线](docs/reviews/project-assessment-2026-10-28.md)。
 
 ## 快速开始
 
@@ -55,5 +57,5 @@ pnpm desktop --prepare-analytics    # 首次：准备分析助手、构建并启
 
 ## 文档
 
-[文档导航](docs/README.md) · [架构](docs/architecture.md) · [产品需求](docs/requirements/README.md) ·
-[重构计划](docs/reviews/project-assessment-2026-10-25.md) · [贡献约束](AGENTS.md)
+[文档导航](docs/README.md) · [产品说明](docs/product.md) · [交易安全契约](docs/safety.md) ·
+[评估与路线](docs/reviews/project-assessment-2026-10-28.md) · [架构](docs/architecture.md) · [贡献约束](AGENTS.md)

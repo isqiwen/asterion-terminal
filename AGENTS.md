@@ -11,7 +11,27 @@ Rules for anyone changing this repository. Keep this file short and current.
   interfaces, aliases, migration paths, version counters or backup copies of code.
   Git holds history.
 
-## Architecture
+## Direction
+
+What the product is: [docs/product.md](docs/product.md). The route, the active
+phase and its work packages:
+[docs/reviews/project-assessment-2026-10-28.md](docs/reviews/project-assessment-2026-10-28.md).
+
+- C++ owns money and orders: market gateway and recording, account processes,
+  risk, the backtest ledger and matching. Python owns ideas: strategies,
+  research and data acquisition.
+- Strategies output target positions or weights and never send orders. The C++
+  kernel converts targets into orders and enforces [docs/safety.md](docs/safety.md).
+- Work only on the active phase. Parts the plan replaces (Data, Research, the
+  shared task store, the C++ rule strategies, Node Manager and SSH
+  orchestration, the Node-API layer and hand-written JSON mappings) get the
+  fixes the active phase needs, never new features.
+- Every new mechanism serves a user scenario. Do not add digests, evidence
+  records, validators or compatibility layers without one.
+- A phase is done when it worked for real, on real data or the CTP simulation
+  counter. Passing fixture tests is necessary, not sufficient.
+
+## Architecture (current code)
 
 - Core layers, lowest first: `asterion_foundation` → `asterion_kernel` →
   `asterion_domain`. Dependencies point down. Providers, storage, strategies and
@@ -34,6 +54,8 @@ Rules for anyone changing this repository. Keep this file short and current.
 Details: [docs/architecture.md](docs/architecture.md).
 
 ## Trading and data safety
+
+The full contract is [docs/safety.md](docs/safety.md). Its core:
 
 - Market and historical data come from real providers. Never fabricate market
   data; fixtures are for tests only.
@@ -80,5 +102,7 @@ Details: [docs/architecture.md](docs/architecture.md).
     `pnpm lint`, `pnpm test:unit`.
   - E2E only through `pnpm run test:e2e` or `pnpm run test:e2e:journeys`.
 - Report what changed, what was tested, and what was not verified.
-- The current refactoring plan and its status:
-  [docs/reviews/project-assessment-2026-10-25.md](docs/reviews/project-assessment-2026-10-25.md).
+- Prefix commit subjects with the work package ID (for example `M0.3`) and
+  update its row in the plan's status table.
+- Docs follow code: update or delete a topic doc in the commit that replaces or
+  deletes its code. Process notes belong in commit messages, not in docs.

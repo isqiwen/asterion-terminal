@@ -5,8 +5,8 @@ Node Manager 是 Terminal 所在机器上的独立节点管理进程，程序名
 Agent 拥有目标机器的服务进程，业务服务拥有账户、数据和任务；这三层责任不能互相替代。
 
 本文面向维护管理进程、Terminal 原生客户端和安装器的开发者，解释控制流、状态所有权、持久化及故障语义。
-全局边界见[架构](../architecture.md)，部署操作见[服务与部署](../services.md)，
-安装责任见[安装与配置](../requirements/modules/system/setup.md)。
+全局边界见[架构](../architecture.md)，部署操作见[服务与部署](../services.md)。
+按[评估与路线](../reviews/project-assessment-2026-10-28.md)，Node Manager 会在第 3 阶段删除，在那之前只做必要修复。
 
 ## 定位与设计取舍
 
