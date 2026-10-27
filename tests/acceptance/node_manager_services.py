@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="ast-manager-services-", dir="/tmp") as 
     services = {}
     for role, state in (("agent", node), ("manager", manager)):
         name = f"me.asterion.acceptance.{root.name}.{role}"
-        executable = build / f"asterion-node-{role}"
+        executable = build / f"asterion_node_{role}"
         if role == "manager":
             staged = root / executable.name
             shutil.copy2(executable, staged)
