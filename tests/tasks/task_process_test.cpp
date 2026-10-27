@@ -1879,8 +1879,10 @@ TEST_F(TaskProcess, ServiceOwnsConcurrencyCancellationAndUpgradeDrain)
     service.reset();
     replace_file_durably(sockets / "research.json", R"({"task_concurrency":1})");
     auto spec = maximum_factor_input();
+    // A quarter of the largest input runs for seconds, far longer than it takes
+    // to observe it running and cancel it; seeding the largest one took a minute.
     *factor_bars(spec) =
-        published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "pool-input");
+        published_dataset(std::vector<int>(protocol::max_dataset_bars / 4, 100), "pool-input");
     spec.set_dataset_revision(spec.series(0).bars().revision());
     {
         tasks::Store store(asterion::research::task_domain(), directory.path, {"task"});
