@@ -26,9 +26,6 @@ const StrategyPackages = lazy(() =>
 const ResearchVariables = lazy(() =>
   import("./ResearchVariables").then(module => ({ default: module.ResearchVariables })),
 );
-const ResearchProjects = lazy(() =>
-  import("./ResearchProjects").then(module => ({ default: module.ResearchProjects })),
-);
 const Factor = lazy(() => import("./Factor").then(module => ({ default: module.Factor })));
 const FactorComparison = lazy(() =>
   import("./FactorComparison").then(module => ({ default: module.FactorComparison })),
@@ -60,20 +57,10 @@ export const plugin: TerminalPlugin = {
     "research.strategy.delivery.create",
     "research.strategy.delivery.read",
     "research.strategy.delivery.list",
-    "research.conclusion.read",
-    "research.conclusion.list",
-    "research.conclusion.append",
     "research.variable.check",
     "research.variable.read",
     "research.variable.list",
     "research.variable.register",
-    "research.project.list",
-    "research.project.read",
-    "research.project.save",
-    "research.plan.list",
-    "research.plan.read",
-    "research.plan.fix",
-    "research.project.tasks",
     "task.page",
     "node.research.local.open",
     "data.datasets",
@@ -190,17 +177,6 @@ export const plugin: TerminalPlugin = {
       component: context => (
         <WorkloadAccess context={context}>
           {ready => <ResearchStatistics {...ready} />}
-        </WorkloadAccess>
-      ),
-    },
-    {
-      id: "workspace.research-projects",
-      get title() {
-        return t("研究项目");
-      },
-      component: context => (
-        <WorkloadAccess context={context}>
-          {ready => <ResearchProjects {...ready} />}
         </WorkloadAccess>
       ),
     },

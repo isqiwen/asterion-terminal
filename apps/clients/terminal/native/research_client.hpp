@@ -21,40 +21,33 @@ public:
     ResearchClient& operator=(const ResearchClient&) = delete;
     [[nodiscard]] std::future<Json> status() const;
     [[nodiscard]] std::future<Json> resources(const resource::proto::CatalogueQuery&);
-    [[nodiscard]] std::future<Json> project(const research::proto::ProjectRequest&);
     [[nodiscard]] std::future<Json> variable(const research::proto::VariableRequest&);
     [[nodiscard]] std::future<Json> strategy(const research::proto::StrategyRequest&);
     [[nodiscard]] std::future<Json> logic(const research::proto::LogicRequest&);
     [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::LogicTrialRequest&);
-    [[nodiscard]] std::future<Json> project_tasks(const research::proto::ProjectTaskQuery&);
     [[nodiscard]] std::future<void> page(unsigned before_sequence);
     ServiceEndpoint endpoint() const;
     [[nodiscard]] std::future<void> submit(
         const std::string&,
         const backtest::proto::BacktestRequest&,
         const data::proto::DataOwner&,
-        const research::proto::StrategyUse& = {},
-        const research::proto::ProjectBinding& = {});
+        const research::proto::StrategyUse& = {});
     [[nodiscard]] std::future<void> submit(
         const std::string&,
         const factor::proto::FactorRequest&,
         const data::proto::DataOwner&,
-        const task::proto::TaskDerivation& = {},
-        const research::proto::ProjectBinding& = {});
+        const task::proto::TaskDerivation& = {});
     [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::AccountReviewRequest&);
     [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::EvaluationRequest&);
-    [[nodiscard]] std::future<void> submit(
-        const std::string&,
-        const research::proto::StatisticsRequest&,
-        const research::proto::ProjectBinding& = {});
+    [[nodiscard]] std::future<void>
+    submit(const std::string&, const research::proto::StatisticsRequest&);
     [[nodiscard]] std::future<void> submit(
         const std::string&,
         const research::proto::SampleRequest&,
-        const data::proto::DataOwner&,
-        const research::proto::ProjectBinding& = {});
+        const data::proto::DataOwner&);
     [[nodiscard]] std::future<void> reuse_backtest(
         const std::string&,
         const backtest::proto::BacktestReuse&,

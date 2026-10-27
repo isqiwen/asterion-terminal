@@ -1,5 +1,4 @@
 #include <asterion/protocol/task.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>
@@ -223,8 +222,6 @@ Json decode_task(const task::proto::Task& task)
         {"submitted_at_ms", task.submitted_at_ms()},
         {"updated_at_ms", task.updated_at_ms()}
     };
-    if (task.has_research_plan())
-        output["research_plan"] = decode_project_binding(task.research_plan());
     if (task.has_strategy_use())
         output["strategy_use"] = decode_strategy_use(task.strategy_use());
     if (task.has_variable_definition())

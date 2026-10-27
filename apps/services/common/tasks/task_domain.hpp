@@ -30,12 +30,6 @@ struct KindSpec
     bool references_history = false;
 };
 
-// A secondary index over a persisted manifest field. Persisted schema: keep stable.
-struct ManifestIndex
-{
-    std::string_view name, path;
-};
-
 // Records the store holds, for admission rules that relate a new task to others.
 class Records
 {
@@ -73,11 +67,6 @@ public:
 
     // Directories the service keeps beside its tasks; never task ids.
     virtual std::span<const std::string_view> directories() const
-    {
-        return {};
-    }
-
-    virtual std::span<const ManifestIndex> indexes() const
     {
         return {};
     }

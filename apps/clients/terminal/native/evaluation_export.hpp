@@ -7,12 +7,9 @@
 
 namespace asterion::terminal {
 
-// Render only verified published fields. Export never recalculates performance
-// or turns a separate human interpretation into a new calculation result.
-inline std::string evaluation_report_document(
-    const nlohmann::json& source,
-    const nlohmann::json& conclusion,
-    const std::string& format)
+// Render only verified published fields. Export never recalculates performance.
+inline std::string
+evaluation_report_document(const nlohmann::json& source, const std::string& format)
 {
     if (source.at("kind") != "performance_evaluation" || (format != "html" && format != "csv"))
         throw std::invalid_argument("fixed evaluation report export requires HTML or CSV");
@@ -20,14 +17,6 @@ inline std::string evaluation_report_document(
     const auto& input = source.at("experiment");
     const auto& request = input.at("request");
     const auto& result = source.at("result");
-    if (!conclusion.is_null()) {
-        const auto& ref = conclusion.at("declaration").at("result");
-        const auto& original = request.at("source");
-        if (ref.at("kind") != "performance_evaluation_result" || ref.at("id") != source.at("id")
-            || ref.at("version") != task.at("result_digest") || ref.at("domain") != "research"
-            || ref.at("node") != original.at("node") || ref.at("service") != original.at("service"))
-            throw std::invalid_argument("human interpretation belongs to another fixed evaluation");
-    }
 
     struct Row
     {
@@ -352,22 +341,6 @@ inline std::string evaluation_report_document(
         "No account identifiers, raw market data, source files, full equity charts or executable replay bundle. No automatic trading qualification.");
     add("method.notes",
         "Calendar annual return uses original elapsed seconds and 365.2425 days. Volatility and Sharpe use explicitly selected A and sample deviation; no autocorrelation adjustment.");
-    if (conclusion.is_null())
-        add("human.judgment", "NOT_RECORDED");
-    else {
-        add("human.digest", conclusion.at("digest"));
-        add("human.recorded_at_ms", conclusion.at("recorded_at_ms"));
-        add("human.retrospective", conclusion.at("retrospective"));
-        add("human.program_artifact", conclusion.at("program_artifact"));
-        const auto& declaration = conclusion.at("declaration");
-        for (const auto* key : {"id", "judgment", "reason", "previous_id", "revision_reason"})
-            add(std::string("human.") + key, declaration.at(key));
-        const auto& plan = declaration.at("plan");
-        for (const auto* key : {"project_id", "plan_id", "definition_digest"})
-            add(std::string("human.plan.") + key, plan.at(key));
-        add("human.scope",
-            "Separate human interpretation; original calculation limitations remain unchanged.");
-    }
     if (format == "csv") {
         std::string out = "field,value,state\r\n";
         for (const auto& row : rows)
@@ -406,7 +379,7 @@ inline std::string evaluation_report_document(
         curve += "</svg></section>";
     }
     std::string out =
-        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><meta name=\"viewport\" content=\"width=device-width\"><title>Fixed performance evaluation</title><style>body{font:16px system-ui;margin:2rem;max-width:90rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:.5rem;text-align:left;overflow-wrap:anywhere;white-space:pre-wrap}caption{font-weight:bold;margin:1rem}</style><body><h1>Fixed performance evaluation</h1><p>Published facts and method with a separate optional human interpretation. Missing evidence and limitations remain visible. This extract is not trading authorization.</p><table><caption>Fixed report fields and original metric states</caption><thead><tr><th>Field</th><th>Value</th><th>State</th></tr></thead><tbody>";
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><meta name=\"viewport\" content=\"width=device-width\"><title>Fixed performance evaluation</title><style>body{font:16px system-ui;margin:2rem;max-width:90rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:.5rem;text-align:left;overflow-wrap:anywhere;white-space:pre-wrap}caption{font-weight:bold;margin:1rem}</style><body><h1>Fixed performance evaluation</h1><p>Published facts and method. Missing evidence and limitations remain visible. This extract is not trading authorization.</p><table><caption>Fixed report fields and original metric states</caption><thead><tr><th>Field</th><th>Value</th><th>State</th></tr></thead><tbody>";
     if (!curve.empty())
         out.insert(out.find("<table>"), curve);
     for (const auto& row : rows)

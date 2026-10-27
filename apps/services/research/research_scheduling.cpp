@@ -175,8 +175,6 @@ PolledTask<> ResearchHost::claim(Call& call)
         research::Strategies(*storage_, read.execution().strategy_use().package().owner())
             .verify_use(read.execution().strategy_use(), id, false);
     }
-    if (read.execution().has_research_plan())
-        co_await verify_plan(call, read.execution().research_plan());
     if (read.execution().has_variable_definition()) {
         const auto object = protocol::variable_object(read.execution().variable_definition());
         (void)co_await resolve_variable(call, object);

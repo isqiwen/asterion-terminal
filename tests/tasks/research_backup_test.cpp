@@ -4,7 +4,6 @@
 #include "research_statistics.hpp"
 #include "research_evaluation.hpp"
 #include "research_sample.hpp"
-#include "project_store.hpp"
 #include "variable_store.hpp"
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
@@ -329,8 +328,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
         source.set_service_id("historical-data");
         factor::proto::FactorResult expected;
         research::proto::StatisticsResult expected_statistics;
-        research::proto::HypothesisPlan expected_plan;
-        research::proto::ProjectConclusion expected_conclusion;
         research::proto::VariableDefinition expected_variable;
         const auto artifact = sha256_file(current_executable());
         {
@@ -365,31 +362,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                 asterion::research::task_domain(),
                 research_root,
                 {"research-one"});
-            asterion::research::Projects projects(
-                research,
-                owner(),
-                sqlite::Database::Access::writer);
-            research::proto::ProjectMutation draft;
-            draft.set_id("factor-plan-draft");
-            draft.mutable_save()->set_project_id("factor-question");
-            auto& definition = *draft.mutable_save()->mutable_definition();
-            definition.set_title("Synthetic fixed factor question");
-            definition.set_question("What does this original factor evidence show?");
-            definition.set_hypothesis("An unproven declared relation");
-            definition.set_support("Declared evidence criterion");
-            definition.set_refutation("Opposite direction or insufficient evidence");
-            const auto saved = projects.apply(draft).draft();
-            research::proto::ProjectMutation fix;
-            fix.set_id("factor-plan-fix");
-            fix.mutable_fix()->set_project_id(saved.id());
-            fix.mutable_fix()->set_plan_id("factor-plan");
-            fix.mutable_fix()->set_expected_draft_digest(saved.digest());
-            expected_plan = projects.apply(fix).plan();
-            research::proto::ProjectBinding binding;
-            *binding.mutable_owner() = owner();
-            binding.set_project_id(saved.id());
-            binding.set_plan_id(expected_plan.id());
-            binding.set_definition_digest(expected_plan.definition_digest());
             (void)programs::Files(research_root / "programs", owner())
                 .preserve(current_executable(), artifact);
             if (!rolling) {
@@ -413,7 +385,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
             expected = factor::run(fixed);
             auto submission = task_submission(research, "factor-rows", fixed);
             asterion::tasks::set_program_artifact(submission, artifact);
-            asterion::tasks::set_research_plan(research, submission, binding);
             research.admit_submission(submission);
             submission.prepare_files();
             tasks::ResearchDataRoute route{source, {}, "fixture-node"};
@@ -428,23 +399,15 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
             references.confirm(retained);
             const auto token = research.commit(research.claim("factor-rows")).token();
             research.commit(tasks::finish(research, "factor-rows", token, expected));
-            research::proto::ProjectMutation conclude;
-            conclude.set_id("cold-human-conclusion-command");
-            auto& declaration = *conclude.mutable_conclude();
-            declaration.set_id("cold-human-conclusion");
-            *declaration.mutable_plan() = binding;
-            *declaration.mutable_result()->mutable_owner() = owner();
-            declaration.mutable_result()->set_kind("factor_result");
-            declaration.mutable_result()->set_id("factor-rows");
-            declaration.mutable_result()->set_version(
-                research.describe("factor-rows").result_digest());
-            declaration.set_judgment(research::proto::INSUFFICIENT);
-            declaration.set_reason("Human review of isolated synthetic evidence; no market claim");
-            expected_conclusion = projects.apply(conclude).conclusion();
+            resource::proto::Object factor_result;
+            *factor_result.mutable_owner() = owner();
+            factor_result.set_kind("factor_result");
+            factor_result.set_id("factor-rows");
+            factor_result.set_version(research.describe("factor-rows").result_digest());
             if (!rolling) {
                 const auto source_result = tasks::verified_result(research, "factor-rows");
                 research::proto::StatisticsRequest selected_statistics;
-                *selected_statistics.mutable_source() = declaration.result();
+                *selected_statistics.mutable_source() = factor_result;
                 selected_statistics.set_use_scope("Synthetic original feature distribution backup");
                 selected_statistics.set_column(research::proto::StatisticsRequest::FEATURE);
                 selected_statistics.set_role(
@@ -499,15 +462,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                 asterion::research::task_domain(),
                 folder.path / "restore/owners/1",
                 {"research-one"});
-            asterion::research::Projects projects(restored, owner());
-            EXPECT_EQ(
-                projects.plan(expected_plan.id()).SerializeAsString(),
-                expected_plan.SerializeAsString());
-            EXPECT_EQ(
-                projects.conclusion(expected_conclusion.declaration().id()).SerializeAsString(),
-                expected_conclusion.SerializeAsString());
-            EXPECT_EQ(projects.conclusions(expected_plan.project_id(), "", 10).size(), 1U);
-            EXPECT_FALSE(expected_conclusion.retrospective());
             if (!rolling) {
                 asterion::research::Variables variables(restored, owner());
                 EXPECT_EQ(
@@ -520,9 +474,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                     restored.get("factor-rows").factor().variable_definition().SerializeAsString(),
                     expected_variable.SerializeAsString());
             }
-            EXPECT_EQ(
-                restored.describe("factor-rows").research_plan().definition_digest(),
-                expected_plan.definition_digest());
             EXPECT_EQ(restored.describe("factor-rows").program_artifact(), artifact);
             EXPECT_TRUE(restored.get("factor-rows").factor().retain_observations());
             const auto result = tasks::factor_result(restored, "factor-rows");
@@ -580,19 +531,6 @@ TEST(ResearchColdBackup, RetainedFactorRowsRestoreWithActualProgramAndExactDataD
                     {{data_owner, folder.path / "restore/owners/0"}, {owner(), broken}}),
                 Error);
         }
-        {
-            sqlite::Database corrupted(folder.path / "restore/owners/1/tasks.sqlite");
-            sqlite::Database::Statement remove(
-                corrupted,
-                "DELETE FROM research_hypothesis_plans WHERE id=?");
-            remove.bind(1, expected_plan.id())
-                .step(); // Synthetic corruption, never a product deletion path.
-        }
-        EXPECT_THROW(
-            terminal_backup::cold_cut(
-                {{data_owner, folder.path / "restore/owners/0"},
-                    {owner(), folder.path / "restore/owners/1"}}),
-            Error);
     }
 }
 
@@ -659,8 +597,6 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
     data_owner.set_domain("data");
     research::proto::SampleResult expected_sample;
     research::proto::StatisticsResult expected_statistics;
-    research::proto::HypothesisPlan expected_plan;
-    research::proto::ProjectConclusion expected_conclusion;
     const auto artifact = sha256_file(current_executable());
     {
         data::Store data(data_root, "historical-data");
@@ -682,29 +618,7 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         tasks::Store research(asterion::research::task_domain(), research_root, {"research-one"});
         (void)programs::Files(research_root / "programs", owner())
             .preserve(current_executable(), artifact);
-        research::Projects projects(research, owner(), sqlite::Database::Access::writer);
-        research::proto::ProjectMutation draft;
-        draft.set_id("raw-question-save");
-        draft.mutable_save()->set_project_id("raw-question");
-        draft.mutable_save()->mutable_definition()->set_title("Synthetic raw distribution");
-        draft.mutable_save()->mutable_definition()->set_question(
-            "What does the observed raw-price distribution show?");
-        draft.mutable_save()->mutable_definition()->set_hypothesis(
-            "Exploratory description only; prediction remains untested");
-        const auto saved = projects.apply(draft).draft();
-        research::proto::ProjectMutation fix;
-        fix.set_id("raw-question-fix");
-        fix.mutable_fix()->set_project_id(saved.id());
-        fix.mutable_fix()->set_plan_id("raw-plan");
-        fix.mutable_fix()->set_expected_draft_digest(saved.digest());
-        expected_plan = projects.apply(fix).plan();
-        research::proto::ProjectBinding binding;
-        *binding.mutable_owner() = owner();
-        binding.set_project_id(saved.id());
-        binding.set_plan_id(expected_plan.id());
-        binding.set_definition_digest(expected_plan.definition_digest());
         auto submission = task_submission(research, "raw-sample", input);
-        asterion::tasks::set_research_plan(research, submission, binding);
         asterion::tasks::set_program_artifact(submission, artifact);
         research.admit_submission(submission);
         submission.prepare_files();
@@ -743,7 +657,6 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
             fs::file_size(research_root / "raw-sample/input.pb"));
         auto analysis = task_submission(research, "raw-statistics", captured);
         asterion::tasks::set_program_artifact(analysis, artifact);
-        asterion::tasks::set_research_plan(research, analysis, binding);
         tasks::submit(research, std::move(analysis));
         const auto analysis_token = research.commit(research.claim("raw-statistics")).token();
         expected_statistics = tasks::compute_statistics(captured, research_root);
@@ -752,19 +665,6 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         analysed.set_token(analysis_token);
         *analysed.mutable_statistics() = expected_statistics;
         research.commit(tasks::finish(research, std::move(analysed)));
-        research::proto::ProjectMutation conclude;
-        conclude.set_id("raw-statistics-human-write");
-        auto& declaration = *conclude.mutable_conclude();
-        declaration.set_id("raw-statistics-human");
-        *declaration.mutable_plan() = binding;
-        *declaration.mutable_result()->mutable_owner() = owner();
-        declaration.mutable_result()->set_kind("statistics_result");
-        declaration.mutable_result()->set_id("raw-statistics");
-        declaration.mutable_result()->set_version(
-            research.describe("raw-statistics").result_digest());
-        declaration.set_judgment(research::proto::INSUFFICIENT);
-        declaration.set_reason("Human description does not establish predictive validity");
-        expected_conclusion = projects.apply(conclude).conclusion();
     }
     {
         auto cut = terminal_backup::cold_cut({{data_owner, data_root}, {owner(), research_root}});
@@ -805,12 +705,6 @@ TEST(ResearchColdBackup, IndependentRawSampleAndStatisticsCloseDataReferencesAnd
         EXPECT_EQ(report.statistics().groups(0).trading_day(), "2026-09-25");
         EXPECT_DOUBLE_EQ(report.statistics().groups(0).summary().mean().value(), 25.25);
         EXPECT_EQ(restored.retirement("raw-sample", owner().node_id()).consumers_size(), 1);
-        research::Projects projects(restored, owner());
-        EXPECT_EQ(projects.plan("raw-plan").SerializeAsString(), expected_plan.SerializeAsString());
-        EXPECT_EQ(
-            projects.conclusion("raw-statistics-human").SerializeAsString(),
-            expected_conclusion.SerializeAsString());
-        EXPECT_EQ(report.result_task().research_plan().plan_id(), "raw-plan");
     }
     fs::rename(restored_research / "raw-sample/input.pb", folder.path / "held-sample-input.pb");
     EXPECT_THROW(
@@ -839,8 +733,6 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
     research::proto::StrategyDelivery used, pending;
     research::proto::StrategyUse use;
     task::proto::TaskResponse expected_result;
-    research::proto::HypothesisPlan expected_plan;
-    research::proto::ProjectConclusion expected_conclusion;
     {
         data::Store data(data_root, source.service_id());
         const auto query = protocol::encode_bar_dataset_request(
@@ -906,30 +798,7 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
         pending = draft("pending-delivery", "never-submitted");
         *use.mutable_package() = used.package();
         *use.mutable_delivery() = protocol::strategy_delivery_object(used);
-        research::Projects projects(store, owner(), sqlite::Database::Access::writer);
-        research::proto::ProjectMutation question;
-        question.set_id("backtest-question-save");
-        question.mutable_save()->set_project_id("backtest-question");
-        auto& hypothesis = *question.mutable_save()->mutable_definition();
-        hypothesis.set_title("Original synthetic backtest question");
-        hypothesis.set_question("Does the fixed simulation meet the declared criteria?");
-        hypothesis.set_hypothesis("Unproven simulated strategy behavior");
-        hypothesis.set_support("Independent evidence is required");
-        hypothesis.set_refutation("Opposite behavior or insufficient evidence");
-        const auto saved_question = projects.apply(question).draft();
-        research::proto::ProjectMutation fix_plan;
-        fix_plan.set_id("backtest-plan-fix");
-        fix_plan.mutable_fix()->set_project_id(saved_question.id());
-        fix_plan.mutable_fix()->set_plan_id("backtest-plan");
-        fix_plan.mutable_fix()->set_expected_draft_digest(saved_question.digest());
-        expected_plan = projects.apply(fix_plan).plan();
-        research::proto::ProjectBinding binding;
-        *binding.mutable_owner() = owner();
-        binding.set_project_id(expected_plan.project_id());
-        binding.set_plan_id(expected_plan.id());
-        binding.set_definition_digest(expected_plan.definition_digest());
         auto calculation = task_submission(store, "delivered", fixed);
-        asterion::tasks::set_research_plan(store, calculation, binding);
         asterion::tasks::set_program_artifact(calculation, artifact);
         asterion::tasks::set_strategy_use(store, calculation, use, expected.definition());
         task::proto::TaskDerivation derivation;
@@ -939,19 +808,6 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
         calculation.set_derivation(derivation);
         submit(std::move(calculation), "delivered");
         expected_result = tasks::verified_result(store, "delivered");
-        research::proto::ProjectMutation review;
-        review.set_id("backtest-human-review-command");
-        auto& declaration = *review.mutable_conclude();
-        declaration.set_id("backtest-human-review");
-        *declaration.mutable_plan() = binding;
-        *declaration.mutable_result()->mutable_owner() = owner();
-        declaration.mutable_result()->set_kind("backtest_result");
-        declaration.mutable_result()->set_id("delivered");
-        declaration.mutable_result()->set_version(expected_result.result_task().result_digest());
-        declaration.set_judgment(research::proto::INSUFFICIENT);
-        declaration.set_reason("Independent human judgment: synthetic ledger is not market proof");
-        expected_conclusion = projects.apply(review).conclusion();
-        EXPECT_FALSE(expected_conclusion.retrospective());
         research::proto::StrategyMutation deprecate;
         deprecate.set_id("deprecate");
         *deprecate.mutable_retire()->mutable_package() = used.package();
@@ -979,14 +835,6 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
     {
         tasks::Store store(asterion::research::task_domain(), restored, {"research-one"});
         research::Strategies strategies(store, owner());
-        research::Projects projects(store, owner());
-        EXPECT_EQ(
-            projects.plan(expected_plan.id()).SerializeAsString(),
-            expected_plan.SerializeAsString());
-        EXPECT_EQ(
-            projects.conclusion(expected_conclusion.declaration().id()).SerializeAsString(),
-            expected_conclusion.SerializeAsString());
-        EXPECT_EQ(store.describe("delivered").research_plan().plan_id(), expected_plan.id());
         EXPECT_EQ(
             strategies.package(expected.id()).SerializeAsString(),
             expected.SerializeAsString());
@@ -1181,7 +1029,6 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
     data_owner.set_domain("data");
     data_owner.set_service_id(source.service_id());
     task::proto::TaskResponse original, original_evaluation;
-    research::proto::ProjectConclusion evaluation_conclusion;
     research::proto::EvaluationInput evaluation_input;
     {
         data::Store data(data_root, source.service_id());
@@ -1281,42 +1128,6 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
         store.commit(tasks::finish(store, finish));
         (void)store.commit(store.retire(store.retirement(finish.id(), owner().node_id()).object()));
         original_evaluation = tasks::verified_result(store, finish.id());
-        research::Projects projects(store, owner(), sqlite::Database::Access::writer);
-        research::proto::ProjectMutation save;
-        save.set_id("evaluation-interpretation-save");
-        auto* draft = save.mutable_save();
-        draft->set_project_id("evaluation-interpretation");
-        auto* definition = draft->mutable_definition();
-        definition->set_title("Synthetic rolling account interpretation");
-        definition->set_question("What can this fixed performance establish?");
-        definition->set_hypothesis("No automatic investment verdict");
-        definition->set_support("Independent evidence would be required");
-        definition->set_refutation("Synthetic account results alone are insufficient");
-        const auto saved_draft = projects.apply(save).draft();
-        research::proto::ProjectMutation fix;
-        fix.set_id("evaluation-interpretation-fix");
-        fix.mutable_fix()->set_project_id(saved_draft.id());
-        fix.mutable_fix()->set_plan_id("evaluation-interpretation-plan");
-        fix.mutable_fix()->set_expected_draft_digest(saved_draft.digest());
-        const auto plan = projects.apply(fix).plan();
-        research::proto::ProjectMutation conclude;
-        conclude.set_id("evaluation-interpretation-human");
-        auto* human = conclude.mutable_conclude();
-        human->set_id("evaluation-interpretation-human");
-        auto* binding = human->mutable_plan();
-        *binding->mutable_owner() = owner();
-        binding->set_project_id(plan.project_id());
-        binding->set_plan_id(plan.id());
-        binding->set_definition_digest(plan.definition_digest());
-        *human->mutable_result()->mutable_owner() = owner();
-        human->mutable_result()->set_kind("performance_evaluation_result");
-        human->mutable_result()->set_id(finish.id());
-        human->mutable_result()->set_version(original_evaluation.result_task().result_digest());
-        human->set_judgment(research::proto::INSUFFICIENT);
-        human->set_reason("Synthetic posthoc review, not independent market evidence");
-        evaluation_conclusion = projects.apply(conclude).conclusion();
-        EXPECT_TRUE(evaluation_conclusion.retrospective());
-
         auto pending = task_submission(store, "rolling-evaluation-prepared", evaluation_input);
         asterion::tasks::set_program_artifact(pending, artifact);
         store.admit_submission(pending);
@@ -1340,12 +1151,6 @@ TEST(ResearchColdBackup, RollingWindowsRestoreOriginalTradingDays)
         (void)checked.preview("restored-rolling");
     }
     tasks::Store restored(asterion::research::task_domain(), restored_root, {"research-one"});
-    {
-        research::Projects projects(restored, owner());
-        EXPECT_EQ(
-            projects.conclusion(evaluation_conclusion.declaration().id()).SerializeAsString(),
-            evaluation_conclusion.SerializeAsString());
-    }
     EXPECT_EQ(
         tasks::verified_result(restored, "rolling-run").SerializeAsString(),
         original.SerializeAsString());

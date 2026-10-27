@@ -2,7 +2,6 @@
 #include "portfolio_budget_review.hpp"
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_strategy.hpp>
-#include <asterion/protocol/research_project.hpp>
 
 namespace asterion::terminal {
 
@@ -120,7 +119,6 @@ void Application::Impl::register_backtest_commands()
         required.erase("settlement_margins");
         required.erase("margin_snapshot");
         required.erase("strategy_use");
-        required.erase("research_plan");
         required.erase("performance_assumptions");
         fields_with_risk(
             required,
@@ -196,9 +194,7 @@ void Application::Impl::register_backtest_commands()
             request,
             research_data_owner(),
             p.contains("strategy_use") ? protocol::encode_strategy_use(p.at("strategy_use"))
-                                       : research::proto::StrategyUse{},
-            p.contains("research_plan") ? protocol::encode_project_binding(p.at("research_plan"))
-                                        : research::proto::ProjectBinding{})});
+                                       : research::proto::StrategyUse{})});
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,

@@ -1,5 +1,3 @@
-import { ResearchPlanPicker, ResearchPlanEvidence } from "./ResearchPlan";
-import type { ResearchPlanBinding } from "../../src/bridge/client";
 import { useState } from "react";
 import { taskOwner, type ResearchSampleInput } from "../../src/bridge/client";
 import {
@@ -16,7 +14,6 @@ type Fixed = {
   revision: string;
 };
 type Draft = {
-  plan: ResearchPlanBinding | null;
   fixed: Fixed | null;
   purpose: string;
   holdout: boolean;
@@ -27,7 +24,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
   const service = snapshot?.research_service;
   const destination = JSON.stringify([service?.node_id, service?.service]);
   const [draft, setDraft] = useWorkspaceDraft<Draft>(`sample-draft:${destination}`, {
-    plan: null,
     fixed: null,
     purpose: "",
     holdout: false,
@@ -39,7 +35,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
     JSON.stringify(draft),
   );
   const [loading, setLoading] = useState(false);
-  const [planReady, setPlanReady] = useState(false);
   const [page, setPage] = useState(0);
   const { error, run } = useRun(trade);
   useWorkspaceUnsaved(`sample-draft:${destination}`, Boolean(draft.fixed && !operation));
@@ -51,7 +46,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
       : null;
   const data = snapshot?.data;
   const valid =
-    planReady &&
     draft.fixed &&
     draft.purpose.trim() &&
     draft.acknowledged &&
@@ -87,7 +81,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
       await run("research.sample.submit", {
         id,
         owner: taskOwner(service, "research"),
-        ...(draft.plan ? { research_plan: draft.plan } : {}),
         data_owner: draft.fixed.owner,
         selection: draft.fixed.selection,
         use_scope: draft.purpose,
@@ -114,13 +107,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
         {t("固定单合约标准数据版本，无需先生成因子；保留原始收盘价和实际观察，不补齐缺失行情。")}
       </p>
       <fieldset disabled={locked}>
-        <ResearchPlanPicker
-          snapshot={snapshot}
-          query={query}
-          binding={draft.plan}
-          onChange={plan => setDraft({ ...draft, plan })}
-          onReady={setPlanReady}
-        />
         <button disabled={!selected || !data?.online || !data.owner_node_id} onClick={freeze}>
           {t("固定当前数据选择")}
         </button>
@@ -200,7 +186,6 @@ export function ResearchSamples({ snapshot, query, trade, busy }: TerminalContex
       {report && (
         <section aria-label={t("正式样本证据")}>
           <h3>{t("正式样本证据")}</h3>
-          <ResearchPlanEvidence binding={report.task.research_plan} query={query} />
           <code>{report.id}</code>
           <p>
             {t("样本用途")}：{report.experiment.request.use_scope}

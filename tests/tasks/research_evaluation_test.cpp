@@ -13,7 +13,6 @@
 #include "tasks/paper_input.hpp"
 #include "program_files.hpp"
 #include <asterion/protocol/research_evaluation.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -568,86 +567,16 @@ TEST_F(
     const auto wrong_reply = raw(wrong);
     ASSERT_TRUE(wrong_reply.has_error());
     EXPECT_EQ(wrong_reply.error().code(), "conflict");
-    research::proto::ResearchRequest project_save;
-    auto* project_command = project_save.mutable_project()->mutable_mutation();
-    project_command->set_id("evaluation-question-save");
-    auto* project_draft = project_command->mutable_save();
-    project_draft->set_project_id("evaluation-question");
-    auto* definition = project_draft->mutable_definition();
-    definition->set_title("Synthetic evaluation interpretation");
-    definition->set_question("Does this fixed evidence support the declared hypothesis?");
-    definition->set_hypothesis("A question, not an automatic metric verdict");
-    definition->set_support("Independent evidence would be required");
-    definition->set_refutation("A fixed interpretation may record insufficient evidence");
-    const auto project = call(project_save).project().draft();
-    research::proto::ResearchRequest project_fix;
-    auto* fix_command = project_fix.mutable_project()->mutable_mutation();
-    fix_command->set_id("evaluation-question-fix");
-    auto* fix = fix_command->mutable_fix();
-    fix->set_project_id(project.id());
-    fix->set_plan_id("evaluation-question-plan");
-    fix->set_expected_draft_digest(project.digest());
-    const auto plan = call(project_fix).project().plan();
-    research::proto::ResearchRequest human;
-    auto* human_command = human.mutable_project()->mutable_mutation();
-    human_command->set_id("evaluation-human-append");
-    auto* declaration = human_command->mutable_conclude();
-    declaration->set_id("evaluation-human");
-    auto* binding = declaration->mutable_plan();
-    *binding->mutable_owner() = owner;
-    binding->set_project_id(plan.project_id());
-    binding->set_plan_id(plan.id());
-    binding->set_definition_digest(plan.definition_digest());
-    auto* result = declaration->mutable_result();
-    *result->mutable_owner() = owner;
-    result->set_kind("performance_evaluation_result");
-    result->set_id(saved.result_task().id());
-    result->set_version(saved.result_task().result_digest());
-    declaration->set_judgment(research::proto::INSUFFICIENT);
-    declaration->set_reason(
-        "Synthetic performance is not independent evidence or trading authorization");
-    const auto human_reply = call(human).project();
-    const auto verdict = human_reply.conclusion();
-    EXPECT_TRUE(verdict.retrospective());
-    EXPECT_EQ(verdict.program_artifact(), evaluator);
-    EXPECT_EQ(verdict.declaration().result().version(), saved.result_task().result_digest());
-    EXPECT_EQ(verdict.declaration().judgment(), research::proto::INSUFFICIENT);
+    const auto after_rejections = completed("rpc-evaluation");
     EXPECT_EQ(
-        protocol::decode_project_reply(human_reply, human.project(), owner)
-            .at("conclusion")
-            .at("retrospective"),
-        true);
-    EXPECT_EQ(call(human).project().SerializeAsString(), human_reply.SerializeAsString());
-    auto edited_human = human;
-    edited_human.mutable_project()->mutable_mutation()->mutable_conclude()->set_reason(
-        "Changed after the original receipt");
-    EXPECT_TRUE(raw(edited_human).has_error());
-    auto wrong_version = human;
-    wrong_version.mutable_project()->mutable_mutation()->set_id("wrong-evaluation-verdict");
-    wrong_version.mutable_project()->mutable_mutation()->mutable_conclude()->set_id(
-        "wrong-evaluation-verdict");
-    wrong_version.mutable_project()
-        ->mutable_mutation()
-        ->mutable_conclude()
-        ->mutable_result()
-        ->set_version(std::string(64, 'f'));
-    EXPECT_TRUE(raw(wrong_version).has_error());
-    const auto after_interpretation = completed("rpc-evaluation");
-    EXPECT_EQ(
-        after_interpretation.result_task().SerializeAsString(),
+        after_rejections.result_task().SerializeAsString(),
         saved.result_task().SerializeAsString());
     EXPECT_EQ(
-        after_interpretation.evaluation().SerializeAsString(),
+        after_rejections.evaluation().SerializeAsString(),
         saved.evaluation().SerializeAsString());
     service.reset();
     start();
     const auto restored = completed("rpc-evaluation");
-    research::proto::ResearchRequest verdict_read;
-    verdict_read.mutable_project()->mutable_conclusion()->set_id("evaluation-human");
-    EXPECT_EQ(
-        call(verdict_read).project().conclusion().SerializeAsString(),
-        verdict.SerializeAsString());
-
     EXPECT_EQ(restored.evaluation().SerializeAsString(), saved.evaluation().SerializeAsString());
     EXPECT_EQ(restored.result_task().SerializeAsString(), saved.result_task().SerializeAsString());
     EXPECT_EQ(call(launch).task().attempt(), 1U);

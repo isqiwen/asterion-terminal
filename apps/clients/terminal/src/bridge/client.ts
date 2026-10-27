@@ -776,76 +776,9 @@ export type ResearchVariableReply = {
   next_after: string;
   preview?: ResearchVariablePreview;
 };
-export type ResearchProjectDefinition = {
-  title: string;
-  question: string;
-  hypothesis: string;
-  mechanism: string;
-  scope: string;
-  data_needs: string;
-  evaluation: string;
-  support: string;
-  refutation: string;
-  limitations: string;
-  notes: string;
-  sources: string[];
-};
-export type ResearchProjectOwner = { domain: "research"; node_id: string; service_id: string };
-export type ResearchPlanBinding = {
-  project_id: string;
-  plan_id: string;
-  definition_digest: string;
-  owner: ResearchProjectOwner;
-};
-export type ResearchProjectDraft = {
-  id: string;
-  owner: ResearchProjectOwner;
-  definition: ResearchProjectDefinition;
-  digest: string;
-  updated_at_ms: string;
-};
-export type ResearchHypothesisPlan = {
-  id: string;
-  project_id: string;
-  owner: ResearchProjectOwner;
-  definition: ResearchProjectDefinition;
-  definition_digest: string;
-  recorded_at_ms: string;
-  parent_plan_id: string;
-  revision_reason: string;
-  exploratory: boolean;
-};
-export type ResearchConclusionWrite = {
-  id: string;
-  plan: ResearchPlanBinding;
-  result: ResourceObject;
-  judgment: "supported" | "refuted" | "insufficient";
-  reason: string;
-  previous_id: string;
-  revision_reason: string;
-};
-export type ResearchProjectConclusion = {
-  declaration: ResearchConclusionWrite;
-  input_sha256: string;
-  program_artifact: string;
-  retrospective: boolean;
-  recorded_at_ms: string;
-  digest: string;
-};
-export type ResearchProjectReply = {
-  conclusion?: ResearchProjectConclusion;
-  conclusions: ResearchProjectConclusion[];
-  draft?: ResearchProjectDraft;
-  plan?: ResearchHypothesisPlan;
-  drafts: ResearchProjectDraft[];
-  plans: ResearchHypothesisPlan[];
-  next_after: string;
-};
-export type ResearchProjectTasks = { tasks: TaskRecord[]; next_before_sequence: number };
 export type TaskRecord = {
   strategy_use?: ResearchStrategyUse;
   variable_definition?: ResourceObject;
-  research_plan?: ResearchPlanBinding;
   retired?: boolean; // Lifecycle is separate from the execution outcome.
   error_code?: string; // absent when the task has no structured failure observation
   table_refresh?: TableRefreshTarget;
@@ -2440,11 +2373,9 @@ export type MaterialRead = {
   text: string | null;
 };
 export type Snapshot = {
-  research_project?: ResearchProjectReply;
   research_variable?: ResearchVariableReply;
   research_strategy?: ResearchStrategyReply;
   research_logic?: ResearchLogicReply;
-  project_tasks?: ResearchProjectTasks;
   material_sources?: MaterialSource[];
   material_task?: TaskRecord;
   material_read?: MaterialRead;
@@ -2496,7 +2427,6 @@ export type Snapshot = {
   portfolio_budget_review?: PortfolioBudgetReview;
   research_export?: {
     source_version?: string;
-    conclusion_version?: string;
     name: string;
     bytes: number;
     path?: string;

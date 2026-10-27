@@ -2,7 +2,6 @@ syntax = "proto3";
 package asterion.task.proto;
 import "asterion/trading.proto";
 import "asterion/task_state.proto";
-import "asterion/research_project.proto";
 import "asterion/research_variable.proto";
 import "asterion/research_statistics.proto";
 import "asterion/research_evaluation.proto";
@@ -88,7 +87,7 @@ message Task {
   string risk_artifact = 19; // Immutable native risk SHA-256 for backtests.
   // Actual Research executable, fixed separately from reusable data/parameter bytes.
   string program_artifact = 35;
-  asterion.research.proto.ProjectBinding research_plan = 36;
+  reserved 36;
   asterion.research.proto.StrategyUse strategy_use = 40;
   asterion.resource.proto.Object variable_definition = 37;
   string download_authorization = 20;
@@ -149,7 +148,7 @@ message TaskId {
 message TaskExecution {
   string input_sha256 = 1;
   string program_artifact = 10;
-  asterion.research.proto.ProjectBinding research_plan = 11;
+  reserved 11;
   asterion.research.proto.StrategyUse strategy_use = 15;
   asterion.research.proto.VariableDefinition variable_definition = 12;
   asterion.data.proto.DataOwner data_owner = 6;
@@ -200,12 +199,8 @@ message TaskHealth {
   string process_id = 6;
   reserved 7;
 }
-message ProjectTaskPage {
-  repeated Task tasks = 1;
-  uint32 next_before_sequence = 2;
-}
 message TaskResponse {
-  reserved 19;
+  reserved 19, 31, 32;
   uint32 version = 1;
   string service_id = 2;
   string correlation_id = 3;
@@ -228,8 +223,6 @@ message TaskResponse {
     asterion.resource.proto.Catalogue resources = 24;
     asterion.research.proto.AccountReviewResult account_review = 25;
     asterion.data.proto.MaterialReceipt material = 26;
-    asterion.research.proto.ProjectReply project = 31;
-    ProjectTaskPage project_tasks = 32;
     asterion.research.proto.VariableReply variable = 33;
     asterion.research.proto.StatisticsResult statistics = 34;
     asterion.research.proto.SampleResult sample = 35;

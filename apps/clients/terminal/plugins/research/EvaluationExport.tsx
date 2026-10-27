@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { TaskResult, TaskOwnerRef, ResearchProjectConclusion } from "../../src/bridge/client";
+import type { TaskResult, TaskOwnerRef } from "../../src/bridge/client";
 import {
   ErrorNotice,
   asDisplayError,
@@ -14,13 +14,11 @@ type Report = Extract<TaskResult, { kind: "performance_evaluation" }>;
 export function EvaluationExport({
   report,
   owner,
-  conclusion,
   query,
   busy,
 }: {
   report: Report;
   owner: TaskOwnerRef;
-  conclusion?: ResearchProjectConclusion;
 } & Pick<TerminalContext, "query" | "busy">) {
   const [format, setFormat] = useState<"html" | "csv">("html");
   const [confirmed, setConfirmed] = useState(false);
@@ -28,13 +26,7 @@ export function EvaluationExport({
   const [receipt, setReceipt] = useState<{ bytes: number; target: string } | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const epoch = useRef({ value: 0 });
-  const identity = JSON.stringify([
-    owner,
-    report.id,
-    report.task.result_digest,
-    conclusion?.digest,
-    format,
-  ]);
+  const identity = JSON.stringify([owner, report.id, report.task.result_digest, format]);
   useEffect(() => {
     ++epoch.current.value;
     setConfirmed(false);
@@ -61,14 +53,9 @@ export function EvaluationExport({
             owner,
             version: report.task.result_digest,
             format,
-            conclusion_id: conclusion?.declaration.id ?? "",
-            conclusion_version: conclusion?.digest ?? "",
             path,
           });
-          if (
-            reply.research_export?.source_version !== report.task.result_digest ||
-            reply.research_export.conclusion_version !== (conclusion?.digest ?? "")
-          )
+          if (reply.research_export?.source_version !== report.task.result_digest)
             throw new Error(t("评价报告导出确认不匹配"));
           target = reply.research_export.path ?? reply.research_export.name;
           return reply;
@@ -96,17 +83,6 @@ export function EvaluationExport({
           {report.id} / {report.task.result_digest}
         </code>
       </p>
-      {conclusion ? (
-        <p>
-          {t("附加所选固定人工解释，原计算限制不改写")} ·{" "}
-          <code>
-            {conclusion.declaration.id} / {conclusion.digest}
-          </code>{" "}
-          · {conclusion.declaration.reason}
-        </p>
-      ) : (
-        <p>{t("此次不附人工判断；报告保留未人工审阅状态。")}</p>
-      )}
       {report.result.ledger && (
         <p>
           {t("账本导出包含全部原日结、成交及委托身份、金额和未解释差额；页面分页不缩小文件范围。")}
@@ -132,7 +108,7 @@ export function EvaluationExport({
       </label>
       <p>
         {t(
-          "HTML和CSV均保留缺项、失败原因及可选人工解释。请选择新本地文件，已有文件不会覆盖；失败不改变已保存报告。",
+          "HTML和CSV均保留缺项和失败原因。请选择新本地文件，已有文件不会覆盖；失败不改变已保存报告。",
         )}
       </p>
       <label>
@@ -142,7 +118,7 @@ export function EvaluationExport({
           disabled={pending}
           onChange={event => setConfirmed(event.target.checked)}
         />
-        {t("已核对固定报告、人工解释范围及全部限制，明确导出本地文件")}
+        {t("已核对固定报告及全部限制，明确导出本地文件")}
       </label>
       <button disabled={busy || pending || !confirmed} onClick={() => void exportFile()}>
         {t("导出固定评价报告")}

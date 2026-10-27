@@ -53,9 +53,8 @@ research_evidence_document(const nlohmann::json& source, const std::string& inst
                 "Source SHA-256 values identify service-owned Protobuf bytes, not this JSON.",
                 "Descriptions are editable and are not part of calculation identity."}}
     };
-    for (const auto* key : {"strategy_use", "research_plan"})
-        if (task.contains(key))
-            payload[key] = task.at(key);
+    if (task.contains("strategy_use"))
+        payload["strategy_use"] = task.at("strategy_use");
     if (kind == "backtest") {
         payload["performance"] = source.at("performance");
         payload["trades"] = source.at("trades");

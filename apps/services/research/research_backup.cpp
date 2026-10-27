@@ -1,6 +1,5 @@
 #include "research_backup.hpp"
 #include "research_data.hpp"
-#include "project_store.hpp"
 #include "variable_store.hpp"
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
@@ -56,7 +55,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     std::vector<proto::LogicTrialInput> required_logic;
     bool missing_original_program = false;
     std::set<std::string> required_programs;
-    std::vector<proto::ProjectBinding> required_plans;
     std::vector<resource::proto::Object> required_variables;
     std::vector<std::pair<std::string, proto::StrategyUse>> required_strategies;
     const auto depend = [&](resource::proto::Object value) {
@@ -135,18 +133,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             required_strategies.emplace_back(record.task().id(), execution.strategy_use());
             depend(execution.strategy_use().package());
             depend(execution.strategy_use().delivery());
-        }
-        if (record.task().research_plan().SerializeAsString()
-            != execution.research_plan().SerializeAsString())
-            throw Error(ErrorCode::conflict, "research plan differs from its fixed execution");
-        if (execution.has_research_plan()) {
-            required_plans.push_back(execution.research_plan());
-            resource::proto::Object plan;
-            *plan.mutable_owner() = execution.research_plan().owner();
-            plan.set_kind("research_plan");
-            plan.set_id(execution.research_plan().plan_id());
-            plan.set_version(execution.research_plan().definition_digest());
-            depend(std::move(plan));
         }
         if (record.task().has_variable_definition() != execution.has_variable_definition())
             throw Error(ErrorCode::conflict, "research variable differs from its fixed execution");
@@ -461,42 +447,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             || record.task().program_artifact() != fixed.source().program_artifact())
             throw Error(ErrorCode::conflict, "evaluation backup source identity mismatch");
     }
-    Projects::inspect_backup(
-        root,
-        owner,
-        required_plans,
-        [&](const proto::ProjectDraft& draft) {
-            resource::proto::Object object;
-            *object.mutable_owner() = owner;
-            object.set_kind("research_project");
-            object.set_id(draft.id());
-            object.set_version(draft.digest());
-            result.objects.push_back(std::move(object));
-        },
-        [&](const proto::HypothesisPlan& plan) {
-            resource::proto::Object object;
-            *object.mutable_owner() = owner;
-            object.set_kind("research_plan");
-            object.set_id(plan.id());
-            object.set_version(plan.definition_digest());
-            result.objects.push_back(std::move(object));
-        },
-        [&](const proto::ProjectConclusion& conclusion) {
-            resource::proto::Object object;
-            *object.mutable_owner() = owner;
-            object.set_kind("research_conclusion");
-            object.set_id(conclusion.declaration().id());
-            object.set_version(conclusion.digest());
-            result.objects.push_back(std::move(object));
-            depend(conclusion.declaration().result());
-            resource::proto::Object plan;
-            *plan.mutable_owner() = owner;
-            plan.set_kind("research_plan");
-            plan.set_id(conclusion.declaration().plan().plan_id());
-            plan.set_version(conclusion.declaration().plan().definition_digest());
-            depend(std::move(plan));
-        },
-        stop);
     Variables::inspect_backup(
         root,
         owner,

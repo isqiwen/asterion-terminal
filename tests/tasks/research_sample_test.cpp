@@ -1,7 +1,6 @@
 #include "research_sample.hpp"
 #include "research_submission.hpp"
 #include "data_submission.hpp"
-#include "project_store.hpp"
 #include "research_statistics.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
@@ -197,39 +196,13 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         tasks::Store store(asterion::research::task_domain(), folder.path, {"research-one"});
         (void)programs::Files(folder.path / "programs", input.owner())
             .preserve(current_executable(), artifact);
-        research::Projects projects(store, input.owner(), sqlite::Database::Access::writer);
-        research::proto::ProjectMutation save;
-        save.set_id("save-sample-question");
-        save.mutable_save()->set_project_id("sample-question");
-        save.mutable_save()->mutable_definition()->set_title("Synthetic raw price question");
-        save.mutable_save()->mutable_definition()->set_question(
-            "What distribution is observed, without claiming historical availability?");
-        save.mutable_save()->mutable_definition()->set_hypothesis(
-            "Describe observed variation; predictive validity remains untested");
-        const auto draft = projects.apply(save).draft();
-        research::proto::ProjectMutation fix;
-        fix.set_id("fix-sample-plan");
-        fix.mutable_fix()->set_project_id(draft.id());
-        fix.mutable_fix()->set_plan_id("sample-plan");
-        fix.mutable_fix()->set_expected_draft_digest(draft.digest());
-        const auto plan = projects.apply(fix).plan();
-        research::proto::ProjectBinding binding;
-        *binding.mutable_owner() = input.owner();
-        binding.set_project_id(plan.project_id());
-        binding.set_plan_id(plan.id());
-        binding.set_definition_digest(plan.definition_digest());
-        projects.verify_binding(binding);
         auto submission = task_submission(store, "raw-sample", input);
-        asterion::tasks::set_research_plan(store, submission, binding);
         asterion::tasks::set_program_artifact(submission, artifact);
         const auto admitted = tasks::submit(store, std::move(submission));
         EXPECT_EQ(admitted.kind(), task::proto::SAMPLE);
         auto read = store.prepare_input("raw-sample");
         read.load_for_claim();
         ASSERT_TRUE(read.execution().has_sample());
-        EXPECT_EQ(
-            read.execution().research_plan().SerializeAsString(),
-            binding.SerializeAsString());
         EXPECT_LT(read.execution().ByteSizeLong(), input.ByteSizeLong());
         const auto references = protocol::task_data_references(read.execution());
         EXPECT_EQ(references.minutes, std::vector<std::string>{std::string(64, 'a')});
@@ -267,7 +240,6 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
             fs::file_size(folder.path / "raw-sample/input.pb"));
         auto statistics = task_submission(store, "raw-statistics", captured);
         asterion::tasks::set_program_artifact(statistics, artifact);
-        asterion::tasks::set_research_plan(store, statistics, binding);
         tasks::submit(store, std::move(statistics));
         EXPECT_EQ(store.retirement("raw-sample", "fixture-node").consumers_size(), 1);
         const auto statistics_token = store.commit(store.claim("raw-statistics")).token();
@@ -293,7 +265,6 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         asterion::tasks::set_program_artifact(grouped_submission, artifact);
         const auto grouped_task = tasks::submit(store, std::move(grouped_submission));
         EXPECT_EQ(grouped_task.total(), 24U);
-        EXPECT_FALSE(grouped_task.has_research_plan()); // Never inherit the source's plan.
         const auto grouped_token = store.commit(store.claim("raw-day-groups")).token();
         task::proto::TaskFinish grouped_finish;
         grouped_finish.set_id("raw-day-groups");
@@ -334,39 +305,6 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
         EXPECT_THROW(
             protocol::validate_statistics_result(grouped_input, wrong_group),
             std::invalid_argument);
-        EXPECT_EQ(
-            asterion::research::project_tasks(store, plan.project_id(), 10, 0).tasks_size(),
-            2);
-        for (const auto* formal : {&original, &original_statistics}) {
-            research::proto::ProjectMutation conclude;
-            conclude.set_id("conclude-" + formal->result_task().id());
-            auto& declaration = *conclude.mutable_conclude();
-            declaration.set_id("human-" + formal->result_task().id());
-            *declaration.mutable_plan() = binding;
-            *declaration.mutable_result()->mutable_owner() = input.owner();
-            declaration.mutable_result()->set_kind(
-                formal->has_sample() ? "sample_result" : "statistics_result");
-            declaration.mutable_result()->set_id(formal->result_task().id());
-            declaration.mutable_result()->set_version(formal->result_task().result_digest());
-            declaration.set_judgment(research::proto::INSUFFICIENT);
-            declaration.set_reason(
-                "Synthetic post-hoc description is not a predictive hypothesis test");
-            const auto human = projects.apply(conclude).conclusion();
-            EXPECT_FALSE(human.retrospective());
-            EXPECT_EQ(
-                human.input_sha256(),
-                sha256_file(folder.path / formal->result_task().id() / "input.pb"));
-            EXPECT_EQ(human.program_artifact(), artifact);
-            EXPECT_EQ(
-                projects.apply(conclude).conclusion().SerializeAsString(),
-                human.SerializeAsString());
-            auto wrong = conclude;
-            wrong.set_id("wrong-" + formal->result_task().id());
-            wrong.mutable_conclude()->set_id("wrong-human-" + formal->result_task().id());
-            wrong.mutable_conclude()->mutable_result()->set_kind(
-                formal->has_sample() ? "statistics_result" : "sample_result");
-            EXPECT_THROW(projects.apply(wrong), Error);
-        }
     }
     tasks::Store restored(asterion::research::task_domain(), folder.path, {"research-one"});
     EXPECT_EQ(
@@ -378,10 +316,6 @@ TEST(ResearchSample, PersistentSampleOwnsFormalRowsAndExactDataReferencesAcrossR
     EXPECT_EQ(
         tasks::verified_result(restored, "raw-day-groups").SerializeAsString(),
         original_grouped.SerializeAsString());
-    research::Projects projects(restored, input.owner());
-    EXPECT_EQ(projects.conclusions("sample-question", "", 10).size(), 2U);
-    EXPECT_EQ(restored.describe("raw-sample").research_plan().plan_id(), "sample-plan");
-    EXPECT_EQ(restored.describe("raw-statistics").research_plan().plan_id(), "sample-plan");
     EXPECT_EQ(
         protocol::decode_task_result(original, "raw-sample")
             .at("result")

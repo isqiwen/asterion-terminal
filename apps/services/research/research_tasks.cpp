@@ -8,7 +8,6 @@
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/research_strategy.hpp>
@@ -84,20 +83,11 @@ constexpr std::array<tasks::KindSpec, 7> research_kinds{{
 
 // Program files live beside the tasks.
 constexpr std::array<std::string_view, 1> research_directories{"programs"};
-constexpr std::array<tasks::ManifestIndex, 1> research_indexes{
-    {{"tasks_research_project", "$.research_plan.project_id"}}
-};
 
 // Kinds that execute a fixed Research program, named in their manifest.
 bool runs_program(wire::TaskKind kind)
 {
     return kind != wire::ACCOUNT_REVIEW;
-}
-
-bool plans(wire::TaskKind kind)
-{
-    return kind == wire::FACTOR || kind == wire::SAMPLE || kind == wire::STATISTICS
-        || kind == wire::BACKTEST;
 }
 
 // How a list names a dominant series: the product by the first and last month
@@ -269,11 +259,6 @@ public:
         return research_directories;
     }
 
-    std::span<const tasks::ManifestIndex> indexes() const override
-    {
-        return research_indexes;
-    }
-
     void describe(wire::Task& task) const override
     {
         switch (task.kind()) {
@@ -349,8 +334,6 @@ public:
         manifest["risk_artifact"] = task.risk_artifact();
         if (runs_program(task.kind()))
             manifest["program_artifact"] = task.program_artifact();
-        if (task.has_research_plan())
-            manifest["research_plan"] = protocol::decode_project_binding(task.research_plan());
         if (task.has_strategy_use())
             manifest["strategy_use"] = protocol::decode_strategy_use(task.strategy_use());
         if (task.has_variable_definition())
@@ -364,7 +347,6 @@ public:
         const std::string& instance) const override
     {
         auto fields = manifest;
-        fields.erase("research_plan");
         fields.erase("strategy_use");
         fields.erase("variable_definition");
         if (runs_program(task.kind()))
@@ -379,12 +361,6 @@ public:
                 || task.kind() == wire::PERFORMANCE_EVALUATION || task.kind() == wire::SAMPLE
                 || task.kind() == wire::LOGIC_TRIAL)
                 validate_digest(task.program_artifact());
-        }
-        if (manifest.contains("research_plan")) {
-            *task.mutable_research_plan() =
-                protocol::encode_project_binding(manifest.at("research_plan"));
-            if (!plans(task.kind()) || task.research_plan().owner().service_id() != instance)
-                throw std::invalid_argument("invalid fixed research plan owner or task kind");
         }
         if (manifest.contains("strategy_use")) {
             *task.mutable_strategy_use() =
@@ -418,8 +394,6 @@ public:
     void admitted_execution(const wire::Task& task, wire::TaskExecution& execution) const override
     {
         execution.set_program_artifact(task.program_artifact());
-        if (task.has_research_plan())
-            *execution.mutable_research_plan() = task.research_plan();
         if (task.has_strategy_use())
             *execution.mutable_strategy_use() = task.strategy_use();
     }
@@ -430,9 +404,6 @@ public:
     {
         const auto& record = value.record();
         const auto& task = record.task();
-        if (task.research_plan().SerializeAsString()
-            != value.execution().research_plan().SerializeAsString())
-            throw std::invalid_argument("task preparation research plan mismatch");
         if (task.strategy_use().SerializeAsString()
             != value.execution().strategy_use().SerializeAsString())
             throw std::invalid_argument("task preparation strategy use mismatch");
@@ -441,11 +412,6 @@ public:
             if (task.kind() != wire::BACKTEST
                 || task.strategy_use().package().owner().service_id() != instance)
                 throw std::invalid_argument("invalid fixed strategy use owner or task kind");
-        }
-        if (task.has_research_plan()) {
-            protocol::validate_project_binding(task.research_plan());
-            if (!plans(task.kind()) || task.research_plan().owner().service_id() != instance)
-                throw std::invalid_argument("invalid fixed research plan owner or task kind");
         }
         if (task.has_variable_definition() != value.execution().has_variable_definition())
             throw std::invalid_argument("task preparation research variable mismatch");
@@ -490,9 +456,6 @@ public:
             && task.variable_definition().owner().service_id() != admission.instance)
             throw std::invalid_argument("invalid fixed research variable owner or task kind");
         if (const auto* existing = admission.existing) {
-            if (task.research_plan().SerializeAsString()
-                != existing->task().research_plan().SerializeAsString())
-                throw Error(ErrorCode::conflict, "task research plan changed");
             if (task.strategy_use().SerializeAsString()
                 != existing->task().strategy_use().SerializeAsString())
                 throw Error(ErrorCode::conflict, "task strategy use changed");
@@ -528,9 +491,7 @@ public:
 
     bool same_submission(const wire::Task& admitted, const wire::Task& submitted) const override
     {
-        return admitted.research_plan().SerializeAsString()
-            == submitted.research_plan().SerializeAsString()
-            && admitted.strategy_use().SerializeAsString()
+        return admitted.strategy_use().SerializeAsString()
             == submitted.strategy_use().SerializeAsString();
     }
 
@@ -686,20 +647,6 @@ resource::proto::Catalogue task_resources(
         }
         return true;
     });
-    return result;
-}
-
-wire::ProjectTaskPage project_tasks(
-    const tasks::Store& store,
-    const std::string& project,
-    unsigned limit,
-    unsigned before)
-{
-    validate_id(project);
-    auto page = store.list_indexed("tasks_research_project", project, limit, before);
-    wire::ProjectTaskPage result;
-    result.mutable_tasks()->Swap(page.mutable_tasks());
-    result.set_next_before_sequence(page.next_before_sequence());
     return result;
 }
 

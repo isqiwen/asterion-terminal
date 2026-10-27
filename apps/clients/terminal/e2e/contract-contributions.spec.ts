@@ -199,7 +199,7 @@ test("original multi-contract contributions keep real fills, account residual an
         .getByRole("combobox", { name: "固定评价导出格式", exact: true })
         .selectOption({ value: format });
       await output
-        .getByLabel("已核对固定报告、人工解释范围及全部限制，明确导出本地文件", { exact: true })
+        .getByLabel("已核对固定报告及全部限制，明确导出本地文件", { exact: true })
         .check();
       const downloading = page.waitForEvent("download");
       await output.getByRole("button", { name: "导出固定评价报告", exact: true }).click();
@@ -251,8 +251,6 @@ test("original multi-contract contributions keep real fills, account residual an
         },
         version: report.task.result_digest,
         format,
-        conclusion_id: "",
-        conclusion_version: "",
         path,
       };
       const receipt = (await rpc(page.request, "evaluation.report.export", parameters))

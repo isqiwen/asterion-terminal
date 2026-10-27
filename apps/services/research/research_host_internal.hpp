@@ -3,7 +3,6 @@
 #include <asterion/research.pb.h>
 #include "research_host.hpp"
 #include "research_submission.hpp"
-#include "project_store.hpp"
 #include "variable_store.hpp"
 #include "logic_store.hpp"
 #include "strategy_store.hpp"
@@ -89,9 +88,6 @@ inline void check_submission_shape(const research::proto::ResearchSubmit& submit
 {
     if (submit.has_strategy_use() && !submit.has_backtest_reuse() && !submit.has_backtest())
         throw std::invalid_argument("strategy delivery requires explicit backtest admission");
-    if (submit.has_research_plan() && !submit.has_factor_request() && !submit.has_sample()
-        && !submit.has_statistics() && !submit.has_backtest())
-        throw std::invalid_argument("research plan task kind is unsupported");
 }
 
 inline void check_retry(const wire::Task& task)
@@ -113,9 +109,8 @@ inline void check_retry(const wire::Task& task)
 // Requests that change durable state are refused once an upgrade asked to quiesce.
 inline bool changes_state(const research::proto::ResearchRequest& request)
 {
-    return (request.has_project() && request.project().has_mutation()) || request.has_submit()
-        || request.has_metadata_edit() || request.has_retry() || request.has_recover_submission()
-        || request.has_abandon_preparation()
+    return request.has_submit() || request.has_metadata_edit() || request.has_retry()
+        || request.has_recover_submission() || request.has_abandon_preparation()
         || (request.has_retirement() && request.retirement().execute());
 }
 

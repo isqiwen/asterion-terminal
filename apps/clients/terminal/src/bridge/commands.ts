@@ -8,8 +8,6 @@ import type {
   EvaluationRequest,
   ResearchSampleEvaluation,
   ResearchSampleInput,
-  ResearchProjectDefinition,
-  ResearchPlanBinding,
   MarketObservation,
   TradingFacts,
   MaterialRequest,
@@ -144,31 +142,6 @@ export type CommandParams = {
     id: string;
     registration: { id: string; name: string; purpose: string; expression: string; window: number };
   };
-  "research.conclusion.read": { id: string };
-  "research.conclusion.list": { project_id: string; after: string; limit: number };
-  "research.conclusion.append": {
-    id: string;
-    declaration: import("./client").ResearchConclusionWrite;
-  };
-  "research.project.list": { after: string; limit: number };
-  "research.project.read": { id: string };
-  "research.project.save": {
-    id: string;
-    project_id: string;
-    expected_digest: string;
-    definition: ResearchProjectDefinition;
-  };
-  "research.plan.list": { project_id: string; after: string; limit: number };
-  "research.plan.read": { id: string };
-  "research.plan.fix": {
-    id: string;
-    project_id: string;
-    plan_id: string;
-    expected_draft_digest: string;
-    parent_plan_id: string;
-    revision_reason: string;
-  };
-  "research.project.tasks": { project_id: string; before_sequence: number; limit: number };
   "resource.catalogue": {
     domain: "data" | "research";
     kind: string;
@@ -218,13 +191,11 @@ export type CommandParams = {
     use_scope: string;
     mode: "post_hoc";
     evaluation: ResearchSampleEvaluation;
-    research_plan?: ResearchPlanBinding;
   };
   "evaluation.submit": EvaluationRequest & { id: string; owner: TaskOwnerRef };
   "statistics.submit": StatisticsRequest & {
     id: string;
     owner: TaskOwnerRef;
-    research_plan?: ResearchPlanBinding;
   };
   "node.research.local.open": Record<string, never>;
   "node.data.local.open": Record<string, never>;
@@ -242,7 +213,6 @@ export type CommandParams = {
     settlement_margins?: SettlementMargin[];
     margin_snapshot?: string;
     strategy_use?: ResearchStrategyUse;
-    research_plan?: ResearchPlanBinding;
   };
   "backtest.reuse": ReuseParameters & {
     source_input_sha256: string;
@@ -265,7 +235,6 @@ export type CommandParams = {
   };
   "factor.submit": {
     id: string;
-    research_plan?: ResearchPlanBinding;
     variable_definition?: import("./client").ResourceObject;
     retain_observations?: boolean;
     series:
@@ -401,8 +370,6 @@ export type CommandParams = {
     owner: TaskOwnerRef;
     version: string;
     format: "html" | "csv";
-    conclusion_id: string;
-    conclusion_version: string;
     path: string;
   };
   "task.evidence.export": { id: string; path: string };

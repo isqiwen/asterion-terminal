@@ -209,8 +209,6 @@ PolledTask<> ResearchHost::resources_operation(Call& call)
         co_return co_await logic_operation(call);
     if (kind == "research_variable")
         co_return co_await variable_operation(call);
-    if (kind == "research_project" || kind == "research_plan" || kind == "research_conclusion")
-        co_return co_await project_operation(call);
     const auto node = configuration_.node_id;
     co_await ready(call);
     call.input_in_time();
@@ -327,9 +325,6 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
         preparation.emplace(input_slots_.acquire(false, request.correlation_id()));
     using Operation = research::proto::ResearchRequest::OperationCase;
     switch (request.operation_case()) {
-        case Operation::kProject:
-            co_await project_operation(call);
-            break;
         case Operation::kVariable:
             co_await variable_operation(call);
             break;
@@ -339,16 +334,6 @@ PolledTask<> ResearchHost::handle(Call& call, std::string frame)
         case Operation::kStrategy:
             co_await strategy_operation(call);
             break;
-        case Operation::kProjectTasks: {
-            co_await wait_for_store({}, call.deadline);
-            const auto& query = request.project_tasks();
-            *response.mutable_project_tasks() = research::project_tasks(
-                *storage_,
-                query.project_id(),
-                query.limit(),
-                query.before_sequence());
-            break;
-        }
         case Operation::kReleaseDecision:
             release_decision(call);
             break;

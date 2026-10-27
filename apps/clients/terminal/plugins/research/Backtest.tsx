@@ -25,7 +25,6 @@ import {
   performanceOf,
 } from "./BacktestSettings";
 import { PortfolioPolicyEditor } from "./PortfolioPolicy";
-import { ResearchPlanPicker, usePlanBinding } from "./ResearchPlan";
 import { ResearchPage, selectedSeries, t, TaskRecords, useRun } from "./shared";
 import { DeliveryNotice, useStrategyDelivery } from "./StrategyDelivery";
 
@@ -64,14 +63,6 @@ export function Backtest({
       setView("result");
     }
   }
-  const { plan, setPlan, setPlanReady, researchReady } = usePlanBinding(
-    taskService?.connection_id,
-    workspaceParams,
-    () => {
-      setView("configure");
-      setStep(0);
-    },
-  );
   const datasets = snapshot?.datasets ?? [];
   const requestedDelivery =
     workspacePage === "backtest" ? workspaceParams?.strategy_delivery_id : "";
@@ -227,7 +218,6 @@ export function Backtest({
       marginChoice,
       datasets.map(item => item.revision),
       binding?.delivery.object.version,
-      plan,
     ]),
   );
   async function submit(event: React.FormEvent) {
@@ -236,7 +226,7 @@ export function Backtest({
       setStep(0);
       return;
     }
-    if (!researchReady || !performanceReady || !portfolioReady) {
+    if (!performanceReady || !portfolioReady) {
       setStep(1);
       return;
     }
@@ -266,7 +256,6 @@ export function Backtest({
         ...(binding
           ? { strategy_use: { package: binding.package.object, delivery: binding.delivery.object } }
           : {}),
-        ...(plan ? { research_plan: plan } : {}),
       };
       if (await run("backtest.submit", payload)) {
         setSubmitted(id);
@@ -364,20 +353,10 @@ export function Backtest({
             </p>
             <form hidden={step !== 1} onSubmit={event => void submit(event)}>
               <fieldset disabled={busy || !dataReady || step !== 1}>
-                {/* Research plans and fixed-weight portfolios are optional; the
-                    rule and its windows come first. */}
-                <details className="backtest-options" open={Boolean(plan) || portfolioMode}>
-                  <summary>{t("更多选项：研究计划、固定权重组合")}</summary>
-                  <ResearchPlanPicker
-                    snapshot={snapshot}
-                    query={query}
-                    binding={plan}
-                    onChange={setPlan}
-                    onReady={setPlanReady}
-                  />
-                  <p className="subtle">
-                    {t("研究计划记录原问题与判断标准，不替代时间划分或证明未提前见过样本。")}
-                  </p>
+                {/* A fixed-weight portfolio is optional; the rule and its windows
+                    come first. */}
+                <details className="backtest-options" open={portfolioMode}>
+                  <summary>{t("更多选项：固定权重组合")}</summary>
                   <fieldset disabled={Boolean(binding)}>
                     <PortfolioPolicyEditor
                       draft={portfolioEditorDraft}
@@ -468,7 +447,6 @@ export function Backtest({
                       !taskService?.online ||
                       !snapshot?.data?.online ||
                       !datasets.length ||
-                      !researchReady ||
                       !performanceReady ||
                       !portfolioReady ||
                       candidates.length < 1 ||
@@ -515,7 +493,6 @@ export function Backtest({
                       !taskService?.online ||
                       !snapshot?.data?.online ||
                       !dataReady ||
-                      !researchReady ||
                       !performanceReady ||
                       !portfolioReady ||
                       invalidSettlementScope

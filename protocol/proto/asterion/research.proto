@@ -1,7 +1,6 @@
 syntax = "proto3";
 package asterion.research.proto;
 import "asterion/task.proto";
-import "asterion/research_project.proto";
 import "asterion/research_variable.proto";
 import "asterion/research_statistics.proto";
 import "asterion/research_evaluation.proto";
@@ -16,7 +15,7 @@ import "asterion/backtest.proto";
 import "asterion/factor.proto";
 import "asterion/account_review.proto";
 message ResearchSubmit {
-  ProjectBinding research_plan = 11;
+  reserved 11;
   StrategyUse strategy_use = 14;
   string id = 1;
   asterion.data.proto.DataOwner data_owner = 7;
@@ -33,18 +32,12 @@ message ResearchSubmit {
     EvaluationRequest evaluation = 18;
   }
 }
-message ProjectTaskQuery {
-  string project_id = 1;
-  uint32 limit = 2;
-  uint32 before_sequence = 3;
-}
 message ResearchRequest {
   uint32 version = 1;
   string service_id = 2;
   string correlation_id = 3;
+  reserved 34, 35;
   oneof operation {
-    ProjectRequest project = 34;
-    ProjectTaskQuery project_tasks = 35;
     VariableRequest variable = 36;
     StrategyRequest strategy = 37;
     LogicRequest logic = 38;

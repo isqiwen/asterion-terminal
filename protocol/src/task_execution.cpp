@@ -1,6 +1,5 @@
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>
@@ -33,10 +32,6 @@ task_execution(const task::proto::Task& task, const std::string& input_sha256)
     task::proto::TaskExecution result;
     result.set_input_sha256(input_sha256);
     result.set_program_artifact(task.program_artifact());
-    if (task.has_research_plan()) {
-        validate_project_binding(task.research_plan());
-        *result.mutable_research_plan() = task.research_plan();
-    }
     if (task.has_strategy_use()) {
         validate_strategy_use(task.strategy_use());
         if (!task.has_input())
@@ -155,8 +150,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
             || execution.program_artifact().find_first_not_of("0123456789abcdef")
                 != std::string::npos))
         throw std::invalid_argument("invalid fixed calculation program identity");
-    if (execution.has_research_plan())
-        validate_project_binding(execution.research_plan());
     if (execution.has_strategy_use()) {
         validate_strategy_use(execution.strategy_use());
         if (!execution.has_backtest())
@@ -207,15 +200,14 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
     } else if (execution.has_logic_trial()) {
         validate_logic_trial_input(execution.logic_trial());
         if (execution.has_data_owner() || !execution.schedules().empty()
-            || execution.has_historical_margins() || execution.has_research_plan()
-            || execution.has_strategy_use() || execution.has_variable_definition())
+            || execution.has_historical_margins() || execution.has_strategy_use()
+            || execution.has_variable_definition())
             throw std::invalid_argument("logic trial execution contains unrelated parameters");
     } else if (execution.has_evaluation()) {
         validate_evaluation_input(execution.evaluation());
         if (execution.program_artifact().empty() || execution.has_data_owner()
             || !execution.schedules().empty() || execution.has_historical_margins()
-            || execution.has_research_plan() || execution.has_strategy_use()
-            || execution.has_variable_definition())
+            || execution.has_strategy_use() || execution.has_variable_definition())
             throw std::invalid_argument(
                 "evaluation execution contains unrelated or missing parameters");
     } else if (execution.has_statistics()) {

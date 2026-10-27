@@ -59,7 +59,7 @@ flowchart TB
 | `asterion_node_agent` | 每个节点：服务部署、启停、健康探测、有限重启、资源观察、程序升级 |
 | `asterion_market` | CTP 实时行情、合约目录、事件流、当日分钟线 |
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
-| `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估、账户复核）及研究项目、变量、逻辑、策略包 |
+| `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估、账户复核）及研究变量、逻辑、策略包 |
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |
 
 - 本机使用 Unix Socket，远程使用 TCP + 双向 TLS，消息均为 `protocol/proto/asterion/` 中的 Protobuf。

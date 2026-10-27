@@ -1,7 +1,6 @@
 #include <asterion/research.pb.h>
 #include "research_client.hpp"
 #include <asterion/protocol/resource.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_logic.hpp>
@@ -452,8 +451,6 @@ decode_task_response(const research::proto::ResearchRequest& request, const std:
     if (request.has_logic()               ? !response.has_logic()
             : request.has_strategy()      ? !response.has_strategy()
             : request.has_variable()      ? !response.has_variable()
-            : request.has_project()       ? !response.has_project()
-            : request.has_project_tasks() ? !response.has_project_tasks()
             : request.has_resources()     ? !response.has_resources()
             : request.has_retirement()    ? !response.has_retirement()
             : request.has_history_usage() ? !response.has_history_usage()
@@ -589,12 +586,10 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
         identify(request);
         std::chrono::milliseconds timeout = request.has_result() || request.has_strategy()
             ? protocol::task_verification_timeout + 5s
-            : request.has_project() || request.has_project_tasks() || request.has_variable()
-                || request.has_logic()
-            ? 10s
-            : request.has_resources()  ? 30s
-            : request.has_retirement() ? 15s
-            : request.has_get()        ? protocol::task_input_timeout + 5s
+            : request.has_variable() || request.has_logic() ? 10s
+            : request.has_resources()                       ? 30s
+            : request.has_retirement()                      ? 15s
+            : request.has_get()                             ? protocol::task_input_timeout + 5s
             : request.has_history_usage() || request.has_submit() ? 60s
                                                                   : 5s;
         if (deadline) {
@@ -607,8 +602,8 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
         }
         const auto lane = request.has_result() || request.has_get() || request.has_metadata_get()
                 || request.has_history_usage() || request.has_retirement()
-                || request.has_resources() || request.has_project() || request.has_project_tasks()
-                || request.has_strategy() || request.has_variable() || request.has_logic()
+                || request.has_resources() || request.has_strategy() || request.has_variable()
+                || request.has_logic()
             ? Lane::read
             : Lane::control;
         const auto send_timeout = request.has_submit() || request.has_history_usage() ? 30s : 5s;
@@ -667,46 +662,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                     response.variable(),
                     request.variable(),
                     owner);
-            }
-            if (request.has_project()) {
-                if (response.has_result_task())
-                    throw Error(ErrorCode::unavailable, "invalid research project response");
-                resource::proto::Owner owner;
-                owner.set_node_id(node);
-                owner.set_service_id(request.service_id());
-                owner.set_domain("research");
-                return protocol::decode_project_reply(response.project(), request.project(), owner);
-            }
-            if (request.has_project_tasks()) {
-                const auto& page = response.project_tasks();
-                const auto& query = request.project_tasks();
-                if (response.has_result_task()
-                    || page.tasks_size() > static_cast<int>(query.limit())
-                    || (page.next_before_sequence()
-                        && (page.tasks().empty()
-                            || page.next_before_sequence() != page.tasks(0).submission_sequence())))
-                    throw Error(ErrorCode::unavailable, "invalid research project response");
-                Json rows = Json::array();
-                unsigned previous = 0;
-                for (const auto& task : page.tasks()) {
-                    if (task.submission_sequence() <= previous
-                        || (query.before_sequence()
-                            && task.submission_sequence() >= query.before_sequence())
-                        || (task.kind() != wire::FACTOR && task.kind() != wire::SAMPLE
-                            && task.kind() != wire::STATISTICS && task.kind() != wire::BACKTEST)
-                        || !task.has_research_plan()
-                        || task.research_plan().owner().domain() != "research"
-                        || task.research_plan().project_id() != query.project_id()
-                        || task.research_plan().owner().node_id() != node
-                        || task.research_plan().owner().service_id() != request.service_id())
-                        throw Error(ErrorCode::unavailable, "invalid research project response");
-                    previous = task.submission_sequence();
-                    rows.push_back(protocol::decode_task(task));
-                }
-                return Json{
-                    {"tasks", std::move(rows)},
-                    {"next_before_sequence", page.next_before_sequence()}
-                };
             }
             if (request.has_resources()) {
                 resource::proto::Owner owner;
@@ -926,8 +881,7 @@ std::future<void> ResearchClient::submit(
     const std::string& id,
     const asterion::backtest::proto::BacktestRequest& input,
     const data::proto::DataOwner& owner,
-    const research::proto::StrategyUse& use,
-    const research::proto::ProjectBinding& plan)
+    const research::proto::StrategyUse& use)
 {
     research::proto::ResearchRequest request;
     request.mutable_submit()->set_id(id);
@@ -935,8 +889,6 @@ std::future<void> ResearchClient::submit(
     *request.mutable_submit()->mutable_data_owner() = owner;
     if (!use.package().id().empty())
         *request.mutable_submit()->mutable_strategy_use() = use;
-    if (!plan.plan_id().empty())
-        *request.mutable_submit()->mutable_research_plan() = plan;
     return impl_->mutate(std::move(request));
 }
 
@@ -944,15 +896,12 @@ std::future<void> ResearchClient::submit(
     const std::string& id,
     const asterion::factor::proto::FactorRequest& input,
     const data::proto::DataOwner& owner,
-    const wire::TaskDerivation& source,
-    const research::proto::ProjectBinding& plan)
+    const wire::TaskDerivation& source)
 {
     research::proto::ResearchRequest request;
     request.mutable_submit()->set_id(id);
     *request.mutable_submit()->mutable_factor_request() = input;
     *request.mutable_submit()->mutable_data_owner() = owner;
-    if (!plan.plan_id().empty())
-        *request.mutable_submit()->mutable_research_plan() = plan;
     if (!source.source_id().empty())
         *request.mutable_submit()->mutable_derivation() = source;
     return impl_->mutate(std::move(request));
@@ -961,14 +910,11 @@ std::future<void> ResearchClient::submit(
 std::future<void> ResearchClient::submit(
     const std::string& id,
     const research::proto::SampleRequest& input,
-    const data::proto::DataOwner& source,
-    const research::proto::ProjectBinding& plan)
+    const data::proto::DataOwner& source)
 {
     research::proto::ResearchRequest request;
     request.mutable_submit()->set_id(id);
     *request.mutable_submit()->mutable_sample() = input;
-    if (!plan.plan_id().empty())
-        *request.mutable_submit()->mutable_research_plan() = plan;
     *request.mutable_submit()->mutable_data_owner() = source;
     return impl_->mutate(std::move(request));
 }
@@ -982,16 +928,12 @@ ResearchClient::submit(const std::string& id, const research::proto::EvaluationR
     return impl_->mutate(std::move(request));
 }
 
-std::future<void> ResearchClient::submit(
-    const std::string& id,
-    const research::proto::StatisticsRequest& input,
-    const research::proto::ProjectBinding& plan)
+std::future<void>
+ResearchClient::submit(const std::string& id, const research::proto::StatisticsRequest& input)
 {
     research::proto::ResearchRequest request;
     request.mutable_submit()->set_id(id);
     *request.mutable_submit()->mutable_statistics() = input;
-    if (!plan.plan_id().empty())
-        *request.mutable_submit()->mutable_research_plan() = plan;
     return impl_->mutate(std::move(request));
 }
 
@@ -1089,16 +1031,6 @@ std::future<Json> ResearchClient::inspect_history_usage(
         });
 }
 
-std::future<Json> ResearchClient::project(const research::proto::ProjectRequest& query)
-{
-    research::proto::ResearchRequest request;
-    *request.mutable_project() = query;
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
-            return state->read(std::move(request), stop);
-        });
-}
-
 std::future<Json> ResearchClient::logic(const research::proto::LogicRequest& query)
 {
     research::proto::ResearchRequest request;
@@ -1132,16 +1064,6 @@ std::future<Json> ResearchClient::variable(const research::proto::VariableReques
 {
     research::proto::ResearchRequest request;
     *request.mutable_variable() = query;
-    return impl_->io.submit<Json>(
-        [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
-            return state->read(std::move(request), stop);
-        });
-}
-
-std::future<Json> ResearchClient::project_tasks(const research::proto::ProjectTaskQuery& query)
-{
-    research::proto::ResearchRequest request;
-    *request.mutable_project_tasks() = query;
     return impl_->io.submit<Json>(
         [state = impl_, request = std::move(request)](std::stop_token stop) mutable {
             return state->read(std::move(request), stop);

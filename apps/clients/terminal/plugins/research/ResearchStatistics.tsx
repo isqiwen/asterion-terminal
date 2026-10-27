@@ -1,5 +1,3 @@
-import { ResearchPlanPicker, ResearchPlanEvidence } from "./ResearchPlan";
-import type { ResearchPlanBinding } from "../../src/bridge/client";
 import { useState } from "react";
 import {
   taskOwner,
@@ -24,7 +22,6 @@ type Source = {
   program: string;
 };
 type Draft = {
-  plan: ResearchPlanBinding | null;
   source: Source | null;
   purpose: string;
   column: StatisticsRequest["column"];
@@ -39,7 +36,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
   const service = snapshot?.research_service;
   const destination = JSON.stringify([service?.node_id, service?.service]);
   const [draft, setDraft] = useWorkspaceDraft<Draft>(`statistics-draft:${destination}`, {
-    plan: null,
     source: null,
     purpose: "",
     column: "feature",
@@ -54,7 +50,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
     JSON.stringify(draft),
   );
   const [loading, setLoading] = useState(false);
-  const [planReady, setPlanReady] = useState(false);
   const [bin, setBin] = useState<number | null>(null);
   const [day, setDay] = useState("");
   const [page, setPage] = useState(0);
@@ -67,7 +62,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
   const locked = blocked || operation !== null;
   const integer = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
   const valid =
-    planReady &&
     draft.source &&
     draft.purpose.trim() &&
     integer(draft.begin) &&
@@ -161,7 +155,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
       await run("statistics.submit", {
         id,
         owner: taskOwner(service, "research"),
-        ...(draft.plan ? { research_plan: draft.plan } : {}),
         source: draft.source.object,
         use_scope: draft.purpose,
         column: draft.column,
@@ -197,13 +190,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
         {t("读取固定研究样本或原因子证据；不重算因子，不用未来标签筛选同期特征，不探索留出区间。")}
       </p>
       <fieldset disabled={locked}>
-        <ResearchPlanPicker
-          snapshot={snapshot}
-          query={query}
-          binding={draft.plan}
-          onChange={plan => setDraft({ ...draft, plan })}
-          onReady={setPlanReady}
-        />
         <label>
           {t("来源研究结果")}
           <select
@@ -349,7 +335,6 @@ export function ResearchStatistics({ snapshot, query, trade, busy }: TerminalCon
       {report && summary && (
         <section aria-label={t("正式统计报告")}>
           <h3>{t("正式统计报告")}</h3>
-          <ResearchPlanEvidence binding={report.task.research_plan} query={query} />
           {report.result.source.kind === "sample_result" && (
             <p>{t("事后探索；历史可得时间未知，完整历史覆盖未获证明。")}</p>
           )}

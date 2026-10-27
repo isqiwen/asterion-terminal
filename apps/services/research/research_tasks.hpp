@@ -12,7 +12,5 @@ resource::proto::Catalogue task_resources(
     const std::string& node,
     const resource::proto::CatalogueQuery&);
 // The tasks bound to one research project's plan, newest last.
-task::proto::ProjectTaskPage
-project_tasks(const tasks::Store&, const std::string& project, unsigned limit, unsigned before);
 
 } // namespace asterion::research

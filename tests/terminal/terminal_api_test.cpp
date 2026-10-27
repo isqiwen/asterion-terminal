@@ -223,13 +223,6 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
     fixed_delivery["id"] = "portfolio-delivery";
     fixed_delivery["version"] = std::string(64, 'd');
     backtest["task"]["strategy_use"] = {{"package", fixed_package}, {"delivery", fixed_delivery}};
-    backtest["task"]["research_plan"] = {
-        {"project_id", "original-project"},
-        {"plan_id", "original-plan"},
-        {"definition_digest", std::string(64, 'e')},
-        {"owner",
-            {{"domain", "research"}, {"node_id", "fixture-node"}, {"service_id", "research-one"}}}
-    };
     backtest["portfolio"] = json::object();
     backtest["performance"] = json::object();
     backtest["trades"] = json::object();
@@ -238,7 +231,6 @@ TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExi
         json::parse(asterion::terminal::research_evidence_document(backtest, "research-task"));
     EXPECT_EQ(backtest_document.at("reconciliation"), backtest.at("reconciliation"));
     EXPECT_EQ(backtest_document.at("strategy_use"), backtest.at("task").at("strategy_use"));
-    EXPECT_EQ(backtest_document.at("research_plan"), backtest.at("task").at("research_plan"));
     const auto portfolio_path = fixture.directory / "portfolio.evidence.json";
     const auto portfolio_content = backtest_document.dump(2) + "\n";
     asterion::terminal::save_research_evidence(portfolio_path, portfolio_content);
@@ -347,15 +339,14 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
         {"nodes", {"must-not-export"}}
     };
     const auto original = source.dump();
-    const auto html = asterion::terminal::evaluation_report_document(source, nullptr, "html");
+    const auto html = asterion::terminal::evaluation_report_document(source, "html");
     EXPECT_NE(html.find("&lt;script&gt;alert(1)&lt;/script&gt;"), std::string::npos);
     EXPECT_EQ(html.find("<script>"), std::string::npos);
     EXPECT_EQ(html.find("must-not-export"), std::string::npos);
     EXPECT_NE(html.find("ANNUAL_PERIODS_NOT_CONFIGURED"), std::string::npos);
     EXPECT_NE(html.find("INDEPENDENCE_NOT_ESTABLISHED"), std::string::npos);
-    EXPECT_NE(html.find("human.judgment</th><td>NOT_RECORDED"), std::string::npos);
     EXPECT_NE(html.find("-26.5"), std::string::npos);
-    const auto csv = asterion::terminal::evaluation_report_document(source, nullptr, "csv");
+    const auto csv = asterion::terminal::evaluation_report_document(source, "csv");
     EXPECT_NE(csv.find("\"amount.net_profit\",\"-26.5\",\"RECORDED\""), std::string::npos);
     EXPECT_NE(csv.find("\"'=cmd,<script>"), std::string::npos);
     EXPECT_NE(
@@ -430,8 +421,7 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
     };
     const auto contribution_bytes = contributions.dump();
     for (const std::string format : {"html", "csv"}) {
-        const auto document =
-            asterion::terminal::evaluation_report_document(contributions, nullptr, format);
+        const auto document = asterion::terminal::evaluation_report_document(contributions, format);
         const auto exact = [&](const std::string& field,
                                const std::string& value,
                                const std::string& state = "RECORDED") {
@@ -455,39 +445,7 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
     EXPECT_EQ(contributions.dump(), contribution_bytes);
     contributions["experiment"]["request"]["include_contributions"] = false;
     EXPECT_THROW(
-        asterion::terminal::evaluation_report_document(contributions, nullptr, "csv"),
-        std::invalid_argument);
-    json human_reference = reference;
-    human_reference["kind"] = "performance_evaluation_result";
-    human_reference["id"] = source.at("id");
-    human_reference["version"] = source.at("task").at("result_digest");
-    json human = {
-        {"digest", std::string(64, '1')},
-        {"recorded_at_ms", 1000},
-        {"retrospective", true},
-        {"program_artifact", std::string(64, 'd')},
-        {"declaration",
-            {{"id", "human-one"},
-                {"result", human_reference},
-                {"judgment", "insufficient"},
-                {"reason", "+SUM(1,2)<img src=x>"},
-                {"previous_id", ""},
-                {"revision_reason", ""},
-                {"plan",
-                    {{"project_id", "question"},
-                        {"plan_id", "plan"},
-                        {"definition_digest", std::string(64, '2')}}}}}
-    };
-    const auto reviewed = asterion::terminal::evaluation_report_document(source, human, "html");
-    EXPECT_NE(reviewed.find("insufficient"), std::string::npos);
-    EXPECT_NE(reviewed.find("HUMAN_CONCLUSION_NOT_RECORDED"), std::string::npos);
-    EXPECT_EQ(reviewed.find("<img"), std::string::npos);
-    EXPECT_NE(
-        asterion::terminal::evaluation_report_document(source, human, "csv").find("\"'+SUM(1,2)"),
-        std::string::npos);
-    human["declaration"]["result"]["version"] = std::string(64, '3');
-    EXPECT_THROW(
-        asterion::terminal::evaluation_report_document(source, human, "html"),
+        asterion::terminal::evaluation_report_document(contributions, "csv"),
         std::invalid_argument);
     auto with_daily = source;
     with_daily["experiment"]["request"]["include_daily_drawdown"] = true;
@@ -533,13 +491,11 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
                     {"peak_to_recovery_intervals", nullptr},
                     {"observed_intervals", 1}}})}
     };
-    const auto daily_html =
-        asterion::terminal::evaluation_report_document(with_daily, nullptr, "html");
+    const auto daily_html = asterion::terminal::evaluation_report_document(with_daily, "html");
     EXPECT_NE(daily_html.find("<svg"), std::string::npos);
     EXPECT_NE(daily_html.find("daily.point.1.loss"), std::string::npos);
     EXPECT_NE(daily_html.find("NOT_RECOVERED"), std::string::npos);
-    const auto daily_csv =
-        asterion::terminal::evaluation_report_document(with_daily, nullptr, "csv");
+    const auto daily_csv = asterion::terminal::evaluation_report_document(with_daily, "csv");
     EXPECT_NE(
         daily_csv.find("\"daily.episode.0.recovery_source_index\",\"\",\"NOT_RECOVERED\""),
         std::string::npos);
@@ -585,8 +541,7 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
                     {"margin_to_equity", {{"state", "AVAILABLE"}, {"value", 0.2}}},
                     {"covered_gross_share", {{"state", "AVAILABLE"}, {"value", 1}}}}})}
     };
-    const auto exposure_csv =
-        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "csv");
+    const auto exposure_csv = asterion::terminal::evaluation_report_document(with_exposure, "csv");
     EXPECT_NE(
         exposure_csv.find("\"exposure.position.0.gross_notional\",\"4000\",\"RECORDED\""),
         std::string::npos);
@@ -606,16 +561,14 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
         {"available", "-40"},
         {"gap", "40"}
     };
-    const auto stress_csv =
-        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "csv");
+    const auto stress_csv = asterion::terminal::evaluation_report_document(with_exposure, "csv");
     EXPECT_NE(
         stress_csv.find("\"stress.result.available\",\"-40\",\"RECORDED\""),
         std::string::npos);
     EXPECT_NE(
         stress_csv.find("\"stress.scenario.funds_model\",\"paper_balance_equity_minimum\""),
         std::string::npos);
-    const auto stress_html =
-        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "html");
+    const auto stress_html = asterion::terminal::evaluation_report_document(with_exposure, "html");
     EXPECT_NE(stress_html.find("stress.result.gap</th><td>40"), std::string::npos);
     with_exposure["experiment"]["request"]["static_stress"] = nullptr;
     account["static_stress"] = nullptr;
@@ -632,13 +585,12 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
             row[key] = {{"state", "GROSS_NOT_RECORDED"}, {"value", nullptr}};
         row["margin_to_equity"] = {{"state", "MARGIN_NOT_RECORDED"}, {"value", nullptr}};
     }
-    const auto missing_html =
-        asterion::terminal::evaluation_report_document(with_exposure, nullptr, "html");
+    const auto missing_html = asterion::terminal::evaluation_report_document(with_exposure, "html");
     EXPECT_NE(missing_html.find("GROSS_NOT_RECORDED"), std::string::npos);
     EXPECT_NE(missing_html.find("MARGIN_NOT_RECORDED"), std::string::npos);
     EXPECT_NE(missing_html.find("exposure.funds.state</th><td>NOT_RECORDED"), std::string::npos);
     EXPECT_THROW(
-        asterion::terminal::evaluation_report_document(source, nullptr, "pdf"),
+        asterion::terminal::evaluation_report_document(source, "pdf"),
         std::invalid_argument);
 }
 

@@ -284,13 +284,6 @@ public:
     task::proto::Task describe(const std::string& id) const;
     std::optional<task::proto::Task> find_task(const std::string& id) const;
     task::proto::TaskList list(unsigned limit = 200, unsigned before_sequence = 0) const;
-    // A page of tasks whose manifest has `value` in one of the domain's indexes,
-    // newest last; only tasks and next_before_sequence are set.
-    task::proto::TaskList list_indexed(
-        std::string_view index,
-        const std::string& value,
-        unsigned limit,
-        unsigned before_sequence) const;
     // Every record after `after_id` in id order, until the visitor returns false.
     void visit(
         const std::string& after_id,

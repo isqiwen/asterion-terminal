@@ -1,6 +1,5 @@
 #include "application_impl.hpp"
 #include <asterion/protocol/factor.hpp>
-#include <asterion/protocol/research_project.hpp>
 
 namespace asterion::terminal {
 
@@ -61,7 +60,6 @@ void Application::Impl::register_factor_commands()
         auto required = p;
         required.erase("liquidity");
         required.erase("retain_observations");
-        required.erase("research_plan");
         required.erase("variable_definition");
         fields(required, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
         validate_id(text(p, "id"));
@@ -130,12 +128,7 @@ void Application::Impl::register_factor_commands()
             throw std::invalid_argument("research service is not connected");
         const auto client = research_client;
         const auto generation = data_task_generation;
-        research::proto::ProjectBinding plan;
-        if (p.contains("research_plan"))
-            plan = protocol::encode_project_binding(p.at("research_plan"));
-        (co_await PollFuture{
-            client->submit(text(p, "id"), request, research_data_owner(), {}, plan)
-        });
+        (co_await PollFuture{client->submit(text(p, "id"), request, research_data_owner())});
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,

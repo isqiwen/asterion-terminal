@@ -9,7 +9,6 @@ import trading from "../plugins/trading/locales/en-US.json";
 const destinations = {
   logic: ["策略", "规则"],
   strategies: ["策略", "策略包"],
-  projects: ["分析", "研究项目"],
   samples: ["分析", "样本"],
   statistics: ["分析", "统计"],
   history: ["数据", "历史数据"],

@@ -23,8 +23,6 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         research::Strategies(*storage_, prepared.execution().strategy_use().package().owner())
             .verify_use(prepared.execution().strategy_use(), id, true);
     }
-    if (prepared.record().task().has_research_plan())
-        co_await verify_plan(call, prepared.record().task().research_plan());
     if (prepared.execution().has_variable_definition()) {
         const auto object = protocol::variable_object(prepared.execution().variable_definition());
         (void)co_await resolve_variable(call, object);

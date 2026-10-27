@@ -6,8 +6,6 @@ PolledTask<> ResearchHost::submit_backtest(Call& call)
 {
     const auto& p = call.request.submit();
     const auto& b = p.backtest();
-    if (p.has_research_plan())
-        co_await verify_plan(call, p.research_plan());
     std::optional<research::proto::StrategyPackage> candidate;
     auto use = p.strategy_use();
     if (p.has_strategy_use()) {
@@ -30,9 +28,7 @@ PolledTask<> ResearchHost::submit_backtest(Call& call)
         if (strategies.delivery_status(use.delivery().id()).target_accepted()) {
             const auto task = storage_->describe(p.id());
             if (task.has_retirement()
-                || task.strategy_use().SerializeAsString() != use.SerializeAsString()
-                || task.research_plan().SerializeAsString()
-                    != p.research_plan().SerializeAsString())
+                || task.strategy_use().SerializeAsString() != use.SerializeAsString())
                 throw Error(
                     ErrorCode::conflict,
                     "strategy delivery target names different fixed conditions");
@@ -175,8 +171,6 @@ PolledTask<> ResearchHost::submit_backtest(Call& call)
         input.set_dataset_revision(protocol::dataset_revision(input.paper()));
         auto submission = task_submission(*storage_, p.id(), std::move(input));
         set_program_artifact(submission, programme.artifact);
-        if (p.has_research_plan())
-            set_research_plan(*storage_, submission, p.research_plan());
         if (candidate)
             set_strategy_use(*storage_, submission, use, candidate->definition());
         return submission;
@@ -398,13 +392,6 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
     })).task();
 }
 
-PolledTask<> ResearchHost::verify_plan(Call& call, const research::proto::ProjectBinding& binding)
-{
-    co_await wait_for_store({}, call.deadline);
-    call.input_in_time();
-    research::Projects(*storage_, binding.owner()).verify_binding(binding);
-}
-
 PolledTask<research::proto::VariableDefinition>
 ResearchHost::resolve_variable(Call& call, resource::proto::Object object)
 {
@@ -420,9 +407,6 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
 {
     const auto& p = call.request.submit();
     const auto& f = p.factor_request();
-    std::optional<research::proto::ProjectBinding> binding;
-    if (p.has_research_plan())
-        binding = p.research_plan();
     if (p.has_derivation()) {
         co_await wait_for_store(p.derivation().source_id());
         auto source_slot = verification_slots_.acquire(false, p.derivation().source_id());
@@ -432,8 +416,6 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
         });
         co_await ready(call);
         auto source = storage_->confirm_result(std::move(read));
-        if (!binding && source.result_task().has_research_plan())
-            binding = source.result_task().research_plan();
         co_await file_work([&] {
             if (!source.has_factor()
                 || source.result_task().result_digest() != p.derivation().source_result_digest())
@@ -454,8 +436,6 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
             *call.request.mutable_submit()->mutable_data_owner() = owner;
         }
     }
-    if (binding)
-        co_await verify_plan(call, *binding);
     std::optional<research::proto::VariableDefinition> variable;
     if (f.has_variable_definition())
         variable = co_await resolve_variable(call, f.variable_definition());
@@ -478,8 +458,6 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
     call.input_in_time();
     if (variable && variable->owner().SerializeAsString() != programme.owner.SerializeAsString())
         throw Error(ErrorCode::conflict, "research variable owner mismatch");
-    if (binding && binding->owner().SerializeAsString() != programme.owner.SerializeAsString())
-        throw Error(ErrorCode::conflict, "research project owner mismatch");
     *call.response.mutable_task() = (co_await submit(call, [&] {
         // Hashing a daily series is file-pool work, like the rest of the submission.
         input.set_dataset_revision(protocol::factor_revision(input.series()));
@@ -488,8 +466,6 @@ PolledTask<> ResearchHost::submit_factor(Call& call)
             throw std::invalid_argument("reused factor data does not match the original revision");
         auto submission = task_submission(*storage_, p.id(), std::move(input));
         set_program_artifact(submission, programme.artifact);
-        if (binding)
-            set_research_plan(*storage_, submission, *binding);
         if (p.has_derivation())
             submission.set_derivation(p.derivation());
         return submission;
@@ -565,8 +541,7 @@ PolledTask<> ResearchHost::submit_logic_trial(Call& call)
     const auto& selected = submission.logic_trial().example();
     protocol::validate_logic_object(selected, "logic_case");
     validate_id(submission.id());
-    if (submission.has_data_owner() || submission.has_derivation() || submission.has_research_plan()
-        || submission.has_strategy_use())
+    if (submission.has_data_owner() || submission.has_derivation() || submission.has_strategy_use())
         throw std::invalid_argument("logic trial does not accept Data or backtest bindings");
     std::optional<wire::Task> existing = storage_->find_task(submission.id());
     if (existing) {
@@ -601,8 +576,6 @@ PolledTask<> ResearchHost::submit_sample(Call& call)
     const auto& submission = call.request.submit();
     const auto& selected = submission.sample();
     protocol::validate_sample_request(selected);
-    if (submission.has_research_plan())
-        co_await verify_plan(call, submission.research_plan());
     validate_id(submission.id());
     if (submission.has_derivation())
         throw std::invalid_argument("sample does not accept client derivation");
@@ -621,8 +594,6 @@ PolledTask<> ResearchHost::submit_sample(Call& call)
         if (!read.execution().has_sample()
             || read.execution().sample().request().SerializeAsString()
                 != selected.SerializeAsString()
-            || existing->research_plan().SerializeAsString()
-                != submission.research_plan().SerializeAsString()
             || (!requested_owner.node_id().empty()
                 && requested_owner.node_id() != fixed_owner.node_id())
             || (!requested_owner.service_id().empty()
@@ -644,8 +615,6 @@ PolledTask<> ResearchHost::submit_sample(Call& call)
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
         set_program_artifact(accepted, programme.artifact);
-        if (submission.has_research_plan())
-            set_research_plan(*storage_, accepted, submission.research_plan());
         return accepted;
     })).task();
 }
@@ -656,8 +625,7 @@ PolledTask<> ResearchHost::submit_evaluation(Call& call)
     const auto& selected = submission.evaluation();
     protocol::validate_evaluation_request(selected);
     validate_id(submission.id());
-    if (submission.has_data_owner() || submission.has_derivation() || submission.has_research_plan()
-        || submission.has_strategy_use())
+    if (submission.has_data_owner() || submission.has_derivation() || submission.has_strategy_use())
         throw std::invalid_argument(
             "evaluation does not accept Data selection or execution bindings");
     if (const auto found_task = storage_->find_task(submission.id())) {
@@ -704,8 +672,6 @@ PolledTask<> ResearchHost::submit_statistics(Call& call)
     const auto& submission = call.request.submit();
     const auto& selected = submission.statistics();
     protocol::validate_statistics_request(selected);
-    if (submission.has_research_plan())
-        co_await verify_plan(call, submission.research_plan());
     validate_id(submission.id());
     if (submission.has_data_owner() || submission.has_derivation())
         throw std::invalid_argument("statistics do not accept Data selection or client derivation");
@@ -718,9 +684,7 @@ PolledTask<> ResearchHost::submit_statistics(Call& call)
             read.load_for_claim();
         });
         co_await ready(call);
-        if (existing.research_plan().SerializeAsString()
-                != submission.research_plan().SerializeAsString()
-            || !read.execution().has_statistics()
+        if (!read.execution().has_statistics()
             || read.execution().statistics().request().SerializeAsString()
                 != selected.SerializeAsString())
             throw Error(ErrorCode::conflict, "statistics identity names different fixed evidence");
@@ -743,8 +707,6 @@ PolledTask<> ResearchHost::submit_statistics(Call& call)
     *call.response.mutable_task() = (co_await submit(call, [&] {
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
         set_program_artifact(accepted, observed.artifact);
-        if (submission.has_research_plan())
-            set_research_plan(*storage_, accepted, submission.research_plan());
         return accepted;
     })).task();
 }

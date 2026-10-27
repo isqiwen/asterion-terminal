@@ -19,7 +19,6 @@ import { AccountReconciliation } from "./AccountReconciliation";
 import { TradeStatistics } from "./TradeStatistics";
 import { MonthlyContributions } from "./MonthlyContributions";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { ResearchPlanEvidence } from "./ResearchPlan";
 import { Figures, percent, ratio } from "./Performance";
 import { namespace, states, t, type Run } from "./shared";
 
@@ -330,7 +329,6 @@ export function BacktestResult({
         <p className="subtle">{t("手续费为累计值，权益曲线包含每根 K 线的估值和日终结算。")}</p>
       </details>
       <SettlementMarginResults settlements={result.result.settlements} />
-      <ResearchPlanEvidence binding={result.task.research_plan} query={query} />
       <PortfolioTargetsEvidence key={`portfolio-${result.id}`} evidence={result} />
       <TargetRejectionEvidence evidence={result} />
       <ExperimentDetails evidence={result} />

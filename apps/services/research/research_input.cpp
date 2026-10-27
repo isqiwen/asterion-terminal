@@ -28,8 +28,6 @@ void resolve_task_input(
         return;
     }
     const auto& execution = attempt.execution();
-    if (task.research_plan().SerializeAsString() != execution.research_plan().SerializeAsString())
-        throw std::invalid_argument("research plan differs from its fixed execution");
     if (task.has_variable_definition() != execution.has_variable_definition())
         throw std::invalid_argument("research variable differs from its fixed execution");
     if (execution.has_variable_definition())

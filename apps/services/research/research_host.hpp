@@ -62,7 +62,6 @@ private:
     // Durable changes: at most one unconfirmed change per task.
     void collect_writes();
     void collect_metadata();
-    PolledTask<> project_operation(Call&);
     PolledTask<> variable_operation(Call&);
     PolledTask<> logic_operation(Call&);
     PolledTask<> strategy_operation(Call&);
@@ -71,7 +70,6 @@ private:
     struct MetadataWork
     {
         std::future<void> result;
-        research::proto::ProjectReply reply;
         research::proto::VariableReply variable;
         research::proto::LogicReply logic;
         research::proto::StrategyReply strategy;
@@ -133,7 +131,6 @@ private:
     PolledTask<> submit_evaluation(Call& call);
     PolledTask<> submit_sample(Call& call);
     PolledTask<> submit_logic_trial(Call& call);
-    PolledTask<> verify_plan(Call&, const research::proto::ProjectBinding&);
     PolledTask<research::proto::VariableDefinition>
     resolve_variable(Call&, resource::proto::Object);
     PolledTask<> submit_account_review(Call& call);

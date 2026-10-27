@@ -11,7 +11,6 @@ import {
   type TerminalContext,
 } from "../contract";
 import type {
-  ResearchPlanBinding,
   ResearchVariableDefinition,
   FactorKind,
   TableCoverage,
@@ -20,9 +19,7 @@ import type {
 import { factorNames, factorWords, t, type Run, selectedSeries } from "./shared";
 
 type Kind = keyof typeof factorWords;
-type PlanSelection = {
-  researchPlan?: ResearchPlanBinding | null;
-  planReady?: boolean;
+type VariableSelection = {
   variableDefinition?: ResearchVariableDefinition | null;
   variableReady?: boolean;
 };
@@ -48,15 +45,13 @@ function FactorParameters({
   identity,
   observations,
   selectionCount = 0,
-  researchPlan,
-  planReady = true,
   variableDefinition,
   variableReady = true,
   snapshot,
   busy,
   run,
 }: Pick<TerminalContext, "snapshot" | "busy"> &
-  PlanSelection & {
+  VariableSelection & {
     kind: Kind;
     factor?: FactorKind;
     series: CommandParams["factor.submit"]["series"] | null;
@@ -103,7 +98,6 @@ function FactorParameters({
       factor,
       parameters,
       filtered ? liquidity : null,
-      researchPlan,
       variableDefinition?.object,
     ]),
   );
@@ -111,10 +105,9 @@ function FactorParameters({
     event.preventDefault();
     const id = pendingId ?? `factor-${crypto.randomUUID()}`;
     setPendingId(id);
-    if (!series || !factor || !planReady || !variableReady || !expressionSupported) return;
+    if (!series || !factor || !variableReady || !expressionSupported) return;
     const payload: CommandParams["factor.submit"] = {
       id,
-      ...(researchPlan ? { research_plan: researchPlan } : {}),
       series,
       factor: variableDefinition ? "expression" : factor,
       ...(variableDefinition ? { variable_definition: variableDefinition.object } : {}),
@@ -328,7 +321,6 @@ function FactorParameters({
               className="primary"
               type="submit"
               disabled={
-                !planReady ||
                 !variableReady ||
                 !expressionSupported ||
                 !taskService?.online ||
@@ -373,12 +365,10 @@ export function BarFactorForm({
   trade,
   navigate,
   run,
-  researchPlan,
-  planReady,
   variableDefinition,
   variableReady,
 }: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> &
-  PlanSelection & { run: Run }) {
+  VariableSelection & { run: Run }) {
   const datasets = snapshot?.datasets ?? [];
   const { alone, dominant, count } = selectedSeries(snapshot);
   // One series is studied over time, three or more against each other.
@@ -459,8 +449,6 @@ export function BarFactorForm({
         identity={JSON.stringify(datasets.map(item => item.revision))}
         observations={cross ? undefined : alone[0]?.count}
         selectionCount={count}
-        researchPlan={researchPlan}
-        planReady={planReady}
         variableDefinition={variableDefinition}
         variableReady={variableReady}
         snapshot={snapshot}
@@ -507,12 +495,10 @@ export function TableFactorForm({
   busy,
   navigate,
   run,
-  researchPlan,
-  planReady,
   variableDefinition,
   variableReady,
 }: Pick<TerminalContext, "snapshot" | "query" | "busy" | "navigate"> &
-  PlanSelection & { run: Run }) {
+  VariableSelection & { run: Run }) {
   const online = !!snapshot?.data?.online;
   const connection = snapshot?.data?.connection_id;
   const destination = JSON.stringify([connection, snapshot?.research_service?.connection_id]);
@@ -799,8 +785,6 @@ export function TableFactorForm({
       <FactorParameters
         kind="tables"
         selectionCount={instruments.length}
-        researchPlan={researchPlan}
-        planReady={planReady}
         variableDefinition={variableDefinition}
         variableReady={variableReady}
         factor={factor}

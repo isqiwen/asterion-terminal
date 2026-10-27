@@ -6,7 +6,6 @@
 #include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 
@@ -122,23 +121,6 @@ void set_program_artifact(Store::Submission& submission, std::string artifact)
     payload::validate_digest(artifact);
     submission.amend([&](wire::Task& task) {
         task.set_program_artifact(std::move(artifact));
-    });
-}
-
-void set_research_plan(
-    const Store& store,
-    Store::Submission& submission,
-    research::proto::ProjectBinding binding)
-{
-    const auto kind = submission.task().kind();
-    if (kind != wire::FACTOR && kind != wire::SAMPLE && kind != wire::STATISTICS
-        && kind != wire::BACKTEST)
-        throw std::logic_error("plan identity requires an unprepared research submission");
-    protocol::validate_project_binding(binding);
-    if (binding.owner().service_id() != store.instance())
-        throw std::invalid_argument("invalid fixed research plan owner or task kind");
-    submission.amend([&](wire::Task& task) {
-        *task.mutable_research_plan() = std::move(binding);
     });
 }
 

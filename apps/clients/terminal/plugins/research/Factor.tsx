@@ -1,10 +1,5 @@
 import { ResearchVariablePicker } from "./ResearchVariable";
-import type {
-  ResourceObject,
-  ResearchVariableDefinition,
-  ResearchPlanBinding,
-} from "../../src/bridge/client";
-import { ResearchPlanPicker, ResearchPlanEvidence } from "./ResearchPlan";
+import type { ResourceObject, ResearchVariableDefinition } from "../../src/bridge/client";
 import { taskOwner } from "../../src/bridge/client";
 import { ResearchExport } from "./ResearchExport";
 import { useEffect, useRef, useState } from "react";
@@ -60,24 +55,6 @@ export function Factor({
       )) &&
     (!variableHint || variableHint === seenVariable);
 
-  const [plan, setPlan] = useWorkspaceDraft<ResearchPlanBinding | null>("factor-plan", null);
-  const [planReady, setPlanReady] = useState(false);
-  const hint = workspaceParams?.plan_id ? JSON.stringify(workspaceParams) : "";
-  const [seenHint, setSeenHint] = useWorkspaceDraft("factor-plan-hint", "");
-  useEffect(() => {
-    if (!hint || hint === seenHint) return;
-    const params = JSON.parse(hint) as Record<string, string>;
-    setPlanReady(false);
-    setPlan({
-      project_id: params.project_id,
-      plan_id: params.plan_id,
-      definition_digest: params.definition_digest,
-      owner: { domain: "research", node_id: params.plan_node, service_id: params.plan_service },
-    });
-    setSeenHint(hint);
-  }, [hint, seenHint, setSeenHint, setPlan]);
-  const ready = planReady && (!hint || hint === seenHint);
-
   const { error, run } = useRun(trade);
   const [input, setInput] = useWorkspaceDraft<keyof typeof inputs>("factor-input", "bars");
   // A result opens below the records; asking for one scrolls to it.
@@ -123,13 +100,6 @@ export function Factor({
               </p>
             </section>
           )}
-          <ResearchPlanPicker
-            snapshot={snapshot}
-            query={query}
-            binding={plan}
-            onChange={setPlan}
-            onReady={setPlanReady}
-          />
           {input === "tables" ? (
             <TableFactorForm
               query={query}
@@ -137,8 +107,6 @@ export function Factor({
               busy={busy}
               navigate={navigate}
               run={run}
-              researchPlan={plan}
-              planReady={ready}
               variableDefinition={variable ? definition : null}
               variableReady={variableReady}
             />
@@ -150,8 +118,6 @@ export function Factor({
               trade={trade}
               navigate={navigate}
               run={run}
-              researchPlan={plan}
-              planReady={ready}
               variableDefinition={variable ? definition : null}
               variableReady={variableReady}
             />
@@ -179,10 +145,6 @@ export function Factor({
           <div ref={results}>
             {snapshot?.task_result?.kind === "factor" && (
               <>
-                <ResearchPlanEvidence
-                  binding={snapshot.task_result.task.research_plan}
-                  query={query}
-                />
                 <FactorResults key={snapshot.task_result.id} evidence={snapshot.task_result} />
                 <ResearchExport
                   key={`export-${snapshot.task_result.id}`}

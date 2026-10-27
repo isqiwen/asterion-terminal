@@ -22,7 +22,6 @@ export const modules = [
     views: [
       "workspace.factor",
       "workspace.factor-comparison",
-      "workspace.research-projects",
       "workspace.research-samples",
       "workspace.research-statistics",
       "workspace.research-variables",

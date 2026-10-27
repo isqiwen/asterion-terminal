@@ -254,59 +254,17 @@ test("fixed performance evaluation preserves the original account through restar
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     first,
   );
-  await openView(page, "projects");
-  for (const [label, value] of [
-    ["项目标题", "固定绩效人工审阅"],
-    ["研究问题", "这份固定评价能够说明什么？"],
-    ["可检验假设", "合成绩效不能自动建立市场结论。"],
-    ["支持标准", "需要独立证据，不能只看正收益。"],
-    ["否定标准", "缺独立证据时明确记录证据不足。"],
-  ])
-    await workspace.getByLabel(label, { exact: true }).fill(value);
-  await workspace.getByRole("button", { name: "保存研究草稿", exact: true }).click();
-  await expect(workspace.getByText("草稿已保存", { exact: true })).toBeVisible();
-  await workspace.getByLabel("已核对上方原文，固定后保留原标准", { exact: true }).check();
-  await workspace.getByRole("button", { name: "固定计划", exact: true }).click();
-  const manual = workspace.getByRole("region", { name: "人工研究结论", exact: true });
-  await manual.getByLabel("正式研究任务身份", { exact: true }).fill(id);
-  await manual.getByRole("button", { name: "读取待审阅正式结果", exact: true }).click();
-  await expect(manual.getByRole("status")).toHaveText("回溯关联：此任务接纳时未固定所选计划");
-  await manual.getByText("核对结论引用的原计划和正式结果", { exact: true }).click();
-  await expect(manual.getByRole("article", { name: "固定评价报告", exact: true })).toContainText(
-    first.task.result_digest,
-  );
-  await expect(manual.getByRole("button", { name: "追加人工结论", exact: true })).toBeDisabled();
-  await manual.getByLabel("明确人工判断", { exact: true }).selectOption("insufficient");
-  const reason = "人工事后审阅：合成固定绩效缺独立市场证据，不授权交易。";
-  await manual.getByLabel("人工判断理由", { exact: true }).fill(reason);
-  await manual.getByLabel("已核对精确计划和正式证据，明确保存人工判断", { exact: true }).check();
-  await manual.getByRole("button", { name: "追加人工结论", exact: true }).click();
-  await expect(manual.getByText(reason, { exact: true })).toBeVisible();
-  const projects = (await rpc(page.request, "research.project.list", { after: "", limit: 30 }))
-    .research_project.drafts;
-  const project = projects.find(
-    (row: { definition: { title: string } }) => row.definition.title === "固定绩效人工审阅",
-  );
-  expect(project).toBeTruthy();
-  const human = (
-    await rpc(page.request, "research.conclusion.list", {
-      project_id: project.id,
-      after: "",
-      limit: 30,
-    })
-  ).research_project.conclusions[0];
-  expect(human.retrospective).toBe(true);
-  expect(human.declaration.result).toMatchObject({
-    kind: "performance_evaluation_result",
-    id,
-    version: first.task.result_digest,
-  });
-  expect(human.program_artifact).toBe(first.task.program_artifact);
-  const output = manual.getByRole("region", { name: "固定评价本地导出", exact: true });
+  // The saved evaluation is exported from the evaluation page itself.
+  await openView(page, "risk");
+  await evaluation.getByRole("combobox", { name: "评估来源", exact: true }).selectOption(sourceId);
+  await evaluation.getByRole("button", { name: "读取评估来源", exact: true }).click();
+  await form.getByRole("combobox", { name: "已保存绩效评价", exact: true }).selectOption(id);
+  await form.getByRole("button", { name: "读取固定绩效评价", exact: true }).click();
+  const output = form.getByRole("region", { name: "固定评价本地导出", exact: true });
   await expect(
     output.getByRole("button", { name: "导出固定评价报告", exact: true }),
   ).toBeDisabled();
-  await expect(output).toContainText(human.digest);
+  await expect(output).toContainText(first.task.result_digest);
   for (const format of ["html", "csv"]) {
     await output
       .getByRole("combobox", { name: "固定评价导出格式", exact: true })
@@ -314,9 +272,7 @@ test("fixed performance evaluation preserves the original account through restar
     await expect(
       output.getByRole("button", { name: "导出固定评价报告", exact: true }),
     ).toBeDisabled();
-    await output
-      .getByLabel("已核对固定报告、人工解释范围及全部限制，明确导出本地文件", { exact: true })
-      .check();
+    await output.getByLabel("已核对固定报告及全部限制，明确导出本地文件", { exact: true }).check();
     const downloading = page.waitForEvent("download");
     await output.getByRole("button", { name: "导出固定评价报告", exact: true }).click();
     const downloaded = await downloading;
@@ -325,9 +281,6 @@ test("fixed performance evaluation preserves the original account through restar
     expect(filename).toBeTruthy();
     const content = readFileSync(filename!, "utf8");
     expect(content).toContain(first.task.result_digest);
-    expect(content).toContain(human.digest);
-    expect(content).toContain(reason);
-    expect(content).toContain("insufficient");
     for (const limitation of first.result.limitations) expect(content).toContain(limitation);
     expect(content).toContain("not a complete unified evaluation report");
     expect(content).toContain(String(first.result.net_profit));
@@ -366,8 +319,6 @@ test("fixed performance evaluation preserves the original account through restar
       },
       version: first.task.result_digest,
       format: "html",
-      conclusion_id: human.declaration.id,
-      conclusion_version: human.digest,
       path,
     };
     const receipt = (await rpc(page.request, "evaluation.report.export", parameters))
@@ -375,7 +326,7 @@ test("fixed performance evaluation preserves the original account through restar
     expect(receipt.path).toBe(path);
     expect(receipt.source_version).toBe(first.task.result_digest);
     const content = readFileSync(path, "utf8");
-    expect(content).toContain(human.digest);
+    expect(content).toContain(first.task.result_digest);
     const repeated = await page.request.post("/__asterion/api", {
       data: { version: 1, method: "evaluation.report.export", params: parameters },
     });
@@ -388,7 +339,7 @@ test("fixed performance evaluation preserves the original account through restar
         params: {
           ...parameters,
           path: join(exportDirectory, "wrong.html"),
-          conclusion_version: "f".repeat(64),
+          version: "f".repeat(64),
         },
       },
     });
@@ -410,10 +361,6 @@ test("fixed performance evaluation preserves the original account through restar
       timeout: 15000,
     })
     .toBe(true);
-  expect(
-    (await rpc(page.request, "research.conclusion.read", { id: human.declaration.id }))
-      .research_project.conclusion,
-  ).toEqual(human);
   await page.goto("/?screen=settings&category=resources");
   const catalogue = page.getByRole("region", { name: "业务资产目录", exact: true });
   await catalogue.getByLabel("资产所属域").selectOption("research");

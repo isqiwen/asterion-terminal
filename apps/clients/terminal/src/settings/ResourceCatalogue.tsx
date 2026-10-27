@@ -32,9 +32,6 @@ const kinds = {
     "account_review",
     "account_review_result",
     "research_program",
-    "research_project",
-    "research_plan",
-    "research_conclusion",
     "research_variable",
     "logic_definition",
     "logic_case",
@@ -71,9 +68,6 @@ const names: Record<string, string> = {
   account_review: "账户审阅固定输入",
   account_review_result: "账户审阅正式结果",
   research_program: "研究执行程序原件",
-  research_project: "研究项目草稿",
-  research_plan: "研究固定假设计划",
-  research_conclusion: "研究人工结论",
   research_variable: "变量",
   logic_definition: "独立逻辑定义",
   logic_case: "事先虚构样例",
@@ -244,22 +238,18 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                   </td>
                   <td>
                     {t(
-                      entry.object.kind === "research_project"
-                        ? "研究草稿（可修订）"
-                        : (entry.object.kind === "research_plan" ||
-                              entry.object.kind === "research_conclusion" ||
-                              entry.object.kind === "research_variable" ||
-                              entry.object.kind === "strategy_package" ||
-                              entry.object.kind === "logic_definition" ||
-                              entry.object.kind === "logic_case" ||
-                              entry.object.kind === "strategy_delivery") &&
-                            entry.state === "sealed"
-                          ? "已固定（只读）"
-                          : entry.state === "registered"
-                            ? "已登记（载荷未核验）"
-                            : entry.state === "sealed"
-                              ? "封存清理中"
-                              : "已退役",
+                      (entry.object.kind === "research_variable" ||
+                        entry.object.kind === "strategy_package" ||
+                        entry.object.kind === "logic_definition" ||
+                        entry.object.kind === "logic_case" ||
+                        entry.object.kind === "strategy_delivery") &&
+                        entry.state === "sealed"
+                        ? "已固定（只读）"
+                        : entry.state === "registered"
+                          ? "已登记（载荷未核验）"
+                          : entry.state === "sealed"
+                            ? "封存清理中"
+                            : "已退役",
                     )}
                   </td>
                   <td>{entry.logical_bytes ?? t("未知")}</td>
@@ -282,19 +272,8 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
                       <span>
                         {t("在策略管理与交付入口读取原定义和任务状态；此目录不提供修改或删除。")}
                       </span>
-                    ) : [
-                        "research_project",
-                        "research_plan",
-                        "research_conclusion",
-                        "research_variable",
-                      ].includes(entry.object.kind) ? (
-                      <span>
-                        {t(
-                          entry.object.kind === "research_variable"
-                            ? "在研究变量入口读取原定义；此目录不提供修改或删除。"
-                            : "在研究项目入口读取原计划与人工结论；此目录不提供修改或删除。",
-                        )}
-                      </span>
+                    ) : entry.object.kind === "research_variable" ? (
+                      <span>{t("在研究变量入口读取原定义；此目录不提供修改或删除。")}</span>
                     ) : entry.object.kind === "material_acquisition" ||
                       entry.object.kind === "material_content" ? (
                       <span>{t("在数据材料入口读取原件；材料删除尚未实现。")}</span>

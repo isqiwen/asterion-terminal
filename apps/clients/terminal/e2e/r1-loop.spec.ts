@@ -132,9 +132,7 @@ test(
       evaluated.task.result_digest,
     );
     const output = form.getByRole("region", { name: "固定评价本地导出", exact: true });
-    await output
-      .getByLabel("已核对固定报告、人工解释范围及全部限制，明确导出本地文件", { exact: true })
-      .check();
+    await output.getByLabel("已核对固定报告及全部限制，明确导出本地文件", { exact: true }).check();
     const reportDownload = page.waitForEvent("download");
     await output.getByRole("button", { name: "导出固定评价报告", exact: true }).click();
     const report = await readFile((await (await reportDownload).path())!, "utf8");

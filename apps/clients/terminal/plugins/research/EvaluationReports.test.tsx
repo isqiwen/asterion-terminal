@@ -280,7 +280,6 @@ test("evaluation export requires explicit fixed scope and rejects a mismatched r
       bytes: 5,
       content: "wrong",
       source_version: "0".repeat(64),
-      conclusion_version: "",
     },
   });
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -295,9 +294,7 @@ test("evaluation export requires explicit fixed scope and rejects a mismatched r
   expect(
     (screen.getByRole("button", { name: "导出固定评价报告" }) as HTMLButtonElement).disabled,
   ).toBe(true);
-  fireEvent.click(
-    screen.getByLabelText("已核对固定报告、人工解释范围及全部限制，明确导出本地文件"),
-  );
+  fireEvent.click(screen.getByLabelText("已核对固定报告及全部限制，明确导出本地文件"));
   fireEvent.click(screen.getByRole("button", { name: "导出固定评价报告" }));
   await screen.findByText("评价报告导出确认不匹配");
   expect(view.props.query).toHaveBeenCalledWith("evaluation.report.export", {
@@ -305,8 +302,6 @@ test("evaluation export requires explicit fixed scope and rejects a mismatched r
     owner: view.source.owner,
     version: view.report.task.result_digest,
     format: "html",
-    conclusion_id: "",
-    conclusion_version: "",
     path: "",
   });
   expect(screen.queryByRole("status")).toBeNull();
@@ -336,9 +331,7 @@ test("a late original export cannot publish a receipt in another Research owner 
       busy={false}
     />,
   );
-  fireEvent.click(
-    screen.getByLabelText("已核对固定报告、人工解释范围及全部限制，明确导出本地文件"),
-  );
+  fireEvent.click(screen.getByLabelText("已核对固定报告及全部限制，明确导出本地文件"));
   fireEvent.click(screen.getByRole("button", { name: "导出固定评价报告" }));
   await waitFor(() => expect(view.props.query).toHaveBeenCalledTimes(1));
   mounted.rerender(
@@ -357,7 +350,6 @@ test("a late original export cannot publish a receipt in another Research owner 
         bytes: 123,
         content: "Original fixed report",
         source_version: view.report.task.result_digest,
-        conclusion_version: "",
       },
     });
   });

@@ -499,11 +499,6 @@ struct Store::Impl
             database->execute("CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state, sequence)");
             database->execute(
                 "CREATE INDEX IF NOT EXISTS tasks_input ON tasks(kind, json_extract(manifest, '$.input_sha256'))");
-            for (const auto& index : kinds->domain.indexes())
-                database->execute(
-                    "CREATE INDEX IF NOT EXISTS " + std::string(index.name)
-                    + " ON tasks(json_extract(manifest,'" + std::string(index.path)
-                    + "'),sequence)");
             database->execute(
                 "CREATE TABLE IF NOT EXISTS preparation_decisions(id TEXT PRIMARY KEY, input_digest TEXT NOT NULL, resource BLOB NOT NULL, evidence BLOB NOT NULL) STRICT");
             database->execute(
@@ -1960,38 +1955,6 @@ wire::TaskList Store::list(unsigned limit, unsigned before_sequence) const
         else
             result.set_interrupted_count(static_cast<std::uint32_t>(counts.integer(1)));
     }
-    return result;
-}
-
-wire::TaskList Store::list_indexed(
-    std::string_view index,
-    const std::string& value,
-    unsigned limit,
-    unsigned before_sequence) const
-{
-    const auto& indexes = impl_->kinds->domain.indexes();
-    const auto found = std::ranges::find(indexes, index, &ManifestIndex::name);
-    if (found == indexes.end())
-        throw std::logic_error("task store has no such manifest index");
-    if (!limit || limit > 200)
-        throw std::invalid_argument("task page limit must be 1..200");
-    wire::TaskList result;
-    sqlite::Database::Statement page(
-        *impl_->database,
-        "SELECT id FROM tasks WHERE json_extract(manifest,'" + std::string(found->path)
-            + "')=?1 AND sequence<?2 ORDER BY sequence DESC LIMIT ?3");
-    const auto before = before_sequence ? static_cast<std::int64_t>(before_sequence)
-                                        : static_cast<std::int64_t>(impl_->last_sequence) + 1;
-    page.bind(1, value).bind(2, before).bind(3, static_cast<std::int64_t>(limit) + 1);
-    while (page.step()) {
-        if (result.tasks_size() == static_cast<int>(limit)) {
-            result.set_next_before_sequence(
-                result.tasks(result.tasks_size() - 1).submission_sequence());
-            break;
-        }
-        *result.add_tasks() = summary(impl_->find(page.text(0)).task);
-    }
-    std::reverse(result.mutable_tasks()->begin(), result.mutable_tasks()->end());
     return result;
 }
 

@@ -6,7 +6,6 @@
 #include "evaluation_export.hpp"
 #include "application_impl.hpp"
 #include <asterion/protocol/factor.hpp>
-#include <asterion/protocol/research_project.hpp>
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
@@ -309,116 +308,8 @@ void Application::Impl::register_task_commands()
             reply.values["research_variable"] = std::move(value);
             co_return reply;
         });
-    for (const auto method :
-        {"research.project.list",
-            "research.project.read",
-            "research.project.save",
-            "research.plan.list",
-            "research.plan.read",
-            "research.plan.fix",
-            "research.project.tasks",
-            "research.conclusion.read",
-            "research.conclusion.list",
-            "research.conclusion.append"})
-        command(method, [this, method](const json& p) -> PolledTask<Response> {
-            if (!research_client)
-                throw Error(ErrorCode::unavailable, "select a Research service first");
-            const auto client = research_client;
-            const std::string_view name(method);
-            const auto limit = [&] {
-                const auto& value = p.at("limit");
-                if (!value.is_number_integer() || value < 1 || value > 200)
-                    throw std::invalid_argument("task page limit must be 1..200");
-                return value.get<unsigned>();
-            };
-            research::proto::ProjectRequest request;
-            research::proto::ProjectTaskQuery tasks;
-            if (name == "research.conclusion.read") {
-                fields(p, {"id"});
-                request.mutable_conclusion()->set_id(text(p, "id"));
-            } else if (name == "research.conclusion.list") {
-                fields(p, {"project_id", "after", "limit"});
-                auto& query = *request.mutable_conclusions();
-                query.set_project_id(text(p, "project_id", true));
-                query.set_after(text(p, "after", true));
-                query.set_limit(limit());
-            } else if (name == "research.conclusion.append") {
-                fields(p, {"id", "declaration"});
-                auto& mutation = *request.mutable_mutation();
-                mutation.set_id(text(p, "id"));
-                *mutation.mutable_conclude() =
-                    protocol::encode_project_conclusion(p.at("declaration"));
-            } else if (name == "research.project.list") {
-                fields(p, {"after", "limit"});
-                auto& query = *request.mutable_drafts();
-                query.set_after(text(p, "after", true));
-                query.set_limit(limit());
-            } else if (name == "research.plan.list") {
-                fields(p, {"project_id", "after", "limit"});
-                auto& query = *request.mutable_plans();
-                query.set_project_id(text(p, "project_id", true));
-                query.set_after(text(p, "after", true));
-                query.set_limit(limit());
-            } else if (name == "research.project.read") {
-                fields(p, {"id"});
-                request.mutable_draft()->set_id(text(p, "id"));
-            } else if (name == "research.plan.read") {
-                fields(p, {"id"});
-                request.mutable_plan()->set_id(text(p, "id"));
-            } else if (name == "research.project.save") {
-                fields(p, {"id", "project_id", "expected_digest", "definition"});
-                auto& command = *request.mutable_mutation();
-                command.set_id(text(p, "id"));
-                auto& save = *command.mutable_save();
-                save.set_project_id(text(p, "project_id"));
-                save.set_expected_digest(text(p, "expected_digest", true));
-                *save.mutable_definition() =
-                    protocol::encode_project_definition(p.at("definition"));
-            } else if (name == "research.plan.fix") {
-                fields(
-                    p,
-                    {"id",
-                        "project_id",
-                        "plan_id",
-                        "expected_draft_digest",
-                        "parent_plan_id",
-                        "revision_reason"});
-                auto& command = *request.mutable_mutation();
-                command.set_id(text(p, "id"));
-                auto& fix = *command.mutable_fix();
-                fix.set_project_id(text(p, "project_id"));
-                fix.set_plan_id(text(p, "plan_id"));
-                fix.set_expected_draft_digest(text(p, "expected_draft_digest"));
-                fix.set_parent_plan_id(text(p, "parent_plan_id", true));
-                fix.set_revision_reason(text(p, "revision_reason", true));
-            } else {
-                fields(p, {"project_id", "before_sequence", "limit"});
-                const auto& before = p.at("before_sequence");
-                if (!before.is_number_integer() || before < 0 || before > 4294967295ULL)
-                    throw std::invalid_argument("invalid task page cursor");
-                tasks.set_project_id(text(p, "project_id"));
-                tasks.set_limit(limit());
-                tasks.set_before_sequence(before.get<unsigned>());
-            }
-            auto value = co_await PollFuture{
-                name == "research.project.tasks" ? client->project_tasks(tasks)
-                                                 : client->project(request)
-            };
-            if (research_client != client)
-                throw Error(
-                    ErrorCode::conflict,
-                    "research owner changed; inspect the original project");
-            auto reply = snapshot();
-            reply.values[name == "research.project.tasks" ? "project_tasks" : "research_project"] =
-                std::move(value);
-            co_return reply;
-        });
     command("research.sample.submit", [this](const json& p) -> PolledTask<Response> {
-        auto required = p;
-        required.erase("research_plan");
-        fields(
-            required,
-            {"id", "owner", "data_owner", "selection", "use_scope", "mode", "evaluation"});
+        fields(p, {"id", "owner", "data_owner", "selection", "use_scope", "mode", "evaluation"});
         validate_id(text(p, "id"));
         if (task_owner_is_data(p))
             throw std::invalid_argument("invalid research sample owner");
@@ -435,10 +326,7 @@ void Application::Impl::register_task_commands()
                 {"use_scope", p.at("use_scope")},
                 {"mode", p.at("mode")},
                 {"evaluation", p.at("evaluation")}});
-        research::proto::ProjectBinding plan;
-        if (p.contains("research_plan"))
-            plan = protocol::encode_project_binding(p.at("research_plan"));
-        co_await PollFuture{client->submit(text(p, "id"), input, source, plan)};
+        co_await PollFuture{client->submit(text(p, "id"), input, source)};
         if (research_client != client)
             throw Error(
                 ErrorCode::conflict,
@@ -485,7 +373,6 @@ void Application::Impl::register_task_commands()
     });
     command("statistics.submit", [this](const json& p) -> PolledTask<Response> {
         auto required = p;
-        required.erase("research_plan");
         required.erase("grouping");
         fields(
             required,
@@ -505,7 +392,6 @@ void Application::Impl::register_task_commands()
         auto parameters = p;
         parameters.erase("id");
         parameters.erase("owner");
-        parameters.erase("research_plan");
         const auto input = protocol::encode_statistics_request(parameters);
         const auto endpoint = client->endpoint();
         if (input.source().owner().node_id() != endpoint.owner_node_id
@@ -513,10 +399,7 @@ void Application::Impl::register_task_commands()
             throw Error(
                 ErrorCode::conflict,
                 "statistics source must belong to this Research service");
-        research::proto::ProjectBinding plan;
-        if (p.contains("research_plan"))
-            plan = protocol::encode_project_binding(p.at("research_plan"));
-        co_await PollFuture{client->submit(text(p, "id"), input, plan)};
+        co_await PollFuture{client->submit(text(p, "id"), input)};
         if (research_client != client)
             throw Error(
                 ErrorCode::conflict,
@@ -651,9 +534,7 @@ void Application::Impl::register_task_commands()
         co_return reply;
     });
     command("evaluation.report.export", [this](const json& p) -> PolledTask<Response> {
-        fields(
-            p,
-            {"id", "owner", "version", "format", "conclusion_id", "conclusion_version", "path"});
+        fields(p, {"id", "owner", "version", "format", "path"});
         if (task_owner_is_data(p))
             throw std::invalid_argument("fixed evaluation report requires its Research owner");
         const auto client = research_client;
@@ -666,44 +547,28 @@ void Application::Impl::register_task_commands()
             throw Error(
                 ErrorCode::conflict,
                 "fixed evaluation changed; reload its published report");
-        const auto conclusion_id = text(p, "conclusion_id", true);
-        const auto conclusion_version = text(p, "conclusion_version", true);
-        json human = nullptr;
-        if (!conclusion_id.empty()) {
-            research::proto::ProjectRequest read;
-            read.mutable_conclusion()->set_id(conclusion_id);
-            const auto response = co_await PollFuture{client->project(read)};
-            human = response.at("conclusion");
-            if (human.at("digest") != conclusion_version)
-                throw Error(
-                    ErrorCode::conflict,
-                    "human interpretation changed; reload its fixed record");
-        } else if (!conclusion_version.empty())
-            throw std::invalid_argument("human interpretation identity is incomplete");
         if (research_client != client)
             throw Error(
                 ErrorCode::conflict,
                 "data/research service selection changed during operation; inspect the original services before retrying");
         const auto path = text(p, "path", true);
-        auto exported = co_await service_io.admin<json>(
-            [source = std::move(source), human = std::move(human), format, path] {
-                const auto content = evaluation_report_document(source, human, format);
-                json receipt = {
-                    {"name", source.at("id").get<std::string>() + ".evaluation." + format},
-                    {"bytes", content.size()},
-                    {"source_version", source.at("task").at("result_digest")},
-                    {"conclusion_version", human.is_null() ? json("") : human.at("digest")}
-                };
-                if (path.empty())
-                    receipt["content"] = content;
-                else {
-                    save_research_evidence(
-                        std::filesystem::path(std::u8string(path.begin(), path.end())),
-                        content);
-                    receipt["path"] = path;
-                }
-                return receipt;
-            });
+        auto exported = co_await service_io.admin<json>([source = std::move(source), format, path] {
+            const auto content = evaluation_report_document(source, format);
+            json receipt = {
+                {"name", source.at("id").get<std::string>() + ".evaluation." + format},
+                {"bytes", content.size()},
+                {"source_version", source.at("task").at("result_digest")}
+            };
+            if (path.empty())
+                receipt["content"] = content;
+            else {
+                save_research_evidence(
+                    std::filesystem::path(std::u8string(path.begin(), path.end())),
+                    content);
+                receipt["path"] = path;
+            }
+            return receipt;
+        });
         auto reply = snapshot();
         reply.values["research_export"] = std::move(exported);
         co_return reply;
