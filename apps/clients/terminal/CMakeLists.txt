@@ -28,6 +28,7 @@ add_library(asterion_terminal_application STATIC
   native/commands_history_usage.cpp
   native/commands_connections.cpp
   native/commands_market.cpp
+  native/commands_lab.cpp
   native/trading_client.cpp
   native/node_client.cpp
   native/local_manager.cpp

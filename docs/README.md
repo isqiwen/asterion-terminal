@@ -9,7 +9,7 @@
 | 系统怎样组成、状态归谁 | [架构](architecture.md) · [Node Manager](architecture/node-manager.md) |
 | 怎样构建、运行与测试 | [开发指南](development.md) |
 | 界面与交互 | [Terminal](terminal.md) |
-| 行情与历史数据 | [行情与数据](market-data.md) |
+| 行情与历史数据 | [行情与数据](market-data.md) · [Python 研究服务与数据仓库](lab.md) |
 | 研究对象与流程 | [研究](research.md) · [回测](backtest.md) · [策略](strategies.md) · [因子](factors.md) · [任务](tasks.md) |
 | 交易与风控 | [交易](trading.md) · [CTP 仿真验收](acceptance/ctp-simulation.md) |
 | 节点、部署与日志 | [服务](services.md) · [原生插件](native-plugins.md) |

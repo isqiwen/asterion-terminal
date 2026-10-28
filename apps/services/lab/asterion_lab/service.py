@@ -1,0 +1,162 @@
+"""Requests of the lab service. One asyncio loop owns the connections; reads of
+the warehouse run on a small thread pool and acquisition on its own thread."""
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
+import os
+from pathlib import Path
+import time
+
+from asterion.lab_pb2 import Request, Response
+
+from asterion_lab.acquisition import Acquisition
+from asterion_lab.tushare import Budget, SourceError, Tushare
+from asterion_lab.version import VERSION
+from asterion_lab.warehouse import Warehouse
+
+MODULE = "lab-service"
+
+
+def text(value) -> str:
+    """An exact decimal without trailing zeros; empty when absent."""
+    if value is None:
+        return ""
+    return format(Decimal(value).normalize(), "f")
+
+
+class Service:
+    def __init__(self, name: str, directory: Path, log):
+        self.name = name
+        self.log = log
+        self.started = time.monotonic()
+        self.initialized = False
+        self.warehouse = Warehouse(directory)
+        self.acquisition = Acquisition(self.warehouse, log)
+        self.sources = {}  # provider -> (credential, Budget), in memory only
+        self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
+
+    async def reply(self, request: Request) -> Response:
+        response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
+        try:
+            if request.version != 1 or request.service_id != self.name:
+                raise ValueError("request is for another service or protocol version")
+            body = request.WhichOneof("body")
+            if body is None:
+                raise ValueError("request has no operation")
+            handler = getattr(self, f"on_{body}")
+            await handler(getattr(request, body), response)
+        except SourceError as error:
+            response.error.code, response.error.message = error.code, str(error)
+        except ValueError as error:
+            response.error.code, response.error.message = "invalid_request", str(error)
+        except Exception as error:
+            self.log.write("error", MODULE, "request.failed", operation=request.WhichOneof("body"),
+                           message=str(error))
+            response.error.code, response.error.message = "operation_failed", str(error)
+        return response
+
+    async def read(self, function, *arguments):
+        return await asyncio.get_running_loop().run_in_executor(self.reads, function, *arguments)
+
+    async def on_health(self, _, response):
+        health = response.health
+        health.instance_id = self.name
+        health.process_id = str(os.getpid())
+        health.version = VERSION
+        health.uptime_ms = int((time.monotonic() - self.started) * 1000)
+        health.initialized = self.initialized
+        health.configured_sources.extend(sorted(self.sources))
+
+    async def on_configure_source(self, request, response):
+        if request.provider != "tushare":
+            raise ValueError(f"unknown data source {request.provider}")
+        budget = Budget(request.requests_per_minute)
+        Tushare(request.credential, budget)  # validates the token's form
+        self.sources["tushare"] = (request.credential, budget)
+        self.log.write("info", MODULE, "source.configured", provider=request.provider,
+                       requests_per_minute=request.requests_per_minute)
+        response.accepted.SetInParent()
+
+    async def on_acquire(self, request, response):
+        if "tushare" not in self.sources:
+            raise ValueError("enter or save the Tushare credential first")
+        credential, budget = self.sources["tushare"]
+        self.acquisition.submit(
+            request.id, request.begin_day, request.end_day,
+            lambda cancelled: Tushare(credential, budget, cancelled=cancelled))
+        response.accepted.SetInParent()
+
+    async def on_cancel(self, request, response):
+        self.acquisition.cancel(request.id)
+        response.accepted.SetInParent()
+
+    async def on_tasks(self, _, response):
+        for task in self.acquisition.tasks.values():
+            response.tasks.tasks.add(
+                id=task.identity, begin_day=task.begin, end_day=task.end, state=task.state,
+                days_total=task.days_total, days_done=task.days_done, days_empty=task.days_empty,
+                requests=task.requests, error_code=task.error_code, error=task.error,
+                dataset_version=task.version, started_ns=task.started_ns,
+                finished_ns=task.finished_ns)
+        response.tasks.SetInParent()
+
+    def summary(self):
+        version = self.warehouse.current()
+        tables = []
+        for table in ("contracts", "calendar", "daily"):
+            day = "list_date" if table == "contracts" else "day"
+            (rows, first, last), = self.warehouse.query(
+                version, f"select count(*), min({day}), max({day}) from {table}", (table,))
+            partitions = sum(key.split("/")[0] == table for key in version.manifest["partitions"])
+            tables.append((table, rows, partitions, first, last))
+        return version, tables
+
+    async def on_summary(self, _, response):
+        version, tables = await self.read(self.summary)
+        summary = response.summary
+        summary.dataset_version = version.identity
+        summary.created_ns = version.manifest["created_ns"]
+        for table, rows, partitions, first, last in tables:
+            summary.tables.add(table=table, rows=rows, partitions=partitions,
+                               first_day=first.isoformat() if first else "",
+                               last_day=last.isoformat() if last else "")
+
+    def coverage(self):
+        version = self.warehouse.current()
+        rows = self.warehouse.query(version, """
+            with d as (select exchange, product, strftime(day, '%Y-%m') as month,
+                              count(distinct day) as days from daily group by all),
+                 o as (select exchange, strftime(day, '%Y-%m') as month, count(*) as open_days
+                       from calendar where open group by all)
+            select d.exchange, d.product, d.month, d.days, coalesce(o.open_days, 0)
+            from d left join o using (exchange, month) order by 1, 2, 3""", ("daily", "calendar"))
+        return version, rows
+
+    async def on_coverage(self, _, response):
+        version, rows = await self.read(self.coverage)
+        coverage = response.coverage
+        coverage.dataset_version = version.identity
+        current = None
+        for exchange, product, month, days, open_days in rows:
+            if current is None or (current.exchange, current.product) != (exchange, product):
+                current = coverage.products.add(exchange=exchange, product=product)
+            current.months.add(month=month, days=days, open_days=open_days)
+
+    def daily_bars(self, contract, begin, end):
+        version = self.warehouse.current()
+        rows = self.warehouse.query(version, """
+            select day, open, high, low, close, settlement, volume, open_interest from daily
+            where contract = ? and day between ?::date and ?::date order by day""",
+            ("daily",), (contract, begin, end))
+        return version, rows
+
+    async def on_daily_bars(self, request, response):
+        version, rows = await self.read(self.daily_bars, request.contract, request.begin_day,
+                                        request.end_day)
+        bars = response.daily_bars
+        bars.dataset_version = version.identity
+        bars.contract = request.contract
+        for day, *values in rows:
+            bars.bars.add(day=day.isoformat(), **dict(zip(
+                ("open", "high", "low", "close", "settlement", "volume", "open_interest"),
+                map(text, values))))

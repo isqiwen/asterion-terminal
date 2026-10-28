@@ -13,93 +13,68 @@ import os
 import signal
 import struct
 import sys
-import time
 from pathlib import Path
 
-from asterion.lab_pb2 import Request, Response
+from asterion.lab_pb2 import Request
 
 from asterion_lab.log import ProcessLog
+from asterion_lab.service import MODULE, Service
 from asterion_lab.version import VERSION
 
-MAX_FRAME = 1024 * 1024
-MODULE = "lab-service"
+MAX_REQUEST = 1024 * 1024
 
 
-class Service:
-    def __init__(self, arguments, log: ProcessLog):
-        self.name = arguments.session
-        self.directory = Path(arguments.directory)
-        self.owner = arguments.owner_pid
-        self.log = log
-        self.started = time.monotonic()
-        self.initialized = False
-        self.stopping = asyncio.Event()
-
-    def reply(self, request: Request) -> Response:
-        response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
-        if request.version != 1 or request.service_id != self.name:
-            response.error.code = "invalid_request"
-            response.error.message = "request is for another service or protocol version"
-        elif request.HasField("health"):
-            health = response.health
-            health.instance_id = self.name
-            health.process_id = str(os.getpid())
-            health.version = VERSION
-            health.uptime_ms = int((time.monotonic() - self.started) * 1000)
-            health.initialized = self.initialized
-        else:
-            response.error.code = "invalid_request"
-            response.error.message = "request has no operation"
-        return response
-
-    async def connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        try:
-            while True:
-                try:
-                    size, = struct.unpack("!I", await reader.readexactly(4))
-                except asyncio.IncompleteReadError:
-                    return
-                if not 0 < size <= MAX_FRAME:
-                    self.log.write("warning", MODULE, "frame.rejected", size=size)
-                    return
-                request = Request()
-                request.ParseFromString(await reader.readexactly(size))
-                payload = self.reply(request).SerializeToString()
-                writer.write(struct.pack("!I", len(payload)) + payload)
-                await writer.drain()
-        except Exception as error:  # one client's failure never stops the service
-            self.log.write("warning", MODULE, "connection.failed", message=str(error))
-        finally:
-            writer.close()
-
-    async def watch_owner(self):
-        # The Agent's death ends its services; nothing else would stop this one.
-        while not self.stopping.is_set():
+async def connection(service: Service, reader, writer):
+    try:
+        while True:
             try:
-                os.kill(self.owner, 0)
+                size, = struct.unpack("!I", await reader.readexactly(4))
+            except asyncio.IncompleteReadError:
+                return
+            if not 0 < size <= MAX_REQUEST:
+                service.log.write("warning", MODULE, "frame.rejected", size=size)
+                return
+            request = Request()
+            request.ParseFromString(await reader.readexactly(size))
+            payload = (await service.reply(request)).SerializeToString()
+            writer.write(struct.pack("!I", len(payload)) + payload)
+            await writer.drain()
+    except Exception as error:  # one client's failure never stops the service
+        service.log.write("warning", MODULE, "connection.failed", message=str(error))
+    finally:
+        writer.close()
+
+
+async def run(service: Service, owner: int, endpoints):
+    stopping = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for number in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(number, stopping.set)
+    servers = []
+    for endpoint in endpoints:
+        Path(endpoint).unlink(missing_ok=True)
+        servers.append(await asyncio.start_unix_server(
+            lambda reader, writer: connection(service, reader, writer), path=endpoint))
+    service.initialized = True
+    service.log.write("info", MODULE, "service.started", version=VERSION)
+
+    async def watch_owner():
+        # The Agent's death ends its services; nothing else would stop this one.
+        while True:
+            try:
+                os.kill(owner, 0)
             except ProcessLookupError:
-                self.log.write("warning", MODULE, "owner.lost", owner_pid=self.owner)
-                self.stopping.set()
+                service.log.write("warning", MODULE, "owner.lost", owner_pid=owner)
+                stopping.set()
                 return
             await asyncio.sleep(1)
 
-    async def run(self, endpoints):
-        loop = asyncio.get_running_loop()
-        for number in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(number, self.stopping.set)
-        servers = []
-        for endpoint in endpoints:
-            Path(endpoint).unlink(missing_ok=True)
-            servers.append(await asyncio.start_unix_server(self.connection, path=endpoint))
-        self.initialized = True
-        self.log.write("info", MODULE, "service.started", directory=str(self.directory),
-                       version=VERSION)
-        watcher = asyncio.create_task(self.watch_owner())
-        await self.stopping.wait()
-        watcher.cancel()
-        for server in servers:
-            server.close()
-        self.log.write("info", MODULE, "service.stopped")
+    watcher = asyncio.create_task(watch_owner())
+    await stopping.wait()
+    watcher.cancel()
+    for server in servers:
+        server.close()
+    service.log.write("info", MODULE, "service.stopped")
 
 
 def main():
@@ -115,11 +90,16 @@ def main():
     arguments = parser.parse_args()
     log = ProcessLog("lab-service", arguments.session)
     try:
+        directory = Path(arguments.directory)
         if arguments.owner_pid <= 1:
             raise ValueError("invalid owner process")
-        if not Path(arguments.directory).is_absolute() or not Path(arguments.directory).is_dir():
-            raise ValueError(f"service directory is missing: {arguments.directory}")
-        asyncio.run(Service(arguments, log).run([arguments.endpoint, arguments.health_endpoint]))
+        if not directory.is_absolute() or not directory.is_dir():
+            raise ValueError(f"service directory is missing: {directory}")
+        service = Service(arguments.session, directory, log)
+        asyncio.run(run(service, arguments.owner_pid,
+                        [arguments.endpoint, arguments.health_endpoint]))
+        # An acquisition thread stops at its next request; its stored months stay.
+        os._exit(0)
     except Exception as error:
         log.write("error", MODULE, "service.failed", message=str(error))
         print(f"Lab service failed: {error}", file=sys.stderr)

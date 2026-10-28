@@ -61,7 +61,7 @@ flowchart TB
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
 | `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估、账户复核）及研究变量、逻辑、策略包 |
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |
-| `asterion_lab` | Python 研究服务，每个本机节点一个，用随包 Python 以 `-I -B -m asterion_lab` 运行。目前只有健康检查；按计划逐步接管 Data 与 Research |
+| `asterion_lab` | Python 研究服务，每个本机节点一个，用随包 Python 以 `-I -B -m asterion_lab` 运行。期货数据仓库与 Tushare 采集（见 [lab](lab.md)）；按计划逐步接管 Data 与 Research |
 
 - 本机使用 Unix Socket，远程使用 TCP + 双向 TLS，消息均为 `protocol/proto/asterion/` 中的 Protobuf。
 - 一个服务实例对应一个进程；停止保留实例与数据，重启只改变运行代次。

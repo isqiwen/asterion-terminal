@@ -353,6 +353,7 @@ struct Application::Impl
     void register_data_task_connection_commands();
     void register_connection_commands();
     void register_market_commands();
+    void register_lab_commands();
     std::stop_source lifetime;
     std::shared_future<void> initialization;
     PolledTask<void> initialized();

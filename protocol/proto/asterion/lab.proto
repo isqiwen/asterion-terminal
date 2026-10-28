@@ -8,9 +8,42 @@ message Request {
   string correlation_id = 3;
   oneof body {
     HealthQuery health = 10;
+    // Sent by Terminal's native layer only: the credential never passes
+    // through the UI. The service keeps it in memory.
+    ConfigureSource configure_source = 11;
+    AcquireDaily acquire = 12;
+    TasksQuery tasks = 13;
+    CancelTask cancel = 14;
+    SummaryQuery summary = 15;
+    CoverageQuery coverage = 16;
+    DailyBarsQuery daily_bars = 17;
   }
 }
 message HealthQuery {}
+message ConfigureSource {
+  string provider = 1; // "tushare"
+  string credential = 2;
+  uint32 requests_per_minute = 3;
+}
+// Calendars, contract lists and daily bars of every exchange, for open days in
+// [begin_day, end_day] (YYYY-MM-DD) not stored yet.
+message AcquireDaily {
+  string id = 1;
+  string begin_day = 2;
+  string end_day = 3;
+}
+message TasksQuery {}
+message CancelTask {
+  string id = 1;
+}
+message SummaryQuery {}
+message CoverageQuery {}
+message DailyBarsQuery {
+  string contract = 1; // EXCHANGE/product/YYYY-MM
+  string begin_day = 2;
+  string end_day = 3;
+}
+
 message Response {
   uint32 version = 1;
   string service_id = 2;
@@ -18,6 +51,11 @@ message Response {
   oneof body {
     Health health = 10;
     Error error = 11;
+    Accepted accepted = 12;
+    Tasks tasks = 13;
+    Summary summary = 14;
+    Coverage coverage = 15;
+    DailyBars daily_bars = 16;
   }
 }
 message Health {
@@ -27,8 +65,74 @@ message Health {
   string version = 3;
   uint64 uptime_ms = 4;
   bool initialized = 5;
+  // Providers with a credential held in memory.
+  repeated string configured_sources = 6;
 }
 message Error {
   string code = 1;
   string message = 2;
+}
+message Accepted {}
+message Task {
+  string id = 1;
+  string begin_day = 2;
+  string end_day = 3;
+  string state = 4; // running, succeeded, failed, cancelled
+  uint32 days_total = 5;
+  uint32 days_done = 6;
+  // Open days the vendor had no rows for yet; they are asked again next time.
+  uint32 days_empty = 7;
+  uint32 requests = 8;
+  string error_code = 9;
+  string error = 10;
+  // The newest version this task committed.
+  string dataset_version = 11;
+  int64 started_ns = 12;
+  int64 finished_ns = 13;
+}
+message Tasks {
+  repeated Task tasks = 1;
+}
+message TableSummary {
+  string table = 1;
+  uint64 rows = 2;
+  uint32 partitions = 3;
+  string first_day = 4;
+  string last_day = 5;
+}
+message Summary {
+  string dataset_version = 1;
+  int64 created_ns = 2;
+  repeated TableSummary tables = 3;
+}
+// Of each product and month: the days with daily bars, and the exchange's open days.
+message MonthCoverage {
+  string month = 1; // YYYY-MM
+  uint32 days = 2;
+  uint32 open_days = 3;
+}
+message ProductCoverage {
+  string exchange = 1;
+  string product = 2;
+  repeated MonthCoverage months = 3;
+}
+message Coverage {
+  string dataset_version = 1;
+  repeated ProductCoverage products = 2;
+}
+message DailyBar {
+  string day = 1;
+  // Exact decimals as text; empty when absent.
+  string open = 2;
+  string high = 3;
+  string low = 4;
+  string close = 5;
+  string settlement = 6;
+  string volume = 7;
+  string open_interest = 8;
+}
+message DailyBars {
+  string dataset_version = 1;
+  string contract = 2;
+  repeated DailyBar bars = 3;
 }

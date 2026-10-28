@@ -182,6 +182,7 @@ Application::Impl::Impl()
     register_data_task_connection_commands();
     register_connection_commands();
     register_market_commands();
+    register_lab_commands();
     logger->write(LogLevel::info, "terminal.started");
     initialization = service_io
                          .submit<void>([this](std::stop_token) {
