@@ -281,3 +281,21 @@ TEST(KeychainHelper, HungIoExitAndExcessOutputAreTerminatedAndReaped)
         EXPECT_EQ(store->load("normal"), "fixture-only-token");
     }
 }
+
+TEST(DataCredentials, ForgettingErasesThisDirectorysSecretsAndKeepsTheSettings)
+{
+    Directory root;
+    fs::create_directory(root.path);
+    auto keychain = std::make_shared<test::MemoryCredentials>();
+    terminal::DataCredentials removed(root.path / "removed", keychain);
+    terminal::DataCredentials other(root.path / "other", keychain);
+    removed.save(credential("one", true), limits);
+    removed.save(credential("two", true), limits);
+    other.save(credential("one", true), limits);
+    removed.forget_remembered();
+    EXPECT_EQ(keychain->items.size(), 1U);
+    EXPECT_EQ(other.find("one")->credential, "secret-one");
+    EXPECT_EQ(removed.snapshot().size(), 2U);
+    EXPECT_EQ(removed.find("one")->credential, "");
+    terminal::DataCredentials(root.path / "missing", keychain).forget_remembered();
+}

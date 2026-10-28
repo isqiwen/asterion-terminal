@@ -85,6 +85,26 @@ TEST(Performance, AnnualReturnUsesOriginalSecondsWhileVolatilityUsesTheExplicitP
     EXPECT_NEAR(*result.calmar, *result.annual_return / 0.2, 1e-9);
 }
 
+TEST(Performance, AFullYearOfDataTrimmedByHolidaysAtItsEndsIsAnnualized)
+{
+    // A daily backtest over 2025-10-27..2026-10-26 settles from the close of
+    // 2025-10-28 to that of 2026-10-26: 363 days, short of 365.2425.
+    const auto record = record_of({"100000", "110000"});
+    const std::vector<Decimal> marks{d("100000"), d("110000")};
+    PerformanceContext context;
+    context.begin_ns = 0;
+    context.end_ns = 363LL * 86400 * 1000000000;
+    auto result = performance(d("100000"), record, marks, context);
+    ASSERT_TRUE(result.annual_return);
+    EXPECT_NEAR(*result.annual_return, std::pow(1.1, 365.2425 / 363) - 1, 1e-9);
+    EXPECT_FALSE(result.short_calendar_span);
+    // Two weeks short of a calendar year is still a partial year.
+    context.end_ns = performance_annual_span_ns - 1;
+    result = performance(d("100000"), record, marks, context);
+    EXPECT_FALSE(result.annual_return);
+    EXPECT_EQ(result.annual_return_reason, PerformanceUnavailable::shorter_than_one_year);
+}
+
 TEST(Performance, UndefinedFiguresStayAbsentAndInvalidRecordsAreRefused)
 {
     std::vector<const char*> flat(25, "100000");

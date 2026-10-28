@@ -171,6 +171,19 @@ void CtpConnections::forget_market_credentials(const std::string& id)
     remembered_->erase(credential_account(get(id)));
 }
 
+void CtpConnections::forget_remembered()
+{
+    safe(directory_);
+    if (!remembered_ || !fs::is_directory(directory_))
+        return;
+    FileLock lock(directory_, "connections.lock");
+    // An unreadable connection names no account; it fails here rather than
+    // leaving its secrets behind once the file is deleted.
+    for (const auto& entry : fs::directory_iterator(directory_))
+        if (entry.path().extension() == ".json")
+            remembered_->erase(credential_account(get(entry.path().stem().string())));
+}
+
 fs::path CtpConnections::path(const std::string& id) const
 {
     if (!std::regex_match(id, std::regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")))

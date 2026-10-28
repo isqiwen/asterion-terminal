@@ -267,3 +267,26 @@ TEST(CtpConnections, TradingBindingSurvivesReopenAndPreventsSecondExecutionLocat
     EXPECT_THROW(reopened.save(renamed, renamed.revision), Error);
     EXPECT_THROW(reopened.remove("real", reopened.get("real").revision), Error);
 }
+
+TEST(CtpConnections, ForgettingErasesEverySavedConnectionsSecretsAndKeepsTheFiles)
+{
+    Directory root;
+    auto keychain = std::make_shared<test::MemoryCredentials>();
+    terminal::CtpConnections removed(root.path / "removed", keychain);
+    terminal::CtpConnections other(root.path / "other", keychain);
+    for (const auto* id : {"a", "b"}) {
+        removed.save(simnow(id), "");
+        removed.remember_market_credentials(id, {"fixture-password", "fixture-auth"});
+    }
+    other.save(simnow("a"), "");
+    other.remember_market_credentials("a", {"other-password", "other-auth"});
+    removed.forget_remembered();
+    EXPECT_EQ(keychain->items.size(), 1U);
+    EXPECT_EQ(other.market_credentials(other.get("a")).password, "other-password");
+    EXPECT_EQ(removed.snapshot().size(), 2U);
+    // An unreadable connection names no account: forgetting refuses instead of
+    // leaving its secrets behind.
+    replace_file_durably(root.path / "removed/c.json", "{}");
+    EXPECT_THROW(removed.forget_remembered(), std::exception);
+    terminal::CtpConnections(root.path / "missing", keychain).forget_remembered();
+}

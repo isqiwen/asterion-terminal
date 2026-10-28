@@ -131,7 +131,7 @@ Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务�
 
 下载页不选择凭据：供应商已设置凭据时直接使用，并采用其请求上限；未设置时为本次查询和下载临时输入，提交后清空。
 
-设置保存在本机 Agent 目录的 `data-providers/<插件 ID>.json`，只含请求上限和是否记住。默认凭据只驻留当前 Terminal 进程内存，关闭应用后需重新输入。用户勾选保存且插件允许时，令牌保存在 macOS 登录钥匙串（服务名 `me.asterion.terminal.data-connection`，仅本机、解锁时可用）或 Linux Secret Service 的登录密钥环（同名 schema），由辅助程序 `asterion_keychain` 读写；macOS 的辅助程序签名保持稳定。Linux 会话没有 Secret Service 时不能保存。清除会同时删除钥匙串条目。界面快照不返回凭据。
+设置保存在本机 Agent 目录的 `data-providers/<插件 ID>.json`，只含请求上限和是否记住。默认凭据只驻留当前 Terminal 进程内存，关闭应用后需重新输入。用户勾选保存且插件允许时，令牌保存在 macOS 登录钥匙串（服务名 `me.asterion.terminal.data-connection`，仅本机、解锁时可用）或 Linux Secret Service 的登录密钥环（同名 schema），由辅助程序 `asterion_keychain` 读写；macOS 的辅助程序签名保持稳定。Linux 会话没有 Secret Service 时不能保存。清除会同时删除钥匙串条目；卸载时选择删除用户数据，也先删除本节点保存的所有钥匙串条目（含 CTP 密码和授权码），再删除程序和数据。界面快照不返回凭据。
 
 提交下载时，数据服务保存当时的授权快照和供应商令牌，研究服务只持有非秘密授权引用；服务计算线程按有效尝试从数据服务取得固定凭据与预算。更改或清除 Terminal 的供应商默认凭据不影响已提交授权；同一提交身份不能替换原凭据。令牌过期后的旧任务不会自动改用新凭据，应显式建立新任务。Terminal 默认设置和数据服务保管的已提交授权具有不同生命周期。
 

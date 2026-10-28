@@ -74,6 +74,9 @@ public:
     // An empty credential keeps the one already held.
     void save(DataCredential value, const DataCredentialLimits& limits);
     void clear(const std::string& provider);
+    // Erases every remembered credential of this directory's providers and
+    // keeps the settings files. Uninstalling with data removal deletes them next.
+    void forget_remembered();
 
 private:
     std::filesystem::path directory_;

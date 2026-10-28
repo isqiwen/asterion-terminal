@@ -26,7 +26,7 @@ protected:
         root / "node",
         root / "enrollments"
     };
-    int registered = 0, removed = 0, prepared = 0, started = 0;
+    int registered = 0, removed = 0, prepared = 0, started = 0, forgotten = 0;
     Services services{
         [&] {
             ++removed;
@@ -45,6 +45,11 @@ protected:
             EXPECT_GT(registered, 0);
             EXPECT_GT(prepared, 0);
             ++started;
+        },
+        [&] {
+            // The keychain helper is one of the programs.
+            EXPECT_TRUE(fs::exists(layout.destination));
+            ++forgotten;
         }
     };
     std::function<void(const char*)> progress = [](const char*) {};
@@ -95,6 +100,7 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     uninstall(layout, true, services, progress);
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_FALSE(inspect(layout).at("installed"));
+    EXPECT_EQ(forgotten, 0) << "kept data keeps its saved credentials";
     EXPECT_EQ(contents(layout.node / "ledger"), "operator data");
     EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
     EXPECT_EQ(removed, 2);
@@ -153,6 +159,7 @@ TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnostic
         }
     });
     EXPECT_FALSE(fs::exists(layout.destination));
+    EXPECT_EQ(forgotten, 1);
     EXPECT_FALSE(fs::exists(layout.node / "config"));
     EXPECT_FALSE(fs::exists(layout.node / "ledger"));
     EXPECT_FALSE(fs::exists(layout.node / "ipc-id"));

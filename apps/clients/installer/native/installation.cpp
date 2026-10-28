@@ -371,6 +371,8 @@ void uninstall(
     services.unregister();
     FileLock agent_stopped(layout.node, "agent.lock");
     FileLock manager_stopped(layout.node / "manager", "manager.lock");
+    if (!preserve_data)
+        services.forget_credentials();
     progress("removing");
     fs::remove_all(layout.destination);
     if (!preserve_data) {

@@ -145,7 +145,7 @@ export function Backtest({
   });
   const [performanceDraft, setPerformanceDraft] = useWorkspaceDraft(
     `backtest-performance:${JSON.stringify([destination, datasets.map(item => item.revision)])}`,
-    { annual: "", zeroRiskFree: false },
+    { annual: "242", zeroRiskFree: true },
   );
   const { annualPeriods, validAnnualPeriods, performanceReady, performanceAssumptions } =
     performanceOf(performanceDraft, candidates.length);

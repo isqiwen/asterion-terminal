@@ -18,6 +18,9 @@ struct Services
     std::function<void()> register_stopped;
     std::function<void()> prepare_programs;
     std::function<void()> start;
+    // Erases the secrets this node remembered in the login keychain. Runs
+    // before the programs and user data are removed: the helper is a program.
+    std::function<void()> forget_credentials;
 };
 
 enum class Deployment

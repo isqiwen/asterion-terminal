@@ -150,6 +150,18 @@ void DataCredentials::save(DataCredential value, const DataCredentialLimits& lim
         session_[value.provider] = value.credential;
 }
 
+void DataCredentials::forget_remembered()
+{
+    safe(directory_);
+    if (!remembered_ || !fs::is_directory(directory_))
+        return;
+    FileLock lock(directory_, "credentials.lock");
+    for (const auto& entry : fs::directory_iterator(directory_))
+        if (entry.path().extension() == ".json")
+            // Erasing an absent entry succeeds, so the file need not be read.
+            remembered_->erase(account(entry.path().stem().string()));
+}
+
 void DataCredentials::clear(const std::string& provider)
 {
     const auto file = path(provider);

@@ -361,10 +361,10 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await expect(workspace.getByText(/^候选策略 2 个/)).toBeVisible();
   // A Saturday: the holdout begins on the Monday after it.
   await workspace.getByLabel("留出起始日", { exact: true }).fill("2026-09-19");
-  await expect(workspace.getByLabel("年期数A（日结算）", { exact: true })).toHaveValue("");
-  await expect(
-    workspace.getByLabel("明确采用零无风险年收益假设", { exact: true }),
-  ).not.toBeChecked();
+  // Sharpe needs both assumptions; the form starts with 242 days and zero risk-free.
+  await expect(workspace.getByLabel("年期数A（日结算）", { exact: true })).toHaveValue("242");
+  await expect(workspace.getByLabel("明确采用零无风险年收益假设", { exact: true })).toBeChecked();
+  await workspace.getByLabel("明确采用零无风险年收益假设", { exact: true }).uncheck();
   await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
   await workspace.getByLabel("年期数A（日结算）", { exact: true }).fill("252");
   await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();

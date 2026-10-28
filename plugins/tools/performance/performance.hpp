@@ -35,6 +35,10 @@ enum class PerformanceUnavailable
 };
 std::string_view performance_unavailable_name(PerformanceUnavailable);
 inline constexpr long double performance_year_seconds = 31556952.0L; // 365.2425 days
+// A span this long counts as a year. Settlements are timed at the close, and
+// exchange holidays at either end of a calendar year can trim up to two weeks
+// from a backtest over a full year of data.
+inline constexpr std::int64_t performance_annual_span_ns = (365LL - 14) * 86400 * 1000000000;
 
 // What a day-by-day equity record says about a strategy. These are statistics
 // for judging a result, not ledger values.

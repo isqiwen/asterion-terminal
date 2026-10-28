@@ -95,7 +95,7 @@ Performance performance(
         const auto elapsed = *context.end_ns - *context.begin_ns;
         const long double years =
             static_cast<long double>(elapsed) / 1000000000.0L / performance_year_seconds;
-        result.short_calendar_span = elapsed && years < 1;
+        result.short_calendar_span = elapsed && elapsed < performance_annual_span_ns;
         if (!elapsed)
             result.annual_return_reason = PerformanceUnavailable::non_positive_duration;
         // A return over less than a year is not annualized: compounding a short
@@ -110,7 +110,7 @@ Performance performance(
                 : std::log(
                       static_cast<long double>(days.back().equity.raw())
                       / static_cast<long double>(deposit.raw()));
-            // At least a year of Decimal-bounded growth keeps the rate finite.
+            // About a year of Decimal-bounded growth keeps the rate finite.
             result.annual_return = static_cast<double>(std::expm1(log_growth / years));
             result.annual_return_reason = PerformanceUnavailable::none;
         }

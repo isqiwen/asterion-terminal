@@ -750,7 +750,11 @@ TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
         EXPECT_EQ(error.code(), ErrorCode::operation_failed);
         const std::string diagnostic = error.what();
         EXPECT_TRUE(diagnostic.starts_with("service program synchronization failed: "));
-        EXPECT_NE(diagnostic.find("invalid managed service configuration"), std::string::npos);
+        EXPECT_NE(
+            diagnostic.find(
+                (root / "services/market/service.json").string()
+                + ": invalid managed service configuration"),
+            std::string::npos);
         const auto marker = diagnostic.find("\nLog file: ");
         ASSERT_NE(marker, std::string::npos);
         const fs::path log = diagnostic.substr(marker + std::string("\nLog file: ").size());

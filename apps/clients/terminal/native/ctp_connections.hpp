@@ -42,6 +42,9 @@ public:
     MarketCredentials market_credentials(const CtpConnection& connection) const;
     void remember_market_credentials(const std::string& id, const MarketCredentials& credentials);
     void forget_market_credentials(const std::string& id);
+    // Erases the remembered credentials of every saved connection and keeps
+    // the files. Uninstalling with data removal deletes them next.
+    void forget_remembered();
     // Cached, once the directory has settled, until this object changes a
     // connection or the directory's modification time changes. Unreadable files
     // are listed with an error.

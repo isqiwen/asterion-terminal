@@ -1227,7 +1227,7 @@
   "拒单原因": "Rejection reason",
   "允许方向": "Allowed directions",
   "绩效计算方法假设": "Performance method assumptions",
-  "年化期数由本次日结算方法明确选择，不从样本跨度推断；未配置时保留缺项原因。比较或走步按夏普选优，须配置年期数并明确零无风险假设。": "Choose annual periods explicitly for daily settlements. Missing assumptions stay missing. Sharpe-based comparison or walk-forward selection requires annual periods and an explicit zero risk-free assumption.",
+  "默认按每年 242 个交易日和零无风险收益计算波动率与夏普，可以修改；年期数不从样本跨度推断，清空时保留缺项原因。比较或走步按夏普选优，须配置年期数并明确零无风险假设。": "By default, volatility and Sharpe use 242 trading days a year and a zero risk-free rate; you can change both. Annual periods are never inferred from the sample span, and clearing them keeps the reason the figures are missing. Sharpe-based comparison or walk-forward selection requires annual periods and an explicit zero risk-free assumption.",
   "年期数A（日结算）": "Annual periods A (daily settlement)",
   "明确采用零无风险年收益假设": "Explicitly assume zero annual risk-free return",
   "年期数A须为大于0且不超过366的日结算年期数。": "Daily settlement annual periods must be greater than zero and at most 366.",

@@ -50,8 +50,10 @@ void save_service_configuration(
     sync_directory(path.parent_path());
 }
 
+namespace {
+
 ServiceConfiguration
-load_service_configuration(const fs::path& folder, bool local, unsigned short control_port)
+read_service_configuration(const fs::path& folder, bool local, unsigned short control_port)
 {
     const auto path = folder / "service.json";
     require_managed_path(path);
@@ -64,7 +66,6 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
     std::string raw{std::istreambuf_iterator<char>(input), {}};
     auto document = parse_json(raw, 65536);
     if (document.size() != 7U + (document.contains("catalog_artifact") ? 1U : 0U)
-
         || !document.at("desired").is_boolean() || !document.at("port").is_number_unsigned())
         throw std::invalid_argument("invalid managed service configuration");
     ServiceConfiguration configuration;
@@ -109,6 +110,22 @@ load_service_configuration(const fs::path& folder, bool local, unsigned short co
     if (!fs::is_directory(ledger))
         throw std::invalid_argument("managed ledger is missing");
     return configuration;
+}
+
+} // namespace
+
+ServiceConfiguration
+load_service_configuration(const fs::path& folder, bool local, unsigned short control_port)
+{
+    // Every refusal names the file, so a node left by an older build can be found.
+    const auto file = (folder / "service.json").string();
+    try {
+        return read_service_configuration(folder, local, control_port);
+    } catch (const std::runtime_error& error) {
+        throw std::runtime_error(file + ": " + error.what());
+    } catch (const std::exception& error) {
+        throw std::invalid_argument(file + ": " + error.what());
+    }
 }
 
 } // namespace asterion::agent

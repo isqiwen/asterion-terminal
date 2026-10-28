@@ -168,8 +168,7 @@ r::EvaluationResult compute_evaluation(
     result.set_opening_is_full_period(first > 0);
     result.set_calendar_year_days(365.2425);
     result.set_short_calendar_span(
-        static_cast<long double>(result.end_ns() - result.begin_ns()) / 1000000000.0L
-        < performance_year_seconds);
+        result.end_ns() - result.begin_ns() < performance_annual_span_ns);
     for (const auto limitation :
         {r::EvaluationResult::CASH_FLOWS_NOT_EVALUATED,
             r::EvaluationResult::BENCHMARK_NOT_EVALUATED,

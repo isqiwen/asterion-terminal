@@ -1,4 +1,6 @@
 #include "installation.hpp"
+#include "ctp_connections.hpp"
+#include "data_credentials.hpp"
 #include "startup.hpp"
 #include "service_programs.hpp"
 #include "node_paths.hpp"
@@ -284,6 +286,15 @@ int main(int argc, char** argv)
                 installation::wait_for_local_readiness(
                     endpoint(layout.node / "manager", true),
                     layout.node / "logs");
+            },
+            [&] {
+                // Keychain entries are named after these directories, as the
+                // Terminal opened them. No helper or keyring means none exist.
+                const auto keychain = keychain_store(native / "asterion_keychain");
+                if (!keychain)
+                    return;
+                DataCredentials(layout.node / "data-providers", keychain).forget_remembered();
+                CtpConnections(layout.node / "ctp-connections", keychain).forget_remembered();
             }
         };
         auto progress = [&](const char* step) {
