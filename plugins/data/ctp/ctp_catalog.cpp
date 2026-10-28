@@ -377,7 +377,11 @@ struct CatalogQuery::Impl
                 {{"diagnostic", timeout_diagnostic(reader.step)},
                     {"instrument_responses", reader.instrument_responses.load()},
                     {"active_futures", reader.contracts.size()}});
-            throw Error(ErrorCode::unavailable, timeout_diagnostic(reader.step));
+            std::string diagnostic = timeout_diagnostic(reader.step);
+            if (reader.step == Step::query)
+                diagnostic +=
+                    " after " + std::to_string(reader.instrument_responses.load()) + " responses";
+            throw Error(ErrorCode::unavailable, diagnostic);
         }
         reader.poll();
         if (!reader.completed)

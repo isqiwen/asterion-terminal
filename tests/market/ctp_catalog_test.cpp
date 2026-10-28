@@ -89,7 +89,7 @@ TEST_F(CtpCatalog, TimeoutAndCancellationDoNotReturnPartialResults)
         FAIL() << "expected query timeout";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::unavailable);
-        EXPECT_STREQ(error.what(), "CTP catalog instrument query timed out");
+        EXPECT_STREQ(error.what(), "CTP catalog instrument query timed out after 3 responses");
     }
     config.user = "catalog-stall";
     std::stop_source stop;

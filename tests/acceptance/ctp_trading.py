@@ -26,6 +26,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -110,7 +111,8 @@ else:
     auth_code = getpass.getpass("Authentication code (not echoed, not stored): ")
 ACCOUNT = "acceptance"
 
-with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=True) as folder:
+# A failed run keeps its node: the logs are the only record of what the counter did.
+with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder:
     env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_TEST_NODE_ISOLATED="1",
                ASTERION_CTP_LIBRARY=str(market_sdk), ASTERION_CTP_CATALOG_LIBRARY=str(trader_sdk))
     core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -395,5 +397,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
     report["passed"] = all(item["ok"] for item in report["steps"])
     if args.report:
         Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if report["passed"]:
+        shutil.rmtree(folder, ignore_errors=True)
+    else:
+        print(f"node kept for its logs: {folder}/logs")
     print("PASSED" if report["passed"] else "FAILED")
     sys.exit(0 if report["passed"] else 1)
