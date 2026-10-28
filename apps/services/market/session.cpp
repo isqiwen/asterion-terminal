@@ -1,6 +1,7 @@
 #include "session.hpp"
 #include "catalog_job.hpp"
 #include "ctp_feed.hpp"
+#include "recorder.hpp"
 #include <asterion/domain/intraday_bars.hpp>
 #include <asterion/foundation/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
@@ -21,6 +22,13 @@ namespace wire = market::proto;
 
 namespace {
 
+std::int64_t now_ms()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
 struct State
 {
     const std::string service, instance, node_id;
@@ -35,6 +43,7 @@ struct State
     IntradayBars intraday;
     std::string stream;
     std::uint64_t event_cursor = 0;
+    Recorder recorder;
 
     State(const Session::Configuration& config)
         : service(config.service),
@@ -43,7 +52,8 @@ struct State
           directory(config.directory),
           sdk(config.sdk),
           catalog_sdk(config.catalog_sdk),
-          catalog(sdk_owner)
+          catalog(sdk_owner),
+          recorder(config.directory / "recordings", config.instance)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
     }
@@ -52,6 +62,11 @@ struct State
     {
         if (feed)
             feed->stop();
+        try {
+            recorder.close("stopped", now_ms());
+        } catch (...) {
+            // A failed write was logged by the writer; stopping continues.
+        }
     }
 
     std::string phase() const
@@ -84,17 +99,24 @@ struct State
         // Bounded work per turn. Client traffic cannot prevent event consumption,
         // and a continuous provider stream cannot starve admitted commands.
         const auto batch = feed->events_after(stream, event_cursor, 1024);
-        if (batch.gap || batch.failed)
+        if (batch.gap || batch.failed) {
             intraday.interrupt();
+            recorder.interrupt(batch.failed ? "feed_failed" : "events_lost");
+        }
         for (const auto& event : batch.events) {
             event_cursor = event.sequence;
             if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-                if (status->phase != MarketPhase::connected)
+                if (status->phase != MarketPhase::connected) {
                     intraday.interrupt();
-            } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value);
-                quote && !quote->out_of_order)
-                intraday.observe(quote->quote);
+                    recorder.interrupt(market_phase_name(status->phase));
+                }
+            } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
+                recorder.observe(quote->quote, quote->out_of_order);
+                if (!quote->out_of_order)
+                    intraday.observe(quote->quote);
+            }
         }
+        recorder.poll(now_ms());
         stream = batch.stream_id;
         if (batch.failed)
             event_cursor = batch.latest_sequence;
