@@ -816,6 +816,8 @@ public:
         }
         emit([id, mode](CThostFtdcTraderSpi* spi) {
             auto status = info(0);
+            if (mode == "catalog-slow") // The whole list is built before the first row.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1500));
             if (mode != "catalog-empty") {
                 CThostFtdcInstrumentField item{};
                 put(item.InstrumentName, "\xc2\xdd\xce\xc6\xb8\xd6");

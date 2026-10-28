@@ -79,6 +79,12 @@ TEST_F(CtpCatalog, RejectsPartialInvalidAndDuplicateResults)
     EXPECT_TRUE(read().contracts.empty());
 }
 
+TEST_F(CtpCatalog, TheFirstInstrumentResponseMayTakeLongerThanTheStepTimeout)
+{
+    config.user = "catalog-slow";
+    EXPECT_EQ(read({}, 1s).contracts.size(), 1U);
+}
+
 TEST_F(CtpCatalog, TimeoutAndCancellationDoNotReturnPartialResults)
 {
     config.user = "catalog-partial";

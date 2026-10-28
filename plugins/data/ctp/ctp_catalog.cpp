@@ -410,7 +410,10 @@ struct CatalogQuery::Impl
             return std::move(reader.result);
         } else
             throw std::logic_error("completed CTP catalog query cannot be polled");
-        deadline = std::chrono::steady_clock::now() + timeout;
+        // A counter builds the whole instrument list before its first response:
+        // SimNow sent none for over 30 seconds during trading hours.
+        deadline =
+            std::chrono::steady_clock::now() + (reader.step == Step::query ? 4 * timeout : timeout);
         return {};
     }
 };
