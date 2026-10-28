@@ -545,9 +545,12 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(20ms);
     }
+    // The refusal names the configuration it could not read.
     EXPECT_EQ(
         health.at("failure").at("message"),
-        "Agent initialization failed; inspect node logs: unfinished service configuration " "requires explicit recovery");
+        "Agent initialization failed; inspect node logs: "
+            + (root / "agent/services/incomplete/service.json").string()
+            + ": unfinished service configuration requires explicit recovery");
     EXPECT_TRUE(health.at("execution").at("io").at("observed").get<bool>());
     EXPECT_TRUE(health.at("execution").at("initialization").at("observed").get<bool>());
     EXPECT_FALSE(health.at("execution").at("initialization").at("pending").get<bool>());
