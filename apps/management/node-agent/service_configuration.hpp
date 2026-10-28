@@ -10,6 +10,9 @@ struct ServiceConfiguration
 {
     node::proto::ServiceKind kind = node::proto::UNSPECIFIED_SERVICE;
     std::string artifact, provider_artifact, catalog_artifact;
+    // The lab service's interpreter. It runs in place inside the bundled Python
+    // runtime, which it needs beside it; `artifact` is the interpreter's digest.
+    std::string python;
     std::vector<std::string> plugin_artifacts;
     std::string directory;
     unsigned short port = 0;

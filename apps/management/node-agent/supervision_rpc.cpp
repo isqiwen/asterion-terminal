@@ -7,6 +7,7 @@
 #include <asterion/protocol/health.hpp>
 #include <asterion/market.pb.h>
 #include <asterion/data_service.pb.h>
+#include <asterion/lab.pb.h>
 
 namespace asterion::agent {
 
@@ -45,6 +46,31 @@ PolledTask<HealthObservation> probe_service_health(
                 : phase == "connected"                           ? ServiceHealth::ready
                 : phase == "error" || phase == "sdk_unavailable" ? ServiceHealth::degraded
                                                                  : ServiceHealth::awaiting_input,
+            {}
+        };
+    }
+    if (kind == node::proto::LAB) {
+        lab::proto::Request ping;
+        ping.set_version(1);
+        ping.set_service_id(name);
+        ping.set_correlation_id(correlation);
+        ping.mutable_health();
+        auto pending = channel.request(ping.SerializeAsString(), 1500ms);
+        co_await PollUntil{[&] {
+            channel.poll();
+            return pending.wait_for(0ms) == std::future_status::ready;
+        }};
+        lab::proto::Response reply;
+        if (!reply.ParseFromString(*pending.get()))
+            throw std::runtime_error("invalid lab health");
+        protocol::validate_message(reply);
+        if (reply.version() != 1 || reply.service_id() != name
+            || reply.correlation_id() != correlation || !reply.has_health()
+            || reply.health().instance_id() != name)
+            throw std::runtime_error("lab health identity mismatch");
+        using protocol::ServiceHealth;
+        co_return HealthObservation{
+            reply.health().initialized() ? ServiceHealth::ready : ServiceHealth::starting,
             {}
         };
     }

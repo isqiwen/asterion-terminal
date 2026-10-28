@@ -11,7 +11,7 @@ supported-markers = [
 ]
 
 [[package]]
-name = "asterion-analytics"
+name = "asterion-lab"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

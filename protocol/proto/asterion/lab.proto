@@ -1,0 +1,34 @@
+syntax = "proto3";
+package asterion.lab.proto;
+
+// The Python research service. One per node, supervised by the Agent.
+message Request {
+  uint32 version = 1;
+  string service_id = 2;
+  string correlation_id = 3;
+  oneof body {
+    HealthQuery health = 10;
+  }
+}
+message HealthQuery {}
+message Response {
+  uint32 version = 1;
+  string service_id = 2;
+  string correlation_id = 3;
+  oneof body {
+    Health health = 10;
+    Error error = 11;
+  }
+}
+message Health {
+  // The service name it was started as; a process restart keeps it.
+  string instance_id = 1;
+  string process_id = 2;
+  string version = 3;
+  uint64 uptime_ms = 4;
+  bool initialized = 5;
+}
+message Error {
+  string code = 1;
+  string message = 2;
+}

@@ -295,6 +295,7 @@ Node-API 原生层与 Node Manager 已删除。
 | M0.4 | 完成 | `0ce3372b` 等 | `TaskProcess.InvalidFixedInputs…` 去掉依赖时序的断言；`TerminalNodeCommands.SlowServiceAction…` 在 macOS 上偶发返回空节点列表，已以 `DISABLED_` 隔离；它和 Linux SSH 系统服务验收都属第 3 阶段删除范围，不再处理 |
 | M0.5 | 未开始 | — | 由使用者办理 |
 | M1.1 | 进行中 | — | 按 D1 打包独立 CPython 3.12.12 与锁定依赖，分析助手改以 `python3 -I -B -m asterion_analytics` 运行，删除 PyInstaller；Linux 上分析测试通过，无系统 Python 的 ubuntu:24.04 容器中从另一路径完成一次分析。macOS 打包与签名未验证 |
+| M1.2 | 本机完成 | — | Python 研究服务 `asterion_lab`（`apps/services/lab/`）：本机节点准备程序时自动登记，Agent 启动、健康探测、异常重启、按意愿停止；协议 `lab.proto`，4 字节长度帧与本机 Unix socket；日志格式与 C++ 服务一致。隔离节点测试 `lab_agent` 与开发节点上实测通过。远程 TLS 未做：Agent 不能把运行时部署到远程节点，随第 3 阶段的安装包部署一起处理 |
 
 ### M0.2 真实数据记录（2026-10-27）
 

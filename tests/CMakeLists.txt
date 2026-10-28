@@ -206,6 +206,10 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
 # tasks: the task service, backtest and factor engines, workers
 add_test(NAME task_agent_recovery COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_agent.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
 set_tests_properties(task_agent_recovery PROPERTIES TIMEOUT 60)
+# lab: the Python research service under the local Agent, with the prepared runtime.
+add_test(NAME lab_agent COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lab/lab_agent.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_node_agent>)
+set_tests_properties(lab_agent PROPERTIES TIMEOUT 90
+  ENVIRONMENT "ASTERION_PYTHON=${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
 foreach(mode handshake frame overload)
   add_test(NAME task_slow_${mode} COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_concurrency.py $<TARGET_FILE:asterion_research> $<TARGET_FILE:asterion_test_certificates> ${mode})
   set_tests_properties(task_slow_${mode} PROPERTIES TIMEOUT 30)

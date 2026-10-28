@@ -691,6 +691,40 @@ TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers
         EXPECT_TRUE(fs::exists(copy(hash))) << hash;
 }
 
+// A node with the bundled Python runtime has one lab service, which runs the
+// interpreter in place. Any program stands in for the interpreter here.
+TEST_F(ProgramPreparation, RegistersTheLabServiceWithTheBundledInterpreter)
+{
+    manifest.set_python(ASTERION_TRADE_PATH);
+    // Services without a node identity are an older node's: refused, unchanged.
+    EXPECT_NE(prepare(), 0);
+    EXPECT_FALSE(fs::exists(root / "services/lab"));
+    write_file_durably(root / "node.json", R"({"node_id":"prepared-node"})");
+    ASSERT_EQ(prepare(), 0);
+    auto lab = agent::load_service_configuration(root / "services/lab", true, 0);
+    EXPECT_EQ(lab.kind, node::proto::LAB);
+    EXPECT_EQ(lab.python, ASTERION_TRADE_PATH);
+    EXPECT_EQ(lab.artifact, sha256_file(ASTERION_TRADE_PATH));
+    EXPECT_TRUE(lab.desired);
+    EXPECT_TRUE(fs::is_directory(lab.directory));
+    const auto modified = fs::last_write_time(root / "services/lab/service.json");
+    ASSERT_EQ(prepare(), 0);
+    EXPECT_TRUE(fs::last_write_time(root / "services/lab/service.json") == modified);
+    // Another runtime replaces the interpreter and keeps a stopped service stopped.
+    lab.desired = false;
+    agent::save_service_configuration(root / "services/lab", lab);
+    manifest.set_python(ASTERION_MARKET_PATH);
+    ASSERT_EQ(prepare(), 0);
+    lab = agent::load_service_configuration(root / "services/lab", true, 0);
+    EXPECT_EQ(lab.python, ASTERION_MARKET_PATH);
+    EXPECT_EQ(lab.artifact, sha256_file(ASTERION_MARKET_PATH));
+    EXPECT_FALSE(lab.desired);
+    // A remote node never runs it.
+    EXPECT_THROW(
+        agent::load_service_configuration(root / "services/lab", false, 1),
+        std::exception);
+}
+
 // A kind of service this node does not have is not staged: one deployed later
 // brings its own programs, and a copy nothing runs would stay behind.
 TEST_F(ProgramPreparation, StagesOnlyWhatAServiceHereRuns)

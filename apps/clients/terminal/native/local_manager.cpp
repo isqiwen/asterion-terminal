@@ -41,6 +41,8 @@ std::vector<std::string> launch_arguments()
         result.push_back("--development");
     if (environment_variable("ASTERION_NODE_DIRECTORY"))
         result.push_back("--isolated");
+    if (const auto python = environment_path("ASTERION_PYTHON"))
+        result.insert(result.end(), {"--python", python->string()});
     return result;
 }
 

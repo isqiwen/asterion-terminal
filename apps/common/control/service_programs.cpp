@@ -87,6 +87,17 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
         source.set_provider(utf8(programs.provider));
         source.set_catalog(utf8(programs.catalog));
     }
+    // Electron and the development entry name the bundled interpreter; installed
+    // programs find it beside their own directory. Without one, a node has no
+    // lab service.
+    if (const auto python = environment_path("ASTERION_PYTHON")) {
+        if (!fs::is_regular_file(*python))
+            throw std::runtime_error("bundled Python is missing: " + utf8(*python));
+        manifest.set_python(utf8(*python));
+    } else if (const auto python =
+                   current_executable().parent_path().parent_path() / "python" / "bin" / "python3";
+        fs::is_regular_file(python))
+        manifest.set_python(utf8(python));
     for (const auto& plugin : local_plugin_catalog().entries) {
         if (plugin.managed)
             continue;

@@ -24,6 +24,8 @@ Json configuration_json(const ServiceConfiguration& configuration)
     value["plugin_artifacts"] = configuration.plugin_artifacts;
     if (!configuration.catalog_artifact.empty())
         value["catalog_artifact"] = configuration.catalog_artifact;
+    if (!configuration.python.empty())
+        value["python"] = configuration.python;
     return value;
 }
 
@@ -65,7 +67,9 @@ read_service_configuration(const fs::path& folder, bool local, unsigned short co
     std::ifstream input(path);
     std::string raw{std::istreambuf_iterator<char>(input), {}};
     auto document = parse_json(raw, 65536);
-    if (document.size() != 7U + (document.contains("catalog_artifact") ? 1U : 0U)
+    if (document.size()
+            != 7U + (document.contains("catalog_artifact") ? 1U : 0U)
+                + (document.contains("python") ? 1U : 0U)
         || !document.at("desired").is_boolean() || !document.at("port").is_number_unsigned())
         throw std::invalid_argument("invalid managed service configuration");
     ServiceConfiguration configuration;
@@ -81,8 +85,19 @@ read_service_configuration(const fs::path& folder, bool local, unsigned short co
         validate_artifact_digest(configuration.catalog_artifact);
     }
     if (configuration.kind != wire::MARKET && configuration.kind != wire::RESEARCH
-        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA)
+        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA
+        && configuration.kind != wire::LAB)
         throw std::invalid_argument("unsupported service kind");
+    if (document.contains("python")) {
+        configuration.python = document.at("python").get<std::string>();
+        const fs::path interpreter(
+            std::u8string(configuration.python.begin(), configuration.python.end()));
+        if (configuration.kind != wire::LAB || !interpreter.is_absolute())
+            throw std::invalid_argument("only the lab service names a Python interpreter");
+    }
+    if (configuration.kind == wire::LAB
+        && (configuration.python.empty() || !local || !configuration.plugin_artifacts.empty()))
+        throw std::invalid_argument("the lab service runs the bundled Python on a local node");
     if (!configuration.provider_artifact.empty()) {
         if (configuration.kind != wire::MARKET)
             throw std::invalid_argument("provider library only belongs to market data");

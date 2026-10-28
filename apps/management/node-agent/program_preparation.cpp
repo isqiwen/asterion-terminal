@@ -1,5 +1,6 @@
 #include "program_preparation.hpp"
 #include "managed_paths.hpp"
+#include "node_storage_identity.hpp"
 #include "plugin_artifacts.hpp"
 #include "service_configuration.hpp"
 #include <asterion/kernel/durable_file.hpp>
@@ -10,6 +11,7 @@
 #include <asterion/protocol/trading.hpp>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <iostream>
 #include <set>
 
@@ -124,8 +126,43 @@ void prepare_service_programs(
         if (!bundled.emplace(plugins.identity(hash), hash).second)
             throw std::invalid_argument("duplicate bundled plugin identity");
     }
+    // Every local node with the bundled Python runtime has one lab service. Its
+    // interpreter runs in place: the runtime around it is part of the program.
+    std::optional<ServiceConfiguration> lab;
+    if (!sources.python().empty()) {
+        const fs::path python(sources.python());
+        if (!local || !python.is_absolute() || !fs::is_regular_file(python))
+            throw std::invalid_argument("invalid bundled Python interpreter: " + sources.python());
+        const auto target = artifact_platform(python), host = current_platform();
+        if (target.os != host.os || target.arch != host.arch)
+            throw std::invalid_argument("bundled Python platform mismatch");
+        lab.emplace();
+        lab->kind = node::proto::LAB;
+        lab->python = sources.python();
+        lab->artifact = sha256_file(python);
+        const auto data = (root / "services" / "lab" / "data").u8string();
+        lab->directory.assign(data.begin(), data.end());
+        lab->port = 0;
+        if (!configurations.contains("lab")) {
+            // A new node gets its identity before its first service, as the
+            // Agent's first start would give it; a node with services and no
+            // identity is still refused.
+            node_storage_identity(root);
+            create_directories_durably(root / "services" / "lab" / "data");
+            configurations.emplace("lab", ServiceConfiguration{.kind = node::proto::LAB});
+        }
+    }
     std::map<std::string, ServiceConfiguration> changed;
     for (auto& [name, config] : configurations) {
+        if (config.kind == node::proto::LAB) {
+            // A runtime that is no longer bundled leaves the service as it was.
+            if (lab && (lab->python != config.python || lab->artifact != config.artifact)) {
+                auto next = *lab;
+                next.desired = config.python.empty() || config.desired;
+                changed.emplace(name, std::move(next));
+            }
+            continue;
+        }
         auto next = programs.at(config.kind);
         next.directory = config.directory;
         next.port = config.port;

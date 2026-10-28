@@ -331,7 +331,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "live" | "market" | "research" | "data";
+      kind: "live" | "market" | "research" | "data" | "lab";
       plugin_artifacts: string[];
       id: string;
       artifact: string;

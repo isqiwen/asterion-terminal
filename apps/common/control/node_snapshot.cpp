@@ -16,6 +16,8 @@ const char* service_kind_name(wire::ServiceKind kind)
             return "data";
         case wire::RESEARCH:
             return "research";
+        case wire::LAB:
+            return "lab";
         default:
             return "unsupported";
     }

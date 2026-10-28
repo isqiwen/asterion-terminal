@@ -282,7 +282,9 @@ class Agent
     Started prepare_start(const std::string& name, const ServiceConfiguration& configuration)
     {
         Started result;
-        const auto executable = binary(configuration.artifact);
+        const bool lab = configuration.kind == wire::LAB;
+        const auto executable =
+            lab ? fs::path(configuration.python) : binary(configuration.artifact);
         if (sha256_file(executable) != configuration.artifact)
             throw std::runtime_error("artifact integrity check failed");
         result.endpoint = service_endpoint(name);
@@ -291,16 +293,21 @@ class Agent
         // Only this locked Agent owns these ephemeral socket paths.
         fs::remove(result.endpoint);
         fs::remove(result.health_endpoint);
-        std::vector<std::string> args{
-            "--owner-pid",
-            std::to_string(current_process_id()),
-            "--session",
-            name,
-            "--directory",
-            configuration.directory,
-            "--health-endpoint",
-            result.health_endpoint
-        };
+        // Isolated from the user's environment and site; no bytecode written into
+        // the installation.
+        std::vector<std::string> args;
+        if (lab)
+            args = {"-I", "-B", "-m", "asterion_lab"};
+        args.insert(
+            args.end(),
+            {"--owner-pid",
+                std::to_string(current_process_id()),
+                "--session",
+                name,
+                "--directory",
+                configuration.directory,
+                "--health-endpoint",
+                result.health_endpoint});
         if (configuration.kind == wire::RESEARCH || configuration.kind == wire::TRADING
             || configuration.kind == wire::DATA)
             args.insert(
@@ -329,7 +336,7 @@ class Agent
                     "--discovery-endpoint",
                     discovery_endpoint()});
         }
-        if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING)
+        if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING || lab)
             args.insert(args.end(), {"--node-id", node_id_});
         if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty()) {
             const auto source = binary(configuration.provider_artifact);
@@ -536,8 +543,10 @@ class Agent
             if (!maintenance_.empty())
                 throw std::runtime_error("Agent is already in maintenance");
             for (const auto& [name, s] : services_)
+                // The lab service keeps no state yet: stopping it is its recovery boundary.
                 if ((s.configuration.desired || s.process) && s.configuration.kind != wire::MARKET
-                    && s.configuration.kind != wire::RESEARCH && s.configuration.kind != wire::DATA)
+                    && s.configuration.kind != wire::RESEARCH && s.configuration.kind != wire::DATA
+                    && s.configuration.kind != wire::LAB)
                     throw std::runtime_error(
                         "service lacks an automatic upgrade recovery boundary: " + name);
             agent::UpgradePlan next;
@@ -1154,7 +1163,8 @@ public:
             // This socket is private to the node. A TCP deployment's public local
             // socket is intentionally not part of its remote management view.
             for (auto& service : *response.mutable_status()->mutable_services())
-                if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH)
+                if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH
+                    || service.kind() == wire::LAB)
                     service.set_endpoint(service_endpoint(service.id()));
         } catch (const std::exception& error) {
             response.clear_status();
@@ -1252,7 +1262,7 @@ public:
             return background_idle();
         }};
         // Stop Data consumers before their source services.
-        for (const auto kind : {wire::RESEARCH, wire::TRADING, wire::MARKET, wire::DATA})
+        for (const auto kind : {wire::LAB, wire::RESEARCH, wire::TRADING, wire::MARKET, wire::DATA})
             for (auto& [name, service] : services_)
                 if (service.configuration.kind == kind)
                     co_await stop_processes(service);

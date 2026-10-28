@@ -7,6 +7,7 @@ export const kindLabels: Record<ServiceKind, string> = {
   market: "实时行情",
   data: "历史数据服务",
   research: "研究服务",
+  lab: "Python 研究服务",
   live: "CTP 交易",
 };
 export type Binding = {
@@ -24,7 +25,8 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
   }
   if (kind === "research") return snapshot.research_service;
   if (kind === "data") return snapshot.data;
-  // Trading runs one service per CTP account; there is no single location.
+  // Trading runs one service per CTP account; there is no single location. The
+  // lab service has no client connection yet.
   return null;
 }
 export function matches(active: Binding | null, node: NodeStatus, service: Service) {

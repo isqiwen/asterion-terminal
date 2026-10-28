@@ -13,6 +13,8 @@ message ServicePrograms {
   uint32 version = 1;
   repeated ProgramSources services = 2;
   repeated string bundled_plugins = 3;
+  // The bundled Python runtime's interpreter; it runs the lab service in place.
+  string python = 4;
 }
 message Upload {
   string sha256 = 1;
@@ -36,6 +38,7 @@ enum ServiceKind {
   RESEARCH = 2;
   TRADING = 3;
   DATA = 4;
+  LAB = 5;
 }
 
 message Deploy {

@@ -45,6 +45,7 @@
   "仅移除可部署副本；已部署服务、任务和历史数据保留。": "Remove the deployable copy only. Deployed services, tasks and historical data are retained.",
   "任务中心": "Task Center",
   "研究服务": "Task service",
+  "Python 研究服务": "Python research service",
   "使用主力连续（{n} 个月份）": "Use Dominant Series ({n} months)",
   "使用后替换当前选择，已有任务不受影响。": "Using this dataset replaces the current selection. Existing tasks are unchanged.",
   "使用已保存数据集": "Use saved dataset",

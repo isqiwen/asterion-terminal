@@ -127,6 +127,7 @@ export function ServiceStatus({
   const kinds: Record<string, string> = {
     market: "行情服务",
     research: "研究服务",
+    lab: "Python 研究服务",
     data: "数据服务",
     live: "交易服务",
   };

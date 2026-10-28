@@ -1,5 +1,6 @@
+# The bundled Python runtime: the lab service and the analytics helper share these locked packages.
 [project]
-name = "asterion-analytics"
+name = "asterion-lab"
 version = "0.1.0"
 requires-python = "==3.12.*"
 # These numerical releases still ship wheels for macOS 13 (Apple Silicon).

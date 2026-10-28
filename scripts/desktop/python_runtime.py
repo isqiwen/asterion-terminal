@@ -19,7 +19,8 @@ import tempfile
 from generated_resources import publish_tree
 
 ROOT = Path(__file__).resolve().parents[2]
-PROJECT = ROOT / "plugins/tools/analytics"
+PROJECT = ROOT / "apps/services/lab"
+ANALYTICS = ROOT / "plugins/tools/analytics/report.py"
 DESTINATION = ROOT / "build/electron-resources/python"
 PYTHON = "3.12.12"
 SITE = "lib/python3.12/site-packages"
@@ -64,7 +65,7 @@ def prepare(build=None):
     run(["uv", "python", "install", PYTHON])
     found = run(["uv", "python", "find", "--no-project", PYTHON], capture_output=True, text=True)
     standalone = Path(found.stdout.strip()).resolve().parents[1]
-    run(["cmake", "--build", build, "--target", "asterion_analytics_python"])
+    run(["cmake", "--build", build, "--target", "asterion_python_protocol"])
     requirements = run(["uv", "export", "--project", PROJECT, "--frozen", "--no-dev",
                         "--no-emit-project", "--quiet"], capture_output=True, text=True).stdout
     staging = ROOT / "build/python"
@@ -95,8 +96,12 @@ def prepare(build=None):
         # Polars needs one CPU runtime: the compatible one, not the default AVX2 build.
         run(["uv", "pip", "uninstall", "--python", python, "polars-runtime-32"])
         site = prepared / SITE
-        shutil.copy2(PROJECT / "report.py", site / "asterion_analytics.py")
+        shutil.copy2(ANALYTICS, site / "asterion_analytics.py")
         shutil.copytree(build / "generated-python/asterion", site / "asterion")
+        shutil.copytree(PROJECT / "asterion_lab", site / "asterion_lab",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        version = json.loads((build / "product.json").read_text())["version"]
+        (site / "asterion_lab/version.py").write_text(f"VERSION = {version!r}\n")
         # Installed command scripts name the staging interpreter, and nothing
         # installs packages into a prepared runtime: keep the interpreter only.
         for path in (prepared / "bin").iterdir():
@@ -110,7 +115,7 @@ def prepare(build=None):
             {"platform": [sys.platform, platform.machine()], "python": PYTHON}, indent=2) + "\n")
         verify(prepared)
         # The relocated runtime imports Terminal's Python code without a system Python.
-        run([python, "-I", "-B", "-c", "import asterion_analytics"])
+        run([python, "-I", "-B", "-c", "import asterion_analytics, asterion_lab.__main__"])
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)
     print(f"Prepared offline Python runtime: {DESTINATION}")

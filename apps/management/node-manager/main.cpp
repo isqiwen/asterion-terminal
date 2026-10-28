@@ -15,7 +15,7 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion Node Manager"};
     app.set_version_flag("--version", "asterion_node_manager " ASTERION_PRODUCT_VERSION);
-    std::string directory, enrollment;
+    std::string directory, enrollment, python;
     bool development = false, isolated = false;
     asterion::service::Transport transport;
     app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
@@ -23,6 +23,7 @@ int main(int argc, char** argv)
     app.add_option("--enrollment-directory", enrollment)->required();
     app.add_flag("--development", development);
     app.add_flag("--isolated", isolated);
+    app.add_option("--python", python, "The bundled Python interpreter the lab service runs");
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     using namespace asterion;
@@ -38,6 +39,13 @@ int main(int argc, char** argv)
         else
             ::unsetenv("ASTERION_NODE_DIRECTORY");
         terminal::configure_node_paths(node, enrollment);
+        // A development Manager runs from the build directory, away from the
+        // runtime; local program preparation reads this like other overrides.
+        if (!python.empty()) {
+            if (!std::filesystem::path(python).is_absolute())
+                throw std::invalid_argument("invalid bundled Python path: " + python);
+            ::setenv("ASTERION_PYTHON", python.c_str(), 1);
+        }
         // Service and plugin resolvers already use siblings of this executable.
         // Isolated child processes inherit explicit fixture resource overrides.
         if (!environment_path("ASTERION_REMOTE_RESOURCES"))
