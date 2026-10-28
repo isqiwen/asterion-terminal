@@ -873,6 +873,14 @@ public:
         emit([venue, instrument, id, day, mode](CThostFtdcTraderSpi* s) {
             if (instrument.starts_with("zz"))
                 return s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
+            if (mode == 7) {
+                CThostFtdcDepthMarketDataField option{};
+                put(option.ExchangeID, venue);
+                put(option.InstrumentID, instrument + "C3000");
+                put(option.TradingDay, day);
+                option.LastPrice = 12;
+                s->OnRspQryDepthMarketData(&option, nullptr, id, false);
+            }
             CThostFtdcDepthMarketDataField row{};
             put(row.ExchangeID, mode == 6 ? "" : venue);
             put(row.InstrumentID, mode == 4 ? "rb2612" : instrument);
@@ -886,7 +894,7 @@ public:
                 &row,
                 nullptr,
                 id,
-                mode == 0 || mode == 3 || mode == 4 || mode == 6);
+                mode == 0 || mode == 3 || mode == 4 || mode >= 6);
             if (mode == 1) {
                 auto failure = info(7);
                 s->OnRspQryDepthMarketData(nullptr, &failure, id, true);

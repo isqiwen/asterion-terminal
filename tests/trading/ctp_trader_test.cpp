@@ -527,11 +527,10 @@ TEST_F(CtpTrader, PartialQuoteResponsesRequireSuccessfulCompletionAndCurrentIden
     trader.start();
     trader.connect(configuration());
     ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
-    // Each answer the counter gave differently is refused with its reason.
+    // A refused query or another trading day's quote is refused with its reason.
     for (const auto& [mode, reason] :
         {std::pair{1, "refused the quote query with code 7"},
-            std::pair{3, "is for trading day 20260925"},
-            std::pair{4, "names SHFE/rb2612"}}) {
+            std::pair{3, "is for trading day 20260925"}}) {
         fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", mode);
         try {
             (void)await(trader, trader.quote({"SHFE", "rb2610"}));
@@ -545,6 +544,14 @@ TEST_F(CtpTrader, PartialQuoteResponsesRequireSuccessfulCompletionAndCurrentIden
     const auto blank = await(trader, trader.quote({"SHFE", "rb2610"}));
     ASSERT_TRUE(blank);
     EXPECT_EQ(blank->instrument, (InstrumentId{"SHFE", "rb2610"}));
+    // A prefix query also returns the contract's options; their rows are skipped.
+    fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 7);
+    const auto skipped = await(trader, trader.quote({"SHFE", "rb2610"}));
+    ASSERT_TRUE(skipped);
+    EXPECT_EQ(skipped->last, d("3500"));
+    // Only another contract's row is no quote of this one.
+    fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 4);
+    EXPECT_FALSE(await(trader, trader.quote({"SHFE", "rb2610"})));
     fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 5);
     const auto started = std::chrono::steady_clock::now();
     const auto quote = await(trader, trader.quote({"SHFE", "rb2610"}));

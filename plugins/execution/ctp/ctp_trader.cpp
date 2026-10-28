@@ -559,15 +559,12 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                 ++it;
                 continue;
             }
-            // A quote the counter answered differently names its reason; an
-            // unanswered or empty one is no market.
+            // A refused query or a quote of another trading day names its
+            // reason; an unanswered one, or one without the contract, is no market.
             std::string refusal;
             if (valid && answer.code)
                 refusal =
                     "the counter refused the quote query with code " + std::to_string(answer.code);
-            else if (valid && answer.quote && answer.quote->instrument != answer.instrument)
-                refusal = "the counter's quote names " + answer.quote->instrument.venue + "/"
-                    + answer.quote->instrument.symbol;
             else if (valid && answer.quote && answer.quote->trading_day != state.trading_day)
                 refusal = "the counter's quote is for trading day " + answer.quote->trading_day
                     + ", the session's is " + state.trading_day;
@@ -1051,15 +1048,14 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             return; // A timed-out caller has retired this quote.
         }
         auto& answer = found->second;
-        if (!code && row && !answer.quote) {
+        // The counter matches the symbol as a prefix: rb2701 also returns its
+        // options (rb2701C3000). Only the contract's own row is its quote. As in
+        // market data, a counter may leave the exchange blank.
+        const auto venue = row ? field(row->ExchangeID) : std::string{};
+        if (!code && row && !answer.quote && field(row->InstrumentID) == answer.instrument.symbol
+            && (venue.empty() || venue == answer.instrument.venue)) {
             BrokerQuote quote;
-            // As in market data, a counter may leave the exchange blank; the
-            // symbol alone then names the contract.
-            const auto venue = field(row->ExchangeID);
-            quote.instrument = {
-                venue.empty() ? answer.instrument.venue : venue,
-                field(row->InstrumentID)
-            };
+            quote.instrument = answer.instrument;
             quote.last = price(row->LastPrice);
             quote.pre_settlement = price(row->PreSettlementPrice);
             quote.upper_limit = price(row->UpperLimitPrice);
