@@ -874,7 +874,7 @@ public:
             if (instrument.starts_with("zz"))
                 return s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
             CThostFtdcDepthMarketDataField row{};
-            put(row.ExchangeID, venue);
+            put(row.ExchangeID, mode == 6 ? "" : venue);
             put(row.InstrumentID, mode == 4 ? "rb2612" : instrument);
             put(row.TradingDay, mode == 3 ? "20260925" : day);
             put(row.UpdateTime, "10:15:00");
@@ -882,7 +882,11 @@ public:
             row.PreSettlementPrice = 3490;
             row.UpperLimitPrice = 3700;
             row.LowerLimitPrice = 3300;
-            s->OnRspQryDepthMarketData(&row, nullptr, id, mode == 0 || mode == 3 || mode == 4);
+            s->OnRspQryDepthMarketData(
+                &row,
+                nullptr,
+                id,
+                mode == 0 || mode == 3 || mode == 4 || mode == 6);
             if (mode == 1) {
                 auto failure = info(7);
                 s->OnRspQryDepthMarketData(nullptr, &failure, id, true);

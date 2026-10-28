@@ -315,6 +315,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     struct QuoteAnswer
     {
         std::optional<BrokerQuote> quote;
+        int code = 0; // the counter's refusal of the query
         bool completed = false, dispatched = false;
         InstrumentId instrument;
         std::uint64_t generation = 0;
@@ -558,12 +559,27 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                 ++it;
                 continue;
             }
-            if (!valid
-                || (answer.quote
-                    && (answer.quote->instrument != answer.instrument
-                        || answer.quote->trading_day != state.trading_day)))
-                answer.quote.reset();
-            answer.result.set_value(std::move(answer.quote));
+            // A quote the counter answered differently names its reason; an
+            // unanswered or empty one is no market.
+            std::string refusal;
+            if (valid && answer.code)
+                refusal =
+                    "the counter refused the quote query with code " + std::to_string(answer.code);
+            else if (valid && answer.quote && answer.quote->instrument != answer.instrument)
+                refusal = "the counter's quote names " + answer.quote->instrument.venue + "/"
+                    + answer.quote->instrument.symbol;
+            else if (valid && answer.quote && answer.quote->trading_day != state.trading_day)
+                refusal = "the counter's quote is for trading day " + answer.quote->trading_day
+                    + ", the session's is " + state.trading_day;
+            if (!refusal.empty())
+                answer.result.set_exception(
+                    std::make_exception_ptr(
+                        std::invalid_argument(refusal + "; the order was not sent")));
+            else {
+                if (!valid)
+                    answer.quote.reset();
+                answer.result.set_value(std::move(answer.quote));
+            }
             const auto serial = it->first;
             std::erase_if(queue, [serial](const Command& command) {
                 return command.kind == Kind::query_quote && command.serial == serial;
@@ -580,6 +596,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             if (code) {
                 answer.completed = true;
                 answer.quote.reset();
+                answer.code = code;
             }
         }
         finish_quotes();
@@ -1036,7 +1053,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         auto& answer = found->second;
         if (!code && row && !answer.quote) {
             BrokerQuote quote;
-            quote.instrument = {field(row->ExchangeID), field(row->InstrumentID)};
+            // As in market data, a counter may leave the exchange blank; the
+            // symbol alone then names the contract.
+            const auto venue = field(row->ExchangeID);
+            quote.instrument = {
+                venue.empty() ? answer.instrument.venue : venue,
+                field(row->InstrumentID)
+            };
             quote.last = price(row->LastPrice);
             quote.pre_settlement = price(row->PreSettlementPrice);
             quote.upper_limit = price(row->UpperLimitPrice);
@@ -1047,6 +1070,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         }
         if (last || code) {
             answer.completed = true;
+            answer.code = code;
             if (code)
                 answer.quote.reset();
             else if (answer.quote) {

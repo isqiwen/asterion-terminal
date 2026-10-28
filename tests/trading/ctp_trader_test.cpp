@@ -527,10 +527,24 @@ TEST_F(CtpTrader, PartialQuoteResponsesRequireSuccessfulCompletionAndCurrentIden
     trader.start();
     trader.connect(configuration());
     ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
-    for (const int mode : {1, 3, 4}) {
+    // Each answer the counter gave differently is refused with its reason.
+    for (const auto& [mode, reason] :
+        {std::pair{1, "refused the quote query with code 7"},
+            std::pair{3, "is for trading day 20260925"},
+            std::pair{4, "names SHFE/rb2612"}}) {
         fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", mode);
-        EXPECT_FALSE(await(trader, trader.quote({"SHFE", "rb2610"}))) << "mode " << mode;
+        try {
+            (void)await(trader, trader.quote({"SHFE", "rb2610"}));
+            ADD_FAILURE() << "mode " << mode << " was accepted";
+        } catch (const std::invalid_argument& error) {
+            EXPECT_NE(std::string(error.what()).find(reason), std::string::npos) << error.what();
+        }
     }
+    // A counter may leave the exchange blank, as market data does.
+    fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 6);
+    const auto blank = await(trader, trader.quote({"SHFE", "rb2610"}));
+    ASSERT_TRUE(blank);
+    EXPECT_EQ(blank->instrument, (InstrumentId{"SHFE", "rb2610"}));
     fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 5);
     const auto started = std::chrono::steady_clock::now();
     const auto quote = await(trader, trader.quote({"SHFE", "rb2610"}));
