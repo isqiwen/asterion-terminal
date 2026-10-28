@@ -243,7 +243,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
 
         call("market.catalog", {"account": ACCOUNT, "password": trading_password,
                                 "auth_code": auth_code})
-        deadline = time.monotonic() + args.timeout
+        # The counter may take two minutes to send the first instrument.
+        deadline = time.monotonic() + max(args.timeout, 180)
         while time.monotonic() < deadline:
             catalog = (call("runtime.snapshot")["market"] or {}).get("catalog", {})
             phase = catalog.get("phase")
