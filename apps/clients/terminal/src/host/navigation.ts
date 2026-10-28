@@ -13,7 +13,13 @@ export const modules = [
     id: "data",
     title: "数据",
     icon: "data",
-    views: ["workspace.history", "workspace.tables", "workspace.records", "workspace.materials"],
+    views: [
+      "workspace.history",
+      "workspace.coverage",
+      "workspace.tables",
+      "workspace.records",
+      "workspace.materials",
+    ],
   },
   {
     id: "analysis",

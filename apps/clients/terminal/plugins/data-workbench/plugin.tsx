@@ -4,9 +4,10 @@ const t = (key: string, values?: MessageValues) =>
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { lazy } from "react";
-import type { TerminalPlugin } from "../contract";
+import type { TerminalContext, TerminalPlugin } from "../contract";
 import { tableNames } from "./table-names";
 const Panel = lazy(() => import("./DataPanel").then(module => ({ default: module.DataPanel })));
+const Coverage = lazy(() => import("./Coverage").then(module => ({ default: module.Coverage })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.data-workbench",
   commands: [
@@ -48,6 +49,7 @@ export const plugin: TerminalPlugin = {
     "data.tables.refresh.submit",
     "data.tables.coverage",
     "data.tables.page",
+    "lab.source.configure",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
@@ -96,14 +98,22 @@ export const plugin: TerminalPlugin = {
     ["materials", "资料"],
     ["tables", "全市场数据"],
     ["records", "数据仓库"],
-  ].map(([page, title]) => ({
-    id: `workspace.${page}`,
-    get title() {
-      return t(title);
-    },
-
-    component: context => (
-      <Panel {...context} workspacePage={page} busy={context.busy || !context.snapshot} />
-    ),
-  })),
+  ]
+    .map(([page, title]) => ({
+      id: `workspace.${page}`,
+      get title() {
+        return t(title);
+      },
+      component: (context: TerminalContext) => (
+        <Panel {...context} workspacePage={page} busy={context.busy || !context.snapshot} />
+      ),
+    }))
+    .concat({
+      // The Python lab service's warehouse; it does not use the Data service.
+      id: "workspace.coverage",
+      get title() {
+        return t("数据覆盖");
+      },
+      component: (context: TerminalContext) => <Coverage {...context} />,
+    }),
 };

@@ -17,14 +17,18 @@
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" \"packages/client-ui/**/*.{ts,tsx}\" --max-warnings 0",
     "test:desktop": "node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs",
     "prepare:python": "python3 scripts/desktop/python_runtime.py",
+    "generate:protocol": "buf generate protocol/proto --template protocol/buf.gen.yaml --path protocol/proto/asterion/lab.proto",
     "installer": "node scripts/desktop/installer.cjs"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
     "lightweight-charts": "5.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@bufbuild/buf": "1.73.0",
+    "@bufbuild/protoc-gen-es": "2.16.0",
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.51.0",
     "@testing-library/dom": "^10.4.2",

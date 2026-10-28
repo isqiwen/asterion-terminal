@@ -450,3 +450,24 @@
   padding: 4px;
   text-align: right;
 }
+
+.data-coverage section {
+  margin-bottom: 1.5rem;
+}
+.data-coverage label {
+  margin-right: 0.75rem;
+}
+.coverage-matrix {
+  overflow: auto;
+  max-height: 60vh;
+}
+.coverage-matrix td {
+  min-width: 2.5rem;
+  text-align: center;
+}
+.coverage-matrix td[data-share="full"] {
+  background: color-mix(in srgb, var(--positive, #2e7d32) 35%, transparent);
+}
+.coverage-matrix td[data-share="partial"] {
+  background: color-mix(in srgb, var(--warning, #b26a00) 30%, transparent);
+}

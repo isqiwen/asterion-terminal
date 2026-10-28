@@ -5,3 +5,4 @@ apps/clients/terminal/test-results/
 test-results/
 pnpm-lock.yaml
 *.md
+apps/clients/terminal/src/generated/

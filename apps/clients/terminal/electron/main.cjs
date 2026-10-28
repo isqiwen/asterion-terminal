@@ -12,6 +12,7 @@ const {
 } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { labChannel } = require("./lab-channel.cjs");
 const root = path.resolve(__dirname, "../../../..");
 const environment = app.isPackaged ? "production" : "development";
 process.env.ASTERION_ENVIRONMENT = environment;
@@ -331,6 +332,19 @@ app
       } finally {
         pending--;
       }
+    });
+    const lab = labChannel(async () => {
+      const reply = JSON.parse(
+        await native.request(JSON.stringify({ version: 1, method: "lab.endpoint", params: {} })),
+      );
+      if (reply.error) throw new Error(reply.error.message);
+      return reply.result.lab_endpoint.endpoint;
+    });
+    ipcMain.handle("asterion:lab", async (event, payload) => {
+      authorized(event);
+      if (developmentStopping) throw new Error("Development environment is stopping");
+      if (!(payload instanceof Uint8Array)) throw new Error("Invalid lab request");
+      return new Uint8Array(await lab(payload));
     });
     ipcMain.handle("asterion:settings", async (event, category) => {
       authorized(event);

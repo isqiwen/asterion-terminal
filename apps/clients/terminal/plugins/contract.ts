@@ -67,6 +67,12 @@ export {
   useWorkspaceUnsaved,
 } from "../src/host/workspace/drafts";
 export { save, nativeDesktop } from "../src/bridge/desktop";
+export { lab } from "../src/bridge/lab";
+export type {
+  Coverage as LabCoverage,
+  Summary as LabSummary,
+  Task as LabTask,
+} from "../src/generated/asterion/lab_pb";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { dailyTableOf, useDailyTable } from "../src/ui/useDailyTable";

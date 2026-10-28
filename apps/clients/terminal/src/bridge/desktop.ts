@@ -10,6 +10,7 @@ export interface DesktopBridge {
   readonly environment: "development" | "production";
   onDevelopmentStopping(listener: (stopping: boolean) => void): () => void;
   request(body: string): Promise<string>;
+  lab(payload: Uint8Array): Promise<Uint8Array>;
   openSettings(category: string): Promise<void>;
   openLogs(): Promise<void>;
   open(options: DialogOptions): Promise<string | string[] | null>;

@@ -112,6 +112,11 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 行情只返回变化的报价行。命令参数类型定义在 `src/bridge/commands.ts`，Native 在边界再次校验。
 界面草稿与缓存不是账户、数据或任务状态的权威。
 
+新服务改走生成的客户端：TS 类型由 `pnpm generate:protocol` 从 proto 生成到 `src/generated/` 并提交。
+页面用这些类型组装和解析消息，Electron 主进程持有服务连接，只按帧转发字节
+（`electron/lab-channel.cjs`），连接地址由主进程向 Native 查询，不取自页面；开发浏览器由开发服务端
+以同样方式转发。目前只有 Python 研究服务走这条路径（见 [lab](lab.md)），之后新增界面一律如此。
+
 ## 插件
 
 | 类别 | 实现 |

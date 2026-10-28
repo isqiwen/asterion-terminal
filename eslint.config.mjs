@@ -11,6 +11,7 @@ export default tseslint.config(
       "build/**",
       "apps/clients/terminal/test-results/**",
       "**/dist/**",
+      "apps/clients/terminal/src/generated/**",
     ],
   },
   {

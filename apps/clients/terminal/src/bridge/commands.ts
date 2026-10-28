@@ -199,6 +199,8 @@ export type CommandParams = {
   };
   "node.research.local.open": Record<string, never>;
   "node.data.local.open": Record<string, never>;
+  "lab.source.configure": Record<string, never>;
+  "lab.endpoint": Record<string, never>;
   "node.data.attach": { id: string; service: string };
   "node.research.attach": { id: string; service: string };
   "backtest.margins.preview": Record<string, never>;

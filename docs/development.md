@@ -32,6 +32,8 @@ pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进�
 
 Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standalone，即 uv 安装的版本），锁定的依赖和 Terminal 的 Python 代码直接装进它自己的 site-packages，不建虚拟环境：虚拟环境记录绝对路径，独立解释器则按自身位置找到前缀。安装版不需要系统 Python，启动和运行时都不下载任何东西。程序以 `python3 -I -B -m <模块>` 启动：不读用户环境变量和用户目录的包，也不往安装目录写字节码；导入数值库因此每次多花约 2 秒。
 
+界面的 Protobuf 类型由 `pnpm generate:protocol` 生成（`@bufbuild/buf` 与 `protoc-gen-es`，pnpm 锁定，不需要 protoc），输出 `apps/clients/terminal/src/generated/` 并提交，不经 Prettier 与 ESLint；修改对应 proto 后重新生成。CI 的样式作业重新生成并要求没有差异。
+
 `pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块、Python 研究服务装为 `asterion_lab` 包，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。Linux 上约 770 MiB，压缩前大小。
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。

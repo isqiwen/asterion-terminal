@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld(
       return () => ipcRenderer.removeListener("asterion:development-stopping", handle);
     },
     request: request => ipcRenderer.invoke("asterion:request", request),
+    lab: payload => ipcRenderer.invoke("asterion:lab", payload),
     openSettings: category => ipcRenderer.invoke("asterion:settings", category),
     openLogs: () => ipcRenderer.invoke("asterion:logs"),
     open: options => ipcRenderer.invoke("asterion:open", options),

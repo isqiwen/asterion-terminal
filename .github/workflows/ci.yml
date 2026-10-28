@@ -21,6 +21,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: C/C++, Protobuf and frontend formatting
         run: pnpm format:check
+      - name: Generated protocol types are current
+        run: pnpm generate:protocol && test -z "$(git status --porcelain apps/clients/terminal/src/generated)"
       - name: TypeScript types
         run: pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json
       - name: TypeScript lint

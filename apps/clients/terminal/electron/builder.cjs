@@ -28,7 +28,13 @@ module.exports = {
     output: "build/terminal-package",
     buildResources: "apps/clients/terminal/electron/assets",
   },
-  files: ["main.cjs", "preload.cjs", "package.json", { from: "../dist", to: "dist" }],
+  files: [
+    "main.cjs",
+    "preload.cjs",
+    "lab-channel.cjs",
+    "package.json",
+    { from: "../dist", to: "dist" },
+  ],
   extraResources: [
     { from: "build/electron-resources/python", to: "python", filter: ["**/*"] },
     {

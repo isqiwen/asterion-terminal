@@ -12,6 +12,20 @@ using namespace std::chrono_literals;
 // directly.
 void Application::Impl::register_lab_commands()
 {
+    // Where the Electron main process (or the development server) sends the
+    // UI's lab requests. It resolves this itself rather than trust a path from
+    // the page.
+    command("lab.endpoint", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        const auto node = co_await local_node_client();
+        const auto address = co_await PollFuture{node->service_endpoint("lab", node::proto::LAB)};
+        auto result = snapshot();
+        result.values["lab_endpoint"] = {
+            {"endpoint", address.endpoint},
+            {"service", address.session}
+        };
+        co_return result;
+    });
     command("lab.source.configure", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
         auto saved = co_await settings<std::optional<DataCredential>>([&] {

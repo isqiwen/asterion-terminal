@@ -5,6 +5,10 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
+const { labChannel } = createRequire(import.meta.url)("./electron/lab-channel.cjs") as {
+  labChannel: (resolve: () => Promise<string>) => (payload: Uint8Array) => Promise<Buffer>;
+};
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 // C++ build that serves the dev bridge.
 const cppBuild = process.env.ASTERION_CPP_BUILD ?? resolve(root, "build/Debug");
@@ -152,13 +156,17 @@ function localCore(): Plugin {
         core = startCore();
         return process.env.ASTERION_NODE_DIRECTORY;
       };
-      const allowed = (req: { method?: string; headers: Record<string, unknown> }) => {
+      const allowed = (
+        req: { method?: string; headers: Record<string, unknown> },
+        type = "application/json",
+      ) => {
         // This middleware runs before Vite's own host check, so it enforces one
         // itself: a DNS-rebound page carries an attacker-chosen Host header.
+        // Either content type makes a cross-site page ask a preflight first.
         const host = String(req.headers.host ?? "");
         return (
           req.method === "POST" &&
-          req.headers["content-type"] === "application/json" &&
+          req.headers["content-type"] === type &&
           allowedHosts.has(host) &&
           (!req.headers.origin || req.headers.origin === `http://${host}`)
         );
@@ -181,6 +189,39 @@ function localCore(): Plugin {
             },
           );
         });
+      // The page's lab requests, as the Electron main process forwards them.
+      const lab = labChannel(async () => {
+        const reply = JSON.parse(
+          await send(JSON.stringify({ version: 1, method: "lab.endpoint", params: {} })),
+        );
+        if (reply.error) throw new Error(reply.error.message);
+        return reply.result.lab_endpoint.endpoint as string;
+      });
+      server.middlewares.use("/__asterion/lab", (req, res) => {
+        if (!allowed(req, "application/octet-stream")) {
+          res.statusCode = 403;
+          res.end("Forbidden");
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        req.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > 1024 * 1024) req.destroy();
+          else chunks.push(chunk);
+        });
+        req.on("end", () => {
+          lab(Buffer.concat(chunks))
+            .then(reply => {
+              res.setHeader("Content-Type", "application/octet-stream");
+              res.end(reply);
+            })
+            .catch(error => {
+              res.statusCode = 503;
+              res.end(String(error));
+            });
+        });
+      });
       server.middlewares.use("/__asterion/api", (req, res) => {
         if (!allowed(req)) {
           res.statusCode = 403;
