@@ -181,7 +181,9 @@ test("a contract's days and a product's months backtest from the daily table", a
   expect(
     (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result,
   ).toEqual(evidence);
-  const comparison = workspace.getByRole("region", { name: "回测比较", exact: true });
+  // Comparison is its own view, outside the research workspace.
+  await openView(page, "validation");
+  const comparison = page.getByRole("region", { name: "回测比较", exact: true });
   for (const id of [task.id, fixedId, revisedId])
     await comparison.getByLabel(id + " · " + evidence.task.instrument, { exact: true }).check();
   const selectedBefore = (await rpc(page.request, "runtime.snapshot")).task_result;
@@ -261,6 +263,8 @@ test("a contract's days and a product's months backtest from the daily table", a
     (await taskRpc(page.request, "research", "task.result.read", { id: revisedId })).task_result,
   ).toEqual(revised);
   expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
+  // Back to the result the comparison left; the view keeps where it was.
+  await openView(page, "backtest");
   const exportPanel = workspace.getByRole("region", { name: "研究证据导出", exact: true });
   const downloadEvent = page.waitForEvent("download");
   await exportPanel.getByRole("button", { name: "导出研究证据", exact: true }).click();

@@ -83,7 +83,8 @@ test(
     expect(id).toBeTruthy();
     await evaluation.getByRole("button", { name: "读取评估来源" }).click();
     await expect(evaluation.getByRole("region", { name: "绩效", exact: true })).toBeVisible();
-    await expect(evaluation).toContainText("未配置无风险收益假设");
+    // The backtest form states a zero risk-free rate unless it is changed.
+    await expect(evaluation).toContainText("明确零无风险");
     const evidence = (await taskRpc(page.request, "research", "task.result.read", { id }))
       .task_result;
     await expect(evaluation).toContainText(evidence.task.result_digest);

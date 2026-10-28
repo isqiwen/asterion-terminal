@@ -45,6 +45,8 @@ export async function portfolioTargetsFlow(page: Page, partial: boolean) {
   await expect(page.getByRole("list", { name: "已选合约" })).toContainText("rb2610");
   await expect(page.getByRole("list", { name: "已选合约" })).toContainText("hc2610");
   await page.getByRole("button", { name: "下一步", exact: true }).click();
+  // The policy is among the further options, folded away until asked for.
+  await page.getByText("更多选项：固定权重组合", { exact: true }).click();
   await page.getByLabel("使用固定权重组合政策（仅完整普通日线）", { exact: true }).check();
   for (const [label, value] of [
     ["原合约名义权重 SHFE/rb2610", "0.4"],
