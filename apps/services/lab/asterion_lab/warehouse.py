@@ -94,9 +94,9 @@ class Version:
     identity: str
     manifest: dict
 
-    def files(self, root: Path, table: str) -> list:
+    def files(self, root: Path, table: str, exchange: str = "") -> list:
         return [str(root / entry["file"]) for key, entry in sorted(self.manifest["partitions"].items())
-                if key.split("/")[0] == table]
+                if key.split("/")[0] == table and (not exchange or key.split("/")[1] == exchange)]
 
     def days(self, exchange: str) -> set:
         days = set()
@@ -133,12 +133,13 @@ class Warehouse:
     def writer(self) -> "Writer":
         return Writer(self, self.current())
 
-    def query(self, version: Version, sql: str, tables: tuple, parameters=()):
-        """Run `sql` with each of `tables` bound to the version's files."""
+    def query(self, version: Version, sql: str, tables: tuple, parameters=(), exchange=""):
+        """Run `sql` with each of `tables` bound to the version's files, of one
+        exchange when it is named."""
         connection = duckdb.connect()
         try:
             for table in tables:
-                files = version.files(self.root, table)
+                files = version.files(self.root, table, exchange)
                 if files:
                     # Views take no parameters; the paths are the warehouse's own.
                     listed = ", ".join("'" + path.replace("'", "''") + "'" for path in files)

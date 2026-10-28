@@ -17,6 +17,7 @@ message Request {
     SummaryQuery summary = 15;
     CoverageQuery coverage = 16;
     DailyBarsQuery daily_bars = 17;
+    DominantQuery dominant = 18;
   }
 }
 message HealthQuery {}
@@ -43,6 +44,21 @@ message DailyBarsQuery {
   string begin_day = 2;
   string end_day = 3;
 }
+// A product's dominant series in [begin_day, end_day]. The dominant month of a
+// day has the largest open interest on the previous trading day among the
+// current month and later ones that settle that day, never moving back; a
+// change takes effect on the next trading day.
+message DominantQuery {
+  string exchange = 1;
+  string product = 2;
+  string begin_day = 3;
+  string end_day = 4;
+  // A traded series leaves a month on its last day and needs bars of the
+  // outgoing month on the roll day; one only read does not.
+  bool traded = 5;
+  // "none", or "ratio": earlier months scaled to the level of the last one.
+  string adjustment = 6;
+}
 
 message Response {
   uint32 version = 1;
@@ -56,6 +72,7 @@ message Response {
     Summary summary = 14;
     Coverage coverage = 15;
     DailyBars daily_bars = 16;
+    DominantSeries dominant = 17;
   }
 }
 message Health {
@@ -135,4 +152,28 @@ message DailyBars {
   string dataset_version = 1;
   string contract = 2;
   repeated DailyBar bars = 3;
+}
+message DominantDay {
+  string day = 1;
+  string contract = 2;
+  // Exact decimals as text, adjusted as asked; empty when the month did not
+  // trade or settle that day.
+  string open = 3;
+  string high = 4;
+  string low = 5;
+  string close = 6;
+  string settlement = 7;
+}
+message Roll {
+  string day = 1;
+  string from_contract = 2;
+  string to_contract = 3;
+  // New over old settlement on the trading day before the roll.
+  string ratio = 4;
+}
+message DominantSeries {
+  string dataset_version = 1;
+  string adjustment = 2;
+  repeated DominantDay days = 3;
+  repeated Roll rolls = 4;
 }

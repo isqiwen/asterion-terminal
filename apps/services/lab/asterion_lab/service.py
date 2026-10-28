@@ -10,6 +10,7 @@ import time
 from asterion.lab_pb2 import Request, Response
 
 from asterion_lab.acquisition import Acquisition
+from asterion_lab import dominant
 from asterion_lab.tushare import Budget, SourceError, Tushare
 from asterion_lab.version import VERSION
 from asterion_lab.warehouse import Warehouse
@@ -147,7 +148,7 @@ class Service:
         rows = self.warehouse.query(version, """
             select day, open, high, low, close, settlement, volume, open_interest from daily
             where contract = ? and day between ?::date and ?::date order by day""",
-            ("daily",), (contract, begin, end))
+            ("daily",), (contract, begin, end), exchange=contract.split("/")[0])
         return version, rows
 
     async def on_daily_bars(self, request, response):
@@ -160,3 +161,47 @@ class Service:
             bars.bars.add(day=day.isoformat(), **dict(zip(
                 ("open", "high", "low", "close", "settlement", "volume", "open_interest"),
                 map(text, values))))
+
+    def dominant(self, request):
+        if request.adjustment not in ("none", "ratio"):
+            raise ValueError("adjustment is none or ratio")
+        version = self.warehouse.current()
+        # The first day's dominant month is read from the day before it.
+        rows = self.warehouse.query(version, """
+            select contract, day, settlement, open_interest, close, open, high, low from daily
+            where exchange = ? and product = ? and day between ?::date - 31 and ?::date
+            order by day""", ("daily",),
+            (request.exchange, request.product, request.begin_day, request.end_day),
+            exchange=request.exchange)
+        months = dominant.months_of([row[:5] for row in rows])
+        plan = dominant.plan(months, request.traded)
+        bars = {(row[0], row[1].isoformat()): row for row in rows}
+        return version, months, plan, bars
+
+    async def on_dominant(self, request, response):
+        version, months, plan, bars = await self.read(self.dominant, request)
+        series = response.dominant
+        series.dataset_version = version.identity
+        series.adjustment = request.adjustment
+        segments = plan.segments
+        for index, segment in enumerate(segments):
+            if index and segment.begin >= request.begin_day:
+                series.rolls.add(day=segment.begin, from_contract=months[segments[index - 1].month].contract,
+                                 to_contract=months[segment.month].contract,
+                                 ratio=text(plan.ratios[index]))
+        current = -1
+        for day in plan.days:
+            while current + 1 < len(segments) and segments[current + 1].begin <= day:
+                current += 1
+            if current < 0 or day < request.begin_day:
+                continue
+            segment = segments[current]
+            contract = months[segment.month].contract
+            factor = segment.factor if request.adjustment == "ratio" else Decimal(1)
+            row = bars.get((contract, day))
+            values = {}
+            if row is not None:
+                for name, value in (("settlement", row[2]), ("close", row[4]), ("open", row[5]),
+                                    ("high", row[6]), ("low", row[7])):
+                    values[name] = text(None if value is None else dominant.rounded(Decimal(value) * factor))
+            series.days.add(day=day, contract=contract, **values)
