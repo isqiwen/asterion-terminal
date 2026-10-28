@@ -33,6 +33,16 @@ UNUSED = ["include", "share", "lib/python3.12/test", "lib/python3.12/idlelib",
           "lib/libpython3.12.so"]
 
 
+BUILT_FROM_SOURCE = {"jsonpath"}
+
+
+def binary_only(requirements: str) -> list:
+    """Every locked package except the pure-Python ones without wheels."""
+    names = [line.split("==")[0].strip() for line in requirements.splitlines()
+             if "==" in line and not line.lstrip().startswith("#")]
+    return [name for name in names if name not in BUILT_FROM_SOURCE]
+
+
 def executable(directory=DESTINATION):
     return directory / "bin/python3"
 
@@ -89,7 +99,10 @@ def prepare(build=None):
         locked = temporary / "requirements.txt"
         locked.write_text(requirements)
         python = executable(prepared)
-        run(["uv", "pip", "install", "--python", python, "--require-hashes", "--no-build",
+        # Hashes pin every file. jsonpath (for AKShare) publishes only a source
+        # archive; it is pure Python, so building it is the one build allowed.
+        run(["uv", "pip", "install", "--python", python, "--require-hashes",
+             *[f"--only-binary={name}" for name in binary_only(requirements)],
              "--no-python-downloads", "--python-platform",
              "aarch64-apple-darwin" if sys.platform == "darwin" else "x86_64-manylinux_2_28",
              "-r", locked])

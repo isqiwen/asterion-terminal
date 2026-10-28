@@ -18,6 +18,8 @@ message Request {
     CoverageQuery coverage = 16;
     DailyBarsQuery daily_bars = 17;
     DominantQuery dominant = 18;
+    SessionsQuery sessions = 19;
+    CrossCheckQuery cross_check = 20;
   }
 }
 message HealthQuery {}
@@ -32,6 +34,11 @@ message AcquireDaily {
   string id = 1;
   string begin_day = 2;
   string end_day = 3;
+  // Empty for every exchange.
+  repeated string exchanges = 4;
+  // Read stored days again, as after a change of the mapping rules. The new
+  // version replaces their rows; earlier versions keep theirs.
+  bool refresh = 5;
 }
 message TasksQuery {}
 message CancelTask {
@@ -59,6 +66,23 @@ message DominantQuery {
   // "none", or "ratio": earlier months scaled to the level of the last one.
   string adjustment = 6;
 }
+// The trading sessions of a product on the exchange's open days in
+// [begin_day, end_day], from reviewed exchange documents.
+message SessionsQuery {
+  string exchange = 1;
+  string product = 2;
+  string begin_day = 3;
+  string end_day = 4;
+}
+// Compares a second source with the first over open days in [begin_day,
+// end_day], at most 31 days. "settlement": the exchanges' settlement parameter
+// files against Tushare's fut_settle, for the first products of decision D4.
+// "daily": AKShare's daily bars against the warehouse. Nothing is stored.
+message CrossCheckQuery {
+  string kind = 1;
+  string begin_day = 2;
+  string end_day = 3;
+}
 
 message Response {
   uint32 version = 1;
@@ -73,6 +97,8 @@ message Response {
     Coverage coverage = 15;
     DailyBars daily_bars = 16;
     DominantSeries dominant = 17;
+    Sessions sessions = 18;
+    CrossCheck cross_check = 19;
   }
 }
 message Health {
@@ -176,4 +202,55 @@ message DominantSeries {
   string adjustment = 2;
   repeated DominantDay days = 3;
   repeated Roll rolls = 4;
+}
+// Beijing time, "YYYY-MM-DD HH:MM".
+message SessionSegment {
+  string begin = 1;
+  string end = 2;
+}
+message SessionDay {
+  string trading_day = 1;
+  // No reviewed rule covers the day session: its times are unknown.
+  bool day_known = 2;
+  repeated SessionSegment day = 3;
+  // held; none (the product has no night session); holiday_eve (none before a
+  // statutory holiday); unknown (no reviewed rule, or a period not established).
+  string night_state = 4;
+  SessionSegment night = 5;
+  repeated string sources = 6;
+}
+message SessionSource {
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  string published = 4;
+  string note = 5;
+}
+message Sessions {
+  string reviewed = 1;
+  repeated SessionDay days = 2;
+  repeated SessionSource sources = 3;
+}
+message CheckDifference {
+  string contract = 1;
+  string field = 2;
+  string first = 3; // Tushare
+  string second = 4; // the exchange's file, or AKShare
+}
+message CheckGroup {
+  string exchange = 1;
+  string day = 2;
+  // Why this exchange has no second source; nothing is compared then.
+  string unavailable = 3;
+  uint32 compared_rows = 4;
+  uint32 compared_values = 5;
+  repeated string only_first = 6;
+  repeated string only_second = 7;
+  repeated CheckDifference differences = 8;
+  // What the check could not compare, and why.
+  string note = 9;
+}
+message CrossCheck {
+  string kind = 1;
+  repeated CheckGroup groups = 2;
 }

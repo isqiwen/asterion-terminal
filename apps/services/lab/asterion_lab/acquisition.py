@@ -33,6 +33,10 @@ class Task:
     started_ns: int = field(default_factory=time.time_ns)
     finished_ns: int = 0
     cancel: threading.Event = field(default_factory=threading.Event)
+    exchanges: tuple = EXCHANGES
+    # Read the days again, though stored: a new version replaces their rows,
+    # earlier versions keep theirs.
+    refresh: bool = False
 
 
 class Acquisition:
@@ -45,7 +49,8 @@ class Acquisition:
     def running(self):
         return next((task for task in self.tasks.values() if task.state == "running"), None)
 
-    def submit(self, identity: str, begin: str, end: str, client_factory) -> Task:
+    def submit(self, identity: str, begin: str, end: str, client_factory, exchanges=(),
+               refresh=False) -> Task:
         first, last = datetime.date.fromisoformat(begin), datetime.date.fromisoformat(end)
         if first > last or first.year < 1990:
             raise ValueError("acquisition needs a range of days from 1990 on")
@@ -54,7 +59,11 @@ class Acquisition:
                 raise ValueError(f"task {identity} already exists")
             if self.running():
                 raise ValueError("another acquisition is running; wait for it or cancel it")
-            task = Task(identity, begin, end)
+            unknown = set(exchanges) - set(EXCHANGES)
+            if unknown:
+                raise ValueError(f"unknown exchanges {sorted(unknown)}")
+            task = Task(identity, begin, end, exchanges=tuple(exchanges) or EXCHANGES,
+                        refresh=refresh)
             self.tasks[identity] = task
         threading.Thread(target=self.run, args=(task, client_factory), daemon=True,
                          name=f"acquisition-{identity}").start()
@@ -96,7 +105,7 @@ class Acquisition:
         def commit():
             task.version = writer.commit().identity
 
-        for exchange in EXCHANGES:
+        for exchange in task.exchanges:
             for year in range(first.year, last.year + 1):
                 key = f"calendar/{exchange}/{year}"
                 if not writer.base.has(key) or year == today.year:
@@ -108,13 +117,13 @@ class Acquisition:
             task.requests = client.requests
         commit()
         plan = []
-        for exchange in EXCHANGES:
+        for exchange in task.exchanges:
             open_days = set()
             for year in range(first.year, last.year + 1):
                 calendar = self.warehouse.read(writer.base, f"calendar/{exchange}/{year}")
                 open_days |= {day.isoformat() for day, is_open in
                               zip(calendar["day"], calendar["open"]) if is_open}
-            stored = writer.base.days(exchange)
+            stored = set() if task.refresh else writer.base.days(exchange)
             plan += [(exchange, day) for day in sorted(open_days)
                      if first.isoformat() <= day <= last.isoformat() and day not in stored]
         task.days_total = len(plan)

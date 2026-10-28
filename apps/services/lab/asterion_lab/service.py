@@ -1,6 +1,7 @@
 """Requests of the lab service. One asyncio loop owns the connections; reads of
 the warehouse run on a small thread pool and acquisition on its own thread."""
 import asyncio
+import datetime
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
@@ -10,7 +11,8 @@ import time
 from asterion.lab_pb2 import Request, Response
 
 from asterion_lab.acquisition import Acquisition
-from asterion_lab import dominant
+from asterion_lab import crosscheck, dominant
+from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.tushare import Budget, SourceError, Tushare
 from asterion_lab.version import VERSION
 from asterion_lab.warehouse import Warehouse
@@ -35,6 +37,7 @@ class Service:
         self.acquisition = Acquisition(self.warehouse, log)
         self.sources = {}  # provider -> (credential, Budget), in memory only
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
+        self.sessions = Sessions()
 
     async def reply(self, request: Request) -> Response:
         response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
@@ -84,7 +87,8 @@ class Service:
         credential, budget = self.sources["tushare"]
         self.acquisition.submit(
             request.id, request.begin_day, request.end_day,
-            lambda cancelled: Tushare(credential, budget, cancelled=cancelled))
+            lambda cancelled: Tushare(credential, budget, cancelled=cancelled),
+            exchanges=list(request.exchanges), refresh=request.refresh)
         response.accepted.SetInParent()
 
     async def on_cancel(self, request, response):
@@ -205,3 +209,97 @@ class Service:
                                     ("high", row[6]), ("low", row[7])):
                     values[name] = text(None if value is None else dominant.rounded(Decimal(value) * factor))
             series.days.add(day=day, contract=contract, **values)
+
+    def open_days(self, exchange, begin, end):
+        version = self.warehouse.current()
+        rows = self.warehouse.query(version, """
+            select day from calendar where exchange = ? and open
+            and day between ?::date - 31 and ?::date order by day""", ("calendar",),
+            (exchange, begin, end), exchange=exchange)
+        return [row[0] for row in rows]
+
+    async def on_sessions(self, request, response):
+        days = await self.read(self.open_days, request.exchange, request.begin_day, request.end_day)
+        reply = response.sessions
+        reply.reviewed = self.sessions.reviewed
+        named = set()
+        for previous, trading_day in zip(days, days[1:]):
+            if trading_day.isoformat() < request.begin_day:
+                continue
+            day = self.sessions.day(request.exchange, request.product, trading_day)
+            night = self.sessions.night(request.exchange, request.product, previous,
+                                        holiday_between(previous, trading_day))
+            item = reply.days.add(trading_day=trading_day.isoformat(), day_known=day.known,
+                                  night_state=night.state)
+            for begin, end in day.segments:
+                item.day.add(begin=begin, end=end)
+            if night.state == "held":
+                item.night.begin, item.night.end = night.begin, night.end
+            item.sources.extend(sorted(set(day.sources) | set(night.sources)))
+            named |= set(item.sources)
+        for identity in sorted(named):
+            source = self.sessions.sources[identity]
+            reply.sources.add(id=identity, title=source["title"], url=source["url"],
+                              published=source["published"], note=source["note"])
+
+    DAILY_FIELDS = ("open", "high", "low", "close", "settlement", "previous_settlement", "volume",
+                    "open_interest")
+
+    def cross_check(self, request, client):
+        begin, end = datetime.date.fromisoformat(request.begin_day), \
+            datetime.date.fromisoformat(request.end_day)
+        if not 0 <= (end - begin).days <= 30:
+            raise ValueError("a cross-check covers 1 to 31 days")
+        if request.kind not in ("settlement", "daily"):
+            raise ValueError("a cross-check is of settlement or daily")
+        version = self.warehouse.current()
+        groups = []
+        for exchange, products in crosscheck.FIRST_BATCH.items():
+            days = [day.isoformat() for day in self.open_days(exchange, request.begin_day,
+                                                               request.end_day)
+                    if begin <= day <= end]
+            for day in days:
+                group = crosscheck.Group(exchange, day)
+                groups.append(group)
+                if request.kind == "settlement":
+                    if exchange in crosscheck.UNAVAILABLE_SETTLEMENT:
+                        group.unavailable = crosscheck.UNAVAILABLE_SETTLEMENT[exchange]
+                        continue
+                    first = crosscheck.normalize_tushare(exchange, client.settlement(exchange, day))
+                    second = crosscheck.official_settlement(exchange, day)
+                    group.note = crosscheck.SETTLEMENT_NOTES[exchange]
+                    crosscheck.compare(group, first, second, crosscheck.SETTLEMENT_FIELDS[exchange],
+                                       set(products))
+                else:
+                    if exchange in crosscheck.UNAVAILABLE_DAILY:
+                        group.unavailable = crosscheck.UNAVAILABLE_DAILY[exchange]
+                        continue
+                    rows = self.warehouse.query(version, f"""
+                        select contract, {", ".join(self.DAILY_FIELDS)} from daily
+                        where exchange = ? and day = ?::date""", ("daily",), (exchange, day),
+                        exchange=exchange)
+                    first = {row[0]: dict(zip(self.DAILY_FIELDS, row[1:])) for row in rows}
+                    second = crosscheck.akshare_daily(exchange, day)
+                    held = {contract.split("/")[1] for contract in first}
+                    crosscheck.compare(group, first, second, self.DAILY_FIELDS, held)
+        return groups
+
+    async def on_cross_check(self, request, response):
+        client = None
+        if request.kind == "settlement":
+            if "tushare" not in self.sources:
+                raise ValueError("enter or save the Tushare credential first")
+            credential, budget = self.sources["tushare"]
+            client = Tushare(credential, budget)
+        groups = await self.read(self.cross_check, request, client)
+        reply = response.cross_check
+        reply.kind = request.kind
+        for group in groups:
+            item = reply.groups.add(exchange=group.exchange, day=group.day,
+                                    unavailable=group.unavailable, note=group.note,
+                                    compared_rows=group.compared_rows,
+                                    compared_values=group.compared_values)
+            item.only_first.extend(group.only_first)
+            item.only_second.extend(group.only_second)
+            for contract, name, first, second in group.differences:
+                item.differences.add(contract=contract, field=name, first=first, second=second)

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/lab.proto.
  */
 export const file_asterion_lab: GenFile = /*@__PURE__*/
-  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byK3BAoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASPwoQY29uZmlndXJlX3NvdXJjZRgLIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Db25maWd1cmVTb3VyY2VIABIzCgdhY3F1aXJlGAwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkFjcXVpcmVEYWlseUgAEi8KBXRhc2tzGA0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzUXVlcnlIABIwCgZjYW5jZWwYDiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsVGFza0gAEjMKB3N1bW1hcnkYDyABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeVF1ZXJ5SAASNQoIY292ZXJhZ2UYECABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEjgKCmRhaWx5X2JhcnMYESABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uRGFpbHlCYXJzUXVlcnlIABI1Cghkb21pbmFudBgSIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFF1ZXJ5SABCBgoEYm9keSINCgtIZWFsdGhRdWVyeSJUCg9Db25maWd1cmVTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSEgoKY3JlZGVudGlhbBgCIAEoCRIbChNyZXF1ZXN0c19wZXJfbWludXRlGAMgASgNIj4KDEFjcXVpcmVEYWlseRIKCgJpZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCSIMCgpUYXNrc1F1ZXJ5IhgKCkNhbmNlbFRhc2sSCgoCaWQYASABKAkiDgoMU3VtbWFyeVF1ZXJ5Ig8KDUNvdmVyYWdlUXVlcnkiRgoORGFpbHlCYXJzUXVlcnkSEAoIY29udHJhY3QYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkiegoNRG9taW5hbnRRdWVyeRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEhEKCWJlZ2luX2RheRgDIAEoCRIPCgdlbmRfZGF5GAQgASgJEg4KBnRyYWRlZBgFIAEoCBISCgphZGp1c3RtZW50GAYgASgJItYDCghSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSLAoGaGVhbHRoGAogASgLMhouYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aEgAEioKBWVycm9yGAsgASgLMhkuYXN0ZXJpb24ubGFiLnByb3RvLkVycm9ySAASMAoIYWNjZXB0ZWQYDCABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uQWNjZXB0ZWRIABIqCgV0YXNrcxgNIAEoCzIZLmFzdGVyaW9uLmxhYi5wcm90by5UYXNrc0gAEi4KB3N1bW1hcnkYDiABKAsyGy5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeUgAEjAKCGNvdmVyYWdlGA8gASgLMhwuYXN0ZXJpb24ubGFiLnByb3RvLkNvdmVyYWdlSAASMwoKZGFpbHlfYmFycxgQIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5EYWlseUJhcnNIABI2Cghkb21pbmFudBgRIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFNlcmllc0gAQgYKBGJvZHkihgEKBkhlYWx0aBITCgtpbnN0YW5jZV9pZBgBIAEoCRISCgpwcm9jZXNzX2lkGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSEQoJdXB0aW1lX21zGAQgASgEEhMKC2luaXRpYWxpemVkGAUgASgIEhoKEmNvbmZpZ3VyZWRfc291cmNlcxgGIAMoCSImCgVFcnJvchIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiCgoIQWNjZXB0ZWQi9wEKBFRhc2sSCgoCaWQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkSDQoFc3RhdGUYBCABKAkSEgoKZGF5c190b3RhbBgFIAEoDRIRCglkYXlzX2RvbmUYBiABKA0SEgoKZGF5c19lbXB0eRgHIAEoDRIQCghyZXF1ZXN0cxgIIAEoDRISCgplcnJvcl9jb2RlGAkgASgJEg0KBWVycm9yGAogASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgLIAEoCRISCgpzdGFydGVkX25zGAwgASgDEhMKC2ZpbmlzaGVkX25zGA0gASgDIjAKBVRhc2tzEicKBXRhc2tzGAEgAygLMhguYXN0ZXJpb24ubGFiLnByb3RvLlRhc2siZAoMVGFibGVTdW1tYXJ5Eg0KBXRhYmxlGAEgASgJEgwKBHJvd3MYAiABKAQSEgoKcGFydGl0aW9ucxgDIAEoDRIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkiaAoHU3VtbWFyeRIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEgoKY3JlYXRlZF9ucxgCIAEoAxIwCgZ0YWJsZXMYAyADKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uVGFibGVTdW1tYXJ5Ij8KDU1vbnRoQ292ZXJhZ2USDQoFbW9udGgYASABKAkSDAoEZGF5cxgCIAEoDRIRCglvcGVuX2RheXMYAyABKA0iZwoPUHJvZHVjdENvdmVyYWdlEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSMQoGbW9udGhzGAMgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLk1vbnRoQ292ZXJhZ2UiWgoIQ292ZXJhZ2USFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEjUKCHByb2R1Y3RzGAIgAygLMiMuYXN0ZXJpb24ubGFiLnByb3RvLlByb2R1Y3RDb3ZlcmFnZSKKAQoIRGFpbHlCYXISCwoDZGF5GAEgASgJEgwKBG9wZW4YAiABKAkSDAoEaGlnaBgDIAEoCRILCgNsb3cYBCABKAkSDQoFY2xvc2UYBSABKAkSEgoKc2V0dGxlbWVudBgGIAEoCRIOCgZ2b2x1bWUYByABKAkSFQoNb3Blbl9pbnRlcmVzdBgIIAEoCSJiCglEYWlseUJhcnMSFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEhAKCGNvbnRyYWN0GAIgASgJEioKBGJhcnMYAyADKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uRGFpbHlCYXIieAoLRG9taW5hbnREYXkSCwoDZGF5GAEgASgJEhAKCGNvbnRyYWN0GAIgASgJEgwKBG9wZW4YAyABKAkSDAoEaGlnaBgEIAEoCRILCgNsb3cYBSABKAkSDQoFY2xvc2UYBiABKAkSEgoKc2V0dGxlbWVudBgHIAEoCSJOCgRSb2xsEgsKA2RheRgBIAEoCRIVCg1mcm9tX2NvbnRyYWN0GAIgASgJEhMKC3RvX2NvbnRyYWN0GAMgASgJEg0KBXJhdGlvGAQgASgJIpUBCg5Eb21pbmFudFNlcmllcxIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEgoKYWRqdXN0bWVudBgCIAEoCRItCgRkYXlzGAMgAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50RGF5EicKBXJvbGxzGAQgAygLMhguYXN0ZXJpb24ubGFiLnByb3RvLlJvbGxiBnByb3RvMw");
+  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byKqBQoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASPwoQY29uZmlndXJlX3NvdXJjZRgLIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Db25maWd1cmVTb3VyY2VIABIzCgdhY3F1aXJlGAwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkFjcXVpcmVEYWlseUgAEi8KBXRhc2tzGA0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzUXVlcnlIABIwCgZjYW5jZWwYDiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsVGFza0gAEjMKB3N1bW1hcnkYDyABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeVF1ZXJ5SAASNQoIY292ZXJhZ2UYECABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEjgKCmRhaWx5X2JhcnMYESABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uRGFpbHlCYXJzUXVlcnlIABI1Cghkb21pbmFudBgSIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFF1ZXJ5SAASNQoIc2Vzc2lvbnMYEyABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNRdWVyeUgAEjoKC2Nyb3NzX2NoZWNrGBQgASgLMiMuYXN0ZXJpb24ubGFiLnByb3RvLkNyb3NzQ2hlY2tRdWVyeUgAQgYKBGJvZHkiDQoLSGVhbHRoUXVlcnkiVAoPQ29uZmlndXJlU291cmNlEhAKCHByb3ZpZGVyGAEgASgJEhIKCmNyZWRlbnRpYWwYAiABKAkSGwoTcmVxdWVzdHNfcGVyX21pbnV0ZRgDIAEoDSJiCgxBY3F1aXJlRGFpbHkSCgoCaWQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkSEQoJZXhjaGFuZ2VzGAQgAygJEg8KB3JlZnJlc2gYBSABKAgiDAoKVGFza3NRdWVyeSIYCgpDYW5jZWxUYXNrEgoKAmlkGAEgASgJIg4KDFN1bW1hcnlRdWVyeSIPCg1Db3ZlcmFnZVF1ZXJ5IkYKDkRhaWx5QmFyc1F1ZXJ5EhAKCGNvbnRyYWN0GAEgASgJEhEKCWJlZ2luX2RheRgCIAEoCRIPCgdlbmRfZGF5GAMgASgJInoKDURvbWluYW50UXVlcnkSEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIRCgliZWdpbl9kYXkYAyABKAkSDwoHZW5kX2RheRgEIAEoCRIOCgZ0cmFkZWQYBSABKAgSEgoKYWRqdXN0bWVudBgGIAEoCSJWCg1TZXNzaW9uc1F1ZXJ5EhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSEQoJYmVnaW5fZGF5GAMgASgJEg8KB2VuZF9kYXkYBCABKAkiQwoPQ3Jvc3NDaGVja1F1ZXJ5EgwKBGtpbmQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkivwQKCFJlc3BvbnNlEg8KB3ZlcnNpb24YASABKA0SEgoKc2VydmljZV9pZBgCIAEoCRIWCg5jb3JyZWxhdGlvbl9pZBgDIAEoCRIsCgZoZWFsdGgYCiABKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uSGVhbHRoSAASKgoFZXJyb3IYCyABKAsyGS5hc3Rlcmlvbi5sYWIucHJvdG8uRXJyb3JIABIwCghhY2NlcHRlZBgMIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5BY2NlcHRlZEgAEioKBXRhc2tzGA0gASgLMhkuYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzSAASLgoHc3VtbWFyeRgOIAEoCzIbLmFzdGVyaW9uLmxhYi5wcm90by5TdW1tYXJ5SAASMAoIY292ZXJhZ2UYDyABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VIABIzCgpkYWlseV9iYXJzGBAgASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLkRhaWx5QmFyc0gAEjYKCGRvbWluYW50GBEgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50U2VyaWVzSAASMAoIc2Vzc2lvbnMYEiABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNIABI1Cgtjcm9zc19jaGVjaxgTIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5Dcm9zc0NoZWNrSABCBgoEYm9keSKGAQoGSGVhbHRoEhMKC2luc3RhbmNlX2lkGAEgASgJEhIKCnByb2Nlc3NfaWQYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIRCgl1cHRpbWVfbXMYBCABKAQSEwoLaW5pdGlhbGl6ZWQYBSABKAgSGgoSY29uZmlndXJlZF9zb3VyY2VzGAYgAygJIiYKBUVycm9yEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSIKCghBY2NlcHRlZCL3AQoEVGFzaxIKCgJpZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCRINCgVzdGF0ZRgEIAEoCRISCgpkYXlzX3RvdGFsGAUgASgNEhEKCWRheXNfZG9uZRgGIAEoDRISCgpkYXlzX2VtcHR5GAcgASgNEhAKCHJlcXVlc3RzGAggASgNEhIKCmVycm9yX2NvZGUYCSABKAkSDQoFZXJyb3IYCiABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAsgASgJEhIKCnN0YXJ0ZWRfbnMYDCABKAMSEwoLZmluaXNoZWRfbnMYDSABKAMiMAoFVGFza3MSJwoFdGFza3MYASADKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uVGFzayJkCgxUYWJsZVN1bW1hcnkSDQoFdGFibGUYASABKAkSDAoEcm93cxgCIAEoBBISCgpwYXJ0aXRpb25zGAMgASgNEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCSJoCgdTdW1tYXJ5EhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgpjcmVhdGVkX25zGAIgASgDEjAKBnRhYmxlcxgDIAMoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5UYWJsZVN1bW1hcnkiPwoNTW9udGhDb3ZlcmFnZRINCgVtb250aBgBIAEoCRIMCgRkYXlzGAIgASgNEhEKCW9wZW5fZGF5cxgDIAEoDSJnCg9Qcm9kdWN0Q292ZXJhZ2USEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIxCgZtb250aHMYAyADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uTW9udGhDb3ZlcmFnZSJaCghDb3ZlcmFnZRIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSNQoIcHJvZHVjdHMYAiADKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uUHJvZHVjdENvdmVyYWdlIooBCghEYWlseUJhchILCgNkYXkYASABKAkSDAoEb3BlbhgCIAEoCRIMCgRoaWdoGAMgASgJEgsKA2xvdxgEIAEoCRINCgVjbG9zZRgFIAEoCRISCgpzZXR0bGVtZW50GAYgASgJEg4KBnZvbHVtZRgHIAEoCRIVCg1vcGVuX2ludGVyZXN0GAggASgJImIKCURhaWx5QmFycxIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEAoIY29udHJhY3QYAiABKAkSKgoEYmFycxgDIAMoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5EYWlseUJhciJ4CgtEb21pbmFudERheRILCgNkYXkYASABKAkSEAoIY29udHJhY3QYAiABKAkSDAoEb3BlbhgDIAEoCRIMCgRoaWdoGAQgASgJEgsKA2xvdxgFIAEoCRINCgVjbG9zZRgGIAEoCRISCgpzZXR0bGVtZW50GAcgASgJIk4KBFJvbGwSCwoDZGF5GAEgASgJEhUKDWZyb21fY29udHJhY3QYAiABKAkSEwoLdG9fY29udHJhY3QYAyABKAkSDQoFcmF0aW8YBCABKAkilQEKDkRvbWluYW50U2VyaWVzEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgphZGp1c3RtZW50GAIgASgJEi0KBGRheXMYAyADKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uRG9taW5hbnREYXkSJwoFcm9sbHMYBCADKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uUm9sbCIsCg5TZXNzaW9uU2VnbWVudBINCgViZWdpbhgBIAEoCRILCgNlbmQYAiABKAkivgEKClNlc3Npb25EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSEQoJZGF5X2tub3duGAIgASgIEi8KA2RheRgDIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBITCgtuaWdodF9zdGF0ZRgEIAEoCRIxCgVuaWdodBgFIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBIPCgdzb3VyY2VzGAYgAygJIlgKDVNlc3Npb25Tb3VyY2USCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSCwoDdXJsGAMgASgJEhEKCXB1Ymxpc2hlZBgEIAEoCRIMCgRub3RlGAUgASgJIn4KCFNlc3Npb25zEhAKCHJldmlld2VkGAEgASgJEiwKBGRheXMYAiADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbkRheRIyCgdzb3VyY2VzGAMgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25Tb3VyY2UiUQoPQ2hlY2tEaWZmZXJlbmNlEhAKCGNvbnRyYWN0GAEgASgJEg0KBWZpZWxkGAIgASgJEg0KBWZpcnN0GAMgASgJEg4KBnNlY29uZBgEIAEoCSLhAQoKQ2hlY2tHcm91cBIQCghleGNoYW5nZRgBIAEoCRILCgNkYXkYAiABKAkSEwoLdW5hdmFpbGFibGUYAyABKAkSFQoNY29tcGFyZWRfcm93cxgEIAEoDRIXCg9jb21wYXJlZF92YWx1ZXMYBSABKA0SEgoKb25seV9maXJzdBgGIAMoCRITCgtvbmx5X3NlY29uZBgHIAMoCRI4CgtkaWZmZXJlbmNlcxgIIAMoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5DaGVja0RpZmZlcmVuY2USDAoEbm90ZRgJIAEoCSJKCgpDcm9zc0NoZWNrEgwKBGtpbmQYASABKAkSLgoGZ3JvdXBzGAIgAygLMh4uYXN0ZXJpb24ubGFiLnByb3RvLkNoZWNrR3JvdXBiBnByb3RvMw");
 
 /**
  * The Python research service. One per node, supervised by the Agent.
@@ -93,6 +93,18 @@ export type Request = Message<"asterion.lab.proto.Request"> & {
      */
     value: DominantQuery;
     case: "dominant";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.SessionsQuery sessions = 19;
+     */
+    value: SessionsQuery;
+    case: "sessions";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.CrossCheckQuery cross_check = 20;
+     */
+    value: CrossCheckQuery;
+    case: "crossCheck";
   } | { case: undefined; value?: undefined };
 };
 
@@ -166,6 +178,21 @@ export type AcquireDaily = Message<"asterion.lab.proto.AcquireDaily"> & {
    * @generated from field: string end_day = 3;
    */
   endDay: string;
+
+  /**
+   * Empty for every exchange.
+   *
+   * @generated from field: repeated string exchanges = 4;
+   */
+  exchanges: string[];
+
+  /**
+   * Read stored days again, as after a change of the mapping rules. The new
+   * version replaces their rows; earlier versions keep theirs.
+   *
+   * @generated from field: bool refresh = 5;
+   */
+  refresh: boolean;
 };
 
 /**
@@ -313,6 +340,73 @@ export const DominantQuerySchema: GenMessage<DominantQuery> = /*@__PURE__*/
   messageDesc(file_asterion_lab, 9);
 
 /**
+ * The trading sessions of a product on the exchange's open days in
+ * [begin_day, end_day], from reviewed exchange documents.
+ *
+ * @generated from message asterion.lab.proto.SessionsQuery
+ */
+export type SessionsQuery = Message<"asterion.lab.proto.SessionsQuery"> & {
+  /**
+   * @generated from field: string exchange = 1;
+   */
+  exchange: string;
+
+  /**
+   * @generated from field: string product = 2;
+   */
+  product: string;
+
+  /**
+   * @generated from field: string begin_day = 3;
+   */
+  beginDay: string;
+
+  /**
+   * @generated from field: string end_day = 4;
+   */
+  endDay: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.SessionsQuery.
+ * Use `create(SessionsQuerySchema)` to create a new message.
+ */
+export const SessionsQuerySchema: GenMessage<SessionsQuery> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 10);
+
+/**
+ * Compares a second source with the first over open days in [begin_day,
+ * end_day], at most 31 days. "settlement": the exchanges' settlement parameter
+ * files against Tushare's fut_settle, for the first products of decision D4.
+ * "daily": AKShare's daily bars against the warehouse. Nothing is stored.
+ *
+ * @generated from message asterion.lab.proto.CrossCheckQuery
+ */
+export type CrossCheckQuery = Message<"asterion.lab.proto.CrossCheckQuery"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string begin_day = 2;
+   */
+  beginDay: string;
+
+  /**
+   * @generated from field: string end_day = 3;
+   */
+  endDay: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.CrossCheckQuery.
+ * Use `create(CrossCheckQuerySchema)` to create a new message.
+ */
+export const CrossCheckQuerySchema: GenMessage<CrossCheckQuery> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 11);
+
+/**
  * @generated from message asterion.lab.proto.Response
  */
 export type Response = Message<"asterion.lab.proto.Response"> & {
@@ -382,6 +476,18 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
      */
     value: DominantSeries;
     case: "dominant";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.Sessions sessions = 18;
+     */
+    value: Sessions;
+    case: "sessions";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.CrossCheck cross_check = 19;
+     */
+    value: CrossCheck;
+    case: "crossCheck";
   } | { case: undefined; value?: undefined };
 };
 
@@ -390,7 +496,7 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
  * Use `create(ResponseSchema)` to create a new message.
  */
 export const ResponseSchema: GenMessage<Response> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 10);
+  messageDesc(file_asterion_lab, 12);
 
 /**
  * @generated from message asterion.lab.proto.Health
@@ -436,7 +542,7 @@ export type Health = Message<"asterion.lab.proto.Health"> & {
  * Use `create(HealthSchema)` to create a new message.
  */
 export const HealthSchema: GenMessage<Health> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 11);
+  messageDesc(file_asterion_lab, 13);
 
 /**
  * @generated from message asterion.lab.proto.Error
@@ -458,7 +564,7 @@ export type Error = Message<"asterion.lab.proto.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 12);
+  messageDesc(file_asterion_lab, 14);
 
 /**
  * @generated from message asterion.lab.proto.Accepted
@@ -471,7 +577,7 @@ export type Accepted = Message<"asterion.lab.proto.Accepted"> & {
  * Use `create(AcceptedSchema)` to create a new message.
  */
 export const AcceptedSchema: GenMessage<Accepted> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 13);
+  messageDesc(file_asterion_lab, 15);
 
 /**
  * @generated from message asterion.lab.proto.Task
@@ -554,7 +660,7 @@ export type Task = Message<"asterion.lab.proto.Task"> & {
  * Use `create(TaskSchema)` to create a new message.
  */
 export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 14);
+  messageDesc(file_asterion_lab, 16);
 
 /**
  * @generated from message asterion.lab.proto.Tasks
@@ -571,7 +677,7 @@ export type Tasks = Message<"asterion.lab.proto.Tasks"> & {
  * Use `create(TasksSchema)` to create a new message.
  */
 export const TasksSchema: GenMessage<Tasks> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 15);
+  messageDesc(file_asterion_lab, 17);
 
 /**
  * @generated from message asterion.lab.proto.TableSummary
@@ -608,7 +714,7 @@ export type TableSummary = Message<"asterion.lab.proto.TableSummary"> & {
  * Use `create(TableSummarySchema)` to create a new message.
  */
 export const TableSummarySchema: GenMessage<TableSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 16);
+  messageDesc(file_asterion_lab, 18);
 
 /**
  * @generated from message asterion.lab.proto.Summary
@@ -635,7 +741,7 @@ export type Summary = Message<"asterion.lab.proto.Summary"> & {
  * Use `create(SummarySchema)` to create a new message.
  */
 export const SummarySchema: GenMessage<Summary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 17);
+  messageDesc(file_asterion_lab, 19);
 
 /**
  * Of each product and month: the days with daily bars, and the exchange's open days.
@@ -666,7 +772,7 @@ export type MonthCoverage = Message<"asterion.lab.proto.MonthCoverage"> & {
  * Use `create(MonthCoverageSchema)` to create a new message.
  */
 export const MonthCoverageSchema: GenMessage<MonthCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 18);
+  messageDesc(file_asterion_lab, 20);
 
 /**
  * @generated from message asterion.lab.proto.ProductCoverage
@@ -693,7 +799,7 @@ export type ProductCoverage = Message<"asterion.lab.proto.ProductCoverage"> & {
  * Use `create(ProductCoverageSchema)` to create a new message.
  */
 export const ProductCoverageSchema: GenMessage<ProductCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 19);
+  messageDesc(file_asterion_lab, 21);
 
 /**
  * @generated from message asterion.lab.proto.Coverage
@@ -715,7 +821,7 @@ export type Coverage = Message<"asterion.lab.proto.Coverage"> & {
  * Use `create(CoverageSchema)` to create a new message.
  */
 export const CoverageSchema: GenMessage<Coverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 20);
+  messageDesc(file_asterion_lab, 22);
 
 /**
  * @generated from message asterion.lab.proto.DailyBar
@@ -769,7 +875,7 @@ export type DailyBar = Message<"asterion.lab.proto.DailyBar"> & {
  * Use `create(DailyBarSchema)` to create a new message.
  */
 export const DailyBarSchema: GenMessage<DailyBar> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 21);
+  messageDesc(file_asterion_lab, 23);
 
 /**
  * @generated from message asterion.lab.proto.DailyBars
@@ -796,7 +902,7 @@ export type DailyBars = Message<"asterion.lab.proto.DailyBars"> & {
  * Use `create(DailyBarsSchema)` to create a new message.
  */
 export const DailyBarsSchema: GenMessage<DailyBars> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 22);
+  messageDesc(file_asterion_lab, 24);
 
 /**
  * @generated from message asterion.lab.proto.DominantDay
@@ -846,7 +952,7 @@ export type DominantDay = Message<"asterion.lab.proto.DominantDay"> & {
  * Use `create(DominantDaySchema)` to create a new message.
  */
 export const DominantDaySchema: GenMessage<DominantDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 23);
+  messageDesc(file_asterion_lab, 25);
 
 /**
  * @generated from message asterion.lab.proto.Roll
@@ -880,7 +986,7 @@ export type Roll = Message<"asterion.lab.proto.Roll"> & {
  * Use `create(RollSchema)` to create a new message.
  */
 export const RollSchema: GenMessage<Roll> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 24);
+  messageDesc(file_asterion_lab, 26);
 
 /**
  * @generated from message asterion.lab.proto.DominantSeries
@@ -912,5 +1018,259 @@ export type DominantSeries = Message<"asterion.lab.proto.DominantSeries"> & {
  * Use `create(DominantSeriesSchema)` to create a new message.
  */
 export const DominantSeriesSchema: GenMessage<DominantSeries> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 25);
+  messageDesc(file_asterion_lab, 27);
+
+/**
+ * Beijing time, "YYYY-MM-DD HH:MM".
+ *
+ * @generated from message asterion.lab.proto.SessionSegment
+ */
+export type SessionSegment = Message<"asterion.lab.proto.SessionSegment"> & {
+  /**
+   * @generated from field: string begin = 1;
+   */
+  begin: string;
+
+  /**
+   * @generated from field: string end = 2;
+   */
+  end: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.SessionSegment.
+ * Use `create(SessionSegmentSchema)` to create a new message.
+ */
+export const SessionSegmentSchema: GenMessage<SessionSegment> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 28);
+
+/**
+ * @generated from message asterion.lab.proto.SessionDay
+ */
+export type SessionDay = Message<"asterion.lab.proto.SessionDay"> & {
+  /**
+   * @generated from field: string trading_day = 1;
+   */
+  tradingDay: string;
+
+  /**
+   * No reviewed rule covers the day session: its times are unknown.
+   *
+   * @generated from field: bool day_known = 2;
+   */
+  dayKnown: boolean;
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.SessionSegment day = 3;
+   */
+  day: SessionSegment[];
+
+  /**
+   * held; none (the product has no night session); holiday_eve (none before a
+   * statutory holiday); unknown (no reviewed rule, or a period not established).
+   *
+   * @generated from field: string night_state = 4;
+   */
+  nightState: string;
+
+  /**
+   * @generated from field: asterion.lab.proto.SessionSegment night = 5;
+   */
+  night?: SessionSegment | undefined;
+
+  /**
+   * @generated from field: repeated string sources = 6;
+   */
+  sources: string[];
+};
+
+/**
+ * Describes the message asterion.lab.proto.SessionDay.
+ * Use `create(SessionDaySchema)` to create a new message.
+ */
+export const SessionDaySchema: GenMessage<SessionDay> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 29);
+
+/**
+ * @generated from message asterion.lab.proto.SessionSource
+ */
+export type SessionSource = Message<"asterion.lab.proto.SessionSource"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string url = 3;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string published = 4;
+   */
+  published: string;
+
+  /**
+   * @generated from field: string note = 5;
+   */
+  note: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.SessionSource.
+ * Use `create(SessionSourceSchema)` to create a new message.
+ */
+export const SessionSourceSchema: GenMessage<SessionSource> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 30);
+
+/**
+ * @generated from message asterion.lab.proto.Sessions
+ */
+export type Sessions = Message<"asterion.lab.proto.Sessions"> & {
+  /**
+   * @generated from field: string reviewed = 1;
+   */
+  reviewed: string;
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.SessionDay days = 2;
+   */
+  days: SessionDay[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.SessionSource sources = 3;
+   */
+  sources: SessionSource[];
+};
+
+/**
+ * Describes the message asterion.lab.proto.Sessions.
+ * Use `create(SessionsSchema)` to create a new message.
+ */
+export const SessionsSchema: GenMessage<Sessions> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 31);
+
+/**
+ * @generated from message asterion.lab.proto.CheckDifference
+ */
+export type CheckDifference = Message<"asterion.lab.proto.CheckDifference"> & {
+  /**
+   * @generated from field: string contract = 1;
+   */
+  contract: string;
+
+  /**
+   * @generated from field: string field = 2;
+   */
+  field: string;
+
+  /**
+   * Tushare
+   *
+   * @generated from field: string first = 3;
+   */
+  first: string;
+
+  /**
+   * the exchange's file, or AKShare
+   *
+   * @generated from field: string second = 4;
+   */
+  second: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.CheckDifference.
+ * Use `create(CheckDifferenceSchema)` to create a new message.
+ */
+export const CheckDifferenceSchema: GenMessage<CheckDifference> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 32);
+
+/**
+ * @generated from message asterion.lab.proto.CheckGroup
+ */
+export type CheckGroup = Message<"asterion.lab.proto.CheckGroup"> & {
+  /**
+   * @generated from field: string exchange = 1;
+   */
+  exchange: string;
+
+  /**
+   * @generated from field: string day = 2;
+   */
+  day: string;
+
+  /**
+   * Why this exchange has no second source; nothing is compared then.
+   *
+   * @generated from field: string unavailable = 3;
+   */
+  unavailable: string;
+
+  /**
+   * @generated from field: uint32 compared_rows = 4;
+   */
+  comparedRows: number;
+
+  /**
+   * @generated from field: uint32 compared_values = 5;
+   */
+  comparedValues: number;
+
+  /**
+   * @generated from field: repeated string only_first = 6;
+   */
+  onlyFirst: string[];
+
+  /**
+   * @generated from field: repeated string only_second = 7;
+   */
+  onlySecond: string[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.CheckDifference differences = 8;
+   */
+  differences: CheckDifference[];
+
+  /**
+   * What the check could not compare, and why.
+   *
+   * @generated from field: string note = 9;
+   */
+  note: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.CheckGroup.
+ * Use `create(CheckGroupSchema)` to create a new message.
+ */
+export const CheckGroupSchema: GenMessage<CheckGroup> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 33);
+
+/**
+ * @generated from message asterion.lab.proto.CrossCheck
+ */
+export type CrossCheck = Message<"asterion.lab.proto.CrossCheck"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.CheckGroup groups = 2;
+   */
+  groups: CheckGroup[];
+};
+
+/**
+ * Describes the message asterion.lab.proto.CrossCheck.
+ * Use `create(CrossCheckSchema)` to create a new message.
+ */
+export const CrossCheckSchema: GenMessage<CrossCheck> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 34);
 

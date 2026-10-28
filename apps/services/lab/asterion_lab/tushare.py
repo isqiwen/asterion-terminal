@@ -303,11 +303,16 @@ class Tushare:
                     value = number(table.at(row, name))
                     return None if value == 0 else value
 
+                prices = {name: traded(name) for name in ("open", "high", "low", "close")}
+                # Without a trade there is no close either: for CZCE the vendor puts
+                # the settlement price there while the exchange publishes none (the
+                # cross-check with the exchange's own file found it).
+                if prices["open"] is None and prices["high"] is None and prices["low"] is None:
+                    prices["close"] = None
                 rows.append({
                     "exchange": exchange, "product": contract.product,
-                    "contract": contract.contract, "day": day,
-                    "open": traded("open"), "high": traded("high"), "low": traded("low"),
-                    "close": traded("close"), "settlement": number(table.at(row, "settle")),
+                    "contract": contract.contract, "day": day, **prices,
+                    "settlement": number(table.at(row, "settle")),
                     "previous_close": number(table.at(row, "pre_close")),
                     "previous_settlement": number(table.at(row, "pre_settle")),
                     "volume": number(table.at(row, "vol")),
@@ -320,5 +325,35 @@ class Tushare:
             except (ValueError, TypeError, AttributeError) as error:
                 if self.private(code) or self.private(str(error)):
                     raise SourceError("failed", f"{partition}: the answer contains private text")
+                raise SourceError("failed", f"{partition}: {code or 'a row without a code'} {error}")
+        return rows
+
+    def settlement(self, exchange: str, day: str) -> dict:
+        """Settlement parameters by contract, as Tushare's fut_settle gives them.
+        Only for cross-checks: they are not stored."""
+        partition = f"futures.settlement {exchange} {day}"
+        self.contracts(exchange)
+        compact = day.replace("-", "")
+        table = self.ask("fut_settle", {"trade_date": compact, "exchange": exchange},
+                         "ts_code,trade_date,trading_fee_rate,trading_fee,delivery_fee,"
+                         "b_hedging_margin_rate,s_hedging_margin_rate,long_margin_rate,"
+                         "short_margin_rate,offset_today_fee", 1600, partition)
+        rows = {}
+        for row in table.rows:
+            code = row[table.fields["ts_code"]] or ""
+            try:
+                if not code.endswith(SUFFIXES[exchange]) or table.at(row, "trade_date") != compact:
+                    raise ValueError("belongs to another exchange or day")
+                if not dated(code, SUFFIXES[exchange]):
+                    continue
+                contract = self.listed(exchange, code, day)
+                # CFFEX goes on repeating a contract's parameters after its last day.
+                if not contract.list_date <= day <= contract.delist_date:
+                    continue
+                rows[contract.contract] = {
+                    name: number(table.at(row, name)) for name in (
+                        "trading_fee_rate", "trading_fee", "offset_today_fee",
+                        "long_margin_rate", "short_margin_rate")}
+            except (ValueError, TypeError, AttributeError) as error:
                 raise SourceError("failed", f"{partition}: {code or 'a row without a code'} {error}")
         return rows

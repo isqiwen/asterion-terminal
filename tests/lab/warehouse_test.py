@@ -97,6 +97,16 @@ class Mapping(unittest.TestCase):
         self.assertEqual(rows[0]["settlement"], Decimal("7002"))
         self.assertEqual(rows[0]["amount"], Decimal("21"))  # published in ten thousands
 
+    def test_an_untraded_day_has_no_close_though_the_vendor_fills_one(self):
+        # The exchange publishes 0 for AP610's close on 2026-10-19; Tushare its settlement.
+        vendor = Vendor()
+        vendor.daily[("CZCE", "20200105")] = daily_text([[
+            '"AP003.ZCE"', '"20200105"', "8000", "8294", "0", "0", "0", "8000", "8000", "0",
+            "0", "58", "0", "8119"]])
+        rows = self.client(vendor).daily("CZCE", "2020-01-05")
+        self.assertIsNone(rows[0]["close"])
+        self.assertEqual(rows[0]["settlement"], Decimal("8000"))
+
     def test_vendor_series_are_left_out_and_decimals_stay_exact(self):
         vendor = Vendor()
         vendor.daily[("SHFE", "20260105")] = daily_text([
@@ -139,11 +149,11 @@ class Acquiring(unittest.TestCase):
     def tearDown(self):
         self.folder.cleanup()
 
-    def run_task(self, identity):
+    def run_task(self, identity, **options):
         acquisition = Acquisition(self.warehouse, Log())
         task = acquisition.submit(identity, "2026-01-01", "2026-01-31",
                                   lambda cancelled: Tushare(TOKEN, Budget(500), post=self.vendor,
-                                                            cancelled=cancelled))
+                                                            cancelled=cancelled), **options)
         for thread in threading.enumerate():
             if thread.name == f"acquisition-{identity}":
                 thread.join(30)
@@ -167,6 +177,18 @@ class Acquiring(unittest.TestCase):
         # The first version and its files are kept as they were.
         self.assertTrue(all((self.warehouse.root / entry["file"]).exists()
                             for entry in first.manifest["partitions"].values()))
+
+    def test_a_refresh_reads_stored_days_of_the_exchanges_named_again(self):
+        self.assertEqual(self.run_task("first").state, "succeeded")
+        first = self.warehouse.current()
+        self.vendor.calls.clear()
+        task = self.run_task("again", exchanges=["SHFE"], refresh=True)
+        self.assertEqual(task.state, "succeeded", task.error)
+        daily = [params for api, params in self.vendor.calls if api == "fut_daily"]
+        self.assertEqual([params["exchange"] for params in daily], ["SHFE", "SHFE"])
+        # Same answers, same rows: the partition file is the one already stored.
+        self.assertEqual(self.warehouse.current().manifest["partitions"]["daily/SHFE/2026-01"]["sha256"],
+                         first.manifest["partitions"]["daily/SHFE/2026-01"]["sha256"])
 
     def test_a_number_beyond_six_decimals_fails_the_task_without_rounding(self):
         self.vendor.daily[("SHFE", "20260105")] = daily_text([[

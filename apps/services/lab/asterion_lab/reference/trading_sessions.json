@@ -1,0 +1,150 @@
+{
+  "format": 1,
+  "reviewed": "2026-10-28",
+  "scope": "The first products of decision D4. Times are Beijing time. A night session belongs to the next trading day and is held on the evening of the trading day before it.",
+  "sources": {
+    "shfe-hours": {
+      "title": "上海期货交易所 交易时间",
+      "url": "https://www.shfe.com.cn/services/calenderandholidays/tradinghours/",
+      "published": "",
+      "retrieved": "2026-10-28",
+      "note": "Current timetable, undated: nonferrous 21:00-01:00; gold, silver and crude oil 21:00-02:30; rebar and natural rubber 21:00-23:00; day 09:00-10:15, 10:30-11:30, 13:30-15:00."
+    },
+    "shfe-2013-precious": {
+      "title": "金融时报：黄金白银期货夜盘交易“鸣锣”",
+      "url": "http://www.shfe.com.cn/news/news/369591.html",
+      "published": "2013-07-05",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Gold and silver continuous trading from the evening of 2013-07-05, 21:00 to 02:30."
+    },
+    "shfe-2013-nonferrous": {
+      "title": "期货日报：有色金属期货“夜盘”12月20日启动",
+      "url": "https://www.shfe.com.cn/docview/docview_310288380.htm",
+      "published": "2013-11-26",
+      "retrieved": "2026-10-28",
+      "note": "“有色金属连续交易自12月20日（周五）晚间起开始上线运行”; “铜、铝、铅、锌品种连续交易时段为每周一至周五21：00到次日1：00”."
+    },
+    "shfe-2014-rebar-rubber": {
+      "title": "上期所连续交易业务专题：新增4个品种步入连续交易",
+      "url": "https://www.shfe.com.cn/content/lxjy/mtbd5.html",
+      "published": "2014-12-24",
+      "retrieved": "2026-10-28",
+      "note": "“12月26日（周五）晚间起”; rebar 21:00-01:00, natural rubber 21:00-23:00; “法定节假日（不包含双休日）前第一个工作日的连续交易不再交易”."
+    },
+    "shfe-2015-nickel-manual": {
+      "title": "镍期货合约交易操作手册",
+      "url": "https://www.shfe.com.cn/upload/20150326/1427362268466.pdf",
+      "published": "2015-03-26",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Nickel continuous trading 21:00 to 01:00."
+    },
+    "shfe-2019-rubber-option": {
+      "title": "关于天然橡胶期权上市交易有关事项的通知",
+      "url": "https://www.shfe.com.cn/publicnotice/notice/201901/t20190121_794167.html",
+      "published": "2019-01-21",
+      "retrieved": "2026-10-28",
+      "note": "Natural rubber options “每周一至周五21:00-23:00”; holiday-eve rule restated."
+    },
+    "shfe-2022-rebar-option": {
+      "title": "关于螺纹钢期权和白银期权上市交易有关事项的通知",
+      "url": "https://www.shfe.com.cn/publicnotice/notice/202212/t20221220_799651.html",
+      "published": "2022-12-20",
+      "retrieved": "2026-10-28",
+      "note": "“螺纹钢期权每周一至周五21:00-23:00，白银期权每周一至周五21:00-次日02:30（与标的期货一致）”."
+    },
+    "shfe-2024-nickel-tin-option": {
+      "title": "关于铅、镍、锡和氧化铝期权上市交易有关事项的通知",
+      "url": "https://www.shfe.com.cn/publicnotice/notice/202408/t20240827_802186.html",
+      "published": "2024-08-27",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Nickel and tin options 21:00-01:00, as their futures; no night session on the working day before a statutory holiday."
+    },
+    "dce-2014-palm": {
+      "title": "大连商品交易所 大事记 / 期货市场月报（2014年12月）",
+      "url": "http://www.dce.com.cn/dalianshangpin/gywm7/dsj64/index.html",
+      "published": "2014-12",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index; the site refuses automated reads. “7月4日，我所正式推出夜盘交易，首批上市的夜盘品种为棕榈油和焦炭”; on 2014-12-26 soybean No.1 and No.2, soybean meal, soybean oil, coking coal and iron ore followed; hours first set at 21:00-02:30."
+    },
+    "dce-2019-hours": {
+      "title": "大商所增加夜盘交易品种并调整夜盘交易时间",
+      "url": "http://www.dce.com.cn/dalianshangpin/xwzx93/jysxw/6156960/index.html",
+      "published": "2019-03-25",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index; the site refuses automated reads. Night trading first 21:00-02:30, shortened to 23:30 on 2015-05-08 and to 23:00 from 21:00 on 2019-03-29."
+    },
+    "czce-2024-methanol-rules": {
+      "title": "郑州商品交易所甲醇期货业务细则（2024年2月6日起施行）",
+      "url": "https://www.czce.com.cn/cn/uploadfile/2024/02/07/20240207154824122.pdf",
+      "published": "2024-02-06",
+      "retrieved": "2026-10-28",
+      "note": "“夜盘交易时间为下午21:00—23：00。日盘交易时间为上午9:00—11:30，下午13:30—15:00；其中，上午10:15—10:30为休息时间。”"
+    },
+    "czce-2024-pta-rules": {
+      "title": "郑州商品交易所精对苯二甲酸（PTA）期货业务细则（2024年2月6日起施行）",
+      "url": "https://www.czce.com.cn/cn/uploadfile/2024/02/07/20240207154327860.pdf",
+      "published": "2024-02-06",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Night 21:00-23:00, the same article as methanol."
+    },
+    "czce-2024-soda-rules": {
+      "title": "郑州商品交易所纯碱期货业务细则（2024年2月6日起施行）",
+      "url": "http://www.czce.com.cn/cn/uploadfile/2024/02/07/20240207112556986.pdf",
+      "published": "2024-02-06",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Night 21:00-23:00; day 9:00-11:30 and 13:30-15:00 with a 10:15-10:30 break."
+    },
+    "czce-2020-resume": {
+      "title": "关于恢复商品期货夜盘交易及进行系统测试的通知（郑商函〔2020〕153号）",
+      "url": "http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/04/1584386593065063.htm",
+      "published": "2020-04-24",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Night trading resumes on the evening of 2020-05-06. When the other exchanges stopped and resumed is not established."
+    },
+    "gfex-2023-lithium": {
+      "title": "广州期货交易所碳酸锂期货合约（2023年7月11日版）/ 广期所发〔2023〕157号",
+      "url": "http://www.gfex.com.cn/gfex/llbb/202402/9db265594ebc48409e6ad0a102a04144.shtml",
+      "published": "2023-07-11",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. Day 9:00-10:15, 10:30-11:30, 13:30-15:00; no night session is set."
+    },
+    "cffex-2016-hours": {
+      "title": "股指期货熔断制度规则解读",
+      "url": "http://www.cffex.com.cn/mtxw/20160105/19578.html",
+      "published": "2016-01-05",
+      "retrieved": "2026-10-28",
+      "note": "Read through the search index. From 2016-01-01 index futures trade as the stock market does: continuous 9:30-11:30 and 13:00-15:00."
+    }
+  },
+  "day_sessions": [
+    {"exchanges": ["SHFE", "INE"], "from": "2026-10-28", "basis": "confirmed", "segments": [["09:00", "10:15"], ["10:30", "11:30"], ["13:30", "15:00"]], "sources": ["shfe-hours"]},
+    {"exchanges": ["CZCE"], "from": "2024-02-06", "basis": "confirmed", "segments": [["09:00", "10:15"], ["10:30", "11:30"], ["13:30", "15:00"]], "sources": ["czce-2024-methanol-rules", "czce-2024-soda-rules"]},
+    {"exchanges": ["GFEX"], "from": "2023-07-11", "basis": "confirmed", "segments": [["09:00", "10:15"], ["10:30", "11:30"], ["13:30", "15:00"]], "sources": ["gfex-2023-lithium"]},
+    {"exchanges": ["CFFEX"], "products": ["if"], "from": "2016-01-01", "basis": "start", "segments": [["09:30", "11:30"], ["13:00", "15:00"]], "sources": ["cffex-2016-hours"]}
+  ],
+  "night_sessions": [
+    {"exchange": "SHFE", "products": ["au", "ag"], "from": "2013-07-05", "basis": "start", "end": "02:30", "sources": ["shfe-2013-precious", "shfe-2022-rebar-option", "shfe-hours"]},
+    {"exchange": "SHFE", "products": ["cu", "al", "zn"], "from": "2013-12-20", "basis": "start", "end": "01:00", "sources": ["shfe-2013-nonferrous", "shfe-hours"]},
+    {"exchange": "SHFE", "products": ["ni", "sn"], "from": "2015-03-26", "basis": "confirmed", "end": "01:00", "sources": ["shfe-2015-nickel-manual", "shfe-2024-nickel-tin-option", "shfe-hours"]},
+    {"exchange": "SHFE", "products": ["ru"], "from": "2014-12-26", "basis": "start", "end": "23:00", "sources": ["shfe-2014-rebar-rubber", "shfe-2019-rubber-option", "shfe-hours"]},
+    {"exchange": "SHFE", "products": ["rb"], "from": "2014-12-26", "to": "2014-12-26", "basis": "start", "end": "01:00", "sources": ["shfe-2014-rebar-rubber"], "note": "The night was later shortened to 23:00 on a day not established; only its first evening is claimed."},
+    {"exchange": "SHFE", "products": ["rb"], "from": "2022-12-20", "basis": "confirmed", "end": "23:00", "sources": ["shfe-2022-rebar-option", "shfe-hours"]},
+    {"exchange": "INE", "products": ["sc"], "from": "2026-10-28", "basis": "confirmed", "end": "02:30", "sources": ["shfe-hours"]},
+    {"exchange": "DCE", "products": ["p"], "from": "2014-07-04", "to": "2015-05-07", "basis": "start", "end": "02:30", "sources": ["dce-2014-palm", "dce-2019-hours"]},
+    {"exchange": "DCE", "products": ["i", "jm", "m", "y"], "from": "2014-12-26", "to": "2015-05-07", "basis": "start", "end": "02:30", "sources": ["dce-2014-palm", "dce-2019-hours"]},
+    {"exchange": "DCE", "products": ["p", "i", "jm", "m", "y"], "from": "2015-05-08", "to": "2019-03-28", "basis": "start", "end": "23:30", "sources": ["dce-2019-hours"]},
+    {"exchange": "DCE", "products": ["p", "i", "jm", "m", "y"], "from": "2019-03-29", "basis": "start", "end": "23:00", "sources": ["dce-2019-hours"]},
+    {"exchange": "CZCE", "products": ["ma"], "from": "2024-02-06", "basis": "confirmed", "end": "23:00", "sources": ["czce-2024-methanol-rules"]},
+    {"exchange": "CZCE", "products": ["ta"], "from": "2024-02-06", "basis": "confirmed", "end": "23:00", "sources": ["czce-2024-pta-rules"]},
+    {"exchange": "CZCE", "products": ["sa"], "from": "2024-02-06", "basis": "confirmed", "end": "23:00", "sources": ["czce-2024-soda-rules"]},
+    {"exchange": "GFEX", "products": ["lc"], "from": "2023-07-11", "basis": "confirmed", "end": null, "sources": ["gfex-2023-lithium"]},
+    {"exchange": "CFFEX", "products": ["if"], "from": "2016-01-01", "basis": "start", "end": null, "sources": ["cffex-2016-hours"]}
+  ],
+  "holiday_eve": {
+    "rule": "No night session on the evening of a trading day followed by a statutory holiday; weekends alone do not cancel it.",
+    "sources": ["shfe-2014-rebar-rubber", "shfe-2019-rubber-option", "shfe-2024-nickel-tin-option"]
+  },
+  "unknown_evenings": [
+    {"exchanges": ["SHFE", "INE", "DCE", "CZCE"], "from": "2020-01-24", "to": "2020-05-05", "sources": ["czce-2020-resume"], "note": "Night trading was suspended during the epidemic and resumed on the evening of 2020-05-06 at CZCE; the suspension's start and the other exchanges' dates are not established."}
+  ]
+}

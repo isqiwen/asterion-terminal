@@ -34,7 +34,7 @@ Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standa
 
 界面的 Protobuf 类型由 `pnpm generate:protocol` 生成（`@bufbuild/buf` 与 `protoc-gen-es`，pnpm 锁定，不需要 protoc），输出 `apps/clients/terminal/src/generated/` 并提交，不经 Prettier 与 ESLint；修改对应 proto 后重新生成。CI 的样式作业重新生成并要求没有差异。
 
-`pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块、Python 研究服务装为 `asterion_lab` 包，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。Linux 上约 770 MiB，压缩前大小。
+`pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块、Python 研究服务装为 `asterion_lab` 包，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。依赖只用 wheel 安装，唯一例外是 AKShare 依赖的纯 Python 包 jsonpath（只发布源码包），按锁定哈希从源码构建。Linux 上约 890 MiB，压缩前大小，其中 AKShare 依赖的 V8 运行库约 110 MiB。
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。
 
