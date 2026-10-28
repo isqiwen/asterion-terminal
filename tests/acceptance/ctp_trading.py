@@ -243,11 +243,15 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
                                 "auth_code": auth_code})
         deadline = time.monotonic() + args.timeout
         while time.monotonic() < deadline:
-            phase = (call("runtime.snapshot")["market"] or {}).get("catalog", {}).get("phase")
+            catalog = (call("runtime.snapshot")["market"] or {}).get("catalog", {})
+            phase = catalog.get("phase")
             if phase in ("ready", "error"):
                 break
             time.sleep(1)
-        if not step("contract catalog", phase == "ready", phase):
+        # The counter's refusal is the only evidence: the node and its logs are temporary.
+        detail = " ".join(str(catalog[key]) for key in ("phase", "error_code", "diagnostic")
+                          if catalog.get(key))
+        if not step("contract catalog", phase == "ready", detail):
             raise RuntimeError("the contract catalog did not load")
         call("live.create", {"account": ACCOUNT, "node": "local", "service": "", "environment": "simulation", "max_order_quantity": "1",
                              "max_gross_quantity": "1", "max_working_orders": "1",
