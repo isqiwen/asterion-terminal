@@ -11,8 +11,8 @@ using namespace asterion::terminal;
 namespace {
 
 // Exercise a relocated bundle as well as the checkout's prepared runtime.
-const auto executable = environment_path("ASTERION_ANALYTICS_EXECUTABLE")
-                            .value_or(std::filesystem::path{ASTERION_ANALYTICS_PATH});
+const auto python =
+    environment_path("ASTERION_PYTHON").value_or(std::filesystem::path{ASTERION_PYTHON_PATH});
 
 nlohmann::json evidence()
 {
@@ -34,9 +34,9 @@ nlohmann::json evidence()
 
 } // namespace
 
-TEST(QuantStats, FrozenRuntimeAnalyzesActualSettlementsAndInitialCapital)
+TEST(QuantStats, BundledRuntimeAnalyzesActualSettlementsAndInitialCapital)
 {
-    const auto report = quantstats_report(evidence(), executable);
+    const auto report = quantstats_report(evidence(), python);
     EXPECT_EQ(report.at("task_id"), "settlement-analysis");
     EXPECT_EQ(report.at("library_version"), "0.0.86");
     ASSERT_EQ(report.at("returns").size(), 20);
@@ -60,7 +60,7 @@ TEST(QuantStats, DecimalDifferencePrecedesFloatingConversionAndUndefinedMetricsS
     source["experiment"]["paper"]["deposit"] = "9007199254740993";
     for (auto& day : source["result"]["settlements"])
         day["equity"] = "9007199254740993.00000001";
-    const auto report = quantstats_report(source, executable);
+    const auto report = quantstats_report(source, python);
     EXPECT_GT(report.at("returns")[0].at("value").get<double>(), 0);
     EXPECT_TRUE(report.at("metrics").at("sortino").is_null());
     EXPECT_TRUE(report.at("metrics").at("omega").is_null());
@@ -72,11 +72,11 @@ TEST(QuantStats, RejectsInsufficientObservationsAndNonpositiveEquity)
     auto source = evidence();
     source["result"]["settlements"][5]["equity"] = "0";
     try {
-        quantstats_report(source, executable);
+        quantstats_report(source, python);
         FAIL() << "nonpositive equity was accepted";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::invalid_request);
     }
     source["result"]["settlements"] = nlohmann::json::array();
-    EXPECT_THROW(quantstats_report(source, executable), Error);
+    EXPECT_THROW(quantstats_report(source, python), Error);
 }

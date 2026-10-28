@@ -26,7 +26,7 @@ conan profile detect --exist-ok
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
 pnpm install --frozen-lockfile
 pnpm exec install-electron
-pnpm desktop --prepare-analytics    # 首次：准备分析助手、构建并启动；之后用 pnpm desktop
+pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建并启动；之后用 pnpm desktop
 ```
 
 | 命令 | 用途 |

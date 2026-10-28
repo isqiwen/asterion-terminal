@@ -40,7 +40,7 @@ for (const [key, name] of Object.entries(variables))
 const library = process.platform === "darwin" ? ".dylib" : ".so";
 process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
 process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
-process.env.ASTERION_ANALYTICS_EXECUTABLE = path.join(resources, "analytics", "asterion_analytics");
+process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");
 process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },

@@ -16,7 +16,7 @@
     "format:check": "prettier --check \"apps/clients/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\" && python3 scripts/format_cpp.py --check",
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" \"packages/client-ui/**/*.{ts,tsx}\" --max-warnings 0",
     "test:desktop": "node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs",
-    "prepare:analytics": "python3 scripts/desktop/analytics_runtime.py",
+    "prepare:python": "python3 scripts/desktop/python_runtime.py",
     "installer": "node scripts/desktop/installer.cjs"
   },
   "dependencies": {

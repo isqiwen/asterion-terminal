@@ -120,7 +120,7 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 | 存储 | `storage/sqlite`、`storage/filesystem`、`storage/parquet` |
 | 策略 | `strategy/cta`（四条单合约规则与截面排序） |
 | 风控 | `risk/order-limits`、`risk/registry` |
-| 工具 | `tools/chart_indicators`、`tools/factor_analysis`、`tools/performance`、`tools/analytics`（Polars/QuantStats/skfolio 冻结助手） |
+| 工具 | `tools/chart_indicators`、`tools/factor_analysis`、`tools/performance`、`tools/analytics`（Polars/QuantStats/skfolio 分析助手，运行在随包的 Python 中） |
 
 只有确有多个实现的能力才设端口：交易前风控（`RiskPort`）和历史分钟线读取（`HistoricalBarPort`）。
 历史数据源与风控可作为原生动态库独立安装（C ABI，见 [原生插件](native-plugins.md)）；

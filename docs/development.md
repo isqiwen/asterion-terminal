@@ -22,21 +22,21 @@ pnpm install --frozen-lockfile
 pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进制
 ```
 
-随后用 `pnpm desktop --prepare-analytics` 显式准备冻结分析助手并完成第一次构建与启动；不打开窗口时使用 `pnpm desktop:check --prepare-analytics`，两者均不要求远程 Linux 服务包。后续使用 `pnpm desktop` 或 `pnpm desktop:check`；已有 CMake 构建目录时，也可单独运行 `pnpm prepare:analytics`。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。
+随后用 `pnpm desktop --prepare-python` 显式准备 Python 运行时并完成第一次构建与启动；不打开窗口时使用 `pnpm desktop:check --prepare-python`，两者均不要求远程 Linux 服务包。后续使用 `pnpm desktop` 或 `pnpm desktop:check`；已有 CMake 构建目录时，也可单独运行 `pnpm prepare:python`。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。
 
-拉取更新后，若 Conan 报锁定的 `ctp/6.7.7#…` 不在缓存或远端，重新运行 `python3 scripts/prepare_ctp.py`，注册当前仓库的 CTP 和 DuckDB 本地配方；它们不由 ConanCenter 提供。前端依赖变化后运行 `pnpm install --frozen-lockfile`，分析助手源码或锁定依赖变化后重新执行显式准备命令。
+拉取更新后，若 Conan 报锁定的 `ctp/6.7.7#…` 不在缓存或远端，重新运行 `python3 scripts/prepare_ctp.py`，注册当前仓库的 CTP 和 DuckDB 本地配方；它们不由 ConanCenter 提供。前端依赖变化后运行 `pnpm install --frozen-lockfile`，Python 代码或锁定依赖变化后重新执行显式准备命令。
 
 `build/local-profile` 存在时，桌面脚本会使用它。macOS 强制系统 Apple Clang；Linux 使用 Conan profile 中的编译器，依赖按 Release 构建（带调试信息的内嵌 DuckDB 会超过 Agent 的程序大小上限），项目自身在开发模式下按 Debug 构建。
 
-### 桌面分析依赖
+### Python 运行时
 
-`pnpm prepare:analytics` 使用 `plugins/tools/analytics/uv.lock` 显式准备 CPython 3.12.12、QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 及冻结构建工具，再使用 Conan 锁定的 protoc 生成 Python IPC 类型。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。虚拟环境和冻结中间文件只写 `build/`，不会进入服务源码指纹。
+Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standalone，即 uv 安装的版本），锁定的依赖和 Terminal 的 Python 代码直接装进它自己的 site-packages，不建虚拟环境：虚拟环境记录绝对路径，独立解释器则按自身位置找到前缀。安装版不需要系统 Python，启动和运行时都不下载任何东西。程序以 `python3 -I -B -m <模块>` 启动：不读用户环境变量和用户目录的包，也不往安装目录写字节码；导入数值库因此每次多花约 2 秒。
 
-NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。最终 `build/electron-resources/analytics/` 包含解释器、库、许可证及平台/解释器信息；安装版无需系统 Python，也不在启动或分析时下载依赖。Linux 分析资源约 650 MiB，压缩前大小；Polars 使用兼容 CPU runtime，冻结产物排除默认 AVX2 runtime。CVXPY 通过 PyInstaller hook 保留其启动时读取的包目录。
+`pnpm prepare:python` 是唯一联网的入口：按 `plugins/tools/analytics/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。Linux 上约 770 MiB，压缩前大小。
 
-准备阶段同时生成仅含 Matplotlib 自带字体的相对路径缓存。冻结助手将它复制到 PyInstaller 为本次进程建立的临时目录，避免每次分析都扫描系统字体；不携带构建机的用户字体或绝对路径。macOS 首次加载冻结动态库的启动期限为 120 秒，连接建立后的分析期限仍为 30 秒。
+NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。
 
-`desktop`、`desktop:check`、`desktop:build` 只检查分析运行时的平台与可执行入口，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python依赖、analytics Protobuf或冻结打包逻辑后，显式运行 `pnpm prepare:analytics` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都指向同一资源目录中的 `asterion_analytics`。打包时作为独立桌面资源携带，CI显式准备；远程 Linux 服务包不携带 Python 助手，也不把其Python源码纳入服务源码指纹。macOS安装包继续核验应用完整签名。
+`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python 依赖、analytics Protobuf 或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向同一解释器。打包时作为独立桌面资源携带，CI 显式准备；远程 Linux 服务包不携带 Python，也不把 Python 源码纳入服务源码指纹。macOS 安装包继续核验应用完整签名。
 
 `ctest --test-dir build/Debug -R '^(QuantStats|Portfolio)\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 
@@ -91,7 +91,7 @@ Conan 与 CTP SDK 只接受 macOS armv8 和 Linux x86_64；CMake 拒绝其它系
 
 - **扩展**：打开仓库时会推荐 clangd、C/C++（只用作调试器）、CMake Tools、Prettier、ESLint 和 EditorConfig。Playwright 扩展被列为不推荐：它直接调用 `playwright test`，会操作本机正在使用的服务。
 - **C++**：clangd 读取 `build/Debug/compile_commands.json`，这个文件由 `pnpm desktop` 或 `pnpm desktop:check` 的配置步骤生成，所以要先跑一次其中之一。C++ 不在保存时自动格式化（编辑器自带的 clang-format 版本可能与 CI 固定的版本不同），以 `pnpm run format` 为准；TypeScript、JavaScript 和 CSS 在保存时用仓库锁定的 Prettier 格式化。
-- **日常任务**（“终端 → 运行任务”）：准备依赖（`Prepare dependencies`）、运行桌面（`Desktop: run`）、检查桌面（`Desktop: check`，默认构建任务）、检查代码（`Check: types, lint, format`）、C++ 测试（`C++: test`，默认测试任务）、UI 测试（`UI: unit tests`）和格式化（`Format`）。命令在两个系统上相同。新机器先运行 `Prepare dependencies`（等同上文“首次准备”的四条命令），再用 `--prepare-analytics` 完成首次桌面运行或检查。
+- **日常任务**（“终端 → 运行任务”）：准备依赖（`Prepare dependencies`）、运行桌面（`Desktop: run`）、检查桌面（`Desktop: check`，默认构建任务）、检查代码（`Check: types, lint, format`）、C++ 测试（`C++: test`，默认测试任务）、UI 测试（`UI: unit tests`）和格式化（`Format`）。命令在两个系统上相同。新机器先运行 `Prepare dependencies`（等同上文“首次准备”的四条命令），再用 `--prepare-python` 完成首次桌面运行或检查。
 - **安装包任务**：只提供 `Installer: build release`，从工作区根目录调用 `pnpm desktop:build`，输出至 `build/desktop/`。匹配的 Linux 服务包直接复用，缺失或过期时由打包流程调用 Docker／OrbStack 构建，不需要另选服务构建任务。测试打包命令 `pnpm desktop:package-test` 留给专项验收及 CI，不放入日常任务列表；打包不会自动上传或发布。
 - **专项命令**：浏览器开发、E2E、Electron 宿主测试从仓库根目录终端运行；具体命令见本指南对应章节。
 - **调试**：C++ 调试在 Linux 用 gdb、在 macOS 用 lldb。在 CMake Tools 状态栏选择启动目标后，“C++: debug test” 会询问 GoogleTest 过滤条件并带上测试节点容量；还可以附加到运行中的服务，或附加到 `pnpm desktop` 的 Electron 主进程调试原生模块。Linux 上附加到不是调试器启动的进程需要 `kernel.yama.ptrace_scope=0`。“UI: debug in Chrome” 用于在浏览器入口调试界面，先在仓库根目录终端运行 `pnpm dev`。

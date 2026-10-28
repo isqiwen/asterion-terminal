@@ -38,10 +38,7 @@ function localCore(): Plugin {
         const child = spawn(resolve(cppBuild, executable), [], {
           env: {
             ...process.env,
-            ASTERION_ANALYTICS_EXECUTABLE: resolve(
-              root,
-              "build/electron-resources/analytics/asterion_analytics",
-            ),
+            ASTERION_PYTHON: resolve(root, "build/electron-resources/python/bin/python3"),
             ASTERION_ENVIRONMENT: "development",
             ASTERION_REMOTE_RESOURCES:
               process.env.ASTERION_REMOTE_RESOURCES ??

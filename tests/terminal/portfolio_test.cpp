@@ -41,10 +41,10 @@ nlohmann::json evidence(int asset)
 
 } // namespace
 
-TEST(Portfolio, FrozenRuntimeFitsTrainingOnlyAndPredictsBothValidationPortfolios)
+TEST(Portfolio, BundledRuntimeFitsTrainingOnlyAndPredictsBothValidationPortfolios)
 {
     std::vector<nlohmann::json> sources{evidence(0), evidence(1)};
-    const auto report = portfolio_report(sources, day(29), ASTERION_ANALYTICS_PATH);
+    const auto report = portfolio_report(sources, day(29), ASTERION_PYTHON_PATH);
     EXPECT_EQ(report.at("polars_version"), "2.0.0");
     EXPECT_EQ(report.at("skfolio_version"), "1.9.0");
     EXPECT_EQ(report.at("training_observations"), 30);
@@ -76,7 +76,7 @@ TEST(Portfolio, FrozenRuntimeFitsTrainingOnlyAndPredictsBothValidationPortfolios
     sources[0]["task"]["result_digest"] = std::string(64, 'c');
     for (int i = 30; i < 60; ++i)
         sources[0]["result"]["settlements"][i]["equity"] = std::to_string(110000 + 100 * i);
-    const auto changed = portfolio_report(sources, day(29), ASTERION_ANALYTICS_PATH);
+    const auto changed = portfolio_report(sources, day(29), ASTERION_PYTHON_PATH);
     EXPECT_DOUBLE_EQ(changed.at("weights")[0].at("weight").get<double>(), w0);
     EXPECT_DOUBLE_EQ(changed.at("weights")[1].at("weight").get<double>(), w1);
     EXPECT_EQ(changed.at("weights")[0].at("result_sha256"), std::string(64, 'c'));
@@ -89,7 +89,7 @@ TEST(Portfolio, PolarsExcludesMismatchedIntervalsInsteadOfFillingMissingDates)
     auto& rows = sources[1]["result"]["settlements"];
     rows.erase(40);
     rows.erase(10);
-    const auto report = portfolio_report(sources, day(29), ASTERION_ANALYTICS_PATH);
+    const auto report = portfolio_report(sources, day(29), ASTERION_PYTHON_PATH);
     EXPECT_EQ(report.at("training_observations"), 28);
     EXPECT_EQ(report.at("validation").size(), 28);
     EXPECT_EQ(report.at("weights")[0].at("source_observations"), 60);
@@ -104,7 +104,7 @@ TEST(Portfolio, RejectsShortValidationAndUninformativeTraining)
 {
     std::vector<nlohmann::json> sources{evidence(0), evidence(1)};
     try {
-        portfolio_report(sources, day(40), ASTERION_ANALYTICS_PATH);
+        portfolio_report(sources, day(40), ASTERION_PYTHON_PATH);
         FAIL() << "short validation accepted";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::invalid_request);
@@ -115,7 +115,7 @@ TEST(Portfolio, RejectsShortValidationAndUninformativeTraining)
     for (auto& row : sources[0]["result"]["settlements"])
         row["equity"] = "100000";
     try {
-        portfolio_report(sources, day(29), ASTERION_ANALYTICS_PATH);
+        portfolio_report(sources, day(29), ASTERION_PYTHON_PATH);
         FAIL() << "constant training accepted";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::invalid_request);

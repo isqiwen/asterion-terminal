@@ -49,16 +49,16 @@ analytics::proto::BacktestEquity equity_input(const nlohmann::json& source)
 }
 
 analytics::proto::AnalyticsReply
-analyze(const analytics::proto::AnalyticsRequest& request, const std::filesystem::path& executable)
+analyze(const analytics::proto::AnalyticsRequest& request, const std::filesystem::path& python)
 {
-    if (executable.empty() || !std::filesystem::is_regular_file(executable))
+    if (python.empty() || !std::filesystem::is_regular_file(python))
         throw Error(
             ErrorCode::unavailable,
             "Analytics runtime unavailable; prepare or reinstall Terminal");
     TemporaryExchange exchange;
     const auto endpoint = (exchange.directory / "analysis.sock").string();
-    // macOS's first load of the frozen analytics libraries can exceed 60 seconds.
-    // Startup has its own budget; analysis keeps the 30-second IPC deadline.
+    // Importing the numerical libraries from source takes seconds, longer on a
+    // cold disk. Startup has its own budget; analysis keeps the 30-second IPC deadline.
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
     const auto remaining = [&] {
         const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -67,9 +67,11 @@ analyze(const analytics::proto::AnalyticsRequest& request, const std::filesystem
             throw Error(ErrorCode::operation_failed, "Analytics timed out");
         return duration;
     };
-    ChildProcess process(executable, {endpoint});
-    // The frozen interpreter binds its endpoint after importing the locked
-    // libraries. Wait only for this owned child's startup; never replay requests.
+    // Isolated from the user's environment and site, and writing no bytecode
+    // into the installation.
+    ChildProcess process(python, {"-I", "-B", "-m", "asterion_analytics", endpoint});
+    // The helper binds its endpoint after importing the locked libraries. Wait
+    // only for this owned child's startup; never replay requests.
     while (!std::filesystem::exists(endpoint)) {
         if (process.wait(std::min(remaining(), std::chrono::milliseconds(10))))
             throw Error(ErrorCode::operation_failed, "Analytics process failed");
@@ -94,13 +96,12 @@ analyze(const analytics::proto::AnalyticsRequest& request, const std::filesystem
 
 } // namespace
 
-nlohmann::json
-quantstats_report(const nlohmann::json& source, const std::filesystem::path& executable)
+nlohmann::json quantstats_report(const nlohmann::json& source, const std::filesystem::path& python)
 {
     analytics::proto::AnalyticsRequest message;
     *message.mutable_quantstats() = equity_input(source);
     const auto& request = message.quantstats();
-    const auto reply = analyze(message, executable);
+    const auto reply = analyze(message, python);
     const auto& report = reply.quantstats();
     if (!reply.has_quantstats() || report.task_id() != request.task_id()
         || report.result_sha256() != request.result_sha256() || report.periods_per_year() != 252
@@ -143,7 +144,7 @@ quantstats_report(const nlohmann::json& source, const std::filesystem::path& exe
 nlohmann::json portfolio_report(
     const std::vector<nlohmann::json>& sources,
     const std::string& training_end,
-    const std::filesystem::path& executable)
+    const std::filesystem::path& python)
 {
     if (sources.size() < 2 || sources.size() > 3)
         throw Error(
@@ -162,7 +163,7 @@ nlohmann::json portfolio_report(
                 "Portfolio analysis requires 2 or 3 distinct backtests");
         *request.add_backtests() = std::move(input);
     }
-    const auto reply = analyze(message, executable);
+    const auto reply = analyze(message, python);
     const auto& report = reply.portfolio();
     const auto invalid = [] {
         throw Error(ErrorCode::operation_failed, "Analytics returned an invalid report");

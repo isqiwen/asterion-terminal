@@ -49,7 +49,7 @@ jobs:
       - run: cmake --preset conan-debug
       # -k 0 reports every failing translation unit in one run, not only the first.
       - run: cmake --build --preset conan-debug -- -k 0
-      - run: python scripts/desktop/analytics_runtime.py
+      - run: python scripts/desktop/python_runtime.py
       - run: ctest --preset conan-debug --output-on-failure
       - name: Prepare Linux user service manager
         if: runner.os == 'Linux'
@@ -142,7 +142,7 @@ jobs:
       - name: Validate and stage remote Linux services
         run: python scripts/desktop/remote_resources.py stage
       - name: Build and link native desktop
-        run: python scripts/desktop/desktop.py check --prepare-analytics
+        run: python scripts/desktop/desktop.py check --prepare-python
       - run: ctest --preset conan-debug --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
@@ -208,7 +208,7 @@ jobs:
           sudo apt-get install -y xvfb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build and link native desktop
-        run: python scripts/desktop/desktop.py check --prepare-analytics
+        run: python scripts/desktop/desktop.py check --prepare-python
       - run: ctest --preset conan-debug --output-on-failure
       - name: Exercise native Electron host
         run: xvfb-run -a pnpm test:desktop
@@ -255,7 +255,7 @@ jobs:
       # The full-budget and large-dataset tests measure capacity, not thread
       # safety; instrumented, they exceed the services' own request timeouts and
       # starve the rest of the run. The uninstrumented jobs run them.
-      - run: python scripts/desktop/analytics_runtime.py
+      - run: python scripts/desktop/python_runtime.py
       - run: ctest --preset conan-debug --output-on-failure -E "^(Backtest\.FullBarBudgetRunsThroughFinalSettlement|TerminalApi\.LargeNamedDatasetsBacktest|TaskProcess\.MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable)$"
         env:
           ASTERION_TIMING_SCALE: "20"

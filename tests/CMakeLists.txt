@@ -367,10 +367,10 @@ target_include_directories(asterion_shfe_margin_probe PRIVATE "${CMAKE_CURRENT_S
 target_link_libraries(asterion_shfe_margin_probe PRIVATE asterion_data_queries asterion_history_providers asterion_shfe CLI11::CLI11)
 
 asterion_unit_tests(asterion_quantstats_tests terminal/quantstats_test.cpp asterion_terminal_api 90)
-target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_ANALYTICS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/analytics/asterion_analytics")
+target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_PYTHON_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
 
 asterion_unit_tests(asterion_portfolio_tests terminal/portfolio_test.cpp asterion_terminal_api 90)
-target_compile_definitions(asterion_portfolio_tests PRIVATE ASTERION_ANALYTICS_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/analytics/asterion_analytics")
+target_compile_definitions(asterion_portfolio_tests PRIVATE ASTERION_PYTHON_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
 
 foreach(target asterion_test_node_service_control asterion_node_maintenance_tests asterion_node_supervision_tests asterion_data_credential_tests asterion_plugin_management_tests)
  target_link_libraries(${target} PRIVATE asterion_node_management)

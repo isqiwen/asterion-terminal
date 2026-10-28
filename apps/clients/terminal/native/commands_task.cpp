@@ -677,8 +677,7 @@ void Application::Impl::register_task_commands()
             return portfolio_report(
                 sources,
                 training_end,
-                environment_path("ASTERION_ANALYTICS_EXECUTABLE")
-                    .value_or(std::filesystem::path{}));
+                environment_path("ASTERION_PYTHON").value_or(std::filesystem::path{}));
         });
         if (generation != data_task_generation)
             throw Error(
@@ -703,8 +702,7 @@ void Application::Impl::register_task_commands()
         auto report = co_await service_io.admin<json>([source = std::move(source)] {
             return quantstats_report(
                 source,
-                environment_path("ASTERION_ANALYTICS_EXECUTABLE")
-                    .value_or(std::filesystem::path{}));
+                environment_path("ASTERION_PYTHON").value_or(std::filesystem::path{}));
         });
         if (generation != data_task_generation)
             throw Error(

@@ -1,9 +1,7 @@
 """Offline analysis of Task-verified backtests; no market-data acquisition."""
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 import math
-import shutil
 import socket
 import struct
 import time
@@ -12,11 +10,6 @@ import warnings
 
 import matplotlib
 matplotlib.use("Agg")
-if getattr(sys, "frozen", False):
-    # The prepared cache contains only Matplotlib's bundled, relative font paths.
-    # Seed PyInstaller's private config directory before QuantStats imports plots.
-    for cache in (Path(__file__).parent / "matplotlib-cache").iterdir():
-        shutil.copyfile(cache, Path(matplotlib.get_cachedir()) / cache.name)
 
 import numpy as np
 import pandas as pd

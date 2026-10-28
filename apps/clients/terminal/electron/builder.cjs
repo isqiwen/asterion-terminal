@@ -30,7 +30,7 @@ module.exports = {
   },
   files: ["main.cjs", "preload.cjs", "package.json", { from: "../dist", to: "dist" }],
   extraResources: [
-    { from: "build/electron-resources/analytics", to: "analytics", filter: ["**/*"] },
+    { from: "build/electron-resources/python", to: "python", filter: ["**/*"] },
     {
       from: "build/electron-resources/native",
       to: "native",
@@ -59,7 +59,7 @@ module.exports = {
     notarize: distribution,
     binaries: [
       ...nativeFiles.map(name => "Contents/Resources/native/" + name),
-      "Contents/Resources/analytics/asterion_analytics",
+      "Contents/Resources/python/bin/python3",
     ],
     hardenedRuntime: true,
     entitlements: path.join(__dirname, "entitlements.mac.plist"),

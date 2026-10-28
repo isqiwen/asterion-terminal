@@ -19,7 +19,7 @@
     },
     {
       "label": "Desktop: check",
-      "detail": "Check the local build, native bridge and analytics resources without opening a window; no Linux service bundle required",
+      "detail": "Check the local build, native bridge and Python runtime without opening a window; no Linux service bundle required",
       "type": "shell",
       "command": "pnpm desktop:check",
       "problemMatcher": ["$gcc"],
@@ -27,7 +27,7 @@
     },
     {
       "label": "Installer: build release",
-      "detail": "Build and verify the release installer in build/desktop; reuses matching Linux services or builds them with Docker/OrbStack; requires prepared analytics and macOS signing credentials on macOS",
+      "detail": "Build and verify the release installer in build/desktop; reuses matching Linux services or builds them with Docker/OrbStack; requires the prepared Python runtime and macOS signing credentials on macOS",
       "type": "process",
       "command": "pnpm",
       "args": ["desktop:build"],
