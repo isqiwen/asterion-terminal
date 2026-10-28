@@ -350,7 +350,17 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
                     print(f"       order {item['id'][-22:]} {item['status']} "
                           f"filled={item['filled']}", flush=True)
             time.sleep(2)
-        step("minute bars received", bars > args.slow, f"{bars} bars")
+        if not step("minute bars received", bars > args.slow, f"{bars} bars"):
+            # What the market service observed, to tell a silent feed from bars it held back.
+            series = call("market.minutes", contract)["intraday"]
+            market = call("runtime.snapshot")["market"] or {}
+            latest = quote() or {}
+            step("market service observations", False,
+                 f"first={series.get('first_observation_ms')} "
+                 f"interrupted={series.get('interrupted')} "
+                 f"bars={[b['start_ms'] for b in series.get('bars', [])][-12:]} "
+                 f"out_of_order={market.get('out_of_order')} phase={market.get('phase')} "
+                 f"quote={ {k: latest.get(k) for k in ('last', 'action_day', 'update_time', 'source_ms', 'received_ms')} }")
         step("strategy produced a target", bool(targets), f"targets={targets}")
         step("strategy orders", True, f"{len(seen)} placed: {sorted(set(seen.values()))}")
 
