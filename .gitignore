@@ -12,3 +12,4 @@ dist/
 
 # Independent Cloud checkout used only by CI acceptance.
 .cloud-source/
+/ctp-trading-report.json

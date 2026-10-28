@@ -59,11 +59,20 @@ TEST_F(CtpCatalog, ReturnsOnlyActiveFuturesWithoutSettlementOrOrderActions)
 TEST_F(CtpCatalog, AuthAndLoginErrorsRejectRatherThanReturnAnEmptyCatalog)
 {
     config.app_id = "app";
+    // The refusal names its step: authentication is the AppID, login the password.
+    const auto refusal = [&] {
+        try {
+            (void)read();
+        } catch (const Error& error) {
+            return std::string(error.what());
+        }
+        return std::string("accepted");
+    };
     config.auth_code = "bad-auth";
-    EXPECT_THROW(read(), Error);
+    EXPECT_NE(refusal().find("CTP catalog authentication rejected"), std::string::npos);
     config.auth_code = "auth";
     config.password = "bad";
-    EXPECT_THROW(read(), Error);
+    EXPECT_NE(refusal().find("CTP catalog login rejected"), std::string::npos);
     config.password = "secret";
     EXPECT_EQ(read().contracts.size(), 1U);
 }

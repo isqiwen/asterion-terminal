@@ -125,12 +125,16 @@ struct Reader final : CThostFtdcTraderSpi
         }
     }
 
-    static void check(int code)
+    // Names the step: a login refusal means the password, an authentication one the AppID.
+    void check(int code) const
     {
+        static constexpr const char* names[] =
+            {"connection", "authentication", "login", "instrument query", "instrument query"};
         if (code)
             throw Error(
                 ErrorCode::operation_failed,
-                "CTP catalog request rejected: " + std::to_string(code));
+                std::string("CTP catalog ") + names[static_cast<int>(step)]
+                    + " rejected: " + std::to_string(code));
     }
 
     void OnFrontConnected() override
