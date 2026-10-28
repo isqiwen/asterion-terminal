@@ -1,6 +1,7 @@
 #include <asterion/domain/intraday_bars.hpp>
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace asterion {
 namespace {
@@ -32,17 +33,22 @@ void IntradayBars::observe(const MarketQuote& quote)
     const auto delta = quote.volume >= state.cumulative_volume
         ? quote.volume - state.cumulative_volume
         : std::int64_t{0};
-    if (quote.volume < state.cumulative_volume)
+    const bool reset = quote.volume < state.cumulative_volume;
+    if (reset)
         series.interrupted = true;
     state.cumulative_volume = quote.volume;
     const auto start = quote.source_ms - quote.source_ms % minute_ms;
     const auto price = *quote.last;
     if (series.bars.empty() || series.bars.back().start_ms != start) {
-        series.bars.push_back({start, price, price, price, price, 0, {}, {}});
+        // The first bar of a day is whole only when observation began on its boundary.
+        const bool partial = state.lost || (series.bars.empty() && quote.source_ms != start);
+        series.bars.push_back({start, price, price, price, price, 0, {}, {}, partial});
         if (series.bars.size() > max_bars)
             series.bars.erase(series.bars.begin());
     }
+    state.lost = false;
     auto& bar = series.bars.back();
+    bar.partial = bar.partial || reset;
     bar.high = std::max(bar.high, price);
     bar.low = std::min(bar.low, price);
     bar.close = price;
@@ -66,7 +72,10 @@ void IntradayBars::interrupt()
 {
     for (auto& [id, state] : states_) {
         state.series.interrupted = true;
-        if (!state.recent.empty())
+        state.lost = true;
+        auto& bars = state.series.bars;
+        const bool marked = !bars.empty() && !std::exchange(bars.back().partial, true);
+        if (marked || !state.recent.empty())
             state.revision = ++revision_;
         state.recent.clear();
     }
@@ -89,6 +98,12 @@ std::optional<IntradaySeries> IntradayBars::series(const InstrumentId& instrumen
     if (found == states_.end())
         return std::nullopt;
     return found->second.series;
+}
+
+const IntradaySeries* IntradayBars::find(const InstrumentId& instrument) const
+{
+    const auto found = states_.find(instrument);
+    return found == states_.end() ? nullptr : &found->second.series;
 }
 
 std::optional<Decimal> IntradayBars::change_1m_percent(const InstrumentId& instrument) const

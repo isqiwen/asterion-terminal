@@ -63,7 +63,7 @@ struct State
         if (feed)
             feed->stop();
         try {
-            recorder.close("stopped", now_ms());
+            recorder.close("stopped", now_ms(), intraday);
         } catch (...) {
             // A failed write was logged by the writer; stopping continues.
         }
@@ -111,12 +111,12 @@ struct State
                     recorder.interrupt(market_phase_name(status->phase));
                 }
             } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
-                recorder.observe(quote->quote, quote->out_of_order);
+                recorder.observe(quote->quote, quote->out_of_order, intraday);
                 if (!quote->out_of_order)
                     intraday.observe(quote->quote);
             }
         }
-        recorder.poll(now_ms());
+        recorder.poll(now_ms(), intraday);
         stream = batch.stream_id;
         if (batch.failed)
             event_cursor = batch.latest_sequence;

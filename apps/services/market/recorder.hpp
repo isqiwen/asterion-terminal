@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/live_market.hpp>
+#include <asterion/domain/intraday_bars.hpp>
 #include <asterion/kernel/thread_pool.hpp>
 #include <deque>
 #include <filesystem>
@@ -15,8 +15,12 @@ namespace asterion::market_data {
 // provider's trading day:
 //
 //   recordings/ticks/trading_day=<YYYYMMDD>/<instance>-<part>.parquet
+//   recordings/minutes/trading_day=<YYYYMMDD>/<instance>-<part>.parquet
 //   recordings/segments/trading_day=<YYYYMMDD>/<instance>.parquet
 //
+// Minutes are the bars the service aggregates for strategies, written once a
+// later bar or the next trading day completes them; a bar observation may
+// have missed part of is marked partial, as is the bar forming at a stop.
 // A segment is one stretch of uninterrupted observation by this process. It
 // ends with the reason observation stopped; a segment without an end belongs
 // to a process that stopped before it could say why. The time between two
@@ -36,13 +40,15 @@ public:
     Recorder(std::filesystem::path root, std::string instance);
     ~Recorder();
 
-    void observe(const MarketQuote& quote, bool out_of_order);
+    // Called before `minutes` observes the same quote.
+    void observe(const MarketQuote& quote, bool out_of_order, const IntradayBars& minutes);
     // Ends the current segment if it observed anything.
     void interrupt(std::string_view reason);
-    // Hands buffered quotes to the writer every interval; collects results.
-    void poll(std::int64_t now_ms);
+    // Hands buffered quotes and completed minutes to the writer every
+    // interval; collects results.
+    void poll(std::int64_t now_ms, const IntradayBars& minutes);
     // Ends the segment, writes everything buffered and waits for the writer.
-    void close(std::string_view reason, std::int64_t now_ms);
+    void close(std::string_view reason, std::int64_t now_ms, const IntradayBars& minutes);
 
     const Status& status() const
     {
@@ -54,6 +60,12 @@ public:
         std::uint64_t segment;
         bool out_of_order;
         MarketQuote quote;
+    };
+
+    struct Minute
+    {
+        InstrumentId instrument;
+        MinuteBar bar;
     };
 
     struct Segment
@@ -71,6 +83,16 @@ private:
         std::uint64_t rows = 0, bytes = 0, files = 0;
     };
 
+    // What each instrument's minutes have reached in the files.
+    struct MinuteMark
+    {
+        std::string trading_day;
+        std::int64_t start_ms = 0;
+        std::optional<MinuteBar> forming;
+    };
+
+    void take(const InstrumentId& id, const IntradaySeries& series);
+    void take_minutes(const IntradayBars& minutes, bool final);
     void flush(std::int64_t now_ms);
     // Waits for the oldest write and takes its result.
     void collect();
@@ -78,6 +100,9 @@ private:
     const std::filesystem::path root_;
     const std::string instance_;
     std::vector<Row> rows_;
+    std::map<std::string, std::vector<Minute>> minutes_;
+    std::map<InstrumentId, MinuteMark> written_;
+    std::uint64_t minutes_revision_ = 0;
     // Segments by trading day; a flush rewrites the days that changed.
     std::map<std::string, std::vector<Segment>> segments_;
     std::set<std::string> changed_;
