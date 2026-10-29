@@ -1,9 +1,14 @@
 #!/bin/bash
 # Installs, upgrades and configures the recorder on a recording host.
 #
-#   tar xzf asterion-recorder-linux-x86_64.tar.gz
-#   sudo asterion-recorder/bin/setup.sh        install, or upgrade an installation
+#   sudo bash asterion-recorder-setup.sh       install, or upgrade an installation
 #   sudo /opt/asterion-recorder/bin/setup.sh   change the settings
+#
+# The release, asterion-recorder-setup.sh, is this script with the
+# installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
+# CMake target asterion_recorder_setup); it unpacks that into a temporary
+# directory. The installed copy, bin/setup.sh, carries nothing and only
+# changes the settings.
 #
 # The installation is /opt/asterion-recorder: bin/ lib/ config/ logs/ data/.
 # A first install asks for the settings; an upgrade replaces only bin/ and
@@ -27,6 +32,8 @@ RESTART=asterion-recorder-restart
 # data/ afterwards.
 ACCOUNT=
 PROGRAMS=(bin/asterion_recorder bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
+# This script: the release with its archive, or the installed bin/setup.sh.
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
 fail() {
     echo "setup: $*" >&2
@@ -213,8 +220,18 @@ place() {
 
 main() {
     [[ $EUID -eq 0 ]] || fail "请用 sudo 运行"
-    local source
-    source=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+    local source line
+    line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
+    if [[ -n $line ]]; then
+        unpacked=$(mktemp -d)
+        trap 'rm -rf "$unpacked"' EXIT
+        tail -n +"$line" "$SELF" | tar xz --no-same-owner -C "$unpacked"
+        source=$unpacked/asterion-recorder
+    elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
+        source=$ROOT
+    else
+        fail "这份脚本不带程序：安装或升级请运行发布的 asterion-recorder-setup.sh"
+    fi
     if [[ -d $ROOT/data ]]; then
         ACCOUNT=$(stat -c %U "$ROOT/data")
     else
@@ -240,6 +257,9 @@ main() {
     restart
 }
 
+# Bash must stop here, run or sourced: the release's archive follows.
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     main "$@"
+    exit
 fi
+return

@@ -5,12 +5,14 @@ record what they were asked.
 
     setup_test.py <apps/services/recorder/scripts/setup.sh> <config/recorder.json>
 """
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 setup, default = Path(sys.argv[1]), Path(sys.argv[2])
@@ -31,9 +33,11 @@ esac
 '''
 
 
-def archive(folder, version):
-    """An extracted bundle whose recorder only answers --version."""
-    top = Path(folder) / f'archive-{version}' / 'asterion-recorder'
+def release(folder, version):
+    """A release script like asterion-recorder-setup.sh: setup.sh, the line
+    __ARCHIVE__, then the installation as a tar.gz. Its recorder only answers
+    --version."""
+    top = Path(folder) / f'stage-{version}' / 'asterion-recorder'
     for part in ('bin', 'lib', 'config'):
         (top / part).mkdir(parents=True)
     (top / 'bin/asterion_recorder').write_text(f'#!/bin/sh\necho "Asterion Recorder {version}"\n')
@@ -42,7 +46,12 @@ def archive(folder, version):
     for library in ('ctp-md.so', 'ctp-trader.so'):
         (top / 'lib' / library).write_text(version)
     shutil.copy2(default, top / 'config/recorder.json')
-    return top
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode='w:gz') as archive:
+        archive.add(top, 'asterion-recorder')
+    script = Path(folder) / f'asterion-recorder-setup-{version}.sh'
+    script.write_bytes(setup.read_bytes() + b'__ARCHIVE__\n' + payload.getvalue())
+    return script
 
 
 class Host:
@@ -65,11 +74,13 @@ class Host:
         """Runs `script`'s main with the host's paths in place of the real ones."""
         for record in (self.calls, self.secrets):
             record.unlink(missing_ok=True)
-        command = ('source "$1"; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main')
+        # Bash does not source a file with an archive in it: source the plain
+        # script and point it at `script`, as running `script` would.
+        command = ('source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main')
         env = dict(self.env, ACTIVE='0' if active else '3', NOW=now)
         result = subprocess.run(
             ['unshare', '-r', 'bash', '-c', command, 'setup', str(script), str(self.root), str(self.units),
-             str(self.credentials)], input='\n'.join(answers) + '\n', capture_output=True, text=True,
+             str(self.credentials), str(setup)], input='\n'.join(answers) + '\n', capture_output=True, text=True,
             env=env, timeout=60)
         assert result.returncode == 0, result.stdout + result.stderr
         calls = self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -85,7 +96,7 @@ with tempfile.TemporaryDirectory() as folder:
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
-    calls, result = host.run(archive(folder, '1')/'bin/setup.sh',
+    calls, result = host.run(release(folder, '1'),
                              ['', 'abc', '7451', '', '', '', '273005', '', 'fixture-password', 'fixture-auth'])
     assert '格式不对' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
@@ -111,7 +122,7 @@ with tempfile.TemporaryDirectory() as folder:
     # Upgrade: new programs, settings untouched when not asked to change them.
     (host.root / 'config/recorder.json').write_text(json.dumps({**host.settings(), 'port': 7999}))
     before = (host.root / 'config/recorder.json').read_text()
-    second = archive(folder, '2') / 'bin/setup.sh'
+    second = release(folder, '2')
     calls, result = host.run(second, ['n'])
     assert (host.root / 'bin/asterion_recorder').read_text().endswith('2"\n')
     assert (host.root / 'lib/ctp-md.so').read_text() == '2'
@@ -140,4 +151,9 @@ with tempfile.TemporaryDirectory() as folder:
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-recorder.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-recorder.service', calls
-print('installed, upgraded, deferred and configured')
+
+    # The plain script elsewhere carries no programs.
+    result = subprocess.run(['unshare', '-r', 'bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',
+                             str(setup), str(host.root)], capture_output=True, text=True, env=host.env, timeout=60)
+    assert result.returncode != 0 and 'asterion-recorder-setup.sh' in result.stderr, result.stderr
+print('installed, upgraded, deferred and configured from a self-extracting script')

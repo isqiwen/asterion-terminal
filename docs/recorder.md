@@ -28,17 +28,18 @@
 
 ## 录制主机
 
-录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序，位置是 `/opt/asterion-recorder/`。程序包
-`asterion-recorder-linux-x86_64.tar.gz` 与远程服务包在同一个 Ubuntu 24.04 容器中构建（`scripts/services/build_linux_services.sh`，
-输出到 `build/linux-bundles/`）；CI 的 `remote-linux` 作业把它作为单独的产物 `recorder-linux-x86_64` 上传，与 Terminal 部署的
-服务包分开。包里就是安装目录的结构（`asterion-recorder/bin`、`lib`、`config`），安装、升级和配置都由其中的 `bin/setup.sh`
-完成（仓库中在 `apps/services/recorder/scripts/`）：
+录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序，位置是 `/opt/asterion-recorder/`。发布物只有一个文件
+`asterion-recorder-setup.sh`：自解压脚本，即 `apps/services/recorder/scripts/setup.sh` 后接一行 `__ARCHIVE__` 和安装目录
+（`bin/`、`lib/`、`config/`）的 tar.gz，由 CMake 目标 `asterion_recorder_setup` 生成。它与远程服务包在同一个 Ubuntu 24.04
+环境中构建：CI 的 `remote-linux` 作业把它作为单独的产物 `recorder-linux-x86_64` 上传，与 Terminal 部署的服务包分开；本地用
+`scripts/services/build_linux_services.sh`，输出到 `build/linux-bundles/`。
 
 ```sh
-tar xzf asterion-recorder-linux-x86_64.tar.gz
-sudo asterion-recorder/bin/setup.sh          # 第一次：安装并配置；以后：升级
+sudo bash asterion-recorder-setup.sh         # 第一次：安装并配置；以后：升级
 sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 ```
+
+运行时脚本把自带的安装目录解到临时目录，装完即删除；装好的 `bin/setup.sh` 不带程序，只用来修改配置。
 
 - 安装：建立目录，放入默认配置，写入并启用 `asterion-recorder.service`，然后询问配置并启动。录制程序以执行 `sudo` 的账户
   运行（不能直接以 root 安装），只能写 `logs/` 与 `data/`，`Restart=always` 且永不放弃重启，

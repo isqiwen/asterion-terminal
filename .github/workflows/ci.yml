@@ -114,8 +114,9 @@ jobs:
           name: remote-linux-${{ matrix.arch }}
           if-no-files-found: error
           path: build/Release/deployment/*.zip
-      # The recording host's own archive, apart from the services Terminal deploys.
-      - run: python apps/services/recorder/scripts/recorder_bundle.py build/Release
+      # The recording host's own release, one self-extracting script, apart
+      # from the services Terminal deploys.
+      - run: cmake --build build/Release --target asterion_recorder_setup
       - name: Verify the recorder
         run: |
           ./build/Release/asterion_recorder --version
@@ -124,7 +125,7 @@ jobs:
         with:
           name: recorder-linux-${{ matrix.arch }}
           if-no-files-found: error
-          path: build/Release/recorder/*.tar.gz
+          path: build/Release/asterion-recorder-setup.sh
 
   terminal:
     needs: [style, core, core-sanitizers, remote-linux]
