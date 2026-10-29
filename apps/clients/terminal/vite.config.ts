@@ -69,7 +69,7 @@ function localCore(): Plugin {
         return core;
       };
       let core = startCore();
-      const originalNode = process.env.ASTERION_NODE_DIRECTORY;
+      const originalNode = process.env.ASTERION_ROOT;
       // Stops an isolated Agent by its recorded PID; its services follow it.
       const stopAgent = async (directory: string) => {
         const pidFile = resolve(directory, "agent.pid");
@@ -110,7 +110,7 @@ function localCore(): Plugin {
           core.child.kill();
           throw core.failed;
         }
-        if (process.env.ASTERION_NODE_DIRECTORY) {
+        if (process.env.ASTERION_ROOT) {
           core.child.kill();
           return;
         }
@@ -140,7 +140,7 @@ function localCore(): Plugin {
       const reset = async () => {
         core.child.kill();
         await exited(core.child);
-        await stopAgent(process.env.ASTERION_NODE_DIRECTORY!);
+        await stopAgent(process.env.ASTERION_ROOT!);
         // A node directory holds a copy of every service program: the one
         // before goes, or a run of forty spec files fills the temporary
         // filesystem. Services that are still stopping may write once more.
@@ -152,9 +152,9 @@ function localCore(): Plugin {
             retryDelay: 100,
           });
         // Inside the wrapper's temporary root, which it cleans up at exit.
-        process.env.ASTERION_NODE_DIRECTORY = mkdtempSync(resolve(originalNode!, "reset-"));
+        process.env.ASTERION_ROOT = mkdtempSync(resolve(originalNode!, "reset-"));
         core = startCore();
-        return process.env.ASTERION_NODE_DIRECTORY;
+        return process.env.ASTERION_ROOT;
       };
       const allowed = (
         req: { method?: string; headers: Record<string, unknown> },
@@ -181,7 +181,7 @@ function localCore(): Plugin {
           reset().then(
             directory => {
               res.setHeader("Content-Type", "application/json");
-              res.end(JSON.stringify({ node_directory: directory }));
+              res.end(JSON.stringify({ root: directory }));
             },
             error => {
               res.statusCode = 500;

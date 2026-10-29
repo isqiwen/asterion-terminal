@@ -1,7 +1,7 @@
 #include "tables.hpp"
 #include "wire.hpp"
 #include <asterion/domain/history_tables.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <algorithm>
 #include <cctype>
 #include <ranges>
@@ -375,11 +375,11 @@ Tables::catalogue(const std::string& venue, std::stop_token stop)
         std::string examples;
         for (std::size_t i = 0; i < outside.size() && i < 8; ++i)
             examples += (i ? " " : "") + outside[i];
-        log_process_event(
-            "tushare",
-            LogLevel::info,
-            "contracts.outside_identity",
-            {{"venue", venue}, {"count", outside.size()}, {"examples", examples}});
+        log::info(
+            "tushare contracts outside the identity rules: venue={} count={} examples={}",
+            venue,
+            outside.size(),
+            examples);
     }
     return catalogues_.emplace(venue, std::move(listings)).first->second;
 }
@@ -600,11 +600,11 @@ std::vector<TableRow> Tables::settlement(
         }
     }
     if (unlisted && reported_.insert("settlement " + venue).second)
-        log_process_event(
-            "tushare",
-            LogLevel::info,
-            "settlement.unlisted_contracts",
-            {{"venue", venue}, {"day", period}, {"count", unlisted}});
+        log::info(
+            "tushare settlement rows of unlisted contracts: venue={} day={} count={}",
+            venue,
+            period,
+            unlisted);
     return rows;
 }
 
@@ -795,11 +795,7 @@ std::vector<TableRow> Tables::rankings(
         std::string products;
         for (const auto& item : outside)
             products += (products.empty() ? "" : " ") + item;
-        log_process_event(
-            "tushare",
-            LogLevel::info,
-            "rankings.outside_products",
-            {{"venue", venue}, {"products", products}});
+        log::info("tushare rankings outside known products: venue={} products={}", venue, products);
     }
     return rows;
 }

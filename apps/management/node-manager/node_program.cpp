@@ -89,14 +89,16 @@ void replace_node_program(
         plain(path);
     if (!fs::is_regular_file(source) || !fs::is_regular_file(installed))
         throw std::runtime_error("Agent programs must be regular files");
-    FileLock stopped(root, "agent.lock");
+    // The Agent keeps its lock and this transaction in <installation>/data.
+    const auto data = root / "data";
+    FileLock stopped(data, "agent.lock");
     const auto platform = artifact_platform(source), host = current_platform();
     if (platform.os != host.os || platform.arch != host.arch)
         throw std::invalid_argument("Agent update platform mismatch");
     const auto target = sha256_file(source);
     const auto observed = sha256_file(installed);
-    const auto journal = root / "agent-upgrade.json";
-    const auto pending = root / "agent-upgrade.pending";
+    const auto journal = data / "agent-upgrade.json";
+    const auto pending = data / "agent-upgrade.pending";
     const auto candidate = root / "bin" / "agent-upgrade.staged";
     for (const auto& path : {journal, pending, candidate})
         plain(path);
@@ -147,7 +149,7 @@ void replace_node_program(
     // Only transaction metadata is removed; all identity, service and ledger
     // data remain intact. Restart/health confirmation is the caller's next step.
     fs::remove(journal);
-    sync_directory(root);
+    sync_directory(data);
 }
 
 } // namespace asterion::terminal

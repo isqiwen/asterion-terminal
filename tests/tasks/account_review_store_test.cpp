@@ -412,8 +412,8 @@ TEST(AccountReviewProcess, DirectFixedEvidenceRunsWithoutDataAndReplaysAfterSour
         service = std::make_unique<ChildProcess>(
             "/usr/bin/env",
             std::vector<std::string>{
-                "ASTERION_NODE_DIRECTORY=" + (folder.path / "node").string(),
-                "ASTERION_NODE_DIRECTORY_ISOLATED=1",
+                "ASTERION_ROOT=" + (folder.path / "node").string(),
+                "ASTERION_ROOT_ISOLATED=1",
                 ASTERION_RESEARCH_PATH,
                 "--config",
                 config.string(),

@@ -1,6 +1,6 @@
 #include "data_host.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include <iostream>
 using namespace std::chrono_literals;
@@ -33,7 +33,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
-        asterion::initialize_process_logging("data-service", service);
+        asterion::log::init();
         if (!plugins.empty())
             asterion::configure_native_plugins(plugins);
         asterion::validate_id(service);
@@ -93,11 +93,7 @@ int main(int argc, char** argv)
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Data service failed: " << error.what() << '\n';
-        asterion::log_process_event(
-            "data-service",
-            asterion::LogLevel::error,
-            "service.failed",
-            {{"message", error.what()}});
+        asterion::log::error("data service failed: {}", error.what());
         return 1;
     }
 }

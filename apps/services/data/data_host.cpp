@@ -9,7 +9,7 @@
 #include "history_update.hpp"
 #include "table_series.hpp"
 #include "table_update.hpp"
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/trace.hpp>

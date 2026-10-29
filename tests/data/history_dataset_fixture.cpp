@@ -39,10 +39,10 @@ int main(int argc, char** argv)
     CLI11_PARSE(app, argc, argv);
     try {
         asterion::validate_id(data_instance);
-        const auto root = asterion::environment_path("ASTERION_NODE_DIRECTORY");
+        const auto root = asterion::environment_path("ASTERION_ROOT");
         if (asterion::environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1" || !root
             || std::filesystem::canonical(directory)
-                != std::filesystem::canonical(*root / "services" / data_instance / "ledger"))
+                != std::filesystem::canonical(*root / "data" / "data" / data_instance))
             throw std::invalid_argument("fixture requires isolated data warehouse");
         if (tables_only) {
             {

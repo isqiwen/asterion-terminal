@@ -158,7 +158,7 @@ std::future<Json> ManagerClient::inventory()
 std::future<void> ManagerClient::shutdown(bool recover)
 {
     return io_.submit<void>([state = impl_, recover](std::stop_token stop) -> PolledTask<void> {
-        if (!development_environment() || environment_variable("ASTERION_NODE_DIRECTORY"))
+        if (!development_environment() || environment_variable("ASTERION_ROOT"))
             throw Error(
                 ErrorCode::permission_denied,
                 "automatic shutdown requires the managed development environment");

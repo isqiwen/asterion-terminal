@@ -18,6 +18,7 @@
 #include <asterion/market.pb.h>
 #include <asterion/task.pb.h>
 #include <asterion/protocol/data_client.hpp>
+#include "support/agent_installation.hpp"
 #include <gtest/gtest.h>
 #include <csignal>
 #include <fstream>
@@ -43,10 +44,7 @@ protected:
     void SetUp() override
     {
         root = fs::temp_directory_path() / ("ast-probe-" + unique_process_id().substr(0, 8));
-        fs::create_directories(root / "agent");
-        install_node_configuration(
-            root / "agent",
-            fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
+        install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
         endpoint = (root / "agent.sock").string();
         launch();
     }
@@ -54,13 +52,8 @@ protected:
     void launch()
     {
         agent = std::make_unique<ChildProcess>(
-            ASTERION_AGENT_PATH,
-            std::vector<std::string>{
-                "--directory",
-                (root / "agent").string(),
-                "--endpoint",
-                endpoint
-            });
+            testing_support::install_agent(root),
+            std::vector<std::string>{"--endpoint", endpoint});
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             try {
@@ -206,7 +199,7 @@ protected:
 
 TEST_F(NodeSupervision, ResourceObservationFailureDoesNotChangeReadiness)
 {
-    const auto directory = root / "agent";
+    const auto directory = root / "agent" / "data";
     const auto detached = root / "detached";
     fs::rename(directory, detached);
 
@@ -475,8 +468,8 @@ TEST_F(NodeSupervision, FailedCommitFreezesMutationsAndPreservesConfirmedConfigu
                 .plugins = std::vector<PluginArtifact>{}})
         .get();
     const auto before = state();
-    const auto config = root / "agent/services/observed/service.json";
-    const auto pending = root / "agent/services/observed/service.pending";
+    const auto config = root / "agent/data/services/observed/service.json";
+    const auto pending = root / "agent/data/services/observed/service.pending";
     const auto digest = sha256_file(config);
     write_file_durably(pending, "test-owned unfinished publication");
     EXPECT_THROW(client->action("observed", "stop").get(), Error);
@@ -516,15 +509,15 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
         .get();
     client.reset();
     agent.reset();
-    const auto config = root / "agent/services/observed/service.json";
+    const auto config = root / "agent/data/services/observed/service.json";
     const auto digest = sha256_file(config);
     // A separate incomplete service must prevent publishing the otherwise valid inventory.
-    fs::create_directories(root / "agent/services/incomplete");
-    const auto pending = root / "agent/services/incomplete/service.pending";
+    fs::create_directories(root / "agent/data/services/incomplete");
+    const auto pending = root / "agent/data/services/incomplete/service.pending";
     write_file_durably(pending, "test-owned unfinished publication");
     agent = std::make_unique<ChildProcess>(
-        ASTERION_AGENT_PATH,
-        std::vector<std::string>{"--directory", (root / "agent").string(), "--endpoint", endpoint});
+        testing_support::install_agent(root),
+        std::vector<std::string>{"--endpoint", endpoint});
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     Json health;
     for (;;) {
@@ -549,7 +542,7 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
     EXPECT_EQ(
         health.at("failure").at("message"),
         "Agent initialization failed; inspect node logs: "
-            + (root / "agent/services/incomplete/service.json").string()
+            + (root / "agent/data/services/incomplete/service.json").string()
             + ": unfinished service configuration requires explicit recovery");
     EXPECT_TRUE(health.at("execution").at("io").at("observed").get<bool>());
     EXPECT_TRUE(health.at("execution").at("initialization").at("observed").get<bool>());
@@ -794,5 +787,5 @@ TEST_F(NodeSupervision, UnknownServiceActionDoesNotCreateAServiceOrChangeDesired
         }
     }
     EXPECT_TRUE(health().at("services").empty());
-    EXPECT_FALSE(fs::exists(root / "agent/services/not-deployed"));
+    EXPECT_FALSE(fs::exists(root / "agent/data/services/not-deployed"));
 }

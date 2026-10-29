@@ -19,7 +19,8 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     installed = root / "bin" / agent.name
     shutil.copy2(agent, installed)
     before, after = digest(agent), digest(revision)
-    data = root / "services" / "account" / "ledger"
+    # The Agent's installation: bin/ and its state in data/.
+    data = root / "data" / "services" / "account" / "ledger"
     data.mkdir(parents=True)
     (data / "retained").write_bytes(b"test-owned immutable ledger")
     endpoint = str(root / "agent.sock")
@@ -33,17 +34,17 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     # Agent owns the directory: publication must fail without any write.
     # Keep the service fixture outside its managed services directory until it stops.
     preserved = root / "preserved"
-    (root / "services").rename(preserved)
-    process = subprocess.Popen([str(installed), "--directory", str(root), "--endpoint", endpoint],
+    (root / "data" / "services").rename(preserved)
+    process = subprocess.Popen([str(installed), "--endpoint", endpoint],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         end = time.monotonic() + 10
-        while not (root / "agent.pid").exists():
+        while not (root / "data" / "agent.pid").exists():
             assert process.poll() is None
             assert time.monotonic() < end
             time.sleep(.05)
         assert replace().returncode != 0
-        assert digest(installed) == before and not (root / "agent-upgrade.json").exists()
+        assert digest(installed) == before and not (root / "data" / "agent-upgrade.json").exists()
     finally:
         process.terminate()
         process.wait(timeout=15)
@@ -52,8 +53,8 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     assert digest(installed) == before
 
     record = {"installed": str(installed), "before": before, "after": after}
-    journal = root / "agent-upgrade.json"
-    pending = root / "agent-upgrade.pending"
+    journal = root / "data" / "agent-upgrade.json"
+    pending = root / "data" / "agent-upgrade.pending"
     staged = root / "bin" / "agent-upgrade.staged"
     pending.write_text("{")
     assert replace().returncode != 0 and pending.read_text() == "{"

@@ -13,6 +13,8 @@ import signal
 import subprocess
 import sys
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install_agent  # noqa: E402
 
 
 def call(process, method, params=None):
@@ -40,12 +42,14 @@ def wait(process, predicate, seconds=30):
 
 
 # A ServicePrograms manifest naming only the interpreter: version 1, python (field 4).
-root = Path(os.environ["ASTERION_NODE_DIRECTORY"])
+root = Path(os.environ["ASTERION_ROOT"])
 python = os.environ["ASTERION_PYTHON"].encode()
-(root / "services").mkdir(parents=True, exist_ok=True)
-(root / "programs.pb").write_bytes(b"\x08\x01\x22" + bytes([len(python)]) + python)
-subprocess.run(["/usr/bin/env", "ASTERION_ENVIRONMENT=development", sys.argv[2], "--directory",
-                str(root), "--prepare-programs", str(root / "programs.pb")], check=True)
+agent = install_agent(root, sys.argv[2])
+state = root / "agent" / "data"
+(state / "services").mkdir(parents=True, exist_ok=True)
+(state / "programs.pb").write_bytes(b"\x08\x01\x22" + bytes([len(python)]) + python)
+subprocess.run(["/usr/bin/env", "ASTERION_ENVIRONMENT=development", str(agent),
+                "--prepare-programs", str(state / "programs.pb")], check=True)
 
 process = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
@@ -55,10 +59,11 @@ try:
     first = wait(process, ready)
     assert first["kind"] == "lab" and first["desired_running"], first
     assert first["endpoint"].endswith("lab.sock"), first
-    logs = root / "logs"
-    started = [json.loads(line) for path in logs.glob(f"lab-service-{first['pid']}_*.log")
+    # The lab logs in its own installation, <root>/lab/logs.
+    logs = root / "lab" / "logs"
+    started = [line for path in logs.glob(f"asterion_lab-{first['pid']}_*.log")
                for line in path.read_text().splitlines()]
-    assert any(record["event"] == "service.started" for record in started), started
+    assert any(" asterion_lab lab-service service.started " in line for line in started), started
 
     # A process that dies is started again under the same service.
     os.kill(first["pid"], signal.SIGKILL)

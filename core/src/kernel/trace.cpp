@@ -1,5 +1,5 @@
 #include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/child.hpp>
 
 namespace asterion {
@@ -30,7 +30,7 @@ std::string next_correlation_id()
     static IdSequence ids{unique_process_id()};
     auto id = ids.next();
     if (!trace_id.empty())
-        log_identity_event("requests", "rpc.started", {{"correlation_id", id}});
+        log::info("rpc started: trace_id={} correlation_id={}", trace_id, id);
     return id;
 }
 

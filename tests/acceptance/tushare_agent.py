@@ -60,7 +60,7 @@ try:
     call(process, "data.credentials.clear", {"provider": provider})
     snapshot = call(process, "runtime.snapshot")
     assert not any(task["id"] == params["id"] for task in snapshot["data"]["tasks"])
-    for file in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
+    for file in Path(os.environ["ASTERION_ROOT"]).rglob("*"):
         if file.is_file() and not file.is_symlink() and file.suffix in {".json", ".log"}:
             assert params["token"].encode() not in file.read_bytes(), file.name
     print("Unsupported range rejection, online token rejection and credential exclusion passed")

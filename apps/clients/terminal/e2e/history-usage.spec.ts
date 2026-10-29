@@ -94,11 +94,7 @@ test("unconnected node registrations do not replace Data reference authority or 
   const { mkdir, writeFile, readFile, rm } = await import("node:fs/promises");
   const { join } = await import("node:path");
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
-  const directory = join(
-    process.env.ASTERION_NODE_DIRECTORY!,
-    "enrollments",
-    "offline-inspection-fixture",
-  );
+  const directory = join(process.env.ASTERION_ROOT!, "enrollments", "offline-inspection-fixture");
   const seeded = await seedHistory(page.request, [100, 101, 102], "offline-ui", { product: "ni" });
   await mkdir(directory, { recursive: true });
   const marker = "synthetic registration must remain unread and unchanged";

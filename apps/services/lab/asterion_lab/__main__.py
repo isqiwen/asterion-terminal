@@ -88,7 +88,8 @@ def main():
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--node-id", required=True)
     arguments = parser.parse_args()
-    log = ProcessLog("lab-service", arguments.session)
+    # <root>/lab/data/<session>: the lab's installation is <root>/lab.
+    log = ProcessLog("asterion_lab", Path(arguments.directory).parents[1])
     try:
         directory = Path(arguments.directory)
         if arguments.owner_pid <= 1:

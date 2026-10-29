@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_
         shutil.copyfile(Path(__file__).with_name('ssh_fixture.py'),tools/name)
         (tools/name).chmod(0o700)
     (tools/'ssh-keygen').symlink_to('/usr/bin/ssh-keygen')
-    env=dict(os.environ,ASTERION_NODE_DIRECTORY=str(root/'state'),ASTERION_SSH_TOOL_DIRECTORY=str(tools),ASTERION_SSH_FIXTURE=str(remote))
+    env=dict(os.environ,ASTERION_ROOT=str(root/'state'),ASTERION_SSH_TOOL_DIRECTORY=str(tools),ASTERION_SSH_FIXTURE=str(remote))
     def launch():
         return subprocess.Popen([sys.argv[1]],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
     app=launch()
@@ -27,13 +27,13 @@ with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_
         return response
     try:
         assert 'error' in call('node.key.prepare',dict(id='../escape'))
-        enrolled=root/'state/enrollments/lost-key'; enrolled.mkdir(parents=True)
+        enrolled=root/'state/manager/data/enrollments/lost-key'; enrolled.mkdir(parents=True)
         (enrolled/'enrollment.json').write_text('{}')
         assert 'error' in call('node.key.prepare',dict(id='lost-key'))
         assert not (enrolled.parent/'.ssh-keys/lost-key').exists()
         prepared=call('node.key.prepare',dict(id='task'))['result']['ssh_key']
         assert prepared['id']=='task' and prepared['public_key'].startswith('ssh-ed25519 ')
-        key=root/'state/enrollments/.ssh-keys/task/identity'
+        key=root/'state/manager/data/enrollments/.ssh-keys/task/identity'
         assert key.stat().st_mode & 0o777 == 0o600
         assert key.parent.stat().st_mode & 0o777 == 0o700
         original=key.read_bytes()

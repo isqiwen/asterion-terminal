@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install  # noqa: E402
 from bundle_fixture import make_bundle
 
 rpc, manager, agent = map(lambda p: str(Path(p).resolve()), sys.argv[1:])
@@ -35,8 +37,8 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
                ASTERION_TEST_OWNER_PID=str(os.getpid()))
     endpoint = str(root/'manager.sock')
     def launch():
-        child = subprocess.Popen([manager, '--directory', str(local/'manager'), '--endpoint', endpoint,
-            '--enrollment-directory', str(local/'enrollments'), '--isolated'], env=env,
+        child = subprocess.Popen([str(install(local, 'manager', manager)), '--endpoint', endpoint,
+            '--enrollment-directory', str(local/'manager/data/enrollments'), '--isolated'], env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 15
         while not Path(endpoint).exists():
@@ -61,24 +63,24 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0)); market_port = listener.getsockname()[1]
         call(dict(node=dict(id='bootstrap-test', deploy=dict(service='market', kind='MARKET', port=market_port))))
-        service_config = remote/'deployed/state/services/market/service.json'
+        service_config = remote/'deployed/agent/data/services/market/service.json'
         maintain('PREPARE', True)
         call(dict(node=dict(id='bootstrap-test', action=dict(service='market', action='stop'))))
         before_service = json.loads(service_config.read_text())
         assert before_service['port'] == market_port and not before_service['desired']
         view = maintain('INSPECT')
         assert view['nodes'][0]['installed'] and view['nodes'][0]['ssh_configured']
-        profile = local/'enrollments/bootstrap-test/ssh.json'
+        profile = local/'manager/data/enrollments/bootstrap-test/ssh.json'
         assert 'PRIVATE KEY' not in profile.read_text() and 'private_key' not in profile.read_text()
-        ledger = remote/'deployed/state/retained-ledger'; ledger.write_text('business fixture')
-        config = remote/'deployed/state/config/research.json'; config.write_text('{"task_concurrency":5}')
+        ledger = remote/'deployed/market/data/market/retained-ledger'; ledger.write_text('business fixture')
+        config = remote/'deployed/agent/config/research.json'; config.write_text('{"task_concurrency":5}')
         (remote/'reject').touch()
         maintain('PREPARE', True)
-        assert not (local/'enrollments/.maintenance.json').exists()
+        assert not (local/'manager/data/enrollments/.maintenance.json').exists()
         (remote/'reject').unlink()
         (remote/'fail_maintenance').touch()
         maintain('PREPARE', True)
-        assert (remote/'deployed/state/maintenance.json').is_file()
+        assert (remote/'deployed/agent/data/maintenance.json').is_file()
         assert ledger.read_text() == 'business fixture'
         assert maintain('INSPECT')['pending']['nodes'][0]['phase'] == 'stopping'
         call(dict(node=dict(id='bootstrap-test', connect={})), True)
@@ -92,17 +94,17 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
         assert not json.loads(service_config.read_text())['desired']
         view = maintain('FINISH')
         assert view['pending'] is None
-        assert not (remote/'deployed/state/maintenance.json').exists()
+        assert not (remote/'deployed/agent/data/maintenance.json').exists()
         assert ledger.read_text() == 'business fixture'
         maintain('UNINSTALL', nodes=['bootstrap-test'])
         assert ledger.exists() and config.exists()
-        assert not (remote/'deployed/asterion_node_agent').exists()
+        assert not (remote/'deployed/agent/bin/asterion_node_agent').exists()
         assert not maintain('INSPECT')['nodes'][0]['installed']
         call(dict(ssh=dict(params, operation='ENROLL')))
         maintain('UNINSTALL', nodes=['bootstrap-test'], removeData=True)
         assert not ledger.exists() and not config.exists()
-        assert (remote/'deployed/state/logs').is_dir()
-        assert not (local/'enrollments/bootstrap-test/client.key').exists()
+        assert (remote/'deployed/agent/logs').is_dir()
+        assert not (local/'manager/data/enrollments/bootstrap-test/client.key').exists()
         print('remote installation, offline preflight, interrupted upgrade, Manager restart, explicit completion, uninstall retention/removal passed')
     finally:
         client.stdin.close(); client.wait(timeout=10)

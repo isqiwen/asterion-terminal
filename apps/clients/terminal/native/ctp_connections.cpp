@@ -23,7 +23,7 @@ std::filesystem::path ctp_account_directory(const std::string& account, bool cre
                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
             != std::string::npos)
         throw std::invalid_argument("invalid CTP connection identity");
-    const auto root = local_node_directory() / "accounts";
+    const auto root = program_directory("terminal") / "data" / "accounts";
     const auto group = root / "ctp";
     const auto directory = group / account;
     if (!create)

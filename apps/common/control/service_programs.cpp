@@ -1,8 +1,9 @@
 #include "service_programs.hpp"
 #include "remote_bundle.hpp"
 #include "plugin_catalog.hpp"
+#include "application_environment.hpp"
 #include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/foundation/error.hpp>
 #include <algorithm>
 #include <fstream>
@@ -58,7 +59,7 @@ ServicePrograms resolve_programs(node::proto::ServiceKind kind, Resolve resolve)
 ServicePrograms local_service_programs(node::proto::ServiceKind kind)
 {
     const auto platform = current_platform();
-    const auto root = current_executable().parent_path();
+    const auto root = application_directory();
     return resolve_programs(kind, [&](const char* variable, const char* name, bool library) {
         if (const auto configured = environment_path(variable))
             return *configured;
@@ -74,8 +75,10 @@ ServicePrograms bundled_service_programs(const std::string& arch, node::proto::S
     });
 }
 
-void prepare_local_programs(const fs::path& root, const fs::path& agent)
+void prepare_local_programs(const fs::path& agent)
 {
+    // <root>/agent/bin/asterion_node_agent: the Agent prepares its own installation.
+    const auto root = agent.parent_path().parent_path();
     node::proto::ServicePrograms manifest;
     manifest.set_version(1);
     for (const auto kind :
@@ -95,7 +98,7 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
             throw std::runtime_error("bundled Python is missing: " + utf8(*python));
         manifest.set_python(utf8(*python));
     } else if (const auto python =
-                   current_executable().parent_path().parent_path() / "python" / "bin" / "python3";
+                   application_directory().parent_path() / "python" / "bin" / "python3";
         fs::is_regular_file(python))
         manifest.set_python(utf8(python));
     for (const auto& plugin : local_plugin_catalog().entries) {
@@ -105,22 +108,18 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
             throw std::runtime_error("bundled bundled plugin is unavailable");
         manifest.add_bundled_plugins(utf8(plugin.artifact.path));
     }
-    const auto file = root / "service-programs.pb";
+    const auto file = root / "data" / "service-programs.pb";
+    create_directories_durably(file.parent_path());
     replace_file_durably(file, manifest.SerializeAsString());
-    create_directories_durably(root / "logs");
     fs::path log;
     bool completed;
     int exit_code = -1;
     {
-        ChildProcess preparation(
-            agent,
-            {"--directory", utf8(root), "--prepare-programs", utf8(file)});
-        log = process_log_file(root / "logs", "agent", preparation.id());
+        ChildProcess preparation(agent, {"--prepare-programs", utf8(file)});
         completed = preparation.wait(60s);
-        if (completed) {
+        if (completed)
             exit_code = preparation.exit_code();
-            log = process_log_file(root / "logs", "agent", preparation.id());
-        }
+        log = log::file(root, agent.filename().string(), preparation.id());
     }
     // Read diagnostics only after the child has exited or been reaped on timeout.
     if (!completed || exit_code != 0) {
@@ -136,11 +135,10 @@ void prepare_local_programs(const fs::path& root, const fs::path& agent)
                 tail.resize(input.gcount());
                 std::istringstream lines(tail);
                 std::string line;
-                while (std::getline(lines, line)) {
-                    const auto record = Json::parse(line, nullptr, false);
-                    if (record.is_object() && record.value("event", "") == "agent.failed")
-                        reason = record.at("fields").at("message").get<std::string>();
-                }
+                constexpr std::string_view failed = "agent failed: ";
+                while (std::getline(lines, line))
+                    if (const auto at = line.find(failed); at != std::string::npos)
+                        reason = line.substr(at + failed.size());
             }
         }
         throw Error(

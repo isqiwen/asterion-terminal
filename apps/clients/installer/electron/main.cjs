@@ -200,11 +200,7 @@ else {
         return;
       }
       const directory =
-        location === "logs"
-          ? path.join(view.node, "logs")
-          : location === "data"
-            ? view.node
-            : undefined;
+        location === "logs" ? view.root : location === "data" ? view.root : undefined;
       if (!directory) throw new Error("Unknown installer location");
       const error = await shell.openPath(directory);
       if (error) throw new Error(error);

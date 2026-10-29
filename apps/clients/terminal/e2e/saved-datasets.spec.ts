@@ -77,10 +77,7 @@ test(
     });
     // Seeded versions belong to Data, not to a synthetic completed Task.
     // Locate the exact owned fixture by the published manifest digest.
-    const history = resolve(
-      process.env.ASTERION_NODE_DIRECTORY!,
-      "services/historical-data/ledger/history",
-    );
+    const history = resolve(process.env.ASTERION_ROOT!, "data/data/historical-data/history");
     const candidates = await Promise.all(
       (await readdir(history, { recursive: true }))
         .filter(name => name.endsWith("/minutes.json"))

@@ -172,7 +172,9 @@ plugin_inventory(const std::filesystem::path& bundled, const std::filesystem::pa
 
 PluginCatalog local_plugin_catalog()
 {
-    return plugin_inventory(native_plugin_directory(), local_node_directory() / "plugins");
+    return plugin_inventory(
+        native_plugin_directory(),
+        program_directory("terminal") / "data" / "plugins");
 }
 
 void install_plugin(

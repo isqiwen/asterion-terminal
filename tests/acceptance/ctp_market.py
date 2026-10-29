@@ -26,7 +26,7 @@ import time
 
 def stop_test_agent(directory):
     """Stop only the Agent created in this run's private temporary directory."""
-    pidfile = Path(directory) / "agent.pid"
+    pidfile = Path(directory) / "agent" / "data" / "agent.pid"
     if not pidfile.exists():
         return
     pid = int(pidfile.read_text())
@@ -79,7 +79,7 @@ password = (sys.stdin.readline().rstrip("\n") if args.password_stdin
             else getpass.getpass("Market password (not echoed, not stored): "))
 
 with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=True) as folder:
-    env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_TEST_NODE_ISOLATED="1",
+    env = dict(os.environ, ASTERION_ROOT=folder, ASTERION_TEST_NODE_ISOLATED="1",
                ASTERION_CTP_LIBRARY=str(sdk))
     core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, env=env)

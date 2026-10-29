@@ -11,6 +11,7 @@
 #include <future>
 #include <latch>
 #include <gtest/gtest.h>
+#include <regex>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/base_sink.h>
 using namespace asterion;
@@ -24,20 +25,20 @@ class IsolatedTerminalEnvironment final : public testing::Environment
 {
     std::filesystem::path root_ =
         std::filesystem::temp_directory_path() / ("ast-terminal-query-" + unique_process_id());
-    std::optional<std::string> previous_ = environment_variable("ASTERION_NODE_DIRECTORY");
+    std::optional<std::string> previous_ = environment_variable("ASTERION_ROOT");
 
     void SetUp() override
     {
         std::filesystem::create_directory(root_);
-        ASSERT_EQ(::setenv("ASTERION_NODE_DIRECTORY", root_.c_str(), 1), 0);
+        ASSERT_EQ(::setenv("ASTERION_ROOT", root_.c_str(), 1), 0);
     }
 
     void TearDown() override
     {
         if (previous_)
-            ::setenv("ASTERION_NODE_DIRECTORY", previous_->c_str(), 1);
+            ::setenv("ASTERION_ROOT", previous_->c_str(), 1);
         else
-            ::unsetenv("ASTERION_NODE_DIRECTORY");
+            ::unsetenv("ASTERION_ROOT");
         std::error_code ignored;
         std::filesystem::remove_all(root_, ignored);
     }
@@ -117,16 +118,6 @@ struct ApplicationTestAccess
                 },
                 lane);
         });
-    }
-
-    static void logger(Application& app, std::shared_ptr<Logger> sink)
-    {
-        app.impl_->service_io
-            .submit<void>([&](std::stop_token) -> PolledTask<void> {
-                app.impl_->logger = std::move(sink);
-                co_return;
-            })
-            .get();
     }
 
     static void
@@ -552,34 +543,18 @@ Json query(const std::string& id)
 
 } // namespace
 
-namespace {
+namespace {} // namespace
 
-class CommandLogSink final : public spdlog::sinks::base_sink<std::mutex>
+TEST(TerminalCommands, TracesContainOnlyMetadata)
 {
-public:
-    std::vector<Json> records;
-    bool fail = false;
-
-private:
-    void sink_it_(const spdlog::details::log_msg& message) override
-    {
-        if (fail)
-            throw std::runtime_error("fixture log sink failed");
-        records.push_back(
-            Json::parse(std::string_view(message.payload.data(), message.payload.size())));
-    }
-
-    void flush_() override {}
-};
-
-} // namespace
-
-TEST(TerminalCommands, TracesContainOnlyMetadataAndLoggingFailurePreservesResults)
-{
-    auto sink = std::make_shared<CommandLogSink>();
-    auto logger = std::make_shared<Logger>(std::make_shared<spdlog::logger>("commands", sink));
     terminal::Application app;
-    terminal::ApplicationTestAccess::logger(app, logger);
+    // The Terminal's log, written to a file of its own here.
+    const auto installation =
+        std::filesystem::temp_directory_path() / ("ast-terminal-log-" + unique_process_id());
+    std::filesystem::create_directories(installation / "config");
+    std::ofstream(installation / "config" / "logging.json")
+        << R"({"console":{"enabled":false,"level":"info"},)" R"("file":{"enabled":true,"level":"info","pattern":"%v","path":"../logs/commands.log","retention_days":1}})";
+    log::init(installation, "terminal");
     const std::string outer = "fixture.outer";
     TraceScope trace(outer);
     EXPECT_TRUE(app.dispatch(request("data.dataset.clear")).at("datasets").empty());
@@ -588,28 +563,31 @@ TEST(TerminalCommands, TracesContainOnlyMetadataAndLoggingFailurePreservesResult
         app.dispatch(request("data.dataset.clear", {{"token", "fixture-secret"}})),
         std::invalid_argument);
     EXPECT_EQ(current_trace_id(), outer);
-    ASSERT_EQ(sink->records.size(), 3U);
-    std::set<std::string> ids;
-    for (const auto& record : sink->records) {
-        const auto& fields = record.at("fields");
-        EXPECT_EQ(fields.size(), 3U);
-        EXPECT_GE(fields.at("duration_ns").get<std::int64_t>(), 0);
-        const auto id = fields.at("trace_id").get<std::string>();
-        EXPECT_NE(id, outer);
-        EXPECT_NO_THROW(validate_id(id));
-        EXPECT_TRUE(ids.insert(id).second);
-        EXPECT_EQ(record.dump().find("fixture-secret"), std::string::npos);
+    std::vector<std::string> lines;
+    for (const auto& entry : std::filesystem::directory_iterator(installation / "logs")) {
+        std::ifstream input(entry.path());
+        for (std::string line; std::getline(input, line);)
+            lines.push_back(line);
     }
-    EXPECT_TRUE(sink->records[0].at("fields").at("success"));
-    EXPECT_FALSE(sink->records[1].at("fields").at("success"));
-    EXPECT_EQ(sink->records[1].at("event"), "terminal.unknown");
-    sink->fail = true;
+    ASSERT_EQ(lines.size(), 3U);
+    std::set<std::string> ids;
+    const std::regex shape(R"((\S+) (completed|failed): trace_id=(\S+) duration_ns=\d+)");
+    for (const auto& line : lines) {
+        std::smatch match;
+        ASSERT_TRUE(std::regex_match(line, match, shape)) << line;
+        EXPECT_NE(match[3].str(), outer);
+        EXPECT_NO_THROW(validate_id(match[3].str()));
+        EXPECT_TRUE(ids.insert(match[3].str()).second);
+        EXPECT_EQ(line.find("fixture-secret"), std::string::npos);
+    }
+    EXPECT_NE(lines[0].find(" completed: "), std::string::npos);
+    EXPECT_TRUE(lines[1].starts_with("terminal.unknown failed: ")) << lines[1];
     EXPECT_TRUE(app.dispatch(request("data.dataset.clear")).at("datasets").empty());
-    EXPECT_GT(logger->failures(), 0U);
     const auto diagnostics = app.dispatch(request("runtime.snapshot")).at("diagnostics");
     EXPECT_EQ(diagnostics.at("succeeded"), 2);
     EXPECT_EQ(diagnostics.at("failed"), 2);
     EXPECT_EQ(current_trace_id(), outer);
+    std::filesystem::remove_all(installation);
 }
 
 TEST(TerminalServiceClients, DataQueriesAndTaskControlRemainIndependentWhenAPeerIsOffline)
@@ -1139,18 +1117,18 @@ TEST(TerminalHistoryUsage, SlowQueryDoesNotBlockAndRejectsStaleOrWrongIdentity)
 
     struct Environment
     {
-        std::optional<std::string> previous = environment_variable("ASTERION_NODE_DIRECTORY");
+        std::optional<std::string> previous = environment_variable("ASTERION_ROOT");
 
         ~Environment()
         {
             if (previous)
-                setenv("ASTERION_NODE_DIRECTORY", previous->c_str(), 1);
+                setenv("ASTERION_ROOT", previous->c_str(), 1);
             else
-                unsetenv("ASTERION_NODE_DIRECTORY");
+                unsetenv("ASTERION_ROOT");
         }
     } restore;
 
-    setenv("ASTERION_NODE_DIRECTORY", source.root.c_str(), 1);
+    setenv("ASTERION_ROOT", source.root.c_str(), 1);
     terminal::Application app;
     terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
     const auto query = request("data.history.usage", {{"id", std::string(64, 'a')}});
@@ -1197,18 +1175,18 @@ TEST(TerminalNodeCommands, DISABLED_SlowServiceActionDoesNotBlockNodeObservation
 
     struct Environment
     {
-        std::optional<std::string> previous = environment_variable("ASTERION_NODE_DIRECTORY");
+        std::optional<std::string> previous = environment_variable("ASTERION_ROOT");
 
         ~Environment()
         {
             if (previous)
-                setenv("ASTERION_NODE_DIRECTORY", previous->c_str(), 1);
+                setenv("ASTERION_ROOT", previous->c_str(), 1);
             else
-                unsetenv("ASTERION_NODE_DIRECTORY");
+                unsetenv("ASTERION_ROOT");
         }
     } restore;
 
-    setenv("ASTERION_NODE_DIRECTORY", source.root.c_str(), 1);
+    setenv("ASTERION_ROOT", source.root.c_str(), 1);
     std::promise<void> entered, release;
     const auto released = release.get_future().share();
     std::atomic<unsigned> actions{0};

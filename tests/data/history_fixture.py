@@ -16,8 +16,8 @@ def seed(call, prices, identity="fixture"):
     call("node.data.local.open")
     snapshot = call("node.action", {"id":"local", "service":"historical-data", "action":"stop"})
     service = next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["id"] == "historical-data")
-    root = Path(os.environ["ASTERION_NODE_DIRECTORY"]).resolve()
-    assert Path(service["directory"]).resolve() == root / "services" / "historical-data" / "ledger"
+    root = Path(os.environ["ASTERION_ROOT"]).resolve()
+    assert Path(service["directory"]).resolve() == root / "data" / "data" / "historical-data"
     executable = Path(sys.argv[1]).resolve().parent / "asterion_test_history"
     result = subprocess.run([str(executable), "--directory", service["directory"], "--id", identity,
                              "--price", *map(str, prices)], check=True, capture_output=True, text=True)

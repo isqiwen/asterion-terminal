@@ -5,8 +5,10 @@
 
 namespace asterion::terminal {
 
-// Caller holds bootstrap.lock. Publish the first verified executable durably,
-// or validate an existing identical installation without replacing it.
+// `root` is the program's installation: the executable is root/bin/<program>
+// and the Agent's lock and update record are in root/data. Caller holds
+// bootstrap.lock. Publish the first verified executable durably, or validate
+// an existing identical installation without replacing it.
 void install_node_program(
     const std::filesystem::path& source,
     const std::filesystem::path& installed,

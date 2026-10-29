@@ -9,7 +9,8 @@ namespace asterion::installation {
 // This never starts services or replays a management command.
 void wait_for_local_readiness(
     const std::string& manager_endpoint,
-    const std::filesystem::path& logs,
+    // Every program's installation; their logs are named in a failure.
+    const std::filesystem::path& root,
     std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
 } // namespace asterion::installation

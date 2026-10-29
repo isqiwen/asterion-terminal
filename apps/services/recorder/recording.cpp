@@ -3,7 +3,7 @@
 #include "compaction.hpp"
 #include "ctp_feed.hpp"
 #include <asterion/domain/intraday_bars.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <thread>
 
 namespace asterion::recording {
@@ -92,11 +92,7 @@ struct State
         if (phase == MarketPhase::connected && seen != MarketPhase::connected)
             catalog_wanted = true;
         if (phase == MarketPhase::error && now >= next_login) {
-            log_process_event(
-                "recorder",
-                LogLevel::warning,
-                "login.retried",
-                {{"error_code", error_code}});
+            log::warn("market login refused, retrying: error_code={}", error_code);
             login();
         }
         seen = phase;
@@ -147,23 +143,17 @@ struct State
             merge_finished.get();
             if (merge->done) {
                 merge_error.clear();
-                log_process_event(
-                    "recorder",
-                    LogLevel::info,
-                    "merge.done",
-                    {{"trading_day", merging},
-                        {"ticks", merge->done->ticks},
-                        {"minutes", merge->done->minutes},
-                        {"files_before", merge->done->files_before},
-                        {"files_after", merge->done->files_after}});
+                log::info(
+                    "merged trading day {}: ticks={} minutes={} files {} -> {}",
+                    merging,
+                    merge->done->ticks,
+                    merge->done->minutes,
+                    merge->done->files_before,
+                    merge->done->files_after);
             } else {
                 merge_error = merge->error;
                 next_merge = now + 1h;
-                log_process_event(
-                    "recorder",
-                    LogLevel::error,
-                    "merge.failed",
-                    {{"trading_day", merging}, {"message", merge->error}});
+                log::error("merging trading day {} failed: {}", merging, merge->error);
             }
             merging.clear();
             return;
@@ -196,11 +186,10 @@ struct State
             return;
         applied_catalog = revision;
         if (state.phase() == "error") {
-            log_process_event(
-                "recorder",
-                LogLevel::warning,
-                "catalog.failed",
-                {{"error_code", state.error_code()}, {"subscribed", contracts.size()}});
+            log::warn(
+                "contract catalog failed: error_code={} subscribed={}",
+                state.error_code(),
+                contracts.size());
             next_catalog = now + 5min;
             return;
         }
@@ -216,13 +205,11 @@ struct State
         feed.set_multipliers(std::move(multipliers));
         feed.subscribe(ids);
         contracts = std::move(ids);
-        log_process_event(
-            "recorder",
-            LogLevel::info,
-            "catalog.applied",
-            {{"phase", state.phase()},
-                {"trading_day", state.trading_day()},
-                {"contracts", contracts.size()}});
+        log::info(
+            "contract catalog applied: phase={} trading_day={} contracts={}",
+            state.phase(),
+            state.trading_day(),
+            contracts.size());
     }
 
     Recording::Status status() const

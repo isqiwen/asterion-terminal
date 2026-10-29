@@ -21,6 +21,12 @@ struct ServiceConfiguration
     bool operator==(const ServiceConfiguration&) const = default;
 };
 
+// Each kind of service is one program, installed in <root>/<program>:
+// bin/<executable>, lib/ (CTP libraries, plugins/<service>/), config/,
+// logs/ and data/<service>/.
+std::string program_name(node::proto::ServiceKind kind);
+std::string executable_name(node::proto::ServiceKind kind);
+
 std::string service_revision(const ServiceConfiguration& configuration);
 void save_service_configuration(
     const std::filesystem::path& folder,

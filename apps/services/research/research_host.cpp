@@ -524,11 +524,7 @@ bool ResearchHost::advance(service::RpcHost::Stage stage)
                 it->second.take();
             } catch (const std::exception& error) {
                 degraded_ = true;
-                log_process_event(
-                    "research-service",
-                    LogLevel::error,
-                    "task.execution_failed",
-                    {{"task_id", it->first}, {"message", error.what()}});
+                log::error("task {} failed: {}", it->first, error.what());
             }
             it = executions_.erase(it);
         }

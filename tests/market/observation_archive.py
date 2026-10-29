@@ -11,7 +11,7 @@ suffix = ".dylib" if sys.platform == "darwin" else ".so"
 env = dict(os.environ, ASTERION_CTP_LIBRARY=str(build / ("libasterion_test_ctp" + suffix)))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "terminal"))
 from keychain_fixture import install
-env["ASTERION_KEYCHAIN_EXECUTABLE"] = install(Path(env["ASTERION_NODE_DIRECTORY"]) / "archive-keychain")
+env["ASTERION_KEYCHAIN_EXECUTABLE"] = install(Path(env["ASTERION_ROOT"]) / "archive-keychain")
 process = subprocess.Popen([str(build / "asterion_terminal_dev_bridge")], env=env,
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 def call(method, params=None, error=False):

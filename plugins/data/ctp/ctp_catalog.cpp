@@ -5,7 +5,7 @@
 #include <ThostFtdcTraderApi.h>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/bounded_queue.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <atomic>
 #include <variant>
 #include <exception>
@@ -415,13 +415,11 @@ struct CatalogQuery::Impl
             deadline = std::chrono::steady_clock::now() + 4 * timeout;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            log_process_event(
-                "ctp",
-                LogLevel::warning,
-                "catalog.timeout",
-                {{"diagnostic", timeout_diagnostic(reader.step)},
-                    {"instrument_responses", reader.instrument_responses.load()},
-                    {"active_futures", reader.contracts.size()}});
+            log::warn(
+                "ctp catalog timed out: {} instrument_responses={} active_futures={}",
+                timeout_diagnostic(reader.step),
+                reader.instrument_responses.load(),
+                reader.contracts.size());
             std::string diagnostic = timeout_diagnostic(reader.step);
             if (reader.step == Step::query)
                 diagnostic +=

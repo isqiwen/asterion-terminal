@@ -1,7 +1,7 @@
 // Internal recovery after the owned development Electron process exits.
 const path = require("node:path");
 process.env.ASTERION_ENVIRONMENT = "development";
-if (process.env.ASTERION_NODE_DIRECTORY) process.exit(0);
+if (process.env.ASTERION_ROOT) process.exit(0);
 const resources = path.resolve(__dirname, "../../build/electron-resources/native");
 process.env.ASTERION_NODE_MANAGER_EXECUTABLE = path.join(resources, "asterion_node_manager");
 process.env.ASTERION_NODE_AGENT_EXECUTABLE = path.join(resources, "asterion_node_agent");

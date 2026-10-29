@@ -16,7 +16,7 @@
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/foundation/time.hpp>
 #include <charconv>
@@ -141,9 +141,15 @@ struct Application::Impl
     // Remembered credentials live in the keychain; the helper is found next to
     // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
     std::shared_ptr<CredentialStore> credential_store = keychain_store(keychain_helper());
-    DataCredentials data_credentials{local_node_directory() / "data-providers", credential_store};
+    DataCredentials data_credentials{
+        program_directory("terminal") / "data" / "data-providers",
+        credential_store
+    };
     json credential_verification = nullptr;
-    CtpConnections ctp_connections{local_node_directory() / "ctp-connections", credential_store};
+    CtpConnections ctp_connections{
+        program_directory("terminal") / "data" / "ctp-connections",
+        credential_store
+    };
     // The one CTP account that supplies market data.
     PolledTask<CtpConnection> market_ctp();
     // Where a CTP account keeps its trading record; one record per account.
@@ -247,7 +253,6 @@ struct Application::Impl
     PolledTask<Response> invoke(const std::string& method, const json& params);
     IdSequence request_ids{"terminal." + unique_process_id()};
     std::uint64_t succeeded = 0, failed = 0;
-    std::shared_ptr<Logger> logger = process_logger("terminal");
 
     // Coroutine factories retain their captures until their child operation finishes.
     template <class T, class F>

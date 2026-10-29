@@ -119,7 +119,7 @@ test(
       .health.services.find(
         (service: { id: string }) => service.id === referenceState.research_service.service,
       ).directory;
-    expect(researchRoot.startsWith(process.env.ASTERION_NODE_DIRECTORY + "/")).toBe(true);
+    expect(researchRoot.startsWith(process.env.ASTERION_ROOT + "/")).toBe(true);
     expect(
       statSync(join(researchRoot, "programs", evidence.task.program_artifact)).size,
     ).toBeGreaterThan(0);

@@ -37,7 +37,7 @@ import uuid
 
 def stop_test_agent(directory):
     """Stop only the Agent created in this run's private temporary directory."""
-    pidfile = Path(directory) / "agent.pid"
+    pidfile = Path(directory) / "agent" / "data" / "agent.pid"
     if not pidfile.exists():
         return
     pid = int(pidfile.read_text())
@@ -113,7 +113,7 @@ ACCOUNT = "acceptance"
 
 # A failed run keeps its node: the logs are the only record of what the counter did.
 with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder:
-    env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_TEST_NODE_ISOLATED="1",
+    env = dict(os.environ, ASTERION_ROOT=folder, ASTERION_TEST_NODE_ISOLATED="1",
                ASTERION_CTP_LIBRARY=str(market_sdk), ASTERION_CTP_CATALOG_LIBRARY=str(trader_sdk))
     core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, env=env)
@@ -401,6 +401,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
     if report["passed"]:
         shutil.rmtree(folder, ignore_errors=True)
     else:
-        print(f"node kept for its logs: {folder}/logs")
+        print(f"node kept for its logs: {folder}/<program>/logs")
     print("PASSED" if report["passed"] else "FAILED")
     sys.exit(0 if report["passed"] else 1)

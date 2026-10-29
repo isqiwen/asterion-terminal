@@ -42,11 +42,7 @@ PolledTask<> ResearchHost::run_task(std::string id)
         co_await claim(call);
         auto attempt = std::move(call.attempt);
         token = attempt.token();
-        log_process_event(
-            "research-service",
-            LogLevel::info,
-            "task.started",
-            {{"task_id", id}, {"attempt", attempt_number}});
+        log::info("task {} started: attempt={}", id, attempt_number);
         std::stop_source cancel;
         std::atomic<unsigned> completed{0};
         wire::TaskFinish result;
@@ -100,13 +96,11 @@ PolledTask<> ResearchHost::run_task(std::string id)
         co_await wait_for_store(id);
         call.verification_deadline = Clock::now() + protocol::task_verification_timeout;
         co_await finish(call, result);
-        log_process_event(
-            "research-service",
-            LogLevel::info,
-            "task.finished",
-            {{"task_id", id},
-                {"attempt", attempt_number},
-                {"state", wire::TaskState_Name(call.response.task().state())}});
+        log::info(
+            "task {} finished: attempt={} state={}",
+            id,
+            attempt_number,
+            wire::TaskState_Name(call.response.task().state()));
     } catch (...) {
         failure = std::current_exception();
     }

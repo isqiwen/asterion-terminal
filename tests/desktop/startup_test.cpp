@@ -3,6 +3,7 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/manager.pb.h>
 #include <gtest/gtest.h>
+#include <fstream>
 #include <future>
 #include <thread>
 
@@ -64,7 +65,7 @@ TEST_F(InstallationStartup, WaitsForSocketAndLocalAgentReadiness)
         local->mutable_health()->set_phase(node::proto::Status::READY);
         respond(listener, state);
     });
-    EXPECT_NO_THROW(wait_for_local_readiness(socket, root / "logs", 3s));
+    EXPECT_NO_THROW(wait_for_local_readiness(socket, root, 3s));
     server.get();
 }
 
@@ -83,15 +84,25 @@ TEST_F(InstallationStartup, ReportsAgentFailureAndProcessLogs)
             "cannot read service deployment state");
         respond(listener, state);
     });
+    // The Agent's and the Manager's log files, by their installations' settings.
+    for (const auto* program : {"agent", "manager"}) {
+        std::filesystem::create_directories(root / program / "config");
+        std::ofstream(root / program / "config" / "logging.json")
+            << R"({"console":{"enabled":false,"level":"info"},)" R"("file":{"enabled":true,"level":"info","path":"../logs/{program}-{pid}.log","retention_days":30}})";
+    }
     try {
-        wait_for_local_readiness(socket, root / "logs", 3s);
+        wait_for_local_readiness(socket, root, 3s);
         FAIL() << "must reject failed Agent startup";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::recovery_required);
         const std::string message = error.what();
         EXPECT_NE(message.find("cannot read service deployment state"), std::string::npos);
-        EXPECT_NE(message.find((root / "logs/agent-200_").string()), std::string::npos);
-        EXPECT_NE(message.find((root / "logs/node-manager-100_").string()), std::string::npos);
+        EXPECT_NE(
+            message.find((root / "agent/logs/asterion_node_agent-200_").string()),
+            std::string::npos);
+        EXPECT_NE(
+            message.find((root / "manager/logs/asterion_node_manager-100_").string()),
+            std::string::npos);
     }
     server.get();
 }
@@ -100,13 +111,13 @@ TEST_F(InstallationStartup, MissingManagerTimesOutWithLogDirectory)
 {
     const auto start = std::chrono::steady_clock::now();
     try {
-        wait_for_local_readiness(socket, root / "logs", 150ms);
+        wait_for_local_readiness(socket, root, 150ms);
         FAIL() << "missing Manager must not report success";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::unavailable);
         const std::string message = error.what();
         EXPECT_NE(message.find("management startup timed out: Manager:"), std::string::npos);
-        EXPECT_NE(message.find((root / "logs").string()), std::string::npos);
+        EXPECT_NE(message.find(root.string()), std::string::npos);
     }
     EXPECT_LT(std::chrono::steady_clock::now() - start, 2s);
 }
@@ -120,7 +131,7 @@ TEST_F(InstallationStartup, InvalidResponseFailsWithoutRetry)
         peer.send("not a Manager response", 2s);
     });
     try {
-        wait_for_local_readiness(socket, root / "logs", 3s);
+        wait_for_local_readiness(socket, root, 3s);
         FAIL() << "invalid protocol must fail";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::invalid_request);

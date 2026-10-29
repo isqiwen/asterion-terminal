@@ -6,6 +6,7 @@ killed: the restarted service waits for credentials and never resends orders.
 """
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -218,34 +219,32 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         trade(process, "live.close")
     finally:
         stop(process)
-    logs = Path(os.environ["ASTERION_NODE_DIRECTORY"]) / "logs"
+    # Each program logs in its own installation: <root>/<program>/logs, one text
+    # line per record whose message ends with key=value fields.
+    root = Path(os.environ["ASTERION_ROOT"])
     assert not (Path(folder) / "terminal-logs").exists()
-    assert list(logs.glob("terminal-*.log")), "Terminal logs missing from node directory"
-    assert list(logs.glob("agent-*.log")), "Agent logs missing from node directory"
+    assert list((root / "terminal" / "logs").glob("terminal-*.log")), "Terminal logs missing"
+    assert list((root / "agent" / "logs").glob("asterion_node_agent-*.log")), "Agent logs missing"
     records = []
-    for path in logs.glob("*.log"):
+    for path in root.glob("*/logs/*.log"):
         for line in path.read_text(errors="replace").splitlines():
-            try:
-                record = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(record, dict) and "event" in record and "fields" in record:
-                records.append(record)
-    committed = next(r["fields"] for r in records if r["event"] == "journal.committed"
-                     and r["fields"].get("request_id") == "submit.filled")
-    rpc = next(r["fields"] for r in records if r["event"] == "rpc.completed"
-               and r["fields"].get("correlation_id") == committed["trace_id"])
-    assert rpc["success"] and rpc["request_id"] == "submit.filled", rpc
-    link = next(r["fields"] for r in records if r["event"] == "rpc.started"
-                and r["fields"].get("correlation_id") == committed["trace_id"])
-    assert any(r["event"] == "live.act" and r["fields"].get("trace_id") == link["trace_id"]
-               for r in records), "RPC was not joined to its Terminal command"
-    assert any(r["event"] == "broker.order_observed" and
-               r["fields"].get("broker_key") == committed["broker_key"] and
-               r["fields"].get("order_id") == "filled" for r in records)
-    assert any(r["event"] == "broker.trade_observed" and
-               r["fields"].get("order_id") == "filled" for r in records)
-    for path in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
+            records.append((line, dict(re.findall(r'(\w+)=("[^"]*"|\S+)', line))))
+
+    def find(message, **expected):
+        return next(fields for line, fields in records if message in line
+                    and all(fields.get(key) == value for key, value in expected.items()))
+
+    committed = find("journal committed:", request_id="submit.filled")
+    rpc = find("rpc completed:", correlation_id=committed["trace_id"])
+    assert rpc["request_id"] == "submit.filled", rpc
+    link = find("rpc started:", correlation_id=committed["trace_id"])
+    assert any("live.act completed:" in line and fields.get("trace_id") == link["trace_id"]
+               for line, fields in records), "RPC was not joined to its Terminal command"
+    assert any("broker order observed:" in line and fields.get("broker_key") == committed["broker_key"]
+               and fields.get("order_id") == "filled" for line, fields in records)
+    assert any("broker trade observed:" in line and fields.get("order_id") == "filled"
+               for line, fields in records)
+    for path in Path(os.environ["ASTERION_ROOT"]).rglob("*"):
         if path.is_file():
             data = path.read_bytes()
             assert SECRET.encode() not in data and AUTH.encode() not in data, path

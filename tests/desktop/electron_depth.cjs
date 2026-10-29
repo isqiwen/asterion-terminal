@@ -59,7 +59,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       args: [path.join(client, "electron"), `--user-data-dir=${temp}/ui`],
       env: {
         ...process.env,
-        ASTERION_NODE_DIRECTORY: path.join(temp, "node"),
+        ASTERION_ROOT: path.join(temp, "node"),
         ...testNode,
       },
       timeout: 30000,

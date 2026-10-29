@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         listener.bind(('127.0.0.1',0)); port=listener.getsockname()[1]
     (root/'local').mkdir()
     resources=make_bundle(root/'resources',Path(sys.argv[2]).resolve().parent)
-    env=dict(os.environ,ASTERION_REMOTE_RESOURCES=str(resources),ASTERION_NODE_DIRECTORY=str(root/'local'),ASTERION_SSH_TOOL_DIRECTORY=str(tools),ASTERION_SSH_FIXTURE=str(remote))
+    env=dict(os.environ,ASTERION_REMOTE_RESOURCES=str(resources),ASTERION_ROOT=str(root/'local'),ASTERION_SSH_TOOL_DIRECTORY=str(tools),ASTERION_SSH_FIXTURE=str(remote))
     host=subprocess.Popen([sys.argv[1]],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
     def call(method,params):
         host.stdin.write(json.dumps(dict(version=1,method=method,params=params))+'\n'); host.stdin.flush(); return json.loads(host.stdout.readline())
@@ -61,30 +61,30 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         assert call('node.firewall.apply',dict(token=removal['token'],private_key=private_key))['result']['firewall_plan']['state']=='removed'
         (remote/'old-helper').touch()
         assert 'error' in call('node.bootstrap',request)
-        assert not (root/'local/enrollments/bootstrap-test').exists(), 'obsolete helper reached identity creation'
+        assert not (root/'local/manager/data/enrollments/bootstrap-test').exists(), 'obsolete helper reached identity creation'
         assert not list(remote.glob('.asterion-install-*')), 'obsolete helper reached upload'
         (remote/'old-helper').unlink()
         (remote/'reject').touch()
         assert 'error' in call('node.bootstrap',request)
-        assert not (root/'local/enrollments/bootstrap-test').exists()
+        assert not (root/'local/manager/data/enrollments/bootstrap-test').exists()
         (remote/'reject').unlink(); (remote/'fail_install').touch()
         assert 'error' in call('node.bootstrap',request)
-        enrollment=root/'local/enrollments/bootstrap-test'
+        enrollment=root/'local/manager/data/enrollments/bootstrap-test'
         fingerprint=(enrollment/'client.key').read_bytes()
         assert not list(remote.glob('.asterion-install-*'))
         (remote/'fail_install').unlink(); (remote/'fail_file_sync').touch()
         assert 'error' in call('node.bootstrap',request)
         deployed=remote/'deployed'
-        assert not (deployed/'asterion_node_agent').exists(), 'failed file flush published an executable'
+        assert not (deployed/'agent/bin/asterion_node_agent').exists(), 'failed file flush published an executable'
         assert not (deployed/'install.json').exists(), 'failed prerequisites committed an installation'
-        assert not list(deployed.glob('.asterion-publish-*'))
+        assert not list(deployed.rglob('.asterion-publish-*'))
         (remote/'fail_file_sync').unlink(); (remote/'fail_publish_sync').touch()
         assert 'error' in call('node.bootstrap',request)
-        executable=deployed/'asterion_node_agent'
+        executable=deployed/'agent/bin/asterion_node_agent'
         assert executable.is_file() and not (deployed/'install.json').exists()
-        policy = deployed / 'state/config/research.json'
+        policy = deployed / 'agent/config/research.json'
         assert json.loads(policy.read_text()) == {"task_concurrency": 1}
-        assert json.loads((deployed / 'state/config/logging.json').read_text())["file"]["level"] == "info"
+        assert json.loads((deployed / 'agent/config/logging.json').read_text())["file"]["level"] == "info"
         policy.write_text('{"task_concurrency":2}\n')
         original_policy = policy.read_bytes()
         original_mtime = policy.stat().st_mtime_ns
@@ -121,12 +121,12 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         deployed_service = call('node.deploy',dict(kind='live',id='bootstrap-test',service='account-test',port=str(service_port)))
         assert 'result' in deployed_service, deployed_service
         kept=running()
-        record=deployed/'state/services/account-test/service.json'
+        record=deployed/'agent/data/services/account-test/service.json'
         configuration=record.read_bytes()
         local=('ca.crt','client.crt','client.key','trading-client.crt','trading-client.key','server.crt','server.key')
         published=('ca.crt','server.crt','server.key')
         old={name:(enrollment/name).read_bytes() for name in local}
-        def node_files(): return {name:(deployed/name).read_bytes() for name in published}
+        def node_files(): return {name:(deployed/'agent/config'/name).read_bytes() for name in published}
         def agent(): return int((remote/'pid').read_text())
         first_agent=agent()
         replace={key:value for key,value in request.items() if key!='agent_port'}

@@ -16,12 +16,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/bin ${layout}/lib ${layout}/config
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_recorder> ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${layout}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ctp-md.so ${CMAKE_BINARY_DIR}/ctp-trader.so ${layout}/lib/
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/config/recorder.json ${CMAKE_CURRENT_SOURCE_DIR}/config/recorder-logging.json ${layout}/config/
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/config/recorder.json ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json ${layout}/config/
     COMMAND ${CMAKE_COMMAND} -E chdir ${stage} ${CMAKE_COMMAND} -E tar czf payload.tar.gz asterion-recorder
     COMMAND sh -c "{ cat \"$1\"; echo __ARCHIVE__; cat \"$2\"; } > \"$3\" && chmod 755 \"$3\"" setup
       ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${stage}/payload.tar.gz ${release}
     DEPENDS asterion_recorder ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${CMAKE_CURRENT_SOURCE_DIR}/config/recorder.json
-      ${CMAKE_CURRENT_SOURCE_DIR}/config/recorder-logging.json
+      ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json
       ${CMAKE_BINARY_DIR}/ctp-md.so ${CMAKE_BINARY_DIR}/ctp-trader.so
     VERBATIM)
   add_custom_target(asterion_recorder_setup DEPENDS ${release})

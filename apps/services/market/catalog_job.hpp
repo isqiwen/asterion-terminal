@@ -1,7 +1,7 @@
 #pragma once
 #include "ctp_catalog.hpp"
 #include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/thread_pool.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -72,11 +72,7 @@ class CatalogJob
                     try {
                         replace_file_durably(file, ready.SerializeAsString());
                     } catch (const std::exception&) {
-                        log_process_event(
-                            "market-data",
-                            LogLevel::warning,
-                            "catalog.cache_failed",
-                            {});
+                        log::warn("the contract catalog cache could not be written");
                     }
                 }
                 result = std::move(ready);

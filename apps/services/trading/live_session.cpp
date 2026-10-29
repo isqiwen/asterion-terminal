@@ -1,4 +1,5 @@
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
+#include <asterion/kernel/trace.hpp>
 #include "live_account_state.hpp"
 #include "strategy.hpp"
 #include <algorithm>
@@ -249,21 +250,21 @@ AccountCommand LiveAccountState::append(JournalEntry entry)
         failed_ = true;
         throw;
     }
-    log_identity_event(
-        "trading",
-        "journal.committed",
-        {{"account_id", account_id_},
-            {"request_id", trace.request_id},
-            {"action", trace.action},
-            {"order_id", trace.order_id},
-            {"broker_key", trace.broker_key},
-            {"outcome", trace.outcome}});
+    log::info(
+        "journal committed: trace_id={} account_id={} request_id={} action={} order_id={} " "broker_key={} outcome={}",
+        current_trace_id(),
+        account_id_,
+        trace.request_id,
+        trace.action,
+        trace.order_id,
+        trace.broker_key,
+        trace.outcome);
 }
 
 void LiveAccountState::log_broker_observations(const BrokerSnapshot& state) const noexcept
 {
     try {
-        if (!process_logger("trading")
+        if (!log::enabled(log::Level::info)
             || (observed_generation_ == state.connection_generation
                 && observed_sequence_ == state.sequence))
             return;
@@ -281,32 +282,30 @@ void LiveAccountState::log_broker_observations(const BrokerSnapshot& state) cons
                 continue;
             found->second = std::move(observation);
             const auto status = status_name(order.status);
-            log_identity_event(
-                "trading",
-                "broker.order_observed",
-                {{"account_id", record},
-                    {"trading_day", state.trading_day},
-                    {"order_id", order.order_id},
-                    {"broker_key", order.broker_key},
-                    {"exchange_order_id", order.exchange_order_id},
-                    {"status", status}});
+            log::info(
+                "broker order observed: account_id={} trading_day={} order_id={} broker_key={} " "exchange_order_id={} status={}",
+                record,
+                state.trading_day,
+                order.order_id,
+                order.broker_key,
+                order.exchange_order_id,
+                status);
         }
         if (observed_trades_ > state.trades.size())
             observed_trades_ = 0;
         for (; observed_trades_ < state.trades.size(); ++observed_trades_) {
             const auto& trade = state.trades[observed_trades_];
-            log_identity_event(
-                "trading",
-                "broker.trade_observed",
-                {{"account_id", record},
-                    {"order_id", trade.order_id},
-                    {"exchange_order_id", trade.exchange_order_id},
-                    {"trade_id", trade.trade_id},
-                    {"trading_day", trade.trading_day}});
+            log::info(
+                "broker trade observed: account_id={} order_id={} exchange_order_id={} " "trade_id={} trading_day={}",
+                record,
+                trade.order_id,
+                trade.exchange_order_id,
+                trade.trade_id,
+                trade.trading_day);
         }
         observed_sequence_ = state.sequence;
     } catch (...) {
-        log_process_failure("trading", "trace.failed", ErrorCode::internal_error, 1);
+        log::error("broker observations could not be logged");
     }
 }
 
@@ -555,10 +554,7 @@ void LiveAccountState::end_run(std::string reason, bool cancel)
     run_->host.reset();
     run_->ended = std::move(reason);
     run_->cancel_due = cancel;
-    log_identity_event(
-        "trading",
-        "strategy.ended",
-        {{"account_id", account_id_}, {"run_id", run_->id}});
+    log::info("strategy ended: account_id={} run_id={}", account_id_, run_->id);
 }
 
 AccountCommand LiveAccountState::start_strategy(
@@ -623,10 +619,7 @@ AccountCommand LiveAccountState::start_strategy(
         run_.reset();
         throw;
     }
-    log_identity_event(
-        "trading",
-        "strategy.started",
-        {{"account_id", account_id_}, {"run_id", run_->id}});
+    log::info("strategy started: account_id={} run_id={}", account_id_, run_->id);
 }
 
 void LiveAccountState::report(

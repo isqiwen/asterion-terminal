@@ -39,7 +39,7 @@ struct Host
         process = std::make_unique<ChildProcess>(
             "/usr/bin/env",
             std::vector<std::string>{
-                "ASTERION_NODE_DIRECTORY=" + node_directory.string(),
+                "ASTERION_ROOT=" + node_directory.string(),
                 "ASTERION_TEST_NODE_ISOLATED=1",
                 executable.string(),
                 "--node-id",

@@ -86,7 +86,7 @@ async function waitFor(check, timeout = 60000) {
 }
 (async () => {
   assert.ok(process.argv.includes("--managed-development"));
-  assert.ok(!process.env.ASTERION_NODE_DIRECTORY);
+  assert.ok(!process.env.ASTERION_ROOT);
   const scenarios = process.argv.includes("--full-entry")
     ? ["pnpm"]
     : ["interrupt", "crash", "browser"];

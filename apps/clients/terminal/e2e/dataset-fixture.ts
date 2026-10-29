@@ -239,7 +239,7 @@ export async function seedHistory(
     .find(node => node.id === "local")!
     .health.services.find(item => item.id === "historical-data")!;
   expect(resolve(service.directory)).toBe(
-    resolve(process.env.ASTERION_NODE_DIRECTORY!, "services/historical-data/ledger"),
+    resolve(process.env.ASTERION_ROOT!, "data/data/historical-data"),
   );
   const output = execFileSync(
     resolve(build, "asterion_test_history"),

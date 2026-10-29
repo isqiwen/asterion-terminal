@@ -833,11 +833,15 @@ directory(root)
 if (root / 'install.json').exists() or (root / 'install.json').is_symlink():
     with open_owned(stage / 'install.json') as source:
         verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
-directory(root / 'state')
+# The node's programs are installed under root; the Agent's are agent/bin,
+# agent/config (certificates and configuration defaults) and agent/data.
+directory(root / 'agent')
+directory(root / 'agent' / 'bin')
+directory(root / 'agent' / 'config')
+directory(root / 'agent' / 'data')
 if not (root / 'install.json').exists():
-    directory(root / 'state' / 'config')
     for name in ('research.json', 'logging.json'):
-        target = root / 'state' / 'config' / name
+        target = root / 'agent' / 'config' / name
         if target.exists() or target.is_symlink():
             continue
         fd, temporary = tempfile.mkstemp(prefix='.config-', dir=target.parent)
@@ -850,18 +854,18 @@ if not (root / 'install.json').exists():
         finally:
             os.unlink(temporary)
         sync_directory(target.parent)
-publish(stage / 'agent', root / 'asterion_node_agent', 0o700, sys.argv[3])
+publish(stage / 'agent', root / 'agent' / 'bin' / 'asterion_node_agent', 0o700, sys.argv[3])
 for name in ('ca.crt', 'server.crt', 'server.key'):
-    publish(stage / name, root / name, 0o600)
+    publish(stage / name, root / 'agent' / 'config' / name, 0o600)
 publish(stage / 'install.json', root / 'install.json', 0o600)
 receipt = root / 'maintenance-operation.json'
 if receipt.exists():
     completed = json.loads(receipt.read_text())
     if completed.get('action') != 'uninstall' or not completed.get('complete'):
         raise ValueError('Finish the pending node maintenance before installation')
-    (root / 'state' / 'maintenance.json').unlink(missing_ok=True)
+    (root / 'agent' / 'data' / 'maintenance.json').unlink(missing_ok=True)
     receipt.unlink()
-    sync_directory(root / 'state')
+    sync_directory(root / 'agent' / 'data')
     sync_directory(root)
 )PY";
     script += "ASTERION_PUBLISH\n";
@@ -994,8 +998,8 @@ staged = []
 try:
     for name in ('ca.crt', 'server.crt', 'server.key'):
         with open_owned(stage / name) as source:
-            fd, temporary = tempfile.mkstemp(prefix='.asterion-identity-', dir=root)
-            staged.append((temporary, root / name))
+            fd, temporary = tempfile.mkstemp(prefix='.asterion-identity-', dir=root / 'agent' / 'config')
+            staged.append((temporary, root / 'agent' / 'config' / name))
             with os.fdopen(fd, 'wb') as output:
                 os.fchmod(output.fileno(), 0o600)
                 output.write(source.read())
@@ -1007,7 +1011,7 @@ try:
 finally:
     for temporary, _ in staged:
         os.unlink(temporary)
-sync_directory(root)
+sync_directory(root / 'agent' / 'config')
 )PY";
         script += "ASTERION_PUBLISH\n";
         // The Agent reads its identity when it starts. Ending it stops the node's
@@ -1203,7 +1207,7 @@ void publish_maintenance(
             config.at("host").get<std::string>().find(':') == std::string::npos ? "0.0.0.0" : "::");
     if (!ssh.command(script, 5min))
         throw std::runtime_error(
-            "remote maintenance failed: " + id + "; Agent log directory: " + root + "/state/logs; "
+            "remote maintenance failed: " + id + "; Agent log directory: " + root + "/agent/logs; "
             + ssh.last_error);
 }
 

@@ -13,6 +13,8 @@ import shutil
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install_agent  # noqa: E402
 
 agent, trading, certificates, trader_sdk = sys.argv[1:]
 
@@ -110,7 +112,7 @@ with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True
            "--tls-key", str(root / "server.key")]
     agent_port, trading_port = free_port(), free_port()
     processes = [
-        start([agent, "--directory", str(root / "agent"), "--bind", "127.0.0.1",
+        start([str(install_agent(root, agent)), "--bind", "127.0.0.1",
                "--port", str(agent_port), *tls], agent_port),
         start([trading, "--session", "roles", "--ctp-library", trader_sdk, "--directory",
                str(root / "ledger"), "--bind", "127.0.0.1", "--port", str(trading_port), *tls],

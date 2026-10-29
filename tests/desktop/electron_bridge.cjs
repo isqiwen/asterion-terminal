@@ -5,6 +5,11 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { Worker } = require("node:worker_threads");
 const addon = path.resolve(process.argv[2]);
+// Supply the bundled configuration location when loading without the Electron host.
+process.env.ASTERION_NODE_MANAGER_EXECUTABLE = path.join(
+  path.dirname(addon),
+  "asterion_node_manager",
+);
 const bridge = require(addon);
 const request = method => bridge.request(JSON.stringify({ version: 1, method, params: {} }));
 const snapshot = () => request("runtime.snapshot");

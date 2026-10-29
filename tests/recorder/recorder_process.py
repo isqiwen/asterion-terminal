@@ -94,7 +94,7 @@ def install(root):
     shutil.copy2(recorder, root / "bin/asterion_recorder")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
-    shutil.copy2(Path(__file__).parents[2] / "apps/services/recorder/config/recorder-logging.json", root / "config")
+    shutil.copy2(Path(__file__).parents[2] / "apps/services/recorder/config/logging.json", root / "config")
 
 
 def start(root, port):
@@ -126,8 +126,7 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
     install(root)
     (root / "credentials").mkdir(mode=0o700)
     # The recorder writes its logs to <installation>/logs by itself.
-    env = {key: value for key, value in os.environ.items() if key != "ASTERION_LOG_DIRECTORY"}
-    env["CREDENTIALS_DIRECTORY"] = str(root / "credentials")
+    env = dict(os.environ, CREDENTIALS_DIRECTORY=str(root / "credentials"))
 
     # A missing credential refuses the start and names it.
     refused = start(root, free_port())
@@ -178,7 +177,7 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         second.wait(timeout=30)
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert " info recorder catalog.applied " in logs, logs  # text, one line per record
+    assert " info asterion_recorder contract catalog applied: " in logs, logs  # one text line per record
     assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
         assert secret not in logs and secret not in second.stderr.read()

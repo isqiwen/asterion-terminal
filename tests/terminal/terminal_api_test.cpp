@@ -596,10 +596,10 @@ TEST(TerminalApi, FixedEvaluationExportKeepsOriginalValuesReasonsAndEscapesUntru
 
 TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput)
 {
-    const char* value = std::getenv("ASTERION_NODE_DIRECTORY");
+    const char* value = std::getenv("ASTERION_ROOT");
     const std::optional<std::string> saved =
         value ? std::optional<std::string>(value) : std::nullopt;
-    ASSERT_EQ(::setenv("ASTERION_NODE_DIRECTORY", "relative", 1), 0);
+    ASSERT_EQ(::setenv("ASTERION_ROOT", "relative", 1), 0);
     char* failure = nullptr;
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> rejected(
         asterion_terminal_create(&failure),
@@ -608,14 +608,14 @@ TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput)
         failure,
         asterion_terminal_free);
     if (saved)
-        ::setenv("ASTERION_NODE_DIRECTORY", saved->c_str(), 1);
+        ::setenv("ASTERION_ROOT", saved->c_str(), 1);
     else
-        ::unsetenv("ASTERION_NODE_DIRECTORY");
+        ::unsetenv("ASTERION_ROOT");
     ASSERT_EQ(rejected, nullptr);
     ASSERT_NE(detail, nullptr);
     const auto response = json::parse(detail.get());
     EXPECT_EQ(response.at("error").at("code"), "invalid_request");
-    EXPECT_EQ(response.at("error").at("message"), "invalid local node directory");
+    EXPECT_EQ(response.at("error").at("message"), "invalid Asterion root directory");
     failure = detail.get(); // The successful call must clear, not retain, this pointer.
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
         asterion_terminal_create(&failure),
@@ -670,7 +670,7 @@ TEST(TerminalApi, Contracts)
     EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
     EXPECT_EQ(
         call(runtime.get(), request("runtime.snapshot"))["result"]["diagnostics"]["log_directory"],
-        (std::filesystem::path(std::getenv("ASTERION_NODE_DIRECTORY")) / "logs").string());
+        std::filesystem::path(std::getenv("ASTERION_ROOT")).string());
     EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
         << "no invented dataset";
     {
@@ -1079,7 +1079,7 @@ public:
               / ("ast-node-test-" + asterion::unique_process_id()))
     {
         std::filesystem::create_directory(path_);
-        ::setenv("ASTERION_NODE_DIRECTORY", path_.c_str(), 1);
+        ::setenv("ASTERION_ROOT", path_.c_str(), 1);
         ::setenv("ASTERION_TEST_NODE_ISOLATED", "1", 1);
         // The Agent exits with this process even if CTest kills it on timeout.
         ::setenv("ASTERION_TEST_OWNER_PID", std::to_string(::getpid()).c_str(), 1);
@@ -1121,7 +1121,7 @@ int main(int argc, char** argv)
         if (std::string_view(argv[i]) == "--isolated-node")
             node.emplace();
     // Direct invocation must never register test sessions in the user's daily Agent.
-    const char* directory = std::getenv("ASTERION_NODE_DIRECTORY");
+    const char* directory = std::getenv("ASTERION_ROOT");
     const char* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
     if (!directory || !*directory || !isolated || std::string_view(isolated) != "1") {
         std::cerr

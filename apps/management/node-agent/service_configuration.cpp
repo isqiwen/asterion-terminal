@@ -31,6 +31,31 @@ Json configuration_json(const ServiceConfiguration& configuration)
 
 } // namespace
 
+std::string program_name(node::proto::ServiceKind kind)
+{
+    switch (kind) {
+        case node::proto::MARKET:
+            return "market";
+        case node::proto::TRADING:
+            return "trading";
+        case node::proto::DATA:
+            return "data";
+        case node::proto::RESEARCH:
+            return "research";
+        case node::proto::LAB:
+            return "lab";
+        default:
+            throw std::invalid_argument("unknown service kind");
+    }
+}
+
+std::string executable_name(node::proto::ServiceKind kind)
+{
+    if (kind == node::proto::LAB)
+        throw std::invalid_argument("the lab service runs the bundled Python");
+    return "asterion_" + program_name(kind);
+}
+
 std::string service_revision(const ServiceConfiguration& configuration)
 {
     return sha256_bytes(configuration_json(configuration).dump());

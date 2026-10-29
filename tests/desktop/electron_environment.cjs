@@ -26,10 +26,7 @@ async function main() {
     process.argv.includes("--managed-development"),
     "Requires explicit managed-development mode",
   );
-  assert.ok(
-    !process.env.ASTERION_NODE_DIRECTORY,
-    "Must exercise the default development directory",
-  );
+  assert.ok(!process.env.ASTERION_ROOT, "Must exercise the default development directory");
   const { production, development } = local;
   const definition = local.definition("me.asterion.node-agent.dev");
   const protectedFiles = [

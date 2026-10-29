@@ -18,7 +18,7 @@ endif()
 add_library(asterion_kernel STATIC
   src/kernel/native_plugin.cpp
   src/kernel/trace.cpp
-  src/kernel/logger.cpp
+  src/kernel/log.cpp
   src/kernel/ipc/local_channel.cpp
   src/kernel/ipc/tls_channel.cpp
   src/kernel/process/child.cpp
@@ -33,7 +33,7 @@ target_sources(asterion_kernel PRIVATE src/kernel/process/resources.cpp src/kern
 add_library(Asterion::Kernel ALIAS asterion_kernel)
 target_include_directories(asterion_kernel PUBLIC ${PROJECT_SOURCE_DIR}/bindings/plugin/include)
 target_link_libraries(asterion_kernel PRIVATE ${CMAKE_DL_LIBS})
-target_link_libraries(asterion_kernel PUBLIC Asterion::Foundation Threads::Threads PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
+target_link_libraries(asterion_kernel PUBLIC Asterion::Foundation Threads::Threads spdlog::spdlog_header_only PRIVATE asio::asio OpenSSL::SSL)
 
 add_library(asterion_domain STATIC
   src/domain/market.cpp

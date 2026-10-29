@@ -59,7 +59,7 @@ if (!app.commandLine.hasSwitch("user-data-dir"))
 let main, settings, native;
 let quitting = false;
 let pending = 0;
-const automaticDevelopmentStop = !app.isPackaged && !process.env.ASTERION_NODE_DIRECTORY;
+const automaticDevelopmentStop = !app.isPackaged && !process.env.ASTERION_ROOT;
 let developmentStopping = false;
 let developmentStopped = false;
 async function stopDevelopment() {

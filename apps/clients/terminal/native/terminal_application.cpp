@@ -132,13 +132,14 @@ Application::Impl::invoke(const std::string& method, const json& params)
         ++(success ? succeeded : failed);
         // Telemetry allocation or sink failure must not change a business result.
         try {
-            logger->write(
-                success ? (method == "runtime.snapshot" ? LogLevel::debug : LogLevel::info)
-                        : LogLevel::warning,
+            log::emit(
+                success ? (method == "runtime.snapshot" ? log::Level::debug : log::Level::info)
+                        : log::Level::warning,
+                "{} {}: trace_id={} duration_ns={}",
                 operation,
-                {{"trace_id", trace},
-                    {"duration_ns", clock.monotonic_now() - start},
-                    {"success", success}});
+                success ? "completed" : "failed",
+                trace,
+                clock.monotonic_now() - start);
         } catch (...) {
         }
     };
@@ -183,7 +184,7 @@ Application::Impl::Impl()
     register_connection_commands();
     register_market_commands();
     register_lab_commands();
-    logger->write(LogLevel::info, "terminal.started");
+    log::info("terminal started");
     initialization = service_io
                          .submit<void>([this](std::stop_token) {
                              return settings<void>([] {});
@@ -207,8 +208,7 @@ Application::Impl::~Impl()
     initialization.wait();
     refresher.get();
     settings_refresher.get();
-    logger->write(LogLevel::info, "terminal.stopped");
-    logger->flush();
+    log::info("terminal stopped");
 }
 
 Application::Impl::Publication Application::Impl::capture()
@@ -272,9 +272,9 @@ Application::Impl::Publication Application::Impl::capture()
             }()},
         {"diagnostics",
             {{"succeeded", succeeded},
-                {"log_directory", (local_node_directory() / "logs").string()},
+                {"log_directory", asterion_root().string()},
                 {"failed", failed},
-                {"log_failures", process_log_failures()},
+                {"log_failures", log::failures()},
                 {"refresh_failures", refresh_failures},
                 {"refresh_failed", refresh_failed}}},
         {"plugins",
@@ -380,14 +380,16 @@ void Application::Impl::record_refresh_failure(ErrorCode code) noexcept
 {
     refresh_failed = true;
     const auto count = ++refresh_failures;
-    log_process_failure("terminal", "snapshot.refresh_failed", code, count);
+    // Repeated failures are logged at counts 1, 2, 4, 8, ... only.
+    if ((count & (count - 1)) == 0)
+        log::warn("snapshot refresh failed: {} ({} failures)", error_name(code), count);
     try {
         if (cache) {
             auto next = std::make_shared<Publication>(*cache);
             auto& diagnostics = next->metadata.at("diagnostics");
             diagnostics["refresh_failed"] = true;
             diagnostics["refresh_failures"] = count;
-            diagnostics["log_failures"] = process_log_failures();
+            diagnostics["log_failures"] = log::failures();
             ++next->revision;
             cache = std::move(next);
         }
@@ -543,22 +545,25 @@ std::vector<json> Application::Impl::selection_costs(const json& members) const
 
 Application::Application()
 {
-    // Resolve the environment once, before clients or background work can log.
-    // Agent uses the same node directory and passes this path to its children.
-    const auto node = local_node_directory();
-    if (!node.is_absolute())
-        throw std::invalid_argument("invalid local node directory");
-    const auto logs = node / "logs";
-    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-    initialize_process_logging("terminal");
-    // The installer creates an installed node; a development or isolated one is
-    // created here, as the local Manager bootstrap would, before it is locked.
-    if (development_environment() || environment_variable("ASTERION_NODE_DIRECTORY")) {
-        if (std::filesystem::is_symlink(node))
-            throw std::invalid_argument("invalid local node directory");
-        create_directories_durably(node);
+    // The Terminal's program stays inside the application; its configuration,
+    // logs and data are in <root>/terminal. Resolved once, before clients or
+    // background work can log.
+    const auto root = asterion_root();
+    if (!root.is_absolute())
+        throw std::invalid_argument("invalid Asterion root directory");
+    const auto terminal = root / "terminal";
+    // The installer creates an installed root; a development or isolated one
+    // is created here, as the local Manager bootstrap would, before it is locked.
+    if (development_environment() || environment_variable("ASTERION_ROOT")) {
+        if (std::filesystem::is_symlink(root))
+            throw std::invalid_argument("invalid Asterion root directory");
+        create_directories_durably(terminal / "data");
+        // Its logging configuration before its first record; never overwritten.
+        install_node_configuration(root, node_configuration_templates());
     }
-    installation_use_ = std::make_unique<FileLock>(node, "terminal.lock", FileLock::Access::shared);
+    log::init(terminal, "terminal");
+    installation_use_ =
+        std::make_unique<FileLock>(terminal / "data", "terminal.lock", FileLock::Access::shared);
     impl_ = std::make_unique<Impl>();
 }
 

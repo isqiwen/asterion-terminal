@@ -71,10 +71,10 @@ if command.startswith('sudo -n /usr/local/sbin/asterion_host --manage '):
         if not (root/'pid').exists():
             deployed = root/'deployed'
             config = json.loads((deployed/'install.json').read_text())
-            process = subprocess.Popen([str(deployed/'asterion_node_agent'), '--bind', '127.0.0.1',
-                '--port', str(config['port']), '--directory', str(deployed/'state'),
-                '--tls-ca', str(deployed/'ca.crt'), '--tls-cert', str(deployed/'server.crt'),
-                '--tls-key', str(deployed/'server.key')], stdin=subprocess.DEVNULL,
+            process = subprocess.Popen([str(deployed/'agent/bin/asterion_node_agent'), '--bind', '127.0.0.1',
+                '--port', str(config['port']),
+                '--tls-ca', str(deployed/'agent/config/ca.crt'), '--tls-cert', str(deployed/'agent/config/server.crt'),
+                '--tls-key', str(deployed/'agent/config/server.key')], stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             (root/'pid').write_text(str(process.pid))
             time.sleep(.3)
@@ -128,7 +128,7 @@ elif re.fullmatch(r"sh '\.asterion-install-[a-f0-9]{32}/replace'",command):
         sys.exit(1)
     finally:
         sys.argv=argv
-    assert not list(deployed.glob('.asterion-identity-*'))
+    assert not list((deployed/'agent/config').glob('.asterion-identity-*'))
     previous=int((root/'pid').read_text())
     os.kill(previous,signal.SIGTERM)
     deadline=time.monotonic()+60
@@ -136,7 +136,7 @@ elif re.fullmatch(r"sh '\.asterion-install-[a-f0-9]{32}/replace'",command):
         assert time.monotonic()<deadline, 'Agent did not stop'
         time.sleep(0.1)
     port=int(re.search(r"--manage install '[^']+' (\d+)",script)[1])
-    process=subprocess.Popen([str(deployed/'asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    process=subprocess.Popen([str(deployed/'agent/bin/asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(deployed/'agent/config/ca.crt'),'--tls-cert',str(deployed/'agent/config/server.crt'),'--tls-key',str(deployed/'agent/config/server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
     (root/'pid').write_text(str(process.pid))
     # The node has taken the identity, but the session ends before saying so.
     if (root/'lose_reply').exists():
@@ -164,7 +164,8 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
         if (root/'fail_file_sync').exists() and stat.S_ISREG(info.st_mode):
             raise OSError('injected file sync failure')
         if ((root/'fail_publish_sync').exists() and stat.S_ISDIR(info.st_mode)
-                and (deployed/'asterion_node_agent').is_file() and info.st_ino==deployed.stat().st_ino):
+                and (deployed/'agent/bin/asterion_node_agent').is_file()
+                and info.st_ino==(deployed/'agent/bin').stat().st_ino):
             raise OSError('injected publication directory sync failure')
         return original_sync(fd)
     argv=sys.argv; sys.argv=['install-publication',str(stage),str(deployed),digest]
@@ -175,8 +176,8 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
         sys.exit(1)
     finally:
         sys.argv=argv
-    assert not list(deployed.glob('.asterion-publish-*'))
-    process=subprocess.Popen([str(deployed/'asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    assert not list(deployed.rglob('.asterion-publish-*'))
+    process=subprocess.Popen([str(deployed/'agent/bin/asterion_node_agent'),'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(deployed/'agent/config/ca.crt'),'--tls-cert',str(deployed/'agent/config/server.crt'),'--tls-key',str(deployed/'agent/config/server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
     (root/'pid').write_text(str(process.pid))
 elif command.startswith('rm -rf -- '):
     stage=shlex.split(command)[-1]; assert re.fullmatch(r'\.asterion-install-[a-f0-9]{32}',stage)

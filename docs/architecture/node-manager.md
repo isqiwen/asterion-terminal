@@ -139,20 +139,29 @@ Terminal 一侧的 [ManagerClient 和 NodeClient](../../apps/clients/terminal/na
 
 ## 目录与持久状态
 
-以下 `<node>` 是传给 Agent 的节点运行目录，`<enrollments>` 是 Manager 的登记根目录。
+以下 `<根>` 是各程序安装目录的根（见[安装目录](../architecture.md#安装目录)），`<enrollments>` 是 Manager 的登记根目录。
 它们由启动参数和现有路径机制决定，Manager 不生成另一份机器启动配置。
 
 ```text
-<node>/
+<根>/
   manager/
-    manager.lock             Manager 进程互斥
-    bootstrap.lock           客户端或安装引导的启动互斥
-    ipc-id                   Manager socket 命名空间
-    manager.pid              最近启动的 Manager PID
-  ipc-id                     本机 Agent socket 命名空间
-  config/logging.json        全节点公共日志策略
-  services/<service>/        Agent 的服务部署记录及所属目录
-  logs/                      各进程诊断日志
+    bin/asterion_node_manager
+    config/logging.json      Manager 的日志配置
+    logs/                    Manager 的日志
+    data/
+      manager.lock           Manager 进程互斥
+      bootstrap.lock         客户端或安装引导的启动互斥
+      ipc-id                 Manager socket 命名空间
+      manager.pid            最近启动的 Manager PID
+  agent/
+    bin/asterion_node_agent
+    config/                  Agent 的日志配置与服务配置默认值
+    logs/
+    data/
+      ipc-id                 本机 Agent socket 命名空间
+      services/<service>/    Agent 的服务部署记录
+      artifacts/、uploads/   按内容命名的程序仓库与上传暂存
+  <服务程序>/                 market/、trading/、data/、research/、lab/
 
 <enrollments>/
   enrollment.lock            登记与身份替换的互斥
@@ -172,11 +181,11 @@ Terminal 一侧的 [ManagerClient 和 NodeClient](../../apps/clients/terminal/na
 ```
 
 临时安装脚本、SFTP 批次、程序清单及防火墙规则归属记录也由登记模块管理，不能当成业务数据仓库。
-正常情况下，生产登记根目录为 `~/.asterion/nodes`；开发和隔离环境使用 `<node>/enrollments`。
+正常情况下，生产登记根目录为 `~/.asterion/nodes`；开发和隔离环境使用 `<根>/manager/data/enrollments`。
 本机节点根目录的平台规则见[开发指南](../development.md#node-manager-的注册与连接)。
 
-远程安装根目录为 `/var/lib/asterion/nodes/<id>`；Agent 的运行目录是其中的 `state/`。
-因此远程日志与运行配置分别位于 `state/logs/`、`state/config/`，不要把安装根目录和运行目录混用。
+远程节点的根目录为 `/var/lib/asterion/nodes/<id>`，其中的程序目录与本机相同：Agent 是 `agent/bin/`，证书与配置默认值在
+`agent/config/`，状态在 `agent/data/`，日志在 `agent/logs/`；安装记录 `install.json` 在根目录。
 Manager 本地登记记录如何管理节点；远程 Agent 的服务登记记录该机器部署了什么。
 安装器消费这两者，不再维护第三份拓扑清单。
 
@@ -186,7 +195,7 @@ Manager 本地登记记录如何管理节点；远程 Agent 的服务登记记�
 
 | 参数 | 作用 |
 | --- | --- |
-| `--directory` | 已存在的 Manager 目录，通常为 `<node>/manager`；其父目录确定节点根目录 |
+| `--application` | 应用目录：打包的程序、插件与远程资源所在；Manager 从 `<根>/manager/bin/` 运行，不在其旁边 |
 | `--endpoint` | 本机 Unix socket 地址；Manager 入口没有远程监听参数 |
 | `--enrollment-directory` | 绝对路径的登记根目录 |
 | `--development` | 选择开发环境上下文 |
@@ -194,9 +203,9 @@ Manager 本地登记记录如何管理节点；远程 Agent 的服务登记记�
 
 `main()` 依次执行以下步骤：
 
-1. CLI11 解析参数，取得 `manager.lock` 的非阻塞排他锁。
-2. 校验节点和登记路径，设置环境类型，调用 `configure_node_paths()`。
-3. 定位远程资源目录，指定 `<node>/logs`，初始化 `node-manager` 进程日志。
+1. CLI11 解析参数，从自己的位置得到安装目录 `<根>/manager`，取得 `data/manager.lock` 的非阻塞排他锁。
+2. 校验根目录和登记路径，设置环境类型，调用 `configure_node_paths()`。
+3. 记下应用目录，定位远程资源目录，按 `config/logging.json` 打开日志。
 4. 校验本机传输配置，安装 SIGINT/SIGTERM 停止处理。
 5. 使用 `replace_file_durably()` 写入 `manager.pid`。
 6. 创建 `NodeManager` 和最多 16 连接的 `RpcHost`，调用 `manager.open()` 提交异步恢复。
@@ -603,11 +612,9 @@ SSH 密钥生成后的确认使用最后一种方式，避免为同步而重新�
 
 ## 错误与可观测性
 
-Manager 进程日志使用 `<node>/logs/node-manager-<PID>_YYYY-MM-DD.log`，
-公共策略来自 `<node>/config/logging.json`。
-模块和事件写在记录字段中；`manager`、`enrollment` 或 RPC 操作不各开独立日志文件。
-文件存在但配置非法时明确失败。当前公共日志器在该文件不存在时仍使用内置默认策略，
-不会在启动时补写；不能把这一实现描述为“缺少日志配置一定启动失败”。
+Manager 的日志在 `<根>/manager/logs/asterion_node_manager-<PID>_YYYY-MM-DD.log`，配置来自
+`<根>/manager/config/logging.json`，见[运行日志](../services.md#运行日志)。
+文件存在但配置非法时明确失败；文件不存在时只写到标准错误，不会在启动时补写。
 
 主要定位线索包括 `manager.started`、`manager.stopped`、`manager.failed`、`node.restore_failed`，
 以及带请求关联编号的 RPC 结果。Agent 客户端诊断标明操作与阶段，例如交换失败或响应验证失败。

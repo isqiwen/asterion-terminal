@@ -19,7 +19,7 @@
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/ipc/tls_channel.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -36,6 +36,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <stdexcept>
 namespace fs = std::filesystem;
@@ -75,8 +76,14 @@ struct Service
 
 class Agent
 {
+    // <root>/agent/data: the Agent's state. <root>: every program's installation.
     fs::path root_;
+    fs::path programs_ = root_.parent_path().parent_path();
     PluginArtifacts plugins_{root_, current_executable()};
+    // The artifact in each program's bin/, read once from the file. Starts run
+    // on the blocking pool; the lock orders their installs.
+    std::mutex programs_mutex_;
+    std::map<wire::ServiceKind, std::string> installed_;
     ipc::TlsIdentity tls_;
     std::string bind_;
     fs::path sockets_;
@@ -188,11 +195,7 @@ class Agent
         phase_ = wire::Status::RECOVERY_REQUIRED;
         failure_.set_code(std::string(error_name(classify(error))));
         failure_.set_message(std::string(diagnostic) + ": " + error.what());
-        log_process_event(
-            "agent",
-            LogLevel::error,
-            "agent.recovery_required",
-            {{"message", diagnostic}, {"cause", error.what()}});
+        log::error("agent recovery required: {}: {}", diagnostic, error.what());
     }
 
     template <class F>
@@ -279,14 +282,92 @@ class Agent
         return utf8(sockets_ / (name + ".sock"));
     }
 
-    Started prepare_start(const std::string& name, const ServiceConfiguration& configuration)
+    fs::path program(wire::ServiceKind kind) const
+    {
+        return programs_ / program_name(kind);
+    }
+
+    // A verified artifact at `target`: a hard link to it, or a copy across file
+    // systems, published by rename.
+    void place_artifact(const std::string& hash, const fs::path& target) const
+    {
+        require_managed_path(target);
+        create_directories_durably(target.parent_path());
+        const auto temporary = target.parent_path() / ("." + hash + "-" + unique_process_id());
+        std::error_code linked;
+        fs::create_hard_link(binary(hash), temporary, linked);
+        if (linked)
+            fs::copy_file(binary(hash), temporary);
+        fs::rename(temporary, target);
+        sync_directory(target.parent_path());
+    }
+
+    // The program's directories, and its logging configuration seeded from the
+    // Agent's own.
+    void prepare_program(wire::ServiceKind kind) const
+    {
+        const auto folder = program(kind);
+        for (const auto* part : {"bin", "lib", "config", "logs", "data"})
+            create_directories_durably(folder / part);
+        const auto logging = folder / "config" / "logging.json";
+        if (!fs::exists(logging)) {
+            const auto source = programs_ / "agent" / "config" / "logging.json";
+            std::ifstream input(source, std::ios::binary);
+            if (!input)
+                throw std::runtime_error(
+                    "cannot read logging configuration template: " + source.string());
+            replace_file_durably(logging, std::string{std::istreambuf_iterator<char>(input), {}});
+        }
+    }
+
+    // Makes <root>/<program>/bin/<executable> the artifact this service runs.
+    // Every instance of a program runs one version: another version is refused
+    // while another instance of it runs (`others_running`, decided by the I/O
+    // owner, which owns the services).
+    fs::path install_program(const ServiceConfiguration& configuration, bool others_running)
+    {
+        const auto kind = configuration.kind;
+        std::lock_guard lock(programs_mutex_);
+        prepare_program(kind);
+        const auto executable = program(kind) / "bin" / executable_name(kind);
+        auto [installed, added] = installed_.try_emplace(kind);
+        if (added && fs::exists(executable))
+            installed->second = sha256_file(executable);
+        if (installed->second == configuration.artifact)
+            return executable;
+        if (others_running)
+            throw std::invalid_argument(
+                "another instance runs another version of " + program_name(kind)
+                + "; stop it first");
+        place_artifact(configuration.artifact, executable);
+        installed->second = configuration.artifact;
+        return executable;
+    }
+
+    // A CTP library of the program, named by its artifact.
+    fs::path install_library(wire::ServiceKind kind, const std::string& hash) const
+    {
+        const auto library = program(kind) / "lib"
+            / (hash + std::string(current_platform().os == "macos" ? ".dylib" : ".so"));
+        if (!fs::exists(library))
+            place_artifact(hash, library);
+        return library;
+    }
+
+    Started prepare_start(
+        const std::string& name,
+        const ServiceConfiguration& configuration,
+        bool others_running)
     {
         Started result;
         const bool lab = configuration.kind == wire::LAB;
+        if (lab) {
+            prepare_program(wire::LAB);
+            if (sha256_file(configuration.python) != configuration.artifact)
+                throw std::runtime_error("the bundled Python changed");
+        }
         const auto executable =
-            lab ? fs::path(configuration.python) : binary(configuration.artifact);
-        if (sha256_file(executable) != configuration.artifact)
-            throw std::runtime_error("artifact integrity check failed");
+            lab ? fs::path(configuration.python) : install_program(configuration, others_running);
         result.endpoint = service_endpoint(name);
         result.health_endpoint = utf8(sockets_ / (name + ".health"));
 
@@ -313,7 +394,9 @@ class Agent
             args.insert(
                 args.end(),
                 {"--plugin-directory",
-                    utf8(plugins_.materialize(name, configuration.plugin_artifacts))});
+                    utf8(plugins_.materialize(
+                        program(configuration.kind) / "lib" / "plugins" / name,
+                        configuration.plugin_artifacts))});
         if (configuration.kind == wire::DATA)
             args.insert(
                 args.end(),
@@ -330,7 +413,7 @@ class Agent
             args.insert(
                 args.end(),
                 {"--config",
-                    utf8(root_ / "config" / "services" / name / "research.json"),
+                    utf8(program(wire::RESEARCH) / "config" / name / "research.json"),
                     "--node-id",
                     node_id_,
                     "--discovery-endpoint",
@@ -338,38 +421,17 @@ class Agent
         }
         if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING || lab)
             args.insert(args.end(), {"--node-id", node_id_});
-        if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty()) {
-            const auto source = binary(configuration.provider_artifact);
-            const auto library = root_ / "services" / name
-                / (configuration.provider_artifact
-                    + std::string(current_platform().os == "macos" ? ".dylib" : ".so"));
-            require_managed_path(library);
-            if (!fs::exists(library)) {
-                if (sha256_file(source) != configuration.provider_artifact)
-                    throw std::runtime_error("provider artifact integrity check failed");
-                fs::copy_file(source, library);
-            } else if (sha256_file(library) != configuration.provider_artifact)
-                throw std::runtime_error("provider library changed");
-            args.insert(args.end(), {"--ctp-library", utf8(library)});
-        }
+        if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty())
+            args.insert(
+                args.end(),
+                {"--ctp-library",
+                    utf8(install_library(configuration.kind, configuration.provider_artifact))});
         if ((configuration.kind == wire::MARKET || configuration.kind == wire::TRADING)
-            && !configuration.catalog_artifact.empty()) {
-            const auto source = binary(configuration.catalog_artifact);
-            const auto library = root_ / "services" / name
-                / (configuration.catalog_artifact
-                    + std::string(current_platform().os == "macos" ? ".dylib" : ".so"));
-            require_managed_path(library);
-            if (!fs::exists(library)) {
-                if (sha256_file(source) != configuration.catalog_artifact)
-                    throw std::runtime_error("catalog artifact integrity check failed");
-                fs::copy_file(source, library);
-            } else if (sha256_file(library) != configuration.catalog_artifact)
-                throw std::runtime_error("catalog library changed");
+            && !configuration.catalog_artifact.empty())
             args.insert(
                 args.end(),
                 {configuration.kind == wire::TRADING ? "--ctp-library" : "--ctp-catalog-library",
-                    utf8(library)});
-        }
+                    utf8(install_library(configuration.kind, configuration.catalog_artifact))});
         if (local_)
             args.insert(args.end(), {"--endpoint", result.endpoint});
         else
@@ -409,16 +471,17 @@ class Agent
         try {
             Started result;
             const auto configuration = s.configuration;
+            bool others_running = false;
+            for (const auto& [other_name, other] : services_)
+                others_running = others_running
+                    || (other_name != name && other.configuration.kind == configuration.kind
+                        && other.process && !other.process->exited());
             co_await prepare([&] {
-                result = prepare_start(name, configuration);
+                result = prepare_start(name, configuration, others_running);
             });
             s.health_endpoint = std::move(result.health_endpoint);
             s.process = std::move(result.process);
-            log_process_event(
-                "agent",
-                LogLevel::info,
-                "service.started",
-                {{"service", name}, {"pid", s.process->id()}});
+            log::info("service {} started: pid={}", name, s.process->id());
             s.health = protocol::ServiceHealth::starting;
             s.last_heartbeat = 0;
             s.execution.reset();
@@ -619,11 +682,7 @@ class Agent
     {
         auto* service = &services_.at(name);
         if (service->process && service->process->exited()) {
-            log_process_event(
-                "agent",
-                LogLevel::warning,
-                "service.exited",
-                {{"service", name}, {"exit_code", service->process->exit_code()}});
+            log::warn("service {} exited: exit_code={}", name, service->process->exit_code());
             co_await stop_processes(*service);
             service->error = "process exited; awaiting bounded restart";
         }
@@ -661,13 +720,11 @@ class Agent
             } else {
                 service->health = protocol::ServiceHealth::unresponsive;
                 service->error = "service heartbeat unavailable";
-                log_process_event(
-                    "agent",
-                    LogLevel::warning,
-                    "service.heartbeat_failed",
-                    {{"service", name},
-                        {"message", error},
-                        {"consecutive_failures", service->failures + 1}});
+                log::warn(
+                    "service {} heartbeat failed ({} in a row): {}",
+                    name,
+                    service->failures + 1,
+                    error);
                 if (++service->failures >= 3 && phase_ == wire::Status::READY) {
                     co_await stop_processes(*service);
                     service->retry = std::chrono::steady_clock::now() + 5s;
@@ -1029,15 +1086,16 @@ class Agent
         } else {
             if (!d.directory().empty())
                 throw std::invalid_argument("service directory is Agent-owned");
-            s.configuration.directory = utf8(folder / "ledger");
+            s.configuration.directory =
+                utf8(program(s.configuration.kind) / "data" / d.service_id());
         }
         co_await prepare([&] {
             if (s.configuration.kind == wire::RESEARCH) {
                 const auto policy =
-                    root_ / "config" / "services" / d.service_id() / "research.json";
+                    program(wire::RESEARCH) / "config" / d.service_id() / "research.json";
                 require_managed_path(policy);
                 if (!fs::exists(policy)) {
-                    const auto source = root_ / "config" / "research.json";
+                    const auto source = programs_ / "agent" / "config" / "research.json";
                     std::ifstream input(source, std::ios::binary);
                     if (!input)
                         throw std::runtime_error(
@@ -1051,7 +1109,7 @@ class Agent
                 throw std::invalid_argument("service directory already exists");
             sync_directory(folder.parent_path());
             if (!local_ || !ledger || d.directory().empty())
-                create_directories_durably(folder / "ledger");
+                create_directories_durably(s.configuration.directory);
         });
         co_await save(d.service_id(), s.configuration);
         auto [it, added] = services_.emplace(d.service_id(), std::move(s));
@@ -1355,7 +1413,7 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion Node Agent: trusted remote deployment and supervision"};
     app.set_version_flag("--version", "Asterion Node Agent " ASTERION_PRODUCT_VERSION);
-    std::string directory, inspect, inspect_artifact, program_manifest;
+    std::string inspect, inspect_artifact, program_manifest;
     service::Transport transport;
     auto* inspect_option =
         app.add_option("--inspect-plugin", inspect, "Print a native plugin's identity and exit");
@@ -1363,9 +1421,6 @@ int main(int argc, char** argv)
         app.add_option("--plugin-artifact", inspect_artifact, "Expected inspected plugin identity");
     inspect_option->needs(artifact_option);
     artifact_option->needs(inspect_option);
-    app.add_option("--directory", directory)
-        ->check(CLI::ExistingDirectory)
-        ->excludes(inspect_option);
     app.add_option(
            "--prepare-programs",
            program_manifest,
@@ -1381,34 +1436,27 @@ int main(int argc, char** argv)
     CLI11_PARSE(app, argc, argv);
     if (!inspect.empty())
         return asterion::agent::inspect_plugin(inspect, inspect_artifact);
-    if (directory.empty()) {
-        std::cerr << "--directory is required\n";
-        return 2;
-    }
     auto run = [&]() -> int {
         try {
             service::install_stop_signals();
-            const fs::path root(std::u8string(directory.begin(), directory.end()));
-            if (!root.is_absolute() || !fs::is_directory(root))
-                throw std::invalid_argument("agent requires an existing absolute directory");
-            require_managed_path(root);
-            const auto logs = root / "logs";
-            require_managed_path(logs);
-            fs::create_directory(logs);
-            ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-            initialize_process_logging("agent");
-            log_process_event(
-                "agent",
-                LogLevel::info,
-                "agent.started",
-                {{"mode", program_manifest.empty() ? "supervision" : "program-preparation"}});
+            // <root>/agent/bin/asterion_node_agent: the Agent keeps its state in
+            // <root>/agent/data and installs the services under <root>.
+            const auto installation = installation_directory();
+            const auto root = installation / "data";
+            if (!root.is_absolute() || fs::is_symlink(installation) || fs::is_symlink(root))
+                throw std::invalid_argument("invalid Agent installation: " + installation.string());
+            create_directories_durably(root);
+            log::init();
+            log::info(
+                "agent started: mode={}",
+                program_manifest.empty() ? "supervision" : "program-preparation");
             std::uint64_t test_owner = 0;
             if (environment_variable("ASTERION_TEST_NODE_ISOLATED") == "1")
                 if (const auto owner = environment_variable("ASTERION_TEST_OWNER_PID"))
                     test_owner = std::stoull(*owner);
             if (!program_manifest.empty()) {
                 asterion::agent::prepare_service_programs(
-                    fs::path(directory),
+                    root,
                     fs::path(program_manifest),
                     transport.bind.empty(),
                     transport.port);
@@ -1416,7 +1464,6 @@ int main(int argc, char** argv)
             }
             transport.validate();
             asterion::FileLock ownership(root, "agent.lock");
-            prune_process_logs(logs);
             if (!transport.remote()) {
                 // Only the Agent holding agent.lock owns this path; a stale socket
                 // from a crashed predecessor is replaced.
@@ -1514,21 +1561,13 @@ int main(int argc, char** argv)
             } catch (const std::exception& error) {
                 // Suspended requests may still be borrowed by file or process work.
                 // A fatal loop failure must not destroy those frames under the pool.
-                log_process_event(
-                    "agent",
-                    LogLevel::error,
-                    "agent.failed",
-                    {{"message", error.what()}});
+                log::error("agent failed: {}", error.what());
                 std::_Exit(1);
             }
 
         } catch (const std::exception& error) {
             std::cerr << "Node failed: " << error.what() << '\n';
-            log_process_event(
-                "agent",
-                LogLevel::error,
-                "agent.failed",
-                {{"message", error.what()}});
+            log::error("agent failed: {}", error.what());
             return 1;
         }
         return 0;

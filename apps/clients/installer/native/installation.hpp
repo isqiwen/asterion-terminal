@@ -5,9 +5,27 @@
 
 namespace asterion::installation {
 
+// `root` holds every program's installation (see node_paths.hpp): the
+// installer copies the Agent and the Manager into root/agent/bin and
+// root/manager/bin and keeps its record and logs in root/terminal.
 struct Layout
 {
-    std::filesystem::path source, destination, node, enrollment;
+    std::filesystem::path source, destination, root, enrollment;
+
+    std::filesystem::path agent() const
+    {
+        return root / "agent";
+    }
+
+    std::filesystem::path manager() const
+    {
+        return root / "manager";
+    }
+
+    std::filesystem::path terminal() const
+    {
+        return root / "terminal";
+    }
 };
 
 // Application files are separate from user state. The caller supplies OS service

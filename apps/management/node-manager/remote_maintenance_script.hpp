@@ -18,7 +18,11 @@ import tempfile
 root, stage = Path(sys.argv[1]), Path(sys.argv[2])
 action, operation, version, preserve, port, bind = sys.argv[3:]
 preserve = preserve == 'true'
-state = root / 'state'
+# The node's programs are installed under root: agent/bin, agent/config (its
+# certificates and configuration defaults) and agent/data (its state).
+agent = root / 'agent'
+state = agent / 'data'
+program = agent / 'bin' / 'asterion_node_agent'
 
 def sync(folder):
     fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -41,7 +45,7 @@ def write(file, data, mode=0o600):
         if os.path.exists(name):
             os.unlink(name)
 
-for folder in (root, state):
+for folder in (root, agent, state):
     if folder.is_symlink() or not folder.is_dir() or folder.stat().st_uid != os.getuid():
         raise ValueError('Invalid owned node directory: ' + str(folder))
 record = root / 'maintenance-operation.json'
@@ -61,31 +65,41 @@ try:
             raise ValueError('Node maintenance ownership differs')
         write(record, json.dumps(intent).encode())
     if action == 'prepare':
-        write(root / 'asterion_node_agent', (stage / 'asterion_node_agent').read_bytes(), 0o700)
+        program.parent.mkdir(mode=0o700, exist_ok=True)
+        write(program, (stage / 'asterion_node_agent').read_bytes(), 0o700)
     elif action == 'uninstall':
-        (root / 'asterion_node_agent').unlink(missing_ok=True)
+        program.unlink(missing_ok=True)
         (root / 'install.json').unlink(missing_ok=True)
         if not preserve:
-            for file in state.iterdir():
-                if file.name in ('logs', 'agent.lock'):
+            # Every program's directory goes but its logs and the held lock.
+            for folder in root.iterdir():
+                if folder.is_symlink() or not folder.is_dir():
                     continue
-                if file.is_dir() and not file.is_symlink():
-                    shutil.rmtree(file)
-                else:
-                    file.unlink()
-            for name in ('ca.crt', 'server.crt', 'server.key', 'install.json'):
-                (root / name).unlink(missing_ok=True)
+                for part in folder.iterdir():
+                    if part.name == 'logs':
+                        continue
+                    if part.name == 'data' and part.is_dir() and not part.is_symlink():
+                        for file in part.iterdir():
+                            if file.name == 'agent.lock':
+                                continue
+                            if file.is_dir() and not file.is_symlink():
+                                shutil.rmtree(file)
+                            else:
+                                file.unlink()
+                    elif part.is_dir() and not part.is_symlink():
+                        shutil.rmtree(part)
+                    else:
+                        part.unlink()
         sync(root)
     else:
         raise ValueError('Invalid remote maintenance action')
 finally:
     os.close(lock)
 if action == 'prepare':
-    result = subprocess.run([str(root / 'asterion_node_agent'), '--directory', str(state),
-        '--prepare-programs', str(stage / 'programs.pb'), '--bind', bind, '--port', port],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run([str(program), '--prepare-programs', str(stage / 'programs.pb'),
+        '--bind', bind, '--port', port], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
-        raise ValueError('Agent program preparation failed; inspect ' + str(state / 'logs'))
+        raise ValueError('Agent program preparation failed; inspect ' + str(agent / 'logs'))
     installed = json.loads((root / 'install.json').read_text())
     installed['version'] = version
     write(root / 'install.json', json.dumps(installed).encode())

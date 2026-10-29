@@ -1,12 +1,12 @@
 {
-  "format": "json",
-  "retention_days": 30,
   "console": {
     "enabled": false,
     "level": "info"
   },
   "file": {
     "enabled": true,
-    "level": "info"
+    "level": "info",
+    "path": "../logs/{program}-{pid}.log",
+    "retention_days": 30
   }
 }

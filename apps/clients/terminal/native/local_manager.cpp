@@ -36,10 +36,15 @@ std::string service_name()
 
 std::vector<std::string> launch_arguments()
 {
-    std::vector<std::string> result{"--enrollment-directory", node_enrollment_directory().string()};
+    std::vector<std::string> result{
+        "--enrollment-directory",
+        node_enrollment_directory().string(),
+        "--application",
+        executable().parent_path().string()
+    };
     if (development_environment())
         result.push_back("--development");
-    if (environment_variable("ASTERION_NODE_DIRECTORY"))
+    if (environment_variable("ASTERION_ROOT"))
         result.push_back("--isolated");
     if (const auto python = environment_path("ASTERION_PYTHON"))
         result.insert(result.end(), {"--python", python->string()});
@@ -68,7 +73,7 @@ startup_failure(const fs::path& logs, fs::file_time_type started, const std::exc
     if (fs::exists(logs))
         for (const auto& entry : fs::directory_iterator(logs)) {
             if (entry.is_regular_file()
-                && entry.path().filename().string().starts_with("node-manager-")
+                && entry.path().filename().string().starts_with("asterion_node_manager-")
                 && entry.path().extension() == ".log" && entry.last_write_time() >= started) {
                 started = entry.last_write_time();
                 file = entry.path();
@@ -84,11 +89,10 @@ startup_failure(const fs::path& logs, fs::file_time_type started, const std::exc
             input.read(tail.data(), tail.size());
             tail.resize(input.gcount());
             std::istringstream lines(tail);
-            for (std::string line; std::getline(lines, line);) {
-                const auto record = Json::parse(line, nullptr, false);
-                if (record.is_object() && record.value("event", "") == "manager.failed")
-                    reason = record.at("fields").at("message").get<std::string>();
-            }
+            constexpr std::string_view failed = "manager failed: ";
+            for (std::string line; std::getline(lines, line);)
+                if (const auto at = line.find(failed); at != std::string::npos)
+                    reason = line.substr(at + failed.size());
         }
     }
     throw Error(
@@ -102,25 +106,27 @@ startup_failure(const fs::path& logs, fs::file_time_type started, const std::exc
 
 std::string local_manager()
 {
-    const auto node = local_node_directory();
-    if (!node.is_absolute() || fs::is_symlink(node))
-        throw std::invalid_argument("invalid local Agent directory");
+    const auto root = asterion_root();
+    if (!root.is_absolute() || fs::is_symlink(root))
+        throw std::invalid_argument("invalid Asterion root directory");
     const bool bootstrap_allowed =
-        development_environment() || environment_variable("ASTERION_NODE_DIRECTORY");
+        development_environment() || environment_variable("ASTERION_ROOT");
     if (!bootstrap_allowed) {
-        std::ifstream input(node / "installation.json");
+        std::ifstream input(root / "terminal" / "data" / "installation.json");
         const auto record = Json::parse(input, nullptr, false);
         if (!record.is_object() || record.value("pending", "incomplete") != "")
             throw std::runtime_error("Terminal installation is incomplete; open the installer");
     }
-    create_directories_durably(node);
-    const auto root = node / "manager";
-    if (fs::is_symlink(root))
+    // <root>/manager: bin/asterion_node_manager, and its state in data/.
+    const auto manager = root / "manager";
+    const auto data = manager / "data";
+    if (fs::is_symlink(manager) || fs::is_symlink(data))
         throw std::invalid_argument("invalid node manager directory");
-    create_directories_durably(root);
-    fs::permissions(root, fs::perms::owner_all, fs::perm_options::replace);
-    FileLock bootstrap(root, "bootstrap.lock");
-    const auto identity_file = root / "ipc-id";
+    create_directories_durably(data);
+    fs::permissions(manager, fs::perms::owner_all, fs::perm_options::replace);
+    fs::permissions(data, fs::perms::owner_all, fs::perm_options::replace);
+    FileLock bootstrap(data, "bootstrap.lock");
+    const auto identity_file = data / "ipc-id";
     std::string identity;
     if (fs::exists(identity_file)) {
         std::ifstream input(identity_file);
@@ -128,7 +134,7 @@ std::string local_manager()
     } else {
         if (!bootstrap_allowed)
             throw std::runtime_error("Terminal installation is incomplete; open the installer");
-        install_node_configuration(node, node_configuration_templates());
+        install_node_configuration(root, node_configuration_templates());
         identity = unique_process_id();
         replace_file_durably(identity_file, identity);
     }
@@ -150,22 +156,22 @@ std::string local_manager()
     }
     // Service registration carries launch context; Manager owns no generated policy file.
     {
-        FileLock stopped(root, "manager.lock");
+        FileLock stopped(data, "manager.lock");
     }
     const auto arguments = launch_arguments();
     const auto started = fs::file_time_type::clock::now();
-    const auto program = executable();
-    if (environment_variable("ASTERION_NODE_DIRECTORY")) {
+    const auto installed = manager / "bin" / "asterion_node_manager";
+    if (environment_variable("ASTERION_ROOT")) {
+        link_node_program(executable(), installed);
         auto command = arguments;
-        command.insert(command.begin(), {"--directory", root.string(), "--endpoint", endpoint});
-        ChildProcess child(program, command, true);
+        command.insert(command.begin(), {"--endpoint", endpoint});
+        ChildProcess child(installed, command, true);
         child.release();
-    } else {
-        if (development_environment())
-            install_node_service(program, root, endpoint, service_name(), arguments);
-        else
-            start_node_service(service_name());
-    }
+    } else if (development_environment()) {
+        copy_node_program(executable(), installed);
+        install_node_service(installed, endpoint, service_name(), arguments);
+    } else
+        start_node_service(service_name());
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
         try {
@@ -173,7 +179,7 @@ std::string local_manager()
             return endpoint;
         } catch (const std::runtime_error& error) {
             if (std::chrono::steady_clock::now() >= deadline)
-                startup_failure(node / "logs", started, error);
+                startup_failure(manager / "logs", started, error);
             std::this_thread::sleep_for(50ms);
         }
     }
@@ -181,13 +187,12 @@ std::string local_manager()
 
 void stop_development_manager(const std::string& endpoint, std::uint64_t pid)
 {
-    if (!development_environment() || environment_variable("ASTERION_NODE_DIRECTORY"))
+    if (!development_environment() || environment_variable("ASTERION_ROOT"))
         throw Error(
             ErrorCode::permission_denied,
             "automatic shutdown requires the managed development environment");
     stop_node_service(
-        executable(),
-        local_node_directory() / "manager",
+        program_directory("manager") / "bin" / "asterion_node_manager",
         endpoint,
         pid,
         service_name(),

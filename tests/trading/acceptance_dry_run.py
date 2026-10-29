@@ -41,7 +41,7 @@ def exercise(secret, expected_success):
             deadline = time.monotonic() + 120
             while process.poll() is None:
                 assert time.monotonic() < deadline, "acceptance script timed out"
-                for pidfile in Path(folder).glob("asterion-ctp-*/agent.pid"):
+                for pidfile in Path(folder).glob("asterion-ctp-*/agent/data/agent.pid"):
                     try:
                         pid = int(pidfile.read_text())
                         assert pid > 1 and pid != os.getpid()

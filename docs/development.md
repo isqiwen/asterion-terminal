@@ -154,7 +154,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 - **界面单元与组件测试**放在源码旁（`*.test.ts(x)`），验证“界面拿到某个回复后怎么做”：步骤、提示、重试、草稿、语言。组件测试用 `src/testing/core.ts` 顶替界面访问 C++ 核心的唯一通道，每个回复由用例自己给出；`readySnapshot()` 是一份带类型的“全部就绪”快照，契约变化时由类型检查指出。它不模拟核心的行为，核心做了什么仍由 C++ 测试和端到端测试证明。
 - **端到端测试**只保留必须穿过真实核心、Agent 和服务才能证明的行为。其中标记 `@journey` 的是每项能力一条的完整链路（行情、下单与授权、交易恢复、下载到回测、回测、因子、数据集持久化、远程部署、C++ 与界面的类型契约）；`e2e/snapshot-contract.spec.ts` 保证真实核心的输出符合组件测试所依赖的类型。新增端到端用例前先确认它不能写成组件测试；每个用例文件都要重新部署一套隔离服务，在 Linux 的 Debug 构建上约 6 秒。
 
-端到端测试必须用 `pnpm run test:e2e`（或它的 `test:e2e:journeys`）。首次运行或升级 Playwright 后先执行 `pnpm exec playwright install chromium`，准备与锁定版本对应的测试浏览器；缺少时全部用例在启动浏览器时失败。其中两个用例和 `pnpm test:desktop` 会启动真实的 Electron 窗口，Linux 上需要图形会话（无显示器的机器用 `xvfb-run -a`）。Linux 的 Debug 程序内嵌调试信息，每个用例文件的隔离节点约占 650 MB；换到下一个用例文件时上一个节点目录即被删除，整套运行同一时间只占一个节点目录的空间。`/tmp` 空间不足时，用 `TMPDIR` 指向磁盘上的目录。macOS 上 CTest 统一使用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。从没有图形会话的终端（例如 SSH）运行时，`DISPLAY` 为空，那两个 Electron 用例和 `pnpm test:desktop` 会因“Missing X server”失败，需要指向一个可用的显示。它通过 `tests/support/ssh_e2e.py` 启动临时目录中的隔离 Agent，并使用测试 CTP SDK；直接运行 `playwright test` 会连接并修改你本机正在使用的服务。运行前确认没有其他进程占用 1423 端口。
+端到端测试必须用 `pnpm run test:e2e`（或它的 `test:e2e:journeys`）。首次运行或升级 Playwright 后先执行 `pnpm exec playwright install chromium`，准备与锁定版本对应的测试浏览器；缺少时全部用例在启动浏览器时失败。其中两个用例和 `pnpm test:desktop` 会启动真实的 Electron 窗口，Linux 上需要图形会话（无显示器的机器用 `xvfb-run -a`）。Linux 的 Debug 程序内嵌调试信息，每个用例文件的隔离根目录约占 650 MB；换到下一个用例文件时上一个即被删除，整套运行同一时间只占一个的空间。`/tmp` 空间不足时，用 `TMPDIR` 指向磁盘上的目录。macOS 上 CTest 统一使用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。从没有图形会话的终端（例如 SSH）运行时，`DISPLAY` 为空，那两个 Electron 用例和 `pnpm test:desktop` 会因“Missing X server”失败，需要指向一个可用的显示。它通过 `tests/support/ssh_e2e.py` 启动临时目录中的隔离 Agent，并使用测试 CTP SDK；直接运行 `playwright test` 会连接并修改你本机正在使用的服务。运行前确认没有其他进程占用 1423 端口。
 
 `ctp_sdk_smoke` 要求真实行情和交易 SDK 同时存在，缺失明确失败。交易 SDK 检查版本与 ABI，通过本机临时回环监听器验证连接、断开、重新创建和释放；安装包验证显式使用包内的两套库。测试只使用临时状态，不提供柜台协议应答，不等于真实认证、成交、跨日或流文件验收。 Linux CTP 库的模块级状态随服务进程保留，避免 SDK 卸载时遗失分配；每个 API 连接仍单独 `Release`，SDK 更新通过停止并重启服务生效。
 
@@ -199,12 +199,12 @@ scripts/services/build_linux_services.sh
 
 | 内容 | 安装版 | 开发版 |
 | --- | --- | --- |
-| Agent、服务、账户、历史数据与任务（macOS） | `~/Library/Application Support/Asterion/node` | `~/Library/Application Support/Asterion Development/node` |
-| Agent、服务、账户、历史数据与任务（Linux） | `~/.local/share/asterion/node` | `~/.local/share/asterion-development/node` |
+| 各程序的安装目录根（macOS），见[安装目录](architecture.md#安装目录) | `~/Library/Application Support/Asterion` | `~/Library/Application Support/Asterion Development` |
+| 各程序的安装目录根（Linux） | `~/.local/share/asterion` | `~/.local/share/asterion-development` |
 | Electron 界面配置（macOS） | `~/Library/Application Support/me.asterion.terminal` | `~/Library/Application Support/me.asterion.terminal.dev` |
 | Electron 界面配置（Linux） | `~/.config/me.asterion.terminal` | `~/.config/me.asterion.terminal.dev` |
 | 用户服务标识 | `me.asterion.node-agent` | `me.asterion.node-agent.dev` |
-| SSH 身份与远程节点记录 | `~/.asterion/nodes` | 开发 `node/enrollments` |
+| SSH 身份与远程节点记录 | `~/.asterion/nodes` | 开发 `manager/data/enrollments` |
 
 ### 单机默认拓扑
 
@@ -217,29 +217,29 @@ Terminal 工作台按需准备本机行情、数据与研究服务，交易进�
 
 ### 节点配置与运行状态
 
-运行配置按职责分文件，集中在所属节点环境的 `config/` 目录；不把所有进程配置和持久状态合并成一个
-多进程共同改写的文件。日志策略共用，不按进程复制。业务配置保持原来的服务所有权，
-凭据仍使用钥匙串或受保护的 TLS 身份文件，不放入 Agent 配置。
+每个程序的配置在它自己安装目录的 `config/`，状态在 `data/`；不把多个进程的配置和状态合并成一个多进程共同改写的文件。
+凭据仍使用钥匙串或受保护的 TLS 身份文件，不放入配置。`<根>` 见[安装目录](architecture.md#安装目录)。
 
 | 文件 / 位置 | 内容与拥有者 |
 | --- | --- |
-| `<node>/config/research.json` | 部署新研究服务实例时复制的默认策略 |
-| `<node>/config/services/<实例>/research.json` | 该实例自己的任务并发策略；研究服务启动只读 |
-| `<node>/config/logging.json` | 全节点公共日志策略：格式、保留天数，控制台与文件各自的开关、级别和格式；可选，见[运行日志](services.md#运行日志) |
-| `<node>/services/<实例>/service.json` | Agent 持久化的部署状态（程序、插件、运行意愿），由管理操作修改；不是人工运行配置 |
-| `<enrollments>/<id>/enrollment.json`、`ssh.json` | Manager 持久化的节点登记与非秘密 SSH 连接资料；安装版登记根目录为 `~/.asterion/nodes`，开发版为 `<node>/enrollments` |
+| `<根>/agent/config/research.json` | 部署新研究服务实例时复制的默认策略 |
+| `<根>/research/config/<实例>/research.json` | 该实例自己的任务并发策略；研究服务启动只读 |
+| `<根>/<程序>/config/logging.json` | 该程序的日志：控制台与文件各自的开关、级别、格式，文件路径与保留天数，见[运行日志](services.md#运行日志) |
+| `<根>/agent/data/services/<实例>/service.json` | Agent 持久化的部署状态（程序、插件、运行意愿），由管理操作修改；不是人工运行配置 |
+| `<enrollments>/<id>/enrollment.json`、`ssh.json` | Manager 持久化的节点登记与非秘密 SSH 连接资料；安装版登记根目录为 `~/.asterion/nodes`，开发版为 `<根>/manager/data/enrollments` |
 | `<enrollments>/.maintenance.json` | Manager 的未完成远程维护进度；安装器通过 Manager 读取，不自建清单 |
-| 服务自己的数据目录 | 任务、行情来源、账户及风险等业务配置和状态，仍由对应业务服务管理 |
+| `<根>/<程序>/data/<实例>/` | 任务、行情来源、账户及风险等业务配置和状态，由对应业务服务管理 |
+| `<根>/terminal/data/` | Terminal 保存的数据源与 CTP 连接、交易账户目录、安装记录 |
 | Electron 界面配置目录（上表） | 语言、窗口等界面偏好；不承载节点调度配置 |
 
 仓库根目录的 `config/research.json` 和 `config/logging.json` 是维护中的默认配置。
 CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/config/`。
-安装器（开发环境为首次引导）在创建 Manager 身份前，将它们复制到 `<node>/config/`；远程 SSH 安装在注册
-Agent 系统服务前，将同一套默认文件上传并复制到 `/var/lib/asterion/nodes/<节点 ID>/state/config/`。
-已有目标文件保持原文，程序升级与普通重启不补写、不重置配置。配置复制属于部署，
-Agent 部署研究服务时将 `<node>/config/research.json` 原样复制到
-`<node>/config/services/<实例>/research.json`，保留已有实例配置。服务启动通过 `--config`
-读取自己的实例文件。Agent不解释并发策略，也不在重启时补齐配置。默认内容为：
+安装器（开发环境为首次引导）在创建 Manager 身份前，把 `logging.json` 复制到 `agent/`、`manager/`、`terminal/` 的 `config/`，
+`research.json` 复制到 `agent/config/`；远程 SSH 安装在注册 Agent 系统服务前，把同一套默认文件复制到
+`/var/lib/asterion/nodes/<节点 ID>/agent/config/`。Agent 首次安装一种服务时把自己的 `logging.json` 复制到该服务的
+`config/`，部署研究服务实例时把 `agent/config/research.json` 复制到 `research/config/<实例>/research.json`。
+已有目标文件保持原文，程序升级与普通重启不补写、不重置配置。服务启动通过 `--config` 读取自己的实例文件。
+Agent 不解释并发策略，也不在重启时补齐配置。默认内容为：
 
 ```json
 {"task_concurrency": 1}
@@ -248,26 +248,17 @@ Agent 部署研究服务时将 `<node>/config/research.json` 原样复制到
 `task_concurrency`允许1–2，限制一个研究服务实例同时准备、执行和确认的任务。
 各实例独立配置，不存在节点级额度。修改后重启该服务生效，不需要重启Agent。
 未知字段明确报错并保留原文；程序不会自动重写用户配置。
-日志配置在各进程初始化日志时读取，需要重启相应进程生效。Manager 的登记目录和环境通过
+日志配置在程序启动时读取，需要重启相应程序生效。Manager 的登记目录、应用目录和环境通过
 OS 服务启动参数传入。配置不热更新，必需配置缺失或无效时明确报告文件路径，保留原文件。
 
-Linux 开发环境实例配置通常为
-`~/.local/share/asterion-development/node/config/services/<实例>/research.json`，安装环境为
-`~/.local/share/asterion/node/config/services/<实例>/research.json`；`XDG_DATA_HOME` 和
-`ASTERION_NODE_DIRECTORY` 可改变节点根目录。远程实例配置为
-`/var/lib/asterion/nodes/<节点 ID>/state/config/services/<实例>/research.json`。
-原来的 `config/agent.json` 节点并发策略不再读取或发布；已有文件保留，不自动删除或转换。
-已有开发部署若缺少当前实例配置，需在停止服务后明确复制当前模板到所需实例路径并编辑，
-普通启动和升级不生成该文件。不自动迁移旧资源预算或用户资料。
-
 插件确有静态默认配置时，源码放在 `plugins/<类别>/<插件>/config/` 并随插件发布；部署后的
-可编辑实例配置放在 `<node>/config/services/<服务实例>/plugins/<插件 ID>.json`，由宿主读取并
+可编辑实例配置放在 `<根>/<程序>/config/<服务实例>/plugins/<插件 ID>.json`，由宿主读取并
 通过插件接口传入。当前原生插件由宿主提供数据源和业务参数，没有独立的静态配置文件，
 本轮不新增空文件或通用加载框架。账户风控、任务固化参数属于领域配置，不随插件默认文件覆盖；
 凭据不能存进这些普通文件。`config/futures-sessions.json` 是前端构建使用的交易时段定义，
 不作为节点运行配置下发。
 
-用户服务在 macOS 是 `~/Library/LaunchAgents/<标识>.plist` 的 launchd 任务，在 Linux 是 `~/.config/systemd/user/<标识>.service` 的 systemd 用户单元。Linux 设置了 `XDG_DATA_HOME` 时节点目录位于其下。Agent 的本机套接字目录在 `/tmp` 下，重启后不存在，Linux 单元在启动 Agent 前重新创建它。单元不设启动频率限制（systemd 会把 Terminal 主动发起的启动也计入并拒绝后续启动），Agent 异常退出后每 10 秒重试一次，与 launchd 的行为一致。
+用户服务在 macOS 是 `~/Library/LaunchAgents/<标识>.plist` 的 launchd 任务，在 Linux 是 `~/.config/systemd/user/<标识>.service` 的 systemd 用户单元。Linux 设置了 `XDG_DATA_HOME` 时根目录位于其下。Agent 的本机套接字目录在 `/tmp` 下，重启后不存在，Linux 单元在启动 Agent 前重新创建它。单元不设启动频率限制（systemd 会把 Terminal 主动发起的启动也计入并拒绝后续启动），Agent 异常退出后每 10 秒重试一次，与 launchd 的行为一致。
 
 开发窗口标题及标题栏显示“开发环境”。Agent 各自持有独立随机 IPC 地址，安装版关闭窗口后继续运行。开发版关闭主窗口或按 Ctrl+C 时，核验开发 Agent 的系统服务归属后请求停止，由Agent停止研究服务内部计算及其他业务服务、最后停止数据服务，再由入口停止 Manager，最后退出界面和 Vite；停止成功后移除两个开发服务的登录启动注册，数据与已确认的服务运行意愿保留。退出不通过逐服务管理命令改写配置，Agent 正在初始化或需恢复也可结束。下次启动重新注册 Manager／Agent，按保存的运行意愿恢复进程；柜台连接和交易授权不会自动恢复。升级与维护只作用于当前环境。钥匙串账户按数据源配置目录的摘要区分，两个环境相同连接名称不会读取或覆盖对方凭据。行情密码和授权码可由用户明确选择保存在本机钥匙串，账户身份及前置地址参与隔离；交易登录密码不持久化。
 
@@ -277,7 +268,7 @@ Linux 开发环境实例配置通常为
 
 浏览器开发入口为 `http://127.0.0.1:1423`，其界面偏好与 Electron 分开，业务服务与开发桌面使用同一开发目录，正常关闭 Vite 也会停止本机开发服务。不要复用旧浏览器入口的连接配置。环境隔离不是权限沙箱：显式选择同一远程服务仍会操作相同资源。生产交易服务按稳定账户 ID 取得当前操作系统用户范围内的记录独占权，开发与安装环境共用固定归属目录；同一 ID 只能恢复其原账本。不同 ID 不被自动判定为同一外部资金账户，保证不覆盖其他用户、软件或机器；测试使用专用账户与隔离节点。
 
-`ASTERION_NODE_DIRECTORY` 仍只作为显式临时测试目录覆盖：不注册用户服务、不执行系统 Agent 升级。测试同时使用独立 `--user-data-dir`；不能只改界面目录就声称业务已隔离。自动化测试继续通过隔离包装器运行。
+`ASTERION_ROOT` 仍只作为显式临时测试目录覆盖：不注册用户服务、不执行系统 Agent 升级。测试同时使用独立 `--user-data-dir`；不能只改界面目录就声称业务已隔离。自动化测试继续通过隔离包装器运行。
 
 开发入口启动桌面前先清理遗留的开发 Manager／Agent；首次连接本机节点时，由新构建的 Agent 离线同步各服务的程序、CTP库和已选用内置插件，再更新 Agent 并启动。原运行意愿、服务绑定、账户配置与业务数据保留；相同摘要不重写服务配置。同步失败则阻止启动，并将原因写入开发节点 `logs/agent-<PID>_YYYY-MM-DD.log`。Native 在子进程退出后从日志末尾读取失败原因，将其与本次日志的完整路径直接显示在启动错误中；没有明确失败行时显示退出码，超过 60 秒则终止子进程并显示超时及日志路径。不修改远程节点或安装版服务。安装版在“设置 → 连接与部署”停止业务后，关闭 Terminal，再由独立安装器更新；行情登录状态不保留，需要重新登录。
 
@@ -312,24 +303,20 @@ Linux 开发环境实例配置通常为
 
 POSIX 服务启动时显式忽略 `SIGPIPE`，使断管写入返回 `EPIPE`，避免供应商库持有的连接关闭时直接终止服务。该策略不依赖父进程的信号设置；`SIGINT` / `SIGTERM` 仍请求正常停止。回归同时检查默认信号环境中的断管和停止行为。
 
-Terminal 原生层、Agent 及本机托管服务统一写入当前环境节点目录的 `logs/`。桌面与开发桥均由 Native 在初始化客户端和后台线程前设置路径，复用[本机服务](#本机服务)的节点目录规则；不再使用 Electron 界面配置目录或 `~/Library/Logs/`。已有日志保留在原处，不自动搬迁或删除。
-
-| 平台 | 开发版日志 | 安装版日志 |
-| --- | --- | --- |
-| Linux | `~/.local/share/asterion-development/node/logs/` | `~/.local/share/asterion/node/logs/` |
-| macOS | `~/Library/Application Support/Asterion Development/node/logs/` | `~/Library/Application Support/Asterion/node/logs/` |
-
-Linux 的 `XDG_DATA_HOME` 和隔离测试的 `ASTERION_NODE_DIRECTORY` 同时决定节点与日志位置，测试日志位于 `<隔离节点>/logs/`。`ASTERION_LOG_DIRECTORY` 是进程日志器及子进程继承使用的内部设置，Terminal 和 Agent 会按所属节点覆盖它，不作为独立的桌面路径配置。远程节点日志留在远程 `<节点目录>/logs/`，不自动下载到桌面。
+每个程序写入自己安装目录的 `logs/`（见[安装目录](architecture.md#安装目录)和[运行日志](services.md#运行日志)），
+例如开发版 Linux 的 `~/.local/share/asterion-development/agent/logs/`；Terminal 和安装器写入 `<根>/terminal/logs/`。
+程序从自己的位置找到日志配置，不经环境变量。隔离测试的日志在 `<ASTERION_ROOT>/<程序>/logs/`。远程节点的日志留在远程
+`/var/lib/asterion/nodes/<节点 ID>/<程序>/logs/`，不自动下载到桌面。旧位置的日志保留原处，不自动搬迁或删除。
 
 这里的本机节点是当前运行环境由本机 Node Agent 管理的目录，不随界面选中的远程服务改变。
-桌面启动错误区和服务连接详情提供“打开本机日志目录”；服务连接详情同时显示完整路径。
+桌面启动错误区和服务连接详情提供“打开本机日志目录”，打开的是根目录，各程序的 `logs/` 在其下；服务连接详情同时显示完整路径。
 Electron 从 Native 快照的 `diagnostics.log_directory` 获取路径，再调用系统文件管理器打开，
 不接受界面传入的任意目录。开发桥界面仍可查看错误中的路径，但没有桌面文件管理器入口。
 
-公共日志器的 JSON Lines 文件按程序、PID 与本地日期分文件；同一进程的模块共用输出，公共配置为 `<节点目录>/config/logging.json`，缺省 info、30 天，见[运行日志](services.md#运行日志)。开发同步是临时 Agent 的运行模式，也写公共 JSON Lines 日志。构建输出仍在启动终端，前端 `console.*` 在开发者工具；日志不替代交易账本、任务库和柜台记录。
+日志按程序、PID 与本地日期分文件，每行一条文本记录，格式由各程序的 `config/logging.json` 决定，见[运行日志](services.md#运行日志)。准备程序是 Agent 的离线运行，写入 Agent 的日志。构建输出仍在启动终端，前端 `console.*` 在开发者工具；日志不替代交易账本、任务库和柜台记录。
 
 - `terminal-<PID>_YYYY-MM-DD.log` 记录命令名称、`trace_id`、耗时和成功状态；常规状态读取仅在 debug 级别记录。每个 Terminal 实例的标识含本次进程生成的随机范围，跨重启不会复用。
-- 进程日志中 `module=requests` 的 `rpc.started` 将 `trace_id` 连接到一次独立的 `correlation_id`。服务 `rpc.completed` 使用相同请求标识，记录操作名、成功状态、稳定错误码和允许的任务/交易标识；它表示处理完成，不保证回复已经到达客户端。
+- `rpc started: trace_id=… correlation_id=…` 将 `trace_id` 连接到一次独立的 `correlation_id`。服务的 `rpc completed`／`rpc failed` 行使用相同请求标识，记录操作名、稳定错误码和允许的任务/交易标识；它表示处理完成，不保证回复已经到达客户端。
 - 下载、回测和因子任务用 `task_id` 与数字 `attempt` 连接服务内部的开始/完成记录。进度更新不逐次写成功日志，凭据与尝试令牌不记录。
 - 交易 `journal.committed` 只在 SQLite 提交成功后记录 `account_id`、`request_id`、`order_id` 和已分配的 `broker_key`。`broker.order_observed`、`broker.trade_observed` 在服务读取柜台快照时关联委托、柜台及交易所标识。采样可能合并两次读取之间的中间回报，不能替代柜台原始成交历史；SDK 回调不因此写磁盘。
 - 进程日志中 `module=transport` 记录连接处理、握手、接入和健康通道故障。重复故障在累计次数 1、2、4、8 等位置报告，空闲监听超时不报告为故障。记录只含错误码和计数，不写请求体、凭据或对端异常原文。
@@ -383,9 +370,9 @@ Terminal 普通启动只启动并连接现有注册，不安装程序。开发�
 服务；Linux 使用 systemd 用户服务，macOS 使用 launchd。两者没有父子依赖或级联停止规则。
 远程 SSH 登记只注册远程 Agent。
 
-Manager 的启动参数携带登记目录和环境，不包含凭据；程序和插件从可执行文件所在目录解析。节点目录由 `--directory` 的父目录确定。OS 服务定义保存这些参数，无额外的生成配置文件。其私有 Unix Socket 身份保存在 `<节点目录>/manager/ipc-id`。既有 enrollment 文件保留原路径，由 Manager 读取。Terminal 持有 Manager 的状态投影，业务服务客户端仍直连其服务端点。
+Manager 的启动参数携带登记目录、应用目录（`--application`）和环境，不包含凭据；打包的程序和插件从应用目录解析。Manager 自己从 `<根>/manager/bin/` 运行，状态在 `<根>/manager/data/`。OS 服务定义保存这些参数，无额外的生成配置文件。其私有 Unix Socket 身份保存在 `<根>/manager/data/ipc-id`。既有 enrollment 文件保留原路径，由 Manager 读取。Terminal 持有 Manager 的状态投影，业务服务客户端仍直连其服务端点。
 
-安装版关闭界面保留后台进程。开发入口退出先通过 Manager 停本机 Agent 及业务服务，再由入口停止并移除开发 Manager 的服务注册；远程节点不停止。Manager 重启只恢复节点观察，不把重连当成一次开发同步。`ASTERION_NODE_DIRECTORY` 隔离测试不注册系统服务；Manager 使用测试 owner PID（未指定时为启动它的测试客户端 PID），测试结束时清理两个进程。
+安装版关闭界面保留后台进程。开发入口退出先通过 Manager 停本机 Agent 及业务服务，再由入口停止并移除开发 Manager 的服务注册；远程节点不停止。Manager 重启只恢复节点观察，不把重连当成一次开发同步。`ASTERION_ROOT` 隔离测试不注册系统服务；Manager 使用测试 owner PID（未指定时为启动它的测试客户端 PID），测试结束时清理两个进程。
 
 Linux 独立系统服务验收可运行 `python3 tests/acceptance/node_manager_services.py --build build/Debug --allow-user-services`。该探针只使用临时目录和唯一的 `me.asterion.acceptance.*` 用户服务名称，验证独立启停及资源文件原子替换后的停止，并在结束时清理注册。它不操作安装版或开发版服务。
 
@@ -431,8 +418,8 @@ macOS 正式分发继续要求 Developer ID 签名和公证。`package-test` 仅
 安装器按登记状态进入安装、升级或维护界面：同版本提供修复／卸载，新版本提供升级／卸载，
 旧安装包不能降级或修复较新版本。修复重新部署程序与服务注册，不回填用户配置或业务资料。
 中断后继续必须使用登记的目标版本安装包；开发构建版本未变化时应选择修复，而非升级。
-卸载默认勾选保留配置与业务数据。明确取消并确认后，删除界面所列节点目录和连接登记目录
-中的资料，保留诊断日志、锁文件、系统钥匙串及远程机器资料。卸载中断后按已登记选择继续；
+卸载默认勾选保留配置与业务数据。明确取消并确认后，删除根目录下各程序目录和连接登记目录
+中的资料，保留各程序的诊断日志、锁文件、系统钥匙串及远程机器资料。卸载中断后按已登记选择继续；
 安装、升级及修复没有删除资料的选项。
 程序替换不提供旧格式迁移；配置与原始资料保留，不要删除业务数据来绕过格式错误。
 

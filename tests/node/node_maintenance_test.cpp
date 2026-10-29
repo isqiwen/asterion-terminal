@@ -1,6 +1,7 @@
 #include "node_storage_identity.hpp"
 #include "agent_client.hpp"
 #include "node_paths.hpp"
+#include "support/agent_installation.hpp"
 #include "support/local_listener.hpp"
 #include "service_configuration.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
@@ -32,12 +33,13 @@ protected:
     fs::path root = fs::temp_directory_path() / ("ast-publication-" + unique_process_id());
     fs::path installed = root / "bin/asterion_node_agent";
     fs::path staged = root / "bin/agent-upgrade.staged";
-    fs::path journal = root / "agent-upgrade.json";
+    fs::path journal = root / "data/agent-upgrade.json";
     std::string before, after;
 
     void SetUp() override
     {
         fs::create_directories(root / "bin");
+        fs::create_directories(root / "data");
         fs::copy_file(ASTERION_AGENT_PATH, installed);
         before = sha256_file(installed);
         after = sha256_file(ASTERION_MARKET_PATH);
@@ -67,7 +69,7 @@ TEST_F(NodeProgramPublication, ConfigurationDeploymentPreservesOperatorEdits)
 {
     const auto defaults = fs::path(ASTERION_AGENT_PATH).parent_path() / "config";
     install_node_configuration(root, defaults);
-    const auto file = root / "config/research.json";
+    const auto file = root / "agent/config/research.json";
     std::ifstream input(file);
     EXPECT_EQ(Json::parse(input).at("task_concurrency"), 1);
     const std::string edited = R"({"task_concurrency":2})";
@@ -149,10 +151,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     ServiceIo io;
     const auto root = fs::temp_directory_path() / ("ast-maint-" + unique_process_id().substr(0, 8));
     fs::create_directories(root / "ledger");
-    fs::create_directories(root / "agent");
-    install_node_configuration(
-        root / "agent",
-        fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
+    install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
 
     struct Cleanup
     {
@@ -166,9 +165,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     } cleanup{root};
 
     const auto endpoint = (root / "agent.sock").string();
-    ChildProcess agent(
-        ASTERION_AGENT_PATH,
-        {"--directory", (root / "agent").string(), "--endpoint", endpoint});
+    ChildProcess agent(testing_support::install_agent(root), {"--endpoint", endpoint});
     NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
     std::shared_ptr<AgentClient> client;
     const auto deadline = std::chrono::steady_clock::now() + 10s;
@@ -381,7 +378,7 @@ TEST(NodeMaintenance, SilentPeerAndBusyAdministrationLeaveStatusAndReadsAvailabl
 
     const auto endpoint = (root / "agent.sock").string();
     install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
-    ChildProcess agent(ASTERION_AGENT_PATH, {"--directory", root.string(), "--endpoint", endpoint});
+    ChildProcess agent(testing_support::install_agent(root), {"--endpoint", endpoint});
     NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
@@ -455,10 +452,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
     ServiceIo io;
     const auto root =
         fs::temp_directory_path() / ("ast-upgrade-" + unique_process_id().substr(0, 8));
-    fs::create_directories(root / "agent");
-    install_node_configuration(
-        root / "agent",
-        fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
+    install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
     fs::create_directories(root / "running");
     fs::create_directories(root / "stopped");
 
@@ -480,13 +474,8 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
     auto start = [&] {
         fs::remove(endpoint);
         agent = std::make_unique<ChildProcess>(
-            ASTERION_AGENT_PATH,
-            std::vector<std::string>{
-                "--directory",
-                (root / "agent").string(),
-                "--endpoint",
-                endpoint
-            });
+            testing_support::install_agent(root),
+            std::vector<std::string>{"--endpoint", endpoint});
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             try {
@@ -579,11 +568,16 @@ namespace {
 class ProgramPreparation : public testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("ast-dev-programs-" + unique_process_id());
+    // <base>/agent: the Agent runs through a link in bin/ and keeps its state in data/.
+    fs::path base = fs::temp_directory_path() / ("ast-dev-programs-" + unique_process_id());
+    fs::path root = base / "agent" / "data";
+    fs::path agent = base / "agent" / "bin" / "asterion_node_agent";
     node::proto::ServicePrograms manifest;
 
     void SetUp() override
     {
+        fs::create_directories(agent.parent_path());
+        fs::create_symlink(ASTERION_AGENT_PATH, agent);
         fs::create_directories(root / "services/market/ledger");
         fs::create_directories(root / "services/trading/ledger");
         fs::create_directories(root / "artifacts");
@@ -620,7 +614,7 @@ protected:
 
     void TearDown() override
     {
-        fs::remove_all(root);
+        fs::remove_all(base);
     }
 
     fs::path copy(const std::string& hash) const
@@ -631,20 +625,23 @@ protected:
     int prepare()
     {
         replace_file_durably(root / "programs.pb", manifest.SerializeAsString());
+        const auto output = root / ("preparation-" + unique_process_id() + ".log");
         // Only this child receives the development environment.
         ChildProcess child(
             "/usr/bin/env",
             {"ASTERION_ENVIRONMENT=development",
-                ASTERION_AGENT_PATH,
-                "--directory",
-                root.string(),
+                agent.string(),
                 "--prepare-programs",
                 (root / "programs.pb").string()},
             false,
-            root / ("preparation-" + unique_process_id() + ".log"),
+            output,
             true);
         if (!child.wait(15s))
             throw std::runtime_error("preparation timed out");
+        if (child.exit_code() != 0) {
+            std::ifstream input(output);
+            std::cerr << "preparation output: " << input.rdbuf() << '\n';
+        }
         return child.exit_code();
     }
 };
@@ -654,8 +651,8 @@ protected:
 TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers)
 {
     // What an earlier start loaded the market service's plugins from.
-    fs::create_directories(root / "services/market/plugins/earlier");
-    write_file_durably(root / "services/market/plugins/earlier/plugin.so", "a copy");
+    fs::create_directories(base / "market/lib/plugins/market/earlier");
+    write_file_durably(base / "market/lib/plugins/market/earlier/plugin.so", "a copy");
     ASSERT_EQ(prepare(), 0);
     const auto market = agent::load_service_configuration(root / "services/market", true, 0);
     const auto trading = agent::load_service_configuration(root / "services/trading", true, 0);
@@ -680,7 +677,7 @@ TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers
     // copy of artifacts and goes.
     EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_AGENT_PATH))));
     EXPECT_TRUE(fs::exists(copy(sha256_file(PLUGIN_GOOD))));
-    EXPECT_FALSE(fs::exists(root / "services/market/plugins"));
+    EXPECT_FALSE(fs::exists(base / "market/lib/plugins/market"));
     const auto modified = fs::last_write_time(root / "services/market/service.json");
     ASSERT_EQ(prepare(), 0);
     EXPECT_TRUE(fs::last_write_time(root / "services/market/service.json") == modified);
@@ -772,13 +769,15 @@ TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
     } environment;
 
     environment.set("ASTERION_ENVIRONMENT", "development");
-    environment.set("ASTERION_NODE_DIRECTORY", root.string());
+    environment.set("ASTERION_ROOT", base.string());
+    // The Agent's logging configuration, as an installation has it.
+    install_node_configuration(base, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
     fs::create_directory(root / "bundled-plugins");
     environment.set("ASTERION_PLUGIN_DIRECTORY", (root / "bundled-plugins").string());
     const auto invalid = Json{{"kind", static_cast<int>(node::proto::MARKET)}}.dump();
     replace_file_durably(root / "services/market/service.json", invalid);
     try {
-        prepare_local_programs(root, ASTERION_AGENT_PATH);
+        prepare_local_programs(agent);
         FAIL() << "invalid service configuration must reject synchronization";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::operation_failed);
@@ -792,8 +791,8 @@ TEST_F(ProgramPreparation, TerminalReportsTheFailedPreparationCauseAndExactLog)
         const auto marker = diagnostic.find("\nLog file: ");
         ASSERT_NE(marker, std::string::npos);
         const fs::path log = diagnostic.substr(marker + std::string("\nLog file: ").size());
-        EXPECT_EQ(log.parent_path(), root / "logs");
-        EXPECT_TRUE(log.filename().string().starts_with("agent-"));
+        EXPECT_EQ(log.parent_path(), base / "agent" / "logs");
+        EXPECT_TRUE(log.filename().string().starts_with("asterion_node_agent-"));
         std::ifstream input(log);
         const std::string contents{std::istreambuf_iterator<char>(input), {}};
         EXPECT_NE(contents.find("invalid managed service configuration"), std::string::npos);
@@ -865,13 +864,8 @@ TEST(NodeStorageIdentity, DiscoveryKeepsNodeIdentityAndRefusesAdministrativeRequ
     const auto endpoint = (directory.root / "agent.sock").string();
     const auto start = [&] {
         return std::make_unique<ChildProcess>(
-            ASTERION_AGENT_PATH,
-            std::vector<std::string>{
-                "--directory",
-                directory.root.string(),
-                "--endpoint",
-                endpoint
-            });
+            testing_support::install_agent(directory.root),
+            std::vector<std::string>{"--endpoint", endpoint});
     };
     auto process = start();
     const auto query = [&](const std::string& address, bool mutation = false) {
@@ -915,7 +909,7 @@ TEST(NodeStorageIdentity, DiscoveryKeepsNodeIdentityAndRefusesAdministrativeRequ
     const auto denied = query(original.discovery_endpoint(), true);
     ASSERT_TRUE(denied.has_error());
     EXPECT_EQ(denied.error().code(), "permission_denied");
-    EXPECT_TRUE(fs::is_empty(directory.root / "services"));
+    EXPECT_TRUE(fs::is_empty(directory.root / "agent" / "data" / "services"));
     process.reset();
     process = start();
     const auto restarted = ready();

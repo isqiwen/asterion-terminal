@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install_agent  # noqa: E402
 from bundle_fixture import make_bundle
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "data"))
 from history_fixture import contracts
@@ -51,15 +53,17 @@ def stop(p):
     if diagnostic:
         print(diagnostic, file=sys.stderr)
 with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup_errors=True) as folder:
-    root = Path(folder); state = root / "node"; state.mkdir()
-    (state / "config").mkdir()
-    (state / "config/research.json").write_text(json.dumps({"task_concurrency": 2}))
+    # The remote node's root: the Agent's installation is state/agent, its
+    # state state/agent/data, the services' installations beside it.
+    root = Path(folder); state = root / "node"
+    shutil.copytree(Path(node).resolve().parent / "config", state / "agent/config")
+    (state / "agent/config/research.json").write_text(json.dumps({"task_concurrency": 2}))
     subprocess.run([certificates, folder], check=True)
     management, trade_port = port(), port()
     while trade_port == management:
         trade_port = port()
-    transport_log = state / "logs/agent.log"
-    args = [node, "--bind", "127.0.0.1", "--port", str(management), "--directory", str(state), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
+    transport_log = state / "agent/logs/asterion_node_agent.log"
+    args = [str(install_agent(state, node)), "--bind", "127.0.0.1", "--port", str(management), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
     def launch_node():
         p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def listening():
@@ -72,11 +76,11 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         wait(listening)
         return p
     agent = launch_node()
-    enrollment = root / "local/enrollments/task"; enrollment.mkdir(parents=True)
+    enrollment = root / "local/manager/data/enrollments/task"; enrollment.mkdir(parents=True)
     for file in ("ca.crt", "client.crt", "client.key"): shutil.copyfile(root / file, enrollment / file)
     (enrollment / "enrollment.json").write_text(json.dumps({"id": "task", "host": "localhost", "port": management, "os": "linux"}))
     resources=make_bundle(root / "resources", Path(node).resolve().parent, strip_debug=True)
-    terminal = subprocess.Popen([bridge], env=dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_NODE_DIRECTORY=str(root / "local")), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+    terminal = subprocess.Popen([bridge], env=dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_ROOT=str(root / "local")), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
     try:
         connection = {"id": "task", "host": "localhost", "port": str(management), "ca_file": str(root / "ca.crt"), "certificate_file": str(root / "client.crt"), "private_key_file": str(root / "client.key")}
         first = call(terminal, "node.connect", {"id": "task"})["nodes"][0]
@@ -109,14 +113,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         rpc(11, field(1, digest) + field(2, 1) + field(3, first["health"]["os"]) + field(4, first["health"]["arch"]))
         rpc(12, field(1, digest) + field(2, 0) + field(3, b"x"))
         assert b"checksum mismatch" in rpc(13, field(1, digest))
-        assert not list((state / "artifacts").iterdir())
+        assert not list((state / "agent/data/artifacts").iterdir())
         assert b"invalid service id" in rpc(14, field(1, "../escape") + field(2, digest) + field(3, trade_port))
         # No UI/API polling for > one heartbeat period: native monitor must run.
         time.sleep(6)
         assert call(terminal, "runtime.snapshot")["nodes"][0]["last_heartbeat_ms"] > first["last_heartbeat_ms"]
         spec = {"kind":"live", "id": "task", "service": "account-test", "port": str(trade_port)}
         call(terminal, "node.deploy", {**spec, "os": "invalid"}, error=True)
-        assert not list((state / "services").iterdir())
+        assert not list((state / "agent/data/services").iterdir())
         deployed = call(terminal, "node.deploy", spec)["nodes"][0]["health"]["services"][0]
         assert deployed["state"] == "running"
         firewall={"id":"task","service":"account-test","action":"allow","token":""}
@@ -125,9 +129,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         call(terminal,"node.service_firewall",dict(firewall,action="apply",token="not-confirmed"),error=True)
         removed=call(terminal,"node.service_firewall",dict(firewall,action="remove"))["firewall_plan"]
         assert not removed["can_apply"], "no ownership record can authorize deletion"
-        assert not (state/"firewall").exists(), "inspection must not register rules"
+        assert not (state/"agent/data/firewall").exists(), "inspection must not register rules"
         call(terminal, "node.deploy", spec, error=True)  # No replacement of an existing ledger.
-        wait(lambda: (state / "services/account-test/service.json").exists())
+        wait(lambda: (state / "agent/data/services/account-test/service.json").exists())
         def trading_listening():
             try:
                 with socket.create_connection(("127.0.0.1", trade_port), timeout=0.1):
@@ -152,9 +156,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "stop"})
             # A remote node does not report its directories; this is the Agent's own layout.
             seeded = subprocess.run(
-                [history, "--directory", str(state / "services/task-data/ledger"), "--id", identity,
+                [history, "--directory", str(state / "data/data/task-data"), "--id", identity,
                  "--data-instance", "task-data", "--price", *map(str, prices)],
-                env=dict(os.environ, ASTERION_NODE_DIRECTORY=str(state), ASTERION_TEST_NODE_ISOLATED="1"),
+                env=dict(os.environ, ASTERION_ROOT=str(state), ASTERION_TEST_NODE_ISOLATED="1"),
                 capture_output=True, text=True)
             assert seeded.returncode == 0, seeded.stderr
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "start"})
@@ -182,8 +186,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         time.sleep(6)
         assert account_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
         # A verified CTP runtime copy does not depend on its unused source artifact.
-        account_config=json.loads((state/"services/account-test/service.json").read_text())
-        catalog_source=state/"artifacts"/(account_config["catalog_artifact"]+".bin")
+        account_config=json.loads((state/"agent/data/services/account-test/service.json").read_text())
+        catalog_source=state/"agent/data/artifacts"/(account_config["catalog_artifact"]+".bin")
         source_size=catalog_source.stat().st_size
         with catalog_source.open("ab") as file: file.write(b"unused source corruption")
         try:
@@ -233,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert factor_result["experiment"]["evaluation"] == {"mode": "walk_forward", "training_events": 80, "validation_events": 40}, factor_result
         # Business replies come directly from the service even while both
         # management processes are suspended. No management command runs here.
-        manager_pid = int((root / "local/manager/manager.pid").read_text())
+        manager_pid = int((root / "local/manager/data/manager.pid").read_text())
         suspended = []
         try:
             for pid in (manager_pid, agent.pid):

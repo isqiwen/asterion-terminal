@@ -1,6 +1,6 @@
 #include "session.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -34,7 +34,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
-        asterion::initialize_process_logging("market-data", service);
+        asterion::log::init();
         validate_id(service);
         if (!node_id.empty())
             validate_id(node_id);
@@ -161,16 +161,12 @@ int main(int argc, char** argv)
             if (!host.run())
                 std::_Exit(0);
         } catch (const std::exception& error) {
-            log_process_failure("market-data", "service.failed", classify(error), 1);
+            log::error("market service failed: {}", error_name(classify(error)));
             std::_Exit(1);
         }
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
-        log_process_event(
-            "market-data",
-            LogLevel::error,
-            "service.failed",
-            {{"message", e.what()}});
+        log::error("market service failed: {}", e.what());
         return 1;
     }
     return 0;

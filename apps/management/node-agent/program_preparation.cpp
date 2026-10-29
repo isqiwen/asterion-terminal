@@ -4,7 +4,7 @@
 #include "plugin_artifacts.hpp"
 #include "service_configuration.hpp"
 #include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -36,16 +36,14 @@ void prepare_service_programs(
     if (!sources.ParseFromIstream(&input) || sources.version() != 1)
         throw std::invalid_argument("unsupported service program manifest");
     protocol::validate_message(sources);
+    // `root` is <root>/agent/data; every program is installed under <root>.
+    const auto installed = root.parent_path().parent_path();
     create_directories_durably(root / "artifacts");
     create_directories_durably(root / "services");
     std::map<std::string, ServiceConfiguration> configurations;
     for (const auto& entry : fs::directory_iterator(root / "services")) {
         validate_service_id(entry.path().filename().string());
-        log_process_event(
-            "deployment",
-            LogLevel::info,
-            "program.read_configuration",
-            {{"file", (entry.path() / "service.json").string()}});
+        log::info("reading service configuration {}", (entry.path() / "service.json").string());
         configurations.emplace(
             entry.path().filename().string(),
             load_service_configuration(entry.path(), local, port));
@@ -140,7 +138,8 @@ void prepare_service_programs(
         lab->kind = node::proto::LAB;
         lab->python = sources.python();
         lab->artifact = sha256_file(python);
-        const auto data = (root / "services" / "lab" / "data").u8string();
+        // <root>/lab/data/lab, beside the lab's config/ and logs/.
+        const auto data = (installed / "lab" / "data" / "lab").u8string();
         lab->directory.assign(data.begin(), data.end());
         lab->port = 0;
         if (!configurations.contains("lab")) {
@@ -148,7 +147,8 @@ void prepare_service_programs(
             // Agent's first start would give it; a node with services and no
             // identity is still refused.
             node_storage_identity(root);
-            create_directories_durably(root / "services" / "lab" / "data");
+            create_directories_durably(root / "services" / "lab");
+            create_directories_durably(installed / "lab" / "data" / "lab");
             configurations.emplace("lab", ServiceConfiguration{.kind = node::proto::LAB});
         }
     }
@@ -203,15 +203,15 @@ void prepare_service_programs(
             require_managed_path(copy);
             superseded += fs::remove(copy);
         }
-        plugins.discard(name);
+        if (config.kind != node::proto::LAB)
+            plugins.discard(installed / program_name(config.kind) / "lib" / "plugins" / name);
     }
     if (superseded)
         sync_directory(root / "artifacts");
-    log_process_event(
-        "deployment",
-        LogLevel::info,
-        "program.synchronized",
-        {{"services", changed.size()}, {"superseded_programs", superseded}});
+    log::info(
+        "programs synchronized: services={} superseded_programs={}",
+        changed.size(),
+        superseded);
 }
 
 } // namespace asterion::agent

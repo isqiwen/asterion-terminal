@@ -27,19 +27,19 @@ subprocess.run(["systemctl", "--user", "show-environment"], check=True, stdout=s
 with tempfile.TemporaryDirectory(prefix="ast-manager-services-", dir="/tmp") as directory:
     root = Path(directory)
     root.chmod(0o700)
+    # Each program in its own installation under node/: bin/, config/, data/.
     node = root / "node"
-    manager = node / "manager"
-    node.mkdir()
-    manager.mkdir()
-    shutil.copytree(build / "config", node / "config")
+    shutil.copytree(build / "config", node / "agent" / "config")
+    shutil.copytree(build / "config", node / "manager" / "config")
+    manager = node / "manager" / "data"
     services = {}
-    for role, state in (("agent", node), ("manager", manager)):
+    for role in ("agent", "manager"):
         name = f"me.asterion.acceptance.{root.name}.{role}"
-        executable = build / f"asterion_node_{role}"
-        if role == "manager":
-            staged = root / executable.name
-            shutil.copy2(executable, staged)
-            executable = staged
+        state = node / role / "data"
+        state.mkdir(parents=True)
+        (node / role / "bin").mkdir()
+        executable = node / role / "bin" / f"asterion_node_{role}"
+        shutil.copy2(build / f"asterion_node_{role}", executable)
         endpoint = root / f"{role}.sock"
         definition = Path.home() / ".config/systemd/user" / f"{name}.service"
         assert not definition.exists(), definition
@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="ast-manager-services-", dir="/tmp") as 
             [str(build / "asterion_test_node_service_control"), "--operation", operation,
              "--executable", str(executable), "--root", str(state), "--endpoint", str(endpoint),
              "--name", name, "--pid", str(pid)] +
-            (["--enrollment-directory", str(node / "enrollments")] if role == "manager" else []), capture_output=True, text=True, timeout=30)
+            (["--enrollment-directory", str(manager / "enrollments")] if role == "manager" else []), capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stderr
 
     def pid(role):

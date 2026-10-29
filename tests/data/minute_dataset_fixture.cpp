@@ -63,12 +63,12 @@ int main(int argc, char** argv)
     app.add_option("--contracts-source", tables.contracts)->required();
     CLI11_PARSE(app, argc, argv);
     try {
-        const auto root = environment_path("ASTERION_NODE_DIRECTORY");
+        const auto root = environment_path("ASTERION_ROOT");
         if (environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1" || !root
             || std::filesystem::canonical(directory)
-                != std::filesystem::canonical(*root / "services" / "historical-data" / "ledger"))
+                != std::filesystem::canonical(*root / "data" / "data" / "historical-data"))
             throw std::invalid_argument("minute fixture requires an isolated Data ledger");
-        const auto data_directory = *root / "services" / "historical-data" / "ledger";
+        const auto data_directory = *root / "data" / "data" / "historical-data";
         {
             data::Store warehouse(data_directory, "historical-data");
             tasks::Store store(

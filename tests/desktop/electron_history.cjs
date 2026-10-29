@@ -62,7 +62,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     {
       env: {
         ...process.env,
-        ASTERION_NODE_DIRECTORY: root,
+        ASTERION_ROOT: root,
         ...testNode,
         // Authorization pins the actual desktop plugin bytes, including staging/signing.
         ASTERION_PLUGIN_DIRECTORY: pluginDirectory,

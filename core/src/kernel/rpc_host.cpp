@@ -1,6 +1,6 @@
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/owner.hpp>
 #include "ipc/local_security.hpp"
 #include "ipc/tls_security.hpp"
@@ -19,6 +19,12 @@
 
 namespace asterion::service {
 namespace {
+
+// Repeated failures are logged at counts 1, 2, 4, 8, ... only.
+bool every_power_of_two(std::uint64_t count)
+{
+    return count && (count & (count - 1)) == 0;
+}
 
 using Clock = std::chrono::steady_clock;
 std::atomic<bool> stop_flag{false};
@@ -234,12 +240,8 @@ struct RpcHost::Impl
                 return;
             if (phase != Phase::pending) {
                 if (now >= deadline) {
-                    if (phase == Phase::writing)
-                        log_process_failure(
-                            "transport",
-                            "rpc.send_timeout",
-                            ErrorCode::unavailable,
-                            ++host.failures);
+                    if (phase == Phase::writing && every_power_of_two(++host.failures))
+                        log::warn("rpc send timed out ({} transport failures)", host.failures);
                     close();
                 } else if (host.stopping && !control() && phase != Phase::writing)
                     close();
@@ -507,7 +509,11 @@ struct RpcHost::Impl
 
     void failed(const std::exception& error)
     {
-        log_process_failure("transport", "rpc.connection_failed", classify(error), ++failures);
+        if (every_power_of_two(++failures))
+            log::warn(
+                "rpc connection failed: {} ({} transport failures)",
+                error_name(classify(error)),
+                failures);
     }
 
     void accept_local(LocalListener& listener, const LocalEndpoint* lane)

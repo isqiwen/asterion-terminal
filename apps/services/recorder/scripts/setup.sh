@@ -2,7 +2,7 @@
 # Installs, upgrades and configures the recorder on a recording host.
 #
 #   sudo bash asterion-recorder-setup.sh       install, or upgrade an installation
-#   sudo /opt/asterion-recorder/bin/setup.sh   change the settings
+#   sudo /opt/asterion/recorder/bin/setup.sh   change the settings
 #
 # The release, asterion-recorder-setup.sh, is this script with the
 # installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
@@ -10,9 +10,9 @@
 # directory. The installed copy, bin/setup.sh, carries nothing and only
 # changes the settings.
 #
-# The installation is /opt/asterion-recorder: bin/ lib/ config/ logs/ data/.
+# The installation is /opt/asterion/recorder: bin/ lib/ config/ logs/ data/.
 # A first install asks for the settings; an upgrade replaces only bin/ and
-# lib/ and leaves config/ (recorder.json, recorder-logging.json) as it is
+# lib/ and leaves config/ (recorder.json, logging.json) as it is
 # (it offers to change the settings).
 # Settings questions offer the current values as defaults; the password and
 # the authentication code have none and are encrypted with systemd-creds,
@@ -24,7 +24,7 @@
 # change is saved now and a timer restarts it when the trading window ends.
 set -euo pipefail
 
-ROOT=/opt/asterion-recorder
+ROOT=/opt/asterion/recorder
 UNITS=/etc/systemd/system
 CREDENTIALS=/etc/credstore.encrypted
 UNIT=asterion-recorder.service
@@ -201,7 +201,7 @@ install_once() {
     chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs" "$ROOT/data"
     # Copied once: upgrades never overwrite the configuration files.
     local name
-    for name in recorder.json recorder-logging.json; do
+    for name in recorder.json logging.json; do
         if [[ ! -f $ROOT/config/$name ]]; then
             install -m 0600 "$1/config/$name" "$ROOT/config/$name"
             chown "$ACCOUNT:" "$ROOT/config/$name"

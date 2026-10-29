@@ -27,7 +27,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       args: [path.resolve("apps/clients/terminal/electron"), `--user-data-dir=${temp}/ui`],
       env: {
         ...process.env,
-        ASTERION_NODE_DIRECTORY: `${temp}/node`,
+        ASTERION_ROOT: `${temp}/node`,
         ...testNode,
         ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
       },
@@ -53,7 +53,17 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       return response.result;
     };
     await enterWorkbench(page);
+    // Let the page finish preparing Data before direct service lifecycle commands.
+    await openView(page, "history");
+    await expect
+      .poll(async () => (await call("runtime.snapshot")).data?.online, { timeout: 30000 })
+      .toBe(true);
+    await openView(page, "watchlist");
     await call("node.research.local.open");
+    await call("node.data.local.open");
+    await expect
+      .poll(async () => (await call("runtime.snapshot")).data?.online, { timeout: 30000 })
+      .toBe(true);
     // The fixture seeds the daily table under the sources the installed data
     // source offers: those are the ones the Terminal's pages read.
     const offered = (await call("data.tables.coverage")).table_coverage.sources;
@@ -71,7 +81,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     const root = await fs.realpath(`${temp}/node`);
     assert.equal(
       path.relative(root, await fs.realpath(service.directory)),
-      path.join("services", "historical-data", "ledger"),
+      path.join("data", "data", "historical-data"),
     );
     await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
@@ -88,7 +98,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       {
         env: {
           ...process.env,
-          ASTERION_NODE_DIRECTORY: root,
+          ASTERION_ROOT: root,
           ...testNode,
           ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
         },
@@ -164,7 +174,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     if (application) await application.close();
     try {
       process.kill(
-        Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8")),
+        Number(await fs.readFile(path.join(temp, "node", "agent", "data", "agent.pid"), "utf8")),
         "SIGTERM",
       );
       await new Promise(resolve => setTimeout(resolve, 2000));

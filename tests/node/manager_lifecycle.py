@@ -1,6 +1,7 @@
 """Local-only services, durable deployment, and independent Manager/Agent lifecycles."""
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -40,7 +41,7 @@ def call(process, method, params=None):
 
 with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
     root = Path(directory)
-    env = dict(os.environ, ASTERION_NODE_DIRECTORY=directory,
+    env = dict(os.environ, ASTERION_ROOT=directory,
                ASTERION_TEST_NODE_ISOLATED="1", ASTERION_TEST_OWNER_PID=str(os.getpid()),
                ASTERION_REMOTE_RESOURCES=str(root / "absent-remote-resources"))
     terminals, pids = [], set()
@@ -60,12 +61,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         first = terminal()
         state = call(first, "node.local")
         assert state["nodes"][0]["state"] == "online", state
-        manager_pid = int((root / "manager/manager.pid").read_text())
-        agent_pid = int((root / "agent.pid").read_text())
+        manager_pid = int((root / "manager/data/manager.pid").read_text())
+        agent_pid = int((root / "agent/data/agent.pid").read_text())
         pids.update([manager_pid, agent_pid])
         assert manager_pid != agent_pid
-        assert not (root / "config/manager.pb").exists()
-        policy = root / "config/research.json"
+        assert not (root / "manager/config/manager.pb").exists()
+        policy = root / "agent/config/research.json"
         assert json.loads(policy.read_text()) == {"task_concurrency": 1}
         policy.chmod(0o400)
         original_policy = policy.read_bytes()
@@ -78,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         assert sample["failure"] is None, sample
         assert 0 <= sample["cpu_usage_percent"] <= 100, sample
         assert sample["memory_available_bytes"] > 0, sample
-        assert sample["disk_path"] == directory, sample
+        assert sample["disk_path"] == str(root / "agent" / "data"), sample
         assert sample["sampled_at_ms"] > 0, sample
         # The installed native programs provide the complete local service path;
         # no remote node or cross-built Linux deployment resources are present.
@@ -105,33 +106,33 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         services = wait(lambda: local_services(first))
         assert "data_service" not in services["research"]
         assert "task_service" not in services["historical-data"]
-        instance_policy = root / "config/services/research/research.json"
+        instance_policy = root / "research/config/research/research.json"
         assert instance_policy.read_bytes() == original_policy
         # Operator policy belongs to the instance and survives both supervisors.
         instance_policy.write_text('{"task_concurrency":2}\n')
         instance_policy.chmod(0o400)
         instance_contents = instance_policy.read_bytes()
         instance_mtime = instance_policy.stat().st_mtime_ns
-        records = {name: (root / "services" / name / "service.json").read_bytes()
+        records = {name: (root / "agent/data/services" / name / "service.json").read_bytes()
                    for name in services}
         close(first)
         assert alive(manager_pid) and alive(agent_pid)
 
         second = terminal()
         call(second, "node.local")
-        assert int((root / "manager/manager.pid").read_text()) == manager_pid
+        assert int((root / "manager/data/manager.pid").read_text()) == manager_pid
         os.kill(agent_pid, signal.SIGTERM)
         wait(lambda: not alive(agent_pid))
         wait(lambda: call(second, "runtime.snapshot")["nodes"][0]["state"] != "online")
         assert alive(manager_pid), "Agent exit terminated its Manager"
 
-        endpoint = f"/tmp/ast-node-{(root / 'ipc-id').read_text().strip()}/node.sock"
+        endpoint = f"/tmp/ast-node-{(root / 'agent/data/ipc-id').read_text().strip()}/node.sock"
         assert policy.read_bytes() == original_policy and policy.stat().st_mtime_ns == original_mtime
-        restarted = subprocess.Popen([agent, "--directory", directory, "--endpoint", endpoint],
+        restarted = subprocess.Popen([str(root / "agent/bin/asterion_node_agent"), "--endpoint", endpoint],
                                      env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         pids.add(restarted.pid)
         wait(lambda: call(second, "runtime.snapshot")["nodes"][0]["state"] == "online")
-        assert int((root / "manager/manager.pid").read_text()) == manager_pid
+        assert int((root / "manager/data/manager.pid").read_text()) == manager_pid
 
         os.kill(manager_pid, signal.SIGTERM)
         wait(lambda: not alive(manager_pid))
@@ -139,29 +140,30 @@ with tempfile.TemporaryDirectory(prefix="asterion-manager-") as directory:
         close(second)
         third = terminal()
         state = call(third, "node.local")
-        next_manager = int((root / "manager/manager.pid").read_text())
+        next_manager = int((root / "manager/data/manager.pid").read_text())
         pids.add(next_manager)
         assert next_manager != manager_pid
-        assert int((root / "agent.pid").read_text()) == restarted.pid
+        assert int((root / "agent/data/agent.pid").read_text()) == restarted.pid
         assert state["nodes"][0]["state"] == "online"
         wait(lambda: local_services(third))
         assert instance_policy.read_bytes() == instance_contents
         assert instance_policy.stat().st_mtime_ns == instance_mtime
         for name, content in records.items():
-            assert (root / "services" / name / "service.json").read_bytes() == content
+            assert (root / "agent/data/services" / name / "service.json").read_bytes() == content
         assert not Path(env["ASTERION_REMOTE_RESOURCES"]).exists()
         close(third)
         assert policy.read_bytes() == original_policy and policy.stat().st_mtime_ns == original_mtime
 
+        # Each program logs in its own installation, named <program>-<pid>.
         programs = set()
-        for file in (root / "logs").glob("*.log"):
+        for file in root.glob("*/logs/*.log"):
+            match = re.fullmatch(r"(.+)-(\d+)_\d{4}-\d{2}-\d{2}\.log", file.name)
+            assert match, file
+            programs.add((file.parent.parent.name, match[1]))
             for line in file.read_text().splitlines():
-                record = json.loads(line)
-                process = record["process"]
-                programs.add(process["program"])
-                assert file.name.startswith(f"{process['program']}-{process['pid']}_"), file
-                assert "module" in record
-        assert {"terminal", "agent", "node-manager"} <= programs, programs
+                assert f" {match[1]} " in line, (file, line)
+        assert {("terminal", "terminal"), ("agent", "asterion_node_agent"),
+                ("manager", "asterion_node_manager")} <= programs, programs
     finally:
         for process in terminals:
             if process.poll() is None:

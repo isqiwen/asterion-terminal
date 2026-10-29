@@ -1,3 +1,4 @@
+const { openView } = require("./product-navigation.cjs");
 // Exercise the production Electron host with an isolated optional C plugin.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
@@ -11,7 +12,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
 (async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-plugin-native-"));
   const plugins = path.join(temp, "plugins");
-  const installed = path.join(temp, "node/plugins");
+  const installed = path.join(temp, "node/terminal/data/plugins");
   let application;
   try {
     await fs.mkdir(plugins);
@@ -37,7 +38,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
         args: [path.resolve("apps/clients/terminal/electron"), `--user-data-dir=${temp}/ui`],
         env: {
           ...process.env,
-          ASTERION_NODE_DIRECTORY: `${temp}/node`,
+          ASTERION_ROOT: `${temp}/node`,
           ...testNode,
           ASTERION_PLUGIN_DIRECTORY: plugins,
         },
@@ -59,6 +60,12 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       return response.result;
     };
     await enterWorkbench(page);
+    // Let the page finish preparing Data before direct service lifecycle commands.
+    await openView(page, "history");
+    await expect
+      .poll(async () => (await call("runtime.snapshot")).data?.online, { timeout: 30000 })
+      .toBe(true);
+    await openView(page, "watchlist");
     const opened = application.waitForEvent("window");
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const settings = await opened;
@@ -71,21 +78,26 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     const inventory = (await call("native.plugins.inspect")).native_plugins.items;
     assert.equal(inventory.filter(item => item.state === "invalid").length, 1);
     const hash = inventory.find(item => item.id === "test.independent.c").sha256;
-    // Providers belong to Data. Task schedules workers from the pinned authorization.
+    const service = (state, id) =>
+      state.nodes.find(node => node.id === "local").health.services.find(item => item.id === id);
+    const initial = await call("runtime.snapshot");
+    const bundled = service(initial, "historical-data").plugin_artifacts;
+    const initialSources = initial.data.sources.map(item => item.id);
+    const selected = [...bundled, hash].sort();
+    // Adding an optional provider preserves the service's bundled plugins.
     const editor = manager.getByRole("region", { name: "服务插件 historical-data", exact: true });
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
     await editor.getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true }).check();
     await editor.getByRole("button", { name: "保存插件配置", exact: true }).click();
-    const service = (state, id) =>
-      state.nodes.find(node => node.id === "local").health.services.find(item => item.id === id);
     await expect
       .poll(async () => service(await call("runtime.snapshot"), "historical-data").plugin_artifacts)
-      .toEqual([hash]);
+      .toEqual(selected);
     await call("node.research.local.open");
+    await call("node.data.local.open");
     await expect
-      .poll(async () => (await call("runtime.snapshot")).data?.sources.map(item => item.id))
-      .toEqual(["fixture.minutes"]);
-    assert.deepEqual(service(await call("runtime.snapshot"), "research").plugin_artifacts, []);
+      .poll(async () => (await call("runtime.snapshot")).data?.sources.map(item => item.id).sort())
+      .toEqual([...initialSources, "fixture.minutes"].sort());
+    assert.deepEqual(service(await call("runtime.snapshot"), "research").plugin_artifacts, bundled);
     // This value is a test fixture token, never a real provider credential.
     const credential = "fixture-session-secret";
     await call("data.credentials.save", {
@@ -190,8 +202,28 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await fs.unlink(original);
     await application.close();
     application = undefined;
-    process.kill(Number(await fs.readFile(path.join(temp, "node/agent.pid"), "utf8")), "SIGTERM");
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Restart both independently owned management processes along with Electron.
+    // A surviving Manager retains its connection to the Agent stopped by this test.
+    for (const program of ["manager", "agent"]) {
+      const pid = Number(
+        await fs.readFile(path.join(temp, "node", program, "data", `${program}.pid`), "utf8"),
+      );
+      process.kill(pid, "SIGTERM");
+      await expect
+        .poll(
+          () => {
+            try {
+              process.kill(pid, 0);
+              return false;
+            } catch (error) {
+              if (error.code !== "ESRCH") throw error;
+              return true;
+            }
+          },
+          { timeout: 10000 },
+        )
+        .toBe(true);
+    }
     application = await launch();
     page = await application.firstWindow();
     page.on("pageerror", error => errors.push(String(error)));
@@ -203,9 +235,11 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       throw error;
     }
     await call("node.data.local.open");
-    await expect.poll(async () => (await call("runtime.snapshot")).data?.sources.length).toBe(1);
+    await expect
+      .poll(async () => (await call("runtime.snapshot")).data?.sources.length)
+      .toBe(initialSources.length + 1);
     const restored = await call("runtime.snapshot");
-    assert.deepEqual(service(restored, "historical-data").plugin_artifacts, [hash]);
+    assert.deepEqual(service(restored, "historical-data").plugin_artifacts, selected);
     const task = tasks(restored).find(item => item.id === id);
     assert.equal(task.state, "succeeded");
     assert.equal(task.provider_artifact, hash);
@@ -219,7 +253,10 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
   } finally {
     if (application) await application.close();
     try {
-      process.kill(Number(await fs.readFile(path.join(temp, "node/agent.pid"), "utf8")), "SIGTERM");
+      process.kill(
+        Number(await fs.readFile(path.join(temp, "node/agent/data/agent.pid"), "utf8")),
+        "SIGTERM",
+      );
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error) {
       if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;

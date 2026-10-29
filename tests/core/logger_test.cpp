@@ -1,208 +1,180 @@
-#include <ctime>
-#include <chrono>
-#include <cstdio>
-#include <optional>
-#include <cstdlib>
-#include <gtest/gtest.h>
-#include <asterion/kernel/logger.hpp>
 #include <asterion/foundation/time.hpp>
+#include <asterion/kernel/log.hpp>
+#include <asterion/kernel/process/owner.hpp>
 #include <asterion/kernel/trace.hpp>
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/ostream_sink.h>
-#include <spdlog/sinks/base_sink.h>
+#include <gtest/gtest.h>
+#include <chrono>
+#include <ctime>
 #include <fstream>
-#include <sstream>
-#include <thread>
 #include <regex>
-#include <algorithm>
+#include <thread>
 using namespace asterion;
+namespace fs = std::filesystem;
 
 namespace {
 
-struct LogFixture : testing::Test
+// An installation directory with config/logging.json; the log is reopened
+// for it in each test and back to standard error afterwards.
+struct Installation : testing::Test
 {
-    std::filesystem::path directory = std::filesystem::temp_directory_path()
+    fs::path root = fs::temp_directory_path()
         / ("asterion-log-test-" + std::to_string(SystemClock{}.monotonic_now()));
 
     void SetUp() override
     {
-        ASSERT_TRUE(std::filesystem::create_directory(directory));
+        fs::create_directories(root / "config");
     }
 
     void TearDown() override
     {
+        log::init(root / "none", "test");
         std::error_code error;
-        std::filesystem::remove_all(directory, error);
+        fs::remove_all(root, error);
+    }
+
+    void configure(const std::string& text) const
+    {
+        std::ofstream(root / "config" / "logging.json", std::ios::trunc) << text;
+    }
+
+    std::string read(const fs::path& file) const
+    {
+        std::ifstream input(file);
+        return {std::istreambuf_iterator<char>(input), {}};
+    }
+
+    std::string refusal(const std::string& text) const
+    {
+        configure(text);
+        try {
+            log::init(root, "test");
+        } catch (const Error& error) {
+            return error.what();
+        }
+        return "accepted";
     }
 };
 
-} // namespace
-
-TEST(Logger, FilteringRedactionAndConcurrentWrites)
+std::string today()
 {
-    std::ostringstream output;
-    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
-    auto backend = std::make_shared<spdlog::logger>("test", sink);
-    backend->set_level(spdlog::level::info);
-    Logger logger(backend);
-    EXPECT_TRUE(logger.write(LogLevel::debug, "hidden"));
-    EXPECT_TRUE(output.str().empty());
-    EXPECT_TRUE(logger.write(
-        LogLevel::info,
-        "session.open",
-        {{"password", "test-only-secret"},
-            {"nested", {{"AccessToken", "test-only-token"}}},
-            {"count", 2}}));
-    std::vector<std::jthread> workers;
-    for (int i = 0; i < 4; ++i)
-        workers.emplace_back([&] {
-            for (int j = 0; j < 50; ++j)
-                EXPECT_TRUE(logger.write(LogLevel::info, "worker.tick"));
-        });
-    for (auto& worker : workers)
-        worker.join();
-    logger.flush();
-    EXPECT_EQ(output.str().find("test-only-secret"), std::string::npos);
-    EXPECT_EQ(output.str().find("test-only-token"), std::string::npos);
-    std::istringstream lines(output.str());
-    std::string line;
-    int count = 0;
-    while (std::getline(lines, line)) {
-        EXPECT_TRUE(Json::parse(line).contains("timestamp_ns"));
-        ++count;
-    }
-    EXPECT_EQ(count, 201);
-    EXPECT_FALSE(logger.write(LogLevel::info, "invalid event"));
-    EXPECT_FALSE(logger.write(LogLevel::info, "oversized", {{"value", std::string(17000, 'x')}}));
-    EXPECT_EQ(logger.failures(), 2);
+    const auto now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    char date[16];
+    std::strftime(date, sizeof date, "%Y-%m-%d", &local);
+    return date;
 }
-
-TEST_F(LogFixture, DailyFilesKeepThirtyDaysAndLeaveOtherFiles)
-{
-    // Dated files from earlier days: one inside the window, one outside it.
-    const auto dated = [&](int days_ago) {
-        // Local dates, as the daily sink names its files.
-        const auto when = std::time(nullptr) - static_cast<std::time_t>(days_ago) * 86400;
-        std::tm local{};
-        localtime_r(&when, &local);
-        char name[32];
-        std::strftime(name, sizeof name, "service_%Y-%m-%d.log", &local);
-        return directory / name;
-    };
-    std::ofstream(dated(29)) << "recent\n";
-    std::ofstream(dated(45)) << "expired\n";
-    std::ofstream(directory / "notes.log") << "other\n";
-    LoggerOptions options;
-    options.file_path = directory / "service.log";
-    {
-        Logger logger(options);
-        ASSERT_TRUE(logger.write(LogLevel::info, "daily.record", {{"sequence", 1}}));
-        logger.flush();
-    }
-    EXPECT_TRUE(std::filesystem::exists(dated(0)));
-    EXPECT_TRUE(std::filesystem::exists(dated(29)));
-    EXPECT_FALSE(std::filesystem::exists(dated(45)));
-    EXPECT_TRUE(std::filesystem::exists(directory / "notes.log"));
-    std::ifstream input(dated(0));
-    std::string line;
-    std::getline(input, line);
-    EXPECT_EQ(Json::parse(line).at("event"), "daily.record");
-    options.file_path = "relative.log";
-    EXPECT_THROW(Logger{options}, Error);
-}
-
-namespace {
-
-class FailingSink final : public spdlog::sinks::base_sink<std::mutex>
-{
-    void sink_it_(const spdlog::details::log_msg&) override
-    {
-        throw std::runtime_error("test-only-sensitive-sink-detail");
-    }
-
-    void flush_() override
-    {
-        throw std::runtime_error("flush failed");
-    }
-};
 
 } // namespace
 
-TEST(Logger, FailedSinkProducesPayloadFreeCountWithoutChangingTheBusinessResult)
+TEST_F(Installation, ConsoleAndFileHaveTheirOwnSwitchLevelAndPattern)
 {
-    auto logger = std::make_shared<Logger>(
-        std::make_shared<spdlog::logger>("failed", std::make_shared<FailingSink>()));
-    const auto before = process_log_failures();
+    configure(R"({"console":{"enabled":true,"level":"error","pattern":"console %l %v"},
+        "file":{"enabled":true,"level":"debug","pattern":"[%l] %n %v",
+                "path":"../logs/{program}-{pid}.log","retention_days":7}})");
+    log::init(root, "recorder");
     testing::internal::CaptureStderr();
-    for (int i = 0; i < 20; ++i)
-        EXPECT_FALSE(
-            logger->write(LogLevel::info, "failed.probe", {{"message", "sensitive-request"}}));
-    logger->flush();
-    const auto notice = testing::internal::GetCapturedStderr();
-    EXPECT_EQ(process_log_failures() - before, logger->failures());
-    EXPECT_GE(logger->failures(), 21);
-    EXPECT_EQ(notice.find("sensitive"), std::string::npos);
-    EXPECT_EQ(notice.find("request"), std::string::npos);
-    std::istringstream lines(notice);
-    std::string line;
-    unsigned emitted = 0;
-    while (std::getline(lines, line)) {
-        const auto value = Json::parse(line);
-        EXPECT_EQ(value.size(), 3);
-        EXPECT_EQ(value.at("event"), "logging.failed");
-        const auto count = value.at("failures").get<std::uint64_t>();
-        EXPECT_GT(count, before);
-        EXPECT_EQ(count & (count - 1), 0);
-        ++emitted;
-    }
-    EXPECT_GT(emitted, 0U);
-    EXPECT_LT(emitted, 10U);
+    log::debug("catalog read: contracts={}", 1234);
+    log::error("write failed: {}", "disk full");
+    EXPECT_EQ(testing::internal::GetCapturedStderr(), "console error write failed: disk full\n");
+    // The relative path is from the program's bin/; written at once.
+    const auto file = root / "logs"
+        / ("recorder-" + std::to_string(current_process_id()) + "_" + today() + ".log");
+    EXPECT_EQ(log::file(root, "recorder", current_process_id()), file);
+    EXPECT_EQ(
+        read(file),
+        "[debug] recorder catalog read: contracts=1234\n" "[error] recorder write failed: disk full\n");
 }
 
-TEST_F(LogFixture, ProcessFailureEventsReuseTheSinkAndBoundRepeatedDiagnostics)
+TEST_F(Installation, TheDefaultPatternIsLocalTimeLevelAndProgram)
 {
-    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
-    const std::optional<std::string> saved =
-        value ? std::optional<std::string>(value) : std::nullopt;
+    configure(R"({"console":{"enabled":false,"level":"info"},
+        "file":{"enabled":true,"level":"info","path":"../logs/{program}.log","retention_days":30}})");
+    log::init(root, "market");
+    log::info("market started");
+    log::debug("not written at info");
+    const auto line = read(root / "logs" / ("market_" + today() + ".log"));
+    EXPECT_TRUE(
+        std::regex_match(
+            line,
+            std::regex(
+                R"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2} info market market started\n)")))
+        << line;
+}
 
-    struct Restore
-    {
-        const std::optional<std::string>& saved;
+TEST_F(Installation, OldDailyFilesGoWhenTheLogOpensAndOtherFilesStay)
+{
+    fs::create_directories(root / "logs");
+    const auto dated = [&](int days_ago) {
+        const auto then = std::time(nullptr) - days_ago * 24 * 3600;
+        std::tm local{};
+        localtime_r(&then, &local);
+        char name[48];
+        std::strftime(name, sizeof name, "other-1_%Y-%m-%d.log", &local);
+        return root / "logs" / name;
+    };
+    std::ofstream(dated(2)) << "recent\n";
+    std::ofstream(dated(9)) << "expired\n";
+    std::ofstream(root / "logs" / "notes.log") << "kept\n";
+    configure(R"({"console":{"enabled":false,"level":"info"},
+        "file":{"enabled":true,"level":"info","path":"../logs/{program}-{pid}.log","retention_days":7}})");
+    log::init(root, "trading");
+    EXPECT_TRUE(fs::exists(dated(2)));
+    EXPECT_FALSE(fs::exists(dated(9)));
+    EXPECT_TRUE(fs::exists(root / "logs" / "notes.log"));
+}
 
-        ~Restore()
-        {
-            if (saved)
-                ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
-            else
-                ::unsetenv("ASTERION_LOG_DIRECTORY");
-        }
-    } restore{saved};
+TEST_F(Installation, AnAbsolutePathIsUsedAsItIs)
+{
+    const auto elsewhere = root / "elsewhere";
+    configure(
+        R"({"console":{"enabled":false,"level":"info"},"file":{"enabled":true,"level":"info","path":")"
+        + (elsewhere / "agent.log").string() + R"(","retention_days":30}})");
+    log::init(root, "agent");
+    log::warn("agent recovery required");
+    EXPECT_NE(
+        read(elsewhere / ("agent_" + today() + ".log")).find("agent recovery required"),
+        std::string::npos);
+}
 
-    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", directory.c_str(), 1), 0);
-    const auto logger = process_logger("bounded");
-    EXPECT_EQ(logger, process_logger("bounded"));
-    for (std::uint64_t i = 1; i <= 17; ++i)
-        log_process_failure("bounded", "connection.failed", ErrorCode::unavailable, i);
-    log_process_failure("transport", "connection.failed", ErrorCode::unavailable, 32);
-    std::vector<unsigned> counts;
-    unsigned files = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-        ++files;
-        std::ifstream stream(entry.path());
-        std::string line;
-        while (std::getline(stream, line)) {
-            const auto record = Json::parse(line);
-            EXPECT_EQ(record.at("fields").size(), 2);
-            EXPECT_EQ(record.at("fields").at("code"), "unavailable");
-            counts.push_back(record.at("fields").at("failures").get<unsigned>());
-        }
-    }
-    EXPECT_EQ(files, 1);
-    EXPECT_EQ(counts, (std::vector<unsigned>{1, 2, 4, 8, 16, 32}));
-    const auto before = process_log_failures();
-    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
-    log_process_event("bounded", LogLevel::info, "creation.failed", {{"password", "test-secret"}});
-    EXPECT_EQ(process_log_failures(), before + 1);
+TEST_F(Installation, ARefusalNamesTheFileAndTheSetting)
+{
+    const auto file = (root / "config" / "logging.json").string();
+    const std::string console = R"("console":{"enabled":false,"level":"info"})";
+    const std::string sink = R"("path":"../logs/x.log","retention_days":30)";
+    const auto refused = [&](const std::string& text, const std::string& what) {
+        const auto message = refusal(text);
+        EXPECT_NE(message.find(file), std::string::npos) << message;
+        EXPECT_NE(message.find(what), std::string::npos) << message;
+    };
+    refused(
+        "{" + console + R"(,"file":{"enabled":true,"level":"loud",)" + sink + "}}",
+        "file.level");
+    refused(
+        "{" + console + R"(,"file":{"enabled":"yes","level":"info",)" + sink + "}}",
+        "file.enabled");
+    refused(
+        "{" + console
+            + R"(,"file":{"enabled":true,"level":"info","path":"../x.log","retention_days":0}})",
+        "file.retention_days");
+    refused(
+        "{" + console + R"(,"format":"text","file":{"enabled":true,"level":"info",)" + sink + "}}",
+        "format is not a setting");
+    refused("{" + console + "}", "file is missing");
+    refused(
+        R"({"console":{"enabled":false,"level":"info","path":"x"},"file":{"enabled":true,"level":"info",)"
+            + sink + "}}",
+        "console.path is not a setting");
+}
+
+TEST_F(Installation, WithoutAConfigurationRecordsGoToStandardError)
+{
+    log::init(root, "test");
+    testing::internal::CaptureStderr();
+    log::info("no configuration: {}", 1);
+    const auto output = testing::internal::GetCapturedStderr();
+    EXPECT_NE(output.find(" info test no configuration: 1\n"), std::string::npos) << output;
+    EXPECT_EQ(log::file(root, "test", 1), fs::path{});
 }
 
 TEST(Logger, TraceScopesRestoreAcrossFailuresAndThreads)
@@ -227,180 +199,4 @@ TEST(Logger, TraceScopesRestoreAcrossFailuresAndThreads)
     });
     worker.join();
     EXPECT_EQ(current_trace_id(), outer);
-}
-
-TEST_F(LogFixture, NodePolicyFiltersAllModulesAndPrunesOnlyExpiredProcessLogs)
-{
-    const auto previous = std::getenv("ASTERION_LOG_DIRECTORY");
-    const auto saved = previous ? std::optional<std::string>(previous) : std::nullopt;
-
-    struct Restore
-    {
-        std::optional<std::string> value;
-
-        ~Restore()
-        {
-            if (value)
-                ::setenv("ASTERION_LOG_DIRECTORY", value->c_str(), 1);
-            else
-                ::unsetenv("ASTERION_LOG_DIRECTORY");
-        }
-    } restore{saved};
-
-    const auto logs = directory / "logs";
-    std::filesystem::create_directory(logs);
-    std::filesystem::create_directory(directory / "config");
-    std::ofstream(directory / "config" / "logging.json") << R"({"format":"json","retention_days":2,
-               "console":{"enabled":false,"level":"info"},
-               "file":{"enabled":true,"level":"warning"}})";
-    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-    initialize_process_logging("agent", "local");
-    auto deployment = process_logger("deployment"), transport = process_logger("transport");
-    deployment->write(LogLevel::info, "hidden");
-    deployment->write(LogLevel::warning, "deployment.failed");
-    transport->write(LogLevel::warning, "transport.failed");
-    deployment->flush();
-    unsigned records = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
-        std::ifstream input(entry.path());
-        for (std::string line; std::getline(input, line);) {
-            const auto record = Json::parse(line);
-            EXPECT_EQ(record.at("level"), "warning");
-            EXPECT_EQ(record.at("process").at("program"), "agent");
-            EXPECT_EQ(record.at("process").at("instance"), "local");
-            EXPECT_EQ(
-                entry.path(),
-                process_log_file(logs, "agent", record.at("process").at("pid")));
-            ++records;
-        }
-    }
-    EXPECT_EQ(records, 2);
-    const auto expired = logs / "agent-999_2000-01-01.log";
-    const auto old_name = logs / "development-programs-old.log";
-    for (const auto& file : {expired, old_name}) {
-        std::ofstream(file) << "preserved unless owned by the process log policy";
-        std::filesystem::last_write_time(
-            file,
-            std::filesystem::file_time_type::clock::now() - std::chrono::hours(72));
-    }
-    prune_process_logs(logs);
-    EXPECT_FALSE(std::filesystem::exists(expired));
-    EXPECT_TRUE(std::filesystem::exists(old_name));
-}
-
-TEST(Logger, TextRecordsAreOneReadableLine)
-{
-    std::ostringstream output;
-    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
-    sink->set_pattern(LogSinkOptions{}.pattern);
-    auto backend = std::make_shared<spdlog::logger>("recorder", sink);
-    Logger logger(backend, Json::object(), true);
-    EXPECT_TRUE(logger.write(
-        LogLevel::warning,
-        "catalog.failed",
-        {{"error_code", "unavailable"},
-            {"subscribed", 1234},
-            {"message", "front closed"},
-            {"password", "test-only-secret"}}));
-    const auto line = output.str();
-    EXPECT_TRUE(
-        std::regex_search(
-            line,
-            std::regex(
-                R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2} warning recorder catalog\.failed )")))
-        << line;
-    EXPECT_NE(line.find(" error_code=unavailable"), std::string::npos) << line;
-    EXPECT_NE(line.find(" subscribed=1234"), std::string::npos) << line;
-    EXPECT_NE(line.find(R"( message="front closed")"), std::string::npos) << line;
-    EXPECT_EQ(line.find("test-only-secret"), std::string::npos) << line;
-    EXPECT_EQ(std::count(line.begin(), line.end(), '\n'), 1);
-}
-
-TEST_F(LogFixture, ConsoleAndFileHaveTheirOwnSwitchLevelAndPattern)
-{
-    const auto previous = std::getenv("ASTERION_LOG_DIRECTORY");
-    const auto saved = previous ? std::optional<std::string>(previous) : std::nullopt;
-
-    struct Restore
-    {
-        std::optional<std::string> value;
-
-        ~Restore()
-        {
-            if (value)
-                ::setenv("ASTERION_LOG_DIRECTORY", value->c_str(), 1);
-            else
-                ::unsetenv("ASTERION_LOG_DIRECTORY");
-            initialize_process_logging("asterion");
-        }
-    } restore{saved};
-
-    const auto logs = directory / "logs";
-    const auto policy = directory / "recorder-logging.json";
-    const auto write_policy = [&](const std::string& text) {
-        std::ofstream(policy, std::ios::trunc) << text;
-    };
-    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-    EXPECT_THROW(
-        initialize_process_logging("recorder", "recorder", directory / "missing.json"),
-        Error);
-    write_policy(R"({"format":"text","retention_days":7,
-        "console":{"enabled":true,"level":"error","pattern":"console %l %v"},
-        "file":{"enabled":true,"level":"debug","pattern":"[%l] %n %v"}})");
-    initialize_process_logging("recorder", "recorder", policy);
-    testing::internal::CaptureStderr();
-    log_process_event("recorder", LogLevel::debug, "catalog.read", {{"contracts", 1234}});
-    log_process_event("recorder", LogLevel::error, "write.failed", {{"message", "disk full"}});
-    const auto console = testing::internal::GetCapturedStderr();
-    EXPECT_EQ(console, "console error write.failed message=\"disk full\"\n");
-    std::string file;
-    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
-        std::ifstream input(entry.path());
-        file.assign(std::istreambuf_iterator<char>(input), {});
-    }
-    EXPECT_EQ(
-        file,
-        "[debug] recorder catalog.read contracts=1234\n" "[error] recorder write.failed message=\"disk full\"\n");
-
-    // Each mistake names its key; a pattern belongs to the text format only.
-    int attempt = 0;
-    const auto refusal = [&](const std::string& text) -> std::string {
-        write_policy(text);
-        initialize_process_logging("recorder", "again-" + std::to_string(++attempt), policy);
-        try {
-            process_logger("recorder");
-        } catch (const Error& error) {
-            return error.what();
-        }
-        return "accepted";
-    };
-    const std::string console_off = R"("console":{"enabled":false,"level":"info"})";
-    EXPECT_NE(
-        refusal(
-            R"({"format":"yaml","retention_days":7,)" + console_off
-            + R"(,"file":{"enabled":true,"level":"info"}})")
-            .find("format"),
-        std::string::npos);
-    EXPECT_NE(
-        refusal(
-            R"({"format":"json","retention_days":7,)" + console_off
-            + R"(,"file":{"enabled":true,"level":"loud"}})")
-            .find("file.level"),
-        std::string::npos);
-    EXPECT_NE(
-        refusal(
-            R"({"format":"json","retention_days":7,)" + console_off
-            + R"(,"file":{"enabled":true,"level":"info","pattern":"%v"}})")
-            .find("file.pattern applies only to the text format"),
-        std::string::npos);
-    EXPECT_NE(
-        refusal(
-            R"({"format":"json","retention_days":7,"level":"info",)" + console_off
-            + R"(,"file":{"enabled":true,"level":"info"}})")
-            .find("level is not a setting"),
-        std::string::npos);
-    EXPECT_NE(
-        refusal(R"({"format":"json","retention_days":7,)" + console_off + "}")
-            .find("file is missing"),
-        std::string::npos);
 }

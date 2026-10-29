@@ -78,7 +78,7 @@ def main():
         known = root / 'known_hosts'
         known.write_text(f'[127.0.0.1]:{ssh_port} ' + (root / 'host.pub').read_text())
         resources = make_bundle(root / "resources", build)
-        env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_NODE_DIRECTORY=str(root / 'local'))
+        env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_ROOT=str(root / 'local'))
         env.pop('ASTERION_SSH_TOOL_DIRECTORY', None)
         env.pop('ASTERION_SSH_FIXTURE', None)
 

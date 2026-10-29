@@ -1,7 +1,7 @@
 #include "live_session.hpp"
 #include "live_account_state.hpp"
 #include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -178,11 +178,7 @@ struct LiveSession::Loop
                     if (active->request)
                         active->request->result.set_exception(std::current_exception());
                     else
-                        log_process_failure(
-                            "trading",
-                            "journal.reconciliation_failed",
-                            ErrorCode::operation_failed,
-                            1);
+                        log::error("journal reconciliation failed");
                 }
                 completed_storage = !active->request;
                 active.reset();

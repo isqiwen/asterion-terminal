@@ -23,7 +23,7 @@
 #include <unistd.h>
 #include <limits>
 #include "risk_module.hpp"
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/owner.hpp>
 #include <asterion/kernel/trace.hpp>

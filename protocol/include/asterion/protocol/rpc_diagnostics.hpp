@@ -1,5 +1,8 @@
 #pragma once
-#include <asterion/kernel/logger.hpp>
+#include <asterion/foundation/error.hpp>
+#include <asterion/foundation/id.hpp>
+#include <asterion/kernel/log.hpp>
+#include <string>
 #include <initializer_list>
 #include <optional>
 
@@ -20,7 +23,8 @@ void log_rpc_result(
     if (routine && !response.has_error())
         return;
     try {
-        Json fields{{"success", !response.has_error()}};
+        std::string line = "rpc " + std::string(response.has_error() ? "failed" : "completed")
+            + ": module=" + logger;
         const auto add = [&](std::string_view name, std::string_view value) {
             if (value.empty())
                 return;
@@ -30,27 +34,23 @@ void log_rpc_result(
             } catch (const Error&) {
                 return;
             }
-            fields[std::string(name)] = value;
+            line += " " + std::string(name) + "=" + std::string(value);
         };
-        add("correlation_id", request.correlation_id());
         const auto* operation =
             request.GetDescriptor()->FindFieldByNumber(request.operation_case());
-        fields["operation"] = operation ? operation->name() : "missing";
+        line += " operation=" + (operation ? operation->name() : std::string("missing"));
+        add("correlation_id", request.correlation_id());
         if (response.has_error())
-            fields["code"] = error_name(
-                parse_error_code(response.error().code()).value_or(ErrorCode::operation_failed));
+            line += " code="
+                + std::string(error_name(parse_error_code(response.error().code())
+                        .value_or(ErrorCode::operation_failed)));
         for (const auto& [name, value] : ids)
             add(name, value);
         if (attempt)
-            fields["attempt"] = *attempt;
-        log_process_event(
-            logger,
-            response.has_error() ? LogLevel::warning : LogLevel::info,
-            "rpc.completed",
-            std::move(fields));
+            line += " attempt=" + std::to_string(*attempt);
+        log::write(response.has_error() ? log::Level::warning : log::Level::info, line);
     } catch (...) {
-        static std::atomic<std::uint64_t> failures{0};
-        log_process_failure(logger, "trace.failed", ErrorCode::internal_error, ++failures);
+        log::write(log::Level::error, "an rpc result could not be logged");
     }
 }
 

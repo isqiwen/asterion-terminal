@@ -28,7 +28,7 @@
 
 ## 数据仓库
 
-位于服务目录下的 `warehouse/`：
+位于 lab 实例的数据目录 `<根>/lab/data/lab/` 下的 `warehouse/`（[安装目录](architecture.md#安装目录)）：
 
 ```
 warehouse/files/<表>/<交易所>/<分区>-<摘要>.parquet

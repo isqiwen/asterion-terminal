@@ -38,8 +38,8 @@ protected:
             ++prepared;
         },
         [&] {
-            FileLock agent(layout.node, "agent.lock"),
-                manager(layout.node / "manager", "manager.lock");
+            FileLock agent(layout.agent() / "data", "agent.lock"),
+                manager(layout.manager() / "data", "manager.lock");
             EXPECT_TRUE(inspect(layout).at("installed"));
             EXPECT_EQ(inspect(layout).at("pending"), "");
             EXPECT_GT(registered, 0);
@@ -82,9 +82,10 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
     EXPECT_EQ(registered, 1);
     EXPECT_EQ(started, 1);
-    const auto identity = contents(layout.node / "ipc-id");
-    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":7})");
-    replace_file_durably(layout.node / "ledger", "operator data");
+    const auto identity = contents(layout.agent() / "data/ipc-id");
+    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":7})");
+    create_directories_durably(layout.root / "market/data");
+    replace_file_durably(layout.root / "market/data/ledger", "operator data");
     create_directories_durably(layout.enrollment);
     replace_file_durably(layout.enrollment / "connection", "local connection settings");
     replace_file_durably(
@@ -94,15 +95,15 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     deploy(layout, Deployment::upgrade, services, progress);
     EXPECT_EQ(started, 2);
     EXPECT_EQ(inspect(layout).at("version"), "0.2.0");
-    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":7})");
-    EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
+    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":7})");
+    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
     EXPECT_EQ(prepared, 2);
     uninstall(layout, true, services, progress);
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_FALSE(inspect(layout).at("installed"));
     EXPECT_EQ(forgotten, 0) << "kept data keeps its saved credentials";
-    EXPECT_EQ(contents(layout.node / "ledger"), "operator data");
-    EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
+    EXPECT_EQ(contents(layout.root / "market/data/ledger"), "operator data");
+    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
     EXPECT_EQ(removed, 2);
     EXPECT_EQ(contents(layout.enrollment / "connection"), "local connection settings");
 }
@@ -133,14 +134,15 @@ TEST_F(Installation, ServiceStartFailureDoesNotUndoPublishedInstallation)
 TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnosticsAndLocks)
 {
     deploy(layout, Deployment::install, services, progress);
-    replace_file_durably(layout.node / "ledger", "operator data");
-    create_directories_durably(layout.node / "logs");
-    replace_file_durably(layout.node / "logs/installer.log", "diagnostic evidence");
+    create_directories_durably(layout.root / "market/data");
+    replace_file_durably(layout.root / "market/data/ledger", "operator data");
+    create_directories_durably(layout.terminal() / "logs");
+    replace_file_durably(layout.terminal() / "logs/installer.log", "diagnostic evidence");
     create_directories_durably(layout.enrollment);
     replace_file_durably(layout.enrollment / "connection", "local connection settings");
     const auto outside = root / "external-export";
     replace_file_durably(outside, "preserve external files");
-    fs::create_symlink(outside, layout.node / "export-link");
+    fs::create_symlink(outside, layout.root / "export-link");
     auto failing = services;
     failing.unregister = [] {
         throw std::runtime_error("system service removal failed");
@@ -149,34 +151,39 @@ TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnostic
     EXPECT_EQ(inspect(layout).at("pending"), "uninstall");
     EXPECT_FALSE(inspect(layout).at("preserve_data"));
     EXPECT_THROW(uninstall(layout, true, services, progress), std::runtime_error);
-    EXPECT_TRUE(fs::exists(layout.node / "ledger"));
+    EXPECT_TRUE(fs::exists(layout.root / "market/data/ledger"));
     uninstall(layout, false, services, [&](const char* step) {
         if (std::string_view(step) == "complete") {
-            EXPECT_THROW((FileLock(layout.node, "installation.lock")), std::runtime_error);
-            EXPECT_THROW((FileLock(layout.node, "terminal.lock")), std::runtime_error);
-            EXPECT_THROW((FileLock(layout.node, "agent.lock")), std::runtime_error);
-            EXPECT_THROW((FileLock(layout.node / "manager", "manager.lock")), std::runtime_error);
+            EXPECT_THROW(
+                (FileLock(layout.terminal() / "data", "installation.lock")),
+                std::runtime_error);
+            EXPECT_THROW(
+                (FileLock(layout.terminal() / "data", "terminal.lock")),
+                std::runtime_error);
+            EXPECT_THROW((FileLock(layout.agent() / "data", "agent.lock")), std::runtime_error);
+            EXPECT_THROW((FileLock(layout.manager() / "data", "manager.lock")), std::runtime_error);
         }
     });
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_EQ(forgotten, 1);
-    EXPECT_FALSE(fs::exists(layout.node / "config"));
-    EXPECT_FALSE(fs::exists(layout.node / "ledger"));
-    EXPECT_FALSE(fs::exists(layout.node / "ipc-id"));
-    EXPECT_FALSE(fs::exists(layout.node / "manager/ipc-id"));
+    EXPECT_FALSE(fs::exists(layout.agent() / "config"));
+    EXPECT_FALSE(fs::exists(layout.root / "market/data/ledger"));
+    EXPECT_FALSE(fs::exists(layout.agent() / "data/ipc-id"));
+    EXPECT_FALSE(fs::exists(layout.manager() / "data/ipc-id"));
     EXPECT_FALSE(fs::exists(layout.enrollment));
-    EXPECT_FALSE(fs::exists(layout.node / "installation.json"));
+    EXPECT_FALSE(fs::exists(layout.terminal() / "data/installation.json"));
     EXPECT_EQ(contents(outside), "preserve external files");
-    EXPECT_EQ(contents(layout.node / "logs/installer.log"), "diagnostic evidence");
+    EXPECT_EQ(contents(layout.terminal() / "logs/installer.log"), "diagnostic evidence");
     EXPECT_TRUE(inspect(layout).at("preserve_data"));
 }
 
 TEST_F(Installation, RepairRestoresMissingProgramsAndPreservesUserState)
 {
     deploy(layout, Deployment::install, services, progress);
-    const auto identity = contents(layout.node / "ipc-id");
-    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":7})");
-    replace_file_durably(layout.node / "ledger", "operator data");
+    const auto identity = contents(layout.agent() / "data/ipc-id");
+    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":7})");
+    create_directories_durably(layout.root / "market/data");
+    replace_file_durably(layout.root / "market/data/ledger", "operator data");
     fs::remove_all(layout.destination);
     EXPECT_TRUE(inspect(layout).at("installed"));
     EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
@@ -186,15 +193,15 @@ TEST_F(Installation, RepairRestoresMissingProgramsAndPreservesUserState)
     EXPECT_EQ(started, 1);
     EXPECT_EQ(removed, 1);
     EXPECT_EQ(prepared, 2);
-    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":7})");
-    EXPECT_EQ(contents(layout.node / "ipc-id"), identity);
-    EXPECT_EQ(contents(layout.node / "ledger"), "operator data");
+    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":7})");
+    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
+    EXPECT_EQ(contents(layout.root / "market/data/ledger"), "operator data");
 }
 
 TEST_F(Installation, ReleaseOrderingRejectsWrongOperationsBeforeChangingTheInstallation)
 {
     deploy(layout, Deployment::install, services, progress);
-    const auto record = contents(layout.node / "installation.json");
+    const auto record = contents(layout.terminal() / "data/installation.json");
     EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
@@ -202,7 +209,7 @@ TEST_F(Installation, ReleaseOrderingRejectsWrongOperationsBeforeChangingTheInsta
     EXPECT_EQ(inspect(layout).at("deployment_action"), "");
     EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
     EXPECT_THROW(deploy(layout, Deployment::repair, services, progress), std::runtime_error);
-    EXPECT_EQ(contents(layout.node / "installation.json"), record);
+    EXPECT_EQ(contents(layout.terminal() / "data/installation.json"), record);
     EXPECT_EQ(removed, 0);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
@@ -252,17 +259,17 @@ TEST_F(Installation, FailedRegistrationRequiresExplicitResumeAndPreservesConfigu
     EXPECT_THROW(deploy(layout, Deployment::install, failing, progress), std::runtime_error);
     EXPECT_EQ(inspect(layout).at("pending"), "install");
     EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
-    replace_file_durably(layout.node / "config/research.json", R"({"task_concurrency":9})");
+    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":9})");
     deploy(layout, Deployment::install, services, progress);
     EXPECT_EQ(inspect(layout).at("pending"), "");
-    EXPECT_EQ(contents(layout.node / "config/research.json"), R"({"task_concurrency":9})");
+    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":9})");
 }
 
 TEST_F(Installation, RunningTerminalAndForeignDestinationAreNotModified)
 {
-    create_directories_durably(layout.node);
+    create_directories_durably(layout.terminal() / "data");
     {
-        FileLock terminal(layout.node, "terminal.lock", FileLock::Access::shared);
+        FileLock terminal(layout.terminal() / "data", "terminal.lock", FileLock::Access::shared);
         EXPECT_THROW(deploy(layout, Deployment::install, services, progress), std::runtime_error);
         EXPECT_FALSE(fs::exists(layout.destination));
     }
@@ -270,7 +277,7 @@ TEST_F(Installation, RunningTerminalAndForeignDestinationAreNotModified)
     replace_file_durably(layout.destination / "foreign", "preserve");
     EXPECT_THROW(deploy(layout, Deployment::install, services, progress), std::runtime_error);
     EXPECT_EQ(contents(layout.destination / "foreign"), "preserve");
-    EXPECT_FALSE(fs::exists(layout.node / "installation.json"));
+    EXPECT_FALSE(fs::exists(layout.terminal() / "data/installation.json"));
 }
 
 TEST_F(Installation, RemoteMaintenanceMustPrecedeLocalReplacementAndIdentityRemoval)

@@ -12,7 +12,7 @@
 <安装目录>/
   bin/     asterion_recorder、setup.sh
   lib/     ctp-md.so、ctp-trader.so（交易库只用来读合约目录）
-  config/  recorder.json、recorder-logging.json
+  config/  recorder.json、logging.json
   logs/    日志（文本，每条一行）
   data/    录制文件、合约目录缓存、CTP 流文件
 ```
@@ -28,7 +28,7 @@
 
 ## 录制主机
 
-录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序，位置是 `/opt/asterion-recorder/`。发布物只有一个文件
+录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序，位置是 `/opt/asterion/recorder/`。发布物只有一个文件
 `asterion-recorder-setup.sh`：自解压脚本，即 `apps/services/recorder/scripts/setup.sh` 后接一行 `__ARCHIVE__` 和安装目录
 （`bin/`、`lib/`、`config/`）的 tar.gz，由 CMake 目标 `asterion_recorder_setup` 生成。它与远程服务包在同一个 Ubuntu 24.04
 环境中构建：CI 的 `remote-linux` 作业把它作为单独的产物 `recorder-linux-x86_64` 上传，与 Terminal 部署的服务包分开；本地用
@@ -36,7 +36,7 @@
 
 ```sh
 sudo bash asterion-recorder-setup.sh         # 第一次：安装并配置；以后：升级
-sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
+sudo /opt/asterion/recorder/bin/setup.sh     # 只修改配置
 ```
 
 运行时脚本把自带的安装目录解到临时目录，装完即删除；装好的 `bin/setup.sh` 不带程序，只用来修改配置。
@@ -76,10 +76,9 @@ sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 | `bind`、`port` | 监听的地址与 TCP 端口 |
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
 
-`config/recorder-logging.json` 是录制程序专用的日志配置，默认值在仓库的 `apps/services/recorder/config/recorder-logging.json`：
-文本格式，只写 `logs/` 下的文件，info 级别，保留 30 天；控制台输出默认关闭，打开后写到标准错误，由 systemd 收进日志，可用
-`journalctl -u asterion-recorder -f` 查看。各键的含义与节点的 `logging.json` 相同（`format`、`retention_days`，以及 `console`、
-`file` 各自的 `enabled`、`level`、`pattern`），见[运行日志](services.md#运行日志)。文件缺失或无效时启动失败并写明路径。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
+`config/logging.json` 是录制程序的日志配置，默认值在仓库的 `apps/services/recorder/config/logging.json`：只写 `logs/` 下的文件，
+info 级别，保留 30 天；控制台输出默认关闭，打开后写到标准错误，由 systemd 收进日志，可用 `journalctl -u asterion-recorder -f`
+查看。各键的含义与其他程序相同，见[运行日志](services.md#运行日志)。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
 
 - 路径不是配置：都由安装目录决定。缺键、多出不认识的键、投资者代码未填（配置之前的默认配置）时启动失败，错误写明
   配置文件的路径和出错的键。

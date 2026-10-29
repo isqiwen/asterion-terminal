@@ -130,11 +130,7 @@ struct NodeManager::Impl
                     co_await PollFuture{AgentClient::open(io, std::move(endpoint), false)};
                 nodes.emplace(id, std::move(client));
             } catch (const std::exception& error) {
-                log_process_event(
-                    "enrollment",
-                    LogLevel::warning,
-                    "node.restore_failed",
-                    {{"node", id}, {"message", error.what()}});
+                log::warn("node {} could not be restored: {}", id, error.what());
             }
         }
     }

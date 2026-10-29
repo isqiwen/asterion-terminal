@@ -46,7 +46,7 @@ def release(folder, version):
     for library in ('ctp-md.so', 'ctp-trader.so'):
         (top / 'lib' / library).write_text(version)
     shutil.copy2(default, top / 'config/recorder.json')
-    shutil.copy2(default.parent / 'recorder-logging.json', top / 'config/recorder-logging.json')
+    shutil.copy2(default.parent / 'logging.json', top / 'config/logging.json')
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-recorder')
@@ -103,8 +103,8 @@ with tempfile.TemporaryDirectory() as folder:
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_recorder').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
-    assert (host.root / 'config/recorder-logging.json').read_bytes() == (
-        default.parent / 'recorder-logging.json').read_bytes()
+    assert (host.root / 'config/logging.json').read_bytes() == (
+        default.parent / 'logging.json').read_bytes()
     assert host.settings() == {'bind': shipped['bind'], 'port': 7451,
                                'counter': {**shipped['counter'], 'user': '273005'}}
     text = (host.root / 'config/recorder.json').read_text()
@@ -124,14 +124,14 @@ with tempfile.TemporaryDirectory() as folder:
 
     # Upgrade: new programs, settings untouched when not asked to change them.
     (host.root / 'config/recorder.json').write_text(json.dumps({**host.settings(), 'port': 7999}))
-    (host.root / 'config/recorder-logging.json').write_text('{"level": "debug", "retention_days": 7}')
+    (host.root / 'config/logging.json').write_text('{"level": "debug", "retention_days": 7}')
     before = (host.root / 'config/recorder.json').read_text()
     second = release(folder, '2')
     calls, result = host.run(second, ['n'])
     assert (host.root / 'bin/asterion_recorder').read_text().endswith('2"\n')
     assert (host.root / 'lib/ctp-md.so').read_text() == '2'
     assert (host.root / 'config/recorder.json').read_text() == before
-    assert json.loads((host.root / 'config/recorder-logging.json').read_text())['level'] == 'debug'
+    assert json.loads((host.root / 'config/logging.json').read_text())['level'] == 'debug'
     assert not host.secrets.exists()
     assert calls[-1] == 'systemctl restart asterion-recorder.service', calls
 

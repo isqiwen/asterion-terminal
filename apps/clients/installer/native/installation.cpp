@@ -5,6 +5,7 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/foundation/error.hpp>
 #include <fstream>
+#include <set>
 #include <memory>
 #include <cerrno>
 #include <array>
@@ -77,17 +78,17 @@ struct Ownership
     FileLock deployment, terminal;
 
     explicit Ownership(const Layout& layout)
-        : deployment(layout.node, "installation.lock"),
-          terminal(layout.node, "terminal.lock")
+        : deployment(layout.terminal() / "data", "installation.lock"),
+          terminal(layout.terminal() / "data", "terminal.lock")
     {}
 };
 
 void require_target(const Layout& layout)
 {
-    if (!layout.destination.is_absolute() || !layout.node.is_absolute()
-        || layout.destination == layout.node || fs::is_symlink(layout.destination))
+    if (!layout.destination.is_absolute() || !layout.root.is_absolute()
+        || layout.destination == layout.root || fs::is_symlink(layout.destination))
         throw Error(ErrorCode::invalid_request, "invalid installation destination");
-    for (auto path = layout.node; !path.empty() && path != path.root_path();
+    for (auto path = layout.root; !path.empty() && path != path.root_path();
         path = path.parent_path())
         if (path == layout.destination)
             throw Error(ErrorCode::invalid_request, "application directory contains user data");
@@ -95,7 +96,7 @@ void require_target(const Layout& layout)
 
 Json registration(const Layout& layout)
 {
-    const auto record = read(layout.node / "installation.json");
+    const auto record = read(layout.terminal() / "data" / "installation.json");
     if (record.value("product", "") != "asterion-terminal"
         || record.value("directory", "") != layout.destination.string())
         throw Error(ErrorCode::conflict, "installation destination differs from its registration");
@@ -167,7 +168,7 @@ Json inspect(const Layout& layout)
     require_target(layout);
     Json result{
         {"directory", layout.destination.string()},
-        {"node", layout.node.string()},
+        {"root", layout.root.string()},
         {"enrollment", layout.enrollment.string()},
         {"installed", false},
         {"version", ""},
@@ -180,7 +181,7 @@ Json inspect(const Layout& layout)
     };
     try {
         Json record;
-        if (fs::exists(layout.node / "installation.json")) {
+        if (fs::exists(layout.terminal() / "data" / "installation.json")) {
             record = registration(layout);
             result["pending"] = record.at("pending");
             if (record.at("pending") == "uninstall")
@@ -198,11 +199,11 @@ Json inspect(const Layout& layout)
     } catch (const std::exception& error) {
         result["conflict"] = error.what();
     }
-    if (busy(layout.node, "terminal.lock"))
+    if (busy(layout.terminal() / "data", "terminal.lock"))
         result["busy"].push_back("terminal");
-    if (busy(layout.node, "agent.lock"))
+    if (busy(layout.agent() / "data", "agent.lock"))
         result["busy"].push_back("agent");
-    if (busy(layout.node / "manager", "manager.lock"))
+    if (busy(layout.manager() / "data", "manager.lock"))
         result["busy"].push_back("manager");
     return result;
 }
@@ -219,12 +220,14 @@ void deploy(
         path = path.parent_path())
         if (path == layout.source)
             throw Error(ErrorCode::invalid_request, "installation source overlaps its destination");
-    create_directories_durably(layout.node / "manager");
+    for (const auto& data :
+        {layout.terminal() / "data", layout.agent() / "data", layout.manager() / "data"})
+        create_directories_durably(data);
     Ownership ownership(layout);
     const std::string operation = deployment == Deployment::install ? "install"
         : deployment == Deployment::upgrade                         ? "upgrade"
                                                                     : "repair";
-    const bool registered = fs::exists(layout.node / "installation.json");
+    const bool registered = fs::exists(layout.terminal() / "data" / "installation.json");
     if (!registered && (deployment != Deployment::install || fs::exists(layout.destination)))
         throw Error(ErrorCode::conflict, "application destination is not owned by this installer");
     // Recheck under the installation lock: another installer may have completed
@@ -258,7 +261,8 @@ void deploy(
     progress("checking");
     // Check process ownership before writing a pending operation or unregistering services.
     {
-        FileLock agent(layout.node, "agent.lock"), manager(layout.node / "manager", "manager.lock");
+        FileLock agent(layout.agent() / "data", "agent.lock"),
+            manager(layout.manager() / "data", "manager.lock");
     }
     Json record{
         {"product", "asterion-terminal"},
@@ -266,11 +270,11 @@ void deploy(
         {"directory", layout.destination.string()},
         {"pending", operation}
     };
-    replace_file_durably(layout.node / "installation.json", record.dump(2) + "\n");
+    replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
     if (deployment != Deployment::install)
         services.unregister();
-    auto agent_stopped = std::make_unique<FileLock>(layout.node, "agent.lock");
-    auto manager_stopped = std::make_unique<FileLock>(layout.node / "manager", "manager.lock");
+    auto agent_stopped = std::make_unique<FileLock>(layout.agent() / "data", "agent.lock");
+    auto manager_stopped = std::make_unique<FileLock>(layout.manager() / "data", "manager.lock");
     create_directories_durably(layout.destination.parent_path());
     const auto staged =
         layout.destination.parent_path() / (".asterion-install-" + unique_process_id());
@@ -297,19 +301,19 @@ void deploy(
     }
     if (deployment == Deployment::install) {
         terminal::install_node_configuration(
-            layout.node,
+            layout.root,
             native_directory(layout.destination) / "config");
-        identity(layout.node);
-        identity(layout.node / "manager");
+        identity(layout.agent() / "data");
+        identity(layout.manager() / "data");
     }
     progress("preparing");
     agent_stopped.reset(); // The offline Agent child acquires this lock for preparation.
     services.prepare_programs();
-    agent_stopped = std::make_unique<FileLock>(layout.node, "agent.lock");
+    agent_stopped = std::make_unique<FileLock>(layout.agent() / "data", "agent.lock");
     progress("registering");
     services.register_stopped();
     record["pending"] = "";
-    replace_file_durably(layout.node / "installation.json", record.dump(2) + "\n");
+    replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
     if (deployment == Deployment::install || deployment == Deployment::upgrade) {
         // Publication is complete. Daemons must acquire their own process locks;
         // retain installer ownership until both service start requests finish.
@@ -338,16 +342,17 @@ void uninstall(
             "continue uninstall with the recorded data retention choice");
     if (!preserve_data
         && (!layout.enrollment.is_absolute() || layout.enrollment == layout.enrollment.root_path()
-            || fs::is_symlink(layout.node) || fs::is_symlink(layout.node / "manager")
+            || fs::is_symlink(layout.root) || fs::is_symlink(layout.manager())
             || fs::is_symlink(layout.enrollment)))
         throw Error(ErrorCode::invalid_request, "invalid uninstall data directory");
     if (!preserve_data)
-        for (auto path = layout.node; !path.empty() && path != path.root_path();
+        for (auto path = layout.root; !path.empty() && path != path.root_path();
             path = path.parent_path())
             if (path == layout.enrollment)
                 throw Error(ErrorCode::invalid_request, "invalid uninstall data directory");
     {
-        FileLock agent(layout.node, "agent.lock"), manager(layout.node / "manager", "manager.lock");
+        FileLock agent(layout.agent() / "data", "agent.lock"),
+            manager(layout.manager() / "data", "manager.lock");
     }
     if (fs::exists(layout.enrollment / ".maintenance.json"))
         throw Error(
@@ -366,11 +371,11 @@ void uninstall(
     }
     record["pending"] = "uninstall";
     record["preserve_data"] = preserve_data;
-    replace_file_durably(layout.node / "installation.json", record.dump(2) + "\n");
+    replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
     progress("unregistering");
     services.unregister();
-    FileLock agent_stopped(layout.node, "agent.lock");
-    FileLock manager_stopped(layout.node / "manager", "manager.lock");
+    FileLock agent_stopped(layout.agent() / "data", "agent.lock");
+    FileLock manager_stopped(layout.manager() / "data", "manager.lock");
     if (!preserve_data)
         services.forget_credentials();
     progress("removing");
@@ -384,23 +389,37 @@ void uninstall(
         // Keep the locked inodes and the pending record until completion, so
         // another installer cannot acquire a newly created lock during deletion.
         // Diagnostics remain available if deletion fails and must be resumed.
-        for (const auto& entry : fs::directory_iterator(layout.node)) {
-            const auto name = entry.path().filename();
-            if (name == "installation.lock" || name == "terminal.lock" || name == "agent.lock"
-                || name == "installation.json" || name == "logs")
+        // Every program's directory goes but its logs and, while they are held,
+        // the locks and the pending record.
+        static const std::set<std::string> kept{
+            "installation.lock",
+            "terminal.lock",
+            "agent.lock",
+            "manager.lock",
+            "installation.json"
+        };
+        for (const auto& program : fs::directory_iterator(layout.root)) {
+            if (!program.is_directory() || program.is_symlink()) {
+                fs::remove_all(program.path());
                 continue;
-            if (name == "manager") {
-                for (const auto& manager_entry : fs::directory_iterator(entry.path()))
-                    if (manager_entry.path().filename() != "manager.lock")
-                        fs::remove_all(manager_entry.path());
-                sync_directory(entry.path());
-            } else
-                fs::remove_all(entry.path());
+            }
+            for (const auto& part : fs::directory_iterator(program.path())) {
+                if (part.path().filename() == "logs")
+                    continue;
+                if (part.path().filename() == "data") {
+                    for (const auto& entry : fs::directory_iterator(part.path()))
+                        if (!kept.contains(entry.path().filename().string()))
+                            fs::remove_all(entry.path());
+                    sync_directory(part.path());
+                } else
+                    fs::remove_all(part.path());
+            }
+            sync_directory(program.path());
         }
     }
-    fs::remove(layout.node / "installation.json");
+    fs::remove(layout.terminal() / "data" / "installation.json");
     sync_directory(layout.destination.parent_path());
-    sync_directory(layout.node);
+    sync_directory(layout.root);
     progress("complete");
 }
 

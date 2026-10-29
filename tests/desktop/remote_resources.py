@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  assert not (root/'incomplete').exists()
  # The native bridge takes its Terminal lifetime lock in the supplied node directory.
  (root/'state').mkdir()
- app=subprocess.Popen([sys.argv[1]],env=dict(os.environ,ASTERION_NODE_DIRECTORY=str(root/'state'),ASTERION_REMOTE_RESOURCES=str(target)),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding="utf-8")
+ app=subprocess.Popen([sys.argv[1]],env=dict(os.environ,ASTERION_ROOT=str(root/'state'),ASTERION_REMOTE_RESOURCES=str(target)),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding="utf-8")
  def call(path):
   app.stdin.write(json.dumps(dict(version=1,method='node.initializer.export',params=dict(path=str(path))))+'\n');app.stdin.flush()
   return json.loads(app.stdout.readline())

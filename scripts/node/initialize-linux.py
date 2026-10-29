@@ -119,8 +119,11 @@ def service_text(identity, port, bind):
     root = f'{HOME}/nodes/{identity}'
     return (f'[Unit]\nDescription=Asterion Node Agent\nAfter=network.target\nStartLimitIntervalSec=60\nStartLimitBurst=3\n'
             f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
-            f'ExecStart={root}/asterion_node_agent --directory {root}/state --bind {bind} --port {port} '
-            f'--tls-ca {root}/ca.crt --tls-cert {root}/server.crt --tls-key {root}/server.key\n'
+            # Every program of the node is installed under {root}; the Agent finds
+            # its own config/ and data/ beside its bin/.
+            f'ExecStart={root}/agent/bin/asterion_node_agent --bind {bind} --port {port} '
+            f'--tls-ca {root}/agent/config/ca.crt --tls-cert {root}/agent/config/server.crt '
+            f'--tls-key {root}/agent/config/server.key\n'
             'NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n'
             f'ReadWritePaths={HOME}\nCapabilityBoundingSet=\nRestrictSUIDSGID=yes\n'
             'Restart=on-failure\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n')

@@ -36,7 +36,7 @@ void Application::Impl::register_node_commands()
         (co_await service_io.admin<void>([&] {
             return install_plugin(
                 native_plugin_directory(),
-                local_node_directory() / "plugins",
+                program_directory("terminal") / "data" / "plugins",
                 text(p, "path"),
                 text(p, "sha256"));
         }));
@@ -49,7 +49,7 @@ void Application::Impl::register_node_commands()
         fields(p, {"file", "sha256"});
         co_await service_io.admin<void>([&] {
             uninstall_plugin(
-                local_node_directory() / "plugins",
+                program_directory("terminal") / "data" / "plugins",
                 text(p, "file"),
                 text(p, "sha256"));
         });

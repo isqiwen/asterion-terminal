@@ -1,7 +1,7 @@
 #include "research_host.hpp"
 #include "research_configuration.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include <CLI/CLI.hpp>
 #include <cstdlib>
@@ -43,7 +43,7 @@ int main(int argc, char** argv)
         return 3;
     }
     try {
-        asterion::initialize_process_logging("research-service", service);
+        asterion::log::init();
         if (!plugin_directory.empty())
             asterion::configure_native_plugins(plugin_directory);
         asterion::validate_id(service);
@@ -107,22 +107,14 @@ int main(int argc, char** argv)
             if (!host.run())
                 std::_Exit(0);
         } catch (const std::exception& error) {
-            asterion::log_process_event(
-                "research-service",
-                asterion::LogLevel::error,
-                "service.failed",
-                {{"message", error.what()}});
+            asterion::log::error("research service failed: {}", error.what());
             std::cerr << "Research service failed: " << error.what() << '\n';
             std::_Exit(1);
         }
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Research service failed: " << error.what() << '\n';
-        asterion::log_process_event(
-            "research-service",
-            asterion::LogLevel::error,
-            "service.failed",
-            {{"message", error.what()}});
+        asterion::log::error("research service failed: {}", error.what());
         return 1;
     }
 }

@@ -1,4 +1,4 @@
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "live_session.hpp"
 #include "facts_archive.hpp"
@@ -27,7 +27,7 @@ std::filesystem::path account_ownership_directory()
     // Existing isolated test sessions never claim ownership of real local accounts.
     const auto* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
     if (isolated && std::string_view(isolated) == "1") {
-        const auto* node = std::getenv("ASTERION_NODE_DIRECTORY");
+        const auto* node = std::getenv("ASTERION_ROOT");
         if (!node || !std::filesystem::path(node).is_absolute())
             throw std::invalid_argument(
                 "isolated trading tests require an absolute node directory");
@@ -76,7 +76,7 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
-        asterion::initialize_process_logging("trading", session_id);
+        asterion::log::init();
         if (!plugin_directory.empty())
             asterion::configure_native_plugins(
                 std::filesystem::path(
@@ -384,11 +384,7 @@ int main(int argc, char** argv)
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Trading process failed: " << error.what() << '\n';
-        asterion::log_process_event(
-            "trading",
-            asterion::LogLevel::error,
-            "service.failed",
-            {{"message", error.what()}});
+        asterion::log::error("trading service failed: {}", error.what());
         return 1;
     }
 }

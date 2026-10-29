@@ -29,7 +29,7 @@ Data 和 Research 分别持久化自己的任务及其执行尝试：任务清�
 
 ## 服务任务并发
 
-每个 Research 实例启动只读 `<node>/config/services/<实例>/research.json` 的 `task_concurrency`，默认 1、允许 1–2。配置缺失或无效报告完整路径，不生成或转换现有配置。Research 依赖的 Data 未就绪时，计算任务保留队列。Data 采集使用两个固定执行槽，持久状态、目录裁决与发布由 Data 的串行写入器确认；供应商共享预算仍独立约束调用。
+每个 Research 实例启动只读 `<根>/research/config/<实例>/research.json` 的 `task_concurrency`，默认 1、允许 1–2。配置缺失或无效报告完整路径，不生成或转换现有配置。Research 依赖的 Data 未就绪时，计算任务保留队列。Data 采集使用两个固定执行槽，持久状态、目录裁决与发布由 Data 的串行写入器确认；供应商共享预算仍独立约束调用。
 并发名额覆盖输入准备、执行和结果确认，取消后也要等执行实际返回。
 Agent不维护任务额度、子进程启动记录或任务状态，Terminal的节点页只显示实际服务进程。
 

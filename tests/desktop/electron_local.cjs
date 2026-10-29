@@ -7,8 +7,8 @@ const home = os.homedir();
 const data = path.join(home, mac ? "Library/Application Support" : ".local/share");
 module.exports = {
   library: mac ? ".dylib" : ".so",
-  production: path.join(data, mac ? "Asterion/node" : "asterion/node"),
-  development: path.join(data, mac ? "Asterion Development/node" : "asterion-development/node"),
+  production: path.join(data, mac ? "Asterion" : "asterion"),
+  development: path.join(data, mac ? "Asterion Development" : "asterion-development"),
   // Electron's own profile directory.
   profile: name => path.join(mac ? data : path.join(home, ".config"), name),
   // The definition the user's service manager reads for an Agent.

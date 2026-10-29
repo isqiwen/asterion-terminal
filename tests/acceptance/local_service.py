@@ -14,13 +14,13 @@ if subprocess.run(["/bin/launchctl", "print", label], capture_output=True).retur
     raise SystemExit("An existing Asterion service is registered; refusing to modify it")
 with tempfile.TemporaryDirectory(prefix="asterion-launchd-", ignore_cleanup_errors=True) as folder:
     env = dict(os.environ, HOME=folder)
-    env.pop("ASTERION_NODE_DIRECTORY", None)
+    env.pop("ASTERION_ROOT", None)
     host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)
     try:
         host.stdin.write(json.dumps({"version": 1, "method": "node.local", "params": {}}) + "\n"); host.stdin.flush()
         response = json.loads(host.stdout.readline())
         assert response.get("result", {}).get("nodes", [{}])[0].get("state") == "online", response
-        pidfile = Path(folder) / "Library/Application Support/Asterion/node/agent.pid"
+        pidfile = Path(folder) / "Library/Application Support/Asterion/agent/data/agent.pid"
         pid = int(pidfile.read_text())
         host.kill(); host.communicate(timeout=10)
         os.kill(pid, 0)

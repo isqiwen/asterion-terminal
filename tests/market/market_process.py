@@ -10,7 +10,7 @@ env=dict(os.environ,ASTERION_CTP_LIBRARY=str(build/('libasterion_test_ctp.dylib'
 env['ASTERION_CTP_CATALOG_LIBRARY']=str(build/('libasterion_test_ctp_trader.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp_trader.so'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'terminal'))
 from keychain_fixture import install
-env['ASTERION_KEYCHAIN_EXECUTABLE'] = install(Path(os.environ['ASTERION_NODE_DIRECTORY']) / 'market-test-keychain')
+env['ASTERION_KEYCHAIN_EXECUTABLE'] = install(Path(os.environ['ASTERION_ROOT']) / 'market-test-keychain')
 process=subprocess.Popen([str(build/'asterion_terminal_dev_bridge')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(method,params=None):
     process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()

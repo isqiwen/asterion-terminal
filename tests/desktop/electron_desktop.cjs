@@ -61,7 +61,7 @@ async function closeDesktop(application) {
       ],
       env: {
         ...process.env,
-        ASTERION_NODE_DIRECTORY: `${temp}/node`,
+        ASTERION_ROOT: `${temp}/node`,
         ...testNode,
       },
       timeout: 30000,
@@ -234,7 +234,7 @@ async function closeDesktop(application) {
         offeredBy("futures.contracts").source,
       ],
       {
-        env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ...testNode },
+        env: { ...process.env, ASTERION_ROOT: root, ...testNode },
         timeout: 15000,
       },
     );

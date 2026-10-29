@@ -99,7 +99,6 @@ fs::path node_service_definition(const std::string& name)
 
 void manage_node_service(
     const fs::path& executable,
-    const fs::path& root,
     const std::string& endpoint,
     bool stopping,
     std::uint64_t expected_pid,
@@ -112,7 +111,9 @@ void manage_node_service(
         return value.find_first_of("\r\n") != std::string::npos
             || value.find('\0') != std::string::npos;
     };
-    if (invalid_text(utf8(executable)) || invalid_text(utf8(root)) || invalid_text(endpoint))
+    // <installation>/bin/<program>: the program keeps its locks in <installation>/data.
+    const auto root = executable.parent_path().parent_path() / "data";
+    if (invalid_text(utf8(executable)) || invalid_text(endpoint))
         throw std::invalid_argument("invalid managed service arguments");
     for (const auto& argument : arguments)
         if (invalid_text(argument))
@@ -154,8 +155,7 @@ void manage_node_service(
     std::string plist =
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist " "version=\"1.0\"><dict><key>Label</key><string>"
         + name + "</string><key>ProgramArguments</key><array>";
-    std::vector<std::string>
-        launch_command{utf8(executable), "--directory", utf8(root), "--endpoint", endpoint};
+    std::vector<std::string> launch_command{utf8(executable), "--endpoint", endpoint};
     launch_command.insert(launch_command.end(), arguments.begin(), arguments.end());
     for (const auto& arg : launch_command)
         plist += "<string>" + xml(arg) + "</string>";
@@ -220,8 +220,7 @@ void manage_node_service(
                 executable.filename() == "asterion_node_manager" ? "Node Manager" : "Node Agent")
             + "\nStartLimitIntervalSec=0\n[Service]\nExecStartPre=/usr/bin/mkdir -p -m 0700 "
             + quote(utf8(fs::path(endpoint).parent_path()))
-            + "\nExecStart=" + quote(utf8(executable)) + " --directory " + quote(utf8(root))
-            + " --endpoint " + quote(endpoint) + extra
+            + "\nExecStart=" + quote(utf8(executable)) + " --endpoint " + quote(endpoint) + extra
             + "\nRestart=on-failure\nRestartSec=10\n[Install]\nWantedBy=default.target\n",
         stopping);
     if (verifying) {
@@ -272,34 +271,31 @@ void manage_node_service(
 
 void install_node_service(
     const fs::path& executable,
-    const fs::path& root,
     const std::string& endpoint,
     const std::string& name,
     const std::vector<std::string>& arguments,
     bool start)
 {
-    manage_node_service(executable, root, endpoint, false, 0, name, arguments, false, start);
+    manage_node_service(executable, endpoint, false, 0, name, arguments, false, start);
 }
 
 void stop_node_service(
     const fs::path& executable,
-    const fs::path& root,
     const std::string& endpoint,
     std::uint64_t expected_pid,
     const std::string& name,
     const std::vector<std::string>& arguments)
 {
-    manage_node_service(executable, root, endpoint, true, expected_pid, name, arguments);
+    manage_node_service(executable, endpoint, true, expected_pid, name, arguments);
 }
 
 void verify_node_service_stopped(
     const fs::path& executable,
-    const fs::path& root,
     const std::string& endpoint,
     const std::string& name,
     const std::vector<std::string>& arguments)
 {
-    manage_node_service(executable, root, endpoint, true, 0, name, arguments, true);
+    manage_node_service(executable, endpoint, true, 0, name, arguments, true);
 }
 
 void start_node_service(const std::string& name)

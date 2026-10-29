@@ -118,27 +118,10 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
 {
     const auto root =
         std::filesystem::temp_directory_path() / ("asterion-rpc-log-" + unique_process_id());
-    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
-    const std::optional<std::string> saved =
-        value ? std::optional<std::string>(value) : std::nullopt;
-
-    struct Restore
-    {
-        const std::optional<std::string>& saved;
-        std::filesystem::path root;
-
-        ~Restore()
-        {
-            if (saved)
-                ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
-            else
-                ::unsetenv("ASTERION_LOG_DIRECTORY");
-            std::error_code ignored;
-            std::filesystem::remove_all(root, ignored);
-        }
-    } restore{saved, root};
-
-    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", root.c_str(), 1), 0);
+    std::filesystem::create_directories(root / "config");
+    std::ofstream(root / "config" / "logging.json")
+        << R"({"console":{"enabled":false,"level":"info"},)" R"("file":{"enabled":true,"level":"info","pattern":"%l %v","path":"../logs/rpc.log","retention_days":1}})";
+    log::init(root, "rpc-test");
     wire::Request request;
     request.set_correlation_id("rpc.test");
     request.mutable_live_connect()->set_password("test-only-password");
@@ -147,26 +130,20 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     response.mutable_error()->set_code("permission_denied");
     response.mutable_error()->set_message("test-only-private-provider-diagnostic");
     protocol::log_rpc_result("rpc-test", request, response, true, {{"session_id", "session.test"}});
-    std::vector<Json> records;
-    for (const auto& entry : std::filesystem::directory_iterator(root)) {
+    std::vector<std::string> lines;
+    for (const auto& entry : std::filesystem::directory_iterator(root / "logs")) {
         std::ifstream stream(entry.path());
-        std::string line;
-        while (std::getline(stream, line)) {
-            EXPECT_EQ(line.find("test-only"), std::string::npos);
-            records.push_back(Json::parse(line));
-        }
+        for (std::string line; std::getline(stream, line);)
+            lines.push_back(line);
     }
-    ASSERT_EQ(records.size(), 1U);
-    const auto& fields = records.front().at("fields");
+    log::init(root / "none", "test");
+    std::filesystem::remove_all(root);
+    ASSERT_EQ(lines.size(), 1U);
+    // The operation, the error code and the identifiers; never a credential or
+    // the remote error's message.
     EXPECT_EQ(
-        fields,
-        (Json{
-            {"success", false},
-            {"correlation_id", "rpc.test"},
-            {"operation", "live_connect"},
-            {"code", "permission_denied"},
-            {"session_id", "session.test"}
-        }));
+        lines.front(),
+        "warning rpc failed: module=rpc-test operation=live_connect correlation_id=rpc.test " "code=permission_denied session_id=session.test");
 }
 
 TEST(Protobuf, TradingHealthSeparatesReadinessProgressAndRecovery)

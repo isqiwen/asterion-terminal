@@ -75,10 +75,9 @@ int inspect_plugin(const std::string& path, const std::string& artifact)
 }
 
 fs::path PluginArtifacts::materialize(
-    const std::string& name,
+    const fs::path& parent,
     const std::vector<std::string>& artifacts) const
 {
-    const auto parent = root_ / "services" / name / "plugins";
     require_managed_path(parent);
     create_directories_durably(parent);
     const auto folder = parent / sha256_bytes(Json(artifacts).dump());
@@ -113,9 +112,8 @@ fs::path PluginArtifacts::materialize(
     return folder;
 }
 
-void PluginArtifacts::discard(const std::string& name) const
+void PluginArtifacts::discard(const fs::path& parent) const
 {
-    const auto parent = root_ / "services" / name / "plugins";
     require_managed_path(parent);
     fs::remove_all(parent);
 }

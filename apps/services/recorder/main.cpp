@@ -3,7 +3,7 @@
 #include <CLI/CLI.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/thread_pool.hpp>
@@ -45,19 +45,9 @@ int main(int argc, char** argv)
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
-        // <root>/bin/asterion_recorder: the installation is one directory.
-        const auto installation = current_executable().parent_path().parent_path();
-        const auto logs = installation / "logs";
-        if (!fs::is_directory(logs))
-            throw Error(
-                ErrorCode::invalid_request,
-                "the recorder needs the directory " + logs.string());
-        ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-        // Its own logging policy: level, retention and the text format.
-        initialize_process_logging(
-            "recorder",
-            "recorder",
-            installation / "config" / "recorder-logging.json");
+        // <installation>/bin/asterion_recorder: the installation is one directory.
+        const auto installation = installation_directory();
+        log::init();
         auto settings =
             recording::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
         const auto root = settings.directory;
@@ -163,29 +153,17 @@ int main(int argc, char** argv)
         Host host(transport, serve, std::move(options), io_progress);
         recording = std::make_unique<recording::Recording>(
             recording::Recording::Configuration{std::move(settings), instance});
-        log_process_event(
-            "recorder",
-            LogLevel::info,
-            "recorder.started",
-            {{"instance", instance}, {"installation", installation.string()}});
+        log::info("recorder started: instance={} installation={}", instance, installation.string());
         try {
             if (!host.run())
                 std::_Exit(1);
         } catch (const std::exception& error) {
-            log_process_event(
-                "recorder",
-                LogLevel::error,
-                "recorder.failed",
-                {{"message", error.what()}});
+            log::error("recorder failed: {}", error.what());
             std::_Exit(1);
         }
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
-        log_process_event(
-            "recorder",
-            LogLevel::error,
-            "recorder.failed",
-            {{"message", error.what()}});
+        log::error("recorder failed: {}", error.what());
         return 1;
     }
     return 0;

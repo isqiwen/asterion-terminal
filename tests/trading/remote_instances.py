@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install_agent  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "node"))
 from bundle_fixture import make_bundle
@@ -43,7 +45,7 @@ def wait(process, condition):
     raise AssertionError(str(state)[:2000])
 
 
-with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_NODE_DIRECTORY"], ignore_cleanup_errors=True) as folder:
+with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     remote = root / "remote"
     remote.mkdir()
@@ -51,16 +53,18 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
     management_port, trade_port = port(), port()
     while trade_port == management_port:
         trade_port = port()
-    agent_env = dict(os.environ, ASTERION_NODE_DIRECTORY=str(remote), ASTERION_TEST_NODE_ISOLATED="1")
+    agent_env = dict(os.environ, ASTERION_ROOT=str(remote), ASTERION_TEST_NODE_ISOLATED="1")
+    # The remote node's installation, with the defaults its enrollment copies.
+    shutil.copytree(build / "config", remote / "agent" / "config")
     agent = subprocess.Popen([
-        str(build / "asterion_node_agent"), "--directory", str(remote), "--bind", "127.0.0.1",
+        str(install_agent(remote, build / "asterion_node_agent")), "--bind", "127.0.0.1",
         "--port", str(management_port), "--tls-ca", str(root / "ca.crt"),
         "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")],
         env=agent_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     terminal = None
     try:
         local = root / "local"
-        enrollment = local / "enrollments/remote"
+        enrollment = local / "manager/data/enrollments/remote"
         enrollment.mkdir(parents=True)
         for name in ("ca.crt", "client.crt", "client.key"):
             shutil.copyfile(root / name, enrollment / name)
@@ -77,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         for name in ("ctp-trader.so", "ctp-md.so"):
             manifest["files"][name] = hashlib.sha256((bundle / name).read_bytes()).hexdigest()
         manifest_path.write_text(json.dumps(manifest))
-        env = dict(os.environ, ASTERION_NODE_DIRECTORY=str(local), ASTERION_REMOTE_RESOURCES=str(resources),
+        env = dict(os.environ, ASTERION_ROOT=str(local), ASTERION_REMOTE_RESOURCES=str(resources),
                    ASTERION_CTP_LIBRARY=str(build / "libasterion_test_ctp.so"),
                    ASTERION_CTP_CATALOG_LIBRARY=str(build / "libasterion_test_ctp_trader.so"))
 
@@ -125,7 +129,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         assert state["live"]["real"]["session"]["orders"] == []
         bindings = {a["id"]: a["trading"] for a in state["ctp_connections"]}
         assert bindings["simulation"] == dict(node="remote", service="trading")
-        assert (remote / "services/trading/ledger/journal.sqlite").is_file()
+        assert (remote / "trading/data/trading/journal.sqlite").is_file()
         assert not (local / "accounts/ctp/simulation/journal.sqlite").exists()
         local_node = next(n for n in state["nodes"] if n["id"] == "local")
         local_service = next(s for s in local_node["health"]["services"] if s["id"] == bindings["real"]["service"])

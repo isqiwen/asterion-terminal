@@ -1,5 +1,5 @@
 #include "tushare.hpp"
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <httplib.h>
 #include <stdexcept>
 
@@ -39,21 +39,13 @@ Post https_transport()
         if (stop.stop_requested())
             throw std::runtime_error("Tushare download cancelled");
         if (!response) {
-            log_process_event(
-                "tushare",
-                LogLevel::warning,
-                "request.transport_failed",
-                {{"error", httplib::to_string(response.error())}});
+            log::warn("tushare request failed: {}", httplib::to_string(response.error()));
             throw RequestError(
                 AccessFailure::network,
                 "Tushare HTTPS request failed (network, certificate, timeout or response limit)");
         }
         if (response->status != 200) {
-            log_process_event(
-                "tushare",
-                LogLevel::warning,
-                "request.http_failed",
-                {{"status", response->status}});
+            log::warn("tushare request failed: http status {}", response->status);
             throw RequestError(
                 response->status == 429 ? AccessFailure::rate_limit : AccessFailure::network,
                 "Tushare HTTP status " + std::to_string(response->status));

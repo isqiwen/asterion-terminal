@@ -8,10 +8,11 @@ namespace asterion::terminal {
 
 // The definition this user's service manager reads: a launchd agent on macOS,
 // a systemd user unit on Linux. An empty name is the installed Terminal's.
+// The executable is <installation>/bin/<program>; the program finds its
+// directories from there and keeps its locks in <installation>/data.
 std::filesystem::path node_service_definition(const std::string& name = {});
 void install_node_service(
     const std::filesystem::path& executable,
-    const std::filesystem::path& root,
     const std::string& endpoint,
     const std::string& name = {},
     const std::vector<std::string>& arguments = {},
@@ -21,7 +22,6 @@ void start_node_service(const std::string& name);
 // Stops only the OS registration; preserves definition, binary and all data.
 void stop_node_service(
     const std::filesystem::path& executable,
-    const std::filesystem::path& root,
     const std::string& endpoint,
     std::uint64_t expected_pid,
     const std::string& name = {},
@@ -30,7 +30,6 @@ void stop_node_service(
 // lock.
 void verify_node_service_stopped(
     const std::filesystem::path& executable,
-    const std::filesystem::path& root,
     const std::string& endpoint,
     const std::string& name = {},
     const std::vector<std::string>& arguments = {});

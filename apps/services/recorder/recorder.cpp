@@ -1,7 +1,7 @@
 #include "recorder.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <cstdio>
 
 namespace asterion::recording {
@@ -318,13 +318,11 @@ void Recorder::collect()
     if (!written.error.empty()) {
         status_.error = written.error;
         status_.lost += written.rows;
-        log_process_event(
-            "recorder",
-            LogLevel::error,
-            "recording.write_failed",
-            {{"trading_day", written.trading_day},
-                {"rows", written.rows},
-                {"message", written.error}});
+        log::error(
+            "recording write failed: trading_day={} rows={}: {}",
+            written.trading_day,
+            written.rows,
+            written.error);
         return;
     }
     status_.trading_day = written.trading_day;

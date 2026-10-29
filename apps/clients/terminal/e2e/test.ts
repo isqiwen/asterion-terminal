@@ -39,7 +39,7 @@ export const test = base.extend<{
           throw new Error(
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
-        process.env.ASTERION_NODE_DIRECTORY = (await response.json()).node_directory;
+        process.env.ASTERION_ROOT = (await response.json()).root;
         // Bring the environment up as the app's startup does (Agent, market
         // Data and Research services, each past its first heartbeat), so the first
         // test of a file meets the same ready state as the later ones.

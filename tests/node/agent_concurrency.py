@@ -1,5 +1,6 @@
 """A stalled TLS handshake or authenticated partial frame cannot block Agent status."""
 import json
+import re
 from pathlib import Path
 import select
 import socket
@@ -10,11 +11,13 @@ import shutil
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from installation import install_agent  # noqa: E402
 
 
 def daily(path):
-    """Transport is a module in the owning Agent process log."""
-    return next(path.parent.glob("agent-*_????-??-??.log"))
+    """Transport records are in the owning Agent's process log."""
+    return next(path.parent.glob("asterion_node_agent-*_????-??-??.log"))
 
 agent_path, certificates, mode = sys.argv[1:]
 assert mode in ("handshake", "frame", "overload")
@@ -54,13 +57,14 @@ def fields(data):
     return result
 
 with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup_errors=True) as folder:
-    root = Path(folder); (root / "state").mkdir()
-    shutil.copytree(Path(agent_path).parent / "config", root / "state/config")
+    root = Path(folder)
+    shutil.copytree(Path(agent_path).parent / "config", root / "agent/config")
+    agent = install_agent(root, agent_path)
     subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:
         reserve.bind(("127.0.0.1", 0)); port = reserve.getsockname()[1]
-    log = root / "state/logs/transport.log"
-    process = subprocess.Popen([agent_path, "--directory", str(root / "state"), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    log = root / "agent/logs/transport.log"
+    process = subprocess.Popen([str(agent), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     context = ssl.create_default_context(cafile=str(root / "ca.crt"))
     context.load_cert_chain(str(root / "client.crt"), str(root / "client.key"))
     context.minimum_version = ssl.TLSVersion.TLSv1_3
@@ -145,8 +149,8 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
             assert malformed.recv(1) == b""
         until = time.monotonic() + 5
         while True:
-            records = [json.loads(line) for line in daily(log).read_text().splitlines()]
-            failures = [r for r in records if r["event"] == "rpc.connection_failed"]
+            records = daily(log).read_text().splitlines()
+            failures = [line for line in records if "rpc connection failed:" in line]
             if failures:
                 break
             if time.monotonic() >= until:
@@ -154,8 +158,10 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
             time.sleep(.05)
         # Transport now uses the shared RpcHost diagnostics. Protect payload secrecy
         # and explicit rejection, rather than the removed per-connection host stages.
-        assert all(set(r["fields"]) == {"code", "failures"} for r in failures), failures
-        assert all(secret.decode() not in path.read_text() for path in (root / "state/logs").glob("*.log"))
+        # Only the error code and the count: never the payload.
+        assert all(re.search(r"rpc connection failed: \w+ \(\d+ transport failures\)$", line)
+                   for line in failures), failures
+        assert all(secret.decode() not in path.read_text() for path in (root / "agent/logs").glob("*.log"))
     finally:
         if stalled is not None: stalled.close()
         for channel in overloaded: channel.close()

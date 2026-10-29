@@ -1,7 +1,7 @@
 #include "startup.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/log.hpp>
 #include <asterion/manager.pb.h>
 #include <algorithm>
 #include <thread>
@@ -12,7 +12,7 @@ using namespace std::chrono_literals;
 
 void wait_for_local_readiness(
     const std::string& manager_endpoint,
-    const std::filesystem::path& logs,
+    const std::filesystem::path& root,
     std::chrono::milliseconds timeout)
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -28,11 +28,13 @@ void wait_for_local_readiness(
     std::string reason = "Manager has not responded";
     std::uint64_t manager_pid = 0, agent_pid = 0;
     auto evidence = [&] {
-        auto detail = reason + "; logs: " + logs.string();
+        auto detail = reason + "; logs in " + root.string();
         if (manager_pid)
-            detail += "; Manager: " + process_log_file(logs, "node-manager", manager_pid).string();
+            detail += "; Manager: "
+                + log::file(root / "manager", "asterion_node_manager", manager_pid).string();
         if (agent_pid)
-            detail += "; Agent: " + process_log_file(logs, "agent", agent_pid).string();
+            detail +=
+                "; Agent: " + log::file(root / "agent", "asterion_node_agent", agent_pid).string();
         return detail;
     };
     while (remaining() > 0ms) {

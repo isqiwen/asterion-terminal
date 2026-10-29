@@ -58,7 +58,7 @@ int main(int argc, char** argv)
                 asterion::terminal::AgentClient::open(io, {"local", "localhost", 0, {}, endpoint})
                     .get();
             if (operation == "deploy-task") {
-                const auto isolated = asterion::environment_path("ASTERION_NODE_DIRECTORY");
+                const auto isolated = asterion::environment_path("ASTERION_ROOT");
                 if (asterion::environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1"
                     || !isolated
                     || std::filesystem::canonical(*isolated) != std::filesystem::canonical(root))
@@ -75,8 +75,10 @@ int main(int argc, char** argv)
                 }
                 // Stop only after the task service has started once: a ledger that never
                 // created manager.lock is refused by the read-only usage check.
-                const auto lock = std::filesystem::path(root) / "services" / "stopped-task"
-                    / "ledger" / "manager.lock";
+                // `root` is the Agent's state, <root>/agent/data; the research
+                // instance's data is <root>/research/data/<instance>.
+                const auto lock = std::filesystem::path(root).parent_path().parent_path()
+                    / "research" / "data" / "stopped-task" / "manager.lock";
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
                 while (
                     !std::filesystem::exists(lock) && std::chrono::steady_clock::now() < deadline)
@@ -129,7 +131,6 @@ int main(int argc, char** argv)
         } else if (operation == "verify-stopped")
             asterion::terminal::verify_node_service_stopped(
                 path(executable),
-                path(root),
                 endpoint,
                 name,
                 arguments);
@@ -142,30 +143,18 @@ int main(int argc, char** argv)
         else if (operation == "bootstrap") {
             asterion::FileLock owner(path(root), "bootstrap.lock");
             asterion::terminal::install_node_program(path(source), path(executable), path(root));
-            asterion::terminal::install_node_service(
-                path(executable),
-                path(root),
-                endpoint,
-                name,
-                arguments);
+            asterion::terminal::install_node_service(path(executable), endpoint, name, arguments);
         } else if (operation == "start")
             asterion::terminal::start_node_service(name);
         else if (operation == "install" || operation == "register")
             asterion::terminal::install_node_service(
                 path(executable),
-                path(root),
                 endpoint,
                 name,
                 arguments,
                 operation == "install");
         else
-            asterion::terminal::stop_node_service(
-                path(executable),
-                path(root),
-                endpoint,
-                pid,
-                name,
-                arguments);
+            asterion::terminal::stop_node_service(path(executable), endpoint, pid, name, arguments);
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
         return 1;

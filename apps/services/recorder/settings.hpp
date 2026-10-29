@@ -12,7 +12,7 @@ namespace asterion::recording {
 //
 //   bin/     asterion_recorder
 //   lib/     ctp-md.so, ctp-trader.so
-//   config/  recorder.json, recorder-logging.json
+//   config/  recorder.json, logging.json
 //   logs/
 //   data/    recordings, the catalog cache, CTP flow files
 //

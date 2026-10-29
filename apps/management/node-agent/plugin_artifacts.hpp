@@ -20,12 +20,15 @@ public:
 
     std::map<std::string, std::string> verify(const std::vector<std::string>& artifacts) const;
     std::string identity(const std::string& artifact) const;
-    std::filesystem::path
-    materialize(const std::string& service, const std::vector<std::string>& artifacts) const;
-    // Removes every folder materialize made for a service: copies of the
+    // Copies of the artifacts in a folder under `parent`, the service's
+    // <root>/<program>/lib/plugins/<service>; returns that folder.
+    std::filesystem::path materialize(
+        const std::filesystem::path& parent,
+        const std::vector<std::string>& artifacts) const;
+    // Removes every folder materialize made under `parent`: copies of the
     // artifacts, made again where they are needed. Only while nothing of the
     // service runs.
-    void discard(const std::string& service) const;
+    void discard(const std::filesystem::path& parent) const;
 
 private:
     std::filesystem::path binary(const std::string& hash) const;

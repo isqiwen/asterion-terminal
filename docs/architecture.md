@@ -136,11 +136,39 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 历史数据源与风控可作为原生动态库独立安装（C ABI，见 [原生插件](native-plugins.md)）；
 策略、存储和执行是仓库内静态模块。
 
+## 安装目录
+
+每个程序装在自己的目录里，所有程序在同一个根目录下：
+
+```
+<根>/<程序>/bin/      程序
+           lib/      它的动态库：CTP 库、插件（plugins/<实例>/）
+           config/   它的配置，logging.json 在其中
+           logs/     它的日志
+           data/     它的数据，有多个实例的程序按 data/<实例>/ 分开
+```
+
+| 根目录 | 位置 |
+| --- | --- |
+| 本机 | Linux `~/.local/share/asterion/`（设置了 `XDG_DATA_HOME` 时在其下），macOS `~/Library/Application Support/Asterion/`；开发环境为 `asterion-development/` 与 `Asterion Development/`；隔离测试为 `ASTERION_ROOT` |
+| 远程节点 | `/var/lib/asterion/nodes/<节点>/` |
+| 录制主机 | `/opt/asterion/`，只有 `recorder/` |
+
+本机的程序目录有 `agent/`、`manager/`、`market/`、`trading/`、`data/`、`research/`、`lab/`，以及 `terminal/`（只有 `config/`、
+`logs/`、`data/`：Terminal 程序本身留在应用安装包里）。
+
+- 程序从启动它的路径（`argv[0]`，不解析符号链接）找到自己的安装目录：`bin/` 的上一级。所以开发和测试可以把构建出的
+  程序以符号链接放进 `bin/`，不必复制。Terminal 和安装器从应用里运行，由代码指明各自的目录。
+- 应用里打包的程序、插件与默认配置所在的目录称为应用目录。从别处运行的 Manager 由 Terminal 以 `--application` 告知。
+- Agent 把每种服务的程序放进 `<根>/<程序>/bin/`：从它按内容命名的程序仓库（`agent/data/artifacts/`）建硬链接，跨文件系统
+  时复制。同一程序的各实例运行同一版本，另一实例运行其他版本时拒绝替换。CTP 库按内容命名放在 `lib/`。
+
 ## 配置与日志
 
-- 节点默认配置在仓库 `config/`，首次部署复制到 `<node>/config/`；已有配置不被覆盖，服务只读。
+- 默认配置在仓库 `config/`，首次部署时复制到 `agent/`、`manager/`、`terminal/` 的 `config/`；Agent 首次安装一种服务时把
+  自己的 `logging.json` 复制给它。已有配置不被覆盖，程序只读。录制程序的默认配置在 `apps/services/recorder/config/`。
 - 缺失或无效的必需配置使启动失败并报告路径。Manager 的启动上下文通过 OS 服务参数传递。
-- 日志文件按程序、服务实例和进程区分；模块与操作是记录字段。日志策略每个节点环境一份。
+- 日志接口是格式字符串（`log::info("… {}", x)`），配置是各程序的 `config/logging.json`，见[运行日志](services.md#运行日志)。
 
 ## 安装与维护
 

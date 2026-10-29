@@ -103,7 +103,7 @@ test("@journey material acquisition uses real Data and Native, preserves source-
   const directory = live.nodes
     .find((n: { id: string }) => n.id === "local")
     .health.services.find((s: { id: string }) => s.id === serviceId).directory;
-  expect(directory.startsWith(process.env.ASTERION_NODE_DIRECTORY + "/")).toBe(true);
+  expect(directory.startsWith(process.env.ASTERION_ROOT + "/")).toBe(true);
   const receiptFile = join(directory, "materials/receipts/browser-material.pb");
   const receiptBytes = readFileSync(receiptFile);
   await stop();
