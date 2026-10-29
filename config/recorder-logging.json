@@ -1,0 +1,5 @@
+{
+  "level": "info",
+  "retention_days": 30,
+  "format": "text"
+}

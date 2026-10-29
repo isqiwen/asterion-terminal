@@ -13,6 +13,8 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <regex>
+#include <algorithm>
 using namespace asterion;
 
 namespace {
@@ -284,4 +286,72 @@ TEST_F(LogFixture, NodePolicyFiltersAllModulesAndPrunesOnlyExpiredProcessLogs)
     prune_process_logs(logs);
     EXPECT_FALSE(std::filesystem::exists(expired));
     EXPECT_TRUE(std::filesystem::exists(old_name));
+}
+
+TEST(Logger, TextRecordsAreOneReadableLine)
+{
+    std::ostringstream output;
+    auto backend = std::make_shared<spdlog::logger>(
+        "recorder",
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(output));
+    Logger logger(backend, Json::object(), true);
+    EXPECT_TRUE(logger.write(
+        LogLevel::warning,
+        "catalog.failed",
+        {{"error_code", "unavailable"},
+            {"subscribed", 1234},
+            {"message", "front closed"},
+            {"password", "test-only-secret"}}));
+    const auto line = output.str();
+    EXPECT_TRUE(
+        std::regex_search(
+            line,
+            std::regex(
+                R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{4} WARNING recorder catalog\.failed )")))
+        << line;
+    EXPECT_NE(line.find(" error_code=unavailable"), std::string::npos) << line;
+    EXPECT_NE(line.find(" subscribed=1234"), std::string::npos) << line;
+    EXPECT_NE(line.find(R"( message="front closed")"), std::string::npos) << line;
+    EXPECT_EQ(line.find("test-only-secret"), std::string::npos) << line;
+    EXPECT_EQ(std::count(line.begin(), line.end(), '\n'), 1);
+}
+
+TEST_F(LogFixture, ANamedPolicyFileChoosesTheTextFormat)
+{
+    const auto previous = std::getenv("ASTERION_LOG_DIRECTORY");
+    const auto saved = previous ? std::optional<std::string>(previous) : std::nullopt;
+
+    struct Restore
+    {
+        std::optional<std::string> value;
+
+        ~Restore()
+        {
+            if (value)
+                ::setenv("ASTERION_LOG_DIRECTORY", value->c_str(), 1);
+            else
+                ::unsetenv("ASTERION_LOG_DIRECTORY");
+            initialize_process_logging("asterion");
+        }
+    } restore{saved};
+
+    const auto logs = directory / "logs";
+    const auto policy = directory / "recorder-logging.json";
+    std::ofstream(policy) << R"({"level":"info","retention_days":7,"format":"text"})";
+    ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
+    EXPECT_THROW(
+        initialize_process_logging("recorder", "recorder", directory / "missing.json"),
+        Error);
+    initialize_process_logging("recorder", "recorder", policy);
+    log_process_event("recorder", LogLevel::info, "recorder.started", {{"instance", "a1"}});
+    std::string text;
+    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
+        std::ifstream input(entry.path());
+        text.assign(std::istreambuf_iterator<char>(input), {});
+    }
+    EXPECT_NE(text.find(" INFO recorder recorder.started instance=a1\n"), std::string::npos)
+        << text;
+    std::ofstream(policy) << R"({"level":"info","retention_days":7,"format":"yaml"})";
+    initialize_process_logging("recorder", "other", policy);
+    EXPECT_THROW(process_logger("recorder"), Error);
 }

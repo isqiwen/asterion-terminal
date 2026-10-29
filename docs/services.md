@@ -233,6 +233,11 @@ Terminal 原生层、本机 Agent 和托管服务的运行日志统一位于当�
 {"level":"info","retention_days":30}
 ```
 
+可选的第三项 `"format"` 为 `"json"`（默认，JSON Lines）或 `"text"`：每条一行可读文本，如
+`2026-10-29 21:00:01.123 +0800 INFO recorder catalog.applied phase=ready contracts=1234`（本地时间、级别、模块、事件，字段为
+`键=值`，含空格的值和嵌套值写成 JSON），敏感字段同样脱敏。录制程序使用自己的 `config/recorder-logging.json`，默认为文本格式，
+见[行情录制](recorder.md)。
+
 缺省为 info、30 天；支持 debug、info、warning、error、off，留存天数 1–366。配置在进程启动／首次创建日志器时读取，修改后重启相关进程生效。活动日志按天轮换；Agent 启动时按公共留存策略清理已退出进程的过期日志。旧命名日志保留原位，不自动转换或删除。
 
 请求、任务尝试、交易记录的关联字段以及日志丢失提示见 [运行诊断](development.md#运行诊断)。

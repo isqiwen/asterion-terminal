@@ -94,6 +94,7 @@ def install(root):
     shutil.copy2(recorder, root / "bin/asterion_recorder")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
+    shutil.copy2(Path(__file__).parents[2] / "config/recorder-logging.json", root / "config")
 
 
 def start(root, port):
@@ -177,7 +178,8 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         second.wait(timeout=30)
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert "catalog.applied" in logs, logs
+    assert " INFO recorder catalog.applied " in logs, logs  # text, one line per record
+    assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
         assert secret not in logs and secret not in second.stderr.read()
     print("recorded", trading_day, "in", len(segments), "segments;", len(bars), "minutes of rb2610")

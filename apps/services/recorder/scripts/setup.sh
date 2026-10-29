@@ -12,7 +12,8 @@
 #
 # The installation is /opt/asterion-recorder: bin/ lib/ config/ logs/ data/.
 # A first install asks for the settings; an upgrade replaces only bin/ and
-# lib/ and leaves config/recorder.json as it is (it offers to change it).
+# lib/ and leaves config/ (recorder.json, recorder-logging.json) as it is
+# (it offers to change the settings).
 # Settings questions offer the current values as defaults; the password and
 # the authentication code have none and are encrypted with systemd-creds,
 # never written to a file in the clear. The recorder runs as the system
@@ -79,10 +80,10 @@ restart() {
     systemctl stop "$RESTART.timer" 2>/dev/null || true
     if [[ $at == now ]]; then
         systemctl restart "$UNIT"
-        echo "录制程序已（重新）启动。状态：systemctl status $UNIT；日志在 $ROOT/logs"
+        echo "The recorder has (re)started. Status: systemctl status $UNIT; logs in $ROOT/logs"
     else
         systemd-run --quiet --unit="$RESTART" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$UNIT"
-        echo "录制程序正在交易时段运行，改动已保存，在北京时间 $at 自动重启后生效。取消：systemctl stop $RESTART.timer"
+        echo "The recorder is recording during trading hours. The change is saved and takes effect when it restarts automatically at $at Beijing time. To cancel: systemctl stop $RESTART.timer"
     fi
 }
 
@@ -107,7 +108,7 @@ ask() {
             printf '%s' "$value"
             return
         fi
-        echo "  格式不对，请重新输入" >&2
+        echo "  Invalid value, please try again" >&2
     done
 }
 
@@ -118,7 +119,7 @@ secret() {
         read -r -s -p "$1: " value
         echo >&2
         [[ -n $value ]] && break
-        echo "  不能为空" >&2
+        echo "  Required" >&2
     done
     printf '%s' "$value"
 }
@@ -126,17 +127,17 @@ secret() {
 configure() {
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port market_front trade_front broker user app_id
     local password auth_code=
-    bind=$(ask bind "监听地址" '^[0-9A-Fa-f.:]+$')
-    port=$(ask port "监听端口" '^[0-9]{1,5}$')
-    ((port >= 1 && port <= 65535)) || fail "端口必须在 1-65535 之间"
-    market_front=$(ask counter.market_front "行情前置" "$front")
-    trade_front=$(ask counter.trade_front "交易前置" "$front")
-    broker=$(ask counter.broker "经纪公司代码" '^[A-Za-z0-9]+$')
-    user=$(ask counter.user "投资者代码" '^[A-Za-z0-9]+$')
-    app_id=$(ask counter.app_id "AppID（没有则输入 -）" '^[A-Za-z0-9_-]*$')
+    bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
+    port=$(ask port "Listen port" '^[0-9]{1,5}$')
+    ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
+    market_front=$(ask counter.market_front "Market data front" "$front")
+    trade_front=$(ask counter.trade_front "Trading front" "$front")
+    broker=$(ask counter.broker "Broker ID" '^[A-Za-z0-9]+$')
+    user=$(ask counter.user "Investor ID" '^[A-Za-z0-9]+$')
+    app_id=$(ask counter.app_id "AppID (- for none)" '^[A-Za-z0-9_-]*$')
     [[ $app_id == - ]] && app_id=
-    password=$(secret "密码（不显示）")
-    [[ -n $app_id ]] && auth_code=$(secret "授权码（不显示）")
+    password=$(secret "Password (not shown)")
+    [[ -n $app_id ]] && auth_code=$(secret "Authentication code (not shown)")
 
     # Replaced whole; only the recorder's account may read it.
     python3 -I -c '
@@ -158,7 +159,7 @@ with open(sys.argv[1], "w") as output:
         printf '%s' "$auth_code" |
             systemd-creds encrypt --name=asterion.ctp.auth_code - "$CREDENTIALS/asterion.ctp.auth_code" >/dev/null
     fi
-    echo "已保存 $ROOT/config/recorder.json"
+    echo "Saved $ROOT/config/recorder.json"
 }
 
 unit_text() {
@@ -198,10 +199,14 @@ install_once() {
     mkdir -p "$ROOT"/{bin,lib,config,logs,data} "$CREDENTIALS"
     chmod 0700 "$ROOT/config" "$ROOT/logs" "$ROOT/data" "$CREDENTIALS"
     chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs" "$ROOT/data"
-    if [[ ! -f $ROOT/config/recorder.json ]]; then
-        install -m 0600 "$1/config/recorder.json" "$ROOT/config/recorder.json"
-        chown "$ACCOUNT:" "$ROOT/config/recorder.json"
-    fi
+    # Copied once: upgrades never overwrite the configuration files.
+    local name
+    for name in recorder.json recorder-logging.json; do
+        if [[ ! -f $ROOT/config/$name ]]; then
+            install -m 0600 "$1/config/$name" "$ROOT/config/$name"
+            chown "$ACCOUNT:" "$ROOT/config/$name"
+        fi
+    done
     unit_text >"$UNITS/$UNIT"
     systemctl daemon-reload
     systemctl enable "$UNIT" >/dev/null
@@ -211,7 +216,7 @@ install_once() {
 # recorder keeps the files it started with until it restarts.
 place() {
     local name
-    "$1/bin/asterion_recorder" --version >/dev/null 2>&1 || fail "这个包里的录制程序不能在本机运行"
+    "$1/bin/asterion_recorder" --version >/dev/null 2>&1 || fail "The recorder in this release does not run on this host"
     for name in "${PROGRAMS[@]}"; do
         install -m 0755 "$1/$name" "$ROOT/$name.new"
         mv -f "$ROOT/$name.new" "$ROOT/$name"
@@ -219,7 +224,7 @@ place() {
 }
 
 main() {
-    [[ $EUID -eq 0 ]] || fail "请用 sudo 运行"
+    [[ $EUID -eq 0 ]] || fail "Run it with sudo"
     local source line
     line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
     if [[ -n $line ]]; then
@@ -230,29 +235,29 @@ main() {
     elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
         source=$ROOT
     else
-        fail "这份脚本不带程序：安装或升级请运行发布的 asterion-recorder-setup.sh"
+        fail "This copy carries no programs: install or upgrade with the released asterion-recorder-setup.sh"
     fi
     if [[ -d $ROOT/data ]]; then
         ACCOUNT=$(stat -c %U "$ROOT/data")
     else
         ACCOUNT=${SUDO_USER:-}
-        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "请用你自己的账户通过 sudo 运行，录制程序将以该账户运行"
+        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: the recorder will run as that account"
     fi
     if [[ $source == "$ROOT" ]]; then
         configure
     elif [[ -x $ROOT/bin/asterion_recorder ]]; then
         place "$source"
-        echo "已升级 $ROOT 的程序，配置文件未改动。"
+        echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
         local answer
-        read -r -p "要修改配置吗？[y/N]: " answer
+        read -r -p "Change the settings? [y/N]: " answer
         [[ $answer == [yY]* ]] && configure
     else
         install_once "$source"
         place "$source"
-        echo "已安装到 $ROOT，录制程序以 $ACCOUNT 运行。请填写配置："
+        echo "Installed in $ROOT; the recorder runs as $ACCOUNT. Settings:"
         configure
         port=$(current port)
-        echo "录制程序在 TCP $port 上不加密监听，防火墙只放行自己的机器，例如：ufw allow from <地址> to any port $port proto tcp"
+        echo "The recorder listens on TCP $port without encryption: allow the port only from your own machines, e.g. ufw allow from <address> to any port $port proto tcp"
     fi
     restart
 }

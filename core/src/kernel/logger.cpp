@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <asterion/kernel/environment.hpp>
 #include <chrono>
+#include <cctype>
 #include <ctime>
 #include <regex>
 #include <cstdio>
@@ -21,27 +22,32 @@ namespace {
 std::atomic<std::uint64_t> log_failures{0};
 std::mutex process_mutex;
 std::string process_program, process_instance;
+std::filesystem::path process_policy;
 const auto process_started = SystemClock{}.utc_now();
 
 LoggerOptions logging_policy(const std::filesystem::path& directory)
 {
     LoggerOptions options;
     options.stderr_sink = false;
-    const auto file = directory.parent_path() / "config" / "logging.json";
-    if (!std::filesystem::exists(file))
+    const auto file = process_policy.empty() ? directory.parent_path() / "config" / "logging.json"
+                                             : process_policy;
+    if (process_policy.empty() && !std::filesystem::exists(file))
         return options;
     std::ifstream input(file);
     if (!input)
         throw Error(
             ErrorCode::invalid_request,
-            "cannot read node logging configuration: " + file.string());
+            "cannot read logging configuration: " + file.string());
     const auto config = Json::parse(input, nullptr, false);
-    if (!config.is_object() || config.size() != 2 || !config.contains("level")
+    const bool formatted = config.is_object() && config.contains("format");
+    if (!config.is_object() || config.size() != (formatted ? 3u : 2u) || !config.contains("level")
         || !config.contains("retention_days") || !config.at("retention_days").is_number_unsigned()
-        || !config.at("level").is_string())
-        throw Error(
-            ErrorCode::invalid_request,
-            "invalid node logging configuration: " + file.string());
+        || !config.at("level").is_string()
+        || (formatted
+            && (!config.at("format").is_string()
+                || (config.at("format") != "json" && config.at("format") != "text"))))
+        throw Error(ErrorCode::invalid_request, "invalid logging configuration: " + file.string());
+    options.text = formatted && config.at("format") == "text";
     const std::map<std::string, LogLevel> levels{
         {"debug", LogLevel::debug},
         {"info", LogLevel::info},
@@ -52,12 +58,51 @@ LoggerOptions logging_policy(const std::filesystem::path& directory)
     const auto level = levels.find(config.at("level").get<std::string>());
     const auto days = config.at("retention_days").get<std::uint64_t>();
     if (level == levels.end() || days < 1 || days > 366)
-        throw Error(
-            ErrorCode::invalid_request,
-            "invalid node logging configuration: " + file.string());
+        throw Error(ErrorCode::invalid_request, "invalid logging configuration: " + file.string());
     options.level = level->second;
     options.retention_days = static_cast<unsigned>(days);
     return options;
+}
+
+// "2026-10-29 21:00:01.123 +0800 INFO recorder catalog.applied phase=ready":
+// local time, then fields as key=value; text with spaces, quotes or "=" and
+// nested values are written as JSON.
+std::string text_line(
+    const std::string& level,
+    const std::string& module,
+    std::string_view event,
+    const Json& fields)
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto seconds = std::chrono::system_clock::to_time_t(now);
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
+        % 1000;
+    std::tm local{};
+    localtime_r(&seconds, &local);
+    char stamp[48];
+    const auto length = std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+    char zone[8];
+    std::strftime(zone, sizeof(zone), "%z", &local);
+    std::string upper = level;
+    std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
+    char millis[8];
+    std::snprintf(millis, sizeof(millis), ".%03d ", static_cast<int>(milliseconds));
+    std::string line = std::string(stamp, length) + millis + zone + " " + upper + " " + module + " "
+        + std::string(event);
+    for (const auto& [key, value] : fields.items()) {
+        line += " " + key + "=";
+        if (value.is_string()) {
+            const auto& text = value.get_ref<const std::string&>();
+            line += text.empty() || text.find_first_of(" \t\n\"=") != std::string::npos
+                ? value.dump()
+                : text;
+        } else
+            line += value.dump();
+    }
+    return line;
 }
 
 void record_log_failure() noexcept
@@ -171,14 +216,22 @@ std::uint64_t process_log_failures() noexcept
     return log_failures.load(std::memory_order_relaxed);
 }
 
-void initialize_process_logging(std::string program, std::string instance)
+void initialize_process_logging(
+    std::string program,
+    std::string instance,
+    std::filesystem::path policy)
 {
     validate_id(program);
     if (!instance.empty())
         validate_id(instance);
+    if (!policy.empty() && !std::filesystem::is_regular_file(policy))
+        throw Error(
+            ErrorCode::invalid_request,
+            "cannot read logging configuration: " + policy.string());
     std::lock_guard lock(process_mutex);
     process_program = std::move(program);
     process_instance = std::move(instance);
+    process_policy = std::move(policy);
 }
 
 std::filesystem::path process_log_file(
@@ -219,6 +272,7 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
     {
         std::filesystem::path directory;
         std::string program, instance;
+        std::filesystem::path policy_file;
         LoggerOptions policy;
         spdlog::sink_ptr sink;
         std::map<std::string, std::shared_ptr<Logger>> modules;
@@ -229,13 +283,14 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
     const auto program =
         process_program.empty() ? current_executable().filename().string() : process_program;
     if (!current.sink || current.directory != *directory || current.program != program
-        || current.instance != process_instance) {
+        || current.instance != process_instance || current.policy_file != process_policy) {
         if (!directory->is_absolute())
             throw Error(ErrorCode::invalid_request, "invalid log file or retention");
         ProcessLog next;
         next.directory = *directory;
         next.program = program;
         next.instance = process_instance;
+        next.policy_file = process_policy;
         next.policy = logging_policy(*directory);
         std::filesystem::create_directories(*directory);
         const auto base =
@@ -262,7 +317,8 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
             {"pid", current_process_id()},
             {"instance", process_instance},
             {"started_ns", std::to_string(process_started)}
-        });
+        },
+        current.policy.text);
     current.modules.emplace(name, logger);
     return logger;
 }
@@ -352,12 +408,14 @@ Logger::Logger(const LoggerOptions& options)
     backend_->set_level(native_level(options.level));
     backend_->set_pattern("%v");
     backend_->flush_on(spdlog::level::warn);
+    text_ = options.text;
     configure_errors();
 }
 
-Logger::Logger(std::shared_ptr<spdlog::logger> backend, Json process)
+Logger::Logger(std::shared_ptr<spdlog::logger> backend, Json process, bool text)
     : backend_(std::move(backend)),
-      process_(std::move(process))
+      process_(std::move(process)),
+      text_(text)
 {
     if (!backend_)
         throw Error(ErrorCode::invalid_request, "null logger backend");
@@ -383,17 +441,18 @@ bool Logger::write(LogLevel level, std::string_view event, Json fields) noexcept
         if (!fields.is_object())
             throw Error(ErrorCode::invalid_request, "log fields must be an object");
         redact(fields);
-        auto wire = Json{
-            {"event", event},
-            {"level",
-                std::string(
-                    spdlog::level::to_string_view(native).data(),
-                    spdlog::level::to_string_view(native).size())},
-            {"module", backend_->name()},
-            {"process", process_},
-            {"timestamp_ns", std::to_string(SystemClock{}.utc_now())},
-            {"fields", std::move(fields)}
-        }.dump();
+        const auto level_name = std::string(
+            spdlog::level::to_string_view(native).data(),
+            spdlog::level::to_string_view(native).size());
+        auto wire = text_ ? text_line(level_name, backend_->name(), event, fields)
+                          : Json{
+                                {"event", event},
+                                {"level", level_name},
+                                {"module", backend_->name()},
+                                {"process", process_},
+                                {"timestamp_ns", std::to_string(SystemClock{}.utc_now())},
+                                {"fields", std::move(fields)}
+                            }.dump();
         if (wire.size() > 16384)
             throw Error(ErrorCode::resource_exhausted, "log record too large");
         const auto before = failures_->load();

@@ -12,8 +12,8 @@
 <安装目录>/
   bin/     asterion_recorder、setup.sh
   lib/     ctp-md.so、ctp-trader.so（交易库只用来读合约目录）
-  config/  recorder.json
-  logs/    日志
+  config/  recorder.json、recorder-logging.json
+  logs/    日志（文本，每条一行）
   data/    录制文件、合约目录缓存、CTP 流文件
 ```
 
@@ -75,6 +75,15 @@ sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 | --- | --- |
 | `bind`、`port` | 监听的地址与 TCP 端口 |
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
+
+`config/recorder-logging.json` 是录制程序专用的日志配置，默认值在仓库的 `config/recorder-logging.json`：
+
+```json
+{"level": "info", "retention_days": 30, "format": "text"}
+```
+
+`level` 为 `debug`、`info`、`warning`、`error` 或 `off`；`retention_days` 为按日分文件的保留天数（1–366）；`format` 为 `text`
+（每条一行可读文本）或 `json`。文件缺失或无效时启动失败并写明路径。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
 
 - 路径不是配置：都由安装目录决定。缺键、多出不认识的键、投资者代码未填（配置之前的默认配置）时启动失败，错误写明
   配置文件的路径和出错的键。

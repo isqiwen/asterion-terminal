@@ -53,7 +53,11 @@ int main(int argc, char** argv)
                 ErrorCode::invalid_request,
                 "the recorder needs the directory " + logs.string());
         ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
-        initialize_process_logging("recorder", "recorder");
+        // Its own logging policy: level, retention and the text format.
+        initialize_process_logging(
+            "recorder",
+            "recorder",
+            installation / "config" / "recorder-logging.json");
         auto settings =
             recording::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
         const auto root = settings.directory;

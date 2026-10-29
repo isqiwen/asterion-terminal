@@ -31,11 +31,19 @@ struct LoggerOptions
     // than retention_days are removed when the logger opens and at rotation.
     std::filesystem::path file;
     unsigned retention_days = 30;
+    // One readable line per record instead of a JSON object.
+    bool text = false;
 };
 class Logger;
 // Configure before starting application threads. Directory is inherited from
-// ASTERION_LOG_DIRECTORY; the optional node-level config/logging.json owns policy.
-void initialize_process_logging(std::string program, std::string instance = {});
+// ASTERION_LOG_DIRECTORY. Policy comes from `policy`, which must exist when
+// given, or else from the optional node-level config/logging.json beside the
+// log directory: {"level": "info", "retention_days": 30} and optionally
+// "format": "json" (the default) or "text".
+void initialize_process_logging(
+    std::string program,
+    std::string instance = {},
+    std::filesystem::path policy = {});
 std::filesystem::path process_log_file(
     const std::filesystem::path& directory,
     std::string_view program,
@@ -67,12 +75,17 @@ void log_identity_event(
     std::string_view event,
     std::initializer_list<std::pair<std::string_view, std::string_view>> ids) noexcept;
 
-// Owns an spdlog logger (not the global registry). Thread-safe sinks; JSON lines.
+// Owns an spdlog logger (not the global registry). Thread-safe sinks; JSON
+// lines, or with `text` one readable line per record:
+//   2026-10-29 21:00:01.123 +0800 INFO recorder catalog.applied phase=ready contracts=1234
 class Logger final
 {
 public:
     explicit Logger(const LoggerOptions& options = {});
-    explicit Logger(std::shared_ptr<spdlog::logger> backend, Json process = Json::object());
+    explicit Logger(
+        std::shared_ptr<spdlog::logger> backend,
+        Json process = Json::object(),
+        bool text = false);
     bool write(LogLevel level, std::string_view event, Json fields = Json::object()) noexcept;
     void flush() noexcept;
 
@@ -84,6 +97,7 @@ public:
 private:
     std::shared_ptr<spdlog::logger> backend_;
     Json process_ = Json::object();
+    bool text_ = false;
     std::shared_ptr<std::atomic<std::uint64_t>> failures_ =
         std::make_shared<std::atomic<std::uint64_t>>(0);
     void configure_errors();
