@@ -62,23 +62,18 @@ class Hours(unittest.TestCase):
 
 
 class Unit(unittest.TestCase):
-    def test_systemd_runs_it_alone_and_never_stops_restarting(self):
-        unit = host.unit_text(7450)
-        for line in ('User=asterion-recorder\n', 'Restart=always\n', 'StartLimitIntervalSec=0\n',
+    def test_systemd_runs_it_alone_on_a_local_socket_and_never_stops_restarting(self):
+        unit = host.unit_text('qiwen')
+        for line in ('User=qiwen\n', 'Restart=always\n', 'StartLimitIntervalSec=0\n',
                      'ImportCredential=asterion.ctp.*\n', 'StateDirectory=asterion-recorder\n',
                      'NoNewPrivileges=yes\n', 'CapabilityBoundingSet=\n'):
             self.assertIn(line, unit)
-        self.assertIn('--bind 0.0.0.0 --port 7450 --tls-ca /etc/asterion-recorder/tls/ca.crt', unit)
-        self.assertIn('/opt/asterion-recorder/current/asterion_recorder --directory /var/lib/asterion-recorder', unit)
-        with self.assertRaises(ValueError):
-            host.unit_text(80)
-
-    def test_the_certificate_names_how_terminal_reaches_the_host(self):
-        self.assertEqual(host.address('10.0.0.5'), 'IP:10.0.0.5')
-        self.assertEqual(host.address('recorder.example'), 'DNS:recorder.example')
-        for value in ('a b', 'x\nsubjectAltName=IP:1.1.1.1', ''):
+        # No network port: Terminal forwards the socket over SSH.
+        self.assertIn('--endpoint /var/lib/asterion-recorder/recorder.sock\n', unit)
+        self.assertNotIn('--bind', unit)
+        for user in ('root', '', 'x\nUser=root', '../x'):
             with self.assertRaises(ValueError):
-                host.address(value)
+                host.unit_text(user)
 
 
 class Bundle(unittest.TestCase):

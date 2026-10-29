@@ -2,15 +2,15 @@
 """Install, configure and upgrade asterion_recorder on a recording host.
 
 Run locally on the host as root (sudo). The recorder runs as the system
-service asterion-recorder.service under its own account; nothing else on the
-host manages it.
+service asterion-recorder.service under your own login account; nothing else
+on the host manages it. It opens no network port: it listens on a local
+socket, which Terminal reaches by forwarding it over SSH as that account.
 
-  install BUNDLE --address HOST   program, account, certificates, unit
-  login                           counter addresses and account; the password
-                                  and authentication code are typed here and
-                                  encrypted with systemd-creds, bound to this host
-  upgrade BUNDLE                  a new program, outside trading hours only
-  certificates --address HOST     new certificates, outside trading hours only
+  install BUNDLE [--user NAME]  program and unit; NAME defaults to the sudo user
+  login                         counter addresses and account; the password and
+                                authentication code are typed here and encrypted
+                                with systemd-creds, bound to this host
+  upgrade BUNDLE                a new program, outside trading hours only
 
 Anything that restarts a running recorder is refused during trading hours
 (Beijing time, weekdays 08:45-15:30 and 20:45-02:45, holidays included).
@@ -19,7 +19,6 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import getpass
 import hashlib
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -31,14 +30,13 @@ import sys
 import tempfile
 import zipfile
 
-ACCOUNT = 'asterion-recorder'
 UNIT = 'asterion-recorder.service'
 PROGRAMS = Path('/opt/asterion-recorder')
 CONFIG = Path('/etc/asterion-recorder')
 STATE = Path('/var/lib/asterion-recorder')
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
-CLIENT = Path('/root/asterion-recorder-client')
+SOCKET = STATE / 'recorder.sock'
 FILES = ('asterion_recorder', 'ctp-md.so', 'ctp-trader.so', 'recording-host.py')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 BEIJING = timezone(timedelta(hours=8))
@@ -71,29 +69,18 @@ def active():
     return subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', UNIT], env=ENV).returncode == 0
 
 
-def address(value):
-    try:
-        return 'IP:' + str(ipaddress.ip_address(value))
-    except ValueError:
-        if not re.fullmatch(r'(?=.{1,253}$)([a-zA-Z0-9-]{1,63}\.)*[a-zA-Z0-9-]{1,63}', value):
-            raise ValueError(f'Not an IP address or host name: {value}')
-        return 'DNS:' + value
-
-
-def unit_text(port):
-    if not 1024 <= port <= 65535:
-        raise ValueError('Use an unprivileged port')
+def unit_text(user):
+    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', user) or user == 'root':
+        raise ValueError(f'Run the recorder as an ordinary login account, not {user!r}')
     current = PROGRAMS / 'current'
-    tls = CONFIG / 'tls'
     return ('[Unit]\nDescription=Asterion market recorder\n'
             'Wants=network-online.target\nAfter=network-online.target\n'
             # Never give up restarting: a recorder that stays down loses the market.
             'StartLimitIntervalSec=0\n'
-            f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
+            f'[Service]\nUser={user}\nUMask=0077\n'
             f'ExecStart={current}/asterion_recorder --directory {STATE} --config {CONFIG}/recorder.json '
             f'--ctp-library {current}/ctp-md.so --ctp-catalog-library {current}/ctp-trader.so '
-            f'--bind 0.0.0.0 --port {port} --tls-ca {tls}/ca.crt --tls-cert {tls}/server.crt '
-            f'--tls-key {tls}/server.key\n'
+            f'--endpoint {SOCKET}\n'
             f'Environment=ASTERION_LOG_DIRECTORY={STATE}/logs\n'
             'StateDirectory=asterion-recorder\nStateDirectoryMode=0700\n'
             # The counter password and authentication code, decrypted at start.
@@ -156,54 +143,12 @@ def switch(release):
             shutil.rmtree(old)
 
 
-def account():
-    try:
-        return pwd.getpwnam(ACCOUNT)
-    except KeyError:
-        run('/usr/sbin/useradd', '--system', '--no-create-home', '--home-dir', str(STATE),
-            '--shell', '/usr/sbin/nologin', '--user-group', ACCOUNT)
-        return pwd.getpwnam(ACCOUNT)
-
-
-def openssl(*args, folder):
-    run('/usr/bin/openssl', *args, cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
-def issue_certificates(host):
-    """A private CA issues the recorder's server certificate and one client
-    certificate for Terminal; its key is deleted right after."""
-    san = address(host)
-    user = account()
-    tls = CONFIG / 'tls'
-    tls.mkdir(mode=0o750, parents=True, exist_ok=True)
-    os.chown(tls, 0, user.pw_gid)
-    CLIENT.mkdir(mode=0o700, exist_ok=True)
-    with tempfile.TemporaryDirectory() as folder:
-        key = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes']
-        openssl('req', '-x509', *key, '-keyout', 'ca.key', '-out', 'ca.crt', '-days', '366',
-                '-subj', '/CN=Asterion recorder CA', '-addext', 'basicConstraints=critical,CA:TRUE',
-                '-addext', 'keyUsage=critical,keyCertSign,cRLSign', folder=folder)
-        for name, role, usage, extra, serial in (
-                ('server', 'service', 'serverAuth', f'subjectAltName={san}\n', 2),
-                ('client', 'client', 'clientAuth', '', 3)):
-            openssl('req', *key, '-keyout', f'{name}.key', '-out', f'{name}.csr',
-                    '-subj', f'/CN=Asterion recorder {name}/OU=asterion:{role}', folder=folder)
-            Path(folder, f'{name}.ext').write_text(
-                'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n'
-                f'extendedKeyUsage={usage}\n{extra}')
-            openssl('x509', '-req', '-in', f'{name}.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key',
-                    '-set_serial', str(serial), '-days', '365', '-sha256', '-extfile', f'{name}.ext',
-                    '-out', f'{name}.crt', folder=folder)
-        source = Path(folder)
-        for name, mode in (('ca.crt', 0o644), ('server.crt', 0o644), ('server.key', 0o640)):
-            shutil.copyfile(source / name, tls / name)
-            os.chown(tls / name, 0, user.pw_gid)
-            (tls / name).chmod(mode)
-        for name in ('ca.crt', 'client.crt', 'client.key'):
-            shutil.copyfile(source / name, CLIENT / name)
-            (CLIENT / name).chmod(0o600)
-    print(f'Terminal identity for this recorder: {CLIENT}/ (ca.crt, client.crt, client.key).')
-    print('Copy it to the Terminal machine over a private channel; it expires in 365 days.')
+def service_user():
+    """The account the installed unit runs the recorder as."""
+    match = re.search(r'^User=(.+)$', (UNITS / UNIT).read_text(), re.MULTILINE)
+    if not match:
+        raise ValueError('The recorder is not installed; run install first')
+    return pwd.getpwnam(match[1])
 
 
 def write(path, text, mode, group=0):
@@ -217,23 +162,23 @@ def write(path, text, mode, group=0):
 def install(args):
     if not Path('/run/systemd/system').is_dir():
         raise ValueError('A booted systemd host is required')
-    for tool in ('/usr/bin/systemd-creds', '/usr/bin/openssl', '/usr/sbin/useradd'):
+    for tool in ('/usr/bin/systemd-creds',):
         if not os.access(tool, os.X_OK):
             raise ValueError(f'Install the prerequisite first: {tool}')
-    account()
+    user = args.user or os.environ.get('SUDO_USER', '')
+    unit = unit_text(user)
+    pwd.getpwnam(user)  # an existing account
     (PROGRAMS / 'releases').mkdir(parents=True, exist_ok=True)
     CONFIG.mkdir(mode=0o755, exist_ok=True)
     release = install_release(args.bundle)
     if (PROGRAMS / 'current').exists():
         raise ValueError('The recorder is installed already; use upgrade')
     switch(release)
-    if not (CONFIG / 'tls/server.crt').exists():
-        issue_certificates(args.address)
-    write(UNITS / UNIT, unit_text(args.port), 0o644)
+    write(UNITS / UNIT, unit, 0o644)
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
     print(f'Installed {release.name}. Next: sudo {sys.argv[0]} login')
-    print(f'Allow port {args.port}/tcp from the Terminal machine only, e.g. ufw allow from <address> to any port {args.port} proto tcp')
+    print(f'It runs as {user} and listens on {SOCKET} only; Terminal forwards that socket over SSH as {user}.')
 
 
 def login(args):
@@ -257,7 +202,7 @@ def login(args):
         run('/usr/bin/systemd-creds', 'encrypt', f'--name={name}', '-', str(CREDENTIALS / name),
             input=value.encode(), stdout=subprocess.DEVNULL)
     # The account is not a secret, but only the recorder needs to read it.
-    write(CONFIG / 'recorder.json', json.dumps(fields, ensure_ascii=False) + '\n', 0o640, account().pw_gid)
+    write(CONFIG / 'recorder.json', json.dumps(fields, ensure_ascii=False) + '\n', 0o640, service_user().pw_gid)
     run('/usr/bin/systemctl', 'restart', UNIT)
     print('The recorder restarted with this login. Check it: systemctl status asterion-recorder; '
           f'logs in {STATE}/logs')
@@ -272,28 +217,17 @@ def upgrade(args):
     print(f'Running {release.name}.')
 
 
-def certificates(args):
-    outside_trading('New certificates')
-    issue_certificates(args.address)
-    if active():
-        run('/usr/bin/systemctl', 'restart', UNIT)
-
-
 def main(arguments):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('install')
     command.add_argument('bundle')
-    command.add_argument('--address', required=True, help='How Terminal reaches this host: IP or DNS name')
-    command.add_argument('--port', type=int, default=7450)
+    command.add_argument('--user', help='Login account to run the recorder as (default: the sudo user)')
     command.set_defaults(action=install)
     commands.add_parser('login').set_defaults(action=login)
     command = commands.add_parser('upgrade')
     command.add_argument('bundle')
     command.set_defaults(action=upgrade)
-    command = commands.add_parser('certificates')
-    command.add_argument('--address', required=True)
-    command.set_defaults(action=certificates)
     args = parser.parse_args(arguments)
     if sys.platform != 'linux' or os.geteuid() != 0:
         raise ValueError('Run on the recording host with sudo')

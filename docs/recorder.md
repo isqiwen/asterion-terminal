@@ -9,7 +9,7 @@
 ```
 asterion_recorder --directory <数据目录> --config <recorder.json> \
   --ctp-library <thostmduserapi_se.so> --ctp-catalog-library <thosttraderapi_se.so> \
-  (--endpoint <socket> | --bind <地址> --port <端口> --tls-ca … --tls-cert … --tls-key …)
+  --endpoint <socket>
 ```
 
 - 启动后立即登录，不等任何客户端。每次登录成功（包括柜台夜间断开后的重连）都重新读取合约目录，新上市的合约随之
@@ -26,21 +26,20 @@ Ubuntu 24.04 容器中构建（`scripts/services/build_linux_services.sh`，输�
 `recording-host.py`，每个文件带 SHA-256。把包复制到主机后，以 root 运行包里的脚本：
 
 ```sh
-sudo python3 recording-host.py install asterion-recorder-linux-x86_64.zip --address <Terminal 访问本机用的 IP 或域名>
+sudo python3 recording-host.py install asterion-recorder-linux-x86_64.zip
 sudo python3 recording-host.py login
 ```
 
-- `install`：建立系统账户 `asterion-recorder`，把程序解到 `/opt/asterion-recorder/releases/<版本>-<摘要>/` 并由
-  `current` 指向它，签发证书，写入并启用 `asterion-recorder.service`。单元以该账户运行，`Restart=always` 且永不放弃重启，
-  `ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`（日志在其下 `logs/`），监听 TCP 7450
-  （`--port` 可改），只接受双向 TLS。防火墙不由脚本修改，只放行 Terminal 所在机器。
-- 证书：脚本用 openssl 生成一个私有 CA，签发录制程序的服务端证书（主体备用名为 `--address`）和一张给 Terminal 的客户端证书
-  （`OU=asterion:client`），随后删除 CA 私钥，所以不能再追加证书，只能整套重签（`certificates --address …`）。客户端身份
-  在 `/root/asterion-recorder-client/`，需经私密渠道复制到 Terminal 所在机器。证书有效期 365 天。
-- `login`：在主机上输入柜台地址、经纪公司代码、投资者代码和 AppID（写入 `/etc/asterion-recorder/recorder.json`，只有该账户
+- `install`：把程序解到 `/opt/asterion-recorder/releases/<版本>-<摘要>/` 并由 `current` 指向它，写入并启用
+  `asterion-recorder.service`。单元以你自己的登录账户运行（默认是执行 sudo 的账户，`--user` 可指定，不能是 root），
+  `Restart=always` 且永不放弃重启，`ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`
+  （日志在其下 `logs/`）。
+- 不开网络端口：录制程序只监听本机的 `/var/lib/asterion-recorder/recorder.sock`，只接受同一账户的连接。Terminal 用这个账户
+  经 SSH 转发它读取（`ssh -N -L <本地 socket>:/var/lib/asterion-recorder/recorder.sock <账户>@<主机>`），不需要证书和防火墙规则。
+- `login`：在主机上输入柜台地址、经纪公司代码、投资者代码和 AppID（写入 `/etc/asterion-recorder/recorder.json`，只有运行账户
   可读），密码和授权码不回显，由 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，然后重启录制程序。
 - `upgrade <包>`：先解包并确认新程序能在本机运行，再切换 `current` 并重启，保留上一个版本。
-- 会重启运行中录制程序的操作（`upgrade`、`login`、`certificates`）在交易时段一律拒绝：北京时间工作日 08:45–15:30 与
+- 会重启运行中录制程序的操作（`upgrade`、`login`）在交易时段一律拒绝：北京时间工作日 08:45–15:30 与
   20:45–次日 02:45（脚本不知道节假日，节假日也按交易日对待）。
 
 ## 登录配置与凭据
@@ -98,8 +97,8 @@ recordings/minutes/trading_day=<YYYYMMDD>/<交易所>.parquet
 
 ## 只读接口
 
-请求与回复是 `protocol/proto/asterion/recorder.proto` 中的 `Request` / `Response`，4 字节大端长度分帧；本机为 Unix socket，
-远程为 TCP + 双向 TLS。没有任何请求能停止、重连或重新配置录制。
+请求与回复是 `protocol/proto/asterion/recorder.proto` 中的 `Request` / `Response`，4 字节大端长度分帧；录制主机上是 Unix socket，
+其他机器经 SSH 转发这个 socket。没有任何请求能停止、重连或重新配置录制。
 
 | 请求 | 作用 |
 | --- | --- |
@@ -112,6 +111,6 @@ recordings/minutes/trading_day=<YYYYMMDD>/<交易所>.parquet
 
 ## 限制
 
-- Terminal 中还看不到录制状态（M1.6）。部署脚本只在测试中检查了规则，证书与 TLS 读取在本机验证过；尚未在真实的
-  Ubuntu 24.04 主机上以 root 安装、加密凭据和开机启动。
+- Terminal 中还看不到录制状态（M1.6）。部署脚本只在测试中检查了规则；尚未在真实的 Ubuntu 24.04 主机上以 root
+  安装、加密凭据、开机启动，也没验证过经 SSH 转发读取。
 - 尚未在真实交易日运行过，每个交易日的数据量和合并耗时未实测。

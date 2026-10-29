@@ -45,12 +45,8 @@ int main(int argc, char** argv)
     app.add_option("--config", configuration, "Counter addresses and account")->required();
     app.add_option("--ctp-library", sdk)->required()->check(CLI::ExistingFile);
     app.add_option("--ctp-catalog-library", catalog_sdk)->required()->check(CLI::ExistingFile);
-    app.add_option("--endpoint", transport.endpoint);
-    app.add_option("--bind", transport.bind);
-    app.add_option("--port", transport.port);
-    app.add_option("--tls-ca", transport.tls.ca_file);
-    app.add_option("--tls-cert", transport.tls.certificate_file);
-    app.add_option("--tls-key", transport.tls.private_key_file);
+    // Only a local socket: other machines reach it by forwarding it over SSH.
+    app.add_option("--endpoint", transport.endpoint)->required();
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
