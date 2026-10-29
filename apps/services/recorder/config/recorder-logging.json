@@ -1,5 +1,14 @@
 {
-  "level": "info",
+  "format": "text",
   "retention_days": 30,
-  "format": "text"
+  "console": {
+    "enabled": false,
+    "level": "info",
+    "pattern": "%Y-%m-%d %H:%M:%S.%e %z %l %n %v"
+  },
+  "file": {
+    "enabled": true,
+    "level": "info",
+    "pattern": "%Y-%m-%d %H:%M:%S.%e %z %l %n %v"
+  }
 }

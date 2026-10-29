@@ -178,7 +178,7 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         second.wait(timeout=30)
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert " INFO recorder catalog.applied " in logs, logs  # text, one line per record
+    assert " info recorder catalog.applied " in logs, logs  # text, one line per record
     assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
         assert secret not in logs and secret not in second.stderr.read()

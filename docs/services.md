@@ -227,18 +227,30 @@ Terminal 原生层、本机 Agent 和托管服务的运行日志统一位于当�
 
 日志记录的 `process` 包含程序、PID、服务／任务实例及启动时间，`module` 区分 `requests`、`transport`、`deployment` 等模块，`event` 表达具体操作。多个账户或任务进程使用各自的文件；同步事件也写入实际执行同步的 Agent 进程文件。密码、令牌、凭据等字段仍被替换为 `[REDACTED]`。
 
-每个节点环境只读取一份可选的 `<节点目录>/config/logging.json`，例如：
+每个节点环境只读取一份可选的 `<节点目录>/config/logging.json`（默认值在仓库的 `config/logging.json`）：
 
 ```json
-{"level":"info","retention_days":30}
+{
+  "format": "json",
+  "retention_days": 30,
+  "console": {"enabled": false, "level": "info"},
+  "file": {"enabled": true, "level": "info"}
+}
 ```
 
-可选的第三项 `"format"` 为 `"json"`（默认，JSON Lines）或 `"text"`：每条一行可读文本，如
-`2026-10-29 21:00:01.123 +0800 INFO recorder catalog.applied phase=ready contracts=1234`（本地时间、级别、模块、事件，字段为
-`键=值`，含空格的值和嵌套值写成 JSON），敏感字段同样脱敏。录制程序使用自己的 `config/recorder-logging.json`，默认为文本格式，
-见[行情录制](recorder.md)。
+| 键 | 含义 |
+| --- | --- |
+| `format` | `json`：每行一个 JSON 对象；`text`：每行一条可读文本 |
+| `retention_days` | 日志文件按本地日期分文件，保留 1–366 天 |
+| `console`、`file` | 标准错误与日志文件两路输出，各自的 `enabled`（开关）、`level`（debug、info、warning、error、off）和 `pattern` |
+| `pattern` | 只用于 `text`，可省略；spdlog 格式，默认 `%Y-%m-%d %H:%M:%S.%e %z %l %n %v`，`%n` 为模块，`%v` 为事件和 `键=值` 字段（含空格的值和嵌套值写成 JSON） |
 
-缺省为 info、30 天；支持 debug、info、warning、error、off，留存天数 1–366。配置在进程启动／首次创建日志器时读取，修改后重启相关进程生效。活动日志按天轮换；Agent 启动时按公共留存策略清理已退出进程的过期日志。旧命名日志保留原位，不自动转换或删除。
+文本格式的一行如 `2026-10-29 21:00:01.123 +08:00 info recorder catalog.applied phase=ready contracts=1234`；敏感字段在两种格式下都
+替换为 `[REDACTED]`。缺键、多出不认识的键、取值无效、`json` 格式下写了 `pattern` 时，进程启动失败并写明文件和出错的键。
+没有配置文件时只写文件、info 级别、JSON 格式、保留 30 天。录制程序使用自己的 `config/recorder-logging.json`，结构相同，见
+[行情录制](recorder.md)。
+
+配置在进程启动／首次创建日志器时读取，修改后重启相关进程生效。活动日志按天轮换；Agent 启动时按公共留存策略清理已退出进程的过期日志。旧命名日志保留原位，不自动转换或删除。
 
 请求、任务尝试、交易记录的关联字段以及日志丢失提示见 [运行诊断](development.md#运行诊断)。
 桌面可从启动错误区或服务连接详情打开本机日志目录。开发程序同步失败会直接展示本次日志

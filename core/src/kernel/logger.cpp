@@ -11,6 +11,8 @@
 #include <regex>
 #include <cstdio>
 #include <map>
+#include <optional>
+#include <set>
 #include <mutex>
 #include <fstream>
 #include <asterion/kernel/process/child.hpp>
@@ -24,86 +26,6 @@ std::mutex process_mutex;
 std::string process_program, process_instance;
 std::filesystem::path process_policy;
 const auto process_started = SystemClock{}.utc_now();
-
-LoggerOptions logging_policy(const std::filesystem::path& directory)
-{
-    LoggerOptions options;
-    options.stderr_sink = false;
-    const auto file = process_policy.empty() ? directory.parent_path() / "config" / "logging.json"
-                                             : process_policy;
-    if (process_policy.empty() && !std::filesystem::exists(file))
-        return options;
-    std::ifstream input(file);
-    if (!input)
-        throw Error(
-            ErrorCode::invalid_request,
-            "cannot read logging configuration: " + file.string());
-    const auto config = Json::parse(input, nullptr, false);
-    const bool formatted = config.is_object() && config.contains("format");
-    if (!config.is_object() || config.size() != (formatted ? 3u : 2u) || !config.contains("level")
-        || !config.contains("retention_days") || !config.at("retention_days").is_number_unsigned()
-        || !config.at("level").is_string()
-        || (formatted
-            && (!config.at("format").is_string()
-                || (config.at("format") != "json" && config.at("format") != "text"))))
-        throw Error(ErrorCode::invalid_request, "invalid logging configuration: " + file.string());
-    options.text = formatted && config.at("format") == "text";
-    const std::map<std::string, LogLevel> levels{
-        {"debug", LogLevel::debug},
-        {"info", LogLevel::info},
-        {"warning", LogLevel::warning},
-        {"error", LogLevel::error},
-        {"off", LogLevel::off}
-    };
-    const auto level = levels.find(config.at("level").get<std::string>());
-    const auto days = config.at("retention_days").get<std::uint64_t>();
-    if (level == levels.end() || days < 1 || days > 366)
-        throw Error(ErrorCode::invalid_request, "invalid logging configuration: " + file.string());
-    options.level = level->second;
-    options.retention_days = static_cast<unsigned>(days);
-    return options;
-}
-
-// "2026-10-29 21:00:01.123 +0800 INFO recorder catalog.applied phase=ready":
-// local time, then fields as key=value; text with spaces, quotes or "=" and
-// nested values are written as JSON.
-std::string text_line(
-    const std::string& level,
-    const std::string& module,
-    std::string_view event,
-    const Json& fields)
-{
-    const auto now = std::chrono::system_clock::now();
-    const auto seconds = std::chrono::system_clock::to_time_t(now);
-    const auto milliseconds =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
-        % 1000;
-    std::tm local{};
-    localtime_r(&seconds, &local);
-    char stamp[48];
-    const auto length = std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
-    char zone[8];
-    std::strftime(zone, sizeof(zone), "%z", &local);
-    std::string upper = level;
-    std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
-        return static_cast<char>(std::toupper(c));
-    });
-    char millis[8];
-    std::snprintf(millis, sizeof(millis), ".%03d ", static_cast<int>(milliseconds));
-    std::string line = std::string(stamp, length) + millis + zone + " " + upper + " " + module + " "
-        + std::string(event);
-    for (const auto& [key, value] : fields.items()) {
-        line += " " + key + "=";
-        if (value.is_string()) {
-            const auto& text = value.get_ref<const std::string&>();
-            line += text.empty() || text.find_first_of(" \t\n\"=") != std::string::npos
-                ? value.dump()
-                : text;
-        } else
-            line += value.dump();
-    }
-    return line;
-}
 
 void record_log_failure() noexcept
 {
@@ -209,6 +131,142 @@ void remove_expired(const std::filesystem::path& file, unsigned retention_days)
     }
 }
 
+std::optional<LogLevel> level_named(const Json& value)
+{
+    static const std::map<std::string, LogLevel> levels{
+        {"debug", LogLevel::debug},
+        {"info", LogLevel::info},
+        {"warning", LogLevel::warning},
+        {"error", LogLevel::error},
+        {"off", LogLevel::off}
+    };
+    if (!value.is_string())
+        return std::nullopt;
+    const auto found = levels.find(value.get<std::string>());
+    return found == levels.end() ? std::nullopt : std::optional(found->second);
+}
+
+LoggerOptions logging_policy(const std::filesystem::path& directory)
+{
+    LoggerOptions options;
+    const auto file = process_policy.empty() ? directory.parent_path() / "config" / "logging.json"
+                                             : process_policy;
+    if (process_policy.empty() && !std::filesystem::exists(file))
+        return options;
+    std::ifstream input(file);
+    if (!input)
+        throw Error(
+            ErrorCode::invalid_request,
+            "cannot read logging configuration: " + file.string());
+    const auto config = Json::parse(input, nullptr, false);
+    const auto invalid = [&](const std::string& key) {
+        return Error(
+            ErrorCode::invalid_request,
+            "invalid logging configuration " + file.string() + ": " + key);
+    };
+    const auto exact =
+        [&](const Json& object, std::set<std::string> keys, const std::string& where) {
+            if (!object.is_object())
+                throw invalid(where.empty() ? "not an object" : where);
+            for (const auto& [key, _] : object.items())
+                if (!keys.erase(key))
+                    throw invalid((where.empty() ? "" : where + ".") + key + " is not a setting");
+            for (const auto& key : keys)
+                if (key != "pattern")
+                    throw invalid((where.empty() ? "" : where + ".") + key + " is missing");
+        };
+    exact(config, {"format", "retention_days", "console", "file"}, "");
+    if (config.at("format") != "json" && config.at("format") != "text")
+        throw invalid("format must be json or text");
+    options.text = config.at("format") == "text";
+    const auto& days = config.at("retention_days");
+    if (!days.is_number_unsigned() || days.get<std::uint64_t>() < 1
+        || days.get<std::uint64_t>() > 366)
+        throw invalid("retention_days must be 1-366");
+    options.retention_days = static_cast<unsigned>(days.get<std::uint64_t>());
+    for (const auto& [name, sink] :
+        {std::pair<std::string, LogSinkOptions*>{"console", &options.console},
+            {"file", &options.file}}) {
+        const auto& value = config.at(name);
+        exact(value, {"enabled", "level", "pattern"}, name);
+        if (!value.at("enabled").is_boolean())
+            throw invalid(name + ".enabled must be true or false");
+        sink->enabled = value.at("enabled").get<bool>();
+        const auto level = level_named(value.at("level"));
+        if (!level)
+            throw invalid(name + ".level must be debug, info, warning, error or off");
+        sink->level = *level;
+        if (value.contains("pattern")) {
+            const auto& pattern = value.at("pattern");
+            if (!options.text)
+                throw invalid(name + ".pattern applies only to the text format");
+            if (!pattern.is_string() || pattern.get<std::string>().empty()
+                || pattern.get<std::string>().size() > 256)
+                throw invalid(name + ".pattern must be 1-256 characters");
+            sink->pattern = pattern.get<std::string>();
+        }
+    }
+    return options;
+}
+
+// The sinks options ask for, each with its level and, for text, its pattern.
+std::vector<spdlog::sink_ptr> make_sinks(const LoggerOptions& options)
+{
+    std::vector<spdlog::sink_ptr> sinks;
+    const auto configure = [&](spdlog::sink_ptr sink, const LogSinkOptions& output) {
+        sink->set_level(native_level(output.level));
+        sink->set_pattern(options.text ? output.pattern : "%v");
+        sinks.push_back(std::move(sink));
+    };
+    if (options.console.enabled)
+        configure(std::make_shared<spdlog::sinks::stderr_sink_mt>(), options.console);
+    if (options.file.enabled) {
+        if (!options.file_path.is_absolute() || !options.retention_days
+            || options.retention_days > 366)
+            throw Error(ErrorCode::invalid_request, "invalid log file or retention");
+        std::filesystem::create_directories(options.file_path.parent_path());
+        remove_expired(options.file_path, options.retention_days);
+        const auto utf8 = options.file_path.u8string();
+        configure(
+            std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+                std::string(utf8.begin(), utf8.end()),
+                0,
+                0,
+                false,
+                static_cast<std::uint16_t>(options.retention_days)),
+            options.file);
+    }
+    return sinks;
+}
+
+// The logger passes what its most verbose output wants; each sink filters.
+spdlog::level::level_enum lowest_level(const LoggerOptions& options)
+{
+    auto level = spdlog::level::off;
+    for (const auto* output : {&options.console, &options.file})
+        if (output->enabled)
+            level = std::min(level, native_level(output->level));
+    return level;
+}
+
+// An event and its fields as key=value; text with spaces, quotes or "=" and
+// nested values are written as JSON.
+std::string text_record(std::string_view event, const Json& fields)
+{
+    std::string line(event);
+    for (const auto& [key, value] : fields.items()) {
+        line += " " + key + "=";
+        if (value.is_string()) {
+            const auto& text = value.get_ref<const std::string&>();
+            line += text.empty() || text.find_first_of(" \t\n\"=") != std::string::npos
+                ? value.dump()
+                : text;
+        } else
+            line += value.dump();
+    }
+    return line;
+}
+
 } // namespace
 
 std::uint64_t process_log_failures() noexcept
@@ -274,7 +332,7 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
         std::string program, instance;
         std::filesystem::path policy_file;
         LoggerOptions policy;
-        spdlog::sink_ptr sink;
+        std::vector<spdlog::sink_ptr> sinks;
         std::map<std::string, std::shared_ptr<Logger>> modules;
     };
 
@@ -282,7 +340,7 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
     std::lock_guard lock(process_mutex);
     const auto program =
         process_program.empty() ? current_executable().filename().string() : process_program;
-    if (!current.sink || current.directory != *directory || current.program != program
+    if (current.sinks.empty() || current.directory != *directory || current.program != program
         || current.instance != process_instance || current.policy_file != process_policy) {
         if (!directory->is_absolute())
             throw Error(ErrorCode::invalid_request, "invalid log file or retention");
@@ -292,23 +350,20 @@ std::shared_ptr<Logger> process_logger(const std::string& name)
         next.instance = process_instance;
         next.policy_file = process_policy;
         next.policy = logging_policy(*directory);
-        std::filesystem::create_directories(*directory);
-        const auto base =
+        next.policy.file_path =
             *directory / (program + "-" + std::to_string(current_process_id()) + ".log");
-        next.sink = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-            base.string(),
-            0,
-            0,
-            false,
-            static_cast<std::uint16_t>(next.policy.retention_days));
+        next.sinks = make_sinks(next.policy);
+        if (next.sinks.empty())
+            return nullptr; // Both outputs are switched off.
         current = std::move(next);
     }
     if (const auto found = current.modules.find(name); found != current.modules.end())
         return found->second;
     if (current.modules.size() >= 32)
         throw Error(ErrorCode::resource_exhausted, "process logger capacity exhausted");
-    auto backend = std::make_shared<spdlog::logger>(name, current.sink);
-    backend->set_level(native_level(current.policy.level));
+    auto backend =
+        std::make_shared<spdlog::logger>(name, current.sinks.begin(), current.sinks.end());
+    backend->set_level(lowest_level(current.policy));
     backend->flush_on(spdlog::level::warn);
     auto logger = std::make_shared<Logger>(
         std::move(backend),
@@ -385,28 +440,11 @@ void log_identity_event(
 Logger::Logger(const LoggerOptions& options)
 {
     validate_id(options.name);
-    std::vector<spdlog::sink_ptr> sinks;
-    if (options.stderr_sink)
-        sinks.push_back(std::make_shared<spdlog::sinks::stderr_sink_mt>());
-    if (!options.file.empty()) {
-        if (!options.file.is_absolute() || !options.retention_days || options.retention_days > 366)
-            throw Error(ErrorCode::invalid_request, "invalid log file or retention");
-        std::filesystem::create_directories(options.file.parent_path());
-        remove_expired(options.file, options.retention_days);
-        const auto utf8 = options.file.u8string();
-        sinks.push_back(
-            std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-                std::string(utf8.begin(), utf8.end()),
-                0,
-                0,
-                false,
-                static_cast<std::uint16_t>(options.retention_days)));
-    }
+    auto sinks = make_sinks(options);
     if (sinks.empty())
         throw Error(ErrorCode::invalid_request, "logger requires a sink");
     backend_ = std::make_shared<spdlog::logger>(options.name, sinks.begin(), sinks.end());
-    backend_->set_level(native_level(options.level));
-    backend_->set_pattern("%v");
+    backend_->set_level(lowest_level(options));
     backend_->flush_on(spdlog::level::warn);
     text_ = options.text;
     configure_errors();
@@ -419,7 +457,8 @@ Logger::Logger(std::shared_ptr<spdlog::logger> backend, Json process, bool text)
 {
     if (!backend_)
         throw Error(ErrorCode::invalid_request, "null logger backend");
-    backend_->set_pattern("%v");
+    if (!text_)
+        backend_->set_pattern("%v");
     configure_errors();
 }
 
@@ -444,7 +483,7 @@ bool Logger::write(LogLevel level, std::string_view event, Json fields) noexcept
         const auto level_name = std::string(
             spdlog::level::to_string_view(native).data(),
             spdlog::level::to_string_view(native).size());
-        auto wire = text_ ? text_line(level_name, backend_->name(), event, fields)
+        auto wire = text_ ? text_record(event, fields)
                           : Json{
                                 {"event", event},
                                 {"level", level_name},

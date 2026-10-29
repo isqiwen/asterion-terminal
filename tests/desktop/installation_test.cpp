@@ -64,7 +64,7 @@ protected:
         replace_file_durably(native / "config/research.json", R"({"task_concurrency":2})");
         replace_file_durably(
             native / "config/logging.json",
-            R"({"level":"info","retention_days":30})");
+            R"({"format":"json","retention_days":30,"console":{"enabled":false,"level":"info"},"file":{"enabled":true,"level":"info"}})");
     }
 
     void TearDown() override

@@ -1,4 +1,12 @@
 {
-  "level": "info",
-  "retention_days": 30
+  "format": "json",
+  "retention_days": 30,
+  "console": {
+    "enabled": false,
+    "level": "info"
+  },
+  "file": {
+    "enabled": true,
+    "level": "info"
+  }
 }

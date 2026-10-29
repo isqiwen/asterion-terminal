@@ -93,8 +93,7 @@ TEST_F(LogFixture, DailyFilesKeepThirtyDaysAndLeaveOtherFiles)
     std::ofstream(dated(45)) << "expired\n";
     std::ofstream(directory / "notes.log") << "other\n";
     LoggerOptions options;
-    options.stderr_sink = false;
-    options.file = directory / "service.log";
+    options.file_path = directory / "service.log";
     {
         Logger logger(options);
         ASSERT_TRUE(logger.write(LogLevel::info, "daily.record", {{"sequence", 1}}));
@@ -108,7 +107,7 @@ TEST_F(LogFixture, DailyFilesKeepThirtyDaysAndLeaveOtherFiles)
     std::string line;
     std::getline(input, line);
     EXPECT_EQ(Json::parse(line).at("event"), "daily.record");
-    options.file = "relative.log";
+    options.file_path = "relative.log";
     EXPECT_THROW(Logger{options}, Error);
 }
 
@@ -251,8 +250,9 @@ TEST_F(LogFixture, NodePolicyFiltersAllModulesAndPrunesOnlyExpiredProcessLogs)
     const auto logs = directory / "logs";
     std::filesystem::create_directory(logs);
     std::filesystem::create_directory(directory / "config");
-    std::ofstream(directory / "config" / "logging.json")
-        << R"({"level":"warning","retention_days":2})";
+    std::ofstream(directory / "config" / "logging.json") << R"({"format":"json","retention_days":2,
+               "console":{"enabled":false,"level":"info"},
+               "file":{"enabled":true,"level":"warning"}})";
     ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
     initialize_process_logging("agent", "local");
     auto deployment = process_logger("deployment"), transport = process_logger("transport");
@@ -291,9 +291,9 @@ TEST_F(LogFixture, NodePolicyFiltersAllModulesAndPrunesOnlyExpiredProcessLogs)
 TEST(Logger, TextRecordsAreOneReadableLine)
 {
     std::ostringstream output;
-    auto backend = std::make_shared<spdlog::logger>(
-        "recorder",
-        std::make_shared<spdlog::sinks::ostream_sink_mt>(output));
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+    sink->set_pattern(LogSinkOptions{}.pattern);
+    auto backend = std::make_shared<spdlog::logger>("recorder", sink);
     Logger logger(backend, Json::object(), true);
     EXPECT_TRUE(logger.write(
         LogLevel::warning,
@@ -307,7 +307,7 @@ TEST(Logger, TextRecordsAreOneReadableLine)
         std::regex_search(
             line,
             std::regex(
-                R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{4} WARNING recorder catalog\.failed )")))
+                R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2} warning recorder catalog\.failed )")))
         << line;
     EXPECT_NE(line.find(" error_code=unavailable"), std::string::npos) << line;
     EXPECT_NE(line.find(" subscribed=1234"), std::string::npos) << line;
@@ -316,7 +316,7 @@ TEST(Logger, TextRecordsAreOneReadableLine)
     EXPECT_EQ(std::count(line.begin(), line.end(), '\n'), 1);
 }
 
-TEST_F(LogFixture, ANamedPolicyFileChoosesTheTextFormat)
+TEST_F(LogFixture, ConsoleAndFileHaveTheirOwnSwitchLevelAndPattern)
 {
     const auto previous = std::getenv("ASTERION_LOG_DIRECTORY");
     const auto saved = previous ? std::optional<std::string>(previous) : std::nullopt;
@@ -337,21 +337,70 @@ TEST_F(LogFixture, ANamedPolicyFileChoosesTheTextFormat)
 
     const auto logs = directory / "logs";
     const auto policy = directory / "recorder-logging.json";
-    std::ofstream(policy) << R"({"level":"info","retention_days":7,"format":"text"})";
+    const auto write_policy = [&](const std::string& text) {
+        std::ofstream(policy, std::ios::trunc) << text;
+    };
     ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
     EXPECT_THROW(
         initialize_process_logging("recorder", "recorder", directory / "missing.json"),
         Error);
+    write_policy(R"({"format":"text","retention_days":7,
+        "console":{"enabled":true,"level":"error","pattern":"console %l %v"},
+        "file":{"enabled":true,"level":"debug","pattern":"[%l] %n %v"}})");
     initialize_process_logging("recorder", "recorder", policy);
-    log_process_event("recorder", LogLevel::info, "recorder.started", {{"instance", "a1"}});
-    std::string text;
+    testing::internal::CaptureStderr();
+    log_process_event("recorder", LogLevel::debug, "catalog.read", {{"contracts", 1234}});
+    log_process_event("recorder", LogLevel::error, "write.failed", {{"message", "disk full"}});
+    const auto console = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(console, "console error write.failed message=\"disk full\"\n");
+    std::string file;
     for (const auto& entry : std::filesystem::directory_iterator(logs)) {
         std::ifstream input(entry.path());
-        text.assign(std::istreambuf_iterator<char>(input), {});
+        file.assign(std::istreambuf_iterator<char>(input), {});
     }
-    EXPECT_NE(text.find(" INFO recorder recorder.started instance=a1\n"), std::string::npos)
-        << text;
-    std::ofstream(policy) << R"({"level":"info","retention_days":7,"format":"yaml"})";
-    initialize_process_logging("recorder", "other", policy);
-    EXPECT_THROW(process_logger("recorder"), Error);
+    EXPECT_EQ(
+        file,
+        "[debug] recorder catalog.read contracts=1234\n" "[error] recorder write.failed message=\"disk full\"\n");
+
+    // Each mistake names its key; a pattern belongs to the text format only.
+    int attempt = 0;
+    const auto refusal = [&](const std::string& text) -> std::string {
+        write_policy(text);
+        initialize_process_logging("recorder", "again-" + std::to_string(++attempt), policy);
+        try {
+            process_logger("recorder");
+        } catch (const Error& error) {
+            return error.what();
+        }
+        return "accepted";
+    };
+    const std::string console_off = R"("console":{"enabled":false,"level":"info"})";
+    EXPECT_NE(
+        refusal(
+            R"({"format":"yaml","retention_days":7,)" + console_off
+            + R"(,"file":{"enabled":true,"level":"info"}})")
+            .find("format"),
+        std::string::npos);
+    EXPECT_NE(
+        refusal(
+            R"({"format":"json","retention_days":7,)" + console_off
+            + R"(,"file":{"enabled":true,"level":"loud"}})")
+            .find("file.level"),
+        std::string::npos);
+    EXPECT_NE(
+        refusal(
+            R"({"format":"json","retention_days":7,)" + console_off
+            + R"(,"file":{"enabled":true,"level":"info","pattern":"%v"}})")
+            .find("file.pattern applies only to the text format"),
+        std::string::npos);
+    EXPECT_NE(
+        refusal(
+            R"({"format":"json","retention_days":7,"level":"info",)" + console_off
+            + R"(,"file":{"enabled":true,"level":"info"}})")
+            .find("level is not a setting"),
+        std::string::npos);
+    EXPECT_NE(
+        refusal(R"({"format":"json","retention_days":7,)" + console_off + "}")
+            .find("file is missing"),
+        std::string::npos);
 }

@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         assert executable.is_file() and not (deployed/'install.json').exists()
         policy = deployed / 'state/config/research.json'
         assert json.loads(policy.read_text()) == {"task_concurrency": 1}
-        assert json.loads((deployed / 'state/config/logging.json').read_text())["level"] == "info"
+        assert json.loads((deployed / 'state/config/logging.json').read_text())["file"]["level"] == "info"
         policy.write_text('{"task_concurrency":2}\n')
         original_policy = policy.read_bytes()
         original_mtime = policy.stat().st_mtime_ns

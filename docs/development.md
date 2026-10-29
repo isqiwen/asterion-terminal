@@ -225,7 +225,7 @@ Terminal 工作台按需准备本机行情、数据与研究服务，交易进�
 | --- | --- |
 | `<node>/config/research.json` | 部署新研究服务实例时复制的默认策略 |
 | `<node>/config/services/<实例>/research.json` | 该实例自己的任务并发策略；研究服务启动只读 |
-| `<node>/config/logging.json` | 全节点公共日志策略；可选，默认 info、保留 30 天 |
+| `<node>/config/logging.json` | 全节点公共日志策略：格式、保留天数，控制台与文件各自的开关、级别和格式；可选，见[运行日志](services.md#运行日志) |
 | `<node>/services/<实例>/service.json` | Agent 持久化的部署状态（程序、插件、运行意愿），由管理操作修改；不是人工运行配置 |
 | `<enrollments>/<id>/enrollment.json`、`ssh.json` | Manager 持久化的节点登记与非秘密 SSH 连接资料；安装版登记根目录为 `~/.asterion/nodes`，开发版为 `<node>/enrollments` |
 | `<enrollments>/.maintenance.json` | Manager 的未完成远程维护进度；安装器通过 Manager 读取，不自建清单 |

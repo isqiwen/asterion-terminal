@@ -77,13 +77,9 @@ sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
 
 `config/recorder-logging.json` 是录制程序专用的日志配置，默认值在仓库的 `apps/services/recorder/config/recorder-logging.json`：
-
-```json
-{"level": "info", "retention_days": 30, "format": "text"}
-```
-
-`level` 为 `debug`、`info`、`warning`、`error` 或 `off`；`retention_days` 为按日分文件的保留天数（1–366）；`format` 为 `text`
-（每条一行可读文本）或 `json`。文件缺失或无效时启动失败并写明路径。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
+文本格式，只写 `logs/` 下的文件，info 级别，保留 30 天；控制台输出默认关闭，打开后写到标准错误，由 systemd 收进日志，可用
+`journalctl -u asterion-recorder -f` 查看。各键的含义与节点的 `logging.json` 相同（`format`、`retention_days`，以及 `console`、
+`file` 各自的 `enabled`、`level`、`pattern`），见[运行日志](services.md#运行日志)。文件缺失或无效时启动失败并写明路径。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
 
 - 路径不是配置：都由安装目录决定。缺键、多出不认识的键、投资者代码未填（配置之前的默认配置）时启动失败，错误写明
   配置文件的路径和出错的键。
