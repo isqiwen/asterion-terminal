@@ -63,15 +63,12 @@ class Hours(unittest.TestCase):
 
 class Unit(unittest.TestCase):
     def test_systemd_runs_it_alone_on_tcp_and_never_stops_restarting(self):
-        unit = host.unit_text('qiwen')
-        for line in ('User=qiwen\n', 'Restart=always\n', 'StartLimitIntervalSec=0\n',
+        unit = host.unit_text()
+        for line in ('User=asterion-recorder\n', 'Restart=always\n', 'StartLimitIntervalSec=0\n',
                      'ImportCredential=asterion.ctp.*\n', 'StateDirectory=asterion-recorder\n',
                      'NoNewPrivileges=yes\n', 'CapabilityBoundingSet=\n'):
             self.assertIn(line, unit)
         self.assertIn('--bind 0.0.0.0 --port 7450\n', unit)
-        for user in ('root', '', 'x\nUser=root', '../x'):
-            with self.assertRaises(ValueError):
-                host.unit_text(user)
 
 
 class Bundle(unittest.TestCase):

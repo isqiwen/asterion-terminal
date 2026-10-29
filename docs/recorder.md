@@ -31,7 +31,7 @@ sudo python3 recording-host.py login
 ```
 
 - `install`：把程序解到 `/opt/asterion-recorder/releases/<版本>-<摘要>/` 并由 `current` 指向它，写入并启用
-  `asterion-recorder.service`。单元以你自己的登录账户运行（默认是执行 sudo 的账户，`--user` 可指定，不能是 root），
+  `asterion-recorder.service`。单元以专用的系统账户 `asterion-recorder` 运行（脚本建立，不能登录），
   `Restart=always` 且永不放弃重启，`ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`
   （日志在其下 `logs/`）。
 - 网络：录制程序在 TCP 7450 上监听，不加密。每个请求带协议里的固定魔数 `0x41535452`（"ASTR"）标明来自 Asterion 客户端，

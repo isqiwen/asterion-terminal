@@ -2,11 +2,11 @@
 """Install, configure and upgrade asterion_recorder on a recording host.
 
 Run locally on the host as root (sudo). The recorder runs as the system
-service asterion-recorder.service under your own login account; nothing else
-on the host manages it. Clients read it over plain TCP on port 7450; open the
+service asterion-recorder.service under its own system account
+asterion-recorder, which cannot log in; nothing else on the host manages it. Clients read it over plain TCP on port 7450; open the
 port in the firewall only to your own machines.
 
-  install BUNDLE [--user NAME]  program and unit; NAME defaults to the sudo user
+  install BUNDLE                program, account and unit
   login                         counter addresses and account; the password and
                                 authentication code are typed here and encrypted
                                 with systemd-creds, bound to this host
@@ -34,6 +34,7 @@ UNIT = 'asterion-recorder.service'
 PROGRAMS = Path('/opt/asterion-recorder')
 CONFIG = Path('/etc/asterion-recorder')
 STATE = Path('/var/lib/asterion-recorder')
+ACCOUNT = 'asterion-recorder'
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
 PORT = 7450
@@ -69,15 +70,13 @@ def active():
     return subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', UNIT], env=ENV).returncode == 0
 
 
-def unit_text(user):
-    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', user) or user == 'root':
-        raise ValueError(f'Run the recorder as an ordinary login account, not {user!r}')
+def unit_text():
     current = PROGRAMS / 'current'
     return ('[Unit]\nDescription=Asterion market recorder\n'
             'Wants=network-online.target\nAfter=network-online.target\n'
             # Never give up restarting: a recorder that stays down loses the market.
             'StartLimitIntervalSec=0\n'
-            f'[Service]\nUser={user}\nUMask=0077\n'
+            f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
             f'ExecStart={current}/asterion_recorder --directory {STATE} --config {CONFIG}/recorder.json '
             f'--ctp-library {current}/ctp-md.so --ctp-catalog-library {current}/ctp-trader.so '
             f'--bind 0.0.0.0 --port {PORT}\n'
@@ -143,12 +142,13 @@ def switch(release):
             shutil.rmtree(old)
 
 
-def service_user():
-    """The account the installed unit runs the recorder as."""
-    match = re.search(r'^User=(.+)$', (UNITS / UNIT).read_text(), re.MULTILINE)
-    if not match:
-        raise ValueError('The recorder is not installed; run install first')
-    return pwd.getpwnam(match[1])
+def account():
+    try:
+        return pwd.getpwnam(ACCOUNT)
+    except KeyError:
+        run('/usr/sbin/useradd', '--system', '--no-create-home', '--home-dir', str(STATE),
+            '--shell', '/usr/sbin/nologin', '--user-group', ACCOUNT)
+        return pwd.getpwnam(ACCOUNT)
 
 
 def write(path, text, mode, group=0):
@@ -162,23 +162,21 @@ def write(path, text, mode, group=0):
 def install(args):
     if not Path('/run/systemd/system').is_dir():
         raise ValueError('A booted systemd host is required')
-    for tool in ('/usr/bin/systemd-creds',):
+    for tool in ('/usr/bin/systemd-creds', '/usr/sbin/useradd'):
         if not os.access(tool, os.X_OK):
             raise ValueError(f'Install the prerequisite first: {tool}')
-    user = args.user or os.environ.get('SUDO_USER', '')
-    unit = unit_text(user)
-    pwd.getpwnam(user)  # an existing account
+    account()
     (PROGRAMS / 'releases').mkdir(parents=True, exist_ok=True)
     CONFIG.mkdir(mode=0o755, exist_ok=True)
     release = install_release(args.bundle)
     if (PROGRAMS / 'current').exists():
         raise ValueError('The recorder is installed already; use upgrade')
     switch(release)
-    write(UNITS / UNIT, unit, 0o644)
+    write(UNITS / UNIT, unit_text(), 0o644)
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
     print(f'Installed {release.name}. Next: sudo {sys.argv[0]} login')
-    print(f'It runs as {user} and listens on TCP {PORT}, unencrypted: allow the port only from your own machines, '
+    print(f'It runs as {ACCOUNT} and listens on TCP {PORT}, unencrypted: allow the port only from your own machines, '
           f'e.g. ufw allow from <address> to any port {PORT} proto tcp')
 
 
@@ -203,7 +201,7 @@ def login(args):
         run('/usr/bin/systemd-creds', 'encrypt', f'--name={name}', '-', str(CREDENTIALS / name),
             input=value.encode(), stdout=subprocess.DEVNULL)
     # The account is not a secret, but only the recorder needs to read it.
-    write(CONFIG / 'recorder.json', json.dumps(fields, ensure_ascii=False) + '\n', 0o640, service_user().pw_gid)
+    write(CONFIG / 'recorder.json', json.dumps(fields, ensure_ascii=False) + '\n', 0o640, account().pw_gid)
     run('/usr/bin/systemctl', 'restart', UNIT)
     print('The recorder restarted with this login. Check it: systemctl status asterion-recorder; '
           f'logs in {STATE}/logs')
@@ -223,7 +221,6 @@ def main(arguments):
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('install')
     command.add_argument('bundle')
-    command.add_argument('--user', help='Login account to run the recorder as (default: the sudo user)')
     command.set_defaults(action=install)
     commands.add_parser('login').set_defaults(action=login)
     command = commands.add_parser('upgrade')
