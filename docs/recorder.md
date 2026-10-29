@@ -19,6 +19,30 @@ asterion_recorder --directory <数据目录> --config <recorder.json> \
 - 收到 SIGTERM 时结束当前段并写完缓冲的报价、分钟线和段记录（最多等 20 秒）后退出。录制循环自己出错时进程退出，
   由 systemd 重新启动。
 
+## 录制主机
+
+录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序。程序包 `asterion-recorder-linux-x86_64.zip` 与远程服务包在同一个
+Ubuntu 24.04 容器中构建（`scripts/services/build_linux_services.sh`，输出到 `build/linux-bundles/`），含录制程序、两个 CTP 库和
+`recording-host.py`，每个文件带 SHA-256。把包复制到主机后，以 root 运行包里的脚本：
+
+```sh
+sudo python3 recording-host.py install asterion-recorder-linux-x86_64.zip --address <Terminal 访问本机用的 IP 或域名>
+sudo python3 recording-host.py login
+```
+
+- `install`：建立系统账户 `asterion-recorder`，把程序解到 `/opt/asterion-recorder/releases/<版本>-<摘要>/` 并由
+  `current` 指向它，签发证书，写入并启用 `asterion-recorder.service`。单元以该账户运行，`Restart=always` 且永不放弃重启，
+  `ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`（日志在其下 `logs/`），监听 TCP 7450
+  （`--port` 可改），只接受双向 TLS。防火墙不由脚本修改，只放行 Terminal 所在机器。
+- 证书：脚本用 openssl 生成一个私有 CA，签发录制程序的服务端证书（主体备用名为 `--address`）和一张给 Terminal 的客户端证书
+  （`OU=asterion:client`），随后删除 CA 私钥，所以不能再追加证书，只能整套重签（`certificates --address …`）。客户端身份
+  在 `/root/asterion-recorder-client/`，需经私密渠道复制到 Terminal 所在机器。证书有效期 365 天。
+- `login`：在主机上输入柜台地址、经纪公司代码、投资者代码和 AppID（写入 `/etc/asterion-recorder/recorder.json`，只有该账户
+  可读），密码和授权码不回显，由 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，然后重启录制程序。
+- `upgrade <包>`：先解包并确认新程序能在本机运行，再切换 `current` 并重启，保留上一个版本。
+- 会重启运行中录制程序的操作（`upgrade`、`login`、`certificates`）在交易时段一律拒绝：北京时间工作日 08:45–15:30 与
+  20:45–次日 02:45（脚本不知道节假日，节假日也按交易日对待）。
+
 ## 登录配置与凭据
 
 `recorder.json` 只放柜台地址和账户：
@@ -27,11 +51,9 @@ asterion_recorder --directory <数据目录> --config <recorder.json> \
 {"market_front": "tcp://…", "trade_front": "tcp://…", "broker": "…", "user": "…", "app_id": "…"}
 ```
 
-- 密码和授权码不进配置文件，由 systemd 加密保存：管理员在录制主机上执行
-  `sudo systemd-creds encrypt --name=asterion.ctp.password - /etc/credstore.encrypted/asterion.ctp.password`
-  （授权码同理，名称为 `asterion.ctp.auth_code`；`app_id` 为空时不需要），输入密码后按 Ctrl+D。
-  加密绑定本机，别处无法解密。录制程序的 systemd 单元带有 `ImportCredential=asterion.ctp.*`，systemd 在启动时把它们
-  解密到只有运行用户可读的 `$CREDENTIALS_DIRECTORY`，程序从那里读取，只留在内存，不写日志。
+- 密码和授权码不进配置文件，由 `recording-host.py login` 用 `systemd-creds` 加密保存，加密绑定本机，别处无法解密。
+  单元的 `ImportCredential=asterion.ctp.*` 让 systemd 在启动时把它们解密到只有运行账户可读的 `$CREDENTIALS_DIRECTORY`，
+  程序从那里读取，只留在内存，不写日志。
 - 配置文件缺失或不完整、缺少凭据时启动失败，错误写明缺的文件或配置路径。
 
 ## 文件
@@ -90,6 +112,6 @@ recordings/minutes/trading_day=<YYYYMMDD>/<交易所>.parquet
 
 ## 限制
 
-- 尚无录制主机的部署脚本（systemd 单元、证书、只在非交易时段升级）和 Terminal 中的录制状态；
-  这些是 M1.4 与 M1.6 的后续工作。
+- Terminal 中还看不到录制状态（M1.6）。部署脚本只在测试中检查了规则，证书与 TLS 读取在本机验证过；尚未在真实的
+  Ubuntu 24.04 主机上以 root 安装、加密凭据和开机启动。
 - 尚未在真实交易日运行过，每个交易日的数据量和合并耗时未实测。

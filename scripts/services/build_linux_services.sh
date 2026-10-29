@@ -30,5 +30,5 @@ git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/
 docker run --rm --platform linux/amd64 \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
   -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
-cp "$WORK/output/asterion-services-linux-x86_64.zip" "$BUNDLES/"
+cp "$WORK/output/asterion-services-linux-x86_64.zip" "$WORK/output/asterion-recorder-linux-x86_64.zip" "$BUNDLES/"
 echo "Linux services bundle updated: $BUNDLES/asterion-services-linux-x86_64.zip"

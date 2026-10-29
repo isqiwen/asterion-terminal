@@ -187,7 +187,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 scripts/services/build_linux_services.sh
 ```
 
-脚本把当前源码打包进 Ubuntu 24.04 x86_64 容器，执行 `scripts/services/linux-services-container.sh`，输出到 `build/linux-bundles/`。可用 `ASTERION_LINUX_IMAGE` 指定已缓存 Conan 依赖的镜像以加速。
+脚本把当前源码打包进 Ubuntu 24.04 x86_64 容器，执行 `scripts/services/linux-services-container.sh`，输出远程服务包和录制主机的程序包（见[行情录制](recorder.md#录制主机)）到 `build/linux-bundles/`。可用 `ASTERION_LINUX_IMAGE` 指定已缓存 Conan 依赖的镜像以加速。
 
 当前支持的构建/回归基线是 Ubuntu 24.04 x86_64；本次审计修复使用 glibc 2.39、GCC 13.3。服务动态依赖宿主的 glibc、`libstdc++.so.6`、`libgcc_s.so.1` 等运行库，部署包没有随包提供这些系统库。换用构建镜像可能改变 ELF 符号版本要求，源码指纹相同也不意味着运行库要求相同。其它发行版、旧 Ubuntu 或 musl 环境未通过兼容性验收。2026-10-09 的服务包（SHA-256 `4b1d6acbff6816d0cace0708adc40f38a5c29d042c27f4a1df954f476b1fa7a6`，最高要求 glibc 2.38、GLIBCXX 3.4.32）在 `ubuntu:26.04` 容器（Ubuntu 26.04.1，glibc 2.43）中完成了运行库层面的检查：全部程序与动态库依赖可解析、8 个程序可启动、Agent 可加载两个随包插件，并用包内程序通过任务恢复与厂商 CTP SDK 回环两项进程回归。这证明在更新的 Ubuntu 上可运行，不等同于下一段所说的真实主机部署验收。
 
