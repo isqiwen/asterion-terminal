@@ -79,8 +79,6 @@ class HostInitialization(unittest.TestCase):
         self.assertIn('User=asterion\nGroup=asterion\n', unit)
         self.assertIn('NoNewPrivileges=yes\n', unit)
         self.assertIn('CapabilityBoundingSet=\n', unit)
-        # A recording node's CTP credentials, decrypted by systemd when present.
-        self.assertIn('ImportCredential=asterion.ctp.*\n', unit)
         self.assertIn('/var/lib/asterion/nodes/node-1/asterion_node_agent', unit)
         for identity, port, bind in [('../escape', 7442, '::'), ('x\nUser=root', 7442, '::'), ('x', 22, '::'), ('x', 65536, '::'), ('x', 7442, '::\nUser=root')]:
             with self.assertRaises(ValueError):

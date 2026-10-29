@@ -338,11 +338,6 @@ class Agent
         }
         if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING || lab)
             args.insert(args.end(), {"--node-id", node_id_});
-        // Read only if present: a recording node logs in by itself.
-        if (configuration.kind == wire::MARKET)
-            args.insert(
-                args.end(),
-                {"--recording-config", utf8(root_ / "config" / "market-recording.json")});
         if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty()) {
             const auto source = binary(configuration.provider_artifact);
             const auto library = root_ / "services" / name

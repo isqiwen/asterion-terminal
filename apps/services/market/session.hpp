@@ -21,8 +21,6 @@ public:
         std::string service, instance;
         std::filesystem::path directory, sdk, catalog_sdk;
         std::string node_id;
-        // A recording node's login, read at start; see unattended.hpp.
-        std::filesystem::path recording_configuration;
     };
 
     explicit Session(Configuration config);

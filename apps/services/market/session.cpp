@@ -1,9 +1,6 @@
 #include "session.hpp"
 #include "catalog_job.hpp"
 #include "ctp_feed.hpp"
-#include "recorder.hpp"
-#include "unattended.hpp"
-#include <asterion/kernel/environment.hpp>
 #include <asterion/domain/intraday_bars.hpp>
 #include <asterion/foundation/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
@@ -24,13 +21,6 @@ namespace wire = market::proto;
 
 namespace {
 
-std::int64_t now_ms()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
 struct State
 {
     const std::string service, instance, node_id;
@@ -45,14 +35,6 @@ struct State
     IntradayBars intraday;
     std::string stream;
     std::uint64_t event_cursor = 0;
-    Recorder recorder;
-    // Unattended login: the catalog is read again after every login, so the
-    // contracts listed on a new trading day are recorded; a refused market
-    // login is tried again a minute later. Neither is a trading command.
-    std::optional<Unattended> unattended;
-    bool catalog_wanted = false;
-    MarketPhase seen_phase = MarketPhase::disconnected;
-    std::chrono::steady_clock::time_point next_login{};
 
     State(const Session::Configuration& config)
         : service(config.service),
@@ -61,67 +43,15 @@ struct State
           directory(config.directory),
           sdk(config.sdk),
           catalog_sdk(config.catalog_sdk),
-          catalog(sdk_owner),
-          recorder(config.directory / "recordings", config.instance)
+          catalog(sdk_owner)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
-        unattended = load_unattended(
-            config.recording_configuration,
-            environment_path("CREDENTIALS_DIRECTORY"));
-        if (unattended) {
-            if (sdk.empty() || catalog_sdk.empty())
-                throw Error(ErrorCode::unavailable, "unattended login needs both CTP libraries");
-            log_process_event(
-                "market-data",
-                LogLevel::info,
-                "unattended.configured",
-                {{"file", config.recording_configuration.string()}});
-            login();
-        }
-    }
-
-    void login()
-    {
-        if (!feed) {
-            feed = std::make_unique<ctp::Feed>(sdk_owner, sdk, directory / "ctp-flow");
-            feed->start();
-        }
-        feed->connect(unattended->market, watchlist);
-        catalog_wanted = true;
-        next_login = std::chrono::steady_clock::now() + 60s;
-    }
-
-    void keep_logged_in()
-    {
-        if (!unattended || !feed)
-            return;
-        const auto phase = feed->phase();
-        if (phase == MarketPhase::connected && seen_phase != MarketPhase::connected)
-            catalog_wanted = true;
-        if (phase == MarketPhase::error && std::chrono::steady_clock::now() >= next_login) {
-            log_process_event(
-                "market-data",
-                LogLevel::warning,
-                "unattended.login_retried",
-                {{"error_code", feed->snapshot().error_code}});
-            login();
-        }
-        seen_phase = phase;
-        if (catalog_wanted && !catalog.running() && !catalog.initializing()) {
-            catalog.start(catalog_sdk, directory / "ctp-catalog-flow", unattended->catalog);
-            catalog_wanted = false;
-        }
     }
 
     ~State()
     {
         if (feed)
             feed->stop();
-        try {
-            recorder.close("stopped", now_ms(), intraday);
-        } catch (...) {
-            // A failed write was logged by the writer; stopping continues.
-        }
     }
 
     std::string phase() const
@@ -138,7 +68,6 @@ struct State
         if (feed)
             feed->poll();
         catalog.poll();
-        keep_logged_in();
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
         if (feed && feed->phase() == MarketPhase::connected && catalog_state.phase() == "ready"
             && applied_catalog != catalog_revision) {
@@ -155,24 +84,18 @@ struct State
         // Bounded work per turn. Client traffic cannot prevent event consumption,
         // and a continuous provider stream cannot starve admitted commands.
         const auto batch = feed->events_after(stream, event_cursor, 1024);
-        if (batch.gap || batch.failed) {
+        if (batch.gap || batch.failed)
             intraday.interrupt();
-            recorder.interrupt(batch.failed ? "feed_failed" : "events_lost");
-        }
         for (const auto& event : batch.events) {
             event_cursor = event.sequence;
             if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-                if (status->phase != MarketPhase::connected) {
+                if (status->phase != MarketPhase::connected)
                     intraday.interrupt();
-                    recorder.interrupt(market_phase_name(status->phase));
-                }
             } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
-                recorder.observe(quote->quote, quote->out_of_order, intraday);
                 if (!quote->out_of_order)
                     intraday.observe(quote->quote);
             }
         }
-        recorder.poll(now_ms(), intraday);
         stream = batch.stream_id;
         if (batch.failed)
             event_cursor = batch.latest_sequence;

@@ -44,7 +44,7 @@ TEST(Recorder, WritesTicksMinutesAndSegmentsWithTheReasonEachSegmentEnded)
 {
     const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
     {
-        market_data::Recorder recorder(root, "instance");
+        recording::Recorder recorder(root, "instance");
         IntradayBars minutes;
         const auto observe = [&](const MarketQuote& q) {
             recorder.observe(q, false, minutes);

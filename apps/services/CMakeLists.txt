@@ -1,4 +1,5 @@
 add_subdirectory(market)
+add_subdirectory(recorder)
 add_subdirectory(trading)
 add_subdirectory(common/tasks)
 add_subdirectory(data)

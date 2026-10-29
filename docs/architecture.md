@@ -49,6 +49,9 @@ flowchart TB
   Terminal -->|业务直连| Market & Data & Research & Trading
   Research -->|固定版本读取| Data
   Market --> Provider[行情来源]
+  OS -.守护.-> Recorder[Recorder（录制主机）]
+  Recorder --> Provider
+  Terminal -->|只读| Recorder
   Data --> Provider2[历史数据来源]
   Trading <--> Broker[期货公司柜台]
 ```
@@ -58,6 +61,7 @@ flowchart TB
 | `asterion_node_manager` | Terminal 所在机器：Agent 登记、连接、节点状态汇总、远程部署与维护协调 |
 | `asterion_node_agent` | 每个节点：服务部署、启停、健康探测、有限重启、资源观察、程序升级 |
 | `asterion_market` | CTP 实时行情、合约目录、事件流、当日分钟线 |
+| `asterion_recorder` | 录制主机上独立运行，由 systemd 直接看护，不受 Agent 管理：自己登录行情，把全市场 Tick 与分钟线存为 Parquet，只读接口供读取（见[行情录制](recorder.md)） |
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
 | `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估、账户复核）及研究变量、逻辑、策略包 |
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |

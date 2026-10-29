@@ -1,4 +1,4 @@
-#include "unattended.hpp"
+#include "login.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -6,13 +6,13 @@
 
 namespace fs = std::filesystem;
 using namespace asterion;
-using market_data::load_unattended;
+using recording::load_login;
 
 namespace {
 
 struct Folder
 {
-    fs::path path = fs::temp_directory_path() / ("ast-unattended-" + unique_process_id());
+    fs::path path = fs::temp_directory_path() / ("ast-login-" + unique_process_id());
 
     Folder()
     {
@@ -28,7 +28,7 @@ struct Folder
 std::string refusal(const fs::path& file, const std::optional<fs::path>& credentials)
 {
     try {
-        (void)load_unattended(file, credentials);
+        (void)load_login(file, credentials);
     } catch (const Error& error) {
         return error.what();
     }
@@ -40,32 +40,26 @@ const char* configuration = R"({"market_front":"tcp://md:1","trade_front":"tcp:/
 
 } // namespace
 
-TEST(Unattended, ANodeWithoutTheFileDoesNotLogInByItself)
+TEST(RecorderLogin, TheLoginComesFromTheFileAndTheSystemdCredentials)
 {
     Folder folder;
-    EXPECT_FALSE(load_unattended(folder.path / "market-recording.json", std::nullopt));
-}
-
-TEST(Unattended, TheLoginComesFromTheFileAndTheSystemdCredentials)
-{
-    Folder folder;
-    const auto file = folder.path / "market-recording.json";
+    const auto file = folder.path / "recorder.json";
     write_file_durably(file, configuration);
     write_file_durably(folder.path / "credentials/asterion.ctp.password", "fixture-password\n");
     write_file_durably(folder.path / "credentials/asterion.ctp.auth_code", "fixture-auth");
-    const auto login = load_unattended(file, folder.path / "credentials");
-    ASSERT_TRUE(login);
-    EXPECT_EQ(login->market.front, "tcp://md:1");
-    EXPECT_EQ(login->market.password, "fixture-password");
-    EXPECT_EQ(login->catalog.front, "tcp://td:2");
-    EXPECT_EQ(login->catalog.auth_code, "fixture-auth");
-    EXPECT_EQ(login->catalog.user, "000001");
+    const auto login = load_login(file, folder.path / "credentials");
+    EXPECT_EQ(login.market.front, "tcp://md:1");
+    EXPECT_EQ(login.market.password, "fixture-password");
+    EXPECT_EQ(login.catalog.front, "tcp://td:2");
+    EXPECT_EQ(login.catalog.auth_code, "fixture-auth");
+    EXPECT_EQ(login.catalog.user, "000001");
 }
 
-TEST(Unattended, ARefusalNamesTheFileOrTheCredentialItLacks)
+TEST(RecorderLogin, ARefusalNamesTheFileOrTheCredentialItLacks)
 {
     Folder folder;
-    const auto file = folder.path / "market-recording.json";
+    const auto file = folder.path / "recorder.json";
+    EXPECT_NE(refusal(file, folder.path / "credentials").find(file.string()), std::string::npos);
     write_file_durably(file, configuration);
     EXPECT_NE(refusal(file, std::nullopt).find(file.string()), std::string::npos);
     const auto password = folder.path / "credentials/asterion.ctp.password";

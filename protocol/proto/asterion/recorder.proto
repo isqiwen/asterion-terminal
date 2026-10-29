@@ -1,0 +1,104 @@
+syntax = "proto3";
+package asterion.recorder.proto;
+
+// The recorder on a recording host. Every request only reads: no request can
+// stop, reconnect or reconfigure recording.
+message Request {
+  uint32 version = 1;
+  string correlation_id = 2;
+  oneof body {
+    StatusQuery status = 10;
+    DaysQuery days = 11;
+    MinutesQuery minutes = 12;
+  }
+}
+message StatusQuery {}
+// Every recorded trading day with its files and segments.
+message DaysQuery {}
+// One contract's recorded minutes of one trading day (YYYYMMDD).
+message MinutesQuery {
+  string trading_day = 1;
+  string venue = 2;
+  string symbol = 3;
+}
+
+message Response {
+  uint32 version = 1;
+  string correlation_id = 2;
+  oneof body {
+    Status status = 10;
+    Days days = 11;
+    Minutes minutes = 12;
+    Error error = 20;
+  }
+}
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+message Status {
+  string instance = 1;
+  string version = 2;
+  int64 started_ms = 3;
+  // Market connection: initializing, connecting, connected, reconnecting, error.
+  string phase = 4;
+  int32 error_code = 5;
+  // The contract catalog read after each login: loading, ready, cached, error.
+  string catalog_phase = 6;
+  string catalog_trading_day = 7;
+  string catalog_error = 8;
+  uint32 subscribed = 9;
+  int64 last_quote_ms = 10;
+  // Files written by this instance since it started.
+  string trading_day = 11;
+  uint64 rows = 12;
+  uint64 files = 13;
+  uint64 bytes = 14;
+  // Quotes of files that failed to write, and the last failure.
+  uint64 lost = 15;
+  string write_error = 16;
+  int64 written_ms = 17;
+  uint64 disk_free_bytes = 18;
+}
+
+message Days {
+  repeated Day days = 1;
+}
+message Day {
+  string trading_day = 1;
+  uint32 tick_files = 2;
+  uint32 minute_files = 3;
+  uint64 bytes = 4;
+  // In order of their first quote. The time between two is a gap.
+  repeated Segment segments = 5;
+}
+message Segment {
+  string instance = 1;
+  uint64 number = 2;
+  int64 first_received_ms = 3;
+  int64 last_received_ms = 4;
+  uint64 ticks = 5;
+  // Why observation stopped; empty while it continues, or when the process
+  // stopped before it could say why.
+  string end = 6;
+}
+
+message Minutes {
+  string trading_day = 1;
+  string venue = 2;
+  string symbol = 3;
+  repeated MinuteBar bars = 4;
+}
+// Prices are exact decimal text; absent ones are empty.
+message MinuteBar {
+  int64 start_ms = 1;
+  string open = 2;
+  string high = 3;
+  string low = 4;
+  string close = 5;
+  int64 volume = 6;
+  string average_price = 7;
+  string open_interest = 8;
+  bool partial = 9;
+}

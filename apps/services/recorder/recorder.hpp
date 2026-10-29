@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace asterion::market_data {
+namespace asterion::recording {
 
 // Records every quote the feed delivers as Parquet, partitioned by the
 // provider's trading day:
@@ -18,15 +18,16 @@ namespace asterion::market_data {
 //   recordings/minutes/trading_day=<YYYYMMDD>/<instance>-<part>.parquet
 //   recordings/segments/trading_day=<YYYYMMDD>/<instance>.parquet
 //
-// Minutes are the bars the service aggregates for strategies, written once a
-// later bar or the next trading day completes them; a bar observation may
-// have missed part of is marked partial, as is the bar forming at a stop.
+// Minutes are the bars the market service aggregates for strategies (the same
+// code), written once a later bar or the next trading day completes them; a
+// bar observation may have missed part of is marked partial, as is the bar
+// forming at a stop.
 // A segment is one stretch of uninterrupted observation by this process. It
 // ends with the reason observation stopped; a segment without an end belongs
 // to a process that stopped before it could say why. The time between two
 // segments is a gap: nothing is filled in. A segment counts the quotes it
 // observed, so fewer rows in its files means a write failed. Files are
-// written on a worker; the market loop waits only when four writes are behind.
+// written on a worker; the recording loop waits only when four writes are behind.
 class Recorder
 {
 public:
@@ -114,4 +115,4 @@ private:
     ThreadPool writer_{1, 8};
 };
 
-} // namespace asterion::market_data
+} // namespace asterion::recording

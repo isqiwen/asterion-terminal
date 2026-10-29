@@ -56,49 +56,9 @@ CTP 的 `AveragePrice` 在郑商所是单位均价，其他交易所是成交额
 分钟线只保存在服务内存中，服务重启后从头观测。终端通过只读命令 `market.minutes` 查询。
 返回的序列写明是哪个行情服务、哪个实例观测的（`service`、`instance_id`，与快照里行情部分的同名字段一致）；查询期间行情服务的选择变了，这次查询以冲突拒绝，不把原服务的序列交给界面。分时图和分钟 K 线按“合约 + 行情服务 + 实例”认定一条序列：换了行情服务或服务重启后清空重读，同一时刻只有一个查询在途，写着别的服务的应答不采用。
 
-### Tick 录制
+### 录制
 
-行情服务把收到的每笔报价写成 Parquet（`apps/services/market/recorder`），录的就是当前订阅：连接行情并加载合约目录后即为全市场。
-文件在服务目录的 `recordings/` 下，按柜台给的交易日分区，可直接用 DuckDB 以 `hive_partitioning` 读取：
-
-```
-recordings/ticks/trading_day=<YYYYMMDD>/<实例>-<序号>.parquet
-recordings/minutes/trading_day=<YYYYMMDD>/<实例>-<序号>.parquet
-recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
-```
-
-- **ticks**：每 30 秒写一个文件，一段观测结束时立即写出。列为段号、本机接收时间、柜台时间（`source_ms`，不能解析时为空）
-  及原始的 `action_day`、`update_time`，报价字段与上文相同，价格为 `DECIMAL(18,8)` 精确值，缺失保持为空。
-  乱序报价也写入，以 `out_of_order` 标记；分钟线不使用它们。
-- **minutes**：就是上一节给策略的分钟线，同一份聚合代码。一根分钟线在下一根出现或换交易日后写出，之后不再改动。
-  `partial` 标记观测可能缺了这一分钟的一部分：当日观测从分钟中间开始、在这一分钟内或之前丢过观测、累计成交量回退，
-  以及停止时正在形成的那一根。
-- **segments**：一段是本进程一次不间断的观测，记首末接收时间、观测到的报价数和结束原因：断线时为连接阶段
-  （如 `reconnecting`、`disconnected`），事件流断档为 `events_lost`，原始队列溢出为 `feed_failed`，正常停止为 `stopped`。
-  没有结束原因的段属于来不及说明原因就停止的进程。两段之间就是缺口，不补造。段内文件的行数少于它记的报价数，
-  说明有文件写入失败，失败也写进服务日志。
-- 写文件在单独的线程上进行，落后四个文件时行情线程才等待。服务重启后以新的实例名续写，不改动已有文件。
-  停止时的 400 毫秒期限用尽，最后至多 30 秒的报价、分钟线和段的结束原因可能没有写出。
-
-### 无人值守登录（录制节点）
-
-录制节点上没有 Terminal 去登录。节点存在 `config/market-recording.json` 时，行情服务启动后自己登录：
-
-```json
-{"market_front": "tcp://…", "trade_front": "tcp://…", "broker": "…", "user": "…", "app_id": "…"}
-```
-
-- 密码和授权码不进配置文件，由 systemd 加密保存：管理员在节点上执行
-  `sudo systemd-creds encrypt --name=asterion.ctp.password - /etc/credstore.encrypted/asterion.ctp.password`
-  （授权码同理，名称为 `asterion.ctp.auth_code`；`app_id` 为空时不需要），输入密码后按 Ctrl+D。
-  加密绑定本机，别处无法解密。远程节点的 Agent 系统服务带有 `ImportCredential=asterion.ctp.*`，
-  systemd 在服务启动时把它们解密到只有 `asterion` 用户可读的 `$CREDENTIALS_DIRECTORY`，行情服务从那里读取，
-  只留在内存。
-- 有配置文件却缺少凭据、或配置不完整时，行情服务启动失败，错误写明缺的文件或配置路径。没有配置文件的节点
-  （本机、开发环境）照旧由 Terminal 登录。
-- 每次登录成功（包括柜台夜间断开后的重连）都重新读取合约目录，新上市的合约随之录制；读取期间沿用已有订阅。
-  合约目录按期货品种逐个查询，不读期权。
-- 行情登录被拒时每分钟重试一次。这只是行情登录，不涉及任何交易命令。
+全市场的 Tick 与分钟线由录制主机上独立的 `asterion_recorder` 保存，不在行情服务里，见[行情录制](recorder.md)。
 
 ### 分时横轴
 

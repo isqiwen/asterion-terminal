@@ -4,7 +4,7 @@
 #include <asterion/kernel/logger.hpp>
 #include <cstdio>
 
-namespace asterion::market_data {
+namespace asterion::recording {
 namespace {
 
 namespace fs = std::filesystem;
@@ -319,7 +319,7 @@ void Recorder::collect()
         status_.error = written.error;
         status_.lost += written.rows;
         log_process_event(
-            "market-data",
+            "recorder",
             LogLevel::error,
             "recording.write_failed",
             {{"trading_day", written.trading_day},
@@ -334,4 +334,4 @@ void Recorder::collect()
     status_.written_ms = flushed_ms_;
 }
 
-} // namespace asterion::market_data
+} // namespace asterion::recording
