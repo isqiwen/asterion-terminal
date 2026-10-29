@@ -61,7 +61,7 @@ sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 
 ## 配置文件
 
-`config/recorder.json` 只放监听地址和柜台信息，默认值在仓库的 `config/recorder.json`：
+`config/recorder.json` 只放监听地址和柜台信息，默认值在仓库的 `apps/services/recorder/config/recorder.json`：
 
 ```json
 {
@@ -76,7 +76,7 @@ sudo /opt/asterion-recorder/bin/setup.sh     # 只修改配置
 | `bind`、`port` | 监听的地址与 TCP 端口 |
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
 
-`config/recorder-logging.json` 是录制程序专用的日志配置，默认值在仓库的 `config/recorder-logging.json`：
+`config/recorder-logging.json` 是录制程序专用的日志配置，默认值在仓库的 `apps/services/recorder/config/recorder-logging.json`：
 
 ```json
 {"level": "info", "retention_days": 30, "format": "text"}

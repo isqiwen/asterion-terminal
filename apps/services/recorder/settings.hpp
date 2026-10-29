@@ -16,8 +16,8 @@ namespace asterion::recording {
 //   logs/
 //   data/    recordings, the catalog cache, CTP flow files
 //
-// config/recorder.json holds the rest (defaults in the repository's
-// config/recorder.json):
+// config/recorder.json holds the rest (defaults in the recorder's own
+// config/recorder.json in the repository):
 //
 //   {"bind": "0.0.0.0", "port": 7450,
 //    "counter": {"market_front": "tcp://…", "trade_front": "tcp://…",

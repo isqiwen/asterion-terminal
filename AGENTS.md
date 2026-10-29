@@ -48,8 +48,9 @@ phase and its work packages:
   orchestration in `apps/clients/terminal/native/`. The installer is in
   `apps/clients/installer/`.
 - Configuration: defaults in repository `config/`, copied once at deployment to
-  `<node>/config/`. Services only read configuration; missing or invalid
-  configuration fails with its path.
+  `<node>/config/`. The recorder, which belongs to no node, keeps its defaults
+  in `apps/services/recorder/config/`. Services only read configuration;
+  missing or invalid configuration fails with its path.
 
 Details: [docs/architecture.md](docs/architecture.md).
 

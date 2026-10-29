@@ -111,7 +111,7 @@ target_include_directories(asterion_recorder_tests PRIVATE ${CMAKE_SOURCE_DIR}/a
 target_link_libraries(asterion_recorder_tests PRIVATE asterion_ctp duckdb::duckdb)
 add_test(NAME recorder_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/recorder_process.py $<TARGET_FILE:asterion_recorder> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(recorder_process PROPERTIES TIMEOUT 90)
-add_test(NAME recorder_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/recorder/scripts/setup.sh ${CMAKE_SOURCE_DIR}/config/recorder.json)
+add_test(NAME recorder_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/recorder/scripts/setup.sh ${CMAKE_SOURCE_DIR}/apps/services/recorder/config/recorder.json)
 set_tests_properties(recorder_setup PROPERTIES SKIP_RETURN_CODE 77)
 asterion_unit_tests(asterion_market_snapshot_tests market/market_snapshot_test.cpp asterion_protocol)
 target_sources(asterion_market_snapshot_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native/market_snapshot.cpp)

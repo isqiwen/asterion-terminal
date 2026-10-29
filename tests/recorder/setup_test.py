@@ -3,7 +3,7 @@ user namespace against a temporary root, with stand-ins for the system
 commands (chown, systemctl, systemd-creds, systemd-run, date) that
 record what they were asked.
 
-    setup_test.py <apps/services/recorder/scripts/setup.sh> <config/recorder.json>
+    setup_test.py <apps/services/recorder/scripts/setup.sh> <apps/services/recorder/config/recorder.json>
 """
 import io
 import json

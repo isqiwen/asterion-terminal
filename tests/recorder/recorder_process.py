@@ -94,7 +94,7 @@ def install(root):
     shutil.copy2(recorder, root / "bin/asterion_recorder")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
-    shutil.copy2(Path(__file__).parents[2] / "config/recorder-logging.json", root / "config")
+    shutil.copy2(Path(__file__).parents[2] / "apps/services/recorder/config/recorder-logging.json", root / "config")
 
 
 def start(root, port):
