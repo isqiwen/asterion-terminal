@@ -1,11 +1,13 @@
 syntax = "proto3";
 package asterion.recorder.proto;
 
-// The recorder on a recording host. Every request only reads: no request can
-// stop, reconnect or reconfigure recording.
+// The recorder on a recording host, over plain TCP. Every request only reads:
+// no request can stop, reconnect or reconfigure recording.
 message Request {
   uint32 version = 1;
   string correlation_id = 2;
+  // 0x41535452 ("ASTR"): marks the request as coming from an Asterion client.
+  fixed32 magic = 3;
   oneof body {
     StatusQuery status = 10;
     DaysQuery days = 11;

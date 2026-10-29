@@ -14,13 +14,15 @@ namespace asterion::service {
 using Milliseconds = std::chrono::milliseconds;
 
 // Exactly one of a private local IPC endpoint or TCP with mutual TLS.
-// Plaintext TCP is never offered.
+// Plaintext TCP is offered only when a service asks for it explicitly; such a
+// service authenticates its clients itself (the recorder, docs/recorder.md).
 struct Transport
 {
     std::string endpoint;
     std::string bind;
     std::uint16_t port = 0;
     ipc::TlsIdentity tls;
+    bool plaintext = false;
 
     bool remote() const noexcept
     {

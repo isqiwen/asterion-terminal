@@ -67,6 +67,13 @@ TEST(ServiceTransport, RequiresExactlyOneCompleteTransport)
     EXPECT_THROW(
         (service::Transport{"/tmp/x", {}, 0, {"/ca", {}, {}}}.validate()),
         std::invalid_argument);
+    // Plain TCP only when asked for, and then without TLS files.
+    EXPECT_THROW((service::Transport{{}, "127.0.0.1", 9000, {}}.validate()), std::invalid_argument);
+    EXPECT_NO_THROW((service::Transport{{}, "127.0.0.1", 9000, {}, true}.validate()));
+    EXPECT_THROW(
+        (service::Transport{{}, "127.0.0.1", 9000, {"/ca", "/cert", "/key"}, true}.validate()),
+        std::invalid_argument);
+    EXPECT_THROW((service::Transport{"/tmp/x", {}, 0, {}, true}.validate()), std::invalid_argument);
 }
 
 TEST(RpcHost, RecreatesTransientSocketDirectoryForLoginServices)

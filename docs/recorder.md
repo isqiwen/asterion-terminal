@@ -9,7 +9,7 @@
 ```
 asterion_recorder --directory <数据目录> --config <recorder.json> \
   --ctp-library <thostmduserapi_se.so> --ctp-catalog-library <thosttraderapi_se.so> \
-  --endpoint <socket>
+  (--bind <地址> --port <端口> | --endpoint <socket>)
 ```
 
 - 启动后立即登录，不等任何客户端。每次登录成功（包括柜台夜间断开后的重连）都重新读取合约目录，新上市的合约随之
@@ -34,8 +34,8 @@ sudo python3 recording-host.py login
   `asterion-recorder.service`。单元以你自己的登录账户运行（默认是执行 sudo 的账户，`--user` 可指定，不能是 root），
   `Restart=always` 且永不放弃重启，`ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`
   （日志在其下 `logs/`）。
-- 不开网络端口：录制程序只监听本机的 `/var/lib/asterion-recorder/recorder.sock`，只接受同一账户的连接。Terminal 用这个账户
-  经 SSH 转发它读取（`ssh -N -L <本地 socket>:/var/lib/asterion-recorder/recorder.sock <账户>@<主机>`），不需要证书和防火墙规则。
+- 网络：录制程序在 TCP 7450 上监听，不加密。每个请求带协议里的固定魔数 `0x41535452`（"ASTR"）标明来自 Asterion 客户端，
+  没有魔数的请求被拒绝。魔数只是标识，不是密码；谁能连上端口谁就能读数据，所以防火墙只放行自己的机器。
 - `login`：在主机上输入柜台地址、经纪公司代码、投资者代码和 AppID（写入 `/etc/asterion-recorder/recorder.json`，只有运行账户
   可读），密码和授权码不回显，由 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，然后重启录制程序。
 - `upgrade <包>`：先解包并确认新程序能在本机运行，再切换 `current` 并重启，保留上一个版本。
@@ -97,8 +97,8 @@ recordings/minutes/trading_day=<YYYYMMDD>/<交易所>.parquet
 
 ## 只读接口
 
-请求与回复是 `protocol/proto/asterion/recorder.proto` 中的 `Request` / `Response`，4 字节大端长度分帧；录制主机上是 Unix socket，
-其他机器经 SSH 转发这个 socket。没有任何请求能停止、重连或重新配置录制。
+请求与回复是 `protocol/proto/asterion/recorder.proto` 中的 `Request` / `Response`，4 字节大端长度分帧，经不加密的 TCP
+（测试中也可用本机 Unix socket）。请求的 `magic` 必须是 `0x41535452`。没有任何请求能停止、重连或重新配置录制。
 
 | 请求 | 作用 |
 | --- | --- |
@@ -112,5 +112,5 @@ recordings/minutes/trading_day=<YYYYMMDD>/<交易所>.parquet
 ## 限制
 
 - Terminal 中还看不到录制状态（M1.6）。部署脚本只在测试中检查了规则；尚未在真实的 Ubuntu 24.04 主机上以 root
-  安装、加密凭据、开机启动，也没验证过经 SSH 转发读取。
+  安装、加密凭据、开机启动，也没从另一台机器经 TCP 读取过。
 - 尚未在真实交易日运行过，每个交易日的数据量和合并耗时未实测。

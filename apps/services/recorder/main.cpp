@@ -17,6 +17,8 @@ namespace wire = asterion::recorder::proto;
 namespace {
 
 constexpr auto version = "0.1.0";
+// "ASTR": marks a request as coming from an Asterion client.
+constexpr std::uint32_t magic = 0x41535452;
 
 std::int64_t now_ms()
 {
@@ -45,12 +47,16 @@ int main(int argc, char** argv)
     app.add_option("--config", configuration, "Counter addresses and account")->required();
     app.add_option("--ctp-library", sdk)->required()->check(CLI::ExistingFile);
     app.add_option("--ctp-catalog-library", catalog_sdk)->required()->check(CLI::ExistingFile);
-    // Only a local socket: other machines reach it by forwarding it over SSH.
-    app.add_option("--endpoint", transport.endpoint)->required();
+    // A local socket, or plain TCP: requests identify themselves with the
+    // protocol's magic number.
+    app.add_option("--endpoint", transport.endpoint);
+    app.add_option("--bind", transport.bind);
+    app.add_option("--port", transport.port);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
         initialize_process_logging("recorder", "recorder");
+        transport.plaintext = transport.remote();
         transport.validate();
         const fs::path root = fs::absolute(directory);
         auto login =
@@ -72,6 +78,8 @@ int main(int argc, char** argv)
             try {
                 if (!request.ParseFromString(frame) || request.version() != 1)
                     throw std::invalid_argument("malformed recorder request");
+                if (request.magic() != magic)
+                    throw Error(ErrorCode::permission_denied, "not an Asterion recorder client");
                 validate_id(request.correlation_id());
                 response.set_correlation_id(request.correlation_id());
                 if (request.has_status()) {

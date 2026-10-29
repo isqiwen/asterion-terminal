@@ -1,5 +1,6 @@
 """The recorder logs in, reads the catalog and records with no client, against
-the test-only CTP libraries; clients only read its status and files. A second
+the test-only CTP libraries; clients read its status and files over plain TCP,
+identified by the protocol's magic number. A second
 instance continues the recording and reports the first one's segment.
 
     recorder_process.py <asterion_recorder> <test ctp md library> <test ctp trader library>
@@ -59,15 +60,18 @@ def read_varint(data, at):
             return value, at
 
 
-def ask(endpoint, number, body=b""):
-    request = b"\x08\x01" + field(2, b"probe") + field(number, body)
-    with socket.socket(socket.AF_UNIX) as connection:
-        connection.settimeout(10)
-        connection.connect(str(endpoint))
+MAGIC = b"\x1d" + (0x41535452).to_bytes(4, "little")  # field 3, fixed32
+
+
+def ask(port, number, body=b"", magic=MAGIC, failure=False):
+    request = b"\x08\x01" + field(2, b"probe") + magic + field(number, body)
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
         connection.sendall(len(request).to_bytes(4, "big") + request)
         header = connection.recv(4, socket.MSG_WAITALL)
         payload = connection.recv(int.from_bytes(header, "big"), socket.MSG_WAITALL)
     response = decode(payload)
+    if failure:
+        return decode(response[20][0])
     assert 20 not in response, decode(response[20][0])
     return decode(response[number][0])
 
@@ -76,22 +80,31 @@ def text(fields, number):
     return fields.get(number, [b""])[0].decode()
 
 
-def start(root, endpoint):
+def free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def start(root, port):
     return subprocess.Popen(
         [recorder, "--directory", str(root / "recorder"), "--config", str(root / "recorder.json"),
-         "--ctp-library", md, "--ctp-catalog-library", trader, "--endpoint", str(endpoint)],
+         "--ctp-library", md, "--ctp-catalog-library", trader, "--bind", "127.0.0.1", "--port", str(port)],
         env=env, stderr=subprocess.PIPE, text=True)
 
 
-def wait_for(process, endpoint, predicate, what):
+def wait_for(process, port, predicate, what):
     deadline = time.monotonic() + 40
+    status = None
     while True:
         assert process.poll() is None, process.stderr.read()
-        if endpoint.exists():
-            status = ask(endpoint, 10)
+        try:
+            status = ask(port, 10)
             if predicate(status):
                 return status
-        assert time.monotonic() < deadline, f"{what}: {status if endpoint.exists() else 'no socket'}"
+        except ConnectionRefusedError:
+            pass
+        assert time.monotonic() < deadline, f"{what}: {status}"
         time.sleep(.2)
 
 
@@ -106,13 +119,13 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         "broker": "test", "user": "fixture", "app_id": "app"}))
 
     # A missing credential refuses the start and names it.
-    refused = start(root, root / "r.sock")
+    refused = start(root, free_port())
     _, error = refused.communicate(timeout=15)
     assert refused.returncode != 0 and "asterion.ctp.password" in error, error
 
     (root / "credentials/asterion.ctp.password").write_text("fixture-only-secret\n")
     (root / "credentials/asterion.ctp.auth_code").write_text("fixture-auth")
-    first_endpoint = root / "first.sock"
+    first_endpoint = free_port()
     first = start(root, first_endpoint)
     try:
         # Nobody asks: the catalog is read and every listed contract subscribed.
@@ -122,12 +135,15 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         assert text(status, 4) == "connected", status
         assert text(status, 6) == "ready", status
         first_instance = text(status, 1)
+        # A request without the magic number is not answered with data.
+        error = ask(first_endpoint, 10, magic=b"", failure=True)
+        assert text(error, 1) == "permission_denied", error
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=30)
     assert first.returncode == 0, first.stderr.read()
 
-    second_endpoint = root / "second.sock"
+    second_endpoint = free_port()
     second = start(root, second_endpoint)
     try:
         wait_for(second, second_endpoint, lambda s: s.get(10, [0])[0] > 0, "no quote after restart")

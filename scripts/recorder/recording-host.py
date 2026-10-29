@@ -3,8 +3,8 @@
 
 Run locally on the host as root (sudo). The recorder runs as the system
 service asterion-recorder.service under your own login account; nothing else
-on the host manages it. It opens no network port: it listens on a local
-socket, which Terminal reaches by forwarding it over SSH as that account.
+on the host manages it. Clients read it over plain TCP on port 7450; open the
+port in the firewall only to your own machines.
 
   install BUNDLE [--user NAME]  program and unit; NAME defaults to the sudo user
   login                         counter addresses and account; the password and
@@ -36,7 +36,7 @@ CONFIG = Path('/etc/asterion-recorder')
 STATE = Path('/var/lib/asterion-recorder')
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
-SOCKET = STATE / 'recorder.sock'
+PORT = 7450
 FILES = ('asterion_recorder', 'ctp-md.so', 'ctp-trader.so', 'recording-host.py')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 BEIJING = timezone(timedelta(hours=8))
@@ -80,7 +80,7 @@ def unit_text(user):
             f'[Service]\nUser={user}\nUMask=0077\n'
             f'ExecStart={current}/asterion_recorder --directory {STATE} --config {CONFIG}/recorder.json '
             f'--ctp-library {current}/ctp-md.so --ctp-catalog-library {current}/ctp-trader.so '
-            f'--endpoint {SOCKET}\n'
+            f'--bind 0.0.0.0 --port {PORT}\n'
             f'Environment=ASTERION_LOG_DIRECTORY={STATE}/logs\n'
             'StateDirectory=asterion-recorder\nStateDirectoryMode=0700\n'
             # The counter password and authentication code, decrypted at start.
@@ -178,7 +178,8 @@ def install(args):
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
     print(f'Installed {release.name}. Next: sudo {sys.argv[0]} login')
-    print(f'It runs as {user} and listens on {SOCKET} only; Terminal forwards that socket over SSH as {user}.')
+    print(f'It runs as {user} and listens on TCP {PORT}, unencrypted: allow the port only from your own machines, '
+          f'e.g. ufw allow from <address> to any port {PORT} proto tcp')
 
 
 def login(args):

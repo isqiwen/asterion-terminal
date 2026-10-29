@@ -67,7 +67,7 @@ flowchart TB
 | `asterion_trading` | 每个 CTP 账户一个进程：授权、风控、先记录后发送、在途订单与成交核对 |
 | `asterion_lab` | Python 研究服务，每个本机节点一个，用随包 Python 以 `-I -B -m asterion_lab` 运行。期货数据仓库与 Tushare 采集（见 [lab](lab.md)）；按计划逐步接管 Data 与 Research |
 
-- 本机使用 Unix Socket，远程使用 TCP + 双向 TLS，消息均为 `protocol/proto/asterion/` 中的 Protobuf。
+- 本机使用 Unix Socket，远程使用 TCP + 双向 TLS（录制程序例外：不加密的 TCP，见[行情录制](recorder.md)），消息均为 `protocol/proto/asterion/` 中的 Protobuf。
 - 一个服务实例对应一个进程；停止保留实例与数据，重启只改变运行代次。
 - 安装版关闭窗口后服务继续运行；开发入口退出时停止本机开发服务、Agent 与 Manager，保留数据。
 - Agent 异常退出时其托管的服务一并退出；Manager 独立运行并报告节点失联。

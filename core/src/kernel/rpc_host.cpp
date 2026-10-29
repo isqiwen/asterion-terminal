@@ -107,9 +107,11 @@ void Transport::validate() const
         !tls.ca_file.empty() && !tls.certificate_file.empty() && !tls.private_key_file.empty();
     const bool tls_empty =
         tls.ca_file.empty() && tls.certificate_file.empty() && tls.private_key_file.empty();
-    if (remote() ? (!endpoint.empty() || !port || !tls_complete)
-                 : (endpoint.empty() || port || !tls_empty))
-        throw std::invalid_argument("choose --endpoint OR --bind/--port with all three TLS files");
+    if (remote() ? (!endpoint.empty() || !port || (plaintext ? !tls_empty : !tls_complete))
+                 : (endpoint.empty() || port || !tls_empty || plaintext))
+        throw std::invalid_argument(
+            plaintext ? "plaintext TCP needs --bind/--port and no TLS files"
+                      : "choose --endpoint OR --bind/--port with all three TLS files");
 }
 
 void install_stop_signals()
@@ -468,7 +470,8 @@ struct RpcHost::Impl
                 &endpoint,
                 std::make_shared<PayloadBudget>(PayloadBudget{endpoint.payload_bytes}));
         if (this->transport.remote()) {
-            tls = ipc::detail::tls_context(this->transport.tls, true);
+            if (!this->transport.plaintext)
+                tls = ipc::detail::tls_context(this->transport.tls, true);
             const Tcp::endpoint endpoint(
                 asio::ip::make_address(this->transport.bind),
                 this->transport.port);
@@ -540,15 +543,30 @@ struct RpcHost::Impl
                 return;
             if (!error && handshakes < options.handshakes
                 && connections(nullptr) < options.connections + options.handshakes) {
-                Peer peer{ipc::PeerRole::unknown, socket.remote_endpoint().address().to_string()};
-                auto session = std::make_shared<StreamSession<Tls>>(
-                    *this,
-                    std::move(peer),
-                    Tls(std::move(socket), *tls),
-                    Phase::handshake);
-                ++handshakes;
-                sessions.push_back(session);
-                session->start();
+                asio::error_code ignored;
+                Peer peer{
+                    ipc::PeerRole::unknown,
+                    socket.remote_endpoint(ignored).address().to_string()
+                };
+                if (!tls) {
+                    // No handshake: the service authenticates each request itself.
+                    auto session = std::make_shared<StreamSession<Tcp::socket>>(
+                        *this,
+                        std::move(peer),
+                        std::move(socket),
+                        Phase::reading);
+                    sessions.push_back(session);
+                    session->start();
+                } else {
+                    auto session = std::make_shared<StreamSession<Tls>>(
+                        *this,
+                        std::move(peer),
+                        Tls(std::move(socket), *tls),
+                        Phase::handshake);
+                    ++handshakes;
+                    sessions.push_back(session);
+                    session->start();
+                }
             }
             accept_tcp();
         });
