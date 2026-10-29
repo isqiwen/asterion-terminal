@@ -801,15 +801,41 @@ public:
         return -1;
     }
 
-    int ReqQryProduct(CThostFtdcQryProductField*, int) override
+    // One futures product and one of options; the catalog asks for futures only.
+    int ReqQryProduct(CThostFtdcQryProductField* request, int id) override
     {
-        return -1;
+        check_sdk_thread();
+        const auto wanted = request->ProductClass;
+        emit([id, wanted](CThostFtdcTraderSpi* spi) {
+            auto status = info(0);
+            for (const auto& [product, kind] :
+                {std::pair{"rb", THOST_FTDC_PC_Futures},
+                    std::pair{"rb_o", THOST_FTDC_PC_Options}}) {
+                if (wanted && wanted != kind)
+                    continue;
+                CThostFtdcProductField item{};
+                put(item.ExchangeID, "SHFE");
+                put(item.ProductID, product);
+                item.ProductClass = kind;
+                spi->OnRspQryProduct(&item, &status, id, false);
+            }
+            spi->OnRspQryProduct(nullptr, &status, id, true);
+        });
+        return 0;
     }
 
-    int ReqQryInstrument(CThostFtdcQryInstrumentField*, int id) override
+    int ReqQryInstrument(CThostFtdcQryInstrumentField* request, int id) override
     {
         const auto mode = catalog_mode;
         check_sdk_thread();
+        // Asked by product, the counter answers that product's instruments only.
+        if (request->ProductID[0] && std::string(request->ProductID) != "rb") {
+            emit([id](CThostFtdcTraderSpi* spi) {
+                auto status = info(0);
+                spi->OnRspQryInstrument(nullptr, &status, id, true);
+            });
+            return 0;
+        }
         if (mode == "catalog-stall") {
             std::ofstream(flow / "catalog-query-started").put('1');
             return 0;

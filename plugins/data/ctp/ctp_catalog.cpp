@@ -49,6 +49,7 @@ enum class Step
     connecting,
     authenticate,
     login,
+    products,
     query,
     done
 };
@@ -62,6 +63,8 @@ const char* timeout_diagnostic(Step step)
             return "CTP catalog authentication timed out";
         case Step::login:
             return "CTP catalog login timed out";
+        case Step::products:
+            return "CTP catalog product query timed out";
         case Step::query:
             return "CTP catalog instrument query timed out";
         case Step::done:
@@ -105,7 +108,14 @@ struct Reader final : CThostFtdcTraderSpi
         bool last;
     };
 
-    using Event = std::variant<Connected, Disconnected, Failure, Auth, Login, Instrument>;
+    struct Product
+    {
+        std::optional<std::pair<std::string, std::string>> value; // exchange, product
+        int code, id;
+        bool last;
+    };
+
+    using Event = std::variant<Connected, Disconnected, Failure, Auth, Login, Instrument, Product>;
     BoundedQueue<Event> incoming{32768};
     std::atomic<bool> failed{false};
     std::atomic<unsigned> instrument_responses{0};
@@ -113,6 +123,8 @@ struct Reader final : CThostFtdcTraderSpi
     bool completed = false;
     Catalog result;
     std::map<std::string, CatalogContract> contracts;
+    // Futures products, each queried for its contracts in turn.
+    std::vector<std::pair<std::string, std::string>> products;
 
     template <class T>
     void deliver(T event) noexcept
@@ -128,8 +140,14 @@ struct Reader final : CThostFtdcTraderSpi
     // Names the step: a login refusal means the password, an authentication one the AppID.
     void check(int code) const
     {
-        static constexpr const char* names[] =
-            {"connection", "authentication", "login", "instrument query", "instrument query"};
+        static constexpr const char* names[] = {
+            "connection",
+            "authentication",
+            "login",
+            "product query",
+            "instrument query",
+            "instrument query"
+        };
         if (code)
             throw Error(
                 ErrorCode::operation_failed,
@@ -175,6 +193,20 @@ struct Reader final : CThostFtdcTraderSpi
                 id,
                 last
             });
+    }
+
+    void OnRspQryProduct(
+        CThostFtdcProductField* value,
+        CThostFtdcRspInfoField* info,
+        int id,
+        bool last) override
+    {
+        std::optional<std::pair<std::string, std::string>> future;
+        if (value && value->ProductClass == THOST_FTDC_PC_Futures)
+            future = std::pair{field(value->ExchangeID), field(value->ProductID)};
+        const int code = info ? info->ErrorID : 0;
+        if (future || code || last)
+            deliver(Product{std::move(future), code, id, last});
     }
 
     void OnRspQryInstrument(
@@ -269,6 +301,13 @@ struct Reader final : CThostFtdcTraderSpi
                                 ErrorCode::operation_failed,
                                 "CTP catalog login has no trading day");
                         completed = value.last;
+                    } else if constexpr (std::is_same_v<T, Product>) {
+                        if (step != Step::products || value.id != 4)
+                            return;
+                        check(value.code);
+                        if (value.value)
+                            products.push_back(*value.value);
+                        completed = value.last;
                     } else if constexpr (std::is_same_v<T, Instrument>) {
                         if (step != Step::query || value.id != 3)
                             return;
@@ -293,8 +332,9 @@ struct Reader final : CThostFtdcTraderSpi
 struct CatalogQuery::Impl
 {
     const std::chrono::milliseconds timeout;
-    std::chrono::steady_clock::time_point deadline;
+    std::chrono::steady_clock::time_point deadline, sent;
     unsigned observed_responses = 0;
+    std::size_t next_product = 0;
     CatalogConfiguration config;
     Reader reader;
     SharedLibrary library;
@@ -405,9 +445,31 @@ struct CatalogQuery::Impl
 #endif
             erase(login.Password);
         } else if (reader.step == Step::login) {
-            reader.begin(Step::query);
+            // Only futures products: the whole instrument list is mostly options,
+            // which SimNow streamed for minutes and then stopped sending.
+            reader.begin(Step::products);
+            CThostFtdcQryProductField query{};
+            query.ProductClass = THOST_FTDC_PC_Futures;
+            accepted(api->ReqQryProduct(&query, 4));
+            sent = std::chrono::steady_clock::now();
+        } else if ((reader.step == Step::products || reader.step == Step::query)
+            && next_product < reader.products.size()) {
+            // Counters accept about one query a second; a refusal for that is retried.
+            if (std::chrono::steady_clock::now() - sent < std::chrono::milliseconds(1100))
+                return {};
+            const auto& [exchange, product] = reader.products[next_product];
             CThostFtdcQryInstrumentField query{};
-            accepted(api->ReqQryInstrument(&query, 3));
+            copy(query.ExchangeID, exchange);
+            copy(query.ProductID, product);
+            const auto code = api->ReqQryInstrument(&query, 3);
+            sent = std::chrono::steady_clock::now();
+            if (code == -2 || code == -3)
+                return {};
+            accepted(code);
+            reader.begin(Step::query);
+            ++next_product;
+        } else if (reader.step == Step::products) {
+            throw Error(ErrorCode::operation_failed, "CTP catalog lists no futures products");
         } else if (reader.step == Step::query) {
             reader.step = Step::done;
             for (auto& [key, contract] : reader.contracts)
@@ -418,8 +480,8 @@ struct CatalogQuery::Impl
         // A counter builds the whole instrument list before its first response:
         // SimNow sent none for over 30 seconds during trading hours. Within the
         // query, silence between responses is bounded the same way.
-        deadline =
-            std::chrono::steady_clock::now() + (reader.step == Step::query ? 4 * timeout : timeout);
+        deadline = std::chrono::steady_clock::now()
+            + (reader.step == Step::query || reader.step == Step::products ? 4 * timeout : timeout);
         return {};
     }
 };
