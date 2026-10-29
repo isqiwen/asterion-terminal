@@ -38,7 +38,7 @@ def bundle(files, manifest=None):
 
 
 PROGRAMS = {'asterion_recorder': b'\x7fELF-recorder', 'ctp-md.so': b'\x7fELF-md',
-            'ctp-trader.so': b'\x7fELF-td', 'recording-host.py': b'print()'}
+            'ctp-trader.so': b'\x7fELF-td', 'recording-host.py': b'print()', 'recorder.json': b'{}'}
 
 
 class Hours(unittest.TestCase):
@@ -68,7 +68,7 @@ class Unit(unittest.TestCase):
                      'ImportCredential=asterion.ctp.*\n', 'StateDirectory=asterion-recorder\n',
                      'NoNewPrivileges=yes\n', 'CapabilityBoundingSet=\n'):
             self.assertIn(line, unit)
-        self.assertIn('--bind 0.0.0.0 --port 7450\n', unit)
+        self.assertIn('/asterion_recorder --config /etc/asterion-recorder/recorder.json\n', unit)
 
 
 class Bundle(unittest.TestCase):

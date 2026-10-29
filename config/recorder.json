@@ -1,0 +1,14 @@
+{
+  "directory": "/var/lib/asterion-recorder",
+  "ctp_library": "/opt/asterion-recorder/current/ctp-md.so",
+  "ctp_catalog_library": "/opt/asterion-recorder/current/ctp-trader.so",
+  "bind": "0.0.0.0",
+  "port": 7450,
+  "counter": {
+    "market_front": "",
+    "trade_front": "",
+    "broker": "",
+    "user": "",
+    "app_id": ""
+  }
+}

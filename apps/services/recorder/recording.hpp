@@ -1,5 +1,5 @@
 #pragma once
-#include "login.hpp"
+#include "settings.hpp"
 #include "recorder.hpp"
 #include <filesystem>
 #include <future>
@@ -16,9 +16,8 @@ class Recording
 public:
     struct Configuration
     {
-        std::filesystem::path directory, sdk, catalog_sdk;
+        Settings settings;
         std::string instance;
-        Login login;
     };
 
     struct Status

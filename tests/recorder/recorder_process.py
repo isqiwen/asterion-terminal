@@ -87,10 +87,14 @@ def free_port():
 
 
 def start(root, port):
-    return subprocess.Popen(
-        [recorder, "--directory", str(root / "recorder"), "--config", str(root / "recorder.json"),
-         "--ctp-library", md, "--ctp-catalog-library", trader, "--bind", "127.0.0.1", "--port", str(port)],
-        env=env, stderr=subprocess.PIPE, text=True)
+    """Everything comes from the configuration file, as on a recording host."""
+    (root / "recorder.json").write_text(json.dumps({
+        "directory": str(root / "recorder"), "ctp_library": md, "ctp_catalog_library": trader,
+        "bind": "127.0.0.1", "port": port,
+        "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
+                    "broker": "test", "user": "fixture", "app_id": "app"}}))
+    return subprocess.Popen([recorder, "--config", str(root / "recorder.json")],
+                            env=env, stderr=subprocess.PIPE, text=True)
 
 
 def wait_for(process, port, predicate, what):
@@ -114,9 +118,6 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
     (root / "credentials").mkdir(mode=0o700)
     env = dict(os.environ, CREDENTIALS_DIRECTORY=str(root / "credentials"),
                ASTERION_LOG_DIRECTORY=str(root / "logs"))
-    (root / "recorder.json").write_text(json.dumps({
-        "market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
-        "broker": "test", "user": "fixture", "app_id": "app"}))
 
     # A missing credential refuses the start and names it.
     refused = start(root, free_port())

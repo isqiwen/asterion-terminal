@@ -57,12 +57,12 @@ struct State
 
     explicit State(Recording::Configuration configuration)
         : config(std::move(configuration)),
-          feed(sdk_owner, config.sdk, config.directory / "ctp-flow"),
+          feed(sdk_owner, config.settings.ctp_library, config.settings.directory / "ctp-flow"),
           catalog(sdk_owner),
-          recorder(config.directory / "recordings", config.instance)
+          recorder(config.settings.directory / "recordings", config.instance)
     {
-        finish_compactions(config.directory / "recordings");
-        catalog.persist_to(config.directory / "ctp-catalog.pb");
+        finish_compactions(config.settings.directory / "recordings");
+        catalog.persist_to(config.settings.directory / "ctp-catalog.pb");
         feed.start();
         login();
     }
@@ -79,7 +79,7 @@ struct State
 
     void login()
     {
-        feed.connect(config.login.market, contracts);
+        feed.connect(config.settings.market, contracts);
         next_login = Clock::now() + 60s;
     }
 
@@ -103,9 +103,9 @@ struct State
         if ((catalog_wanted || (next_catalog != Clock::time_point{} && now >= next_catalog))
             && !catalog.running() && !catalog.initializing()) {
             catalog.start(
-                config.catalog_sdk,
-                config.directory / "ctp-catalog-flow",
-                config.login.catalog);
+                config.settings.ctp_catalog_library,
+                config.settings.directory / "ctp-catalog-flow",
+                config.settings.catalog);
             catalog_wanted = false;
             next_catalog = {};
         }
@@ -171,15 +171,16 @@ struct State
         if (now < next_merge || now - quiet_since < 30min)
             return;
         next_merge = now + 1min;
-        const auto days =
-            compactable_days(config.directory / "recordings", std::chrono::system_clock::now());
+        const auto days = compactable_days(
+            config.settings.directory / "recordings",
+            std::chrono::system_clock::now());
         if (days.empty())
             return;
         merging = days.front();
         merge = std::make_shared<Merge>();
-        merge_finished =
-            merger.submit([root = config.directory / "recordings", day = merging, merge = merge](
-                              std::stop_token stop) {
+        merge_finished = merger.submit(
+            [root = config.settings.directory / "recordings", day = merging, merge = merge](
+                std::stop_token stop) {
                 try {
                     merge->done = compact_day(root, day, stop);
                 } catch (const std::exception& error) {

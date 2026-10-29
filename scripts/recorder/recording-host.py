@@ -3,8 +3,9 @@
 
 Run locally on the host as root (sudo). The recorder runs as the system
 service asterion-recorder.service under its own system account
-asterion-recorder, which cannot log in; nothing else on the host manages it. Clients read it over plain TCP on port 7450; open the
-port in the firewall only to your own machines.
+asterion-recorder, which cannot log in; nothing else on the host manages it. Its settings are in /etc/asterion-recorder/recorder.json,
+copied once from the bundle. Clients read it over plain TCP (port 7450 by
+default); open the port in the firewall only to your own machines.
 
   install BUNDLE                program, account and unit
   login                         counter addresses and account; the password and
@@ -37,8 +38,8 @@ STATE = Path('/var/lib/asterion-recorder')
 ACCOUNT = 'asterion-recorder'
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
-PORT = 7450
-FILES = ('asterion_recorder', 'ctp-md.so', 'ctp-trader.so', 'recording-host.py')
+SETTINGS = CONFIG / 'recorder.json'
+FILES = ('asterion_recorder', 'ctp-md.so', 'ctp-trader.so', 'recording-host.py', 'recorder.json')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 BEIJING = timezone(timedelta(hours=8))
 
@@ -77,9 +78,8 @@ def unit_text():
             # Never give up restarting: a recorder that stays down loses the market.
             'StartLimitIntervalSec=0\n'
             f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
-            f'ExecStart={current}/asterion_recorder --directory {STATE} --config {CONFIG}/recorder.json '
-            f'--ctp-library {current}/ctp-md.so --ctp-catalog-library {current}/ctp-trader.so '
-            f'--bind 0.0.0.0 --port {PORT}\n'
+            # Everything else the recorder runs with is in its configuration file.
+            f'ExecStart={current}/asterion_recorder --config {SETTINGS}\n'
             f'Environment=ASTERION_LOG_DIRECTORY={STATE}/logs\n'
             'StateDirectory=asterion-recorder\nStateDirectoryMode=0700\n'
             # The counter password and authentication code, decrypted at start.
@@ -104,7 +104,7 @@ def read_bundle(path):
             data = archive.read(name)
             if hashlib.sha256(data).hexdigest() != manifest['files'][name]:
                 raise ValueError(f'Bundle checksum mismatch: {name}')
-            if name != 'recording-host.py' and data[:4] != b'\x7fELF':
+            if name not in ('recording-host.py', 'recorder.json') and data[:4] != b'\x7fELF':
                 raise ValueError(f'Not a Linux program: {name}')
             files[name] = data
         return manifest, files
@@ -172,12 +172,16 @@ def install(args):
     if (PROGRAMS / 'current').exists():
         raise ValueError('The recorder is installed already; use upgrade')
     switch(release)
+    # Copied once: later installs and upgrades never overwrite your edits.
+    if not SETTINGS.exists():
+        write(SETTINGS, (release / 'recorder.json').read_text(), 0o640, account().pw_gid)
     write(UNITS / UNIT, unit_text(), 0o644)
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
     print(f'Installed {release.name}. Next: sudo {sys.argv[0]} login')
-    print(f'It runs as {ACCOUNT} and listens on TCP {PORT}, unencrypted: allow the port only from your own machines, '
-          f'e.g. ufw allow from <address> to any port {PORT} proto tcp')
+    port = json.loads(SETTINGS.read_text())['port']
+    print(f'Settings: {SETTINGS}. It runs as {ACCOUNT} and listens on TCP {port}, unencrypted: allow the '
+          f'port only from your own machines, e.g. ufw allow from <address> to any port {port} proto tcp')
 
 
 def login(args):
@@ -201,7 +205,9 @@ def login(args):
         run('/usr/bin/systemd-creds', 'encrypt', f'--name={name}', '-', str(CREDENTIALS / name),
             input=value.encode(), stdout=subprocess.DEVNULL)
     # The account is not a secret, but only the recorder needs to read it.
-    write(CONFIG / 'recorder.json', json.dumps(fields, ensure_ascii=False) + '\n', 0o640, account().pw_gid)
+    settings = json.loads(SETTINGS.read_text())
+    settings['counter'] = fields
+    write(SETTINGS, json.dumps(settings, ensure_ascii=False, indent=2) + '\n', 0o640, account().pw_gid)
     run('/usr/bin/systemctl', 'restart', UNIT)
     print('The recorder restarted with this login. Check it: systemctl status asterion-recorder; '
           f'logs in {STATE}/logs')

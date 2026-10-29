@@ -41,26 +41,33 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion market recorder"};
     app.set_version_flag("--version", std::string("Asterion Recorder ") + version);
-    std::string directory, configuration, sdk, catalog_sdk;
-    service::Transport transport;
-    app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
-    app.add_option("--config", configuration, "Counter addresses and account")->required();
-    app.add_option("--ctp-library", sdk)->required()->check(CLI::ExistingFile);
-    app.add_option("--ctp-catalog-library", catalog_sdk)->required()->check(CLI::ExistingFile);
-    // A local socket, or plain TCP: requests identify themselves with the
-    // protocol's magic number.
-    app.add_option("--endpoint", transport.endpoint);
-    app.add_option("--bind", transport.bind);
-    app.add_option("--port", transport.port);
+    std::string configuration;
+    app.add_option("--config", configuration, "recorder.json: everything but the secrets")
+        ->required();
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
         initialize_process_logging("recorder", "recorder");
-        transport.plaintext = transport.remote();
+        auto settings =
+            recording::load_settings(configuration, environment_path("CREDENTIALS_DIRECTORY"));
+        const std::vector<std::pair<fs::path, bool>> paths{
+            {settings.directory, true},
+            {settings.ctp_library, false},
+            {settings.ctp_catalog_library, false}
+        };
+        for (const auto& [path, directory] : paths)
+            if (directory ? !fs::is_directory(path) : !fs::is_regular_file(path))
+                throw Error(
+                    ErrorCode::invalid_request,
+                    "recorder configuration " + configuration + " names a missing "
+                        + (directory ? "directory " : "file ") + path.string());
+        const auto root = settings.directory;
+        // Plain TCP: requests identify themselves with the protocol's magic number.
+        service::Transport transport;
+        transport.bind = settings.bind;
+        transport.port = settings.port;
+        transport.plaintext = true;
         transport.validate();
-        const fs::path root = fs::absolute(directory);
-        auto login =
-            recording::load_login(configuration, environment_path("CREDENTIALS_DIRECTORY"));
         const auto instance = unique_process_id();
         const auto started_ms = now_ms();
         service::install_stop_signals();
@@ -155,13 +162,8 @@ int main(int argc, char** argv)
             return true;
         };
         Host host(transport, serve, std::move(options), io_progress);
-        recording = std::make_unique<recording::Recording>(recording::Recording::Configuration{
-            root,
-            sdk,
-            catalog_sdk,
-            instance,
-            std::move(login)
-        });
+        recording = std::make_unique<recording::Recording>(
+            recording::Recording::Configuration{std::move(settings), instance});
         log_process_event(
             "recorder",
             LogLevel::info,
