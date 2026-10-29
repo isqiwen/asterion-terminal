@@ -371,7 +371,8 @@ struct CatalogQuery::Impl
         const auto responses = reader.instrument_responses.load();
         if (responses != observed_responses) {
             observed_responses = responses;
-            deadline = std::chrono::steady_clock::now() + timeout;
+            // SimNow paused for over 30 seconds after 3286 responses in a day session.
+            deadline = std::chrono::steady_clock::now() + 4 * timeout;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             log_process_event(
@@ -415,7 +416,8 @@ struct CatalogQuery::Impl
         } else
             throw std::logic_error("completed CTP catalog query cannot be polled");
         // A counter builds the whole instrument list before its first response:
-        // SimNow sent none for over 30 seconds during trading hours.
+        // SimNow sent none for over 30 seconds during trading hours. Within the
+        // query, silence between responses is bounded the same way.
         deadline =
             std::chrono::steady_clock::now() + (reader.step == Step::query ? 4 * timeout : timeout);
         return {};
