@@ -80,6 +80,26 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 - 写文件在单独的线程上进行，落后四个文件时行情线程才等待。服务重启后以新的实例名续写，不改动已有文件。
   停止时的 400 毫秒期限用尽，最后至多 30 秒的报价、分钟线和段的结束原因可能没有写出。
 
+### 无人值守登录（录制节点）
+
+录制节点上没有 Terminal 去登录。节点存在 `config/market-recording.json` 时，行情服务启动后自己登录：
+
+```json
+{"market_front": "tcp://…", "trade_front": "tcp://…", "broker": "…", "user": "…", "app_id": "…"}
+```
+
+- 密码和授权码不进配置文件，由 systemd 加密保存：管理员在节点上执行
+  `sudo systemd-creds encrypt --name=asterion.ctp.password - /etc/credstore.encrypted/asterion.ctp.password`
+  （授权码同理，名称为 `asterion.ctp.auth_code`；`app_id` 为空时不需要），输入密码后按 Ctrl+D。
+  加密绑定本机，别处无法解密。远程节点的 Agent 系统服务带有 `ImportCredential=asterion.ctp.*`，
+  systemd 在服务启动时把它们解密到只有 `asterion` 用户可读的 `$CREDENTIALS_DIRECTORY`，行情服务从那里读取，
+  只留在内存。
+- 有配置文件却缺少凭据、或配置不完整时，行情服务启动失败，错误写明缺的文件或配置路径。没有配置文件的节点
+  （本机、开发环境）照旧由 Terminal 登录。
+- 每次登录成功（包括柜台夜间断开后的重连）都重新读取合约目录，新上市的合约随之录制；读取期间沿用已有订阅。
+  合约目录按期货品种逐个查询，不读期权。
+- 行情登录被拒时每分钟重试一次。这只是行情登录，不涉及任何交易命令。
+
 ### 分时横轴
 
 分时图按 `config/futures-sessions.json` 的交易时段排布横轴，左轴价格、右轴相对昨结算百分比。未列入该配置的品种只按已观测分钟排列。

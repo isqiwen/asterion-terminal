@@ -123,6 +123,9 @@ def service_text(identity, port, bind):
             f'--tls-ca {root}/ca.crt --tls-cert {root}/server.crt --tls-key {root}/server.key\n'
             'NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n'
             f'ReadWritePaths={HOME}\nCapabilityBoundingSet=\nRestrictSUIDSGID=yes\n'
+            # A recording node's CTP password and authentication code, when the
+            # administrator encrypted them into /etc/credstore.encrypted.
+            'ImportCredential=asterion.ctp.*\n'
             'Restart=on-failure\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n')
 
 

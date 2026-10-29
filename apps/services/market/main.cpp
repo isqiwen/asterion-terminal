@@ -15,7 +15,7 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion read-only live market-data host"};
     app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-    std::string service, health_endpoint, directory, sdk, catalog_sdk, node_id;
+    std::string service, health_endpoint, directory, sdk, catalog_sdk, node_id, recording;
     std::uint64_t owner_pid = 0;
     service::Transport transport;
     app.add_option("--session", service)->required();
@@ -30,6 +30,7 @@ int main(int argc, char** argv)
     app.add_option("--tls-key", transport.tls.private_key_file);
     app.add_option("--ctp-library", sdk);
     app.add_option("--ctp-catalog-library", catalog_sdk);
+    app.add_option("--recording-config", recording, "A recording node's unattended login");
     app.add_option("--owner-pid", owner_pid);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
@@ -155,7 +156,8 @@ int main(int argc, char** argv)
             directory,
             sdk,
             catalog_sdk,
-            node_id
+            node_id,
+            recording
         });
         try {
             if (!host.run())

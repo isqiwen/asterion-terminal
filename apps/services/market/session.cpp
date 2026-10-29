@@ -2,6 +2,8 @@
 #include "catalog_job.hpp"
 #include "ctp_feed.hpp"
 #include "recorder.hpp"
+#include "unattended.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/domain/intraday_bars.hpp>
 #include <asterion/foundation/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
@@ -44,6 +46,13 @@ struct State
     std::string stream;
     std::uint64_t event_cursor = 0;
     Recorder recorder;
+    // Unattended login: the catalog is read again after every login, so the
+    // contracts listed on a new trading day are recorded; a refused market
+    // login is tried again a minute later. Neither is a trading command.
+    std::optional<Unattended> unattended;
+    bool catalog_wanted = false;
+    MarketPhase seen_phase = MarketPhase::disconnected;
+    std::chrono::steady_clock::time_point next_login{};
 
     State(const Session::Configuration& config)
         : service(config.service),
@@ -56,6 +65,52 @@ struct State
           recorder(config.directory / "recordings", config.instance)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
+        unattended = load_unattended(
+            config.recording_configuration,
+            environment_path("CREDENTIALS_DIRECTORY"));
+        if (unattended) {
+            if (sdk.empty() || catalog_sdk.empty())
+                throw Error(ErrorCode::unavailable, "unattended login needs both CTP libraries");
+            log_process_event(
+                "market-data",
+                LogLevel::info,
+                "unattended.configured",
+                {{"file", config.recording_configuration.string()}});
+            login();
+        }
+    }
+
+    void login()
+    {
+        if (!feed) {
+            feed = std::make_unique<ctp::Feed>(sdk_owner, sdk, directory / "ctp-flow");
+            feed->start();
+        }
+        feed->connect(unattended->market, watchlist);
+        catalog_wanted = true;
+        next_login = std::chrono::steady_clock::now() + 60s;
+    }
+
+    void keep_logged_in()
+    {
+        if (!unattended || !feed)
+            return;
+        const auto phase = feed->phase();
+        if (phase == MarketPhase::connected && seen_phase != MarketPhase::connected)
+            catalog_wanted = true;
+        if (phase == MarketPhase::error && std::chrono::steady_clock::now() >= next_login) {
+            log_process_event(
+                "market-data",
+                LogLevel::warning,
+                "unattended.login_retried",
+                {{"error_code", feed->snapshot().error_code}});
+            login();
+        }
+        seen_phase = phase;
+        if (catalog_wanted && !catalog.running() && !catalog.initializing()) {
+            catalog.start(catalog_sdk, directory / "ctp-catalog-flow", unattended->catalog);
+            catalog_wanted = false;
+        }
     }
 
     ~State()
@@ -83,6 +138,7 @@ struct State
         if (feed)
             feed->poll();
         catalog.poll();
+        keep_logged_in();
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
         if (feed && feed->phase() == MarketPhase::connected && catalog_state.phase() == "ready"
             && applied_catalog != catalog_revision) {
