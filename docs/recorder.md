@@ -30,7 +30,7 @@
 
 录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序。程序包 `asterion-recorder-linux-x86_64.zip` 与远程服务包在同一个
 Ubuntu 24.04 容器中构建（`scripts/services/build_linux_services.sh`，输出到 `build/linux-bundles/`），含录制程序、两个 CTP 库、
-默认配置、`recording-host.py` 与 `configure.sh`，每个文件带 SHA-256。CI 的 `remote-linux` 作业把它作为单独的产物
+默认配置、`recording-host.py` 与 `configure.sh`（仓库中在 `apps/services/recorder/scripts/`），每个文件带 SHA-256。CI 的 `remote-linux` 作业把它作为单独的产物
 `recorder-linux-x86_64` 上传，与 Terminal 部署的服务包分开。把包复制到主机后，以 root 运行包里的脚本：
 
 ```sh
@@ -49,10 +49,14 @@ sudo /opt/asterion-recorder/bin/configure.sh
   文件里的当前值为默认值，直接回车即保留（第一次是仓库默认配置：SimNow 常规环境的前置、经纪公司 `9999`、AppID
   `simnow_client_test`，投资者代码为空必须填写；AppID 输入 `-` 表示没有）；格式不对会重问。然后询问密码和授权码（不回显、
   没有默认值，没有 AppID 时不问授权码）。前七项写入 `config/recorder.json`（只有录制账户可读），密码和授权码由
-  `systemd-creds` 加密到 `/etc/credstore.encrypted/`，不以明文写入任何文件；最后重启录制程序。
+  `systemd-creds` 加密到 `/etc/credstore.encrypted/`，不以明文写入任何文件；最后重启录制程序（见下一条）。
 - `upgrade <包>`：先确认新程序能在本机运行，再逐个替换 `bin/` 与 `lib/` 中的程序（每个文件一次改名）并重启；配置、日志和数据不动。
-- 会重启运行中录制程序的操作（`upgrade`、`configure.sh`）在交易时段一律拒绝（`configure.sh` 在提问之前就检查）：北京时间工作日 08:45–15:30 与
-  20:45–次日 02:45（脚本不知道节假日，节假日也按交易日对待）。
+- 交易时段：北京时间工作日 08:45–15:30 与 20:45–次日 02:45（脚本不知道节假日，节假日也按交易日对待）。录制程序正在运行时，
+  这段时间内不重启它；还没运行（第一次启动）则不受限制。
+  - `configure.sh` 照常提问并立即保存——录制程序只在启动时读取配置和凭据，保存不影响正在进行的录制——并告知在北京时间
+    几点自动重启生效：日盘中为当天 15:30，夜盘中为次日（或当天凌晨）02:45。这次重启由 systemd 定时器
+    `asterion-recorder-restart.timer` 执行，再次运行 `configure.sh` 会替换它，`systemctl stop asterion-recorder-restart.timer` 取消。
+  - `upgrade` 直接拒绝，并告知最早可以升级的时间。
 
 ## 配置文件
 

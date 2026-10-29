@@ -2,7 +2,7 @@
 refusal to restart a running recorder during trading. No root, no systemd:
 what changes the host is patched out.
 
-    recording_host.py <scripts/recorder/recording-host.py>
+    recording_host.py <apps/services/recorder/scripts/recording-host.py>
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -53,6 +53,18 @@ class Hours(unittest.TestCase):
         for moment in (at(26, 8, 44), at(26, 15, 30), at(26, 20, 44), at(27, 2, 45), at(26, 3, 0),
                        at(31, 9, 0), at(31, 22, 0), at(26, 1, 0)):  # Monday 01:00 follows a weekend
             self.assertFalse(host.trading(moment), moment)
+
+    def test_a_restart_waits_for_the_end_of_the_trading_window(self):
+        for moment, ends in ((at(26, 10, 0), at(26, 15, 30)), (at(26, 21, 0), at(27, 2, 45)),
+                             (at(27, 1, 0), at(27, 2, 45)), (at(30, 22, 0), at(31, 2, 45))):
+            self.assertEqual(host.trading_ends(moment), ends, moment)
+        self.assertIsNone(host.trading_ends(at(26, 17, 0)))
+        with patch.object(host, 'active', return_value=True):
+            self.assertEqual(host.restart_time(at(26, 10, 0)), at(26, 15, 30))
+            self.assertIsNone(host.restart_time(at(26, 17, 0)))
+        # The first start needs no wait: nothing is recording yet.
+        with patch.object(host, 'active', return_value=False):
+            self.assertIsNone(host.restart_time(at(26, 10, 0)))
 
     def test_a_running_recorder_is_not_restarted_during_trading(self):
         with patch.object(host, 'active', return_value=True):

@@ -17,7 +17,8 @@ port in the firewall only to your own machines.
 
   install BUNDLE                program, account and unit
   upgrade BUNDLE                a new program, outside trading hours only
-  trading-hours                 fails during trading hours if the recorder runs
+  restart-time                  when a running recorder may restart: now, or
+                                the end of the trading window (Beijing time)
 
 The settings, the account and its password are entered with bin/configure.sh.
 
@@ -54,23 +55,41 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, timeout=120, env=ENV, **kwargs)
 
 
-def trading(now):
-    """Whether `now` falls in or near a session. Holidays are not known here,
-    so every weekday counts; a night session runs past midnight into the next
-    calendar day."""
+def trading_ends(now):
+    """When the trading window around `now` ends (Beijing time), or None
+    outside one. Holidays are not known here, so every weekday counts; a night
+    session runs past midnight into the next calendar day."""
     local = now.astimezone(BEIJING)
     minute = local.hour * 60 + local.minute
     weekday = local.weekday()  # Monday is 0
-    day = weekday < 5 and (8 * 60 + 45 <= minute < 15 * 60 + 30 or minute >= 20 * 60 + 45)
-    night = 1 <= weekday <= 5 and minute < 2 * 60 + 45
-    return day or night
+    at = lambda days, hour, minutes: (local + timedelta(days=days)).replace(
+        hour=hour, minute=minutes, second=0, microsecond=0)
+    if weekday < 5 and 8 * 60 + 45 <= minute < 15 * 60 + 30:
+        return at(0, 15, 30)
+    if weekday < 5 and minute >= 20 * 60 + 45:
+        return at(1, 2, 45)
+    if 1 <= weekday <= 5 and minute < 2 * 60 + 45:
+        return at(0, 2, 45)
+    return None
+
+
+def trading(now):
+    return trading_ends(now) is not None
+
+
+def restart_time(now=None):
+    """When the recorder may restart: None for now (it is not running, or it
+    is outside trading hours), else the end of the trading window."""
+    now = now or datetime.now(timezone.utc)
+    ends = trading_ends(now)
+    return ends if ends and active() else None
 
 
 def outside_trading(action, now=None):
-    now = now or datetime.now(timezone.utc)
-    if trading(now) and active():
+    ends = restart_time(now)
+    if ends:
         raise ValueError(f'{action} would restart the recorder during trading hours (Beijing '
-                         'weekdays 08:45-15:30 and 20:45-02:45); run it outside them')
+                         f'weekdays 08:45-15:30 and 20:45-02:45); run it after {ends:%Y-%m-%d %H:%M} Beijing time')
 
 
 def active():
@@ -178,10 +197,11 @@ def install(args):
           f'port only from your own machines, e.g. ufw allow from <address> to any port {port} proto tcp')
 
 
-def trading_hours(args):
-    """For configure.sh: refuses, before any question, what would restart a
-    running recorder during trading hours."""
-    outside_trading('Configuring')
+def print_restart_time(args):
+    """For configure.sh: "now", or the Beijing time to restart the running
+    recorder at, once the trading window ends."""
+    ends = restart_time()
+    print(f'{ends:%Y-%m-%d %H:%M}' if ends else 'now')
 
 
 def upgrade(args):
@@ -198,7 +218,7 @@ def main(arguments):
     command = commands.add_parser('install')
     command.add_argument('bundle')
     command.set_defaults(action=install)
-    commands.add_parser('trading-hours').set_defaults(action=trading_hours)
+    commands.add_parser('restart-time').set_defaults(action=print_restart_time)
     command = commands.add_parser('upgrade')
     command.add_argument('bundle')
     command.set_defaults(action=upgrade)

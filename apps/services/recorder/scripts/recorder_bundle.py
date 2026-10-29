@@ -1,6 +1,6 @@
 """Package asterion_recorder and the CTP libraries for a recording host.
 
-    python3 scripts/recorder/recorder_bundle.py <build directory>
+    python3 apps/services/recorder/scripts/recorder_bundle.py <build directory>
 
 Build it where the services are built for Linux hosts (the Ubuntu 24.04
 container of scripts/services/build_linux_services.sh), so the program needs
@@ -13,14 +13,14 @@ import subprocess
 import sys
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 build = Path(sys.argv[1]).resolve()
 subprocess.run(["cmake", "--build", str(build), "--target", "asterion_recorder"], check=True)
 # Laid out like the installation on the host.
 files = {
     "bin/asterion_recorder": build / "asterion_recorder",
-    "bin/recording-host.py": ROOT / "scripts/recorder/recording-host.py",
-    "bin/configure.sh": ROOT / "scripts/recorder/configure.sh",
+    "bin/recording-host.py": ROOT / "apps/services/recorder/scripts/recording-host.py",
+    "bin/configure.sh": ROOT / "apps/services/recorder/scripts/configure.sh",
     "lib/ctp-md.so": build / "ctp-md.so",
     "lib/ctp-trader.so": build / "ctp-trader.so",
     "config/recorder.json": ROOT / "config/recorder.json",

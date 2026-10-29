@@ -8,12 +8,15 @@
 #
 # Each question offers the current value as its default; press Enter to keep
 # it. The password and the authentication code have no default. Then the
-# recorder restarts, which is refused during trading hours.
+# recorder restarts to use them: at once, or, while it records during trading
+# hours, when the trading window ends (the recorder reads its settings only
+# when it starts, so saving them does not disturb it).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 CONFIG="$ROOT/config/recorder.json"
 UNIT=asterion-recorder.service
+RESTART=asterion-recorder-restart
 ACCOUNT=asterion-recorder
 CREDENTIALS=/etc/credstore.encrypted
 
@@ -24,7 +27,10 @@ fail() {
 
 [[ $EUID -eq 0 ]] || fail "请用 sudo 运行"
 [[ -f $CONFIG ]] || fail "找不到配置文件 $CONFIG；先运行 recording-host.py install"
-python3 -I "$ROOT/bin/recording-host.py" trading-hours || exit 1
+restart_at=$(python3 -I "$ROOT/bin/recording-host.py" restart-time)
+if [[ $restart_at != now ]]; then
+    echo "录制程序正在交易时段运行，不能现在重启。配置会立即保存，在北京时间 $restart_at 自动重启后生效。"
+fi
 
 # The current value of a key ("port", "counter.broker") in the configuration.
 current() {
@@ -97,5 +103,13 @@ if [[ -n $auth_code ]]; then
 fi
 unset password auth_code
 
-systemctl restart "$UNIT"
-echo "已保存 $CONFIG 并重启录制程序。查看状态：systemctl status $UNIT；日志在 $ROOT/logs"
+# A restart scheduled by an earlier run is replaced.
+systemctl stop "$RESTART.timer" 2>/dev/null || true
+if [[ $restart_at == now ]]; then
+    systemctl restart "$UNIT"
+    echo "已保存 $CONFIG 并重启录制程序。查看状态：systemctl status $UNIT；日志在 $ROOT/logs"
+else
+    systemd-run --quiet --unit="$RESTART" --on-calendar="$restart_at:00 Asia/Shanghai" \
+        systemctl restart "$UNIT"
+    echo "已保存 $CONFIG。录制程序将在北京时间 $restart_at 自动重启；取消：systemctl stop $RESTART.timer"
+fi

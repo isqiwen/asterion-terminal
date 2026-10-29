@@ -115,7 +115,7 @@ jobs:
           if-no-files-found: error
           path: build/Release/deployment/*.zip
       # The recording host's own archive, apart from the services Terminal deploys.
-      - run: python scripts/recorder/recorder_bundle.py build/Release
+      - run: python apps/services/recorder/scripts/recorder_bundle.py build/Release
       - name: Verify the recorder
         run: |
           ./build/Release/asterion_recorder --version
