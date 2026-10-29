@@ -60,6 +60,9 @@ message Status {
   string write_error = 16;
   int64 written_ms = 17;
   uint64 disk_free_bytes = 18;
+  // The trading day being merged after the close, and the last merge failure.
+  string merging = 19;
+  string merge_error = 20;
 }
 
 message Days {
@@ -72,6 +75,8 @@ message Day {
   uint64 bytes = 4;
   // In order of their first quote. The time between two is a gap.
   repeated Segment segments = 5;
+  // Its tick and minute files are merged into one file per exchange.
+  bool merged = 6;
 }
 message Segment {
   string instance = 1;

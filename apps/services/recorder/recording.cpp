@@ -1,5 +1,6 @@
 #include "recording.hpp"
 #include "catalog_job.hpp"
+#include "compaction.hpp"
 #include "ctp_feed.hpp"
 #include <asterion/domain/intraday_bars.hpp>
 #include <asterion/kernel/logger.hpp>
@@ -40,12 +41,27 @@ struct State
     Clock::time_point next_login{}, next_catalog{};
     std::int64_t last_quote_ms = 0;
 
+    // Merging waits for half an hour without quotes and runs on its own thread
+    // with its own database: the recording loop never waits for it.
+    struct Merge
+    {
+        std::optional<Compacted> done;
+        std::string error;
+    };
+
+    Clock::time_point quiet_since = Clock::now(), next_merge{};
+    std::string merging, merge_error;
+    std::shared_ptr<Merge> merge;
+    std::future<void> merge_finished;
+    ThreadPool merger{1, 1};
+
     explicit State(Recording::Configuration configuration)
         : config(std::move(configuration)),
           feed(sdk_owner, config.sdk, config.directory / "ctp-flow"),
           catalog(sdk_owner),
           recorder(config.directory / "recordings", config.instance)
     {
+        finish_compactions(config.directory / "recordings");
         catalog.persist_to(config.directory / "ctp-catalog.pb");
         feed.start();
         login();
@@ -110,6 +126,7 @@ struct State
                 }
             } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
                 last_quote_ms = quote->quote.received_ms;
+                quiet_since = now;
                 recorder.observe(quote->quote, quote->out_of_order, minutes);
                 if (!quote->out_of_order)
                     minutes.observe(quote->quote);
@@ -119,6 +136,56 @@ struct State
         if (batch.failed)
             cursor = batch.latest_sequence;
         recorder.poll(now_ms(), minutes);
+        advance_merge(now);
+    }
+
+    void advance_merge(Clock::time_point now)
+    {
+        if (merge_finished.valid()) {
+            if (merge_finished.wait_for(0s) != std::future_status::ready)
+                return;
+            merge_finished.get();
+            if (merge->done) {
+                merge_error.clear();
+                log_process_event(
+                    "recorder",
+                    LogLevel::info,
+                    "merge.done",
+                    {{"trading_day", merging},
+                        {"ticks", merge->done->ticks},
+                        {"minutes", merge->done->minutes},
+                        {"files_before", merge->done->files_before},
+                        {"files_after", merge->done->files_after}});
+            } else {
+                merge_error = merge->error;
+                next_merge = now + 1h;
+                log_process_event(
+                    "recorder",
+                    LogLevel::error,
+                    "merge.failed",
+                    {{"trading_day", merging}, {"message", merge->error}});
+            }
+            merging.clear();
+            return;
+        }
+        if (now < next_merge || now - quiet_since < 30min)
+            return;
+        next_merge = now + 1min;
+        const auto days =
+            compactable_days(config.directory / "recordings", std::chrono::system_clock::now());
+        if (days.empty())
+            return;
+        merging = days.front();
+        merge = std::make_shared<Merge>();
+        merge_finished =
+            merger.submit([root = config.directory / "recordings", day = merging, merge = merge](
+                              std::stop_token stop) {
+                try {
+                    merge->done = compact_day(root, day, stop);
+                } catch (const std::exception& error) {
+                    merge->error = error.what();
+                }
+            });
     }
 
     void apply_catalog(Clock::time_point now)
@@ -170,6 +237,8 @@ struct State
         out.subscribed = contracts.size();
         out.last_quote_ms = last_quote_ms;
         out.written = recorder.status();
+        out.merging = merging;
+        out.merge_error = merge_error;
         return out;
     }
 };

@@ -106,7 +106,7 @@ add_test(NAME remote_market COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE
 set_tests_properties(remote_market PROPERTIES TIMEOUT 30)
 asterion_unit_tests(asterion_ctp_tests market/ctp_test.cpp asterion_ctp)
 asterion_unit_tests(asterion_recorder_tests recorder/recorder_test.cpp asterion_bar_parquet)
-target_sources(asterion_recorder_tests PRIVATE recorder/login_test.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/recorder.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/login.cpp)
+target_sources(asterion_recorder_tests PRIVATE recorder/login_test.cpp recorder/compaction_test.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/recorder.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/login.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/compaction.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/database.cpp)
 target_include_directories(asterion_recorder_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/recorder)
 target_link_libraries(asterion_recorder_tests PRIVATE asterion_ctp duckdb::duckdb)
 add_test(NAME recorder_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/recorder_process.py $<TARGET_FILE:asterion_recorder> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> ${CMAKE_BINARY_DIR}/generated-python)

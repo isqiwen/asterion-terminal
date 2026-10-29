@@ -14,7 +14,7 @@ class Reader
 public:
     explicit Reader(std::filesystem::path recordings);
     recorder::proto::Days days();
-    recorder::proto::Minutes minutes(const recorder::proto::MinutesQuery& query);
+    recorder::proto::Minutes minutes(const recorder::proto::MinutesQuery& request);
 
 private:
     const std::filesystem::path root_;

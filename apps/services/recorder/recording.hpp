@@ -29,6 +29,8 @@ public:
         std::size_t subscribed = 0;
         std::int64_t last_quote_ms = 0;
         Recorder::Status written;
+        // The trading day being merged after the close, and the last failure.
+        std::string merging, merge_error;
     };
 
     explicit Recording(Configuration config);

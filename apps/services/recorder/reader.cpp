@@ -1,9 +1,11 @@
 #include "reader.hpp"
+#include "database.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/domain/market.hpp>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/foundation/error.hpp>
 #include <map>
+#include <set>
 #include <regex>
 
 namespace asterion::recording {
@@ -12,32 +14,7 @@ namespace {
 namespace fs = std::filesystem;
 namespace wire = recorder::proto;
 
-std::unique_ptr<duckdb::DuckDB> open()
-{
-    duckdb::DBConfig config;
-    config.SetOptionByName("autoinstall_known_extensions", duckdb::Value::BOOLEAN(false));
-    config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
-    config.SetOptionByName("allow_community_extensions", duckdb::Value::BOOLEAN(false));
-    config.SetOptionByName("threads", duckdb::Value::BIGINT(1));
-    config.SetOptionByName("memory_limit", duckdb::Value("256 MiB"));
-    config.SetOptionByName("temp_directory", duckdb::Value(""));
-    return std::make_unique<duckdb::DuckDB>(nullptr, &config);
-}
-
-std::unique_ptr<duckdb::MaterializedQueryResult> run(
-    duckdb::Connection& connection,
-    const std::string& sql,
-    duckdb::vector<duckdb::Value> values = {})
-{
-    auto statement = connection.Prepare(sql);
-    if (statement->HasError())
-        throw Error(ErrorCode::operation_failed, "recording query failed");
-    auto result = statement->Execute(values, false);
-    if (result->HasError())
-        throw Error(ErrorCode::operation_failed, "recording query failed");
-    return duckdb::unique_ptr_cast<duckdb::QueryResult, duckdb::MaterializedQueryResult>(
-        std::move(result));
-}
+const std::set<std::string> exchanges{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
 
 std::string text(const duckdb::Value& value)
 {
@@ -56,12 +33,13 @@ std::string day_of(const fs::path& partition)
 
 Reader::Reader(fs::path recordings)
     : root_(std::move(recordings)),
-      database_(open())
+      database_(open_database("256 MiB"))
 {}
 
 wire::Days Reader::days()
 {
     std::map<std::string, wire::Day> days;
+    std::set<std::string> unmerged;
     for (const auto* table : {"ticks", "minutes"}) {
         const auto folder = root_ / table;
         if (!fs::is_directory(folder))
@@ -75,6 +53,8 @@ wire::Days Reader::days()
             for (const auto& file : fs::directory_iterator(partition.path())) {
                 if (file.path().extension() != ".parquet" || !file.is_regular_file())
                     continue;
+                if (!exchanges.contains(file.path().stem().string()))
+                    unmerged.insert(day);
                 if (std::string_view(table) == "ticks")
                     entry.set_tick_files(entry.tick_files() + 1);
                 else
@@ -85,7 +65,7 @@ wire::Days Reader::days()
     }
     if (fs::is_directory(root_ / "segments")) {
         duckdb::Connection connection(*database_);
-        const auto result = run(
+        const auto result = query(
             connection,
             "SELECT trading_day::VARCHAR, instance, segment, first_received_ms," " last_received_ms, ticks, \"end\" FROM read_parquet("
                 + parquet::literal(root_ / "segments" / "*" / "*.parquet")
@@ -105,27 +85,29 @@ wire::Days Reader::days()
         }
     }
     wire::Days out;
-    for (auto& [_, day] : days)
+    for (auto& [name, day] : days) {
+        day.set_merged(!unmerged.contains(name) && (day.tick_files() || day.minute_files()));
         *out.add_days() = std::move(day);
+    }
     return out;
 }
 
-wire::Minutes Reader::minutes(const wire::MinutesQuery& query)
+wire::Minutes Reader::minutes(const wire::MinutesQuery& request)
 {
     static const std::regex day("[0-9]{8}");
-    if (!std::regex_match(query.trading_day(), day))
+    if (!std::regex_match(request.trading_day(), day))
         throw Error(ErrorCode::invalid_request, "trading day must be YYYYMMDD");
-    const InstrumentId id{query.venue(), query.symbol()};
+    const InstrumentId id{request.venue(), request.symbol()};
     id.validate();
     wire::Minutes out;
-    out.set_trading_day(query.trading_day());
+    out.set_trading_day(request.trading_day());
     out.set_venue(id.venue);
     out.set_symbol(id.symbol);
-    const auto folder = root_ / "minutes" / ("trading_day=" + query.trading_day());
+    const auto folder = root_ / "minutes" / ("trading_day=" + request.trading_day());
     if (!fs::is_directory(folder))
         return out;
     duckdb::Connection connection(*database_);
-    const auto result = run(
+    const auto result = query(
         connection,
         "SELECT start_ms, open::VARCHAR, high::VARCHAR, low::VARCHAR, close::VARCHAR, volume," " average_price::VARCHAR, open_interest::VARCHAR, partial FROM read_parquet("
             + parquet::literal(folder / "*.parquet")

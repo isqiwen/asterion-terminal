@@ -99,6 +99,8 @@ int main(int argc, char** argv)
                     status->set_write_error(state.written.error);
                     status->set_written_ms(state.written.written_ms);
                     status->set_disk_free_bytes(fs::space(root).available);
+                    status->set_merging(state.merging);
+                    status->set_merge_error(state.merge_error);
                 } else if (request.has_days() || request.has_minutes()) {
                     auto promise = std::make_shared<std::promise<wire::Response>>();
                     auto result = promise->get_future();
