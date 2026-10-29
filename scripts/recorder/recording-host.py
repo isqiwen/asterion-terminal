@@ -1,11 +1,19 @@
 #!/usr/bin/python3 -I
 """Install, configure and upgrade asterion_recorder on a recording host.
 
-Run locally on the host as root (sudo). The recorder runs as the system
-service asterion-recorder.service under its own system account
-asterion-recorder, which cannot log in; nothing else on the host manages it. Its settings are in /etc/asterion-recorder/recorder.json,
-copied once from the bundle. Clients read it over plain TCP (port 7450 by
-default); open the port in the firewall only to your own machines.
+Run locally on the host as root (sudo). The recorder is installed in
+/opt/asterion-recorder, laid out like the bundle:
+
+  bin/     asterion_recorder, recording-host.py
+  lib/     ctp-md.so, ctp-trader.so
+  config/  recorder.json (copied once from the bundle, never overwritten)
+  logs/
+  data/    recordings
+
+It runs as the system service asterion-recorder.service under its own
+account asterion-recorder, which cannot log in; nothing else on the host
+manages it. Clients read it over plain TCP (port 7450 by default); open the
+port in the firewall only to your own machines.
 
   install BUNDLE                program, account and unit
   login                         counter addresses and account; the password and
@@ -25,21 +33,20 @@ import os
 from pathlib import Path
 import pwd
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
 
 UNIT = 'asterion-recorder.service'
-PROGRAMS = Path('/opt/asterion-recorder')
-CONFIG = Path('/etc/asterion-recorder')
-STATE = Path('/var/lib/asterion-recorder')
+# The installation: bin/ lib/ config/ logs/ data/. The bundle has the same layout.
+ROOT = Path('/opt/asterion-recorder')
 ACCOUNT = 'asterion-recorder'
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
-SETTINGS = CONFIG / 'recorder.json'
-FILES = ('asterion_recorder', 'ctp-md.so', 'ctp-trader.so', 'recording-host.py', 'recorder.json')
+SETTINGS = ROOT / 'config/recorder.json'
+PROGRAMS = ('bin/asterion_recorder', 'bin/recording-host.py', 'lib/ctp-md.so', 'lib/ctp-trader.so')
+FILES = (*PROGRAMS, 'config/recorder.json')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 BEIJING = timezone(timedelta(hours=8))
 
@@ -72,16 +79,14 @@ def active():
 
 
 def unit_text():
-    current = PROGRAMS / 'current'
     return ('[Unit]\nDescription=Asterion market recorder\n'
             'Wants=network-online.target\nAfter=network-online.target\n'
             # Never give up restarting: a recorder that stays down loses the market.
             'StartLimitIntervalSec=0\n'
             f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
-            # Everything else the recorder runs with is in its configuration file.
-            f'ExecStart={current}/asterion_recorder --config {SETTINGS}\n'
-            f'Environment=ASTERION_LOG_DIRECTORY={STATE}/logs\n'
-            'StateDirectory=asterion-recorder\nStateDirectoryMode=0700\n'
+            # It finds config/, lib/, logs/ and data/ beside its bin/.
+            f'ExecStart={ROOT}/bin/asterion_recorder\n'
+            f'ReadWritePaths={ROOT}/logs {ROOT}/data\n'
             # The counter password and authentication code, decrypted at start.
             'ImportCredential=asterion.ctp.*\n'
             'Restart=always\nRestartSec=5\nTimeoutStopSec=60\n'
@@ -104,49 +109,35 @@ def read_bundle(path):
             data = archive.read(name)
             if hashlib.sha256(data).hexdigest() != manifest['files'][name]:
                 raise ValueError(f'Bundle checksum mismatch: {name}')
-            if name not in ('recording-host.py', 'recorder.json') and data[:4] != b'\x7fELF':
+            if name.endswith(('_recorder', '.so')) and data[:4] != b'\x7fELF':
                 raise ValueError(f'Not a Linux program: {name}')
             files[name] = data
         return manifest, files
 
 
-def install_release(bundle):
-    """Unpacks a bundle into its own release directory; returns it."""
+def place(bundle):
+    """Checks the bundle, makes sure its recorder runs here, then replaces the
+    programs in bin/ and lib/ one rename each. A running recorder keeps the
+    files it started with until it restarts. Returns the bundle's files."""
     manifest, files = read_bundle(bundle)
-    identity = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()[:12]
-    release = PROGRAMS / 'releases' / f"{manifest['product_version']}-{identity}"
-    if not release.exists():
-        staging = Path(tempfile.mkdtemp(prefix='.staging-', dir=PROGRAMS / 'releases'))
-        for name, data in files.items():
-            (staging / name).write_bytes(data)
-            (staging / name).chmod(0o755)
+    with tempfile.TemporaryDirectory(dir=ROOT) as folder:
+        staging = Path(folder)
+        for name in PROGRAMS:
+            (staging / Path(name).name).write_bytes(files[name])
+            (staging / Path(name).name).chmod(0o755)
         version = run(str(staging / 'asterion_recorder'), '--version', capture_output=True, text=True).stdout
         if 'Asterion Recorder' not in version:
             raise ValueError('The bundled recorder does not run on this host')
-        staging.chmod(0o755)
-        staging.rename(release)
-    return release
-
-
-def switch(release):
-    """Points `current` at the release in one rename and keeps one older release."""
-    link = PROGRAMS / 'current'
-    previous = link.resolve() if link.is_symlink() else None
-    temporary = PROGRAMS / '.current'
-    if temporary.is_symlink():
-        temporary.unlink()
-    temporary.symlink_to(release)
-    temporary.rename(link)
-    for old in (PROGRAMS / 'releases').iterdir():
-        if old not in (release, previous) and not old.name.startswith('.'):
-            shutil.rmtree(old)
+        for name in PROGRAMS:
+            os.replace(staging / Path(name).name, ROOT / name)
+    return manifest, files
 
 
 def account():
     try:
         return pwd.getpwnam(ACCOUNT)
     except KeyError:
-        run('/usr/sbin/useradd', '--system', '--no-create-home', '--home-dir', str(STATE),
+        run('/usr/sbin/useradd', '--system', '--no-create-home', '--home-dir', str(ROOT / 'data'),
             '--shell', '/usr/sbin/nologin', '--user-group', ACCOUNT)
         return pwd.getpwnam(ACCOUNT)
 
@@ -165,20 +156,22 @@ def install(args):
     for tool in ('/usr/bin/systemd-creds', '/usr/sbin/useradd'):
         if not os.access(tool, os.X_OK):
             raise ValueError(f'Install the prerequisite first: {tool}')
-    account()
-    (PROGRAMS / 'releases').mkdir(parents=True, exist_ok=True)
-    CONFIG.mkdir(mode=0o755, exist_ok=True)
-    release = install_release(args.bundle)
-    if (PROGRAMS / 'current').exists():
+    if (ROOT / 'bin/asterion_recorder').exists():
         raise ValueError('The recorder is installed already; use upgrade')
-    switch(release)
+    user = account()
+    for folder, owner, mode in (('bin', 0, 0o755), ('lib', 0, 0o755), ('config', 0, 0o750),
+                                ('logs', user.pw_uid, 0o700), ('data', user.pw_uid, 0o700)):
+        (ROOT / folder).mkdir(parents=True, exist_ok=True)
+        os.chown(ROOT / folder, owner, user.pw_gid)
+        (ROOT / folder).chmod(mode)
+    manifest, files = place(args.bundle)
     # Copied once: later installs and upgrades never overwrite your edits.
     if not SETTINGS.exists():
-        write(SETTINGS, (release / 'recorder.json').read_text(), 0o640, account().pw_gid)
+        write(SETTINGS, files['config/recorder.json'].decode(), 0o640, user.pw_gid)
     write(UNITS / UNIT, unit_text(), 0o644)
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
-    print(f'Installed {release.name}. Next: sudo {sys.argv[0]} login')
+    print(f"Installed {manifest['product_version']} in {ROOT}. Next: sudo {ROOT}/bin/recording-host.py login")
     port = json.loads(SETTINGS.read_text())['port']
     print(f'Settings: {SETTINGS}. It runs as {ACCOUNT} and listens on TCP {port}, unencrypted: allow the '
           f'port only from your own machines, e.g. ufw allow from <address> to any port {port} proto tcp')
@@ -210,16 +203,15 @@ def login(args):
     write(SETTINGS, json.dumps(settings, ensure_ascii=False, indent=2) + '\n', 0o640, account().pw_gid)
     run('/usr/bin/systemctl', 'restart', UNIT)
     print('The recorder restarted with this login. Check it: systemctl status asterion-recorder; '
-          f'logs in {STATE}/logs')
+          f'logs in {ROOT}/logs')
 
 
 def upgrade(args):
-    release = install_release(args.bundle)
     outside_trading('An upgrade')
-    switch(release)
+    manifest, _ = place(args.bundle)
     if active():
         run('/usr/bin/systemctl', 'restart', UNIT)
-    print(f'Running {release.name}.')
+    print(f"Running {manifest['product_version']}.")
 
 
 def main(arguments):

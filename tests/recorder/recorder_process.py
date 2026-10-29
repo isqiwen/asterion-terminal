@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import subprocess
@@ -86,15 +87,22 @@ def free_port():
         return probe.getsockname()[1]
 
 
+def install(root):
+    """The recorder's installation directory, as on a recording host."""
+    for folder in ("bin", "lib", "config", "logs", "data"):
+        (root / folder).mkdir()
+    shutil.copy2(recorder, root / "bin/asterion_recorder")
+    shutil.copy2(md, root / "lib/ctp-md.so")
+    shutil.copy2(trader, root / "lib/ctp-trader.so")
+
+
 def start(root, port):
-    """Everything comes from the configuration file, as on a recording host."""
-    (root / "recorder.json").write_text(json.dumps({
-        "directory": str(root / "recorder"), "ctp_library": md, "ctp_catalog_library": trader,
+    """Everything comes from the installation directory and its configuration file."""
+    (root / "config/recorder.json").write_text(json.dumps({
         "bind": "127.0.0.1", "port": port,
         "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
                     "broker": "test", "user": "fixture", "app_id": "app"}}))
-    return subprocess.Popen([recorder, "--config", str(root / "recorder.json")],
-                            env=env, stderr=subprocess.PIPE, text=True)
+    return subprocess.Popen([root / "bin/asterion_recorder"], env=env, stderr=subprocess.PIPE, text=True)
 
 
 def wait_for(process, port, predicate, what):
@@ -114,10 +122,11 @@ def wait_for(process, port, predicate, what):
 
 with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
     root = Path(folder)
-    (root / "recorder").mkdir()
+    install(root)
     (root / "credentials").mkdir(mode=0o700)
-    env = dict(os.environ, CREDENTIALS_DIRECTORY=str(root / "credentials"),
-               ASTERION_LOG_DIRECTORY=str(root / "logs"))
+    # The recorder writes its logs to <installation>/logs by itself.
+    env = {key: value for key, value in os.environ.items() if key != "ASTERION_LOG_DIRECTORY"}
+    env["CREDENTIALS_DIRECTORY"] = str(root / "credentials")
 
     # A missing credential refuses the start and names it.
     refused = start(root, free_port())

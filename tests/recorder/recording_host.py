@@ -37,8 +37,9 @@ def bundle(files, manifest=None):
     return data
 
 
-PROGRAMS = {'asterion_recorder': b'\x7fELF-recorder', 'ctp-md.so': b'\x7fELF-md',
-            'ctp-trader.so': b'\x7fELF-td', 'recording-host.py': b'print()', 'recorder.json': b'{}'}
+PROGRAMS = {'bin/asterion_recorder': b'\x7fELF-recorder', 'bin/recording-host.py': b'print()',
+            'lib/ctp-md.so': b'\x7fELF-md', 'lib/ctp-trader.so': b'\x7fELF-td',
+            'config/recorder.json': b'{}'}
 
 
 class Hours(unittest.TestCase):
@@ -65,10 +66,11 @@ class Unit(unittest.TestCase):
     def test_systemd_runs_it_alone_on_tcp_and_never_stops_restarting(self):
         unit = host.unit_text()
         for line in ('User=asterion-recorder\n', 'Restart=always\n', 'StartLimitIntervalSec=0\n',
-                     'ImportCredential=asterion.ctp.*\n', 'StateDirectory=asterion-recorder\n',
+                     'ImportCredential=asterion.ctp.*\n',
                      'NoNewPrivileges=yes\n', 'CapabilityBoundingSet=\n'):
             self.assertIn(line, unit)
-        self.assertIn('/asterion_recorder --config /etc/asterion-recorder/recorder.json\n', unit)
+        self.assertIn('ExecStart=/opt/asterion-recorder/bin/asterion_recorder\n', unit)
+        self.assertIn('ReadWritePaths=/opt/asterion-recorder/logs /opt/asterion-recorder/data\n', unit)
 
 
 class Bundle(unittest.TestCase):
@@ -78,21 +80,19 @@ class Bundle(unittest.TestCase):
         tampered = dict(PROGRAMS)
         manifest = {'product_version': '0.1.0',
                     'files': {name: hashlib.sha256(content).hexdigest() for name, content in tampered.items()}}
-        tampered['ctp-md.so'] = b'\x7fELF-other'
-        with self.assertRaisesRegex(ValueError, 'checksum mismatch: ctp-md.so'):
+        tampered['lib/ctp-md.so'] = b'\x7fELF-other'
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: lib/ctp-md.so'):
             host.read_bundle(bundle(tampered, manifest))
         with self.assertRaisesRegex(ValueError, 'Unexpected bundle members'):
             host.read_bundle(bundle({**PROGRAMS, 'extra': b''}))
 
-    def test_an_upgrade_during_trading_unpacks_but_does_not_switch(self):
-        with tempfile.TemporaryDirectory() as folder, \
-                patch.object(host, 'install_release', return_value=host.Path(folder)), \
-                patch.object(host, 'active', return_value=True), \
+    def test_an_upgrade_during_trading_leaves_the_programs_alone(self):
+        with patch.object(host, 'active', return_value=True), \
                 patch.object(host, 'trading', return_value=True), \
-                patch.object(host, 'switch') as switch, patch.object(host, 'run') as run:
+                patch.object(host, 'place') as place, patch.object(host, 'run') as run:
             with self.assertRaisesRegex(ValueError, 'trading hours'):
                 host.upgrade(type('Args', (), {'bundle': 'x.zip'}))
-            switch.assert_not_called()
+            place.assert_not_called()
             run.assert_not_called()
 
 

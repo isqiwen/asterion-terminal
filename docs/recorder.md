@@ -6,11 +6,18 @@
 
 ## 运行
 
+录制程序装在一个目录里，没有命令行参数，从自己所在的 `bin/` 找到其余部分：
+
 ```
-asterion_recorder --config <recorder.json>
+<安装目录>/
+  bin/     asterion_recorder、recording-host.py
+  lib/     ctp-md.so、ctp-trader.so（交易库只用来读合约目录）
+  config/  recorder.json
+  logs/    日志
+  data/    录制文件、合约目录缓存、CTP 流文件
 ```
 
-所有参数都在配置文件里，见下文[配置文件](#配置文件)。
+目录或库文件缺失时启动失败，错误写明缺的路径。
 
 - 启动后立即登录，不等任何客户端。每次登录成功（包括柜台夜间断开后的重连）都重新读取合约目录，新上市的合约随之
   订阅；读取失败时五分钟后再读，期间沿用已有订阅。合约目录按期货品种逐个查询，不读期权；上次成功读到的目录存在
@@ -27,30 +34,26 @@ Ubuntu 24.04 容器中构建（`scripts/services/build_linux_services.sh`，输�
 
 ```sh
 sudo python3 recording-host.py install asterion-recorder-linux-x86_64.zip
-sudo python3 recording-host.py login
+sudo python3 /opt/asterion-recorder/bin/recording-host.py login
 ```
 
-- `install`：把程序解到 `/opt/asterion-recorder/releases/<版本>-<摘要>/` 并由 `current` 指向它，第一次安装时把默认配置复制到
-  `/etc/asterion-recorder/recorder.json`（之后的安装和升级不覆盖你的修改），写入并启用 `asterion-recorder.service`，
-  它只运行 `asterion_recorder --config /etc/asterion-recorder/recorder.json`。单元以专用的系统账户 `asterion-recorder` 运行（脚本建立，不能登录），
-  `Restart=always` 且永不放弃重启，`ImportCredential=asterion.ctp.*` 解密凭据，数据在 `/var/lib/asterion-recorder/`
-  （日志在其下 `logs/`）。
+- `install`：建立专用的系统账户 `asterion-recorder`（不能登录），按上面的目录装到 `/opt/asterion-recorder/`（程序包里就是这个
+  结构），`logs/` 与 `data/` 归该账户；第一次安装时放入默认配置，之后的安装和升级不覆盖你的修改。写入并启用
+  `asterion-recorder.service`：以该账户运行 `/opt/asterion-recorder/bin/asterion_recorder`，只能写 `logs/` 与 `data/`，
+  `Restart=always` 且永不放弃重启，`ImportCredential=asterion.ctp.*` 解密凭据。
 - 网络：录制程序在配置的地址和端口上监听（默认 `0.0.0.0:7450`），不加密。每个请求带协议里的固定魔数 `0x41535452`（"ASTR"）标明来自 Asterion 客户端，
   没有魔数的请求被拒绝。魔数只是标识，不是密码；谁能连上端口谁就能读数据，所以防火墙只放行自己的机器。
 - `login`：在主机上输入柜台地址、经纪公司代码、投资者代码和 AppID（写入配置文件的 `counter` 部分，其他设置不动），密码和授权码不回显，由 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，然后重启录制程序。
-- `upgrade <包>`：先解包并确认新程序能在本机运行，再切换 `current` 并重启，保留上一个版本。
+- `upgrade <包>`：先确认新程序能在本机运行，再逐个替换 `bin/` 与 `lib/` 中的程序（每个文件一次改名）并重启；配置、日志和数据不动。
 - 会重启运行中录制程序的操作（`upgrade`、`login`）在交易时段一律拒绝：北京时间工作日 08:45–15:30 与
   20:45–次日 02:45（脚本不知道节假日，节假日也按交易日对待）。
 
 ## 配置文件
 
-默认值在仓库的 `config/recorder.json`，安装时复制一次，录制程序只读取它：
+`config/recorder.json` 只放监听地址和柜台信息，默认值在仓库的 `config/recorder.json`：
 
 ```json
 {
-  "directory": "/var/lib/asterion-recorder",
-  "ctp_library": "/opt/asterion-recorder/current/ctp-md.so",
-  "ctp_catalog_library": "/opt/asterion-recorder/current/ctp-trader.so",
   "bind": "0.0.0.0",
   "port": 7450,
   "counter": {"market_front": "tcp://…", "trade_front": "tcp://…", "broker": "…", "user": "…", "app_id": "…"}
@@ -59,13 +62,11 @@ sudo python3 recording-host.py login
 
 | 键 | 含义 |
 | --- | --- |
-| `directory` | 数据目录：录制文件、合约目录缓存和 CTP 流文件 |
-| `ctp_library`、`ctp_catalog_library` | CTP 行情库与交易库（交易库只用来读合约目录） |
 | `bind`、`port` | 监听的地址与 TCP 端口 |
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
 
-- 路径必须是绝对路径。缺键、多出不认识的键、`counter` 未填（`login` 之前的默认配置）、目录或库文件不存在时启动失败，
-  错误写明配置文件的路径和出错的键或文件。
+- 路径不是配置：都由安装目录决定。缺键、多出不认识的键、`counter` 未填（`login` 之前的默认配置）时启动失败，错误写明
+  配置文件的路径和出错的键。
 - 密码和授权码不进配置文件，由 `recording-host.py login` 用 `systemd-creds` 加密保存，加密绑定本机，别处无法解密。
   单元的 `ImportCredential=asterion.ctp.*` 让 systemd 在启动时把它们解密到只有运行账户可读的 `$CREDENTIALS_DIRECTORY`，
   程序从那里读取，只留在内存，不写日志。

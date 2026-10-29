@@ -10,88 +10,93 @@ using recording::load_settings;
 
 namespace {
 
-struct Folder
+// An installation directory: config/, data/, lib/ and the credentials systemd
+// would decrypt.
+struct Installation
 {
-    fs::path path = fs::temp_directory_path() / ("ast-login-" + unique_process_id());
+    fs::path root = fs::temp_directory_path() / ("ast-recorder-" + unique_process_id());
+    fs::path file = root / "config/recorder.json";
+    fs::path credentials = root / "credentials";
 
-    Folder()
+    Installation()
     {
-        fs::create_directories(path / "credentials");
+        for (const auto* folder : {"config", "data", "lib", "credentials"})
+            fs::create_directories(root / folder);
+        write_file_durably(root / "lib/ctp-md.so", "md");
+        write_file_durably(root / "lib/ctp-trader.so", "td");
     }
 
-    ~Folder()
+    ~Installation()
     {
-        fs::remove_all(path);
+        fs::remove_all(root);
+    }
+
+    std::string refusal(const std::optional<fs::path>& with) const
+    {
+        try {
+            (void)load_settings(root, with);
+        } catch (const Error& error) {
+            return error.what();
+        }
+        return "accepted";
     }
 };
 
-std::string refusal(const fs::path& file, const std::optional<fs::path>& credentials)
-{
-    try {
-        (void)load_settings(file, credentials);
-    } catch (const Error& error) {
-        return error.what();
-    }
-    return "accepted";
-}
-
-const char* configuration = R"({"directory":"/var/lib/asterion-recorder",
-    "ctp_library":"/opt/asterion-recorder/current/ctp-md.so",
-    "ctp_catalog_library":"/opt/asterion-recorder/current/ctp-trader.so",
-    "bind":"0.0.0.0","port":7450,
+const char* configuration = R"({"bind":"0.0.0.0","port":7450,
     "counter":{"market_front":"tcp://md:1","trade_front":"tcp://td:2",
         "broker":"9999","user":"000001","app_id":"client_app"}})";
 
-} // namespace
-
-TEST(RecorderSettings, EverythingComesFromTheFileButTheSecrets)
+bool names(const std::string& text, const std::string& part)
 {
-    Folder folder;
-    const auto file = folder.path / "recorder.json";
-    write_file_durably(file, configuration);
-    write_file_durably(folder.path / "credentials/asterion.ctp.password", "fixture-password\n");
-    write_file_durably(folder.path / "credentials/asterion.ctp.auth_code", "fixture-auth");
-    const auto login = load_settings(file, folder.path / "credentials");
-    EXPECT_EQ(login.directory, "/var/lib/asterion-recorder");
-    EXPECT_EQ(login.ctp_catalog_library, "/opt/asterion-recorder/current/ctp-trader.so");
-    EXPECT_EQ(login.bind, "0.0.0.0");
-    EXPECT_EQ(login.port, 7450);
-    EXPECT_EQ(login.market.front, "tcp://md:1");
-    EXPECT_EQ(login.market.password, "fixture-password");
-    EXPECT_EQ(login.catalog.front, "tcp://td:2");
-    EXPECT_EQ(login.catalog.auth_code, "fixture-auth");
-    EXPECT_EQ(login.catalog.user, "000001");
+    return text.find(part) != std::string::npos;
 }
 
-TEST(RecorderSettings, ARefusalNamesTheFileOrTheCredentialItLacks)
+} // namespace
+
+TEST(RecorderSettings, PathsComeFromTheInstallationAndTheRestFromItsFile)
 {
-    Folder folder;
-    const auto file = folder.path / "recorder.json";
-    EXPECT_NE(refusal(file, folder.path / "credentials").find(file.string()), std::string::npos);
+    Installation installation;
+    write_file_durably(installation.file, configuration);
+    write_file_durably(installation.credentials / "asterion.ctp.password", "fixture-password\n");
+    write_file_durably(installation.credentials / "asterion.ctp.auth_code", "fixture-auth");
+    const auto settings = load_settings(installation.root, installation.credentials);
+    EXPECT_EQ(settings.directory, installation.root / "data");
+    EXPECT_EQ(settings.ctp_library, installation.root / "lib/ctp-md.so");
+    EXPECT_EQ(settings.ctp_catalog_library, installation.root / "lib/ctp-trader.so");
+    EXPECT_EQ(settings.bind, "0.0.0.0");
+    EXPECT_EQ(settings.port, 7450);
+    EXPECT_EQ(settings.market.front, "tcp://md:1");
+    EXPECT_EQ(settings.market.password, "fixture-password");
+    EXPECT_EQ(settings.catalog.front, "tcp://td:2");
+    EXPECT_EQ(settings.catalog.auth_code, "fixture-auth");
+    EXPECT_EQ(settings.catalog.user, "000001");
+}
+
+TEST(RecorderSettings, ARefusalNamesTheFileTheKeyOrTheCredentialItLacks)
+{
+    Installation installation;
+    const auto& file = installation.file;
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), file.string()));
     write_file_durably(file, configuration);
-    EXPECT_NE(refusal(file, std::nullopt).find(file.string()), std::string::npos);
-    const auto password = folder.path / "credentials/asterion.ctp.password";
-    EXPECT_NE(
-        refusal(file, folder.path / "credentials").find(password.string()),
-        std::string::npos);
+    EXPECT_TRUE(names(installation.refusal(std::nullopt), file.string()));
+    const auto password = installation.credentials / "asterion.ctp.password";
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), password.string()));
     write_file_durably(password, "fixture-password");
     // An AppID needs its authentication code.
-    EXPECT_NE(
-        refusal(file, folder.path / "credentials").find("asterion.ctp.auth_code"),
-        std::string::npos);
-    write_file_durably(file, R"({"market_front":"tcp://md:1","broker":"9999"})");
-    EXPECT_NE(refusal(file, folder.path / "credentials").find(file.string()), std::string::npos);
-    // The template before `recording-host.py login` fills in the counter.
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "asterion.ctp.auth_code"));
+    write_file_durably(installation.credentials / "asterion.ctp.auth_code", "fixture-auth");
+    // Paths are not settings.
+    std::string extra = configuration;
+    extra.insert(1, R"("directory":"/elsewhere",)");
+    write_file_durably(file, extra);
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "unknown key directory"));
+    // The default file before `recording-host.py login` fills in the counter.
     std::string blank = configuration;
     blank.replace(blank.find("tcp://md:1"), 10, "");
     write_file_durably(file, blank);
-    EXPECT_NE(
-        refusal(file, folder.path / "credentials").find("needs counter.market_front"),
-        std::string::npos);
-    std::string relative = configuration;
-    relative.replace(relative.find("/var/lib/asterion-recorder"), 26, "data");
-    write_file_durably(file, relative);
-    EXPECT_NE(
-        refusal(file, folder.path / "credentials").find("directory must be an absolute path"),
-        std::string::npos);
+    EXPECT_TRUE(
+        names(installation.refusal(installation.credentials), "needs counter.market_front"));
+    write_file_durably(file, configuration);
+    fs::remove(installation.root / "lib/ctp-trader.so");
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "lib/ctp-trader.so"));
 }

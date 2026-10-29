@@ -7,6 +7,7 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/thread_pool.hpp>
+#include <cstdlib>
 #include <iostream>
 
 using namespace asterion;
@@ -41,26 +42,20 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion market recorder"};
     app.set_version_flag("--version", std::string("Asterion Recorder ") + version);
-    std::string configuration;
-    app.add_option("--config", configuration, "recorder.json: everything but the secrets")
-        ->required();
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
+        // <root>/bin/asterion_recorder: the installation is one directory.
+        const auto installation = current_executable().parent_path().parent_path();
+        const auto logs = installation / "logs";
+        if (!fs::is_directory(logs))
+            throw Error(
+                ErrorCode::invalid_request,
+                "the recorder needs the directory " + logs.string());
+        ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
         initialize_process_logging("recorder", "recorder");
         auto settings =
-            recording::load_settings(configuration, environment_path("CREDENTIALS_DIRECTORY"));
-        const std::vector<std::pair<fs::path, bool>> paths{
-            {settings.directory, true},
-            {settings.ctp_library, false},
-            {settings.ctp_catalog_library, false}
-        };
-        for (const auto& [path, directory] : paths)
-            if (directory ? !fs::is_directory(path) : !fs::is_regular_file(path))
-                throw Error(
-                    ErrorCode::invalid_request,
-                    "recorder configuration " + configuration + " names a missing "
-                        + (directory ? "directory " : "file ") + path.string());
+            recording::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
         const auto root = settings.directory;
         // Plain TCP: requests identify themselves with the protocol's magic number.
         service::Transport transport;
@@ -168,7 +163,7 @@ int main(int argc, char** argv)
             "recorder",
             LogLevel::info,
             "recorder.started",
-            {{"instance", instance}, {"config", configuration}});
+            {{"instance", instance}, {"installation", installation.string()}});
         try {
             if (!host.run())
                 std::_Exit(1);

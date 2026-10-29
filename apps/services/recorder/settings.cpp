@@ -43,43 +43,45 @@ void exact(
     const std::set<std::string>& keys,
     const std::string& where)
 {
-    if (!object.is_object() || object.size() != keys.size())
+    if (!object.is_object())
         throw Error(ErrorCode::invalid_request, "invalid recorder configuration: " + where);
     for (const auto& [key, _] : object.items())
         if (!keys.contains(key))
             throw Error(
                 ErrorCode::invalid_request,
                 "recorder configuration " + where + " has an unknown key " + key);
-}
-
-fs::path absolute(const nlohmann::json& object, const std::string& key, const std::string& where)
-{
-    const fs::path path = text(object, key, where);
-    if (!path.is_absolute())
-        throw Error(
-            ErrorCode::invalid_request,
-            "recorder configuration " + where + ": " + key + " must be an absolute path");
-    return path;
+    for (const auto& key : keys)
+        if (!object.contains(key))
+            throw Error(
+                ErrorCode::invalid_request,
+                "recorder configuration " + where + " needs " + key);
 }
 
 } // namespace
 
-Settings load_settings(const fs::path& file, const std::optional<fs::path>& credentials)
+Settings load_settings(const fs::path& root, const std::optional<fs::path>& credentials)
 {
+    const auto file = root / "config" / "recorder.json";
     const auto where = file.string();
     if (!fs::is_regular_file(file) || fs::file_size(file) > 16384)
         throw Error(ErrorCode::invalid_request, "invalid recorder configuration: " + where);
     std::ifstream input(file, std::ios::binary);
     const std::string raw{std::istreambuf_iterator<char>(input), {}};
     const auto document = parse_json(raw, 16384);
-    exact(
-        document,
-        {"directory", "ctp_library", "ctp_catalog_library", "bind", "port", "counter"},
-        where);
+    exact(document, {"bind", "port", "counter"}, where);
     Settings result;
-    result.directory = absolute(document, "directory", where);
-    result.ctp_library = absolute(document, "ctp_library", where);
-    result.ctp_catalog_library = absolute(document, "ctp_catalog_library", where);
+    result.directory = root / "data";
+    result.ctp_library = root / "lib" / "ctp-md.so";
+    result.ctp_catalog_library = root / "lib" / "ctp-trader.so";
+    if (!fs::is_directory(result.directory))
+        throw Error(
+            ErrorCode::invalid_request,
+            "the recorder needs the directory " + result.directory.string());
+    for (const auto& library : {result.ctp_library, result.ctp_catalog_library})
+        if (!fs::is_regular_file(library))
+            throw Error(
+                ErrorCode::invalid_request,
+                "the recorder needs the library " + library.string());
     result.bind = text(document, "bind", where);
     const auto& port = document.at("port");
     if (result.bind.empty() || !port.is_number_unsigned() || port.get<std::uint64_t>() == 0
