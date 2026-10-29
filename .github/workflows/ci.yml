@@ -124,7 +124,7 @@ jobs:
         with:
           name: recorder-linux-${{ matrix.arch }}
           if-no-files-found: error
-          path: build/Release/recorder/*.zip
+          path: build/Release/recorder/*.tar.gz
 
   terminal:
     needs: [style, core, core-sanitizers, remote-linux]

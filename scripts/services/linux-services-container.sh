@@ -18,6 +18,6 @@ CMAKE_BUILD_PARALLEL_LEVEL=4 python3 scripts/services/deployment_bundle.py build
 mkdir -p /output
 cp build/Release/deployment/asterion-services-linux-x86_64.zip /output/
 python3 apps/services/recorder/scripts/recorder_bundle.py build/Release
-cp build/Release/recorder/asterion-recorder-linux-x86_64.zip /output/
+cp build/Release/recorder/asterion-recorder-linux-x86_64.tar.gz /output/
 ./build/Release/asterion_data --version
 ./build/Release/asterion_research --version
