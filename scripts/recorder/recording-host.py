@@ -1,10 +1,10 @@
 #!/usr/bin/python3 -I
-"""Install, configure and upgrade asterion_recorder on a recording host.
+"""Install and upgrade asterion_recorder on a recording host.
 
 Run locally on the host as root (sudo). The recorder is installed in
 /opt/asterion-recorder, laid out like the bundle:
 
-  bin/     asterion_recorder, recording-host.py
+  bin/     asterion_recorder, recording-host.py, configure.sh
   lib/     ctp-md.so, ctp-trader.so
   config/  recorder.json (copied once from the bundle, never overwritten)
   logs/
@@ -16,17 +16,16 @@ manages it. Clients read it over plain TCP (port 7450 by default); open the
 port in the firewall only to your own machines.
 
   install BUNDLE                program, account and unit
-  login                         counter addresses and account; the password and
-                                authentication code are typed here and encrypted
-                                with systemd-creds, bound to this host
   upgrade BUNDLE                a new program, outside trading hours only
+  trading-hours                 fails during trading hours if the recorder runs
+
+The settings, the account and its password are entered with bin/configure.sh.
 
 Anything that restarts a running recorder is refused during trading hours
 (Beijing time, weekdays 08:45-15:30 and 20:45-02:45, holidays included).
 """
 import argparse
 from datetime import datetime, timedelta, timezone
-import getpass
 import hashlib
 import json
 import os
@@ -45,7 +44,7 @@ ACCOUNT = 'asterion-recorder'
 CREDENTIALS = Path('/etc/credstore.encrypted')
 UNITS = Path('/etc/systemd/system')
 SETTINGS = ROOT / 'config/recorder.json'
-PROGRAMS = ('bin/asterion_recorder', 'bin/recording-host.py', 'lib/ctp-md.so', 'lib/ctp-trader.so')
+PROGRAMS = ('bin/asterion_recorder', 'bin/recording-host.py', 'bin/configure.sh', 'lib/ctp-md.so', 'lib/ctp-trader.so')
 FILES = (*PROGRAMS, 'config/recorder.json')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}
 BEIJING = timezone(timedelta(hours=8))
@@ -168,42 +167,21 @@ def install(args):
     # Copied once: later installs and upgrades never overwrite your edits.
     if not SETTINGS.exists():
         write(SETTINGS, files['config/recorder.json'].decode(), 0o640, user.pw_gid)
+    # Where configure.sh keeps the encrypted password and authentication code.
+    CREDENTIALS.mkdir(mode=0o700, exist_ok=True)
     write(UNITS / UNIT, unit_text(), 0o644)
     run('/usr/bin/systemctl', 'daemon-reload')
     run('/usr/bin/systemctl', 'enable', UNIT)
-    print(f"Installed {manifest['product_version']} in {ROOT}. Next: sudo {ROOT}/bin/recording-host.py login")
+    print(f"Installed {manifest['product_version']} in {ROOT}. Next: sudo {ROOT}/bin/configure.sh")
     port = json.loads(SETTINGS.read_text())['port']
     print(f'Settings: {SETTINGS}. It runs as {ACCOUNT} and listens on TCP {port}, unencrypted: allow the '
           f'port only from your own machines, e.g. ufw allow from <address> to any port {port} proto tcp')
 
 
-def login(args):
-    outside_trading('Changing the login')
-    fields = {}
-    for key, prompt in (('market_front', '行情前置（tcp://地址:端口）'), ('trade_front', '交易前置（tcp://地址:端口）'),
-                        ('broker', '经纪公司代码'), ('user', '投资者代码'), ('app_id', 'AppID（没有则留空）')):
-        fields[key] = input(f'{prompt}: ').strip()
-        if key != 'app_id' and not fields[key]:
-            raise ValueError(f'{key} is required')
-    for key in ('market_front', 'trade_front'):
-        if not re.fullmatch(r'tcp://[A-Za-z0-9.-]+:[0-9]{1,5}', fields[key]):
-            raise ValueError(f'{key} must look like tcp://host:port')
-    secrets = [('asterion.ctp.password', getpass.getpass('密码（不显示）: '))]
-    if fields['app_id']:
-        secrets.append(('asterion.ctp.auth_code', getpass.getpass('授权码（不显示）: ')))
-    CREDENTIALS.mkdir(mode=0o700, exist_ok=True)
-    for name, value in secrets:
-        if not value:
-            raise ValueError(f'{name} is required')
-        run('/usr/bin/systemd-creds', 'encrypt', f'--name={name}', '-', str(CREDENTIALS / name),
-            input=value.encode(), stdout=subprocess.DEVNULL)
-    # The account is not a secret, but only the recorder needs to read it.
-    settings = json.loads(SETTINGS.read_text())
-    settings['counter'] = fields
-    write(SETTINGS, json.dumps(settings, ensure_ascii=False, indent=2) + '\n', 0o640, account().pw_gid)
-    run('/usr/bin/systemctl', 'restart', UNIT)
-    print('The recorder restarted with this login. Check it: systemctl status asterion-recorder; '
-          f'logs in {ROOT}/logs')
+def trading_hours(args):
+    """For configure.sh: refuses, before any question, what would restart a
+    running recorder during trading hours."""
+    outside_trading('Configuring')
 
 
 def upgrade(args):
@@ -220,7 +198,7 @@ def main(arguments):
     command = commands.add_parser('install')
     command.add_argument('bundle')
     command.set_defaults(action=install)
-    commands.add_parser('login').set_defaults(action=login)
+    commands.add_parser('trading-hours').set_defaults(action=trading_hours)
     command = commands.add_parser('upgrade')
     command.add_argument('bundle')
     command.set_defaults(action=upgrade)

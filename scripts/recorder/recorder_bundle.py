@@ -20,6 +20,7 @@ subprocess.run(["cmake", "--build", str(build), "--target", "asterion_recorder"]
 files = {
     "bin/asterion_recorder": build / "asterion_recorder",
     "bin/recording-host.py": ROOT / "scripts/recorder/recording-host.py",
+    "bin/configure.sh": ROOT / "scripts/recorder/configure.sh",
     "lib/ctp-md.so": build / "ctp-md.so",
     "lib/ctp-trader.so": build / "ctp-trader.so",
     "config/recorder.json": ROOT / "config/recorder.json",
@@ -27,7 +28,7 @@ files = {
 version = json.loads((ROOT / "apps/clients/terminal/electron/package.json").read_text())["version"]
 manifest = {"product_version": version,
             "files": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()}}
-output = build / "deployment" / "asterion-recorder-linux-x86_64.zip"
+output = build / "recorder" / "asterion-recorder-linux-x86_64.zip"
 output.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
     for name, path in files.items():

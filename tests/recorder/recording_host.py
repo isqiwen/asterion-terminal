@@ -38,6 +38,7 @@ def bundle(files, manifest=None):
 
 
 PROGRAMS = {'bin/asterion_recorder': b'\x7fELF-recorder', 'bin/recording-host.py': b'print()',
+            'bin/configure.sh': b'#!/bin/bash',
             'lib/ctp-md.so': b'\x7fELF-md', 'lib/ctp-trader.so': b'\x7fELF-td',
             'config/recorder.json': b'{}'}
 

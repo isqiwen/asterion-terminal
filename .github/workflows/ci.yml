@@ -114,6 +114,17 @@ jobs:
           name: remote-linux-${{ matrix.arch }}
           if-no-files-found: error
           path: build/Release/deployment/*.zip
+      # The recording host's own archive, apart from the services Terminal deploys.
+      - run: python scripts/recorder/recorder_bundle.py build/Release
+      - name: Verify the recorder
+        run: |
+          ./build/Release/asterion_recorder --version
+          ldd build/Release/asterion_recorder
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recorder-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: build/Release/recorder/*.zip
 
   terminal:
     needs: [style, core, core-sanitizers, remote-linux]

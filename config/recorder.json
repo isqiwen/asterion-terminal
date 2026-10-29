@@ -2,10 +2,10 @@
   "bind": "0.0.0.0",
   "port": 7450,
   "counter": {
-    "market_front": "",
-    "trade_front": "",
-    "broker": "",
+    "market_front": "tcp://182.254.243.31:40011",
+    "trade_front": "tcp://182.254.243.31:40001",
+    "broker": "9999",
     "user": "",
-    "app_id": ""
+    "app_id": "simnow_client_test"
   }
 }
