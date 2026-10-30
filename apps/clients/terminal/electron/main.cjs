@@ -159,7 +159,19 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (!["preferences", "connections", "ctp", "sources", "plugins", "about"].includes(category))
+  if (
+    ![
+      "preferences",
+      "connections",
+      "trading",
+      "ctp",
+      "sources",
+      "plugins",
+      "resources",
+      "backup",
+      "about",
+    ].includes(category)
+  )
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();

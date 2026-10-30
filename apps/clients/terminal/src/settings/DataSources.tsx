@@ -4,6 +4,7 @@ import type { DataCredential, NativeHistorySource, Snapshot } from "../bridge/cl
 import { translate, useLocale, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
+import { SettingsSection } from "./Section";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 const checkStates = [
   "接口访问成功",
@@ -16,6 +17,13 @@ const checkStates = [
 ];
 const dataType = (source: NativeHistorySource) =>
   source.intervals.length === 1 && source.intervals[0] === 0 ? "日 K 线" : "分钟 K 线";
+// What a source offers, in words: "分钟 K 线（1、5、15、30、60 分钟）".
+const offered = (source: NativeHistorySource) => {
+  const minutes = source.intervals.filter(value => value > 0);
+  return minutes.length
+    ? t("{type}（{minutes} 分钟）", { type: t(dataType(source)), minutes: minutes.join("、") })
+    : t(dataType(source));
+};
 // One card per data provider. A provider takes a single credential, used by
 // all of its data; saving it checks it at once, so the card says whether it
 // works.
@@ -82,18 +90,24 @@ export function DataSources({
   const orphans = online ? entries.filter(entry => !providers.includes(entry.provider)) : [];
   const current = editing ? describe(editing) : null;
   return (
-    <section className="settings-cards" aria-label={t("数据源")}>
+    <SettingsSection
+      title={t("供应商账号")}
+      label={t("数据源")}
+      description={t("下载历史数据要用的供应商凭据。同一账号的全部下载共享一个每分钟请求额度。")}
+    >
       {!online && (
-        <div className="settings-card">
-          <p role="status">{t("数据服务未连接，无法读取数据源。")}</p>
-          <footer>
-            <button disabled={busy} onClick={() => void run("node.research.local.open")}>
-              {t("重新连接")}
-            </button>
-          </footer>
+        <div className="settings-item-row">
+          <p role="status" className="settings-hint">
+            {t("历史数据服务未运行，无法读取数据源。")}
+          </p>
+          <button disabled={busy} onClick={() => void run("node.data.local.open")}>
+            {t("启动历史数据服务")}
+          </button>
         </div>
       )}
-      {online && !providers.length && !orphans.length && <p>{t("没有需要凭据的数据源。")}</p>}
+      {online && !providers.length && !orphans.length && (
+        <p className="settings-hint">{t("没有需要凭据的数据源。")}</p>
+      )}
       {providers.map(provider => {
         const { own, name, label, unreadable, saved } = describe(provider);
         const ready = !!saved?.credential_ready;
@@ -117,7 +131,7 @@ export function DataSources({
             </header>
             <dl>
               <dt>{t("提供的数据")}</dt>
-              <dd>{[...new Set(own.map(source => t(dataType(source))))].join(" · ")}</dd>
+              <dd>{[...new Set(own.map(offered))].join(" · ")}</dd>
               {saved && (
                 <>
                   <dt>{label}</dt>
@@ -141,9 +155,6 @@ export function DataSources({
                 );
               })}
             </dl>
-            <p className="subtle">
-              {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
-            </p>
             {unreadable && <p role="alert">{t("已保留原文件供检查；重新设置会覆盖它。")}</p>}
             <footer>
               <button
@@ -281,7 +292,7 @@ export function DataSources({
           </div>
         </SettingsDialog>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 function ClearButton({

@@ -62,7 +62,7 @@ export function LivePanel(context: TerminalContext) {
       {!accounts.length ? (
         <div className="workflow-empty">
           <p>{t("还没有交易连接，请先添加交易服务连接。")}</p>
-          <button onClick={() => context.openSettings("ctp")}>{t("管理交易连接")}</button>
+          <button onClick={() => context.openSettings("trading")}>{t("管理交易连接")}</button>
         </div>
       ) : (
         <div className="ctp-accounts">
@@ -80,7 +80,7 @@ export function LivePanel(context: TerminalContext) {
                 <span className="subtle">{t(state(item))}</span>
               </button>
             ))}
-            <button className="ctp-account-manage" onClick={() => context.openSettings("ctp")}>
+            <button className="ctp-account-manage" onClick={() => context.openSettings("trading")}>
               {t("管理交易连接")}
             </button>
           </nav>

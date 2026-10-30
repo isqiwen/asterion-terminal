@@ -7,7 +7,7 @@ test("several CTP market accounts are kept while exactly one supplies market dat
 }) => {
   await page.goto("/");
   const settings = await openSettingsWindow(page);
-  await settings.getByRole("button", { name: "CTP 账户", exact: true }).click();
+  await settings.getByRole("button", { name: "CTP 行情账户", exact: true }).click();
   const region = settings.getByRole("region", { name: "CTP 行情账户", exact: true });
   const fill = async (fields: Record<string, string>) => {
     for (const [label, value] of Object.entries(fields))

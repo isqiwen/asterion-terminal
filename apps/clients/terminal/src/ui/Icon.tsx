@@ -57,6 +57,31 @@ const shapes = {
       <path d="M12 11v6M12 7h.01" />
     </>
   ),
+  sliders: (
+    <>
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 9-9M16 7l3 3M14 9l2 2" />
+    </>
+  ),
+  catalog: (
+    <>
+      <path d="M4 5h16M4 10h16M4 15h10M4 20h10" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="5" rx="1" />
+      <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
+    </>
+  ),
   close: <path d="m6 6 12 12M6 18 18 6" />,
   refresh: (
     <>

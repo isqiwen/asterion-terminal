@@ -2,6 +2,8 @@ import { useState } from "react";
 import { request, type Snapshot, type BackupReport } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { SettingsSection } from "./Section";
+import { kindLabels } from "./service-state";
 const t = (key: string) => translate("host", key);
 
 function Report({ value }: { value: BackupReport }) {
@@ -125,36 +127,45 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
     selected.every(id =>
       services.some(item => item.id === id && !item.desired_running && !item.pid),
     );
+  const running = selected.filter(id =>
+    services.some(item => item.id === id && (item.desired_running || item.pid)),
+  );
   return (
-    <section className="settings-section" aria-label={t("数据备份与恢复")}>
-      <p>
-        {t(
-          "先在本机服务停止所选本机 Data、Intelligence 和 Research。备份保留原记录，不恢复运行状态。交易账户的记录在交易主机的 data/ 目录，由交易主机自己备份。",
+    <div role="region" aria-label={t("数据备份与恢复")}>
+      <SettingsSection
+        title={t("新建备份")}
+        description={t(
+          "备份所选服务的完整数据目录，不包含运行状态。先在本机服务页停止所选服务。交易账户的记录在交易主机上，由交易主机备份。",
         )}
-      </p>
-      <fieldset disabled={busy}>
-        <legend>{t("选择本机业务数据")}</legend>
-        {services.map(service => (
-          <label className="terminal-setting" key={service.id}>
-            <input
-              type="checkbox"
-              checked={selected.includes(service.id)}
-              onChange={event => {
-                setSelected(held =>
-                  event.target.checked
-                    ? [...held, service.id]
-                    : held.filter(id => id !== service.id),
-                );
-                setPlan(null);
-                setConfirmSave(false);
-              }}
-            />
-            {service.kind} · {service.id}
-          </label>
-        ))}
-        <label className="terminal-setting">
+      >
+        <fieldset disabled={busy} className="settings-list">
+          <legend className="settings-hint">{t("选择本机业务数据")}</legend>
+          {services.map(service => (
+            <label className="settings-check" key={service.id}>
+              <input
+                type="checkbox"
+                checked={selected.includes(service.id)}
+                onChange={event => {
+                  setSelected(held =>
+                    event.target.checked
+                      ? [...held, service.id]
+                      : held.filter(id => id !== service.id),
+                  );
+                  setPlan(null);
+                  setConfirmSave(false);
+                }}
+              />
+              {t(kindLabels[service.kind])} · {service.id}
+              {(service.desired_running || service.pid) && ` · ${t("运行中")}`}
+            </label>
+          ))}
+          {!services.length && <p className="settings-hint">{t("还没有本机数据或研究服务。")}</p>}
+        </fieldset>
+        <label className="settings-field">
           {t("新备份目录")}
           <input
+            disabled={busy}
+            placeholder={t("一个尚不存在的目录的绝对路径")}
             value={destination}
             onChange={event => {
               setDestination(event.target.value);
@@ -163,68 +174,89 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
             }}
           />
         </label>
-        <button
-          disabled={!stopped || !destination}
-          onClick={() =>
-            void run(async () => {
-              setPlan(null);
-              setConfirmSave(false);
-              setPlan(
-                valueOf(
-                  await request("system.backup.preview", {
-                    operation_id: crypto.randomUUID(),
-                    services: selected,
-                    destination,
-                  }),
-                ),
-              );
-            })
-          }
-        >
-          {t("预览备份")}
-        </button>
+        {running.length > 0 && (
+          <p className="settings-hint" role="status">
+            {t("所选服务仍在运行，先在本机服务页停止：")} {running.join("、")}
+          </p>
+        )}
+        <div className="settings-actions">
+          <button
+            disabled={busy || !stopped || !destination}
+            onClick={() =>
+              void run(async () => {
+                setPlan(null);
+                setConfirmSave(false);
+                setPlan(
+                  valueOf(
+                    await request("system.backup.preview", {
+                      operation_id: crypto.randomUUID(),
+                      services: selected,
+                      destination,
+                    }),
+                  ),
+                );
+              })
+            }
+          >
+            {t("预览备份")}
+          </button>
+        </div>
         {plan && (
-          <>
+          <div className="settings-card">
             <Report value={plan} />
-            <label>
+            <label className="settings-check">
               <input
                 type="checkbox"
+                disabled={busy}
                 checked={confirmSave}
                 onChange={event => setConfirmSave(event.target.checked)}
               />
               {t("已核对所选范围、缺失依赖和新目录")}
             </label>
-            <button
-              disabled={
-                !stopped || !confirmSave || !destination || !plan.preview_digest || plan.saved
-              }
-              onClick={() =>
-                void run(async () => {
-                  const operation = plan.manifest.backup_id;
-                  setConfirmSave(false);
-                  setPlan(
-                    valueOf(
-                      await request("system.backup.save", {
-                        operation_id: operation,
-                        services: selected,
-                        destination,
-                        preview_digest: plan.preview_digest!,
-                      }),
-                    ),
-                  );
-                })
-              }
-            >
-              {t("保存备份")}
-            </button>
-          </>
+            <div className="settings-actions">
+              <button
+                className="primary"
+                disabled={
+                  busy ||
+                  !stopped ||
+                  !confirmSave ||
+                  !destination ||
+                  !plan.preview_digest ||
+                  plan.saved
+                }
+                onClick={() =>
+                  void run(async () => {
+                    const operation = plan.manifest.backup_id;
+                    setConfirmSave(false);
+                    setPlan(
+                      valueOf(
+                        await request("system.backup.save", {
+                          operation_id: operation,
+                          services: selected,
+                          destination,
+                          preview_digest: plan.preview_digest!,
+                        }),
+                      ),
+                    );
+                  })
+                }
+              >
+                {t("保存备份")}
+              </button>
+            </div>
+          </div>
         )}
-      </fieldset>
-      <fieldset disabled={busy}>
-        <legend>{t("核验与独立恢复")}</legend>
-        <label className="terminal-setting">
+      </SettingsSection>
+      <SettingsSection
+        title={t("核验与恢复")}
+        description={t(
+          "核验已有备份，或把它恢复到一个新目录。恢复不覆盖原数据，也不恢复交易授权。",
+        )}
+      >
+        <label className="settings-field">
           {t("已有备份目录")}
           <input
+            disabled={busy}
             value={backupPath}
             onChange={event => {
               setBackupPath(event.target.value);
@@ -233,44 +265,47 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
             }}
           />
         </label>
-        <button
-          disabled={!backupPath}
-          onClick={() =>
-            void run(async () => {
-              setInspection(null);
-              setConfirmRestore(false);
-              setInspection({
-                path: backupPath,
-                value: valueOf(await request("system.backup.inspect", { backup: backupPath })),
-              });
-            })
-          }
-        >
-          {t("核验备份")}
-        </button>
-        <button
-          disabled={busy || !backupPath}
-          onClick={() =>
-            void run(async () => {
-              setPlan(null);
-              setConfirmSave(false);
-              const prepared = valueOf(
-                await request("system.backup.resume.preview", { backup: backupPath }),
-              );
-              setSelected(prepared.manifest.owners.map(owner => owner.service));
-              setDestination(backupPath);
-              setPlan(prepared);
-            })
-          }
-        >
-          {t("预览继续未完成备份")}
-        </button>
+        <div className="settings-actions">
+          <button
+            disabled={busy || !backupPath}
+            onClick={() =>
+              void run(async () => {
+                setPlan(null);
+                setConfirmSave(false);
+                const prepared = valueOf(
+                  await request("system.backup.resume.preview", { backup: backupPath }),
+                );
+                setSelected(prepared.manifest.owners.map(owner => owner.service));
+                setDestination(backupPath);
+                setPlan(prepared);
+              })
+            }
+          >
+            {t("预览继续未完成备份")}
+          </button>
+          <button
+            disabled={busy || !backupPath}
+            onClick={() =>
+              void run(async () => {
+                setInspection(null);
+                setConfirmRestore(false);
+                setInspection({
+                  path: backupPath,
+                  value: valueOf(await request("system.backup.inspect", { backup: backupPath })),
+                });
+              })
+            }
+          >
+            {t("核验备份")}
+          </button>
+        </div>
         {inspection && (
-          <>
+          <div className="settings-card">
             <Report value={inspection.value} />
-            <label className="terminal-setting">
+            <label className="settings-field">
               {t("新恢复目录")}
               <input
+                disabled={busy}
                 value={restorePath}
                 onChange={event => {
                   setRestorePath(event.target.value);
@@ -278,39 +313,45 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
                 }}
               />
             </label>
-            <label>
+            <label className="settings-check">
               <input
                 type="checkbox"
+                disabled={busy}
                 checked={confirmRestore}
                 onChange={event => setConfirmRestore(event.target.checked)}
               />
               {t("确认恢复到独立新目录，不覆盖原数据或恢复授权")}
             </label>
-            <button
-              disabled={!restorePath || !confirmRestore || inspection.value.restored}
-              onClick={() =>
-                void run(async () => {
-                  setConfirmRestore(false);
-                  setInspection({
-                    path: inspection.path,
-                    value: valueOf(
-                      await request("system.backup.restore", {
-                        backup: inspection.path,
-                        destination: restorePath,
-                      }),
-                    ),
-                  });
-                })
-              }
-            >
-              {t("恢复到新目录")}
-            </button>
-          </>
+            <div className="settings-actions">
+              <button
+                className="primary"
+                disabled={busy || !restorePath || !confirmRestore || inspection.value.restored}
+                onClick={() =>
+                  void run(async () => {
+                    setConfirmRestore(false);
+                    setInspection({
+                      path: inspection.path,
+                      value: valueOf(
+                        await request("system.backup.restore", {
+                          backup: inspection.path,
+                          destination: restorePath,
+                        }),
+                      ),
+                    });
+                  })
+                }
+              >
+                {t("恢复到新目录")}
+              </button>
+            </div>
+          </div>
         )}
-      </fieldset>
+      </SettingsSection>
       {busy && (
-        <>
-          <p role="status">{t("正在核验或复制业务数据…")}</p>
+        <div className="settings-item-row">
+          <p role="status" className="settings-hint">
+            {t("正在核验或复制业务数据…")}
+          </p>
           <button
             onClick={() =>
               void request("system.backup.cancel", {}).catch(reason =>
@@ -320,13 +361,13 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
           >
             {t("取消当前备份操作")}
           </button>
-        </>
+        </div>
       )}
       {error && (
-        <p role="alert">
+        <p className="alert" role="alert">
           <ErrorNotice error={error} />
         </p>
       )}
-    </section>
+    </div>
   );
 }

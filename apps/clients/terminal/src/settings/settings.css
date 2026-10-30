@@ -37,33 +37,18 @@
 .settings-content {
   padding: 28px;
 }
+.settings-content > * {
+  max-width: 880px;
+}
 .settings-content h1 {
   font-size: 22px;
   color: var(--text-strong);
   font-weight: 500;
-  padding: 0 0 22px;
-  margin: 0 0 12px;
+  padding: 0 0 18px;
+  margin: 0 0 20px;
   border-bottom: 1px solid var(--line);
   background: transparent;
   letter-spacing: -0.02em;
-}
-.settings-content .terminal-setting {
-  min-height: 78px;
-  gap: 20px;
-}
-.settings-content .terminal-setting select {
-  min-width: 132px;
-}
-.service-connections fieldset {
-  border-color: var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
-}
-.service-connections .futures-fields {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.service-connections details .futures-fields {
-  grid-template-columns: minmax(0, 1fr);
 }
 .settings-content td {
   overflow-wrap: anywhere;
@@ -76,9 +61,6 @@
   .settings-content {
     padding: 22px 18px;
   }
-  .service-connections .futures-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .settings-sidebar nav button {
@@ -90,11 +72,160 @@
 .settings-content .source-actions {
   flex-wrap: wrap;
 }
+
+/* The one layout every page uses: titled sections, fields with their label
+   above, actions at the right, lists of items separated by hairlines. */
+.settings-section {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  min-width: 0;
+}
+.settings-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-section-header > div {
+  min-width: 0;
+}
+.settings-section h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.settings-section-header p,
+.settings-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.settings-hint {
+  margin: 0;
+}
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 18px;
+}
+.settings-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+}
+.settings-field input,
+.settings-field select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 0;
+}
+.settings-check input {
+  flex-shrink: 0;
+}
+.settings-list {
+  display: grid;
+}
+.settings-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.settings-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.settings-item:last-child {
+  padding-bottom: 0;
+}
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-item-row > div {
+  min-width: 0;
+}
+.settings-item h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.settings-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.settings-section details > summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-section details dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 18px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.settings-section details dt {
+  color: var(--muted);
+}
+.settings-section details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settings-section code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.settings-fingerprint {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--canvas);
+  color: var(--text);
+}
+/* An item card inside a section, such as one account. */
+.settings-section .settings-card {
+  background: var(--canvas);
+}
+@media (max-width: 680px) {
+  .settings-section-header,
+  .settings-item-row {
+    flex-wrap: wrap;
+  }
+}
 .settings-content button {
   white-space: normal;
-}
-.settings-content .terminal-setting {
-  flex-wrap: wrap;
 }
 
 .settings-table {
@@ -119,69 +250,15 @@
   margin: 2px;
 }
 
-/* Plugins: the plugins each service runs, the catalog they come from, and
-   what the release builds in. Sections are separated by hairlines; every
-   table on the page looks the same. */
-.native-plugin-manager > section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.native-plugin-manager > section:first-child,
-.native-plugin-manager > [role="alert"] + section {
-  margin-top: 4px;
-  padding-top: 0;
-  border-top: 0;
-}
-.native-plugin-manager + .native-plugin-manager > section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.native-plugin-manager header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-.native-plugin-manager h2,
-.native-plugin-manager h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 500;
-}
-.native-plugin-manager p {
-  margin: 6px 0 10px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.native-plugin-manager code {
-  color: var(--muted);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-/* One service: name, state and controls on a line, its plugins below. */
-.native-plugin-service {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
-}
-.native-plugin-service fieldset {
-  margin: 10px 0;
-}
-.native-plugin-service .source-actions {
-  padding: 0;
-}
 .native-plugin-choice {
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: var(--row-height);
   font-size: 12px;
+}
+.native-plugin-manager code {
+  color: var(--muted);
 }
 .native-plugin-manager .data-table {
   width: 100%;
@@ -233,191 +310,6 @@
   margin: 8px 0 2px;
 }
 
-.deployment-center h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.deployment-center h3 {
-  margin: 0;
-  font-size: 14px;
-}
-.deployment-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-block: 14px;
-}
-.deployment-heading p {
-  margin: 5px 0 0;
-}
-.deployment-heading > div {
-  min-width: 0;
-}
-.deployment-heading > button {
-  flex-shrink: 0;
-}
-.managed-service-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.deployment-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--line);
-  margin-block: 12px;
-  padding-bottom: 8px;
-}
-.deployment-tabs button[aria-pressed="true"],
-.machine-choice[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--accent-surface);
-  border-color: var(--accent);
-}
-.runtime-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(80px, 0.7fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-}
-.runtime-row strong,
-.runtime-row span {
-  overflow-wrap: anywhere;
-}
-.runtime-row p {
-  margin: 5px 0 0;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.runtime-location {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.deployment-warning {
-  color: var(--warning);
-}
-.machine-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-block: 16px;
-}
-.machine-choice {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 42px;
-}
-.machine-choice span {
-  color: var(--muted);
-  font-size: 12px;
-}
-.saved-machine {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  width: 100%;
-  padding: 10px 0;
-}
-.managed-service {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-}
-.managed-service details,
-.deployment-center > details {
-  margin-block: 12px;
-}
-.managed-service strong,
-.managed-service p {
-  overflow-wrap: anywhere;
-}
-.deployment-badge {
-  color: var(--accent);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.deployment-steps {
-  display: flex;
-  list-style: none;
-  padding: 0;
-  gap: 12px;
-  margin: 24px 0;
-}
-.deployment-steps li {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.deployment-steps li span {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-}
-.deployment-steps li[aria-current] {
-  color: var(--accent);
-}
-.deployment-steps li[aria-current] span {
-  border-color: var(--accent);
-}
-.deployment-wizard fieldset,
-.deployment-form fieldset {
-  min-width: 0;
-  padding: 16px;
-  margin: 12px 0;
-}
-.deployment-wizard legend,
-.deployment-form legend {
-  color: var(--text-strong);
-  padding-inline: 5px;
-}
-.deployment-wizard label,
-.deployment-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-block: 12px;
-}
-.deployment-wizard input,
-.deployment-wizard textarea,
-.deployment-form input,
-.deployment-form select {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.deployment-wizard pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 12px;
-  border: 1px solid var(--line);
-  font-size: 11px;
-}
-.deployment-wizard .deployment-check {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 10px;
-}
-.deployment-check input {
-  width: auto;
-  margin-top: 3px;
-}
-.wizard-actions {
-  justify-content: flex-end;
-  margin-top: 24px;
-}
 .service-action-dialog {
   background: var(--panel);
   color: var(--text);
@@ -446,34 +338,6 @@
   gap: 8px;
   margin-top: 24px;
 }
-.direct-connection {
-  border-top: 1px solid var(--line);
-  margin-top: 28px;
-  padding-top: 16px;
-  color: var(--muted);
-}
-@media (max-width: 680px) {
-  .deployment-heading {
-    flex-wrap: wrap;
-  }
-  .runtime-row {
-    gap: 8px;
-    grid-template-columns: minmax(0, 1fr) minmax(65px, 0.7fr) auto;
-  }
-  .deployment-steps {
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-}
-
-.settings-content:has(.deployment-center) h1 {
-  padding-bottom: 12px;
-  margin-bottom: 8px;
-}
-.deployment-center > .deployment-heading {
-  margin-top: 4px;
-}
-
 /* Settings lists: one card per item, facts aligned, actions at the bottom. */
 .settings-cards {
   display: grid;
@@ -608,4 +472,22 @@
 }
 .resource-catalogue th:first-child {
   width: 30%;
+}
+.settings-section details {
+  margin: 0;
+}
+.settings-section td details {
+  margin-top: 4px;
+}
+.settings-section fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.settings-section legend {
+  padding: 0;
+  margin-bottom: 8px;
 }

@@ -51,7 +51,7 @@ export function CreateLive({
             connection.trade_front
           }`}
         </p>
-        <button type="button" onClick={() => openSettings("ctp")}>
+        <button type="button" onClick={() => openSettings("trading")}>
           {t("管理交易连接")}
         </button>
       </div>

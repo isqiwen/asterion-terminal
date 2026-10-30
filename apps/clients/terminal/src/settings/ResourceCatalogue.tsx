@@ -8,6 +8,7 @@ import {
 } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { SettingsSection } from "./Section";
 const t = (key: string) => translate("host", key);
 const kinds = {
   data: [
@@ -149,54 +150,51 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
   }
   const blocked = pending || !source?.online;
   return (
-    <section className="settings-section resource-catalogue" aria-label={t("业务资产目录")}>
-      <p>
-        {t(
-          "从当前明确选择的业务服务读取固定资产身份。目录可重建，不授权删除，也不证明载荷全部可访问。",
-        )}
-      </p>
-      <p>
-        {t(
-          "当前支持 Data 固定数据/材料/保存内容、Intelligence 候选/准备/发布与程序、Research 项目/计划/人工结论与固定输入/结果；目录不授权删除。",
-        )}
-      </p>
-      <label>
-        {t("资产所属域")}
-        <select
-          disabled={pending}
-          value={domain}
-          onChange={event => {
-            const value = event.target.value as "data" | "research";
-            setDomain(value);
-            setKind(kinds[value][0]);
-          }}
-        >
-          <option value="data">Data</option>
-          <option value="research">Research</option>
-        </select>
-      </label>
-      <label>
-        {t("资产类别")}
-        <select disabled={pending} value={kind} onChange={event => setKind(event.target.value)}>
-          {kinds[domain].map(value => (
-            <option key={value} value={value}>
-              {t(names[value])}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p>
-        {t("当前服务")}:{" "}
-        <code>
-          {source?.node_id ?? "—"} / {source?.service ?? "—"}
-        </code>
-      </p>
-      {!source?.online && (
-        <p role="status">{t("所选所有者不可达，目录不能作为当前可用性证明。")}</p>
+    <SettingsSection
+      title={t("查询")}
+      label={t("业务资产目录")}
+      className="resource-catalogue"
+      description={t(
+        "列出历史数据服务或研究服务登记的固定数据、材料、任务输入与结果。此页只读，不提供删除。",
       )}
-      <button disabled={blocked} onClick={() => void load()}>
-        {t("读取资产目录")}
-      </button>
+      actions={
+        <button className="primary" disabled={blocked} onClick={() => void load()}>
+          {t("读取资产目录")}
+        </button>
+      }
+    >
+      <div className="settings-fields">
+        <label className="settings-field">
+          {t("资产所属域")}
+          <select
+            disabled={pending}
+            value={domain}
+            onChange={event => {
+              const value = event.target.value as "data" | "research";
+              setDomain(value);
+              setKind(kinds[value][0]);
+            }}
+          >
+            <option value="data">{t("历史数据服务")}</option>
+            <option value="research">{t("研究服务")}</option>
+          </select>
+        </label>
+        <label className="settings-field">
+          {t("资产类别")}
+          <select disabled={pending} value={kind} onChange={event => setKind(event.target.value)}>
+            {kinds[domain].map(value => (
+              <option key={value} value={value}>
+                {t(names[value])}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {!source?.online && (
+        <p role="status" className="settings-hint">
+          {t("该服务未运行，无法读取。先在本机服务页启动它。")}
+        </p>
+      )}
       {pending && <p role="status">{t("正在读取所属域资产…")}</p>}
       {error && (
         <p role="alert">
@@ -205,88 +203,86 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
       )}
       {catalogue && (
         <>
-          <p>
-            {t("稳定所有者")}:{" "}
-            <code>
-              {catalogue.owner.node} / {catalogue.owner.service} / {catalogue.owner.domain}
-            </code>
+          <p className="settings-hint">
+            {t("逻辑载荷字节不等于磁盘独占占用，不能按目录行相加。未知字节不填零。")}
           </p>
-          <p>{t("逻辑载荷字节不等于磁盘独占占用，不能按目录行相加。未知字节不填零。")}</p>
-          {!catalogue.items.length && <p>{t("该范围没有已登记资产")}</p>}
-          <table aria-label={t("所属域资产")}>
-            <thead>
-              <tr>
-                <th>{t("身份与固定版本")}</th>
-                <th>{t("生命周期")}</th>
-                <th>{t("逻辑载荷字节")}</th>
-                <th>{t("最近观测的保存位置")}</th>
-                <th>{t("核对")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {catalogue.items.map(entry => (
-                <tr key={`${entry.object.id}/${entry.object.version}`}>
-                  <td>
-                    {entry.name && <strong>{entry.name}</strong>}
-                    <code>{entry.object.id}</code>
-                    <br />
-                    <code>{entry.object.version}</code>
-                  </td>
-                  <td>
-                    {t(
-                      (entry.object.kind === "research_variable" ||
-                        entry.object.kind === "strategy_package" ||
-                        entry.object.kind === "logic_definition" ||
-                        entry.object.kind === "logic_case" ||
-                        entry.object.kind === "strategy_delivery") &&
-                        entry.state === "sealed"
-                        ? "已固定（只读）"
-                        : entry.state === "registered"
-                          ? "已登记（载荷未核验）"
-                          : entry.state === "sealed"
-                            ? "封存清理中"
-                            : "已退役",
-                    )}
-                  </td>
-                  <td>{entry.logical_bytes ?? t("未知")}</td>
-                  <td>
-                    <code>
-                      {root ? `${root}/${entry.relative_location}` : entry.relative_location}
-                    </code>
-                  </td>
-                  <td>
-                    {entry.object.kind === "provider_module" ||
-                    entry.object.kind === "research_program" ? (
-                      <span>{t("程序工件维护尚未实现，不提供删除操作。")}</span>
-                    ) : entry.object.kind === "logic_definition" ||
-                      entry.object.kind === "logic_case" ? (
-                      <span>
-                        {t("在策略逻辑入口读取原规则和事先预期；此目录不提供修改或删除。")}
-                      </span>
-                    ) : entry.object.kind === "strategy_package" ||
-                      entry.object.kind === "strategy_delivery" ? (
-                      <span>
-                        {t("在策略管理与交付入口读取原定义和任务状态；此目录不提供修改或删除。")}
-                      </span>
-                    ) : entry.object.kind === "research_variable" ? (
-                      <span>{t("在研究变量入口读取原定义；此目录不提供修改或删除。")}</span>
-                    ) : entry.object.kind === "material_acquisition" ||
-                      entry.object.kind === "material_content" ? (
-                      <span>{t("在数据材料入口读取原件；材料删除尚未实现。")}</span>
-                    ) : entry.object.kind === "observation_archive" ? (
-                      <span>
-                        {t("名称为归档操作 ID；在 Data 历史数据仓库读取原件，不提供删除。")}
-                      </span>
-                    ) : (
-                      <button disabled={blocked} onClick={() => void inspect(entry)}>
-                        {t("查看引用与维护")}
-                      </button>
-                    )}
-                  </td>
+          {!catalogue.items.length && <p className="settings-hint">{t("该范围没有已登记资产")}</p>}
+          <div className="settings-table">
+            <table className="data-table" aria-label={t("所属域资产")}>
+              <thead>
+                <tr>
+                  <th>{t("身份与固定版本")}</th>
+                  <th>{t("生命周期")}</th>
+                  <th>{t("逻辑载荷字节")}</th>
+                  <th>{t("最近观测的保存位置")}</th>
+                  <th>{t("核对")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {catalogue.items.map(entry => (
+                  <tr key={`${entry.object.id}/${entry.object.version}`}>
+                    <td>
+                      {entry.name && <strong>{entry.name}</strong>}
+                      <code>{entry.object.id}</code>
+                      <br />
+                      <code>{entry.object.version}</code>
+                    </td>
+                    <td>
+                      {t(
+                        (entry.object.kind === "research_variable" ||
+                          entry.object.kind === "strategy_package" ||
+                          entry.object.kind === "logic_definition" ||
+                          entry.object.kind === "logic_case" ||
+                          entry.object.kind === "strategy_delivery") &&
+                          entry.state === "sealed"
+                          ? "已固定（只读）"
+                          : entry.state === "registered"
+                            ? "已登记（载荷未核验）"
+                            : entry.state === "sealed"
+                              ? "封存清理中"
+                              : "已退役",
+                      )}
+                    </td>
+                    <td>{entry.logical_bytes ?? t("未知")}</td>
+                    <td>
+                      <code>
+                        {root ? `${root}/${entry.relative_location}` : entry.relative_location}
+                      </code>
+                    </td>
+                    <td>
+                      {entry.object.kind === "provider_module" ||
+                      entry.object.kind === "research_program" ? (
+                        <span>{t("程序工件维护尚未实现，不提供删除操作。")}</span>
+                      ) : entry.object.kind === "logic_definition" ||
+                        entry.object.kind === "logic_case" ? (
+                        <span>
+                          {t("在策略逻辑入口读取原规则和事先预期；此目录不提供修改或删除。")}
+                        </span>
+                      ) : entry.object.kind === "strategy_package" ||
+                        entry.object.kind === "strategy_delivery" ? (
+                        <span>
+                          {t("在策略管理与交付入口读取原定义和任务状态；此目录不提供修改或删除。")}
+                        </span>
+                      ) : entry.object.kind === "research_variable" ? (
+                        <span>{t("在研究变量入口读取原定义；此目录不提供修改或删除。")}</span>
+                      ) : entry.object.kind === "material_acquisition" ||
+                        entry.object.kind === "material_content" ? (
+                        <span>{t("在数据材料入口读取原件；材料删除尚未实现。")}</span>
+                      ) : entry.object.kind === "observation_archive" ? (
+                        <span>
+                          {t("名称为归档操作 ID；在 Data 历史数据仓库读取原件，不提供删除。")}
+                        </span>
+                      ) : (
+                        <button disabled={blocked} onClick={() => void inspect(entry)}>
+                          {t("查看引用与维护")}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {catalogue.next_after && (
             <button disabled={blocked} onClick={() => void load(catalogue.next_after)}>
               {t("继续读取资产")}
@@ -328,6 +324,6 @@ export function ResourceCatalogue({ snapshot }: { snapshot: Snapshot | null }) {
           <p>{t("此页只读。退役、清理与恢复仍需在所属业务维护入口核对并明确确认。")}</p>
         </section>
       )}
-    </section>
+    </SettingsSection>
   );
 }

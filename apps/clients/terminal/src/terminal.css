@@ -51,14 +51,6 @@
   flex: 1;
   min-height: 100px;
 }
-.terminal-setting {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  max-width: 520px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line);
-}
 .terminal-tasks {
   height: 110px;
   flex-shrink: 0;
@@ -84,38 +76,6 @@
   .futures-fields {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
-}
-
-.service-connections {
-  max-width: 960px;
-}
-.service-connections p {
-  margin: 10px 0;
-  line-height: 1.6;
-}
-.service-connections fieldset {
-  min-width: 0;
-  border: 1px solid var(--line);
-  margin: 16px 0;
-  padding: 16px;
-}
-.service-connections .futures-fields label {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-.service-connections input {
-  width: 100%;
-  min-width: 0;
-}
-.service-connections details {
-  margin-top: 18px;
-}
-.service-connections details .futures-fields {
-  grid-template-columns: 1fr;
-}
-.service-connections .source-actions {
-  margin-top: 16px;
 }
 
 .error-diagnostic {
@@ -227,30 +187,10 @@
 .settings-content {
   padding: 18px 22px;
 }
-.settings-content h1 {
-  background: transparent;
-  font-size: 16px;
-  letter-spacing: 0;
-  padding: 0 0 16px;
-  margin: 0 0 12px;
-  border-bottom: 1px solid var(--line);
-}
-.settings-content .terminal-setting {
-  max-width: 580px;
-  min-height: 64px;
-}
-.settings-content details {
-  margin-top: 24px;
-  color: var(--muted);
-}
-
 .settings-sidebar nav button {
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.5;
-}
-.settings-content details {
-  margin-bottom: 16px;
 }
 
 .terminal-business > section > .panel-heading,

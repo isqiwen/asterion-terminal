@@ -3,12 +3,13 @@ import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { ServiceActionDialog } from "./ServiceActionDialog";
-import { binding, kindLabels, serviceStatus, t, type Service } from "./service-state";
+import { SettingsSection } from "./Section";
+import { kindLabels, serviceStatus, t, type Service } from "./service-state";
 type Action = "stop" | "restart";
 type Pending = { service: string; revision: string; action: Action };
 const actionLabels: Record<Action, string> = { stop: "停止服务", restart: "重启服务" };
 const active = ["queued", "running", "cancel_requested", "publishing"];
-// The services the Terminal runs on this machine. They start with it and exit
+// The services the Terminal runs on this machine, one of each kind. They start with it and exit
 // with it; a stopped service stays stopped until started here.
 export function Connections({
   snapshot,
@@ -43,88 +44,107 @@ export function Connections({
       : [];
   const open = tasks(target);
   return (
-    <section className="service-connections" aria-label={t("本机服务")}>
-      <p className="subtle">
-        {t("本机服务由 Terminal 启动，随 Terminal 退出。停止的服务保持停止，直到在此启动。")}
-      </p>
-      {error && (
-        <p role="alert">
-          <ErrorNotice error={error} namespace="host" />
-        </p>
-      )}
-      <div className="managed-services" role="list" aria-label={t("服务列表")}>
-        {services.map(service => (
-          <section
-            className="managed-service"
-            role="listitem"
-            aria-label={service.id}
-            key={service.id}
-          >
-            <div className="deployment-heading">
-              <div>
-                <strong>{t(kindLabels[service.kind])}</strong>
-                <p className="subtle">
-                  {service.id} · {node && serviceStatus(node, service)}
-                  {binding(snapshot, service.kind)?.service === service.id && " · " + t("当前使用")}
-                </p>
-              </div>
-              <div className="managed-service-actions">
-                {service.desired_running ? (
-                  <>
+    <>
+      <SettingsSection
+        title={t("服务")}
+        label={t("本机服务")}
+        description={t(
+          "本机服务由 Terminal 启动，随 Terminal 退出。停止的服务保持停止，直到在此启动。",
+        )}
+      >
+        {error && (
+          <p className="alert" role="alert">
+            <ErrorNotice error={error} namespace="host" />
+          </p>
+        )}
+        <div className="settings-list" role="list" aria-label={t("服务列表")}>
+          {services.map(service => (
+            <section
+              className="settings-item"
+              role="listitem"
+              aria-label={service.id}
+              key={service.id}
+            >
+              <div className="settings-item-row">
+                <div>
+                  <h3>{t(kindLabels[service.kind])}</h3>
+                  <p>{node && serviceStatus(node, service)}</p>
+                </div>
+                <div className="settings-actions">
+                  {service.desired_running ? (
+                    <>
+                      <button
+                        disabled={busy || service.state !== "running"}
+                        onClick={() =>
+                          setPending({
+                            service: service.id,
+                            revision: service.revision,
+                            action: "restart",
+                          })
+                        }
+                      >
+                        {t("重启")}
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          setPending({
+                            service: service.id,
+                            revision: service.revision,
+                            action: "stop",
+                          })
+                        }
+                      >
+                        {t("停止")}
+                      </button>
+                    </>
+                  ) : (
                     <button
+                      className="primary"
                       disabled={busy}
                       onClick={() =>
-                        setPending({
-                          service: service.id,
-                          revision: service.revision,
-                          action: "stop",
-                        })
+                        void run("node.action", { service: service.id, action: "start" })
                       }
                     >
-                      {t("停止")}
+                      {t("启动")}
                     </button>
-                    <button
-                      disabled={busy || service.state !== "running"}
-                      onClick={() =>
-                        setPending({
-                          service: service.id,
-                          revision: service.revision,
-                          action: "restart",
-                        })
-                      }
-                    >
-                      {t("重启")}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void run("node.action", { service: service.id, action: "start" })
-                    }
-                  >
-                    {t("启动")}
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-            <details>
-              <summary>{t("技术详情")}</summary>
-              <p>
-                PID {service.pid} · {service.endpoint}
-              </p>
-              <p>
-                {t("自动重启")} {service.restarts}/3
-              </p>
-              <p>{service.directory}</p>
-              <p>{service.error}</p>
-            </details>
-          </section>
-        ))}
-        {!services.length && (
-          <p className="subtle">{t("尚无本机服务；使用相应功能时自动启动。")}</p>
-        )}
-      </div>
+              <details>
+                <summary>{t("技术详情")}</summary>
+                <dl>
+                  <dt>{t("服务名")}</dt>
+                  <dd>
+                    <code>{service.id}</code>
+                  </dd>
+                  <dt>PID</dt>
+                  <dd>{service.pid || "—"}</dd>
+                  <dt>{t("套接字")}</dt>
+                  <dd>
+                    <code>{service.endpoint}</code>
+                  </dd>
+                  <dt>{t("数据目录")}</dt>
+                  <dd>
+                    <code>{service.directory}</code>
+                  </dd>
+                  <dt>{t("自动重启")}</dt>
+                  <dd>{service.restarts}/3</dd>
+                  {service.error && (
+                    <>
+                      <dt>{t("最近错误")}</dt>
+                      <dd>{service.error}</dd>
+                    </>
+                  )}
+                </dl>
+              </details>
+            </section>
+          ))}
+          {!services.length && (
+            <p className="settings-hint">{t("尚无本机服务；使用相应功能时自动启动。")}</p>
+          )}
+        </div>
+      </SettingsSection>
       {pending && (
         <ServiceActionDialog
           title={t(actionLabels[pending.action])}
@@ -168,6 +188,6 @@ export function Connections({
           )}
         </ServiceActionDialog>
       )}
-    </section>
+    </>
   );
 }

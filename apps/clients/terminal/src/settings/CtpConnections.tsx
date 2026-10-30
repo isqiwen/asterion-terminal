@@ -5,6 +5,7 @@ import type { CtpConnection, Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
+import { SettingsSection } from "./Section";
 const t = (key: string) => translate("host", key);
 const blank = {
   name: "",
@@ -14,8 +15,9 @@ const blank = {
   trade_front: "",
   market_front: "",
 };
-// One place for the counter accounts the broker issues. Each can trade on the
-// Trading page; exactly one of them supplies market data.
+// The broker accounts the Terminal logs in to for market data and the contract
+// catalog; exactly one of them supplies market data. Trading accounts belong
+// to the trading hosts.
 export function CtpConnections({
   snapshot,
   busy,
@@ -79,9 +81,25 @@ export function CtpConnections({
     </label>
   );
   return (
-    <section className="settings-cards" aria-label={t("CTP 行情账户")}>
-      <h3>{t("CTP 行情账户")}</h3>
-      <p>{t("仅供行情登录和合约目录查询，交易账户由交易服务配置。")}</p>
+    <SettingsSection
+      title={t("账户")}
+      label={t("CTP 行情账户")}
+      description={t(
+        "用于登录行情和查询合约目录，其中一个账户提供行情。交易账户在交易主机上配置，见交易连接。",
+      )}
+      actions={
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => {
+            edit(null);
+            setAdding(true);
+          }}
+        >
+          {t("添加账户")}
+        </button>
+      }
+    >
       {unreadable.map(entry => (
         <section className="settings-card" key={entry.id} aria-label={entry.name}>
           <header>
@@ -105,7 +123,7 @@ export function CtpConnections({
             <dd>{connection.user_id}</dd>
             <dt>AppID</dt>
             <dd>{connection.app_id}</dd>
-            <dt>{t("交易前置")}</dt>
+            <dt>{t("交易前置（合约目录）")}</dt>
             <dd>{connection.trade_front}</dd>
             <dt>{t("行情前置")}</dt>
             <dd>{connection.market_front}</dd>
@@ -153,18 +171,8 @@ export function CtpConnections({
         </section>
       ))}
       {!adding && !connections.length && !unreadable.length && (
-        <p className="workflow-empty">{t("还没有 CTP 账户。")}</p>
+        <p className="settings-hint">{t("还没有 CTP 账户。")}</p>
       )}
-      <button
-        className="primary"
-        disabled={busy}
-        onClick={() => {
-          edit(null);
-          setAdding(true);
-        }}
-      >
-        {t("添加账户")}
-      </button>
       {adding && (
         <SettingsDialog
           title={t(editing ? "编辑账户" : "新建账户")}
@@ -236,6 +244,6 @@ export function CtpConnections({
           <ErrorNotice error={error} />
         </p>
       )}
-    </section>
+    </SettingsSection>
   );
 }

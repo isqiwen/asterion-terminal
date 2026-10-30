@@ -53,7 +53,7 @@ systemd 通过 `LoadCredentialEncrypted` 解密提供给该进程；服务缺少
 安装脚本采集这些参数，修改时显示当前值。有交易记录的实例不能更换账户或柜台环境：
 脚本拒绝覆盖，直接编辑文件后服务也会对照原记录拒绝启动，并报告配置文件路径；不会改写或迁移账本。
 
-Terminal 在“设置 → CTP 账户”的交易连接区域生成客户端证书并显示 SHA-256 指纹。
+Terminal 在“设置 → 交易连接”生成客户端证书并显示 SHA-256 指纹。
 证书与私钥保存在 `terminal/data/tls/client.crt`、`client.key`，私钥不进入界面快照。
 将客户端指纹写入交易实例配置的 `terminals`，再在 Terminal 添加连接名称、主机地址、端口、实例名和服务端指纹。
 连接配置保存在 `terminal/data/trading-connections/`，不重复保存服务端的 CTP 账户参数。
