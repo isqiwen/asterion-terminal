@@ -116,6 +116,12 @@ jobs:
           path: build/Release/deployment/*.zip
       # The recording host's own release, one self-extracting script, apart
       # from the services Terminal deploys.
+      - run: cmake --build build/Release --target asterion_trading_setup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trading-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: build/Release/asterion-trading-setup.sh
       - run: cmake --build build/Release --target asterion_recorder_setup
       - name: Verify the recorder
         run: |
@@ -183,9 +189,10 @@ jobs:
           if-no-files-found: error
           path: build/desktop-test/*.dmg
 
-  # The browser suite is platform-neutral and stays on the macOS job: each of
-  # its spec files copies the service programs, which with embedded Linux
-  # debug information takes tens of gigabytes of temporary space.
+  # The browser suite stays on the macOS job: each of its spec files copies the
+  # service programs, which with embedded Linux debug information takes tens of
+  # gigabytes of temporary space. Only the @trading tests run here, because the
+  # trading service runs on Linux only and they skip elsewhere.
   terminal-linux:
     needs: [style, core, core-sanitizers, remote-linux]
     runs-on: ubuntu-24.04
@@ -224,6 +231,9 @@ jobs:
       - name: Build and link native desktop
         run: python scripts/desktop/desktop.py check --prepare-python
       - run: ctest --preset conan-debug --output-on-failure
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Trading browser tests
+        run: pnpm run test:e2e --grep @trading
       - name: Exercise native Electron host
         run: xvfb-run -a pnpm test:desktop
       - name: Build isolated acceptance package

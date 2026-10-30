@@ -6,7 +6,6 @@ import signal
 import select
 import shutil
 import socket
-import ssl
 import struct
 import subprocess
 import sys
@@ -22,7 +21,7 @@ if sys.platform != "linux":
     print("Remote deployment integration runs on Linux; local lifecycle is tested separately")
     raise SystemExit(77)
 
-bridge, node, trading, certificates = map(str, sys.argv[1:])
+bridge, node, trading = map(str, sys.argv[1:])
 def call(process, method, params=None, error=False, timeout=None):
     if method.startswith("task."):
         owner = call(process, "runtime.snapshot")["research_service"]
@@ -58,12 +57,11 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
     root = Path(folder); state = root / "node"
     shutil.copytree(Path(node).resolve().parent / "config", state / "agent/config")
     (state / "agent/config/research.json").write_text(json.dumps({"task_concurrency": 2}))
-    subprocess.run([certificates, folder], check=True)
     management, trade_port = port(), port()
     while trade_port == management:
         trade_port = port()
     transport_log = state / "agent/logs/asterion_node_agent.log"
-    args = [str(install_agent(state, node)), "--bind", "127.0.0.1", "--port", str(management), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
+    args = [str(install_agent(state, node)), "--bind", "127.0.0.1", "--port", str(management)]
     def launch_node():
         p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def listening():
@@ -77,12 +75,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         return p
     agent = launch_node()
     enrollment = root / "local/manager/data/enrollments/task"; enrollment.mkdir(parents=True)
-    for file in ("ca.crt", "client.crt", "client.key"): shutil.copyfile(root / file, enrollment / file)
     (enrollment / "enrollment.json").write_text(json.dumps({"id": "task", "host": "localhost", "port": management, "os": "linux"}))
     resources=make_bundle(root / "resources", Path(node).resolve().parent, strip_debug=True)
     terminal = subprocess.Popen([bridge], env=dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_ROOT=str(root / "local")), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
     try:
-        connection = {"id": "task", "host": "localhost", "port": str(management), "ca_file": str(root / "ca.crt"), "certificate_file": str(root / "client.crt"), "private_key_file": str(root / "client.key")}
         first = call(terminal, "node.connect", {"id": "task"})["nodes"][0]
         assert first["state"] == "online" and first["health"]["services"] == []
         # Invalid transfer cannot publish a runnable artifact.
@@ -97,12 +93,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             if isinstance(value, str):
                 value = value.encode()
             return varint((number << 3) | 2) + varint(len(value)) + value
-        ctx = ssl.create_default_context(cafile=connection["ca_file"])
-        ctx.load_cert_chain(connection["certificate_file"], connection["private_key_file"])
         def rpc(operation, payload):
             request = field(1, 1) + field(2, "test-transfer") + field(operation, payload)
-            with socket.create_connection(("127.0.0.1", management), timeout=5) as sock, ctx.wrap_socket(sock, server_hostname="localhost") as channel:
-                channel.sendall(struct.pack("!I", len(request)) + request)
+            with socket.create_connection(("127.0.0.1", management), timeout=5) as channel:
+                channel.sendall(b"ASTR" + struct.pack("!I", len(request)) + request)
                 def read(size):
                     data = b""
                     while len(data) < size:
@@ -116,9 +110,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert not list((state / "agent/data/artifacts").iterdir())
         assert b"invalid service id" in rpc(14, field(1, "../escape") + field(2, digest) + field(3, trade_port))
         # No UI/API polling for > one heartbeat period: native monitor must run.
-        time.sleep(6)
-        assert call(terminal, "runtime.snapshot")["nodes"][0]["last_heartbeat_ms"] > first["last_heartbeat_ms"]
-        spec = {"kind":"live", "id": "task", "service": "account-test", "port": str(trade_port)}
+        wait(lambda: call(terminal, "runtime.snapshot")["nodes"][0]["last_heartbeat_ms"] > first["last_heartbeat_ms"], 12)
+        spec = {"kind":"market", "id": "task", "service": "account-test", "port": str(trade_port)}
         call(terminal, "node.deploy", {**spec, "os": "invalid"}, error=True)
         assert not list((state / "agent/data/services").iterdir())
         deployed = call(terminal, "node.deploy", spec)["nodes"][0]["health"]["services"][0]
@@ -132,13 +125,13 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert not (state/"agent/data/firewall").exists(), "inspection must not register rules"
         call(terminal, "node.deploy", spec, error=True)  # No replacement of an existing ledger.
         wait(lambda: (state / "agent/data/services/account-test/service.json").exists())
-        def trading_listening():
+        def market_listening():
             try:
                 with socket.create_connection(("127.0.0.1", trade_port), timeout=0.1):
                     return True
             except OSError:
                 return False
-        wait(trading_listening)
+        wait(market_listening)
         def account_service(node):
             return next(s for s in node["health"]["services"] if s["id"] == "account-test")
         # The paired Data service owns archived bars. The test-only provider
@@ -168,7 +161,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             # What data.dataset.select takes of what the fixture program prints.
             return {key: value for key, value in json.loads(seeded.stdout).items()
                     if key in {"source_dataset_ids", "daily", "begin_day", "end_day"}}
-        # A deployed CTP account service waits for its account.
+        # A deployed market service waits for its credentials.
         wait(lambda: account_service(call(terminal, "runtime.snapshot")["nodes"][0])["health"] == "awaiting_input")
         old_pid = deployed["pid"]
         os.kill(old_pid, signal.SIGKILL)
@@ -192,7 +185,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         with catalog_source.open("ab") as file: file.write(b"unused source corruption")
         try:
             call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "start"})
-            wait(trading_listening)
+            wait(market_listening)
         finally:
             with catalog_source.open("r+b") as file: file.truncate(source_size)
         # Agent crash makes status unknown, its owned child exits; restart loads desired state.
@@ -201,7 +194,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         agent = launch_node()
         recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and account_service(n)["state"] == "running" else None), 25)
         assert recovered["health"]["instance_id"] != first["health"]["instance_id"]
-        wait(trading_listening)
+        wait(market_listening)
         call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "stop"})
         # A port conflict reaches a bounded failure; no infinite restart storm.
         with socket.socket() as occupied:

@@ -94,7 +94,7 @@ JournalEntry command_body(const AccountRequest& request, std::string_view policy
 
 Json account_manifest(const Json& header)
 {
-    require_fields(header, {"risk_artifact", "manifest", "account_id", "policy_revision"});
+    require_fields(header, {"manifest", "account_id", "policy_revision"});
     validate_id(text(header, "account_id"));
     validate_id(text(header, "policy_revision"));
     auto manifest = protocol::decode_live_input(protocol::encode_live_input(header.at("manifest")));
@@ -157,10 +157,8 @@ AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command
             result.operation = ResolveOrder{required_text(command.live_resolve().order_id())};
             break;
         case protocol::proto::Command::kLivePolicy:
-            result.operation = ChangePolicy{
-                PolicyDefinition::from_wire(command.live_policy().policy()),
-                required_text(command.live_policy().risk_artifact())
-            };
+            result.operation =
+                ChangePolicy{PolicyDefinition::from_wire(command.live_policy().policy())};
             break;
         default:
             throw std::invalid_argument("unsupported live trading operation");
@@ -259,23 +257,12 @@ JournalRecord parse_record(const Json& record)
     if (!record.is_object() || !record.contains("command"))
         throw std::invalid_argument("invalid live trading record");
     const auto& command = record.at("command");
-    CommandRecord result{
-        AccountRequest::from_record(command),
-        text(record, "policy_revision"),
-        {},
-        {},
-        {},
-        {}
-    };
-    if (const auto* policy = result.request.as<ChangePolicy>()) {
-        require_fields(
-            record,
-            {"command", "policy_revision", "new_policy_revision", "risk_artifact"});
+    CommandRecord
+        result{AccountRequest::from_record(command), text(record, "policy_revision"), {}, {}, {}};
+    if (result.request.as<ChangePolicy>()) {
+        require_fields(record, {"command", "policy_revision", "new_policy_revision"});
         result.new_policy_revision = text(record, "new_policy_revision");
         validate_id(result.new_policy_revision);
-        result.risk_artifact = text(record, "risk_artifact");
-        if (policy->risk_artifact != result.risk_artifact)
-            throw std::invalid_argument("policy algorithm does not match its recorded artifact");
     } else if (result.request.as<Authorize>())
         require_fields(record, {"command", "policy_revision", "authorization"});
     else if (result.request.as<SubmitOrder>()) {
@@ -312,12 +299,10 @@ JournalEntry submission_entry(
 JournalEntry policy_entry(
     const AccountRequest& request,
     std::string_view policy_revision,
-    std::string_view new_policy_revision,
-    std::string_view risk_artifact)
+    std::string_view new_policy_revision)
 {
     auto result = command_body(request, policy_revision);
     result.body["new_policy_revision"] = new_policy_revision;
-    result.body["risk_artifact"] = risk_artifact;
     return result;
 }
 

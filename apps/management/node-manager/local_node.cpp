@@ -69,7 +69,7 @@ std::optional<NodeEndpoint> local_endpoint(const fs::path& root, bool create)
             || (st.st_mode & 077) != 0))
         throw std::runtime_error("Agent socket directory is not private");
     const auto endpoint = (sockets / "node.sock").string();
-    return NodeEndpoint{"local", "localhost", 0, {}, endpoint};
+    return NodeEndpoint{"local", "localhost", 0, endpoint};
 }
 
 } // namespace
@@ -99,7 +99,7 @@ void shutdown_development_node(ServiceIo& io)
     const auto installed = root / "bin" / "asterion_node_agent";
     std::shared_ptr<AgentClient> control;
     try {
-        control = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+        control = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
     } catch (const Error&) {
         // A disconnected socket does not prove the Agent stopped.
         {

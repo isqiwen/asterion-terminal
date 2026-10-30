@@ -2,7 +2,6 @@ add_library(asterion_node_management STATIC
   agent_client.cpp
   local_node.cpp
   node_program.cpp
-  node_identity.cpp
   node_enrollment.cpp
   manager.cpp
 )

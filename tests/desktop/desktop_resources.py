@@ -31,18 +31,18 @@ with tempfile.TemporaryDirectory() as temporary:
     else:
         raise AssertionError("unlisted resource accepted")
     (destination / "unlisted").unlink()
-    (build / "asterion_trading").unlink()
-    before = (destination / "asterion_trading").read_bytes()
+    (build / "asterion_market").unlink()
+    before = (destination / "asterion_market").read_bytes()
     try:
         desktop.stage_native_resources(build, destination)
     except ValueError:
         pass
     else:
         raise AssertionError("missing current executable accepted")
-    assert (destination / "asterion_trading").read_bytes() == before
+    assert (destination / "asterion_market").read_bytes() == before
     outside = root / "outside"
     outside.write_bytes(b"preserve")
-    (build / "asterion_trading").symlink_to(outside)
+    (build / "asterion_market").symlink_to(outside)
     try:
         desktop.stage_native_resources(build, destination)
     except ValueError:

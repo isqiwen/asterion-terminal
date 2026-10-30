@@ -36,14 +36,13 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
           endpoint(std::move(value))
     {
         validate_id(endpoint.id);
-        // TLS identity files are prepared before the connection is handed to I/O.
         for (auto& transport : transports)
             transport = endpoint.endpoint.empty()
                 ? std::make_unique<ipc::RpcClient>(
                       io.reactor(),
                       endpoint.host,
                       endpoint.port,
-                      endpoint.tls,
+                      ipc::TlsIdentity{},
                       1,
                       io.payload_budget(ServiceIo::PayloadLane::administration),
                       2 * 1024 * 1024)
@@ -348,7 +347,6 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                 local ? "" : endpoint.host,
                 service.id(),
                 local ? std::uint16_t(0) : static_cast<std::uint16_t>(service.port()),
-                local ? ipc::TlsIdentity{} : endpoint.tls,
                 local ? service.endpoint() : ""
             };
             result.push_back(
@@ -405,7 +403,6 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                     endpoint.host,
                     service,
                     static_cast<std::uint16_t>(s.port()),
-                    endpoint.tls,
                     s.endpoint(),
                     "local",
                     observed.node_id()
@@ -431,8 +428,7 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             if (existing.id() == service)
                 throw std::invalid_argument(
                     "service already exists; its program and ledger are not replaced");
-        if (kind != wire::MARKET && kind != wire::RESEARCH && kind != wire::TRADING
-            && kind != wire::DATA)
+        if (kind != wire::MARKET && kind != wire::RESEARCH && kind != wire::DATA)
             throw std::invalid_argument("invalid service kind");
         const auto hash = (co_await upload_artifact(path, os, arch, stop));
         const auto library = programs.provider.empty()
@@ -450,13 +446,12 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             programs.catalog.empty()
                 ? std::string{}
                 : (co_await upload_artifact(programs.catalog, os, arch, stop)));
-        const bool risk = kind == wire::TRADING;
-        if ((kind == wire::RESEARCH || kind == wire::DATA || risk) && deployment.plugins) {
+        if ((kind == wire::RESEARCH || kind == wire::DATA) && deployment.plugins) {
             for (const auto& artifact : *deployment.plugins) {
                 d->add_plugin_artifacts(
                     co_await upload_artifact(artifact.path, os, arch, stop, artifact.sha256));
             }
-        } else if (kind == wire::RESEARCH || kind == wire::DATA || risk) {
+        } else if (kind == wire::RESEARCH || kind == wire::DATA) {
             const auto paths = co_await io.admin<std::vector<std::filesystem::path>>([&] {
                 auto folder = path.parent_path() / "plugins";
                 if (os == current_platform().os && arch == current_platform().arch)
@@ -466,15 +461,12 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
                         "native plugin directory is missing from service bundle");
                 std::vector<std::filesystem::path> result;
                 for (const auto& entry : std::filesystem::directory_iterator(folder))
-                    if (entry.path().extension() == (os == "macos" ? ".dylib" : ".so")
-                        && (!risk || entry.path().stem() == "asterion_order_limits"))
+                    if (entry.path().extension() == (os == "macos" ? ".dylib" : ".so"))
                         result.push_back(entry.path());
                 return result;
             });
             for (const auto& candidate : paths)
                 d->add_plugin_artifacts(co_await upload_artifact(candidate, os, arch, stop));
-            if (risk && d->plugin_artifacts_size() != 1)
-                throw std::invalid_argument("pre-trade risk plugin is unavailable");
             std::sort(d->mutable_plugin_artifacts()->begin(), d->mutable_plugin_artifacts()->end());
         }
         (co_await exchange(std::move(deploy), stop));
@@ -566,79 +558,6 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
             configuration->add_artifacts(hash);
         (co_await exchange(request, stop));
         co_await refresh_after_acknowledgement(stop);
-    }
-
-    PolledTask<ServiceEndpoint>
-    local_session(const std::filesystem::path& directory, std::stop_token stop)
-    {
-        const auto kind = wire::TRADING;
-        if (endpoint.endpoint.empty())
-            throw std::invalid_argument("local Agent required");
-        const auto value = co_await io.admin<std::string>([&] {
-            if (!directory.is_absolute() || !std::filesystem::is_directory(directory)
-                || std::filesystem::is_symlink(directory))
-                throw std::invalid_argument("choose an existing absolute trading record directory");
-            check_journal_directory(directory, {"plugins", "ctp-flow", "archives", "facts"});
-            const auto path = std::filesystem::canonical(directory).u8string();
-            return std::string(path.begin(), path.end());
-        });
-        std::string service;
-        {
-            const auto observed = (co_await ready(stop));
-            for (const auto& s : observed.services())
-                if (s.directory() == value) {
-                    if (s.kind() != kind)
-                        throw std::invalid_argument("this directory belongs to another service");
-                    service = s.id();
-                    break;
-                }
-        }
-        if (service.empty()) {
-            service = "live-" + unique_process_id();
-            (co_await deploy(
-                {.service = service,
-                    .kind = kind,
-                    .platform = current_platform(),
-                    .programs = co_await io.admin<ServicePrograms>([&] {
-                        return local_service_programs(kind);
-                    }),
-                    .directory = value},
-                stop));
-        } else
-            (co_await action(service, "start", stop));
-        co_return co_await wait_trading(service, stop);
-    }
-
-    PolledTask<ServiceEndpoint> trading_session(const std::string& service, std::stop_token stop)
-    {
-        const auto observed = co_await ready(stop);
-        const auto found = std::ranges::find(observed.services(), service, &wire::Service::id);
-        if (found == observed.services().end() || found->kind() != wire::TRADING)
-            throw std::invalid_argument("choose a deployed trading service instance");
-        co_await action(service, "start", stop);
-        co_return co_await wait_trading(service, stop);
-    }
-
-    PolledTask<ServiceEndpoint> wait_trading(const std::string& service, std::stop_token stop)
-    {
-        // Process creation is not listener readiness. The Agent's first health
-        // response confirms this process generation has bound its service channels.
-        // Wait here, before any account creation or trading command is submitted.
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
-        for (;;) {
-            const auto address = (co_await service_endpoint(service, wire::TRADING, stop));
-            const auto status = snapshot();
-            for (const auto& item : status.health->services())
-                if (item.id() == service && item.last_heartbeat_ms()
-                    && item.health() != "unresponsive")
-                    co_return address;
-            if (std::chrono::steady_clock::now() >= deadline)
-                throw Error(ErrorCode::unavailable, "trading service did not become reachable");
-            const auto next = std::chrono::steady_clock::now() + 100ms;
-            co_await PollUntil{[&] {
-                return stopped(stop) || std::chrono::steady_clock::now() >= next;
-            }};
-        }
     }
 
     PolledTask<ServiceEndpoint> local_market(std::stop_token stop)
@@ -772,17 +691,16 @@ struct AgentClient::Impl : std::enable_shared_from_this<Impl>
         if (plan.state() == "applied") {
             const auto reachable = co_await io.admin<bool>([&] {
                 try {
-                    auto channel = ipc::TlsChannel::connect(
+                    auto channel = ipc::TcpChannel::connect(
                         endpoint.host,
                         static_cast<unsigned short>(plan.port()),
-                        endpoint.tls,
                         3s);
                     return true;
                 } catch (const std::exception&) {
                     return false;
                 }
             });
-            result["verification"] = reachable ? "tls_reachable" : "unreachable";
+            result["verification"] = reachable ? "reachable" : "unreachable";
         }
         co_return result;
     }
@@ -937,24 +855,6 @@ std::future<void> AgentClient::configure_plugins(
     return impl_->submit<void>(
         [state = impl_, service, revision, hashes](std::stop_token stop) {
             return state->configure_plugins(service, revision, hashes, stop);
-        },
-        true);
-}
-
-std::future<ServiceEndpoint> AgentClient::local_session(const std::filesystem::path& directory)
-{
-    return impl_->submit<ServiceEndpoint>(
-        [state = impl_, directory](std::stop_token stop) {
-            return state->local_session(directory, stop);
-        },
-        true);
-}
-
-std::future<ServiceEndpoint> AgentClient::trading_session(const std::string& service)
-{
-    return impl_->submit<ServiceEndpoint>(
-        [state = impl_, service](std::stop_token stop) {
-            return state->trading_session(service, stop);
         },
         true);
 }

@@ -16,7 +16,7 @@ namespace asterion::trading {
 // One live CTP account session in a dedicated directory. The broker owns the
 // ledger; the session owns the execution chain in front of it: the owner's
 // authorization, the contract allowlist and exchange units, the pinned
-// pre-trade risk plugin, and a durable record of every order before it is
+// pre-trade risk policy, and a durable record of every order before it is
 // sent. Orders are never resent: after a crash or disconnect the recorded
 // broker keys only attribute broker reports. The authorization outlives a
 // connection; what was recorded for sending never does.
@@ -198,7 +198,7 @@ private:
         return result;
     }
 
-    // Declared first: ownership outlives the SDK, risk plugin and journal.
+    // Declared first: ownership outlives the SDK, risk policy and journal.
     std::unique_ptr<FileLock> account_owner_;
     // Delivers a completion to the account loop from another thread.
     AccountJournal::Post post_;

@@ -22,7 +22,8 @@ phase and its work packages:
   research and data acquisition.
 - Strategies output target positions or weights and never send orders. The C++
   kernel converts targets into orders and enforces [docs/safety.md](docs/safety.md).
-- Work only on the active phase. Parts the plan replaces (Data, Research, the
+- The user-approved M1.9 consolidates extension boundaries and engineering structure.
+  Work only on the active phase. Parts the plan replaces (Data, Research, the
   shared task store, the C++ rule strategies, Node Manager and SSH
   orchestration, the Node-API layer and hand-written JSON mappings) get the
   fixes the active phase needs, never new features.
@@ -34,22 +35,30 @@ phase and its work packages:
 ## Architecture (current code)
 
 - Core layers, lowest first: `asterion_foundation` → `asterion_kernel` →
-  `asterion_domain`. Dependencies point down. Providers, storage, strategies and
-  risk algorithms live in `plugins/` (trusted in-process code, not a sandbox).
+  `asterion_domain`. Dependencies point down. Implementation belongs to its owning application;
+  genuinely shared service code lives in `apps/services/common/`. Shared database
+  access and built-in order limits live in `core/`; third-party data-source
+  implementations live in `extensions/`. Python strategy extension is M2.1. Factors are reusable
+  research functions/packages, not a separate plugin system.
 - Business services (`apps/services/`): Market, Data, Research and Trading
   (one process per account). Each owns its state and runs its own tasks
   in bounded thread pools. There is no central task service or worker process.
 - Management (`apps/management/`): Node Manager (on the Terminal machine) owns
   node registration and Agent connections; Node Agent (on every node) supervises
   that node's service processes. Both are supervised by the OS service manager.
-  Neither proxies business traffic: Terminal connects to services directly.
-- IPC: Protobuf from `protocol/proto/`; Unix sockets locally, TCP + mTLS remotely.
-- Terminal: Electron + React UI (`apps/clients/terminal/src`, `plugins/`), C++
+  Trading and Recorder are independent Linux installations supervised by systemd.
+  Neither management process proxies business traffic: Terminal connects directly.
+- IPC: Protobuf from `protocol/proto/`; Unix sockets locally, plain TCP with the
+  `ASTR` preface on the LAN, and pinned mutual TLS for all Trading connections.
+- Terminal: Electron + React UI (`apps/clients/terminal/src`, `features/`), C++
   orchestration in `apps/clients/terminal/native/`. The installer is in
   `apps/clients/installer/`.
 - Configuration: defaults in repository `config/`, copied once at deployment to
-  `<node>/config/`. The recorder, which belongs to no node, keeps its defaults
-  in `apps/services/recorder/config/`. Services only read configuration;
+  `<node>/config/`. Independent Trading and Recorder setup scripts own their
+  defaults and generate actual configuration at installation; no default JSON
+  files are shipped. Trading creates `config/accounts/<account>.json`, Recorder
+  creates `config/recorder.json`, and both create `config/logging.json`. Upgrades
+  preserve existing configuration. Services only read configuration;
   missing or invalid configuration fails with its path.
 
 Details: [docs/architecture.md](docs/architecture.md).
@@ -61,12 +70,15 @@ The full contract is [docs/safety.md](docs/safety.md). Its core:
 - Market and historical data come from real providers. Never fabricate market
   data; fixtures are for tests only.
 - Live trading requires authorization, account risk controls and the single
-  execution path. Missing risk configuration or plugins rejects execution.
+  execution path. Missing or invalid risk configuration rejects execution. Risk rules are compiled
+  into Trading and Research; ledgers record policy parameters and changes, never algorithm copies.
 - Never resend a trading command automatically after a disconnect or an unknown
   outcome.
 - Credentials are entered locally and never stored in source, logs, chat,
   configuration files or UI storage. Saved market-data credentials live in the
-  OS keychain and are never reused for trading.
+  OS keychain and are never reused for trading. Trading credentials are entered
+  on the trading host and stored per account as systemd encrypted credentials;
+  Terminal never receives them.
 - Never silently rewrite, migrate or delete user ledgers, tasks or datasets.
 
 ## Engineering

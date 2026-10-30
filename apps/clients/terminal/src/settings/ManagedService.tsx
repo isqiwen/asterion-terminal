@@ -23,25 +23,13 @@ export function ManagedService({
 }) {
   const active = matches(binding(snapshot, service.kind), node, service);
   const unavailable = disabled || node.state !== "online" || !!node.health?.maintenance;
-  // A trading service is named after the account it serves,
-  // when this Terminal has that account open.
-  const account = snapshot?.ctp_connections?.find(
-    item =>
-      !("error" in item) && item.trading?.node === node.id && item.trading.service === service.id,
-  )?.name;
   return (
     <section className="managed-service" role="listitem" aria-label={service.id}>
       <div className="deployment-heading">
         <div>
-          <strong>{account ?? service.id}</strong>
+          <strong>{service.id}</strong>
           <p className="subtle">
             {t(kindLabels[service.kind])} · {serviceStatus(node, service)}
-            {account && (
-              <>
-                {" · "}
-                <code>{service.id}</code>
-              </>
-            )}
           </p>
         </div>
         {/* Only what applies now: a stopped service starts, a wanted
@@ -77,7 +65,7 @@ export function ManagedService({
               {t("重启")}
             </button>
           )}
-          {service.kind === "live" ? null : active ? (
+          {active ? (
             <span className="deployment-badge">{t("当前使用")}</span>
           ) : (
             <button

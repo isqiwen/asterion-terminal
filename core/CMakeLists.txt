@@ -20,7 +20,7 @@ add_library(asterion_kernel STATIC
   src/kernel/trace.cpp
   src/kernel/log.cpp
   src/kernel/ipc/local_channel.cpp
-  src/kernel/ipc/tls_channel.cpp
+  src/kernel/ipc/tcp_channel.cpp
   src/kernel/process/child.cpp
   src/kernel/process/artifact.cpp
   src/kernel/process/owner.cpp
@@ -52,3 +52,6 @@ target_link_libraries(asterion_domain PUBLIC Asterion::Kernel)
 asterion_target_defaults(asterion_foundation)
 asterion_target_defaults(asterion_kernel)
 asterion_target_defaults(asterion_domain)
+
+add_subdirectory(storage/sqlite)
+add_subdirectory(risk/order_limits)

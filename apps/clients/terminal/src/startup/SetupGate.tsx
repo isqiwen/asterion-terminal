@@ -6,7 +6,7 @@ import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
 import { LocalLogsButton } from "../host/components/LocalLogsButton";
-import { readableCtpConnection, request } from "../bridge/client";
+import { request } from "../bridge/client";
 import "./setup.css";
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
@@ -133,51 +133,20 @@ export function SetupGate({ children }: { children: ReactNode }) {
       const interrupted =
         (status.research_service?.interrupted_count ?? 0) + (status.data?.interrupted_count ?? 0);
       setStep(3);
-      // Each account that trades has its own service. Starting it only runs
-      // the program: nothing logs in or reaches the counter. An account
-      // whose service does not come up is reported and can be started from
-      // the Trading page; it does not keep the workbench closed.
+      // Reconnect saved accounts; only the trading host can start their services.
       const unopened: string[] = [];
-      for (const account of (status.ctp_connections ?? []).filter(readableCtpConnection)) {
-        if (!account.trading_record) continue;
-        if (account.trading) {
-          const binding = account.trading;
-          const declared = status.nodes
-            .find(node => node.id === binding.node)
-            ?.health?.services.find(
-              service => service.id === binding.service && service.kind === "live",
-            );
-          // Restoring a window must not turn an explicit Agent stop into a start.
-          // Opening from the Trading page remains the user's explicit action.
-          if (declared?.desired_running === false) continue;
-        }
+      for (const account of (status.trading_connections ?? []).filter(item => !("error" in item))) {
         try {
           await request("live.open", { account: account.id });
         } catch {
           unopened.push(account.name);
         }
       }
-      let trading = true;
-      for (const deadline = Date.now() + 20000; ;) {
-        const services =
-          (await request("runtime.snapshot")).nodes
-            .find(n => n.id === "local")
-            ?.health?.services.filter(
-              service => service.kind === "live" && service.desired_running,
-            ) ?? [];
-        if (services.every(service => healthy.includes(service.health))) break;
-        if (Date.now() >= deadline) {
-          trading = false;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
       const pending = [
         ...(marketStopped ? [t("本机行情服务按已保存意图保持停止，数据与研究工作区仍可使用")] : []),
         ...unopened.map(name =>
-          t("账户 {p0} 的交易服务未能启动，可在交易页查看原因并重试", { p0: name }),
+          t("账户 {p0} 的交易服务未能连接，可在交易页查看原因并重试", { p0: name }),
         ),
-        ...(trading ? [] : [t("部分交易服务尚未就绪，可在状态栏查看")]),
         ...invalid.map(plugin =>
           t("插件 {p0} 无法加载，可在设置的插件页查看原因", { p0: plugin.id || plugin.file }),
         ),

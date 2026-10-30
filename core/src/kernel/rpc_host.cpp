@@ -109,15 +109,10 @@ std::vector<Waker*> running;
 
 void Transport::validate() const
 {
-    const bool tls_complete =
-        !tls.ca_file.empty() && !tls.certificate_file.empty() && !tls.private_key_file.empty();
-    const bool tls_empty =
-        tls.ca_file.empty() && tls.certificate_file.empty() && tls.private_key_file.empty();
-    if (remote() ? (!endpoint.empty() || !port || (plaintext ? !tls_empty : !tls_complete))
-                 : (endpoint.empty() || port || !tls_empty || plaintext))
-        throw std::invalid_argument(
-            plaintext ? "plaintext TCP needs --bind/--port and no TLS files"
-                      : "choose --endpoint OR --bind/--port with all three TLS files");
+    if (remote() ? (!endpoint.empty() || !port) : (endpoint.empty() || port || !tls.empty()))
+        throw std::invalid_argument("choose --endpoint OR --bind/--port");
+    if (!tls.empty())
+        ipc::detail::validate_identity(tls);
 }
 
 void install_stop_signals()
@@ -304,23 +299,36 @@ struct RpcHost::Impl
                             self->close();
                             return;
                         }
-                        self->peer.role = ipc::detail::tls_peer_role(self->stream.native_handle());
-                        if (std::ranges::find(self->host.options.roles, self->peer.role)
-                            == self->host.options.roles.end()) {
+                        self->admitted();
+                    });
+            } else if constexpr (std::is_same_v<Stream, Tcp::socket>) {
+                asio::async_read(
+                    stream,
+                    asio::buffer(header),
+                    [self = this->shared_from_this()](asio::error_code error, std::size_t) {
+                        if (self->phase == Phase::closed)
+                            return;
+                        if (error || self->header != ipc::connection_magic) {
                             self->close();
                             return;
                         }
-                        if (self->host.connections(nullptr) - self->host.handshakes
-                            >= self->host.options.connections) {
-                            self->close();
-                            return;
-                        }
-                        --self->host.handshakes;
-                        self->read();
+                        self->admitted();
                     });
             } else {
                 read();
             }
+        }
+
+        // The connection proved what it is (TLS peer or connection magic).
+        void admitted()
+        {
+            if (this->host.connections(nullptr) - this->host.handshakes
+                >= this->host.options.connections) {
+                this->close();
+                return;
+            }
+            --this->host.handshakes;
+            read();
         }
 
         void read()
@@ -472,8 +480,8 @@ struct RpcHost::Impl
                 &endpoint,
                 std::make_shared<PayloadBudget>(PayloadBudget{endpoint.payload_bytes}));
         if (this->transport.remote()) {
-            if (!this->transport.plaintext)
-                tls = ipc::detail::tls_context(this->transport.tls, true);
+            if (!this->transport.tls.empty())
+                tls = ipc::detail::tls_context(this->transport.tls);
             const Tcp::endpoint endpoint(
                 asio::ip::make_address(this->transport.bind),
                 this->transport.port);
@@ -528,7 +536,7 @@ struct RpcHost::Impl
                         ipc::detail::verify_local_peer(socket.native_handle());
                         auto session = std::make_shared<StreamSession<Local::socket>>(
                             *this,
-                            Peer{ipc::PeerRole::local, {}},
+                            Peer{},
                             std::move(socket),
                             Phase::reading,
                             lane);
@@ -550,29 +558,27 @@ struct RpcHost::Impl
             if (!error && handshakes < options.handshakes
                 && connections(nullptr) < options.connections + options.handshakes) {
                 asio::error_code ignored;
-                Peer peer{
-                    ipc::PeerRole::unknown,
-                    socket.remote_endpoint(ignored).address().to_string()
-                };
-                if (!tls) {
-                    // No handshake: the service authenticates each request itself.
-                    auto session = std::make_shared<StreamSession<Tcp::socket>>(
-                        *this,
-                        std::move(peer),
-                        std::move(socket),
-                        Phase::reading);
-                    sessions.push_back(session);
-                    session->start();
-                } else {
-                    auto session = std::make_shared<StreamSession<Tls>>(
-                        *this,
-                        std::move(peer),
-                        Tls(std::move(socket), *tls),
-                        Phase::handshake);
+                Peer peer{socket.remote_endpoint(ignored).address().to_string()};
+                // Until the TLS handshake or the connection magic completes.
+                const auto begin = [this](auto session) {
                     ++handshakes;
                     sessions.push_back(session);
                     session->start();
-                }
+                };
+                if (tls)
+                    begin(
+                        std::make_shared<StreamSession<Tls>>(
+                            *this,
+                            std::move(peer),
+                            Tls(std::move(socket), *tls),
+                            Phase::handshake));
+                else
+                    begin(
+                        std::make_shared<StreamSession<Tcp::socket>>(
+                            *this,
+                            std::move(peer),
+                            std::move(socket),
+                            Phase::handshake));
             }
             accept_tcp();
         });

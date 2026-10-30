@@ -24,7 +24,7 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await expect(
     page
       .getByRole("table", { name: "原生插件目录" })
-      .getByText("asterion.risk.order-limits", { exact: true }),
+      .getByText("asterion.data.tushare", { exact: true }),
   ).toBeVisible();
   page = await closeSettingsWindow(page);
   await openView(page, "watchlist");

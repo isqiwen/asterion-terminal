@@ -41,7 +41,7 @@ flowchart TB
   OS[本机 systemd 或 launchd] -.独立监督.-> M
   OS -.独立监督.-> A[本机 Node Agent]
   M -->|Unix socket| A
-  M -->|TCP 与 mTLS| R[远程 Node Agent]
+  M -->|局域网 TCP| R[远程 Node Agent]
   ROS[远程 systemd] -.监督.-> R
   M -->|SSH 与受限主机操作| H[远程维护边界]
   H -->|注册 启停 移除 Agent 单元| ROS
@@ -64,8 +64,9 @@ flowchart TB
 | 安装器 | 本机安装登记、程序发布及安装维护流程 | Manager 已有远程登记与维护进度 |
 | OS 服务管理器 | Manager 和 Agent 的启动、停止、退出后监督 | 安装器或开发引导注册的服务定义 |
 
-Manager 返回的是可用于直连的地址和身份文件路径。返回端点后，Terminal 的业务客户端直接建立
-Unix socket 或 TCP+mTLS 连接；Manager 不承载后续业务报文。
+Manager 返回的是可用于直连的地址。返回端点后，Terminal 的业务客户端直接建立
+Unix socket 或局域网 TCP 连接（连接以魔数 `ASTR` 开头）；Manager 不承载后续业务报文。
+交易服务不归 Manager 与 Agent 管理，Terminal 按自己保存的交易连接直连，见[交易](../trading.md)。
 `history` 操作同样只返回 Data/Research 服务目录和地址，不读取历史数据内容。
 
 ## 工程模块与依赖
@@ -79,8 +80,7 @@ Unix socket 或 TCP+mTLS 连接；Manager 不承载后续业务报文。
 | [manager.hpp](../../apps/management/node-manager/manager.hpp) / [manager.cpp](../../apps/management/node-manager/manager.cpp) | `NodeManager`、登记恢复、请求分派、节点表、全局管理变更门控 |
 | [agent_client.hpp](../../apps/management/node-manager/agent_client.hpp) / [agent_client.cpp](../../apps/management/node-manager/agent_client.cpp) | 每节点连接、状态观察、Agent RPC、制品上传及服务操作 |
 | [local_node.cpp](../../apps/management/node-manager/local_node.cpp) | 本机端点解析、显式本机连接引导、开发环境退出 |
-| [node_enrollment.cpp](../../apps/management/node-manager/node_enrollment.cpp) | SSH 密钥、远程登记、证书替换、防火墙及远程维护协调 |
-| [node_identity.cpp](../../apps/management/node-manager/node_identity.cpp) | 生成节点 CA 和分角色证书，持久发布身份文件 |
+| [node_enrollment.cpp](../../apps/management/node-manager/node_enrollment.cpp) | SSH 密钥、远程登记、防火墙及远程维护协调 |
 | [node_program.cpp](../../apps/management/node-manager/node_program.cpp) | 本机 Agent 程序首次发布和开发停机替换事务 |
 | [remote_maintenance_script.hpp](../../apps/management/node-manager/remote_maintenance_script.hpp) | 上传到远端、以专用非特权账户执行的维护脚本 |
 
@@ -161,10 +161,10 @@ Terminal 一侧的 [ManagerClient 和 NodeClient](../../apps/clients/terminal/na
       ipc-id                 本机 Agent socket 命名空间
       services/<service>/    Agent 的服务部署记录
       artifacts/、uploads/   按内容命名的程序仓库与上传暂存
-  <服务程序>/                 market/、trading/、data/、research/、lab/
+  <服务程序>/                 market/、data/、research/、lab/
 
 <enrollments>/
-  enrollment.lock            登记与身份替换的互斥
+  enrollment.lock            登记的互斥
   ssh-keys.lock              管理密钥生成的互斥
   .ssh-keys/<id>/
     identity                 本机生成并保管的 SSH 私钥
@@ -173,18 +173,13 @@ Terminal 一侧的 [ManagerClient 和 NodeClient](../../apps/clients/terminal/na
   <id>/
     enrollment.json          节点地址、平台、制品及安装信息
     ssh.json                 非秘密 SSH 连接资料
-    ca.crt                   节点 CA 证书
-    client.crt / client.key  管理客户端身份
-    trading-client.*         业务客户端身份
-    server.crt / server.key  节点服务端身份
-    next/                    显式身份替换期间的新证书集合
 ```
 
 临时安装脚本、SFTP 批次、程序清单及防火墙规则归属记录也由登记模块管理，不能当成业务数据仓库。
 正常情况下，生产登记根目录为 `~/.asterion/nodes`；开发和隔离环境使用 `<根>/manager/data/enrollments`。
 本机节点根目录的平台规则见[开发指南](../development.md#node-manager-的注册与连接)。
 
-远程节点的根目录为 `/var/lib/asterion/nodes/<id>`，其中的程序目录与本机相同：Agent 是 `agent/bin/`，证书与配置默认值在
+远程节点的根目录为 `/var/lib/asterion/nodes/<id>`，其中的程序目录与本机相同：Agent 是 `agent/bin/`，配置默认值在
 `agent/config/`，状态在 `agent/data/`，日志在 `agent/logs/`；安装记录 `install.json` 在根目录。
 Manager 本地登记记录如何管理节点；远程 Agent 的服务登记记录该机器部署了什么。
 安装器消费这两者，不再维护第三份拓扑清单。
@@ -301,12 +296,12 @@ RAII 释放门控，失败也不会永久占用。
 | `snapshot` | 当前节点投影和 Manager PID | `Snapshot` |
 | `inventory` | 已登记远程名称和枚举诊断 | `presentation` |
 | `node` | 连接、断开、目录、端点、本机服务准备、部署、更新、插件、启停、防火墙 | `Endpoint`、`History`、`accepted` 或展示结果 |
-| `ssh` | 准备公钥、登记、替换身份、检查或应用防火墙计划 | `accepted` 或展示结果 |
+| `ssh` | 准备公钥、登记、检查或应用防火墙计划 | `accepted` 或展示结果 |
 | `maintenance` | `INSPECT`、`CONFIGURE`、`PREPARE`、`FINISH`、`UNINSTALL` | 维护进度展示结果 |
 | `shutdown_development` | 停止正常开发环境的本机 Agent 与业务服务 | `accepted` |
 
-`NodeCommand` 提供 `local_market`、`local_data`、`local_research`、`create_research`、
-`local_session` 和 `trading_session` 等具体管理入口；不是可执行任意业务方法的通用代理。
+`NodeCommand` 提供 `local_market`、`local_data`、`local_research`、`create_research`
+等具体管理入口；不是可执行任意业务方法的通用代理。
 `create_research` 携带显式插件选择，不能用它覆盖已存在的 Research 实例。
 
 `Response` 使用类型化 `oneof` 返回结果或 `node.proto.Error`。
@@ -347,7 +342,7 @@ sequenceDiagram
 
 每个 Agent 客户端有两个独立的 `RpcClient`：管理通道和 `status` 通道，各自连接容量为 1，
 共用 `ServiceIo` 的 reactor。独立状态通道使慢上传或管理请求不占据心跳连接。
-本机连接使用私有 Unix socket；远程连接使用登记中的主机、端口与 mTLS 身份。
+本机连接使用私有 Unix socket；远程连接使用登记中的主机和端口，经局域网 TCP，连接以魔数 `ASTR` 开头。
 
 | 参数 | 当前普通构建行为 |
 | --- | --- |
@@ -395,11 +390,9 @@ Agent 自己采集 CPU、内存和磁盘信息，Manager 只汇总其快照。
 | `local_market` | `market-data` | 不存在则部署，存在则启动 |
 | `local_data` | `historical-data` | 独立部署或启动 Data，不要求 Research 同时存在 |
 | `local_research` | `research` | 独立部署或启动 Research，不创建固定 Data 配对 |
-| `local_session` | 已选交易记录目录对应的实例；首次生成 `live-…` 名称 | 检查目录归属，复用或创建交易服务 |
-| `trading_session` | 用户已选择的交易实例 | 校验种类，启动并等待可达 |
 
 `market-data` 和 `historical-data` 是当前持久服务实例名称，不是可执行文件名。
-程序产物仍使用 `asterion_market`、`asterion_data`、`asterion_research`、`asterion_trading`。
+程序产物仍使用 `asterion_market`、`asterion_data`、`asterion_research`。
 本机程序从当前平台的本机资源解析，完整本机流程不依赖远程 Linux 包存在。
 
 ### 部署与更新
@@ -412,14 +405,13 @@ Agent 自己采集 CPU、内存和磁盘信息，Manager 只汇总其快照。
 3. 发送类型化 `Deploy`，由 Agent 保存部署和运行意愿、管理实际进程。
 4. Agent 确认后刷新状态，再向上层交付结果。
 
-本机通用部署要求端口为 0，接受 Data、Research、Trading；Market 由本机便捷入口准备。
+本机通用部署要求端口为 0，接受 Data、Research；Market 由本机便捷入口准备。
 远程通用部署要求当前 Linux Agent 发行版本匹配，并使用 Linux x86_64 资源。
 端口、目录、服务种类、配置和制品的最终接纳仍由 Agent 执行。
 
 `update` 要求服务没有运行意愿、进程状态为 `stopped`、修订与用户刚检查的 `expected_revision` 一致。
 它更新程序制品并保留当前插件选择，不把“更新程序”隐式变成“替换插件”。
 `configure_plugins` 当前仅支持本机 Data/Research，要求停止且修订匹配，显式提交插件集合。
-默认交易部署必须取得所需风控插件；准备好交易进程仍不代表账户授权或风险配置已完成。
 
 这些哈希服务于传输制品选择、内容固定和发布校验；没有为 Manager 快照、PID、日志展示或普通启动
 增加源码树摘要。部署校验与业务固定输入校验属于各自的责任边界。
@@ -427,17 +419,13 @@ Agent 自己采集 CPU、内存和磁盘信息，Manager 只汇总其快照。
 ### 端点发现的保证
 
 `service_endpoint()` 先取得就绪 Agent 的状态，核对服务名、种类和 `running` 状态，再返回端点。
-它不验证某次业务命令所需的全部条件。交易会话的便捷路径额外使用 `wait_trading()`，
-等待该服务的 Agent 健康观察出现，且不是 `unresponsive`，再交给业务客户端连接。
-
-业务连接仍可能在之后失败；调用方需要向业务服务确认账户、任务或数据状态。
-不得因发现失败自动新建另一个交易执行者，也不得经 Manager 重发交易命令。
+它不验证某次业务命令所需的全部条件。业务连接仍可能在之后失败；调用方需要向业务服务确认任务或数据状态。
 
 ## SSH 登记与信任
 
-### SSH 与 mTLS 的分工
+### SSH 与 Agent RPC 的分工
 
-SSH 用于首次安装、Agent 自身停机期间的维护、身份替换及必要的防火墙管理。
+SSH 用于首次安装、Agent 自身停机期间的维护及必要的防火墙管理。
 正常节点观察和服务部署使用 Agent RPC。
 远程目标限 Linux x86_64，节点安装使用已由管理员初始化的 `asterion` 专用账户，Agent 端口至少为 1024。
 
@@ -450,33 +438,20 @@ SSH 明确使用经可信渠道核验的 `known_hosts`，开启严格主机校�
 已登记节点的本机密钥丢失时，不静默生成替代密钥；需要管理员重新授权。
 `ssh.json` 只保存节点名、主机、用户、端口、`known_hosts` 路径和密钥来源。
 
-mTLS 身份由本机生成，包含管理客户端、业务客户端和节点服务端角色。
-CA 私钥只在内存中存在，签发完成后销毁；证书和私钥使用持久文件机制以私有权限发布。
-Agent 管理变更只允许管理角色或受信任本机连接，业务角色不取得部署权限。
+远程 Agent 经局域网明文 TCP 连接，连接开头的魔数只用来区分误连：能连上管理端口的机器都能让 Agent
+部署和启动程序，这是使用者接受的边界，防火墙只放行自己的机器。
 本机 Unix socket 通过私有目录和同用户对端校验建立信任，不是隔离同用户可信插件的沙箱。
 
 ### 首次登记流程
 
-`enroll_node()` 校验参数和远程平台，确认受限主机工具，再持有登记锁创建身份与 `enrollment.json`。
-它先在本机保存身份，随后通过 SFTP 上传 Agent、服务端证书、缺少的默认配置及安装脚本。
+`enroll_node()` 校验参数和远程平台，确认受限主机工具，再持有登记锁创建 `enrollment.json`，
+随后通过 SFTP 上传 Agent、缺少的默认配置及安装脚本。
 脚本以专用账户发布文件，只有系统服务注册等固定操作进入
 `sudo -n /usr/local/sbin/asterion_host --manage …` 的受限边界。
 
-同名已有登记必须与目标安装匹配；不能借登记覆盖另一台主机或另一套身份。
-安装之后检查 Agent 的 TCP+mTLS 心跳与平台；端口不可达时保留身份和现场，提示检查防火墙并连接，
+同名已有登记必须与目标安装匹配；不能借登记覆盖另一台主机的安装。
+安装之后检查 Agent 的 TCP 心跳与平台；端口不可达时保留登记和现场，提示检查防火墙并连接，
 不把连接失败当成必须重装的证据。
-
-### 身份替换
-
-CA 私钥没有持久保留，所以替换身份会重新签发整套角色证书。
-新集合先完整写入 `next.draft/`，再发布成 `next/`；它是本次未完成事务的候选，
-不是长期保留的兼容身份。
-
-Manager 通过 SSH 将新服务端集合放到原安装，重启远程 Agent，再以 `next/` 验证连接。
-验证成功后才逐个发布本机新身份，最后移除 `next/` 并同步目录。
-若远端已接受新身份而本机尚未收尾，显式重试先用 `next/` 探测，避免再次无谓停止远端。
-这是一项可中断、需显式继续的多文件操作，不是单次 rename 能完成的分布式原子提交。
-替换会影响该 Agent 及其服务生命周期，业务资料保留原位。
 
 ## 防火墙计划与确认
 
@@ -643,7 +618,7 @@ Manager 当前是每环境单实例，没有主备切换、分布式一致性、
 
 协议和端点仍维护四类可部署服务；完整五服务目标、远程业务组合能力及业务模块完成度需要分别验收。
 节点在线只代表管理观察成功，快照不是所有节点在同一时刻的原子读。
-维护与身份替换提供显式继续机制，不提供跨机器回滚或一般 RPC 的恰好执行一次语义。
+维护提供显式继续机制，不提供跨机器回滚或一般 RPC 的恰好执行一次语义。
 
 以下入口承载相应行为的回归验证；表格描述覆盖范围，不表示本文编写时重跑了这些测试。
 
@@ -652,8 +627,8 @@ Manager 当前是每环境单实例，没有主备切换、分布式一致性、
 | [manager_lifecycle.py](../../tests/node/manager_lifecycle.py)，CTest `node_manager_lifecycle` | Manager/Agent 独立生命周期、本机无需远程资源、服务登记和配置跨重启保留 |
 | [node_maintenance_test.cpp](../../tests/node/node_maintenance_test.cpp) | 已确认变更后的观察失败、慢管理不阻塞状态、维护与程序准备 |
 | [ssh_keys.py](../../tests/node/ssh_keys.py)，CTest `ssh_keys` | 密钥生成、原文件保留与错误路径 |
-| [ssh_bootstrap.py](../../tests/node/ssh_bootstrap.py)，CTest `ssh_bootstrap` | SSH 登记和身份替换的隔离回归 |
-| [node_deployment.py](../../tests/node/node_deployment.py)，CTest `node_deployment` | 实际 mTLS Agent 的部署和服务操作 |
+| [ssh_bootstrap.py](../../tests/node/ssh_bootstrap.py)，CTest `ssh_bootstrap` | SSH 登记的隔离回归 |
+| [node_deployment.py](../../tests/node/node_deployment.py)，CTest `node_deployment` | 经局域网 TCP 的实际 Agent 部署和服务操作 |
 | [remote_maintenance.py](../../tests/node/remote_maintenance.py)，CTest `remote_maintenance` | 预检、跨 Manager 重启继续维护、卸载保留与删除；SSH/systemd 使用替身 |
 | [node_manager_services.py](../../tests/acceptance/node_manager_services.py) | 需显式运行的 Linux 独立用户服务验收，检查 OS 注册与互不级联停止 |
 

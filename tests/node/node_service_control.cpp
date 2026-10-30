@@ -55,7 +55,7 @@ int main(int argc, char** argv)
         if (operation == "deploy-market" || operation == "deploy-task"
             || operation == "market-status" || operation == "status") {
             auto client =
-                asterion::terminal::AgentClient::open(io, {"local", "localhost", 0, {}, endpoint})
+                asterion::terminal::AgentClient::open(io, {"local", "localhost", 0, endpoint})
                     .get();
             if (operation == "deploy-task") {
                 const auto isolated = asterion::environment_path("ASTERION_ROOT");

@@ -1,3 +1,0 @@
-add_subdirectory(chart_indicators)
-add_subdirectory(performance)
-add_subdirectory(factor_analysis)

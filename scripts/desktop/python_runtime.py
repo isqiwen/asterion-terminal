@@ -20,7 +20,7 @@ from generated_resources import publish_tree
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
-ANALYTICS = ROOT / "plugins/tools/analytics/report.py"
+ANALYTICS = ROOT / "apps/services/research/reports/report.py"
 DESTINATION = ROOT / "build/electron-resources/python"
 PYTHON = "3.12.12"
 SITE = "lib/python3.12/site-packages"

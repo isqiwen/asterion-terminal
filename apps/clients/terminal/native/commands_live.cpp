@@ -64,106 +64,52 @@ std::shared_ptr<Application::Impl::LiveAccount> Application::Impl::live_account(
 void Application::Impl::register_live_commands()
 {
     command("live.create", [this](const json& p) -> PolledTask<Response> {
-        fields_with_risk(
-            p,
-            {"account", "max_price_deviation", "contracts", "node", "service", "environment"});
-        const auto account = text(p, "account");
-        if (const auto found = live.find(account); found != live.end()) {
-            if (found->second->busy || found->second->controls
-                || found->second->client->owner_view().session)
-                throw std::invalid_argument("this CTP account is already open");
-            live.erase(found);
-        }
-        // Validated before the braced initializer (GCC < 13 PR66139 leak).
-        const auto risk = risk_parameters(p);
-        const auto connection = (co_await settings<CtpConnection>([&] {
-            return ctp_connections.get(account);
-        }));
-        const auto node_id = text(p, "node");
-        const auto service = text(p, "service", true);
-        if (connection.trading && *connection.trading != TradingBinding{node_id, service})
-            throw Error(
-                ErrorCode::conflict,
-                "trading account is already bound to another service instance");
-        if (node_id != "local" && service.empty())
-            throw std::invalid_argument("choose a deployed trading service instance");
-        auto contracts =
-            policy_contracts(market ? market->owner_read().catalog : nullptr, p.at("contracts"));
-        json manifest{
-            {"account_id", account},
-            {"type", "live_ctp"},
-            {"environment", text(p, "environment")},
-            {"broker",
-                {{"front", connection.trade_front},
-                    {"broker_id", connection.broker_id},
-                    {"user_id", connection.user_id},
-                    {"app_id", connection.app_id}}},
-            {"policy",
-                {{"risk", risk},
-                    {"max_price_deviation", text(p, "max_price_deviation")},
-                    {"contracts", std::move(contracts)}}}
+        fields_with_risk(p, {"account", "max_price_deviation", "contracts"});
+        const json policy{
+            {"risk", risk_parameters(p)},
+            {"max_price_deviation", text(p, "max_price_deviation")},
+            {"contracts",
+                policy_contracts(
+                    market ? market->owner_read().catalog : nullptr,
+                    p.at("contracts"))}
         };
-        (void)protocol::encode_live_input(manifest);
-        auto next = co_await manage<std::shared_ptr<LiveAccount>>(
-            [&]() -> PolledTask<std::shared_ptr<LiveAccount>> {
-                auto node = manager.node(node_id);
-                ServiceEndpoint endpoint;
-                if (service.empty()) {
-                    endpoint = co_await PollFuture{node->local_session(
-                        co_await service_io.admin<std::filesystem::path>([&] {
-                            return ctp_account_directory(account, true);
-                        }))};
-                } else {
-                    endpoint = co_await PollFuture{node->trading_session(service)};
-                }
-                auto client = co_await PollFuture{
-                    TradingClient::open(service_io, endpoint, nullptr, account)
-                };
-                // Persist the selected execution location before a creation request can have
-                // an unknown outcome. A failed reply never permits a second-node fallback.
-                co_await settings<void>([&] {
-                    ctp_connections.bind_trading(
-                        account,
-                        connection.revision,
-                        {node_id, endpoint.session});
-                });
-                co_await PollFuture{client->create(manifest)};
-                co_return std::make_shared<LiveAccount>(std::move(client));
-            });
-        if (!live.try_emplace(account, std::move(next)).second)
-            throw Error(ErrorCode::conflict, "another window opened this CTP account meanwhile");
+        co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {
+            co_await PollFuture{client.create(policy)};
+        });
         co_return snapshot();
     });
     command("live.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account"});
-        const auto account = text(p, "account");
-        if (live.contains(account))
+        const auto id = text(p, "account");
+        if (live.contains(id))
             co_return snapshot();
-        const auto connection = co_await settings<CtpConnection>([&] {
-            return ctp_connections.get(account);
-        });
-        if (!connection.trading)
-            throw std::invalid_argument("this CTP account has no trading instance binding");
         auto next = co_await manage<std::shared_ptr<LiveAccount>>(
             [&]() -> PolledTask<std::shared_ptr<LiveAccount>> {
-                auto node = manager.node(connection.trading->node);
-                const auto endpoint =
-                    co_await PollFuture{node->trading_session(connection.trading->service)};
-                auto client = co_await PollFuture{
-                    TradingClient::open(service_io, endpoint, nullptr, account)
-                };
-                // An interrupted creation can leave an empty but reserved instance. Opening
-                // it makes that state visible; the user explicitly completes creation there.
+                const auto [endpoint, revision] =
+                    co_await settings<std::pair<TradingEndpoint, std::string>>([&] {
+                        trading_connections.prepare_identity();
+                        return std::pair{
+                            trading_connections.endpoint(id),
+                            trading_connections.get(id).at("revision").get<std::string>()
+                        };
+                    });
+                auto client = co_await PollFuture{TradingClient::open(service_io, endpoint)};
+                co_await settings<void>([&] {
+                    if (trading_connections.get(id).at("revision") != revision)
+                        throw Error(
+                            ErrorCode::conflict,
+                            "trading connection changed; inspect again");
+                });
                 co_return std::make_shared<LiveAccount>(std::move(client));
             });
-        live.try_emplace(account, std::move(next));
+        live.try_emplace(id, std::move(next));
         co_return snapshot();
     });
-    // Credentials go to the account's service and are not kept by the Terminal.
+    // The service owns its local credentials; Terminal only requests a connection.
     command("live.connect", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"account", "password", "auth_code"});
+        fields(p, {"account"});
         co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {
-            (co_await PollFuture{client.connect_broker(text(p, "password"), text(p, "auth_code"))});
+            (co_await PollFuture{client.connect_broker()});
         });
         co_return snapshot();
     });
@@ -209,7 +155,6 @@ void Application::Impl::register_live_commands()
                 "request_id",
                 "account_id",
                 "policy_revision",
-                "risk_artifact",
                 "max_price_deviation",
                 "contracts"});
         const auto risk = risk_parameters(p);
@@ -223,7 +168,6 @@ void Application::Impl::register_live_commands()
                 {"policy_revision", text(p, "policy_revision")},
                 {"request_id", text(p, "request_id")},
                 {"action", "live_policy"},
-                {"risk_artifact", text(p, "risk_artifact")},
                 {"policy",
                     {{"risk", risk},
                         {"contracts", contracts},

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/kernel/ipc/tls_channel.hpp>
+#include <asterion/kernel/ipc/tcp_channel.hpp>
 #include <asterion/kernel/progress.hpp>
 #include <chrono>
 #include <cstdint>
@@ -13,16 +13,15 @@ namespace asterion::service {
 
 using Milliseconds = std::chrono::milliseconds;
 
-// Exactly one of a private local IPC endpoint or TCP with mutual TLS.
-// Plaintext TCP is offered only when a service asks for it explicitly; such a
-// service authenticates its clients itself (the recorder, docs/recorder.md).
+// Exactly one of a private local IPC endpoint or TCP. TCP is plain (clients
+// start with the connection magic) without a TLS identity, and TLS with only
+// the identity's peers otherwise; see tcp_channel.hpp.
 struct Transport
 {
     std::string endpoint;
     std::string bind;
     std::uint16_t port = 0;
     ipc::TlsIdentity tls;
-    bool plaintext = false;
 
     bool remote() const noexcept
     {
@@ -60,7 +59,7 @@ class RpcHost
 public:
     struct Peer
     {
-        ipc::PeerRole role;
+        // The remote address of a TCP peer; empty for a local one.
         std::string address;
     };
 
@@ -122,11 +121,6 @@ public:
 #else
         Milliseconds handshake{10000}, receive{30000}, send{10000}, drain{400};
 #endif
-        std::vector<ipc::PeerRole> roles{
-            ipc::PeerRole::admin,
-            ipc::PeerRole::client,
-            ipc::PeerRole::service
-        };
     };
 
     RpcHost(Transport transport, Handler handler, Options options, Progress& progress);

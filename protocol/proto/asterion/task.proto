@@ -81,7 +81,6 @@ message Task {
   string data_source = 16;
   asterion.data.proto.DownloadPublication publication = 17;
   string history_dataset_id = 18; // Projection of the verified published download result.
-  string risk_artifact = 19; // Immutable native risk SHA-256 for backtests.
   // Actual Research executable, fixed separately from reusable data/parameter bytes.
   string program_artifact = 35;
   reserved 36;

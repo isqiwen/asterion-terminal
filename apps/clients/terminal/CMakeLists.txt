@@ -4,6 +4,7 @@ add_library(asterion_terminal_credentials STATIC
   native/data_credentials.cpp
   native/keychain_store.cpp
   native/ctp_connections.cpp
+  native/trading_connections.cpp
 )
 target_include_directories(asterion_terminal_credentials PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_credentials PUBLIC asterion_node_control)
@@ -56,7 +57,7 @@ asterion_target_defaults(asterion_terminal_dev_bridge)
 
 add_library(asterion_domain_backup STATIC native/domain_backup.cpp)
 target_include_directories(asterion_domain_backup PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup asterion_trading_backup)
+target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup)
 asterion_target_defaults(asterion_domain_backup)
 
 target_link_libraries(asterion_terminal_application PRIVATE asterion_domain_backup)

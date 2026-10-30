@@ -9,7 +9,6 @@
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_tables.h>
 #include <asterion/plugin/material.h>
-#include <asterion/plugin/risk.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -23,9 +22,7 @@ bool PluginCatalogEntry::selectable_for_data_tasks() const
                return (capability.id == AST_HISTORY && capability.version == 3)
                    || (capability.id == AST_HISTORY_TABLES && capability.version == 1)
                    || (capability.id == AST_MATERIAL && capability.version == 1
-                       && capability.kind == "data")
-                   || (capability.id == AST_RISK && capability.version == 1
-                       && capability.kind == "risk");
+                       && capability.kind == "data");
            });
 }
 
@@ -190,6 +187,11 @@ void install_plugin(
     const auto candidate = preview_plugin(source);
     if (candidate.artifact.sha256 != hash)
         throw std::invalid_argument("native plugin catalog changed; inspect again");
+    if (!candidate.selectable_for_data_tasks()
+        || std::ranges::any_of(candidate.descriptor.capabilities, [](const auto& capability) {
+               return capability.kind != "data";
+           }))
+        throw std::invalid_argument("only data-source extensions can be installed");
     const auto inventory = plugin_inventory(bundled, managed);
     if (inventory.entries.size() >= 128)
         throw std::invalid_argument("native plugin directory exceeds limit");

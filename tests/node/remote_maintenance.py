@@ -104,7 +104,6 @@ with tempfile.TemporaryDirectory(prefix='ast-rem-') as directory:
         maintain('UNINSTALL', nodes=['bootstrap-test'], removeData=True)
         assert not ledger.exists() and not config.exists()
         assert (remote/'deployed/agent/logs').is_dir()
-        assert not (local/'manager/data/enrollments/bootstrap-test/client.key').exists()
         print('remote installation, offline preflight, interrupted upgrade, Manager restart, explicit completion, uninstall retention/removal passed')
     finally:
         client.stdin.close(); client.wait(timeout=10)

@@ -15,7 +15,7 @@ import { Workbench } from "@asterion/workbench/workspace/Workbench";
 import { usePreferences } from "./ui/preferences";
 import { request, pollSnapshot, type Snapshot } from "@asterion/desktop-bridge/client";
 import { Settings } from "./settings/Settings";
-import { terminalPlugins, workspaces } from "./plugins";
+import { terminalFeatures, workspaces } from "./features";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
 import {
   modules,
@@ -25,8 +25,7 @@ import {
   selectModule,
   selectView,
 } from "./host/navigation";
-import { scopedContext } from "./host/plugin-registry";
-import type { TerminalContext } from "../plugins/contract";
+import type { TerminalContext } from "../features/contract";
 import "./ui/theme/style.css";
 import "./terminal.css";
 import "./host/workspace/workbench.css";
@@ -237,19 +236,16 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     openSettings: showSettings,
     trade,
   };
-  // Each plugin sees the shared context with trade scoped to its
-  // declared commands.
-  const currentPlugin = terminalPlugins.find(plugin =>
-    plugin.workspaces.some(item => item.id === view),
+  // The selected built-in feature uses the application context.
+  const currentFeature = terminalFeatures.find(feature =>
+    feature.workspaces.some(item => item.id === view),
   );
-  const current = currentPlugin?.workspaces.find(item => item.id === view);
+  const current = currentFeature?.workspaces.find(item => item.id === view);
   const Panel = current?.component;
   const HeaderTools = current?.headerTools;
   const WorkspaceToolbar = current?.toolbar;
-  const panelContext = currentPlugin ? scopedContext(currentPlugin, context) : context;
-  const backgroundTasks = terminalPlugins.flatMap(
-    plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
-  );
+  const panelContext = context;
+  const backgroundTasks = terminalFeatures.flatMap(feature => feature.tasks?.(context) ?? []);
   const failedTasks =
     (snapshot?.research_service?.failed_count ?? 0) +
     (snapshot?.research_service?.interrupted_count ?? 0) +
@@ -272,7 +268,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         <Settings
           initialPage={settingsPage(new URLSearchParams(location.search).get("category"))}
           trade={trade}
-          plugins={terminalPlugins}
           snapshot={snapshot}
           refresh={() => void refresh()}
           error={error}
@@ -349,7 +344,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               )}
               <main className="terminal-business">
                 <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                  {Panel && currentPlugin && (
+                  {Panel && currentFeature && (
                     <WorkspaceDraftScope store={drafts} namespace={current!.id}>
                       <Panel {...panelContext} />
                     </WorkspaceDraftScope>

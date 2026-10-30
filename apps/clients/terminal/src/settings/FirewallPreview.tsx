@@ -42,15 +42,15 @@ export function FirewallPreview({
           removed: t("本系统记录的规则已撤销"),
         }[plan.state] ?? plan.state}
       </p>
-      {plan.verification === "tls_reachable" && (
-        <p role="status">{t("已从 Terminal 验证 TCP/mTLS 可达。")}</p>
+      {plan.verification === "reachable" && (
+        <p role="status">{t("已从 Terminal 验证 TCP 可达。")}</p>
       )}
       {plan.verification === "pending_install" && (
         <p role="status">{t("规则已执行；请安装并连接服务管理器后确认心跳。")}</p>
       )}
       {plan.verification === "unreachable" && (
         <p role="alert">
-          {t("规则已执行，但 TCP/mTLS 仍不可达。请检查服务监听、云安全组、路由器或其他网络策略。")}
+          {t("规则已执行，但 TCP 仍不可达。请检查服务监听、云安全组、路由器或其他网络策略。")}
         </p>
       )}
       {!plan.can_apply && plan.state === "active" && (

@@ -100,11 +100,9 @@ void prepare_service_programs(
     std::map<node::proto::ServiceKind, ServiceConfiguration> programs;
     for (const auto& source : sources.services()) {
         const bool market = source.kind() == node::proto::MARKET;
-        const bool trading = source.kind() == node::proto::TRADING;
         const bool task = source.kind() == node::proto::RESEARCH;
-        if ((!market && !trading && !task && source.kind() != node::proto::DATA)
-            || source.executable().empty() || source.provider().empty() == market
-            || source.catalog().empty() == (market || trading)
+        if ((!market && !task && source.kind() != node::proto::DATA) || source.executable().empty()
+            || source.provider().empty() == market || source.catalog().empty() == market
 
             || !listed.insert(source.kind()).second)
             throw std::invalid_argument("invalid development service program selection");
@@ -167,7 +165,15 @@ void prepare_service_programs(
         next.directory = config.directory;
         next.port = config.port;
         next.desired = config.desired;
-        const auto identities = plugins.verify(config.plugin_artifacts);
+        std::map<std::string, std::string> identities;
+        try {
+            identities = plugins.verify(config.plugin_artifacts);
+        } catch (const std::exception& error) {
+            // Name the service: its saved plugin selection is what to change.
+            throw std::invalid_argument(
+                "service " + name + " (" + (root / "services" / name / "service.json").string()
+                + "): " + error.what());
+        }
         next.plugin_artifacts = config.plugin_artifacts;
         for (auto& hash : next.plugin_artifacts) {
             const auto found = bundled.find(identities.at(hash));

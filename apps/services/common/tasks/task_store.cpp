@@ -1511,7 +1511,6 @@ void Store::admit_submission(Submission& input)
     if (existing) {
         if (input.prepared_
             && (input.digest_ != existing->input_digest() || input.bytes_ != existing->input_bytes()
-                || input.task_.risk_artifact() != existing->task().risk_artifact()
                 || input.task_.program_artifact() != existing->task().program_artifact()
                 || input.task_.metadata().derivation().SerializeAsString()
                     != existing->task().metadata().derivation().SerializeAsString()))

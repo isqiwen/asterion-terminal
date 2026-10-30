@@ -1,7 +1,7 @@
 #include "ctp_support.hpp"
 #include "trading/journal_fixture.hpp"
 #include "live_session.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include <barrier>
 #include <future>
 #include <asterion/foundation/error.hpp>
@@ -235,7 +235,6 @@ Json policy_command(const LiveSession& session, Json definition)
     return {
         {"request_id", "policy.change"},
         {"action", "live_policy"},
-        {"risk_artifact", session.snapshot().at("risk_artifact")},
         {"policy", std::move(definition)}
     };
 }
@@ -271,39 +270,6 @@ struct HeldCommit
         while (!sqlite::commit_waiting_for_testing() && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(10ms);
         return sqlite::commit_waiting_for_testing();
-    }
-};
-
-struct HeldRiskPlugin
-{
-    fs::path original = native_plugin_directory();
-    ctp::SharedLibrary hold_library{RISK_FIXTURE, "asterion_fixture_risk_hold"};
-    ctp::SharedLibrary waiting_library{RISK_FIXTURE, "asterion_fixture_risk_waiting"};
-
-    explicit HeldRiskPlugin(int stage)
-    {
-        configure_native_plugins(fs::path(RISK_FIXTURE).parent_path());
-        hold(stage);
-    }
-
-    ~HeldRiskPlugin()
-    {
-        hold(0);
-        configure_native_plugins(original);
-    }
-
-    void hold(int stage)
-    {
-        hold_library.symbol<void (*)(int)>()(stage);
-    }
-
-    bool waiting(int stage) const
-    {
-        const auto deadline = std::chrono::steady_clock::now() + 5s;
-        while (waiting_library.symbol<int (*)()>()() != stage
-            && std::chrono::steady_clock::now() < deadline)
-            std::this_thread::sleep_for(10ms);
-        return waiting_library.symbol<int (*)()>()() == stage;
     }
 };
 
@@ -424,112 +390,6 @@ TEST_F(Live, PolicyJournalFailureKeepsOriginalRevisionAndRequiresRecovery)
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_EQ(recovered.snapshot().at("policy_revision"), revision);
     EXPECT_EQ(recovered.snapshot().at("risk").at("max_gross_quantity"), "10");
-}
-
-TEST_F(Live, PolicyChangeCannotReplaceMissingOwnedAlgorithmWithInstalledBytes)
-{
-    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
-    ASSERT_EQ(ready(session).at("phase"), "ready");
-    const auto before = session.snapshot();
-    const auto file = risk_providers::Module::filename(
-        directory.path / "plugins" / before.at("risk_artifact").get<std::string>());
-    Directory held;
-    fs::rename(file, held.path / file.filename());
-    EXPECT_THROW(
-        act(session, policy_command(session, manifest().at("policy"))),
-        std::invalid_argument);
-    EXPECT_EQ(session.snapshot().at("policy_revision"), before.at("policy_revision"));
-    EXPECT_FALSE(fs::exists(file));
-    fs::rename(held.path / file.filename(), file);
-}
-
-TEST_F(Live, SlowPolicyPreparationRechecksTheAccountAndRetiresRejectedAlgorithmsOffItsThread)
-{
-    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
-    ASSERT_EQ(ready(session).at("phase"), "ready");
-    act(session, authorize());
-    const auto before = session.snapshot();
-    auto command = policy_command(session, manifest().at("policy"));
-    command["risk_artifact"] = sha256_file(RISK_FIXTURE);
-    const auto record = before.at("account_id").get<std::string>();
-    const auto policy = before.at("policy_revision").get<std::string>();
-    std::future<void> changed, revoked, disconnected;
-    std::future<Json> observed;
-    HeldRiskPlugin held(1);
-    changed = session.execute(record, policy, command);
-    ASSERT_TRUE(held.waiting(1));
-    revoked = session.execute(
-        record,
-        policy,
-        {{"request_id", "revoke.preparing"}, {"action", "live_revoke"}});
-    observed = std::async(std::launch::async, [&] {
-        return session.snapshot();
-    });
-    ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    const auto preparing = observed.get();
-    EXPECT_TRUE(preparing.at("authorization").is_null());
-    EXPECT_EQ(preparing.at("policy_revision"), policy);
-    EXPECT_EQ(preparing.at("capacity"), before.at("capacity"));
-    EXPECT_EQ(changed.wait_for(0ms), std::future_status::timeout);
-    EXPECT_EQ(revoked.wait_for(0ms), std::future_status::timeout);
-    disconnected = std::async(std::launch::async, [&] {
-        session.disconnect();
-    });
-    ASSERT_EQ(disconnected.wait_for(1s), std::future_status::ready);
-    disconnected.get();
-    // The candidate must now fail fresh account validation and release off-thread.
-    held.hold(2);
-    ASSERT_TRUE(held.waiting(2));
-    observed = std::async(std::launch::async, [&] {
-        return session.snapshot();
-    });
-    ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    const auto retiring = observed.get();
-    EXPECT_EQ(retiring.at("phase"), "disconnected");
-    EXPECT_EQ(retiring.at("policy_revision"), policy);
-    EXPECT_EQ(retiring.at("risk_artifact"), before.at("risk_artifact"));
-    EXPECT_EQ(changed.wait_for(0ms), std::future_status::timeout);
-    held.hold(0);
-    EXPECT_THROW(changed.get(), Error);
-    EXPECT_NO_THROW(revoked.get());
-    EXPECT_FALSE(session.recovery_required());
-}
-
-TEST_F(Live, PolicyAdoptionPrecedesSlowRetirementWithoutBlockingAccountViews)
-{
-    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
-    ASSERT_EQ(ready(session).at("phase"), "ready");
-    const auto original_artifact = session.snapshot().at("risk_artifact");
-    std::future<void> changed;
-    std::future<Json> observed;
-    HeldRiskPlugin held(0);
-    auto upgrade = policy_command(session, manifest().at("policy"));
-    upgrade["risk_artifact"] = sha256_file(RISK_FIXTURE);
-    act(session, upgrade);
-    ASSERT_EQ(ready(session).at("phase"), "ready");
-    const auto before = session.snapshot();
-    configure_native_plugins(held.original);
-    auto replacement = policy_command(session, manifest().at("policy"));
-    replacement["request_id"] = "policy.replace";
-    replacement["risk_artifact"] = original_artifact;
-    held.hold(2);
-    changed = session.execute(
-        before.at("account_id").get<std::string>(),
-        before.at("policy_revision").get<std::string>(),
-        replacement);
-    ASSERT_TRUE(held.waiting(2));
-    observed = std::async(std::launch::async, [&] {
-        return session.snapshot();
-    });
-    ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    const auto adopted = observed.get();
-    EXPECT_EQ(adopted.at("risk_artifact"), original_artifact);
-    EXPECT_NE(adopted.at("policy_revision"), before.at("policy_revision"));
-    EXPECT_EQ(adopted.at("phase"), "disconnected");
-    EXPECT_TRUE(adopted.at("authorization").is_null());
-    EXPECT_EQ(changed.wait_for(0ms), std::future_status::timeout);
-    held.hold(0);
-    EXPECT_NO_THROW(changed.get());
 }
 
 TEST_F(Live, AccountRecordOwnershipSurvivesConnectionChangesAndProcessLifetimes)
@@ -774,26 +634,21 @@ TEST_F(Live, CommandsQueuedBeforeEntryRevocationCannotBorrowItsNewRevision)
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     ASSERT_EQ(ready(session).at("phase"), "ready");
     std::future<void> evaluating, queued_grant, revoked;
-    HeldRiskPlugin held(0);
-    auto upgrade = policy_command(session, manifest().at("policy"));
-    upgrade["risk_artifact"] = sha256_file(RISK_FIXTURE);
-    act(session, upgrade);
-    ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
     const auto before = session.snapshot();
     const auto record = before.at("account_id").get<std::string>();
     const auto policy = before.at("policy_revision").get<std::string>();
-    held.hold(3);
+    HeldCommit held;
     evaluating = session.execute(record, policy, submit("slow.risk", "1"));
-    ASSERT_TRUE(held.waiting(3));
+    ASSERT_TRUE(held.waiting());
     const auto blocked = session.health();
     std::this_thread::sleep_for(50ms);
     const auto later = session.health();
-    EXPECT_TRUE(later.state.pending);
-    EXPECT_GE(later.state.age_ms, blocked.state.age_ms + 50);
-    EXPECT_FALSE(later.persistence.pending);
+    EXPECT_TRUE(later.persistence.pending);
+    EXPECT_GE(later.persistence.age_ms, blocked.persistence.age_ms + 50);
+    EXPECT_TRUE(later.persistence.pending);
     EXPECT_FALSE(session.recovery_required());
-    // Both requests enter while the account is inside a trusted risk plugin.
+    // Both requests enter while the order intent is being made durable.
     // Taking the old grant's revision only when the owner dequeues it would let
     // that grant borrow the revoke's newer revision and restore authorization.
     queued_grant = session.execute(record, policy, authorize("queued.before.revoke"));
@@ -801,8 +656,8 @@ TEST_F(Live, CommandsQueuedBeforeEntryRevocationCannotBorrowItsNewRevision)
         record,
         policy,
         {{"request_id", "entry.revoke"}, {"action", "live_revoke"}});
-    held.hold(0);
-    EXPECT_THROW(evaluating.get(), std::invalid_argument); // Fixture rejects risk.
+    held.release();
+    EXPECT_THROW(evaluating.get(), Error);
     EXPECT_THROW(queued_grant.get(), Error);
     EXPECT_NO_THROW(revoked.get());
     const auto after = session.snapshot();
@@ -810,7 +665,7 @@ TEST_F(Live, CommandsQueuedBeforeEntryRevocationCannotBorrowItsNewRevision)
     EXPECT_TRUE(after.at("orders").empty());
     EXPECT_EQ(
         after.at("capacity").at("records_used").get<int>(),
-        before.at("capacity").at("records_used").get<int>() + 1);
+        before.at("capacity").at("records_used").get<int>() + 3);
     EXPECT_NO_THROW(act(session, authorize("fresh.after.revoke")));
     EXPECT_FALSE(session.snapshot().at("authorization").is_null());
 }
@@ -1435,7 +1290,7 @@ TEST_F(Live, MissingOrderIdentityIndexRejectsRecoveryWithoutChangingEvidence)
     }
     const auto command = submit("missing.index", "3");
     {
-        SqliteJournal journal(directory.path, {"ctp-flow", "plugins", "owner"});
+        SqliteJournal journal(directory.path, {"ctp-flow", "owner"});
         journal.start();
         journal.append(
             {{"command", command},
@@ -1451,7 +1306,7 @@ TEST_F(Live, MissingOrderIdentityIndexRejectsRecoveryWithoutChangingEvidence)
     EXPECT_EQ(sha256_file(directory.path / "journal.sqlite"), digest);
 }
 
-TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine)
+TEST_F(Live, CredentialsAreNeverWrittenAndHeadersIdentifyTheAccount)
 {
     {
         LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
@@ -1589,7 +1444,6 @@ TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
     const Json command{
         {"request_id", "change"},
         {"action", "live_policy"},
-        {"risk_artifact", std::string(64, 'a')},
         {"policy", manifest().at("policy")}
     };
     const auto wire = protocol::encode_command(command);

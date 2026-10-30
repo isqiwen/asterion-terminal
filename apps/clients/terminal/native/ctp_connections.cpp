@@ -15,28 +15,6 @@
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 
-std::filesystem::path ctp_account_directory(const std::string& account, bool create)
-{
-    // The account id is the directory name: one trading record per CTP account.
-    if (account.empty() || account.size() > 64
-        || account.find_first_not_of(
-               "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-            != std::string::npos)
-        throw std::invalid_argument("invalid CTP connection identity");
-    const auto root = program_directory("terminal") / "data" / "accounts";
-    const auto group = root / "ctp";
-    const auto directory = group / account;
-    if (!create)
-        return directory;
-    for (const auto& path : {root, group, directory}) {
-        if (fs::is_symlink(path))
-            throw std::invalid_argument("invalid managed account directory");
-        create_directories_durably(path);
-        fs::permissions(path, fs::perms::owner_all, fs::perm_options::replace);
-    }
-    return directory;
-}
-
 namespace {
 
 void safe(const fs::path& path)
@@ -106,8 +84,6 @@ Json encode(const CtpConnection& c)
         {"market_front", c.market_front},
         {"revision", c.revision}
     };
-    if (c.trading)
-        result["trading"] = {{"node", c.trading->node}, {"service", c.trading->service}};
     return result;
 }
 
@@ -202,7 +178,7 @@ CtpConnection CtpConnections::get(const std::string& id) const
     std::ifstream input(file);
     const std::string contents{std::istreambuf_iterator<char>(input), {}};
     const auto document = parse_json(contents, 8192);
-    if (document.size() != (document.contains("trading") ? 9U : 8U) || document.at("id") != id)
+    if (document.size() != 8U || document.at("id") != id)
         throw std::invalid_argument("invalid CTP connection storage");
     CtpConnection connection{
         document.at("id"),
@@ -212,16 +188,8 @@ CtpConnection CtpConnections::get(const std::string& id) const
         document.at("app_id"),
         document.at("trade_front"),
         document.at("market_front"),
-        document.at("revision"),
-        {}
+        document.at("revision")
     };
-    if (document.contains("trading")) {
-        const auto& target = document.at("trading");
-        require_fields(target, {"node", "service"});
-        connection.trading = TradingBinding{target.at("node"), target.at("service")};
-        validate_id(connection.trading->node);
-        validate_id(connection.trading->service);
-    }
     if (connection.revision.empty())
         throw std::invalid_argument("invalid CTP connection storage");
     validate(connection);
@@ -278,16 +246,6 @@ void CtpConnections::save(CtpConnection connection, const std::string& expected)
     const auto current = fs::exists(file) ? std::optional{get(connection.id)} : std::nullopt;
     if ((current ? current->revision : std::string{}) != expected)
         throw Error(ErrorCode::conflict, "CTP connection changed; inspect again");
-    if (current && current->trading) {
-        if (connection.broker_id != current->broker_id || connection.user_id != current->user_id
-            || connection.app_id != current->app_id
-            || connection.trade_front != current->trade_front)
-            throw Error(
-                ErrorCode::conflict,
-                "this account already trades; its counter details are fixed");
-        connection.trading = current->trading;
-    } else if (connection.trading)
-        throw std::invalid_argument("bind the trading instance through account creation");
     if (!fs::exists(file) && read_all().size() >= 64)
         throw std::invalid_argument("too many CTP connections");
     if (current && remembered_ && credential_account(*current) != credential_account(connection))
@@ -298,37 +256,6 @@ void CtpConnections::save(CtpConnection connection, const std::string& expected)
     // The first account supplies market data without a further step.
     if (!market())
         replace_file_durably(directory_ / "market", connection.id, true);
-}
-
-void CtpConnections::bind_trading(
-    const std::string& id,
-    const std::string& expected,
-    TradingBinding target)
-{
-    validate_id(target.node);
-    validate_id(target.service);
-    FileLock lock(directory_, "connections.lock");
-    auto connection = get(id);
-    if (connection.revision != expected)
-        throw Error(ErrorCode::conflict, "CTP connection changed; inspect again");
-    if (connection.trading) {
-        if (*connection.trading != target)
-            throw Error(
-                ErrorCode::conflict,
-                "trading account is already bound to another service instance");
-        return;
-    }
-    for (const auto& item : read_all()) {
-        if (item.contains("trading") && item.at("trading").at("node") == target.node
-            && item.at("trading").at("service") == target.service)
-            throw Error(
-                ErrorCode::conflict,
-                "trading service instance is already bound to another account");
-    }
-    connection.trading = std::move(target);
-    connection.revision = unique_process_id();
-    replace_file_durably(path(id), encode(connection).dump(), true);
-    cached_.reset();
 }
 
 std::optional<CtpConnection> CtpConnections::market() const
@@ -362,10 +289,6 @@ void CtpConnections::remove(const std::string& id, const std::string& expected)
     const auto connection = get(id);
     if (connection.revision != expected)
         throw Error(ErrorCode::conflict, "CTP connection changed; inspect again");
-    if (connection.trading)
-        throw Error(
-            ErrorCode::conflict,
-            "account has a deployed trading instance; preserve its binding");
     if (remembered_)
         remembered_->erase(credential_account(connection));
     fs::remove(file);

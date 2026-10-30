@@ -10,10 +10,7 @@ message Endpoint {
   uint32 port = 2;
   string session = 3;
   string socket = 4;
-  string ca_file = 5;
-  string certificate_file = 6;
-  string private_key_file = 7;
-  string owner_node_id = 8;
+  string owner_node_id = 5;
 }
 
 message Node {
@@ -70,7 +67,6 @@ message NodeCommand {
     Empty history = 4;
     Service endpoint = 5;
 
-    string local_session = 7;
     Empty local_market = 8;
     Plugins create_research = 9;
     Empty local_research = 10;
@@ -79,7 +75,6 @@ message NodeCommand {
     Update update = 13;
     Action action = 14;
     Action firewall = 15;
-    string trading_session = 16;
     Empty local_data = 17;
   }
 }
@@ -89,9 +84,8 @@ message Ssh {
     UNSPECIFIED = 0;
     PREPARE_KEY = 1;
     ENROLL = 2;
-    REPLACE_IDENTITY = 3;
-    INSPECT_FIREWALL = 4;
-    APPLY_FIREWALL = 5;
+    INSPECT_FIREWALL = 3;
+    APPLY_FIREWALL = 4;
   }
 
   Operation operation = 1;

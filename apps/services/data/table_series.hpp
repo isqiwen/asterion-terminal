@@ -1,6 +1,6 @@
 #pragma once
 #include "history_tables.hpp"
-#include "historical_margin.hpp"
+#include <asterion/domain/historical_margin.hpp>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/data.pb.h>
 #include <map>

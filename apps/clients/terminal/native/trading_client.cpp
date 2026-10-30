@@ -12,7 +12,7 @@ namespace wire = protocol::proto;
 struct TradingClient::Impl
 {
     ServiceIo& io;
-    const ServiceEndpoint endpoint;
+    const TradingEndpoint endpoint;
     std::unique_ptr<ipc::RpcClient> transport;
     std::stop_source lifetime;
     // One request at a time. Beside it one cancel, and beside
@@ -23,27 +23,24 @@ struct TradingClient::Impl
     bool busy = false, cancelling = false, revoking = false, failed = false;
     std::shared_ptr<const Json> last_snapshot;
     Json health = nullptr;
+    Json account = nullptr;
     std::int64_t last_heartbeat_ms = 0, latency_ms = 0;
     unsigned reconnects = 0, reconnect_attempts = 0;
 
-    Impl(ServiceIo& owner, ServiceEndpoint value)
+    Impl(ServiceIo& owner, TradingEndpoint value)
         : io(owner),
           endpoint(std::move(value))
     {
         validate_id(endpoint.session);
-        transport = endpoint.endpoint.empty()
-            ? std::make_unique<ipc::RpcClient>(
-                  io.reactor(),
-                  endpoint.host,
-                  endpoint.port,
-                  endpoint.tls,
-                  3,
-                  io.payload_budget(ServiceIo::PayloadLane::control))
-            : std::make_unique<ipc::RpcClient>(
-                  io.reactor(),
-                  endpoint.endpoint,
-                  3,
-                  io.payload_budget(ServiceIo::PayloadLane::control));
+        if (endpoint.tls.empty())
+            throw std::invalid_argument("trading requires certificate fingerprints");
+        transport = std::make_unique<ipc::RpcClient>(
+            io.reactor(),
+            endpoint.host,
+            endpoint.port,
+            endpoint.tls,
+            3,
+            io.payload_budget(ServiceIo::PayloadLane::control));
     }
 
     bool stopped(std::stop_token stop) const
@@ -65,7 +62,7 @@ struct TradingClient::Impl
         if (failed)
             throw Error(
                 ErrorCode::unavailable,
-                "trading connection lost; reconnect remote sessions in " "Settings, recover local sessions from their directory");
+                "trading connection lost; reconnect this account to its saved trading service");
         lane = true;
 
         struct Release
@@ -81,9 +78,9 @@ struct TradingClient::Impl
         request.set_version(1);
         request.set_session_id(endpoint.session);
         request.set_correlation_id(next_correlation_id());
-        const bool mutation = request.has_command() || request.has_recover()
-            || request.has_live_create() || request.has_live_connect()
-            || request.has_live_disconnect() || request.has_live_costs();
+        const bool mutation = request.has_command() || request.has_live_create()
+            || request.has_live_connect() || request.has_live_disconnect()
+            || request.has_live_costs();
         const auto sent = std::chrono::steady_clock::now();
         wire::Response response;
         try {
@@ -121,6 +118,14 @@ struct TradingClient::Impl
                 },
                 ServiceIo::ReadLane::response);
             response = std::move(parsed.first);
+            if (response.has_account()) {
+                auto observed = protocol::decode_trading_account(response.account());
+                if (!account.is_null() && account != observed)
+                    throw Error(
+                        ErrorCode::conflict,
+                        "trading service account configuration changed; reconnect explicitly");
+                account = std::move(observed);
+            }
             if (response.has_health()) {
                 const auto& h = response.health();
                 if (h.instance_id().empty() || h.version().empty() || !h.has_execution())
@@ -152,20 +157,15 @@ struct TradingClient::Impl
         co_return;
     }
 
-    PolledTask<void>
-    initialize(Json manifest, const std::string& expected_account, std::stop_token stop)
+    PolledTask<void> initialize(std::stop_token stop)
     {
         wire::Request attach;
         attach.mutable_attach();
         co_await call(std::move(attach), stop);
-        if (last_snapshot && !expected_account.empty()
-            && last_snapshot->at("account_id") != expected_account)
-            throw Error(ErrorCode::conflict, "trading service belongs to another account");
-        if (!manifest.is_null()) {
-            wire::Request create;
-            *create.mutable_live_create() = protocol::encode_live_input(manifest);
-            co_await call(std::move(create), stop);
-        }
+        if (account.is_null())
+            throw Error(
+                ErrorCode::unavailable,
+                "trading service did not provide its account configuration");
         wire::Request ping;
         ping.mutable_heartbeat();
         co_await call(std::move(ping), stop);
@@ -213,7 +213,7 @@ struct TradingClient::Impl
 
     TradingClient::Read read() const
     {
-        return {last_snapshot, connection(), failed};
+        return {last_snapshot, connection(), account, failed};
     }
 
     Json connection() const
@@ -226,35 +226,28 @@ struct TradingClient::Impl
             {"latency_ms", latency_ms},
             {"session", endpoint.session},
             {"state", failed ? "disconnected" : "connected"},
-            {"transport", endpoint.endpoint.empty() ? "tcp_tls" : "local"}
+            {"transport", "tcp_tls"}
         };
-        if (endpoint.endpoint.empty())
-            status.update({{"host", endpoint.host}, {"port", endpoint.port}});
+        status.update({{"host", endpoint.host}, {"port", endpoint.port}});
         return status;
     }
 };
 
-TradingClient::TradingClient(ServiceIo& io, ServiceEndpoint endpoint)
+TradingClient::TradingClient(ServiceIo& io, TradingEndpoint endpoint)
     : io_(io),
       impl_(std::make_shared<Impl>(io, std::move(endpoint)))
 {}
 
-std::future<std::shared_ptr<TradingClient>> TradingClient::open(
-    ServiceIo& io,
-    ServiceEndpoint endpoint,
-    Json manifest,
-    std::string expected_account)
+std::future<std::shared_ptr<TradingClient>>
+TradingClient::open(ServiceIo& io, TradingEndpoint endpoint)
 {
     return io.submit<std::shared_ptr<TradingClient>>(
-        [&io,
-            endpoint = std::move(endpoint),
-            manifest = std::move(manifest),
-            expected_account = std::move(expected_account)](
+        [&io, endpoint = std::move(endpoint)](
             std::stop_token stop) mutable -> PolledTask<std::shared_ptr<TradingClient>> {
             auto client = co_await io.admin<std::shared_ptr<TradingClient>>([&] {
                 return std::shared_ptr<TradingClient>(new TradingClient(io, std::move(endpoint)));
             });
-            co_await client->impl_->initialize(manifest, expected_account, stop);
+            co_await client->impl_->initialize(stop);
             (void)client->io_.submit<void>(
                 [state = client->impl_](std::stop_token stop) {
                     return state->monitor(stop);
@@ -264,25 +257,19 @@ std::future<std::shared_ptr<TradingClient>> TradingClient::open(
         });
 }
 
-std::future<void> TradingClient::create(const Json& manifest)
+std::future<void> TradingClient::create(const Json& policy)
 {
-    auto input = protocol::encode_live_input(manifest);
+    auto input = protocol::encode_live_policy(policy);
     return io_.submit<void>(
-        [state = impl_, input = std::move(input), manifest](
+        [state = impl_, input = std::move(input), policy](
             std::stop_token stop) -> PolledTask<void> {
-            // Explicit continuation after a lost creation reply observes the same account.
             if (state->last_snapshot) {
                 const auto& existing = *state->last_snapshot;
-                if (existing.at("account_id") != manifest.at("account_id")
-                    || existing.at("broker") != manifest.at("broker")
-                    || existing.at("environment") != manifest.at("environment")
-                    || existing.at("risk") != manifest.at("policy").at("risk")
-                    || existing.at("contracts") != manifest.at("policy").at("contracts")
-                    || existing.at("max_price_deviation")
-                        != manifest.at("policy").at("max_price_deviation"))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "trading account already initialized with a different definition");
+                for (const auto* key : {"risk", "contracts", "max_price_deviation"})
+                    if (existing.at(key) != policy.at(key))
+                        throw Error(
+                            ErrorCode::conflict,
+                            "trading account already initialized with a different definition");
                 co_return;
             }
             wire::Request request;
@@ -299,11 +286,10 @@ TradingClient::~TradingClient()
     impl_->lifetime.request_stop();
 }
 
-std::future<void> TradingClient::connect_broker(std::string password, std::string auth_code)
+std::future<void> TradingClient::connect_broker()
 {
     wire::Request request;
-    request.mutable_live_connect()->set_password(std::move(password));
-    request.mutable_live_connect()->set_auth_code(std::move(auth_code));
+    request.mutable_live_connect();
     return io_.submit<void>(
         [state = impl_, request = std::move(request)](std::stop_token stop) -> PolledTask<void> {
             co_await state->call(request, stop);
@@ -344,7 +330,7 @@ Json TradingClient::Read::snapshot() const
 
 Json TradingClient::Read::render() const
 {
-    return {{"session", snapshot()}, {"connection", connection}};
+    return {{"session", snapshot()}, {"connection", connection}, {"account", account}};
 }
 
 TradingClient::Read TradingClient::owner_view() const
@@ -363,7 +349,7 @@ std::future<Json> TradingClient::view() const
     });
 }
 
-ServiceEndpoint TradingClient::endpoint() const
+TradingEndpoint TradingClient::endpoint() const
 {
     return impl_->endpoint;
 }

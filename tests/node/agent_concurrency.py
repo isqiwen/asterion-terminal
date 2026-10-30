@@ -1,10 +1,9 @@
-"""A stalled TLS handshake or authenticated partial frame cannot block Agent status."""
+"""A connection that never sends the magic, or a partial frame, cannot block Agent status."""
 import json
 import re
 from pathlib import Path
 import select
 import socket
-import ssl
 import struct
 import subprocess
 import shutil
@@ -19,7 +18,7 @@ def daily(path):
     """Transport records are in the owning Agent's process log."""
     return next(path.parent.glob("asterion_node_agent-*_????-??-??.log"))
 
-agent_path, certificates, mode = sys.argv[1:]
+agent_path, mode = sys.argv[1:]
 assert mode in ("handshake", "frame", "overload")
 def varint(value):
     output = bytearray()
@@ -60,23 +59,17 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
     root = Path(folder)
     shutil.copytree(Path(agent_path).parent / "config", root / "agent/config")
     agent = install_agent(root, agent_path)
-    subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:
         reserve.bind(("127.0.0.1", 0)); port = reserve.getsockname()[1]
     log = root / "agent/logs/transport.log"
-    process = subprocess.Popen([str(agent), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    context = ssl.create_default_context(cafile=str(root / "ca.crt"))
-    context.load_cert_chain(str(root / "client.crt"), str(root / "client.key"))
-    context.minimum_version = ssl.TLSVersion.TLSv1_3
-    def connect(ctx=context):
-        raw = socket.create_connection(("127.0.0.1", port), timeout=3)
-        try:
-            return ctx.wrap_socket(raw, server_hostname="localhost")
-        except BaseException:
-            raw.close(); raise
-    def status(identity, ctx=context):
+    process = subprocess.Popen([str(agent), "--bind", "127.0.0.1", "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    def connect(magic=b"ASTR"):
+        channel = socket.create_connection(("127.0.0.1", port), timeout=3)
+        channel.sendall(magic)
+        return channel
+    def status(identity, magic=b"ASTR"):
         request = b"\x08\x01" + field(2, identity.encode()) + field(10, b"")
-        with connect(ctx) as channel:
+        with connect(magic) as channel:
             channel.sendall(struct.pack("!I", len(request)) + request)
             def receive(size):
                 data = b""
@@ -108,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
             while len(rejected) < 16 and time.monotonic() < limit:
                 readable, _, _ = select.select([s for s in overloaded if s not in rejected], [], [], .1)
                 for channel in readable:
-                    assert channel.recv(1) == b"", "unauthenticated overload peer received application data"
+                    assert channel.recv(1) == b"", "overload peer without the magic received application data"
                     rejected.add(channel)
             assert len(rejected) >= 16, f"bounded admission did not close excess peers: {len(rejected)}"
             for channel in overloaded: channel.close()
@@ -129,15 +122,13 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
         started = time.monotonic()
         current = status("while-stalled")
         assert current[1] == first[1] and time.monotonic() - started < 3
-        # Parallel reception must not weaken the certificate gate.
-        stranger = ssl.create_default_context(cafile=str(root / "ca.crt"))
-        stranger.load_cert_chain(str(root / "stranger.crt"), str(root / "stranger.key"))
+        # Parallel reception must not weaken the magic check.
         try:
-            status("untrusted", stranger)
+            status("stranger", b"HTTP")
         except (OSError, AssertionError):
             pass
         else:
-            raise AssertionError("untrusted client reached Agent status")
+            raise AssertionError("a client without the magic reached Agent status")
         assert status("after-rejection")[1] == first[1]
         # Diagnostics expose only server-generated identifiers and enum-like
         # stages; malformed or truncated payloads must never enter logs.
@@ -168,4 +159,4 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
         process.kill()
         _, diagnostic = process.communicate(timeout=15)
         if diagnostic: print(diagnostic.decode(errors="replace"), file=sys.stderr)
-print(f"Agent {mode} stall isolated; authenticated status and certificate rejection verified")
+print(f"Agent {mode} stall isolated; status with the magic and rejection without it verified")

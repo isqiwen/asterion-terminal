@@ -61,8 +61,7 @@ void validate_strategy_object(const resource::proto::Object& value, std::string_
 void validate_strategy_definition(const r::StrategyDefinition& value)
 {
     validate_message(value);
-    if (value.interval_minutes() > 1440 || !hash(value.program_artifact())
-        || !hash(value.risk_artifact()))
+    if (value.interval_minutes() > 1440 || !hash(value.program_artifact()))
         throw std::invalid_argument(
             "strategy candidate requires one ordinary contract and one fixed CTA rule");
     if (value.has_portfolio()) {
@@ -102,10 +101,8 @@ void validate_strategy_definition(const r::StrategyDefinition& value)
         Decimal::from_raw(value.contract().quantity_increment().units()));
 }
 
-r::StrategyDefinition strategy_definition(
-    const backtest::proto::BacktestInput& input,
-    const std::string& programme,
-    const std::string& risk)
+r::StrategyDefinition
+strategy_definition(const backtest::proto::BacktestInput& input, const std::string& programme)
 {
     validate_message(input);
     const bool portfolio = input.strategies_size() == 1 && input.strategies(0).has_fixed_weights();
@@ -129,7 +126,6 @@ r::StrategyDefinition strategy_definition(
     }
     value.set_interval_minutes(input.paper().contracts(0).dataset().interval_minutes());
     value.set_program_artifact(programme);
-    value.set_risk_artifact(risk);
     validate_strategy_definition(value);
     return value;
 }
@@ -268,8 +264,7 @@ Json decode_strategy_package(const r::StrategyPackage& value)
     const auto& d = value.definition();
     Json definition = {
         {"interval_minutes", d.interval_minutes()},
-        {"program_artifact", d.program_artifact()},
-        {"risk_artifact", d.risk_artifact()}
+        {"program_artifact", d.program_artifact()}
     };
     if (d.has_portfolio()) {
         Json contracts = Json::array();

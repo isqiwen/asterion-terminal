@@ -43,8 +43,6 @@ public:
     std::future<std::vector<HistoryService>> history_inventory();
     std::future<void> action(const std::string&, const std::string&);
     std::future<ServiceEndpoint> service_endpoint(const std::string&, node::proto::ServiceKind);
-    std::future<ServiceEndpoint> local_session(const std::filesystem::path&);
-    std::future<ServiceEndpoint> trading_session(const std::string& service);
     std::future<ServiceEndpoint> local_market();
     std::future<ServiceEndpoint> local_data();
     std::future<ServiceEndpoint> local_research(

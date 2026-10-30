@@ -4,7 +4,7 @@
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>
@@ -409,13 +409,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
                 input.set_kind("logic_trial");
                 input.set_version(value.source_input_sha256());
                 depend(std::move(input));
-                required_programs.insert(value.definition().risk_artifact());
-                resource::proto::Object risk;
-                *risk.mutable_owner() = owner;
-                risk.set_kind("research_program");
-                risk.set_id(value.definition().risk_artifact());
-                risk.set_version(value.definition().risk_artifact());
-                depend(std::move(risk));
             }
             required_programs.insert(value.definition().program_artifact());
             resource::proto::Object program;
@@ -424,19 +417,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             program.set_id(value.definition().program_artifact());
             program.set_version(value.definition().program_artifact());
             depend(std::move(program));
-            // The TaskStore inspection already verifies existing module bytes.
-            // A retired source may otherwise omit its released module: a retained
-            // candidate still declares the original implementation as evidence.
-            if (value.has_logic())
-                return; // The preserved native risk bytes are checked below.
-            const auto source = source_records.find(value.reference_result().id());
-            if (source == source_records.end()
-                || source->second.task().risk_artifact() != value.definition().risk_artifact()
-                || !fs::is_regular_file(
-                    risk_providers::Module::filename(root / value.reference_result().id())))
-                throw Error(
-                    ErrorCode::conflict,
-                    "strategy original risk implementation is missing");
         },
         [&](const proto::StrategyDelivery& value) {
             result.objects.push_back(protocol::strategy_delivery_object(value));

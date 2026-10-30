@@ -31,10 +31,6 @@ ServicePrograms resolve_programs(node::proto::ServiceKind kind, Resolve resolve)
 {
     ServicePrograms programs;
     switch (kind) {
-        case node::proto::TRADING:
-            programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion_trading", false);
-            programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
-            break;
         case node::proto::MARKET:
             programs.executable = resolve("ASTERION_MARKET_EXECUTABLE", "asterion_market", false);
             programs.provider = resolve("ASTERION_CTP_LIBRARY", "ctp-md", true);
@@ -81,8 +77,7 @@ void prepare_local_programs(const fs::path& agent)
     const auto root = agent.parent_path().parent_path();
     node::proto::ServicePrograms manifest;
     manifest.set_version(1);
-    for (const auto kind :
-        {node::proto::MARKET, node::proto::DATA, node::proto::RESEARCH, node::proto::TRADING}) {
+    for (const auto kind : {node::proto::MARKET, node::proto::DATA, node::proto::RESEARCH}) {
         const auto programs = local_service_programs(kind);
         auto& source = *manifest.add_services();
         source.set_kind(kind);

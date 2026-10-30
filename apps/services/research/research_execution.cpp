@@ -5,7 +5,7 @@
 #include "research_logic.hpp"
 #include "backtest/engine.hpp"
 #include "factor/factor_engine.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/foundation/error.hpp>
@@ -28,11 +28,7 @@ task::proto::TaskFinish execute(
     task::proto::TaskFinish result;
     switch (attempt.task().kind()) {
         case task::proto::BACKTEST: {
-            const auto module = risk_providers::Module::pinned(
-                directory / attempt.task().id(),
-                attempt.task().risk_artifact());
-            *result.mutable_result() =
-                backtest::run(attempt.task().input(), stop, progress, &module);
+            *result.mutable_result() = backtest::run(attempt.task().input(), stop, progress);
             break;
         }
         case task::proto::FACTOR:

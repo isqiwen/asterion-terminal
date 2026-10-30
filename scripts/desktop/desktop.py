@@ -86,7 +86,7 @@ LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion_trading", "asterion_node_agent", "asterion_node_manager", "asterion_market", "asterion_data",
+SERVICE_PROGRAMS = ("asterion_node_agent", "asterion_node_manager", "asterion_market", "asterion_data",
                     "asterion_research")
 
 def verify_native_resources(directory, packaged=False):
@@ -124,7 +124,7 @@ def exercise_packaged_programs(native):
     def packaged(programs):
         programs = {"ASTERION_NODE_MANAGER_EXECUTABLE": "asterion_node_manager",
                     "ASTERION_NODE_AGENT_EXECUTABLE": "asterion_node_agent",
-                    "ASTERION_TRADING_EXECUTABLE": "asterion_trading", **programs}
+                    **programs}
         return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
     isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
     run([*isolated, str(ROOT / "tests/tasks/task_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
@@ -250,11 +250,6 @@ def verify_macos_bundle(distribution=True):
             verify_macos_target(app / "Contents/Resources/native/ctp-md.dylib", minimum)
             run(["codesign", "--verify", "--deep", "--strict", str(app)])
             run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify", "--directory", str(app / "Contents/Resources/remote-linux")])
-            trading = app / "Contents/Resources/native/asterion_trading"
-            if not trading.is_file():
-                raise SystemExit("DMG does not contain the trading sidecar")
-            run(["codesign", "--verify", "--strict", str(trading)])
-            run([str(trading), "--version"])
             node = app / "Contents/Resources/native/asterion_node_agent"
             run(["codesign", "--verify", "--strict", str(node)])
             run([str(node), "--version"])

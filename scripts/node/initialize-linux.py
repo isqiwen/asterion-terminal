@@ -121,9 +121,7 @@ def service_text(identity, port, bind):
             f'[Service]\nUser={ACCOUNT}\nGroup={ACCOUNT}\nUMask=0077\n'
             # Every program of the node is installed under {root}; the Agent finds
             # its own config/ and data/ beside its bin/.
-            f'ExecStart={root}/agent/bin/asterion_node_agent --bind {bind} --port {port} '
-            f'--tls-ca {root}/agent/config/ca.crt --tls-cert {root}/agent/config/server.crt '
-            f'--tls-key {root}/agent/config/server.key\n'
+            f'ExecStart={root}/agent/bin/asterion_node_agent --bind {bind} --port {port}\n'
             'NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n'
             f'ReadWritePaths={HOME}\nCapabilityBoundingSet=\nRestrictSUIDSGID=yes\n'
             'Restart=on-failure\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n')
@@ -163,7 +161,7 @@ def manage(arguments):
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size > 8192:
             raise ValueError('Unsafe Agent system service definition')
         text = source.read()
-    match = re.search(r' --bind (0\.0\.0\.0|::) --port ([0-9]+) ', text)
+    match = re.search(r' --bind (0\.0\.0\.0|::) --port ([0-9]+)(?:\s|$)', text)
     if not match:
         raise ValueError('Unrecognized Agent system service')
     if text != service_text(identity, int(match[2]), match[1]):

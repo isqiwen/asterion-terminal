@@ -20,7 +20,7 @@
 #include <asterion/protocol/resource.hpp>
 #include <unistd.h>
 #include <limits>
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include <asterion/kernel/log.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/owner.hpp>

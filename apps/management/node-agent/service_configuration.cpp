@@ -36,8 +36,6 @@ std::string program_name(node::proto::ServiceKind kind)
     switch (kind) {
         case node::proto::MARKET:
             return "market";
-        case node::proto::TRADING:
-            return "trading";
         case node::proto::DATA:
             return "data";
         case node::proto::RESEARCH:
@@ -103,15 +101,13 @@ read_service_configuration(const fs::path& folder, bool local, unsigned short co
     configuration.plugin_artifacts =
         document.at("plugin_artifacts").get<std::vector<std::string>>();
     if (document.contains("catalog_artifact")) {
-        if (configuration.kind != wire::MARKET && configuration.kind != wire::TRADING)
-            throw std::invalid_argument(
-                "CTP trader library only belongs to market data or live trading");
+        if (configuration.kind != wire::MARKET)
+            throw std::invalid_argument("CTP catalog library only belongs to market data");
         configuration.catalog_artifact = document.at("catalog_artifact").get<std::string>();
         validate_artifact_digest(configuration.catalog_artifact);
     }
     if (configuration.kind != wire::MARKET && configuration.kind != wire::RESEARCH
-        && configuration.kind != wire::TRADING && configuration.kind != wire::DATA
-        && configuration.kind != wire::LAB)
+        && configuration.kind != wire::DATA && configuration.kind != wire::LAB)
         throw std::invalid_argument("unsupported service kind");
     if (document.contains("python")) {
         configuration.python = document.at("python").get<std::string>();
@@ -132,8 +128,6 @@ read_service_configuration(const fs::path& folder, bool local, unsigned short co
         if (!configuration.provider_artifact.empty())
             throw std::invalid_argument("research service does not load a market provider");
     }
-    if (configuration.kind == wire::TRADING && configuration.catalog_artifact.empty())
-        throw std::invalid_argument("live trading requires the CTP trader library");
     configuration.artifact = document.at("artifact").get<std::string>();
     validate_artifact_digest(configuration.artifact);
     const auto port = document.at("port").get<unsigned int>();

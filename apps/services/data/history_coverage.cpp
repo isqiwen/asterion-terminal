@@ -1,6 +1,6 @@
 #include "history_coverage.hpp"
 #include "history_minutes.hpp"
-#include "historical_sessions.hpp"
+#include <asterion/domain/historical_sessions.hpp>
 #include "table_series.hpp"
 #include <asterion/protocol/data.hpp>
 #include <set>

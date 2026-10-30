@@ -20,7 +20,7 @@
 #include <asterion/kernel/durable_file.hpp>
 #include "engine.hpp"
 #include "factor_engine.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "data/bar_fixture.hpp"
 #include "data/shfe_margin_fixture.hpp"
 #include "historical_margins.hpp"

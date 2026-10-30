@@ -150,8 +150,6 @@ task::proto::StoredTaskRecord source(Database& db, const proto::StrategyPackage&
         || record->input_digest() != value.source_input_sha256()
         || record->task().attempt() != value.source_attempt()
         || record->task().program_artifact() != value.definition().program_artifact()
-        || (!value.has_logic()
-            && record->task().risk_artifact() != value.definition().risk_artifact())
         || (active && record->task().has_retirement()))
         throw Error(ErrorCode::conflict, "research strategy source evidence mismatch");
     return *record;
@@ -189,7 +187,7 @@ proto::StrategyPackage capture_strategy_package(
     value.set_purpose(req.purpose());
     value.set_limitations(req.limitations());
     *value.mutable_definition() =
-        protocol::strategy_definition(task.input(), task.program_artifact(), task.risk_artifact());
+        protocol::strategy_definition(task.input(), task.program_artifact());
     value.set_digest(protocol::strategy_digest(value.definition()));
     *value.mutable_reference_result() = req.source();
     value.set_source_input_sha256(input_digest);
@@ -202,8 +200,7 @@ proto::StrategyPackage capture_logic_strategy_package(
     const resource::proto::Owner& expected,
     const proto::StrategyLogicFreeze& req,
     const task::proto::TaskResponse& verified,
-    const std::string& input_digest,
-    const std::string& risk_artifact)
+    const std::string& input_digest)
 {
     protocol::validate_message(req);
     protocol::validate_strategy_object(req.source(), "logic_trial_result");
@@ -231,7 +228,6 @@ proto::StrategyPackage capture_logic_strategy_package(
     *definition.mutable_contract() = req.contract();
     definition.set_interval_minutes(req.interval_minutes());
     definition.set_program_artifact(task.program_artifact());
-    definition.set_risk_artifact(risk_artifact);
     *value.mutable_logic()->mutable_definition() = task.logic_trial().definition();
     *value.mutable_logic()->mutable_example() =
         protocol::logic_object(task.logic_trial().example());
@@ -589,7 +585,6 @@ proto::StrategyReply Strategies::delivery_status(const std::string& id) const
         || value.strategy_use().SerializeAsString() != expected.SerializeAsString()
         || (!explicit_request && task->input_digest() != draft.source_input_sha256())
         || value.program_artifact() != fixed.definition().program_artifact()
-        || value.risk_artifact() != fixed.definition().risk_artifact()
         || (!explicit_request
             && (value.metadata().derivation().source_id() != draft.reference_result().id()
                 || value.metadata().derivation().source_result_digest()

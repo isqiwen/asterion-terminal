@@ -1,4 +1,5 @@
 #include "ctp_connections.hpp"
+#include "trading_connections.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -233,41 +234,6 @@ TEST(CtpConnections, MarketCredentialFailuresNeverExposeSecretsOrWriteAccountPas
     EXPECT_THROW(unavailable.market_credentials(unavailable.get("a")), Error);
 }
 
-TEST(CtpConnections, TradingBindingSurvivesReopenAndPreventsSecondExecutionLocation)
-{
-    Directory root;
-    const auto folder = root.path / "ctp-connections";
-    terminal::CtpConnections connections(folder);
-    connections.save(simnow("real"), "");
-    connections.save(simnow("simulation"), "");
-    connections.bind_trading("real", connections.get("real").revision, {"machine-a", "trading"});
-    terminal::CtpConnections reopened(folder);
-    const auto account = reopened.get("real");
-    ASSERT_TRUE(account.trading);
-    EXPECT_EQ(account.trading->node, "machine-a");
-    EXPECT_EQ(account.trading->service, "trading");
-    EXPECT_THROW(reopened.bind_trading("real", account.revision, {"machine-b", "trading"}), Error);
-    EXPECT_THROW(
-        reopened.bind_trading(
-            "simulation",
-            reopened.get("simulation").revision,
-            {"machine-a", "trading"}),
-        Error);
-    // Service names are scoped to their node, not globally unique.
-    reopened.bind_trading(
-        "simulation",
-        reopened.get("simulation").revision,
-        {"machine-b", "trading"});
-    auto renamed = account;
-    renamed.name = "Account A";
-    reopened.save(renamed, account.revision);
-    EXPECT_EQ(reopened.get("real").trading, account.trading);
-    renamed = reopened.get("real");
-    renamed.trade_front = "tcp://other-host:1234";
-    EXPECT_THROW(reopened.save(renamed, renamed.revision), Error);
-    EXPECT_THROW(reopened.remove("real", reopened.get("real").revision), Error);
-}
-
 TEST(CtpConnections, ForgettingErasesEverySavedConnectionsSecretsAndKeepsTheFiles)
 {
     Directory root;
@@ -289,4 +255,58 @@ TEST(CtpConnections, ForgettingErasesEverySavedConnectionsSecretsAndKeepsTheFile
     replace_file_durably(root.path / "removed/c.json", "{}");
     EXPECT_THROW(removed.forget_remembered(), std::exception);
     terminal::CtpConnections(root.path / "missing", keychain).forget_remembered();
+}
+
+TEST(TradingConnections, IdentitySurvivesReopenAndPrivateKeyNeverEntersSnapshot)
+{
+    Directory root;
+    terminal::TradingConnections connections(root.path);
+    EXPECT_TRUE(connections.fingerprint().empty());
+    // What a run that ended halfway left: a staging directory with a key only.
+    fs::create_directories(root.path / ".tls-interrupted");
+    std::ofstream(root.path / ".tls-interrupted/client.key") << "partial";
+    connections.prepare_identity();
+    for (const auto& entry : fs::directory_iterator(root.path))
+        EXPECT_FALSE(entry.path().filename().string().starts_with(".tls-")) << entry.path();
+    const auto fingerprint = connections.fingerprint();
+    EXPECT_EQ(fingerprint.size(), 64U);
+    terminal::TradingConnections reopened(root.path);
+    reopened.prepare_identity();
+    EXPECT_EQ(reopened.fingerprint(), fingerprint);
+    EXPECT_EQ(
+        fs::status(root.path / "tls/client.key").permissions() & fs::perms::all,
+        fs::perms::owner_read | fs::perms::owner_write);
+    EXPECT_EQ(reopened.snapshot(), Json::array());
+    fs::remove(root.path / "tls/client.key");
+    EXPECT_THROW(reopened.prepare_identity(), std::invalid_argument);
+    EXPECT_TRUE(fs::exists(root.path / "tls/client.crt"));
+}
+
+TEST(TradingConnections, PersistsPinnedDestinationAndRejectsStaleOrDuplicateEdits)
+{
+    Directory root;
+    terminal::TradingConnections connections(root.path);
+    Json value{
+        {"id", "one"},
+        {"name", "Trading"},
+        {"host", "127.0.0.1"},
+        {"port", std::uint64_t{7460}},
+        {"instance", "simnow"},
+        {"fingerprint", std::string(64, 'a')}
+    };
+    connections.save(value, "");
+    const auto saved = connections.get("one");
+    EXPECT_THROW(connections.save(value, ""), Error);
+    value["id"] = "two";
+    EXPECT_THROW(connections.save(value, ""), Error);
+    connections.prepare_identity();
+    terminal::TradingConnections reopened(root.path);
+    const auto endpoint = reopened.endpoint("one");
+    EXPECT_EQ(endpoint.host, "127.0.0.1");
+    EXPECT_EQ(endpoint.session, "simnow");
+    EXPECT_EQ(endpoint.port, 7460);
+    EXPECT_EQ(endpoint.tls.peers, (std::vector<std::string>{std::string(64, 'a')}));
+    EXPECT_THROW(connections.remove("one", "stale"), Error);
+    connections.remove("one", saved.at("revision"));
+    EXPECT_TRUE(connections.snapshot().empty());
 }

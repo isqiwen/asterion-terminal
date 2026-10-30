@@ -47,7 +47,7 @@ message PaperInput {
   repeated PaperContract contracts = 3;
 }
 // A CTP futures account. Non-secret identities only: the password and the
-// authentication code are entered at every connection and never stored.
+// authentication code stay in the trading host's systemd credentials.
 message LiveBroker {
   string front = 1;
   string broker_id = 2;
@@ -62,7 +62,6 @@ message LivePolicy {
 }
 message LivePolicyChange {
   LivePolicy policy = 1;
-  string risk_artifact = 2;
 }
 
 enum TradingEnvironment {
@@ -77,9 +76,10 @@ message LiveInput {
   string account_id = 3;
   TradingEnvironment environment = 4;
 }
-message LiveCredentials {
-  string password = 1;
-  string auth_code = 2;
+message TradingAccount {
+  string account_id = 1;
+  LiveBroker broker = 2;
+  TradingEnvironment environment = 3;
 }
 // The owner confirms the account by its user ID. The permission lasts across
 // connections and trading days.
@@ -248,13 +248,12 @@ message Request {
   string policy_revision = 5;
   oneof operation {
     Empty snapshot = 10;
-    Empty recover = 11;
     Command command = 12;
     Empty shutdown = 13;
     Empty attach = 14;
     Empty heartbeat = 15;
-    LiveInput live_create = 16;
-    LiveCredentials live_connect = 17;
+    LivePolicy live_create = 16;
+    Empty live_connect = 17;
     Empty live_disconnect = 18;
     Empty live_costs = 19;
   }
@@ -407,7 +406,6 @@ message LiveSnapshot {
   // Immutable event segments; excludes the active journal file.
   uint64 segment_count = 19;
   string policy_revision = 20;
-  string risk_artifact = 21;
   TradingEnvironment environment = 23;
   // One observed broker state, not an atomic funds/positions/trades cut.
   // Sequence is scoped to this process and connection generation.
@@ -428,6 +426,7 @@ message Health {
   asterion.runtime.proto.ExecutionHealth execution = 6;
 }
 message Response {
+  TradingAccount account = 4;
   uint32 version = 1;
   string session_id = 2;
   string correlation_id = 3;

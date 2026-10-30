@@ -5,7 +5,8 @@ isolated node directory and sends real orders to the counter you name. Use it
 only with a simulation environment: --simulation states that you checked this.
 Passwords and the authentication code are read with getpass, passed only to the
 local core over its private pipe, and never written to disk, logs or the report.
-The market password and the trading password are asked for separately.
+Only market and catalog credentials are entered here. Trading credentials
+are provisioned locally on the trading host by its setup script.
 
     python3 tests/acceptance/ctp_trading.py --simulation [--build build/Debug] \
         --market-front tcp://<host>:<port> --trade-front tcp://<host>:<port> \
@@ -22,6 +23,7 @@ import argparse
 from decimal import Decimal, ROUND_FLOOR
 import getpass
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -58,6 +60,8 @@ parser = argparse.ArgumentParser(description=__doc__,
 parser.add_argument("--simulation", action="store_true",
                     help="required: you checked that both fronts are a simulation environment")
 parser.add_argument("--build", default=str(ROOT / "build/Debug"))
+parser.add_argument("--trading-connection", required=True, help="saved Terminal trading connection id")
+parser.add_argument("--terminal-directory", required=True, help="Terminal installation containing data/tls and data/trading-connections")
 parser.add_argument("--market-front", required=True)
 parser.add_argument("--trade-front", required=True)
 parser.add_argument("--broker", required=True)
@@ -70,7 +74,7 @@ parser.add_argument("--report", default="", help="write a JSON report (no creden
 parser.add_argument("--market-sdk", default="", help="default: the packaged vendor SDK")
 parser.add_argument("--trader-sdk", default="", help="default: the packaged vendor SDK")
 parser.add_argument("--credentials-stdin", action="store_true",
-                    help="read market password, trading password and authentication code "
+                    help="read market password, catalog password and catalog authentication code "
                          "from three lines of standard input (automation only)")
 args = parser.parse_args()
 if not args.simulation:
@@ -96,18 +100,28 @@ if args.report:
     # A startup or cleanup failure must never leave a previous passing report.
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 if args.credentials_stdin:
-    market_password, trading_password, auth_code = (sys.stdin.readline().rstrip("\n")
+    market_password, catalog_password, auth_code = (sys.stdin.readline().rstrip("\n")
                                                     for _ in range(3))
 else:
     market_password = getpass.getpass("Market password (not echoed, not stored): ")
-    trading_password = getpass.getpass("Trading password (not echoed, not stored): ")
-    auth_code = getpass.getpass("Authentication code (not echoed, not stored): ")
-ACCOUNT = "acceptance"
+    catalog_password = getpass.getpass("Market catalog password (not echoed, not stored): ")
+    auth_code = getpass.getpass("Market catalog authentication code (not echoed, not stored): ")
+ACCOUNT = args.trading_connection
 
 # A failed run keeps its node: the logs are the only record of what the counter did.
 with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder:
     env = dict(os.environ, ASTERION_ROOT=folder, ASTERION_TEST_NODE_ISOLATED="1",
                ASTERION_CTP_LIBRARY=str(market_sdk), ASTERION_CTP_CATALOG_LIBRARY=str(trader_sdk))
+    source = Path(args.terminal_directory).resolve() / "data"
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", args.trading_connection):
+        sys.exit("invalid trading connection id")
+    destination = Path(folder) / "terminal/data"
+    (destination / "trading-connections").mkdir(parents=True)
+    (destination / "tls").mkdir(mode=0o700)
+    shutil.copy2(source / "trading-connections" / (args.trading_connection + ".json"),
+                 destination / "trading-connections" / (args.trading_connection + ".json"))
+    for name in ("client.crt", "client.key"):
+        shutil.copy2(source / "tls" / name, destination / "tls" / name)
     core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, env=env)
     begin = time.monotonic()
@@ -181,7 +195,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                     f"last={first.get('last')} trading_day={first.get('trading_day')}"):
             raise RuntimeError("no market quote: run during trading hours with a listed contract")
 
-        call("market.catalog", {"account": ACCOUNT, "password": trading_password,
+        call("market.catalog", {"account": ACCOUNT, "password": catalog_password,
                                 "auth_code": auth_code})
         # The counter may pause for two minutes before or between instruments.
         deadline = time.monotonic() + max(args.timeout, 600)
@@ -196,15 +210,16 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                           if catalog.get(key))
         if not step("contract catalog", phase == "ready", detail):
             raise RuntimeError("the contract catalog did not load")
-        call("live.create", {"account": ACCOUNT, "node": "local", "service": "", "environment": "simulation", "max_order_quantity": "1",
+        configured = call("live.open", {"account": ACCOUNT})["live"][ACCOUNT]["account"]
+        if configured["environment"] != "simulation" or configured["broker"]["user_id"] != args.user or configured["broker"]["broker_id"] != args.broker or configured["broker"]["front"] != args.trade_front:
+            raise RuntimeError("configured trading service does not match the explicitly selected simulation counter")
+        call("live.create", {"account": ACCOUNT, "max_order_quantity": "1",
                              "max_gross_quantity": "1", "max_working_orders": "1",
                              "max_price_deviation": args.deviation, "contracts": [contract]})
-        live = wait(lambda s: s["phase"] == "disconnected")
+        live = wait(lambda s: s["phase"] in ("ready", "error"))
         step("account record created", bool(live), "one lot per order, one lot held, one working order")
         tick = Decimal(live["contracts"][0]["price_increment"])
 
-        call("live.connect", {"account": ACCOUNT, "password": trading_password,
-                              "auth_code": auth_code})
         live = wait(lambda s: s["phase"] in ("ready", "error"))
         if not step("account synchronized", live and live["phase"] == "ready",
                     f"phase={live and live['phase']} error_code={live and live['error_code']} "
@@ -244,9 +259,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         call("live.disconnect", {"account": ACCOUNT})
         live = wait(lambda s: s["phase"] == "disconnected")
         step("authorization kept while disconnected", live and live["authorization"] is not None)
-        call("live.connect", {"account": ACCOUNT, "password": trading_password,
-                              "auth_code": auth_code})
-        trading_password = auth_code = ""
+        call("live.connect", {"account": ACCOUNT})
+        catalog_password = auth_code = ""
         live = wait(lambda s: s["phase"] in ("ready", "error"))
         if not step("reconnected without a new authorization",
                     live and live["phase"] == "ready" and live["authorization"] is not None,
@@ -264,7 +278,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
     except Exception as error:  # report, never the credentials
         step("run", False, str(error))
     finally:
-        market_password = trading_password = auth_code = ""
+        market_password = catalog_password = auth_code = ""
         try:
             try:
                 core.stdin.close()

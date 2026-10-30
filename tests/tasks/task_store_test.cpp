@@ -1353,45 +1353,6 @@ TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
     EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
 }
 
-TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm)
-{
-    TaskDirectory directory;
-    std::string artifact;
-    const auto expected = backtest::run(input());
-    const auto file = risk_providers::Module::filename(directory.path / "done");
-    {
-        tasks::Store store(
-            asterion::research::task_domain(),
-            directory.path,
-            tasks::Identity{"task"});
-        artifact = tasks::submit(store, "done", input()).risk_artifact();
-        EXPECT_EQ(artifact, sha256_file(file));
-        store.commit(
-            tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
-        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-        const auto saved = directory.path / "original";
-        std::filesystem::rename(file, saved);
-        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-        EXPECT_THROW(
-            risk_providers::Module::pinned(directory.path / "done", artifact),
-            std::exception);
-        std::ofstream(file) << "corrupt fixture";
-        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-        EXPECT_THROW(
-            risk_providers::Module::pinned(directory.path / "done", artifact),
-            std::exception);
-        EXPECT_EQ(std::filesystem::file_size(file), 15U);
-        std::filesystem::remove(file);
-        std::filesystem::rename(saved, file);
-    }
-    tasks::Store recovered(
-        asterion::research::task_domain(),
-        directory.path,
-        tasks::Identity{"task"});
-    EXPECT_EQ(recovered.get("done").risk_artifact(), artifact);
-    EXPECT_EQ(tasks::result(recovered, "done").SerializeAsString(), expected.SerializeAsString());
-}
-
 TEST(TaskStore, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults)
 {
     TaskDirectory directory;

@@ -1,5 +1,5 @@
 #include "research_tasks.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "task_payload.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -304,7 +304,6 @@ public:
     {
         manifest["provider_artifact"] = task.provider_artifact();
         manifest["download_authorization"] = task.download_authorization();
-        manifest["risk_artifact"] = task.risk_artifact();
         manifest["program_artifact"] = task.program_artifact();
         if (task.has_strategy_use())
             manifest["strategy_use"] = protocol::decode_strategy_use(task.strategy_use());
@@ -322,7 +321,7 @@ public:
         fields.erase("strategy_use");
         fields.erase("variable_definition");
         fields.erase("program_artifact");
-        require_fields(fields, {"provider_artifact", "download_authorization", "risk_artifact"});
+        require_fields(fields, {"provider_artifact", "download_authorization"});
         if (!manifest.at("provider_artifact").get<std::string>().empty()
             || !manifest.at("download_authorization").get<std::string>().empty())
             throw std::invalid_argument("unexpected task provider artifact");
@@ -345,14 +344,6 @@ public:
                 || task.variable_definition().owner().service_id() != instance)
                 throw std::invalid_argument("invalid fixed research variable owner or task kind");
         }
-        task.set_risk_artifact(manifest.at("risk_artifact").get<std::string>());
-        if (task.kind() == wire::BACKTEST) {
-            const auto& hash = task.risk_artifact();
-            if (hash.size() != 64
-                || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
-                throw std::invalid_argument("invalid risk plugin artifact");
-        } else if (!task.risk_artifact().empty())
-            throw std::invalid_argument("unexpected task risk artifact");
     }
 
     wire::TaskExecution execution(const wire::Task& task, const std::string& digest) const override
@@ -458,30 +449,6 @@ public:
     {
         return admitted.strategy_use().SerializeAsString()
             == submitted.strategy_use().SerializeAsString();
-    }
-
-    // A backtest keeps the risk algorithm it was admitted with.
-    void capture(const wire::Task& task, const fs::path& directory) const override
-    {
-        if (!task.has_input())
-            return;
-        const auto module = risk_providers::Module::selected();
-        if (module.artifact() != task.risk_artifact())
-            throw std::invalid_argument("risk plugin artifact changed before capture");
-        module.capture(directory);
-    }
-
-    std::vector<fs::path> captured(
-        const wire::StoredTaskRecord& record,
-        const fs::path& directory,
-        bool released) const override
-    {
-        const auto path = risk_providers::Module::filename(directory);
-        if (record.task().risk_artifact().empty() || (released && !fs::exists(path)))
-            return {};
-        if (sha256_file(path) != record.task().risk_artifact())
-            throw std::invalid_argument("captured task algorithm is missing or corrupt");
-        return {path.filename()};
     }
 
     void validate_result(

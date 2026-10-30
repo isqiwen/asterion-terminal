@@ -64,14 +64,48 @@ test("log loss stays visible while a failed background refresh can recover", () 
 test("old account progress stays uncertain even while transport responds", () => {
   const report = (stale: boolean) => {
     const snapshot = readySnapshot();
-    const account = { ...localService(snapshot, "research"), id: "live-1", kind: "live" as const };
+    const account = {
+      ...localService(snapshot, "research"),
+      id: "live-1",
+      kind: "market" as const,
+    };
     account.health = stale ? "degraded" : "ready";
     account.execution = {
       ...account.execution!,
       state: { observed: true, pending: stale, age_ms: stale ? 60000 : 0 },
       persistence: { observed: true, pending: false, age_ms: 60000 },
     };
-    localHealth(snapshot).services.push(account);
+    snapshot.live["account"] = {
+      account: {
+        account_id: "account",
+        environment: "simulation",
+        broker: {
+          front: "tcp://127.0.0.1:1",
+          broker_id: "9999",
+          user_id: "fixture",
+          app_id: "test",
+        },
+      },
+      session: null,
+      connection: {
+        transport: "tcp_tls",
+        state: "connected",
+        session: "live-1",
+        host: "127.0.0.1",
+        port: 7460,
+        reconnects: 0,
+        restarts: 0,
+        latency_ms: 0,
+        last_heartbeat_ms: Date.now(),
+        health: {
+          instance_id: "independent",
+          version: "test",
+          uptime_ms: 0,
+          phase: stale ? "degraded" : "ready",
+          execution: account.execution,
+        },
+      },
+    };
     return show(snapshot);
   };
   const view = render(report(false));

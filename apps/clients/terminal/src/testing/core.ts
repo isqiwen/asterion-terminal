@@ -143,7 +143,6 @@ export function readySnapshot(): Snapshot {
     datasets: [],
     dataset_series: [],
     native_plugins: { directory: "", items: [] },
-    plugins: [],
     diagnostics: {
       log_directory: "/test-node/logs",
       succeeded: 0,

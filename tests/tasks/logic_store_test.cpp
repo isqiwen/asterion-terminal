@@ -3,7 +3,7 @@
 #include "data_submission.hpp"
 #include "research_logic.hpp"
 #include "strategy_store.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -351,9 +351,8 @@ TEST_F(LogicStore, MatchingPriorTrialCanAssembleANonRunningPackageAndDraftWithou
             {"sides", "both"},
             {"rule", {{"kind", "moving_average"}, {"fast", 1}, {"slow", 3}}}});
     const auto digest = sha256_file(root / "matching-trial/input.pb");
-    const auto risk = risk_providers::Module::selected().artifact();
     const auto captured =
-        research::capture_logic_strategy_package(owner, request, original, digest, risk);
+        research::capture_logic_strategy_package(owner, request, original, digest);
     ASSERT_TRUE(captured.has_logic());
     EXPECT_FALSE(captured.has_reference_result());
     EXPECT_EQ(
@@ -383,17 +382,17 @@ TEST_F(LogicStore, MatchingPriorTrialCanAssembleANonRunningPackageAndDraftWithou
     auto changed = request;
     changed.mutable_strategy()->mutable_moving_average()->set_fast(2);
     EXPECT_THROW(
-        research::capture_logic_strategy_package(owner, changed, original, digest, risk),
+        research::capture_logic_strategy_package(owner, changed, original, digest),
         std::invalid_argument);
     auto wrong_owner = owner;
     wrong_owner.set_service_id("other-research");
     EXPECT_THROW(
-        research::capture_logic_strategy_package(wrong_owner, request, original, digest, risk),
+        research::capture_logic_strategy_package(wrong_owner, request, original, digest),
         Error);
     auto unverified = original;
     unverified.mutable_logic_trial()->set_all_match(false);
     EXPECT_THROW(
-        research::capture_logic_strategy_package(owner, request, unverified, digest, risk),
+        research::capture_logic_strategy_package(owner, request, unverified, digest),
         std::invalid_argument);
     auto all_warmup = original;
     auto* input = all_warmup.mutable_result_task()->mutable_logic_trial();
@@ -408,7 +407,6 @@ TEST_F(LogicStore, MatchingPriorTrialCanAssembleANonRunningPackageAndDraftWithou
             owner,
             request,
             all_warmup,
-            sha256_bytes(input->SerializeAsString()),
-            risk),
+            sha256_bytes(input->SerializeAsString())),
         Error);
 }

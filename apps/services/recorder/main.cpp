@@ -19,7 +19,6 @@ namespace {
 
 constexpr auto version = "0.1.0";
 // "ASTR": marks a request as coming from an Asterion client.
-constexpr std::uint32_t magic = 0x41535452;
 
 std::int64_t now_ms()
 {
@@ -51,11 +50,10 @@ int main(int argc, char** argv)
         auto settings =
             recording::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
         const auto root = settings.directory;
-        // Plain TCP: requests identify themselves with the protocol's magic number.
+        // Plain TCP: connections start with the connection magic.
         service::Transport transport;
         transport.bind = settings.bind;
         transport.port = settings.port;
-        transport.plaintext = true;
         transport.validate();
         const auto instance = unique_process_id();
         const auto started_ms = now_ms();
@@ -74,8 +72,6 @@ int main(int argc, char** argv)
             try {
                 if (!request.ParseFromString(frame) || request.version() != 1)
                     throw std::invalid_argument("malformed recorder request");
-                if (request.magic() != magic)
-                    throw Error(ErrorCode::permission_denied, "not an Asterion recorder client");
                 validate_id(request.correlation_id());
                 response.set_correlation_id(request.correlation_id());
                 if (request.has_status()) {

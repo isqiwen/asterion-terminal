@@ -1,6 +1,6 @@
 #pragma once
 // Test-only reduced official report shapes, never a production import path.
-#include "../plugins/data/shfe/margins.hpp"
+#include "../extensions/data/native/shfe/margins.hpp"
 #include "history_tables.hpp"
 #include <asterion/foundation/serialization.hpp>
 #include <fstream>

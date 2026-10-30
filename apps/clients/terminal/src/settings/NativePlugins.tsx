@@ -220,7 +220,7 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
       {inventory && (
         <section aria-label={t("服务启用的插件")}>
           <h2>{t("服务启用的插件")}</h2>
-          <p>{t("分别管理本机数据服务和研究服务的原生插件；可复用凭据在连接页面配置。")}</p>
+          <p>{t("此处只安装和配置数据源插件。风控由产品内置，无需选择或安装。")}</p>
           {services.map(service => (
             <ServicePlugins
               key={service.id}

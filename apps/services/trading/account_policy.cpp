@@ -1,6 +1,4 @@
 #include "account_policy.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
 
@@ -22,13 +20,12 @@ PolicyDefinition PolicyDefinition::from_wire(const protocol::proto::LivePolicy& 
     return result;
 }
 
-AccountPolicy::AccountPolicy(PolicyDefinition value, std::string id, risk_providers::Module module)
+AccountPolicy::AccountPolicy(PolicyDefinition value, std::string id)
     : revision(std::move(id)),
-      definition(std::move(value)),
-      algorithm(std::move(module))
+      definition(std::move(value))
 {
     validate_id(revision);
-    auto instance = algorithm.create(definition.limits);
+    auto instance = std::make_shared<OrderLimits>(definition.limits);
     instance->start();
     risk = std::move(instance);
 }
@@ -58,20 +55,6 @@ void AccountPolicy::preserve_exposure(const AccountPolicy& previous, const Instr
         throw Error(
             ErrorCode::conflict,
             "policy cannot change contract units while exposure exists");
-}
-
-void AccountPolicy::capture(const std::filesystem::path& plugins) const
-{
-    const auto directory = plugins / algorithm.artifact();
-    create_directories_durably(directory);
-    const auto file = risk_providers::Module::filename(directory);
-    if (std::filesystem::exists(file)) {
-        if (std::filesystem::is_symlink(file) || !std::filesystem::is_regular_file(file)
-            || sha256_file(file) != algorithm.artifact())
-            throw std::invalid_argument("risk plugin artifact does not match its owner");
-    } else {
-        algorithm.capture(directory);
-    }
 }
 
 } // namespace asterion::trading

@@ -2,7 +2,7 @@
 
 本文说明回测使用的策略定义。回测如何撮合见 [回测](backtest.md)，目标持仓如何换成委托见 [目标持仓到委托](trading.md#目标持仓到委托)。实盘目前只支持手动下单。
 
-策略实现在 `plugins/strategy/cta`，由研究服务（回测）创建并拥有；当前随程序静态链接。策略输出目标，不拥有柜台发送许可。不再新增内置规则：策略接口将改为 Python，见[评估与路线](reviews/project-assessment-2026-10-28.md)第 2 阶段。
+策略实现在 `apps/services/research/strategies`，由研究服务（回测）创建并拥有；当前随程序静态链接。策略输出目标，不拥有柜台发送许可。不再新增内置规则：策略接口将改为 Python，见[评估与路线](reviews/project-assessment-2026-10-28.md)第 2 阶段。
 
 ## 策略定义
 

@@ -39,7 +39,7 @@ include(cmake/CompilerOptions.cmake)
 
 add_subdirectory(core)
 add_subdirectory(protocol)
-add_subdirectory(plugins)
+add_subdirectory(extensions)
 add_subdirectory(apps)
 add_subdirectory(bindings)
 

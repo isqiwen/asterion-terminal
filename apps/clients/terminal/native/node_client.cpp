@@ -204,20 +204,6 @@ NodeClient::service_endpoint(const std::string& name, node::proto::ServiceKind k
     return endpoint(std::move(command));
 }
 
-std::future<ServiceEndpoint> NodeClient::local_session(const std::filesystem::path& directory)
-{
-    wire::NodeCommand command;
-    command.set_local_session(directory.string());
-    return endpoint(std::move(command));
-}
-
-std::future<ServiceEndpoint> NodeClient::trading_session(const std::string& service)
-{
-    wire::NodeCommand command;
-    command.set_trading_session(service);
-    return endpoint(std::move(command));
-}
-
 std::future<ServiceEndpoint> NodeClient::local_market()
 {
     wire::NodeCommand command;

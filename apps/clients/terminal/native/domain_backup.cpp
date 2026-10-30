@@ -1,7 +1,6 @@
 #include "domain_backup.hpp"
 #include "data_backup.hpp"
 #include "research_backup.hpp"
-#include "trading_backup.hpp"
 #include <asterion/foundation/error.hpp>
 #include <algorithm>
 #include <map>
@@ -31,7 +30,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
     });
     std::map<std::string, data::ColdBackup> data;
     std::map<std::string, research::ColdBackup> research;
-    std::map<std::string, trading::ColdBackup> trading;
     std::set<std::filesystem::path> roots;
     std::set<std::string> owners;
     for (const auto& selection : selections) {
@@ -50,10 +48,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
             research.emplace(
                 identity,
                 research::cold_backup(selection.directory, selection.owner, stop));
-        } else if (selection.owner.domain() == "trading") {
-            trading.emplace(
-                identity,
-                trading::cold_backup(selection.directory, selection.owner, stop));
         } else
             throw std::invalid_argument("cold backup domain is not implemented");
     }
@@ -70,9 +64,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
                 identity + ":" + key(reference.consumer),
                 reference.retention_digest);
     }
-    for (const auto& [identity, domain] : trading)
-        for (const auto& object : domain.objects)
-            objects.insert(key(object));
     const auto inspect_consumers = [&](const auto& domains) {
         for (const auto& [identity, domain] : domains) {
             for (const auto& object : domain.objects)
@@ -116,7 +107,6 @@ backup_files::Cut cold_cut(std::vector<Selection> selections, std::stop_token st
     };
     append(data);
     append(research);
-    append(trading);
     return backup_files::Cut(std::move(snapshots));
 }
 

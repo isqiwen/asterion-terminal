@@ -30,8 +30,7 @@ proto::StrategyPackage capture_logic_strategy_package(
     const resource::proto::Owner&,
     const proto::StrategyLogicFreeze&,
     const task::proto::TaskResponse&,
-    const std::string& verified_input_digest,
-    const std::string& risk_artifact);
+    const std::string& verified_input_digest);
 
 // The caller retains the Research root and serializes this borrowed metadata
 // connection on its existing journal. No task scheduling or Data writes here.

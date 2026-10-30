@@ -1,4 +1,4 @@
-"""Agent-owned live CTP session through the Terminal ABI with the test-only trader SDK.
+"""Independent live CTP session through the Terminal ABI with the test-only trader SDK.
 
 Covers the execution chain (authorization, catalog allowlist, risk), credentials
 that never reach disk, logs or replies, and recovery after the session process is
@@ -14,12 +14,17 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
+from trading_installation import install, Programs
+if sys.platform != "linux":
+    raise SystemExit(77)
+
 build = Path(sys.argv[1]).resolve()
 suffix = ".dylib" if sys.platform == "darwin" else ".so"
 env = dict(os.environ,
            ASTERION_CTP_LIBRARY=str(build / f"libasterion_test_ctp{suffix}"),
            ASTERION_CTP_CATALOG_LIBRARY=str(build / f"libasterion_test_ctp_trader{suffix}"))
-SECRET = "live-secret-only"
+SECRET = "test-only-password"
 AUTH = "auth-code"
 bridge = str(build / "asterion_terminal_dev_bridge")
 
@@ -88,7 +93,18 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
     # Terminal events from its isolated Agent and services.
     env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
     process = launch()
+    host = install(Path(os.environ["ASTERION_ROOT"]) / "independent-trading", Programs(
+        str(build / "asterion_trading"), str(build / "asterion_test_certificates"),
+        str(build / "libasterion_test_ctp_trader.so")))
+    children = {}
     try:
+        fingerprint = call(process, "trading.identity.prepare")["trading_fingerprint"]
+        for name in ("account", "second"):
+            port = host.account(name, terminals=[fingerprint], user="000001" if name == "account" else "000002")
+            (host.root / "test-credentials" / name / "auth_code").write_text(AUTH)
+            children[name] = host.start(name)
+            call(process, "trading.connections.save", dict(id=name, name=name, revision="",
+                host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         call(process, "market.local")
         # The counter details are entered once; commands refer to them by id.
         call(process, "ctp.connections.save", dict(
@@ -100,7 +116,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         call(process, "market.catalog", dict(account="catalog", password="catalog-only",
                                              auth_code=AUTH))
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
-        create = dict(node="local", service="", environment="simulation",
+        call(process, "live.open", dict(account="account"))
+        create = dict(
                       max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
                       max_price_deviation="0.02")
         refused = trade(process, "live.create",
@@ -110,30 +127,23 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
                      dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
         live = session(state)
         assert live["account_id"] == "account"
-        assert live["phase"] == "disconnected" and live["authorization"] is None
+        assert live["authorization"] is None
         assert live["contracts"][0]["price_increment"] == "0.5"
         assert live["contracts"][0]["multiplier"] == "10"
-        # Readiness is independent of process liveness and successful initialization.
-        state = wait(process, lambda s: s["live"]["account"]["connection"]["health"] is not None)
-        health = state["live"]["account"]["connection"]["health"]
-        assert health["phase"] == "awaiting_input", health
-        assert not health["execution"]["business_ready"], health
-        assert health["execution"]["state"]["observed"], health
         # Opening the same account twice must not create another record.
-        duplicate = trade(process, "live.create",
-                          dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]), error=True)
-        assert "already open" in duplicate["message"], duplicate
+        duplicate = trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
+        assert session(duplicate)["account_id"] == "account"
+        # A created account logs in by itself with its host's credentials; each
+        # step of that login renews the account's control, so wait for its outcome
+        # before the next order.
+        wait(process, lambda s: session(s)["phase"] in ("ready", "error"))
         denied = trade(process, "live.act", submit("early", "1"), error=True)
         assert "authorize" in denied["message"], denied
 
-        trade(process, "live.connect", dict(password="bad", auth_code=AUTH))
-        wait(process, lambda s: session(s)["phase"] == "error")
-        trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
-        state = wait(process, lambda s: any(
-            v["id"] == s["live"]["account"]["connection"]["session"] and v["health"] == "ready"
-            for n in s["nodes"] if n["health"] for v in n["health"]["services"]))
-        observed = next(v for n in state["nodes"] if n["health"] for v in n["health"]["services"]
-                        if v["id"] == state["live"]["account"]["connection"]["session"])
+        rejected = trade(process, "live.connect", dict(password="bad", auth_code=AUTH), error=True)
+        assert rejected, "Terminal must reject credentials on the trading API"
+        state = wait(process, lambda s: s["live"]["account"]["connection"]["health"]["phase"] == "ready")
+        observed = state["live"]["account"]["connection"]["health"]
         assert observed["execution"]["business_ready"], observed
         state = wait(process, lambda s: session(s)["phase"] == "ready"
                      and session(s)["positions_reconciled"])
@@ -159,42 +169,34 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         call(process, "ctp.connections.save", dict(
             id="second", name="Second", revision="", broker_id="9999", user_id="000002",
             app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
+        call(process, "live.open", dict(account="second"))
         trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]),
              account="second")
-        state = call(process, "runtime.snapshot")
+        state = wait(process, lambda s: session(s, "second")["phase"] == "ready")
         assert set(state["live"]) == {"account", "second"}, list(state["live"])
-        assert session(state)["authorization"] and session(state, "second")["phase"] == "disconnected"
+        assert session(state)["authorization"] and session(state, "second")["authorization"] is None
         denied = trade(process, "live.act", submit("other", "1"), error=True, account="second")
         assert "authorize" in denied["message"], denied
         assert order(call(process, "runtime.snapshot"), "other") is None
         trade(process, "live.act", submit("stray", "1"), error=True, account="missing")
-        # An account that trades keeps its counter details.
-        fixed = call(process, "ctp.connections.save", dict(
-            id="second", name="Second", revision=next(c["revision"] for c in state["ctp_connections"] if c["id"] == "second"),
-            broker_id="9999", user_id="000003", app_id="client_app",
-            trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"), error=True)
-        assert "fixed" in fixed["message"], fixed
-        call(process, "ctp.connections.remove", dict(id="second", revision=next(
-            c["revision"] for c in state["ctp_connections"] if c["id"] == "second")), error=True)
+        # Market registration is independent of the service-owned trading identity.
+        changed = next(c for c in state["ctp_connections"] if c["id"] == "second")
+        call(process, "ctp.connections.save", dict(changed, user_id="000003"))
+        assert session(call(process, "runtime.snapshot"), "second")["broker"]["user_id"] == "000002"
+        call(process, "ctp.connections.remove", dict(id="second", revision=next(c["revision"] for c in call(process, "runtime.snapshot")["ctp_connections"] if c["id"] == "second")))
         trade(process, "live.close", account="second")
 
-        # The session service is killed; the Agent restarts it without credentials.
-        node = next(n for n in state["nodes"] if n["id"] == "local")
-        service = next(s for s in node["health"]["services"]
-                       if s["id"] == state["live"]["account"]["connection"]["session"])
-        os.kill(service["pid"], signal.SIGKILL)
-        wait(process, lambda s: any(
-            v["id"] == service["id"] and v["pid"] != service["pid"] and v["health"] == "awaiting_input"
-            for n in s["nodes"] if n["health"] for v in n["health"]["services"]), 40)
+        # Restart the independently managed host: local login resumes, authorization does not.
+        children["account"].kill()
+        children["account"].wait(timeout=15)
+        children["account"] = host.start("account")
         trade(process, "live.close")
         state = trade(process, "live.open")
         live = session(state)
-        assert live["phase"] == "disconnected" and live["authorization"] is None, live
-        assert live["positions_reconciled"] is False, live
+        assert live["authorization"] is None, live
         assert isinstance(live["broker_sequence"], str), live
         assert isinstance(live["connection_generation"], str), live
         trade(process, "live.act", submit("after", "1"), error=True)
-        trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
         state = wait(process, lambda s: session(s)["phase"] == "ready")
         # The restarted SDK double has no exchange state. Durable terminal
         # evidence still retires the filled intent; recovery never resends it.
@@ -207,6 +209,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         trade(process, "live.close")
     finally:
         stop(process)
+        for child in children.values():
+            if child.poll() is None:
+                child.terminate()
+                child.wait(timeout=15)
     # Each program logs in its own installation: <root>/<program>/logs, one text
     # line per record whose message ends with key=value fields.
     root = Path(os.environ["ASTERION_ROOT"])
@@ -233,7 +239,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
     assert any("broker trade observed:" in line and fields.get("order_id") == "filled"
                for line, fields in records)
     for path in Path(os.environ["ASTERION_ROOT"]).rglob("*"):
-        if path.is_file():
+        if path.is_file() and "test-credentials" not in path.parts:
             data = path.read_bytes()
             assert SECRET.encode() not in data and AUTH.encode() not in data, path
 print("Live CTP chain: catalog allowlist, authorization, risk, credential redaction and "

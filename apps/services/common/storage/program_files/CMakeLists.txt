@@ -1,0 +1,4 @@
+add_library(asterion_program_files STATIC program_files.cpp)
+target_include_directories(asterion_program_files PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_program_files PUBLIC asterion_protocol PRIVATE Asterion::Kernel)
+asterion_target_defaults(asterion_program_files)

@@ -25,10 +25,7 @@ deploy_service(ServiceIo& io, AgentClient& node, bool local, const manager::prot
     if (!status.online || !status.health)
         throw std::invalid_argument("connect the node before deployment");
     const auto kind = p.kind();
-    if (local
-        && (p.port() != 0
-            || (kind != node::proto::RESEARCH && kind != node::proto::DATA
-                && kind != node::proto::TRADING)))
+    if (local && (p.port() != 0 || (kind != node::proto::RESEARCH && kind != node::proto::DATA)))
         throw std::invalid_argument("local deployment requires a business service and port zero");
     if (!local
         && (status.health->os() != "linux" || status.health->version() != ASTERION_PRODUCT_VERSION))
@@ -175,8 +172,7 @@ struct NodeManager::Impl
             co_return;
         }
         std::shared_ptr<AgentClient> node;
-        if (p.has_connect() || p.has_trading_session() || p.has_local_session()
-            || p.has_local_market() || p.has_local_data() || p.has_local_research()
+        if (p.has_connect() || p.has_local_market() || p.has_local_data() || p.has_local_research()
             || p.has_create_research())
             node = co_await connect(p.id());
         else {
@@ -208,13 +204,6 @@ struct NodeManager::Impl
                         node->service_endpoint(p.endpoint().name(), p.endpoint().kind())
                     });
                 break;
-            case wire::NodeCommand::kTradingSession: {
-                const auto address =
-                    co_await PollFuture{node->trading_session(p.trading_session())};
-                encode(*result.mutable_endpoint(), address);
-                break;
-            }
-            case wire::NodeCommand::kLocalSession:
             case wire::NodeCommand::kLocalMarket:
             case wire::NodeCommand::kLocalData:
             case wire::NodeCommand::kLocalResearch:
@@ -222,9 +211,7 @@ struct NodeManager::Impl
                 if (p.id() != "local")
                     throw std::invalid_argument("local service operation requires the local node");
                 ServiceEndpoint address;
-                if (p.has_local_session())
-                    address = co_await PollFuture{node->local_session(p.local_session())};
-                else if (p.has_local_market())
+                if (p.has_local_market())
                     address = co_await PollFuture{node->local_market()};
                 else if (p.has_local_data())
                     address = co_await PollFuture{node->local_data()};
@@ -292,11 +279,10 @@ struct NodeManager::Impl
             result.set_presentation(key.dump());
             co_return;
         }
-        if (p.operation() == wire::Ssh::ENROLL || p.operation() == wire::Ssh::REPLACE_IDENTITY) {
+        if (p.operation() == wire::Ssh::ENROLL) {
             auto params = ssh_parameters(p);
             auto endpoint = co_await io.admin<NodeEndpoint>([&] {
-                return p.operation() == wire::Ssh::ENROLL ? enroll_node(io, params)
-                                                          : replace_node_identity(io, params);
+                return enroll_node(io, params);
             });
             auto client = co_await PollFuture{AgentClient::open(io, std::move(endpoint))};
             nodes.insert_or_assign(p.id(), std::move(client));

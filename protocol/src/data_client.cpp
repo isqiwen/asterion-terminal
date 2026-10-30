@@ -19,20 +19,6 @@ DataClient::DataClient(std::string endpoint, std::string instance)
     service::Transport{endpoint_, {}, 0, {}}.validate();
 }
 
-DataClient::DataClient(
-    std::string host,
-    unsigned short port,
-    ipc::TlsIdentity tls,
-    std::string instance)
-    : host_(std::move(host)),
-      instance_(std::move(instance)),
-      port_(port),
-      tls_(std::move(tls))
-{
-    validate_id(instance_);
-    service::Transport{{}, host_, port_, tls_}.validate();
-}
-
 data::proto::DataResponse
 DataClient::call(data::proto::DataRequest request, std::chrono::milliseconds timeout) const
 {
@@ -47,13 +33,9 @@ DataClient::call(data::proto::DataRequest request, std::chrono::milliseconds tim
             throw Error(ErrorCode::unavailable, "data request timed out");
         return std::min(left, maximum);
     };
-    auto exchange = [&](auto channel) {
-        channel.send(request.SerializeAsString(), remaining(5s));
-        return channel.receive(remaining(timeout));
-    };
-    const auto bytes = host_.empty()
-        ? exchange(ipc::Channel::connect(endpoint_, remaining(5s)))
-        : exchange(ipc::TlsChannel::connect(host_, port_, tls_, remaining(5s)));
+    auto channel = ipc::Channel::connect(endpoint_, remaining(5s));
+    channel.send(request.SerializeAsString(), remaining(5s));
+    const auto bytes = channel.receive(remaining(timeout));
     return decode_data_response(request, bytes);
 }
 

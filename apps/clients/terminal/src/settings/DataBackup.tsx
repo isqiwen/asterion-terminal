@@ -90,9 +90,7 @@ function Report({ value }: { value: BackupReport }) {
 export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
   const node = snapshot?.nodes.find(item => item.id === "local");
   const services =
-    node?.health?.services.filter(
-      item => item.kind === "data" || item.kind === "research" || item.kind === "live",
-    ) ?? [];
+    node?.health?.services.filter(item => item.kind === "data" || item.kind === "research") ?? [];
   const [selected, setSelected] = useState<string[]>([]);
   const [destination, setDestination] = useState("");
   const [backupPath, setBackupPath] = useState("");
@@ -131,7 +129,7 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
     <section className="settings-section" aria-label={t("数据备份与恢复")}>
       <p>
         {t(
-          "先在连接与部署停止所选本机 Data、Intelligence、Research 和 Trading。备份保留原记录，不恢复当前授权、账户绑定或运行状态。",
+          "先在连接与部署停止所选本机 Data、Intelligence 和 Research。备份保留原记录，不恢复运行状态。交易账户的记录在交易主机的 data/ 目录，由交易主机自己备份。",
         )}
       </p>
       <fieldset disabled={busy}>

@@ -1,14 +1,16 @@
-# 原生插件 SDK
+# 原生数据源 SDK
 
-原生插件是可信的进程内动态库。Kernel 负责发现、版本检查、实例生命周期和装载句柄；服务按能力调用插件；供应商、算法和存储实现留在 `plugins/`。这不是沙箱，插件能使用宿主进程的权限，安装前应审查其来源。
+对外扩展边界只保留数据源与策略。策略采用 Python 接口（M2.1），因子是可复用的普通 Python 函数或包；
+存储、撮合、风控、绩效和界面都是内置模块，见[工程结构](architecture.md#工程结构与扩展边界)。
 
 ## 当前交付边界
 
-统一装载器接受 data、strategy、risk、execution、storage、tool 六类能力。当前正式开放并已接入生产调用链的能力包括 `asterion.history`（分钟来源发现与分钟线）、`asterion.history.tables`（全市场数据表）、`asterion.history.connection`（连接配置与访问验证）及 `asterion.risk.pre-trade`（交易前风控）。Tushare 与 SHFE 数据获取通过这一 ABI，由数据服务和下载服务计算线程动态加载。Data 和注册层仍静态链接供应商格式的证据校验代码，用于独立复核允许的原始响应；这些校验不承担联网获取。
+原生数据源是可信的进程内动态库，安装和读取描述信息都会执行本机代码，不是沙箱。
+当前开放 `asterion.history`、`asterion.history.tables`、`asterion.history.connection` 等数据能力，
+Tushare 与 SHFE 的实现位于 `extensions/data/native/`。第三方安装只接受数据源，不能安装风控、执行、存储或工具模块。
+Python 数据采集逐步接替旧数据层，原生数据 ABI 按 M2 的替换顺序删除，不再扩展为通用插件平台。
 
-订单限额风控已由 CTP 交易和回测动态装载。CTP、策略、执行、文件存储和分析工具仍是仓库内的静态 C++ 模块；六类标签不代表已发布六套业务 SDK。Terminal 的 TypeScript 工作区采用构建期 UI 契约；Polars、QuantStats 与 skfolio 共用随桌面分发的 Protobuf 分析助手，不是原生动态插件。
-
-按[评估与路线](reviews/project-assessment-2026-10-28.md)，历史数据改由 Python 研究服务采集，策略改为 Python 接口；数据源 ABI 在第 2 阶段随旧数据层一起删除，交易前风控插件保留。不要为策略、存储或执行新建动态 ABI。
+订单限额位于 `core/risk/order_limits/`，直接编译进服务，不提供风控 ABI、算法选择或账本算法副本。
 
 ## 插件结构和构建
 
@@ -18,7 +20,6 @@
 - `history.h`：历史数据类型与函数表。
 - `history_tables.h`：全市场数据表的声明、按分区读取和失败说明。
 - `history_connection.h`：当前历史来源的凭据策略、请求限制与结构化访问验证。
-- `risk.h`：期货交易前风险上下文、明确拒绝原因与同步评估函数表。
 - `sdk.hpp`：可选的 C++ 异常屏障和配置读取助手。使用纯 C 时不需要它。
 
 第三方只需要这些头文件和自身供应商依赖，不需要链接 Asterion Core、Protobuf、Node 或 UI。使用本机工具链编译为 macOS（Apple Silicon）的 `.dylib` 或 Linux x86_64 的 `.so`，远程服务使用 Linux x86_64 `.so`。一个动态库可以发布多个来源或多个能力；每种能力只声明确实实现的版本。
@@ -86,11 +87,11 @@ ABI 精确匹配结构大小和显式版本字段，不兼容未知布局。类�
 
 ## 安装、部署与验证
 
-直接启动服务时使用绝对路径 `--plugin-directory /absolute/path/plugins`。默认目录是可执行程序旁的 `plugins/`，也可通过 `ASTERION_PLUGIN_DIRECTORY` 显式设置；不从工作目录或 PATH 搜索。目录中的所有 `.dylib` / `.so` 都按原生插件检查，不能在里面放供应商辅助共享库。重复 ID、符号缺失、ABI/平台不匹配、损坏模块和符号链接都会拒绝加载，不会悄悄跳过。
+直接启动数据与研究服务时使用绝对路径 `--plugin-directory /absolute/path/plugins`。默认目录是可执行程序旁的 `plugins/`，也可通过 `ASTERION_PLUGIN_DIRECTORY` 显式设置；不从工作目录或 PATH 搜索。目录中的所有 `.dylib` / `.so` 都按原生插件检查，不能在里面放供应商辅助共享库。重复 ID、符号缺失、ABI/平台不匹配、损坏模块和符号链接都会拒绝加载，不会悄悄跳过。
 
-Terminal 开发构建将插件放在 `build/Debug/plugins/`，桌面构建复制到 `build/electron-resources/native/plugins/`。通过设置页创建数据与研究服务时，NodeClient 只上传勾选的插件，并在上传边界核对勾选时的内容身份。Node Agent 将 SHA-256 集合写入服务配置，在子进程（`asterion_node_agent --inspect-plugin <path> --plugin-artifact <digest>`）的加载器中验证预期摘要后读取插件描述，校验 ABI、平台和重复标识后安装到服务自己的版本目录；父进程不重复哈希，也不加载插件。开发同步复用本次检查返回的插件身份。程序更新保留当前插件集合；插件变更通过独立命令保存。数据服务和研究服务分别使用保存的集合，新下载及回测任务固定各自需要的动态库摘要。替换插件不会自动改写已有历史数据或正在运行的服务。发行包的 Linux 清单包含 Tushare 和订单限额风控动态库，打包校验覆盖其 SHA-256 和目标架构。
+Terminal 开发构建将插件放在 `build/Debug/plugins/`，桌面构建复制到 `build/electron-resources/native/plugins/`。通过设置页创建数据与研究服务时，NodeClient 上传勾选的数据源，并在上传边界核对勾选时的内容身份。Node Agent 将 SHA-256 集合写入服务配置，在子进程（`asterion_node_agent --inspect-plugin <path> --plugin-artifact <digest>`）的加载器中验证预期摘要后读取插件描述，校验 ABI、平台和重复标识后安装到服务自己的版本目录；父进程不重复哈希，也不加载插件。开发同步复用本次检查返回的插件身份。程序更新保留当前插件集合；插件变更通过独立命令保存。数据服务和研究服务分别使用保存的集合，下载任务固定数据源动态库摘要。替换插件不会自动改写已有历史数据或正在运行的服务。发行包的 Linux 清单包含 Tushare 和 SHFE 数据源动态库，打包校验覆盖其 SHA-256 和目标架构。
 
-纯 C 契约夹具位于 `tests/support/native-plugin/`，仅用于测试，不能安装到生产目录。它独立编译，不链接 Core，可用于确认第三方编译流程和回调生命周期：
+纯 C 数据源契约夹具位于 `tests/support/native-plugin/`，仅用于测试，不能安装到生产目录。它独立编译，不链接 Core，可用于确认第三方编译流程和回调生命周期：
 
 ```sh
 cmake -S tests/support/native-plugin -B build/plugin-sdk-check
@@ -99,7 +100,7 @@ cmake --build build/Debug
 ctest --test-dir build/Debug -R 'NativePlugin|NativeHistoryPlugin' --output-on-failure
 ```
 
-实际供应商实现参考 `plugins/data/tushare/native_plugin.cpp`。新增来源不需要修改 Core、数据服务分支或 UI 来源列表：数据服务从插件读取能力，经 Protobuf 返回 Terminal。历史目录和存储仍使用统一身份、来源与归一化版本，供应商私有代码不进入通用路径规则。
+实际供应商实现参考 `extensions/data/native/tushare/native_plugin.cpp`。新增来源不需要修改 Core、数据服务分支或 UI 来源列表：数据服务从插件读取能力，经 Protobuf 返回 Terminal。历史目录和存储仍使用统一身份、来源与归一化版本，供应商私有代码不进入通用路径规则。
 
 服务配置保存 Research → Data 绑定和各自插件摘要集合，插件清单参与内容修订号；没有内部持久格式递增计数或旧格式迁移。
 
@@ -107,17 +108,17 @@ ctest --test-dir build/Debug -R 'NativePlugin|NativeHistoryPlugin' --output-on-f
 
 进入「设置 → 插件」，原生插件目录显示动态库的真实 ID、实现版本、能力和可用状态。损坏的动态库单独显示错误；同 ID 的不同实现版本可以并存，每个服务只能显式选择其中一个；相同 ID 与版本出现多个副本时标记为冲突。目录只在打开页面或点击刷新时读取。
 
-应用自带的数据源与风控插件是必需的，每个已准备的实例保留一个启用版本；自行安装的插件可显式选择。Data 工作流独立准备本机数据服务，Research 工作流准备研究实例并显式引用 Data。启动仅恢复声明为运行的既有工作区，不自动创建固定配对或重新启动用户已停止的服务。插件选择和服务配置分别由所属实例验证和保存。
+应用自带的数据源插件是必需的，每个已准备的实例保留一个启用版本；自行安装的插件可显式选择。Data 工作流独立准备本机数据服务，Research 工作流准备研究实例并显式引用 Data。启动仅恢复声明为运行的既有工作区，不自动创建固定配对或重新启动用户已停止的服务。插件选择和服务配置分别由所属实例验证和保存。
 
 已有服务：停止服务及其服务计算线程，修改「启用的数据与任务插件」，点击「保存插件配置」，再手动启动。保存带有服务修订号，其他窗口修改了服务后，旧清单会被拒绝。运行中、维护中、有未结束服务计算线程时不能保存。插件集合持久化到服务配置，配置保存本身不会启动服务。
 
 更新服务程序不会重新扫描并启用所有插件，也不会切换插件版本。新版插件需要显式重新选择并保存。原始动态库从本机目录移除后，服务已经部署的版本仍保留；页面将它显示为「已部署版本（本机目录中不存在）」，允许保留或禁用。禁用数据源不删除其历史文件、任务或已上传的插件文件。
 
-此页分别管理本机数据服务和研究服务。数据服务配置历史供应商，研究服务配置计算使用的风控；各服务保存自己的插件清单。远程服务仍保留自己的插件集合，程序更新也会保留该集合；远程插件选择界面和依赖解析尚未开放。可复用凭据连接独立管理，不进入插件启用清单。插件是可信代码，读取动态库的描述信息也会执行其装载初始化逻辑。
+此页分别管理本机数据服务和研究服务。数据服务配置历史供应商，研究服务配置计算使用的数据源，风控编译进服务；各服务保存自己的插件清单。远程服务仍保留自己的插件集合，程序更新也会保留该集合；远程插件选择界面和依赖解析尚未开放。可复用凭据连接独立管理，不进入插件启用清单。插件是可信代码，读取动态库的描述信息也会执行其装载初始化逻辑。
 
 ## 实现职责
 
-CTP 的 `plugins/execution/ctp/ctp_reconciliation.*` 负责委托、成交和持仓回报投影，包括柜台/交易所身份映射、重复成交过滤、累计成交量和持仓核对。它在 Trader 持有的互斥锁内更新唯一的 `BrokerSnapshot`；不持有 SDK，不执行网络或文件 I/O，也不安排查询。`ctp_trader.cpp` 持有 SDK、连接/请求代次、查询节流和命令队列，根据核对结果决定是否再次查询；发送前仍核对授权连接与敞口代次。
+CTP 的 `apps/services/trading/ctp/ctp_reconciliation.*` 负责委托、成交和持仓回报投影，包括柜台/交易所身份映射、重复成交过滤、累计成交量和持仓核对。它在 Trader 持有的互斥锁内更新唯一的 `BrokerSnapshot`；不持有 SDK，不执行网络或文件 I/O，也不安排查询。`ctp_trader.cpp` 持有 SDK、连接/请求代次、查询节流和命令队列，根据核对结果决定是否再次查询；发送前仍核对授权连接与敞口代次。
 
 桌面与 Manager 共用的 `apps/common/control/plugin_catalog.*` 负责读取动态库目录和解析用户选择，以 `PluginCatalog`、`PluginArtifact`、`PluginSelection` 传递结果；JSON 仅在生成界面快照时构造。`apps/common/control/node_snapshot.*` 负责节点状态的展示序列化，Manager 的 AgentClient 和部署命令直接使用类型化节点状态及服务种类。`ServiceDeployment`、`ServiceUpdate` 明确列出目标平台、程序、插件、目录和修订号，部署与升级共用 `apps/common/control/service_programs.*` 的程序路径解析。
 
@@ -150,18 +151,6 @@ Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务�
 下载任务清单 记录创建时数据源动态库的 SHA-256。Agent 从任务派发消息取得这个摘要，为服务计算线程单独装载任务固定的副本；不能用服务当前选择覆盖它。服务计算线程领取任务后再次校验实际装载摘要。切换服务版本、卸载用户目录副本、任务重试和服务重启都不修改该绑定。缺少或损坏固定副本时拒绝执行，不回退到另一个版本。
 
 服务插件清单描述新任务可使用的来源；历史任务可以继续使用已保留的旧副本，这与禁用新任务的数据源分别处理。
-
-## 交易前风控动态插件
-
-`risk.h` 的 `asterion.risk.pre-trade` 是同步、无内部账户状态的评估契约。宿主提供期货身份、报价货币、价格与数量步长、合约乘数、委托、开平仓方向、总持仓、未成交开仓数量及活动委托数。所有 Decimal 值均为缩放 `10^8` 的 int64。账户和未成交委托仍由统一执行链管理，插件不能自行提交交易。
-
-`evaluate` 必须返回 `AST_OK` 并明确写入一个已定义决策。错误状态、未写输出、未知决策以及未启动实例均不能放行。插件异常必须在 C ABI 内转成状态码。当前实际实现为 `asterion.risk.order-limits`，创建参数必须显式包含 `max_order_quantity`、`max_gross_quantity` 和 `max_working_orders`；不默认补全，也不静态回退。示例见 `plugins/risk/order-limits/native_plugin.cpp`，故障契约测试使用独立编译的纯 C 夹具。
-
-研究服务部署风控能力，提交回测时必须恰好有一个风控插件。任务清单 保存 `risk_artifact`，任务目录保存 `risk-plugin.dylib`（Linux 为 `.so`）；执行使用任务自有副本及固定摘要。读取已确认结果只验收产物和对应证据，不加载或重跑算法；算法缺失或损坏仍阻止再次执行。
-
-创建 CTP 交易账户的服务时部署随应用提供的订单限额动态库。账户政策将算法副本保存到 `plugins/<SHA-256>/`，初始头部和后续政策事件记录 `risk_artifact` 与 `policy_revision`。新政策不会覆盖旧政策的算法文件，恢复只使用有效政策的自有副本，不使用当前默认版本。参数调整沿用原算法，算法变更必须显式指定与服务已部署插件匹配的摘要。交易记录与回测结果只维护当前结构，不积累内部引擎版本号。插件升级、卸载原始安装文件不会替换已有账本和任务的算法。
-
-当前 CTP 交易和回测仍使用订单限额的既有配置表单，没有开放任意风控配置编辑器或多风控组合。该 ABI 也不声明有状态风控的快照能力；新增算法需要围绕实际配置和恢复语义扩展契约。
 
 ## 原始响应体可选观测
 

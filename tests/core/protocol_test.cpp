@@ -124,8 +124,7 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     log::init(root, "rpc-test");
     wire::Request request;
     request.set_correlation_id("rpc.test");
-    request.mutable_live_connect()->set_password("test-only-password");
-    request.mutable_live_connect()->set_auth_code("test-only-auth");
+    request.mutable_live_connect();
     wire::Response response;
     response.mutable_error()->set_code("permission_denied");
     response.mutable_error()->set_message("test-only-private-provider-diagnostic");

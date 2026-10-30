@@ -1,5 +1,5 @@
 import type { AccountRun, CommandHandler } from "./commands";
-import type { TerminalContext } from "../../plugins/contract";
+import type { TerminalContext } from "../../features/contract";
 
 // Compiled by the normal TypeScript build; never executed or bundled into the app.
 export function commandContractExamples(

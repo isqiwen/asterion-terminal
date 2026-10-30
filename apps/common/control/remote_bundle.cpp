@@ -35,14 +35,12 @@ fs::path checked_resource(const std::string& arch, const std::string& name)
         throw std::invalid_argument("bundled Linux service version mismatch");
     std::vector<std::string> names{
         "asterion_node_agent",
-        "asterion_trading",
         "asterion_market",
         "asterion_data",
         "asterion_research",
         "initialize-linux.py",
         "plugins/asterion_tushare.so",
-        "plugins/asterion_shfe.so",
-        "plugins/asterion_order_limits.so"
+        "plugins/asterion_shfe.so"
     };
     if (arch == "x86_64") {
         names.push_back("ctp-md.so");
@@ -73,9 +71,8 @@ fs::path checked_resource(const std::string& arch, const std::string& name)
 
 fs::path bundled_linux_program(const std::string& arch, const std::string& program)
 {
-    if (program != "asterion_node_agent" && program != "asterion_trading"
-        && program != "asterion_market" && program != "asterion_data"
-        && program != "asterion_research"
+    if (program != "asterion_node_agent" && program != "asterion_market"
+        && program != "asterion_data" && program != "asterion_research"
 
         && !((program == "ctp-md.so" || program == "ctp-trader.so") && arch == "x86_64"))
         throw std::invalid_argument("invalid bundled program");

@@ -6,10 +6,8 @@
 
 namespace asterion::protocol {
 
-research::proto::StrategyDefinition strategy_definition(
-    const backtest::proto::BacktestInput&,
-    const std::string& programme,
-    const std::string& risk);
+research::proto::StrategyDefinition
+strategy_definition(const backtest::proto::BacktestInput&, const std::string& programme);
 void validate_strategy_definition(const research::proto::StrategyDefinition&);
 std::string strategy_digest(const research::proto::StrategyDefinition&);
 const resource::proto::Object& strategy_source(const research::proto::StrategyPackage&);

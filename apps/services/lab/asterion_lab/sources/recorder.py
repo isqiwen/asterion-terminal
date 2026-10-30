@@ -21,7 +21,7 @@ class Recorder(Source):
     def exchange(self, operation, **values):
         if self.cancelled():
             raise SourceError("cancelled", "acquisition cancelled")
-        request = Request(version=1, correlation_id=uuid.uuid4().hex, magic=0x41535452)
+        request = Request(version=1, correlation_id=uuid.uuid4().hex)
         getattr(request, operation).SetInParent()
         for key, value in values.items():
             setattr(getattr(request, operation), key, value)
@@ -30,7 +30,8 @@ class Recorder(Source):
         try:
             with socket.create_connection((self.host, self.port), timeout=10) as stream:
                 stream.settimeout(10)
-                stream.sendall(struct.pack("!I", len(payload)) + payload)
+                # A plain TCP connection to an Asterion service starts with "ASTR".
+                stream.sendall(b"ASTR" + struct.pack("!I", len(payload)) + payload)
                 def read(size):
                     data = bytearray()
                     while len(data) < size:

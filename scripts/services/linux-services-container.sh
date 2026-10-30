@@ -17,7 +17,8 @@ cmake --preset conan-release
 CMAKE_BUILD_PARALLEL_LEVEL=4 python3 scripts/services/deployment_bundle.py build/Release
 mkdir -p /output
 cp build/Release/deployment/asterion-services-linux-x86_64.zip /output/
-cmake --build build/Release --target asterion_recorder_setup
-cp build/Release/asterion-recorder-setup.sh /output/
+# The recording and trading hosts' own releases, one self-extracting script each.
+cmake --build build/Release --target asterion_recorder_setup asterion_trading_setup
+cp build/Release/asterion-recorder-setup.sh build/Release/asterion-trading-setup.sh /output/
 ./build/Release/asterion_data --version
 ./build/Release/asterion_research --version

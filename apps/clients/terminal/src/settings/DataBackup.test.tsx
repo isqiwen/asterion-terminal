@@ -89,39 +89,3 @@ test("changing inspected source invalidates restore authorization", async () => 
   await waitFor(() => expect(screen.queryByRole("button", { name: "恢复到新目录" })).toBeNull());
   expect(request).toHaveBeenCalledTimes(1);
 });
-
-test("Trading backup previews its actual account and environment before explicit save", async () => {
-  const value = snapshot();
-  value.nodes[0].health!.services[0].id = "trading-one";
-  value.nodes[0].health!.services[0].kind = "live";
-  const evidence: BackupReport = {
-    ...report,
-    manifest: {
-      ...report.manifest,
-      owners: [{ node: "fixture", service: "trading-one", domain: "trading" }],
-      scopes: [
-        { owner: 0, key: "account_id", value: "isolated-account" },
-        { owner: 0, key: "environment", value: "simulation" },
-      ],
-      limitations: [{ owner: 0, reason: "available_journal_is_not_complete_broker_history" }],
-    },
-  };
-  vi.mocked(request).mockResolvedValue({ ...value, backup: evidence });
-  render(<DataBackup snapshot={value} />);
-  fireEvent.click(screen.getByRole("checkbox", { name: /trading-one/ }));
-  fireEvent.change(screen.getByLabelText("新备份目录"), {
-    target: { value: "/isolated/trading-backup" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "预览备份" }));
-  await screen.findByText("isolated-account");
-  expect(screen.getByText("CTP 仿真")).toBeTruthy();
-  expect(screen.getByText(/现有账本不包含完整柜台历史/)).toBeTruthy();
-  expect((screen.getByRole("button", { name: "保存备份" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  expect(request).toHaveBeenCalledTimes(1);
-  expect(request).toHaveBeenCalledWith(
-    "system.backup.preview",
-    expect.objectContaining({ services: ["trading-one"] }),
-  );
-});

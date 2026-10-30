@@ -45,13 +45,14 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | 路径 | 内容 |
 | --- | --- |
 | `core/` | 基础（Decimal、时间、错误）、内核（IPC、进程、日志、持久文件）、期货领域模型 |
-| `plugins/` | 数据源、执行、存储、策略、风控与分析工具 |
+| `apps/services/` | 各服务拥有自己的实现；跨服务复用在 `common/`，共享 SQLite 和订单限额在 `core/` |
+| `extensions/` | 对外扩展实现，目前为原生数据源；Python 策略扩展按 M2.1 接入 |
 | `protocol/` | Protobuf 契约与边界校验 |
 | `apps/services/` | 业务服务：行情、数据、研究、交易；`common/tasks` 为数据与研究共用的持久任务机制 |
 | `apps/management/` | Node Manager 与 Node Agent |
 | `apps/common/control/` | 客户端与管理进程共用的控制机制 |
-| `apps/clients/` | Terminal 桌面端与安装器 |
-| `bindings/` | C ABI、Node-API 与原生插件 SDK |
+| `apps/clients/` | Terminal 桌面端与安装器；Terminal 的 `features/` 是内置界面功能 |
+| `bindings/` | C ABI、Node-API 与原生数据源 SDK |
 | `config/` | 节点默认配置 |
 | `tests/` | C++ 与进程测试 |
 

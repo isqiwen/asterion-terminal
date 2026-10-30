@@ -16,7 +16,7 @@ std::vector<terminal_backup::Selection>
 local_backup_selections(const std::vector<NodeSnapshot>& nodes, const json& ids)
 {
     if (!ids.is_array() || ids.empty() || ids.size() > 32)
-        throw std::invalid_argument("choose one to 32 local Data, Research or Trading services");
+        throw std::invalid_argument("choose one to 32 local Data or Research services");
     std::set<std::string> wanted;
     for (const auto& id : ids)
         if (!id.is_string() || !wanted.insert(id.get<std::string>()).second)
@@ -30,16 +30,12 @@ local_backup_selections(const std::vector<NodeSnapshot>& nodes, const json& ids)
             continue;
         if (service.desired_running() || service.pid())
             throw Error(ErrorCode::conflict, "stop selected business services before cold backup");
-        if (service.kind() != node::proto::DATA && service.kind() != node::proto::RESEARCH
-            && service.kind() != node::proto::TRADING)
-            throw std::invalid_argument("cold backup supports Data, Research and Trading only");
+        if (service.kind() != node::proto::DATA && service.kind() != node::proto::RESEARCH)
+            throw std::invalid_argument("cold backup supports Data and Research only");
         resource::proto::Owner owner;
         owner.set_node_id(node->health->node_id());
         owner.set_service_id(service.id());
-        owner.set_domain(
-            service.kind() == node::proto::DATA           ? "data"
-                : service.kind() == node::proto::RESEARCH ? "research"
-                                                          : "trading");
+        owner.set_domain(service.kind() == node::proto::DATA ? "data" : "research");
         result.push_back({std::move(owner), service.directory()});
     }
     if (!wanted.empty())

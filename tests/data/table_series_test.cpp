@@ -1,7 +1,7 @@
 #include "support/data_discovery.hpp"
 #include <asterion/research.pb.h>
 #include "support/task_wait.hpp"
-#include "../plugins/data/tushare/margin_definition.hpp"
+#include "../extensions/data/native/tushare/margin_definition.hpp"
 #include <asterion/domain/account.hpp>
 #include "data_store.hpp"
 #include "table_series.hpp"

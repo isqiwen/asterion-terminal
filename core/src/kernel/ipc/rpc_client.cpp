@@ -171,7 +171,7 @@ struct RpcClient::Impl
                 return;
             deadline(5s);
             const auto self = this->shared_from_this();
-            if constexpr (std::is_same_v<Stream, Tls>) {
+            if constexpr (!std::is_same_v<Stream, Local::socket>) {
                 resolver.async_resolve(
                     client.address,
                     std::to_string(client.port),
@@ -179,16 +179,20 @@ struct RpcClient::Impl
                         if (!self->accepted(error))
                             return;
                         asio::async_connect(
-                            self->stream.next_layer(),
+                            self->stream.lowest_layer(),
                             addresses,
                             [self](asio::error_code error, const Tcp::endpoint&) {
-                                if (self->accepted(error))
+                                if (!self->accepted(error))
+                                    return;
+                                if constexpr (std::is_same_v<Stream, Tls>)
                                     self->stream.async_handshake(
                                         asio::ssl::stream_base::client,
                                         [self](asio::error_code error) {
                                             if (self->accepted(error))
                                                 self->send();
                                         });
+                                else
+                                    self->send();
                             });
                     });
             } else {
@@ -217,7 +221,12 @@ struct RpcClient::Impl
                 static_cast<unsigned char>(size >> 8),
                 static_cast<unsigned char>(size)
             };
-            std::array<asio::const_buffer, 2> buffers{asio::buffer(header), asio::buffer(*payload)};
+            // A plain TCP connection starts with the magic, sent with the only request.
+            std::array<asio::const_buffer, 3> buffers{
+                asio::buffer(connection_magic, std::is_same_v<Stream, Tcp::socket> ? 4 : 0),
+                asio::buffer(header),
+                asio::buffer(*payload)
+            };
             asio::async_write(
                 stream,
                 buffers,
@@ -293,6 +302,7 @@ struct RpcClient::Impl
     const std::size_t capacity, frame_bytes;
     const PayloadBudget payloads;
     std::shared_ptr<asio::ssl::context> tls;
+    bool tcp = false;
     std::vector<std::shared_ptr<Pending>> active;
 
     Impl(
@@ -363,19 +373,22 @@ struct RpcClient::Impl
         });
         if (active.size() >= capacity)
             throw Error(ErrorCode::resource_exhausted, "RPC client request capacity reached");
-        if (tls) {
-            Tls stream(io, *tls);
-            if (SSL_set1_host(stream.native_handle(), address.c_str()) != 1
-                || SSL_set_tlsext_host_name(stream.native_handle(), address.c_str()) != 1)
-                throw std::invalid_argument("invalid TLS server identity");
+        if (tls)
             return begin<Result>(
-                std::move(stream),
+                Tls(io, *tls),
                 std::move(payload),
                 reply_timeout,
                 deadline,
                 send_timeout,
                 std::move(frame));
-        }
+        if (tcp)
+            return begin<Result>(
+                Tcp::socket(io),
+                std::move(payload),
+                reply_timeout,
+                deadline,
+                send_timeout,
+                std::move(frame));
         return begin<Result>(
             Local::socket(io),
             std::move(payload),
@@ -405,7 +418,7 @@ RpcClient::RpcClient(
     Reactor* reactor,
     std::string host,
     std::uint16_t port,
-    const TlsIdentity& identity,
+    TlsIdentity identity,
     std::size_t capacity,
     PayloadBudget payloads,
     std::size_t frame_bytes)
@@ -415,7 +428,9 @@ RpcClient::RpcClient(
 {
     if (!port)
         throw std::invalid_argument("TCP host, port and positive timeout are required");
-    impl_->tls = detail::tls_context(identity, false);
+    if (!identity.empty())
+        impl_->tls = detail::tls_context(identity);
+    impl_->tcp = true;
 }
 
 RpcClient::RpcClient(
@@ -429,7 +444,7 @@ RpcClient::RpcClient(
 RpcClient::RpcClient(
     std::string host,
     std::uint16_t port,
-    const TlsIdentity& identity,
+    TlsIdentity identity,
     std::size_t capacity,
     PayloadBudget payloads,
     std::size_t frame_bytes)
@@ -437,7 +452,7 @@ RpcClient::RpcClient(
           nullptr,
           std::move(host),
           port,
-          identity,
+          std::move(identity),
           capacity,
           std::move(payloads),
           frame_bytes)
@@ -456,7 +471,7 @@ RpcClient::RpcClient(
     Reactor& reactor,
     std::string host,
     std::uint16_t port,
-    const TlsIdentity& identity,
+    TlsIdentity identity,
     std::size_t capacity,
     PayloadBudget payloads,
     std::size_t frame_bytes)
@@ -464,7 +479,7 @@ RpcClient::RpcClient(
           &reactor,
           std::move(host),
           port,
-          identity,
+          std::move(identity),
           capacity,
           std::move(payloads),
           frame_bytes)

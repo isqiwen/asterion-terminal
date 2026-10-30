@@ -163,6 +163,17 @@ export type CommandParams = {
   };
   "data.credentials.clear": { provider: string };
   "data.credentials.verify": { provider: string };
+  "trading.identity.prepare": Record<string, never>;
+  "trading.connections.save": {
+    id: string;
+    name: string;
+    host: string;
+    port: number;
+    instance: string;
+    fingerprint: string;
+    revision: string;
+  };
+  "trading.connections.remove": { id: string; revision: string };
   "ctp.connections.save": {
     id: string;
     name: string;
@@ -428,20 +439,16 @@ export type CommandParams = {
   "node.service_firewall": { id: string; service: string; action: string; token: string };
   "live.create": RiskParameters & {
     account: string;
-    node: string;
-    service: string;
-    environment: "real" | "simulation";
     max_price_deviation: string;
     contracts: InstrumentKey[];
   };
   "live.policy.configure": RiskParameters &
     AccountCommand & {
-      risk_artifact: string;
       max_price_deviation: string;
       contracts: InstrumentKey[];
     };
   "live.open": { account: string };
-  "live.connect": { account: string; password: string; auth_code: string };
+  "live.connect": { account: string };
   "live.disconnect": { account: string };
   "live.costs": { account: string };
   "live.act": AccountCommand & LiveAction;
@@ -457,15 +464,6 @@ export type CommandParams = {
     agent_port: string;
   };
   "node.connect": { id: string };
-  "node.identity.replace": {
-    id: string;
-    host: string;
-    ssh_port: string;
-    username: string;
-    key_source: string;
-    private_key: string;
-    known_hosts: string;
-  };
   "node.local": Record<string, never>;
   "node.disconnect": { id: string };
   "node.deploy": { id: string; service: string; port: string; kind: string };
@@ -482,7 +480,7 @@ export type CommandHandler<R = void, K extends keyof CommandParams = TerminalCom
 ) => Promise<R>;
 
 // A trading panel is bound to one connection; its adapter supplies that account.
-export type AccountMethod = Extract<TerminalCommand, `live.${string}`> | "market.catalog";
+export type AccountMethod = Extract<TerminalCommand, `live.${string}`>;
 type WithoutAccount<P> = P extends { account: string } ? Omit<P, "account"> : never;
 export type AccountCall = {
   [M in AccountMethod]: Record<string, never> extends WithoutAccount<CommandParams[M]>

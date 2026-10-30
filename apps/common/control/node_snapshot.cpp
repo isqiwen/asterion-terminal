@@ -8,8 +8,6 @@ namespace wire = node::proto;
 const char* service_kind_name(wire::ServiceKind kind)
 {
     switch (kind) {
-        case wire::TRADING:
-            return "live";
         case wire::MARKET:
             return "market";
         case wire::DATA:
@@ -25,8 +23,6 @@ const char* service_kind_name(wire::ServiceKind kind)
 
 wire::ServiceKind parse_service_kind(const std::string& name)
 {
-    if (name == "live")
-        return wire::TRADING;
     if (name == "market")
         return wire::MARKET;
     if (name == "data")

@@ -6,21 +6,12 @@
 
 namespace asterion::terminal {
 
-std::filesystem::path ctp_account_directory(const std::string& account, bool create);
-
-// One counter account as the broker issues it; passwords and authorization
-// codes are never part of it. Several may be stored and traded at the same
-// time; exactly one of them is the source of market data.
-struct TradingBinding
-{
-    std::string node, service;
-    bool operator==(const TradingBinding&) const = default;
-};
-
+// Market-data and contract-query credentials, independent of trading-service
+// accounts. Passwords and authorization codes are never part of these files.
+// Exactly one registered account is selected for market data.
 struct CtpConnection
 {
     std::string id, name, broker_id, user_id, app_id, trade_front, market_front, revision;
-    std::optional<TradingBinding> trading;
 };
 
 struct MarketCredentials
@@ -51,7 +42,6 @@ public:
     Json snapshot() const;
     CtpConnection get(const std::string& id) const;
     void save(CtpConnection connection, const std::string& expected_revision);
-    void bind_trading(const std::string& id, const std::string& expected_revision, TradingBinding);
     void remove(const std::string& id, const std::string& expected_revision);
     // The market data account, or nothing when none is selected or it was removed.
     std::optional<CtpConnection> market() const;

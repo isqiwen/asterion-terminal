@@ -1,5 +1,5 @@
 #include "research_submission.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "task_payload.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -17,7 +17,6 @@ task_submission(const Store& store, const std::string& id, backtest::proto::Back
     wire::Task task;
     task.set_id(id);
     *task.mutable_input() = std::move(input);
-    task.set_risk_artifact(risk_providers::Module::selected().artifact());
     return store.submission(std::move(task));
 }
 
@@ -116,8 +115,7 @@ void set_strategy_use(
     if (task.kind() != wire::BACKTEST || !task.has_input())
         throw std::logic_error("strategy identity requires an unprepared backtest submission");
     protocol::validate_strategy_use(use);
-    const auto actual =
-        protocol::strategy_definition(task.input(), task.program_artifact(), task.risk_artifact());
+    const auto actual = protocol::strategy_definition(task.input(), task.program_artifact());
     if (use.package().owner().service_id() != store.instance()
         || actual.SerializeAsString() != fixed.SerializeAsString()
         || protocol::strategy_digest(fixed) != use.package().version())

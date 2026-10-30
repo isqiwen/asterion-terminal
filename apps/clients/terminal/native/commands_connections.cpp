@@ -36,13 +36,7 @@ PolledTask<CtpConnection> Application::Impl::market_ctp()
 
 json Application::Impl::ctp_accounts() const
 {
-    auto accounts = ctp_connections.snapshot();
-    // The execution binding is persisted before any account is created on a
-    // Trading service, local or remote; it is the record of opened trading.
-    for (auto& account : accounts)
-        if (!account.contains("error"))
-            account["trading_record"] = account.contains("trading");
-    return accounts;
+    return ctp_connections.snapshot();
 }
 
 Application::Impl::Settings Application::Impl::inspect_settings(const Settings& previous) const
@@ -51,13 +45,44 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
     SettingsView next{
         data_credentials.snapshot(),
         ctp_accounts(),
-        selected ? json(selected->id) : json(nullptr)
+        selected ? json(selected->id) : json(nullptr),
+        trading_connections.snapshot(),
+        trading_connections.fingerprint()
     };
     return next == *previous ? previous : std::make_shared<const SettingsView>(std::move(next));
 }
 
 void Application::Impl::register_connection_commands()
 {
+    command("trading.identity.prepare", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        co_await settings<void>([&] {
+            trading_connections.prepare_identity();
+        });
+        co_return snapshot();
+    });
+    command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"id", "name", "host", "port", "instance", "fingerprint", "revision"});
+        if (live.contains(text(p, "id")))
+            throw Error(
+                ErrorCode::conflict,
+                "close the trading connection before editing or removing it");
+        co_await settings<void>([&] {
+            trading_connections.save(p, text(p, "revision", true));
+        });
+        co_return snapshot();
+    });
+    command("trading.connections.remove", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"id", "revision"});
+        if (live.contains(text(p, "id")))
+            throw Error(
+                ErrorCode::conflict,
+                "close the trading connection before editing or removing it");
+        co_await settings<void>([&] {
+            trading_connections.remove(text(p, "id"), text(p, "revision"));
+        });
+        co_return snapshot();
+    });
     command("data.download.budget.configure", [this](const json& params) -> PolledTask<Response> {
         auto required = params;
         required.erase("provider");
@@ -171,7 +196,6 @@ void Application::Impl::register_connection_commands()
                 "app_id",
                 "trade_front",
                 "market_front"});
-        // CtpConnections::save keeps counter details fixed once trading is bound.
         co_await settings<void>([&] {
             ctp_connections.save(
                 {text(params, "id"),
@@ -181,7 +205,6 @@ void Application::Impl::register_connection_commands()
                     text(params, "app_id"),
                     text(params, "trade_front"),
                     text(params, "market_front"),
-                    {},
                     {}},
                 text(params, "revision", true));
         });
@@ -205,8 +228,6 @@ void Application::Impl::register_connection_commands()
     });
     command("ctp.connections.remove", [this](const json& params) -> PolledTask<Response> {
         fields(params, {"id", "revision"});
-        if (live.contains(text(params, "id")))
-            throw Error(ErrorCode::conflict, "close the trading account before removing it");
         (co_await settings<void>([&] {
             return ctp_connections.remove(text(params, "id"), text(params, "revision"));
         }));

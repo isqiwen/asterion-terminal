@@ -92,9 +92,7 @@ NativeLibrary::NativeLibrary(const std::filesystem::path& path, const std::strin
     for (uint32_t i = 0; i < api->capability_count; ++i) {
         const auto& capability = api->capabilities[i];
         auto id = bounded(capability.id), kind = bounded(capability.kind);
-        if (!capability.version || !ids.insert(id).second
-            || (kind != "data" && kind != "strategy" && kind != "risk" && kind != "execution"
-                && kind != "storage" && kind != "tool"))
+        if (!capability.version || !ids.insert(id).second || (kind != "data"))
             throw std::invalid_argument("invalid native plugin capability");
         state_->descriptor.capabilities.push_back({id, kind, capability.version});
     }

@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <filesystem>
 #include <tuple>
+#include <map>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/thread_pool.hpp>
@@ -51,29 +52,29 @@ TEST(ServiceSignalsDeathTest, BrokenPipeDoesNotKillTheServiceAndTerminationStill
 
 TEST(ServiceTransport, RequiresExactlyOneCompleteTransport)
 {
+    const std::string peer(64, 'a');
     EXPECT_NO_THROW((service::Transport{"/tmp/x", {}, 0, {}}.validate()));
+    // Plain TCP without an identity, TLS with a complete one.
+    EXPECT_NO_THROW((service::Transport{{}, "127.0.0.1", 9000, {}}.validate()));
     EXPECT_NO_THROW(
-        (service::Transport{{}, "127.0.0.1", 9000, {"/ca", "/cert", "/key"}}.validate()));
+        (service::Transport{{}, "127.0.0.1", 9000, {"/cert", "/key", {peer}}}.validate()));
     EXPECT_THROW((service::Transport{}.validate()), std::invalid_argument);
     EXPECT_THROW(
-        (service::Transport{"/tmp/x", "127.0.0.1", 9000, {"/ca", "/cert", "/key"}}.validate()),
+        (service::Transport{"/tmp/x", "127.0.0.1", 9000, {}}.validate()),
+        std::invalid_argument);
+    EXPECT_THROW((service::Transport{{}, "127.0.0.1", 0, {}}.validate()), std::invalid_argument);
+    EXPECT_THROW(
+        (service::Transport{{}, "127.0.0.1", 9000, {"/cert", "", {peer}}}.validate()),
         std::invalid_argument);
     EXPECT_THROW(
-        (service::Transport{{}, "127.0.0.1", 9000, {"/ca", "", "/key"}}.validate()),
+        (service::Transport{{}, "127.0.0.1", 9000, {"/cert", "/key", {}}}.validate()),
         std::invalid_argument);
     EXPECT_THROW(
-        (service::Transport{{}, "127.0.0.1", 0, {"/ca", "/cert", "/key"}}.validate()),
+        (service::Transport{{}, "127.0.0.1", 9000, {"/cert", "/key", {"AA"}}}.validate()),
         std::invalid_argument);
     EXPECT_THROW(
-        (service::Transport{"/tmp/x", {}, 0, {"/ca", {}, {}}}.validate()),
+        (service::Transport{"/tmp/x", {}, 0, {"/cert", "/key", {peer}}}.validate()),
         std::invalid_argument);
-    // Plain TCP only when asked for, and then without TLS files.
-    EXPECT_THROW((service::Transport{{}, "127.0.0.1", 9000, {}}.validate()), std::invalid_argument);
-    EXPECT_NO_THROW((service::Transport{{}, "127.0.0.1", 9000, {}, true}.validate()));
-    EXPECT_THROW(
-        (service::Transport{{}, "127.0.0.1", 9000, {"/ca", "/cert", "/key"}, true}.validate()),
-        std::invalid_argument);
-    EXPECT_THROW((service::Transport{"/tmp/x", {}, 0, {}, true}.validate()), std::invalid_argument);
 }
 
 TEST(RpcHost, RecreatesTransientSocketDirectoryForLoginServices)
@@ -197,7 +198,7 @@ TEST(RpcHost, PendingRepliesLeaveReadAndControlConnectionsAvailable)
     service::RpcHost server(
         transport,
         [&](const service::RpcHost::Peer& peer, std::string request) -> service::RpcHost::Reply {
-            EXPECT_EQ(peer.role, ipc::PeerRole::local);
+            EXPECT_TRUE(peer.address.empty());
             if (request == "wait") {
                 ++pending;
                 return [completion]() -> std::optional<std::string> {
@@ -674,7 +675,85 @@ TEST(RpcClient, SharedPayloadAllowanceFollowsRepliesBeyondConnectionsAndTheirRea
     EXPECT_EQ(*read(second), std::string(48, 'x'));
 }
 
-TEST(RpcClient, MutualTlsRequiresTrustedClientAndMatchingServerIdentity)
+namespace {
+
+// An echo host on a free loopback port, plain or with the given TLS identity.
+struct TcpEcho
+{
+    service::Transport transport;
+    Progress progress;
+    std::atomic<int> requests{0};
+    std::unique_ptr<service::RpcHost> server;
+    std::jthread worker;
+
+    explicit TcpEcho(ipc::TlsIdentity tls = {})
+    {
+        service::reset_stop_request();
+        asio::io_context io;
+        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
+        transport.bind = "127.0.0.1";
+        transport.port = reserve.local_endpoint().port();
+        transport.tls = std::move(tls);
+        reserve.close();
+        server = std::make_unique<service::RpcHost>(
+            transport,
+            [this](const auto& peer, std::string request) -> service::RpcHost::Reply {
+                EXPECT_EQ(peer.address, "127.0.0.1");
+                ++requests;
+                return [request = std::move(request)] {
+                    return std::optional<std::string>(request);
+                };
+            },
+            service::RpcHost::Options{},
+            progress);
+        worker = std::jthread([this] {
+            static_cast<void>(server->run());
+        });
+    }
+
+    ~TcpEcho()
+    {
+        service::request_stop();
+    }
+};
+
+std::future<Payload> ask(ipc::RpcClient& client, std::string request)
+{
+    auto response = client.request(std::move(request), 1s);
+    const auto deadline = std::chrono::steady_clock::now() + 6s;
+    while (response.wait_for(0ms) != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline) {
+        client.poll();
+        std::this_thread::sleep_for(1ms);
+    }
+    return response;
+}
+
+} // namespace
+
+TEST(RpcClient, PlainTcpNeedsTheConnectionMagic)
+{
+    TcpEcho echo;
+    ipc::RpcClient
+        client("127.0.0.1", echo.transport.port, {}, 1, PayloadBudget{128 * 1024 * 1024});
+    auto response = ask(client, "plain");
+    ASSERT_EQ(response.wait_for(0ms), std::future_status::ready);
+    EXPECT_EQ(*response.get(), "plain");
+    // A connection that starts with anything else is closed before any request.
+    asio::io_context io;
+    asio::ip::tcp::socket stranger(io);
+    stranger.connect({asio::ip::make_address("127.0.0.1"), echo.transport.port});
+    const std::string frame("\0\0\0\x05hello", 9);
+    asio::write(stranger, asio::buffer("HTTP"));
+    asio::write(stranger, asio::buffer(frame));
+    char byte;
+    asio::error_code closed;
+    asio::read(stranger, asio::buffer(&byte, 1), closed);
+    EXPECT_TRUE(closed);
+    EXPECT_EQ(echo.requests.load(), 1);
+}
+
+TEST(RpcClient, TlsAcceptsOnlyThePinnedPeers)
 {
     const auto root =
         std::filesystem::temp_directory_path() / ("ast-client-tls-" + unique_process_id());
@@ -690,67 +769,56 @@ TEST(RpcClient, MutualTlsRequiresTrustedClientAndMatchingServerIdentity)
         }
     } remove{root};
 
-    ChildProcess certificates(ASTERION_CERTIFICATES, {root.string()});
-    ASSERT_TRUE(certificates.wait(5s));
-    ASSERT_EQ(certificates.exit_code(), 0);
-    for (const auto& [server_name, client_name, succeeds] :
-        {std::tuple{"server", "client", true},
-            {"server", "stranger", false},
-            {"wrong", "client", false}}) {
-        service::reset_stop_request();
-        asio::io_context io;
-        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
-        service::Transport transport;
-        transport.bind = "127.0.0.1";
-        transport.port = reserve.local_endpoint().port();
-        reserve.close();
-        const auto identity = [&](std::string name) {
-            return ipc::TlsIdentity{
-                (root / "ca.crt").string(),
-                (root / (name + ".crt")).string(),
-                (root / (name + ".key")).string()
-            };
+    std::map<std::string, std::string> fingerprints;
+    for (const auto* name : {"server", "client", "stranger"})
+        fingerprints[name] = ipc::create_identity(
+            root / (std::string(name) + ".crt"),
+            root / (std::string(name) + ".key"),
+            name);
+    EXPECT_EQ(ipc::certificate_fingerprint((root / "client.crt").string()), fingerprints["client"]);
+    const auto identity = [&](std::string name, std::string peer) {
+        return ipc::TlsIdentity{
+            (root / (name + ".crt")).string(),
+            (root / (name + ".key")).string(),
+            {fingerprints[peer]}
         };
-        transport.tls = identity(server_name);
-        Progress progress;
-        service::RpcHost server(
-            transport,
-            [](const auto&, std::string request) -> service::RpcHost::Reply {
-                return [request = std::move(request)] {
-                    return std::optional<std::string>(request);
-                };
-            },
-            {},
-            progress);
-        std::jthread worker([&] {
-            static_cast<void>(server.run());
-        });
-
-        struct Stop
-        {
-            ~Stop()
-            {
-                service::request_stop();
-            }
-        } stop;
-
+    };
+    // Who connects, and whom that client expects to reach.
+    for (const auto& [client_name, expected_server, succeeds] :
+        {std::tuple{"client", "server", true},
+            {"stranger", "server", false},
+            {"client", "stranger", false}}) {
+        TcpEcho echo(identity("server", "client"));
         ipc::RpcClient client(
             "127.0.0.1",
-            transport.port,
-            identity(client_name),
+            echo.transport.port,
+            identity(client_name, expected_server),
             1,
             PayloadBudget{128 * 1024 * 1024});
-        auto response = client.request("authenticated", 1s);
-        const auto deadline = std::chrono::steady_clock::now() + 6s;
-        while (response.wait_for(0ms) != std::future_status::ready
-            && std::chrono::steady_clock::now() < deadline) {
-            client.poll();
-            std::this_thread::sleep_for(1ms);
-        }
+        auto response = ask(client, "authenticated");
         ASSERT_EQ(response.wait_for(0ms), std::future_status::ready);
         if (succeeds)
             EXPECT_EQ(*response.get(), "authenticated");
         else
             EXPECT_THROW(static_cast<void>(response.get()), Error);
     }
+    // A plain client cannot reach a TLS host.
+    TcpEcho echo(identity("server", "client"));
+    ipc::RpcClient plain("127.0.0.1", echo.transport.port, {}, 1, PayloadBudget{128 * 1024 * 1024});
+    auto response = ask(plain, "plain");
+    ASSERT_EQ(response.wait_for(0ms), std::future_status::ready);
+    EXPECT_THROW(static_cast<void>(response.get()), Error);
+    EXPECT_EQ(echo.requests.load(), 0);
+}
+
+TEST(Fingerprint, AcceptsTheCommonSpellings)
+{
+    const std::string hex(64, 'a');
+    std::string colons;
+    for (int i = 0; i < 32; ++i)
+        colons += (i ? ":" : "") + std::string("AA");
+    EXPECT_EQ(ipc::normalize_fingerprint(colons), hex);
+    EXPECT_EQ(ipc::normalize_fingerprint(hex), hex);
+    EXPECT_THROW(ipc::normalize_fingerprint("abc"), std::invalid_argument);
+    EXPECT_THROW(ipc::normalize_fingerprint(std::string(64, 'g')), std::invalid_argument);
 }

@@ -1,6 +1,8 @@
 #include <asterion/kernel/log.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "live_session.hpp"
+#include "settings.hpp"
+#include "account_journal.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/rpc_host.hpp>
@@ -10,84 +12,36 @@
 #include <asterion/kernel/trace.hpp>
 #include <algorithm>
 #include <iostream>
-#include <cstdlib>
-
 #include <stdexcept>
-#include <pwd.h>
-#include <unistd.h>
 using namespace std::chrono_literals;
 
-namespace {
-
-std::filesystem::path account_ownership_directory()
-{
-    // Existing isolated test sessions never claim ownership of real local accounts.
-    const auto* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
-    if (isolated && std::string_view(isolated) == "1") {
-        const auto* node = std::getenv("ASTERION_ROOT");
-        if (!node || !std::filesystem::path(node).is_absolute())
-            throw std::invalid_argument(
-                "isolated trading tests require an absolute node directory");
-        return std::filesystem::path(node) / "account-owners";
-    }
-    // Resolve the OS user, not HOME, XDG, the Node directory or a Terminal profile.
-    // Development and installed applications must contend for the same account.
-    const auto* user = ::getpwuid(::geteuid());
-    if (!user || !user->pw_dir || !std::filesystem::path(user->pw_dir).is_absolute())
-        throw std::runtime_error("local account ownership directory is unavailable");
-#ifdef __APPLE__
-    return std::filesystem::path(user->pw_dir)
-        / "Library/Application Support/Asterion/account-owners";
-#else
-    return std::filesystem::path(user->pw_dir) / ".local/share/asterion/account-owners";
-#endif
-}
-
-} // namespace
-
+// One CTP account's instance of an installed trading service (settings.hpp),
+// started and restarted by systemd as asterion-trading@<account>.
 int main(int argc, char** argv)
 {
     CLI::App app{"Asterion CTP account service (one execution owner per account)"};
     app.set_version_flag("--version", "Asterion Trading 0.1.0");
-    std::string session_id, directory, health_endpoint;
-    app.add_option("--health-endpoint", health_endpoint, "Private supervisor health channel");
-    std::uint64_t owner_pid = 0;
-    app.add_option("--owner-pid", owner_pid, "Managed service supervisor identity");
-    asterion::service::Transport transport;
-    app.add_option("--session", session_id, "Unique session identity")->required();
-    app.add_option("--endpoint", transport.endpoint, "Private local IPC endpoint (Agent-managed)");
-    app.add_option("--bind", transport.bind, "TCP bind IP address (independent service)");
-    app.add_option("--port", transport.port, "TCP listen port")->check(CLI::Range(1, 65535));
-    app.add_option("--tls-ca", transport.tls.ca_file, "Dedicated client CA PEM");
-    app.add_option("--tls-cert", transport.tls.certificate_file, "Server certificate chain PEM");
-    app.add_option("--tls-key", transport.tls.private_key_file, "Server private key PEM");
-    app.add_option("--directory", directory, "Existing dedicated account journal directory")
-        ->required()
-        ->check(CLI::ExistingDirectory);
-    std::string plugin_directory, ctp_library;
-    app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
-    app.add_option("--ctp-library", ctp_library, "CTP trader SDK")
-        ->required()
-        ->check(CLI::ExistingFile);
+    std::string account_name;
+    app.add_option("--account", account_name, "The account instance to run")->required();
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
-        asterion::log::init();
-        if (!plugin_directory.empty())
-            asterion::configure_native_plugins(
-                std::filesystem::path(
-                    std::u8string(plugin_directory.begin(), plugin_directory.end())));
-        asterion::validate_id(session_id);
+        const auto installation = asterion::installation_directory();
+        asterion::log::init(installation, "asterion_trading-" + account_name);
+        const auto settings = asterion::trading::load_settings(installation, account_name);
         namespace wire = asterion::protocol::proto;
-        const std::filesystem::path sdk(std::u8string(ctp_library.begin(), ctp_library.end()));
-        transport.validate();
+        const auto& session_id = settings.account;
+        const auto& sdk = settings.ctp_library;
+        const auto configured_account =
+            asterion::protocol::encode_trading_account(settings.identity);
+        const auto& journal = settings.journal;
+        const auto& ownership_directory = settings.owners;
         asterion::service::install_stop_signals();
-        const std::filesystem::path journal(std::u8string(directory.begin(), directory.end()));
-        const auto ownership_directory = account_ownership_directory();
         // I/O owns initialization, publication and shutdown; the account owns its resources.
         std::unique_ptr<asterion::trading::LiveSession> account_owner;
         asterion::trading::LiveSession* account = nullptr;
         std::shared_future<void> initializing;
+        std::future<void> login;
         bool recovering = false;
         asterion::Progress initialization, io_progress;
         const auto started = std::chrono::steady_clock::now();
@@ -141,6 +95,7 @@ int main(int argc, char** argv)
             auto& response = work->response;
             response.set_version(1);
             response.set_session_id(session_id);
+            *response.mutable_account() = configured_account;
             work->session = account;
             try {
                 if (!request.ParseFromString(frame))
@@ -164,7 +119,7 @@ int main(int argc, char** argv)
                 if (request.has_heartbeat()) {
                     fill_health(*response.mutable_health());
                 } else if (request.has_shutdown()) {
-                    throw std::invalid_argument("service stop is a Node Agent operation");
+                    throw std::invalid_argument("the trading service is stopped by systemd");
                 } else if ((request.has_attach() || request.has_snapshot()) && !work->session
                     && account_owner) {
                     work->session = account_owner.get();
@@ -173,12 +128,13 @@ int main(int argc, char** argv)
                 } else if (request.has_attach() && !work->session) {
                     response.mutable_uninitialized();
                 } else {
-                    if (request.has_live_create() || request.has_recover()) {
+                    if (request.has_live_create()) {
                         if (account_owner)
                             throw std::invalid_argument("session already initialized");
-                        const auto manifest = request.has_live_create()
-                            ? asterion::protocol::decode_live_input(request.live_create())
-                            : asterion::Json(nullptr);
+                        auto manifest = settings.identity;
+                        manifest["type"] = "live_ctp";
+                        manifest["policy"] =
+                            asterion::protocol::decode_live_policy(request.live_create());
                         account_owner = std::make_unique<asterion::trading::LiveSession>(
                             journal,
                             sdk,
@@ -191,10 +147,8 @@ int main(int argc, char** argv)
                     } else if (!work->session) {
                         throw std::invalid_argument("session is not initialized");
                     } else if (request.has_live_connect()) {
-                        auto* credentials = request.mutable_live_connect();
-                        work->action = work->session->connect(
-                            std::move(*credentials->mutable_password()),
-                            std::move(*credentials->mutable_auth_code()));
+                        work->action =
+                            work->session->connect(settings.password, settings.auth_code);
                     } else if (request.has_live_disconnect()) {
                         work->action = work->session->disconnect();
                     } else if (request.has_live_costs()) {
@@ -262,28 +216,6 @@ int main(int argc, char** argv)
         };
         using Host = asterion::service::RpcHost;
         Host::Options options;
-        options.owner_pid = owner_pid;
-        if (!health_endpoint.empty()) {
-            Host::LocalEndpoint health{health_endpoint, {}, 4, true};
-            health.handler = [&](const Host::Peer&, std::string frame) -> Host::Reply {
-                wire::Request request;
-                if (!request.ParseFromString(frame))
-                    throw std::invalid_argument("invalid service health");
-                asterion::protocol::validate_message(request);
-                if (request.version() != 1 || request.session_id() != session_id
-                    || !request.has_heartbeat())
-                    throw std::invalid_argument("invalid service health");
-                wire::Response response;
-                response.set_version(1);
-                response.set_session_id(session_id);
-                response.set_correlation_id(request.correlation_id());
-                fill_health(*response.mutable_health());
-                return [reply = response.SerializeAsString()] {
-                    return std::optional<std::string>(reply);
-                };
-            };
-            options.local_endpoints.push_back(std::move(health));
-        }
         options.advance = [&](Host::Stage stage) {
             if (!account_owner)
                 return true;
@@ -297,6 +229,8 @@ int main(int argc, char** argv)
                 try {
                     initializing.get();
                     account = account_owner.get();
+                    if (stage == Host::Stage::running)
+                        login = account->connect(settings.password, settings.auth_code);
                 } catch (...) {
                     account_owner.reset();
                     if (recovering)
@@ -306,11 +240,30 @@ int main(int argc, char** argv)
                 initializing = {};
                 initialization.finish();
             }
+            if (login.valid() && login.wait_for(0ms) == std::future_status::ready) {
+                try {
+                    login.get();
+                } catch (const std::exception& error) {
+                    // A local refusal (such as a record that needs recovery). The SDK
+                    // retries an unreachable front itself; a rejected password is never
+                    // retried, so it cannot lock the account.
+                    asterion::log::error("trading account login refused: {}", error.what());
+                }
+            }
             return false;
         };
-        Host host(transport, serve, std::move(options), io_progress);
+        Host host(settings.transport, serve, std::move(options), io_progress);
         // Socket setup completes before starting owners that require an asynchronous stop.
         if (std::filesystem::exists(journal / "journal.sqlite")) {
+            const auto recorded = asterion::trading::account_manifest(
+                asterion::read_journal_header(
+                    journal,
+                    asterion::trading::AccountJournal::sidecars));
+            for (const auto* key : {"account_id", "broker", "environment"})
+                if (recorded.at(key) != settings.identity.at(key))
+                    throw std::invalid_argument(
+                        "trading account configuration differs from its journal: "
+                        + (installation / "config/accounts" / (account_name + ".json")).string());
             initialization.begin();
             account_owner =
                 std::make_unique<asterion::trading::LiveSession>(journal, sdk, ownership_directory);

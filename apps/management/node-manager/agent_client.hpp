@@ -8,7 +8,6 @@
 #include "node_paths.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -19,7 +18,6 @@ struct NodeEndpoint
 {
     std::string id, host;
     std::uint16_t port;
-    ipc::TlsIdentity tls;
     std::string endpoint{};
 };
 
@@ -72,10 +70,6 @@ public:
     service_endpoint(const std::string& service, node::proto::ServiceKind kind);
     [[nodiscard]] std::future<void> deploy(const ServiceDeployment& deployment);
     [[nodiscard]] std::future<void> update(const ServiceUpdate& update);
-    // The service of one CTP trading account record.
-    [[nodiscard]] std::future<ServiceEndpoint> local_session(
-        const std::filesystem::path& directory);
-    [[nodiscard]] std::future<ServiceEndpoint> trading_session(const std::string& service);
     [[nodiscard]] std::future<ServiceEndpoint> local_market();
     [[nodiscard]] std::future<ServiceEndpoint> local_data();
     [[nodiscard]] std::future<ServiceEndpoint> local_research(

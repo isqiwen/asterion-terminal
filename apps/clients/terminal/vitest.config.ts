@@ -10,7 +10,7 @@ export default defineConfig({
   test: {
     include: [
       "src/**/*.test.{ts,tsx}",
-      "plugins/**/*.test.{ts,tsx}",
+      "features/**/*.test.{ts,tsx}",
       "../../../packages/client-ui/src/**/*.test.{ts,tsx}",
     ],
     environment: "jsdom",

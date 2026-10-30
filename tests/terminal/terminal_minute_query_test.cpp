@@ -9,6 +9,7 @@
 #include "terminal/blocking_service.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <future>
+#include <asio.hpp>
 #include <latch>
 #include <gtest/gtest.h>
 #include <regex>
@@ -121,7 +122,7 @@ struct ApplicationTestAccess
     }
 
     static void
-    attach_live(Application& app, const std::string& id, const ServiceEndpoint& endpoint)
+    attach_live(Application& app, const std::string& id, const TradingEndpoint& endpoint)
     {
         auto account = std::make_shared<Application::Impl::LiveAccount>(
             TradingClient::open(app.impl_->service_io, endpoint).get());
@@ -478,12 +479,12 @@ struct MinuteService
 
     terminal::ServiceEndpoint address() const
     {
-        return {{}, "minute-fixture", 0, {}, endpoint, "local", "fixture-node"};
+        return {{}, "minute-fixture", 0, endpoint, "local", "fixture-node"};
     }
 
     terminal::ServiceEndpoint data_address() const
     {
-        return {{}, "data-fixture", 0, {}, endpoint + ".data", "local", "fixture-node"};
+        return {{}, "data-fixture", 0, endpoint + ".data", "local", "fixture-node"};
     }
 
     bool wait(unsigned count)
@@ -1336,7 +1337,9 @@ struct LiveService
     std::mutex mutex;
     std::condition_variable condition;
     bool entered = false, released, block_observations = false, revoke_received = false;
-    std::unique_ptr<testing_support::BlockingService> host;
+    std::unique_ptr<service::RpcHost> host;
+    Progress progress;
+    terminal::TradingEndpoint target;
     std::future<bool> running;
 
     explicit LiveService(bool block)
@@ -1344,107 +1347,135 @@ struct LiveService
     {
         service::reset_stop_request();
         std::filesystem::create_directory(root);
-        host = std::make_unique<testing_support::BlockingService>(
-            service::Transport{endpoint, {}, 0, {}},
-            [this](testing_support::Connection& connection, std::stop_token stop) {
-                while (!stop.stop_requested()) {
-                    protocol::proto::Request message;
-                    std::string frame;
-                    try {
-                        // Terminal polls idle live accounts every two seconds. The
-                        // fixture must not close at that same deadline before the next
-                        // legitimate poll arrives.
-                        frame = connection.receive(testing_support::bound(5s));
-                    } catch (const Error&) {
-                        return;
-                    }
-                    if (!message.ParseFromString(frame))
-                        throw std::runtime_error("invalid fixture request");
-                    protocol::proto::Response response;
-                    response.set_version(1);
-                    response.set_session_id(message.session_id());
-                    response.set_correlation_id(message.correlation_id());
-                    if (message.has_heartbeat()) {
-                        response.mutable_health()->set_initialized(true);
-                        response.mutable_health()->set_instance_id("live-fixture");
-                        response.mutable_health()->set_version("0.1.0");
-                        auto* execution = response.mutable_health()->mutable_execution();
-                        execution->mutable_io()->set_observed(true);
-                        execution->mutable_state()->set_observed(true);
-                        execution->mutable_persistence()->set_observed(true);
-                        execution->set_business_ready(true);
-                    } else {
-                        {
-                            std::unique_lock lock(mutex);
-                            // A revoke is admitted when it arrives and answered in its turn,
-                            // as the account service does.
-                            if (message.command().has_live_revoke()) {
-                                revoke_received = true;
-                                condition.notify_all();
+        ipc::create_identity(root / "server.crt", root / "server.key", "test server");
+        ipc::create_identity(root / "client.crt", root / "client.key", "test client");
+        asio::io_context io;
+        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
+        const auto port = reserve.local_endpoint().port();
+        reserve.close();
+        target = {
+            "127.0.0.1",
+            "live-fixture",
+            port,
+            {(root / "client.crt").string(),
+                (root / "client.key").string(),
+                {ipc::certificate_fingerprint(root / "server.crt")}}
+        };
+        host = std::make_unique<service::RpcHost>(
+            service::Transport{
+                {},
+                "127.0.0.1",
+                port,
+                {(root / "server.crt").string(),
+                    (root / "server.key").string(),
+                    {ipc::certificate_fingerprint(root / "client.crt")}}
+            },
+            [this](const service::RpcHost::Peer&, std::string frame) -> service::RpcHost::Reply {
+                auto work = std::make_shared<std::future<std::string>>(
+                    std::async(std::launch::async, [this, frame = std::move(frame)] {
+                        protocol::proto::Request message;
+                        if (!message.ParseFromString(frame))
+                            throw std::runtime_error("invalid fixture request");
+                        protocol::proto::Response response;
+                        response.set_version(1);
+                        response.mutable_account()->set_account_id("fixture-record");
+                        response.mutable_account()->set_environment(
+                            protocol::proto::BROKER_SIMULATION);
+                        response.mutable_account()->mutable_broker()->set_user_id("000001");
+                        response.mutable_account()->mutable_broker()->set_broker_id("9999");
+                        response.mutable_account()->mutable_broker()->set_app_id("test");
+                        response.mutable_account()->mutable_broker()->set_front(
+                            "tcp://127.0.0.1:1");
+                        response.set_session_id(message.session_id());
+                        response.set_correlation_id(message.correlation_id());
+                        if (message.has_heartbeat()) {
+                            response.mutable_health()->set_initialized(true);
+                            response.mutable_health()->set_instance_id("live-fixture");
+                            response.mutable_health()->set_version("0.1.0");
+                            auto* execution = response.mutable_health()->mutable_execution();
+                            execution->mutable_io()->set_observed(true);
+                            execution->mutable_state()->set_observed(true);
+                            execution->mutable_persistence()->set_observed(true);
+                            execution->set_business_ready(true);
+                        } else {
+                            {
+                                std::unique_lock lock(mutex);
+                                // A revoke is admitted when it arrives and answered in its turn,
+                                // as the account service does.
+                                if (message.command().has_live_revoke()) {
+                                    revoke_received = true;
+                                    condition.notify_all();
+                                }
+                                // A cancel is answered at once, as the account service answers
+                                // one while another command waits.
+                                if (!message.command().has_cancel()
+                                    && (!message.has_attach() || block_observations)) {
+                                    entered = true;
+                                    condition.notify_all();
+                                    if (!condition.wait_for(lock, 10s, [&] {
+                                            return released;
+                                        }))
+                                        throw std::runtime_error(
+                                            "fixture mutation was not released");
+                                }
                             }
-                            // A cancel is answered at once, as the account service answers
-                            // one while another command waits.
-                            if (!message.command().has_cancel()
-                                && (!message.has_attach() || block_observations)) {
-                                entered = true;
-                                condition.notify_all();
-                                if (!condition.wait_for(lock, 10s, [&] {
-                                        return released;
-                                    }))
-                                    throw std::runtime_error("fixture mutation was not released");
-                            }
+                            const auto input = protocol::encode_live_input(
+                                {{"account_id", "fixture-record"},
+                                    {"type", "live_ctp"},
+                                    {"environment", "simulation"},
+                                    {"broker",
+                                        {{"front", "tcp://127.0.0.1:1"},
+                                            {"broker_id", "9999"},
+                                            {"user_id", "000001"},
+                                            {"app_id", "test"}}},
+                                    {"policy",
+                                        {{"risk",
+                                             {{"max_order_quantity", "5"},
+                                                 {"max_gross_quantity", "10"},
+                                                 {"max_working_orders", std::uint64_t{3}}}},
+                                            {"max_price_deviation", "0.02"},
+                                            {"contracts",
+                                                Json::array(
+                                                    {{{"venue", "SHFE"},
+                                                        {"symbol", "rb2610"},
+                                                        {"currency", "CNY"},
+                                                        {"price_increment", "1"},
+                                                        {"multiplier", "10"},
+                                                        {"quantity_increment", "1"},
+                                                        {"product", "rb"},
+                                                        {"delivery_month", "2026-10"}}})}}}});
+                            auto* snapshot = response.mutable_live();
+                            snapshot->set_account_id("fixture-record");
+                            snapshot->set_environment(input.environment());
+                            snapshot->set_policy_revision("fixture-policy");
+                            *snapshot->mutable_broker() = input.broker();
+                            *snapshot->mutable_risk() = input.policy().risk();
+                            *snapshot->mutable_contracts() = input.policy().contracts();
+                            *snapshot->mutable_max_price_deviation() =
+                                input.policy().max_price_deviation();
+                            snapshot->set_phase("ready");
+                            snapshot->set_trading_day("20261009");
+                            snapshot->mutable_capacity()->set_records_limit(100001);
+                            snapshot->mutable_capacity()->set_bytes_limit(268435456);
                         }
-                        const auto input = protocol::encode_live_input(
-                            {{"account_id", "fixture-record"},
-                                {"type", "live_ctp"},
-                                {"environment", "simulation"},
-                                {"broker",
-                                    {{"front", "tcp://127.0.0.1:1"},
-                                        {"broker_id", "9999"},
-                                        {"user_id", "000001"},
-                                        {"app_id", "test"}}},
-                                {"policy",
-                                    {{"risk",
-                                         {{"max_order_quantity", "5"},
-                                             {"max_gross_quantity", "10"},
-                                             {"max_working_orders", std::uint64_t{3}}}},
-                                        {"max_price_deviation", "0.02"},
-                                        {"contracts",
-                                            Json::array(
-                                                {{{"venue", "SHFE"},
-                                                    {"symbol", "rb2610"},
-                                                    {"currency", "CNY"},
-                                                    {"price_increment", "1"},
-                                                    {"multiplier", "10"},
-                                                    {"quantity_increment", "1"},
-                                                    {"product", "rb"},
-                                                    {"delivery_month", "2026-10"}}})}}}});
-                        auto* snapshot = response.mutable_live();
-                        snapshot->set_account_id("fixture-record");
-                        snapshot->set_environment(input.environment());
-                        snapshot->set_policy_revision("fixture-policy");
-                        snapshot->set_risk_artifact(std::string(64, 'a'));
-                        *snapshot->mutable_broker() = input.broker();
-                        *snapshot->mutable_risk() = input.policy().risk();
-                        *snapshot->mutable_contracts() = input.policy().contracts();
-                        *snapshot->mutable_max_price_deviation() =
-                            input.policy().max_price_deviation();
-                        snapshot->set_phase("ready");
-                        snapshot->set_trading_day("20261009");
-                        snapshot->mutable_capacity()->set_records_limit(100001);
-                        snapshot->mutable_capacity()->set_bytes_limit(268435456);
-                    }
-                    connection.send(response.SerializeAsString(), 2s);
-                }
-            });
+                        return response.SerializeAsString();
+                    }));
+                return [work]() -> std::optional<service::RpcHost::Message> {
+                    if (work->wait_for(0ms) != std::future_status::ready)
+                        return std::nullopt;
+                    return work->get();
+                };
+            },
+            service::RpcHost::Options{},
+            progress);
         running = std::async(std::launch::async, [&] {
             return host->run();
         });
     }
 
-    terminal::ServiceEndpoint address() const
+    terminal::TradingEndpoint address() const
     {
-        return {{}, "live-fixture", 0, {}, endpoint};
+        return target;
     }
 
     bool wait()
@@ -1913,7 +1944,7 @@ struct QuoteService
 
     terminal::ServiceEndpoint endpoint(const std::string& service) const
     {
-        return {"", service, 0, {}, address.endpoint};
+        return {"", service, 0, address.endpoint};
     }
 
     bool wait()
@@ -2070,7 +2101,7 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
     terminal::ServiceIo io;
     auto client = terminal::MarketClient::open(
         io,
-        terminal::ServiceEndpoint{"", "fixture", 0, {}, address.endpoint})
+        terminal::ServiceEndpoint{"", "fixture", 0, address.endpoint})
                       .get();
     ASSERT_EQ(
         history_entered.get_future().wait_for(testing_support::bound(1s)),

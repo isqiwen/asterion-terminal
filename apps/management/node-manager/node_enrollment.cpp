@@ -427,14 +427,9 @@ unsigned short port(const Json& p, const char* key)
     return static_cast<unsigned short>(n);
 }
 
-NodeEndpoint endpoint(const fs::path& root, const Json& j)
+NodeEndpoint endpoint(const Json& j)
 {
-    return {
-        j.at("id"),
-        j.at("host"),
-        j.at("port").get<unsigned short>(),
-        {utf8(root / "ca.crt"), utf8(root / "client.crt"), utf8(root / "client.key")}
-    };
+    return {j.at("id"), j.at("host"), j.at("port").get<unsigned short>()};
 }
 
 } // namespace
@@ -692,12 +687,11 @@ Json change_node_firewall(const Json& p, const Json& plan)
             if (config.host != p.at("host").get<std::string>())
                 throw std::invalid_argument("installed node identity differs");
             try {
-                auto channel = ipc::TlsChannel::connect(
+                auto channel = ipc::TcpChannel::connect(
                     config.host,
                     plan.at("port").get<unsigned short>(),
-                    config.tls,
                     3s);
-                completed["verification"] = "tls_reachable";
+                completed["verification"] = "reachable";
             } catch (const std::exception&) {
                 completed["verification"] = "unreachable";
             }
@@ -742,7 +736,7 @@ NodeEndpoint enrolled_node(const std::string& id)
     const auto config = enrollment(root, id);
     if (!config.value("installed", true))
         throw std::invalid_argument("remote node is uninstalled");
-    return endpoint(root, config);
+    return endpoint(config);
 }
 
 NodeEndpoint enroll_node(ServiceIo& io, const Json& p)
@@ -797,20 +791,16 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p)
         if (previous != expected)
             throw std::invalid_argument(
                 "node name is used by another installation; its identity and services are not replaced");
-        if (reinstall) {
-            if (!fs::exists(root / "client.key"))
-                create_node_identity(root, ssh.host);
+        if (reinstall)
             write(root / "enrollment.json", config.dump());
-        }
         try {
-            auto existing = AgentClient::open(io, endpoint(root, config)).get();
-            return endpoint(root, config);
+            auto existing = AgentClient::open(io, endpoint(config)).get();
+            return endpoint(config);
         } catch (const std::exception&) {
         }
     } else {
         create_directories_durably(root);
         fs::permissions(root, fs::perms::owner_all);
-        create_node_identity(root, ssh.host);
         write(root / "enrollment.json", config.dump());
     }
     save_node_ssh_profile(p);
@@ -834,7 +824,7 @@ if (root / 'install.json').exists() or (root / 'install.json').is_symlink():
     with open_owned(stage / 'install.json') as source:
         verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
 # The node's programs are installed under root; the Agent's are agent/bin,
-# agent/config (certificates and configuration defaults) and agent/data.
+# agent/config (configuration defaults) and agent/data.
 directory(root / 'agent')
 directory(root / 'agent' / 'bin')
 directory(root / 'agent' / 'config')
@@ -855,8 +845,6 @@ if not (root / 'install.json').exists():
             os.unlink(temporary)
         sync_directory(target.parent)
 publish(stage / 'agent', root / 'agent' / 'bin' / 'asterion_node_agent', 0o700, sys.argv[3])
-for name in ('ca.crt', 'server.crt', 'server.key'):
-    publish(stage / name, root / 'agent' / 'config' / name, 0o600)
 publish(stage / 'install.json', root / 'install.json', 0o600)
 receipt = root / 'maintenance-operation.json'
 if receipt.exists():
@@ -873,7 +861,7 @@ if receipt.exists():
         + std::to_string(agent_port) + " " + quote(bind) + "\n";
     write(root / "install", script);
     std::string batch;
-    for (const auto* file : {"ca.crt", "server.crt", "server.key", "install.json", "install"})
+    for (const auto* file : {"install.json", "install"})
         batch +=
             "put " + batch_quote(utf8(root / file)) + " " + batch_quote(stage + "/" + file) + "\n";
     for (const auto* name : {"research.json", "logging.json"})
@@ -892,7 +880,7 @@ if receipt.exists():
         throw;
     }
     ssh.command("rm -rf -- " + quote(stage));
-    const auto config_endpoint = endpoint(root, config);
+    const auto config_endpoint = endpoint(config);
     const auto deadline = std::chrono::steady_clock::now() + 30s;
     for (;;) {
         try {
@@ -905,163 +893,10 @@ if receipt.exists():
         } catch (const Error&) {
             if (std::chrono::steady_clock::now() >= deadline)
                 throw std::runtime_error(
-                    "Agent installed but its TCP/mTLS heartbeat is unreachable; check " "the management port firewall, then connect without reinstalling");
+                    "Agent installed but its TCP heartbeat is unreachable; check " "the management port firewall, then connect without reinstalling");
             std::this_thread::sleep_for(500ms);
         }
     }
-}
-
-// Gives an enrolled node a new mTLS identity over SSH and leaves everything
-// else it has as it is. The CA key is never kept, so no certificate of the old
-// set can be extended: every role is issued again. The node's three files are
-// replaced, its Agent is ended by the account it runs as and started again by
-// the fixed unit, and then this machine's files follow. From the moment the
-// new set exists it waits in `next` until both sides use it; running this
-// again finishes whatever an interruption left, with that same set.
-NodeEndpoint replace_node_identity(ServiceIo& io, const Json& p)
-{
-    const auto id = p.at("id").get<std::string>();
-    valid_id(id);
-    (void)port(p, "ssh_port");
-    SshIdentity identity(selected_ssh_key(p));
-    Ssh ssh(p, identity.file());
-    if (ssh.user != "asterion")
-        throw std::invalid_argument(
-            "Linux nodes use the asterion account created by the initializer");
-    const auto base = node_enrollment_directory();
-    if (fs::is_symlink(base) || !fs::is_directory(base))
-        throw std::invalid_argument("node SSH identity is not configured");
-    FileLock lock(base, "enrollment.lock");
-    const auto root = base / id;
-    const auto config = enrollment(root, id);
-    if (config.at("host") != ssh.host)
-        throw std::invalid_argument(
-            "node name is used by another installation; its identity and services are not replaced");
-    const auto next = root / "next";
-    if (fs::is_symlink(next))
-        throw std::invalid_argument("invalid enrollment path");
-    const auto answers = [&](const fs::path& directory) {
-        try {
-            (void)AgentClient::open(io, endpoint(directory, config)).get()->status().get();
-            return true;
-        } catch (const std::exception&) {
-            return false;
-        }
-    };
-    // An interruption after the node took the new set leaves only this
-    // machine's half: the node is not stopped a second time. Right after that
-    // interruption its Agent may still be starting, answering to neither set.
-    const auto took_next = [&] {
-#ifdef ASTERION_SANITIZED
-        const auto deadline = std::chrono::steady_clock::now() + 60s;
-#else
-        const auto deadline = std::chrono::steady_clock::now() + 15s;
-#endif
-        for (;;) {
-            if (answers(next))
-                return true;
-            if (answers(root) || std::chrono::steady_clock::now() >= deadline)
-                return false;
-            std::this_thread::sleep_for(250ms);
-        }
-    };
-    if (!fs::exists(next) || !took_next()) {
-        if (!initialized_host(ssh))
-            throw std::runtime_error(
-                "SSH verification failed; check host identity, authentication, " "Linux platform and host initialization");
-        if (!fs::exists(next)) {
-            // Whole or absent: the set is issued aside and renamed into place.
-            const auto draft = root / "next.draft";
-            fs::remove_all(draft);
-            create_directories_durably(draft);
-            fs::permissions(draft, fs::perms::owner_all);
-            create_node_identity(draft, ssh.host);
-            fs::rename(draft, next);
-            sync_directory(root);
-        }
-        const auto stage = ".asterion-install-" + unique_process_id();
-        if (!ssh.command("umask 077; mkdir " + quote(stage)))
-            throw std::runtime_error("cannot create private SSH installation staging directory");
-        const auto bind = ssh.host.find(':') == std::string::npos ? "0.0.0.0" : "::";
-        std::string script = "#!/bin/sh\nset -eu\numask 077\nstage=" + quote(stage)
-            + "\nroot=" + quote("/var/lib/asterion/nodes/" + id)
-            + "\nunit=" + quote("asterion-node-agent-" + id + ".service")
-            + "\n/usr/bin/python3 - \"$stage\" \"$root\" <<'ASTERION_PUBLISH'\n";
-        script += publication;
-        script += R"PY(
-directory(root)
-# Only the installation this Terminal enrolled is given the identity.
-with open_owned(stage / 'install.json') as source:
-    verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
-# Every new file is whole and durable beside the old one before any is replaced.
-staged = []
-try:
-    for name in ('ca.crt', 'server.crt', 'server.key'):
-        with open_owned(stage / name) as source:
-            fd, temporary = tempfile.mkstemp(prefix='.asterion-identity-', dir=root / 'agent' / 'config')
-            staged.append((temporary, root / 'agent' / 'config' / name))
-            with os.fdopen(fd, 'wb') as output:
-                os.fchmod(output.fileno(), 0o600)
-                output.write(source.read())
-                output.flush()
-                os.fsync(output.fileno())
-    while staged:
-        os.replace(*staged[0])
-        staged.pop(0)
-finally:
-    for temporary, _ in staged:
-        os.unlink(temporary)
-sync_directory(root / 'agent' / 'config')
-)PY";
-        script += "ASTERION_PUBLISH\n";
-        // The Agent reads its identity when it starts. Ending it stops the node's
-        // services with it; whatever started it again, it starts on the new files.
-        script +=
-            "pid=$(/usr/bin/systemctl show --property MainPID --value \"$unit\")\n" "if test \"$pid\" != 0; then\n" "  kill -TERM \"$pid\"\n" "  waited=0\n" "  while kill -0 \"$pid\" 2>/dev/null; do\n" "    test \"$waited\" -lt 120\n" "    sleep 1\n" "    waited=$((waited + 1))\n" "  done\n" "fi\n";
-        script += "sudo -n /usr/local/sbin/asterion_host --manage install " + quote(id) + " "
-            + std::to_string(config.at("port").get<unsigned short>()) + " " + quote(bind) + "\n";
-        write(next / "install.json", config.dump());
-        write(next / "replace", script);
-        std::string batch;
-        for (const auto* file : {"ca.crt", "server.crt", "server.key", "install.json", "replace"})
-            batch += "put " + batch_quote(utf8(next / file)) + " " + batch_quote(stage + "/" + file)
-                + "\n";
-        write(next / "upload.batch", batch);
-        try {
-            ssh.upload(next / "upload.batch");
-            if (!ssh.command("sh " + quote(stage + "/replace"), 180s))
-                throw std::runtime_error(
-                    "node identity replacement did not complete and services on the node may be " "stopped; replace the identity again to continue");
-        } catch (...) {
-            ssh.command("rm -rf -- " + quote(stage));
-            throw;
-        }
-        ssh.command("rm -rf -- " + quote(stage));
-        const auto deadline = std::chrono::steady_clock::now() + 30s;
-        while (!answers(next)) {
-            if (std::chrono::steady_clock::now() >= deadline)
-                throw std::runtime_error(
-                    "the node has its new identity but its Agent does not answer with it; check the " "management port firewall, then replace the identity again to finish");
-            std::this_thread::sleep_for(500ms);
-        }
-    }
-    for (const auto* file :
-        {"ca.crt",
-            "client.crt",
-            "client.key",
-            "trading-client.crt",
-            "trading-client.key",
-            "server.crt",
-            "server.key"}) {
-        std::ifstream input(next / file, std::ios::binary);
-        const std::string content{std::istreambuf_iterator<char>(input), {}};
-        if (content.empty())
-            throw std::runtime_error("cannot read the new node identity");
-        write(root / file, content);
-    }
-    fs::remove_all(next);
-    sync_directory(root);
-    return endpoint(root, config);
 }
 
 namespace {
@@ -1120,15 +955,13 @@ std::vector<std::string> candidate_files(const fs::path& folder, const std::stri
         throw std::invalid_argument("candidate Linux resource version mismatch");
     std::vector<std::string> names{
         "asterion_node_agent",
-        "asterion_trading",
         "asterion_market",
         "asterion_data",
         "asterion_research",
         "ctp-md.so",
         "ctp-trader.so",
         "plugins/asterion_tushare.so",
-        "plugins/asterion_shfe.so",
-        "plugins/asterion_order_limits.so"
+        "plugins/asterion_shfe.so"
     };
     for (const auto& name : names) {
         const auto file = folder / name;
@@ -1164,13 +997,12 @@ void upload_maintenance(
         service->set_executable(stage + "/" + executable);
         if (kind == node::proto::MARKET)
             service->set_provider(stage + "/ctp-md.so");
-        if (kind == node::proto::MARKET || kind == node::proto::TRADING)
+        if (kind == node::proto::MARKET)
             service->set_catalog(stage + "/ctp-trader.so");
         if (kind == node::proto::RESEARCH) {
         }
     };
     add(node::proto::MARKET, "asterion_market");
-    add(node::proto::TRADING, "asterion_trading");
     add(node::proto::DATA, "asterion_data");
     add(node::proto::RESEARCH, "asterion_research");
     for (const auto& file : files)
@@ -1412,11 +1244,6 @@ Json maintain_remote_nodes(
                 save();
                 host_operation(ssh, id, "remove");
                 config["installed"] = false;
-                if (remove_data) {
-                    for (const auto* name :
-                        {"ca.crt", "client.crt", "client.key", "server.crt", "server.key"})
-                        fs::remove(node_enrollment_directory() / id / name);
-                }
                 write(node_enrollment_directory() / id / "enrollment.json", config.dump());
                 entry["phase"] = "complete";
                 ssh.command("rm -rf -- " + quote(remote_stage(id, operation)));

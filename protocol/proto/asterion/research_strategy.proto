@@ -18,7 +18,6 @@ message StrategyDefinition {
   asterion.protocol.proto.Contract contract = 2;
   uint32 interval_minutes = 3;
   string program_artifact = 4;
-  string risk_artifact = 5;
 }
 message StrategyPackage {
   string id = 1;

@@ -532,7 +532,7 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                                                             io.reactor(),
                                                             endpoint.host,
                                                             endpoint.port,
-                                                            endpoint.tls,
+                                                            ipc::TlsIdentity{},
                                                             slots[i],
                                                             budget)
                                                       : std::make_unique<ipc::RpcClient>(

@@ -276,16 +276,7 @@ Application::Impl::Publication Application::Impl::capture()
                 {"failed", failed},
                 {"log_failures", log::failures()},
                 {"refresh_failures", refresh_failures},
-                {"refresh_failed", refresh_failed}}},
-        {"plugins",
-            json::array(
-                {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
-                    {{"id", "asterion.execution.ctp"},
-                        {"kind", "execution"},
-                        {"state", "available"}},
-                    {{"id", "asterion.storage.sqlite-journal"},
-                        {"kind", "storage"},
-                        {"state", "available"}}})}
+                {"refresh_failed", refresh_failed}}}
     };
     return next;
 }
@@ -307,6 +298,8 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
     result["data_credentials"] = settings->credentials;
     result["ctp_connections"] = settings->accounts;
     result["ctp_market"] = settings->market;
+    result["trading_connections"] = settings->trading;
+    result["trading_fingerprint"] = settings->trading_fingerprint;
     auto& accounts = result["live"] = json::object();
     for (const auto& [id, account] : live) {
         accounts[id] = account.render();

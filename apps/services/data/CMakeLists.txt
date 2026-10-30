@@ -7,7 +7,7 @@ add_library(asterion_data_queries STATIC
   table_series.cpp
   table_update.cpp
 )
-target_include_directories(asterion_data_queries PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/plugins/data/registry)
+target_include_directories(asterion_data_queries PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/apps/services/data/providers)
 target_link_libraries(asterion_data_queries PUBLIC asterion_history_files asterion_protocol PRIVATE asterion_chart_indicators asterion_tushare asterion_shfe)
 add_library(asterion_data_store STATIC data_store.cpp data_resources.cpp download_budget.cpp data_retentions.cpp observation_store.cpp material_store.cpp)
 target_include_directories(asterion_data_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -31,3 +31,6 @@ add_library(asterion_data_tasks STATIC data_tasks.cpp data_submission.cpp)
 target_include_directories(asterion_data_tasks PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_data_tasks PUBLIC asterion_task_store PRIVATE asterion_history_files)
 asterion_target_defaults(asterion_data_tasks)
+
+add_subdirectory(storage)
+add_subdirectory(providers)

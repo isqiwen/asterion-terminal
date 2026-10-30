@@ -59,7 +59,6 @@ async function verifyPrograms(services) {
     task: {
       artifact: "asterion_research",
     },
-    live: { artifact: "asterion_trading", catalog_artifact: "ctp-trader" + local.library },
   };
   for (const service of services) {
     const config = JSON.parse(

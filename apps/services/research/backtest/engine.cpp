@@ -5,7 +5,7 @@
 #include "performance.hpp"
 #include <asterion/domain/trading_days.hpp>
 #include "order_limits.hpp"
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
 #include <algorithm>
@@ -127,15 +127,13 @@ backtest::proto::BacktestResult replay(
     const std::vector<std::optional<std::size_t>>& followed,
     const std::string& until,
     std::stop_token stop,
-    const std::function<void()>& step,
-    const risk_providers::Module* pinned)
+    const std::function<void()>& step)
 {
     const auto& p = input.paper();
     auto portfolio = paper_portfolio(p);
     const auto series = series_of(input);
     const auto schedule = replay_schedule(portfolio, sparse(series));
-    const auto module = pinned ? *pinned : risk_providers::Module::selected();
-    auto risk = module.create(decode_order_limits(protocol::decode_risk(p.risk())));
+    auto risk = std::make_shared<OrderLimits>(decode_order_limits(protocol::decode_risk(p.risk())));
     risk->start();
     // What a rule takes a side on is a unit: each ordinary contract, and each
     // dominant series as one, read from the back-adjusted bars of whichever
@@ -713,8 +711,7 @@ PerformanceContext performance_context(
 backtest::proto::BacktestResult run(
     const backtest::proto::BacktestInput& input,
     std::stop_token stop,
-    const std::function<void(std::size_t, std::size_t)>& progress,
-    const risk_providers::Module* pinned)
+    const std::function<void(std::size_t, std::size_t)>& progress)
 {
     validate(input);
     const auto units = protocol::backtest_work_units(input);
@@ -733,8 +730,7 @@ backtest::proto::BacktestResult run(
             std::vector<std::optional<std::size_t>>(days, 0),
             until,
             stop,
-            step,
-            pinned);
+            step);
     };
     if (input.strategies_size() == 1)
         return alone(input.strategies(0), {});
@@ -804,7 +800,7 @@ backtest::proto::BacktestResult run(
                 selected);
         }
     }
-    auto result = replay(input, definitions, followed, {}, stop, step, pinned);
+    auto result = replay(input, definitions, followed, {}, stop, step);
     for (auto& fold : folds)
         *result.add_folds() = std::move(fold);
     return result;

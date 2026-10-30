@@ -3,7 +3,7 @@ user namespace against a temporary root, with stand-ins for the system
 commands (chown, systemctl, systemd-creds, systemd-run, date) that
 record what they were asked.
 
-    setup_test.py <apps/services/recorder/scripts/setup.sh> <apps/services/recorder/config/recorder.json>
+    setup_test.py <apps/services/recorder/scripts/setup.sh>
 """
 import io
 import json
@@ -15,7 +15,7 @@ import sys
 import tarfile
 import tempfile
 
-setup, default = Path(sys.argv[1]), Path(sys.argv[2])
+setup = Path(sys.argv[1])
 if subprocess.run(['unshare', '-r', 'true'], capture_output=True).returncode != 0:
     print('SKIP: unprivileged user namespaces are unavailable')
     sys.exit(77)
@@ -38,15 +38,13 @@ def release(folder, version):
     __ARCHIVE__, then the installation as a tar.gz. Its recorder only answers
     --version."""
     top = Path(folder) / f'stage-{version}' / 'asterion-recorder'
-    for part in ('bin', 'lib', 'config'):
+    for part in ('bin', 'lib'):
         (top / part).mkdir(parents=True)
     (top / 'bin/asterion_recorder').write_text(f'#!/bin/sh\necho "Asterion Recorder {version}"\n')
     (top / 'bin/asterion_recorder').chmod(0o755)
     shutil.copy2(setup, top / 'bin/setup.sh')
     for library in ('ctp-md.so', 'ctp-trader.so'):
         (top / 'lib' / library).write_text(version)
-    shutil.copy2(default, top / 'config/recorder.json')
-    shutil.copy2(default.parent / 'logging.json', top / 'config/logging.json')
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-recorder')
@@ -91,7 +89,9 @@ class Host:
         return json.loads((self.root / 'config/recorder.json').read_text())
 
 
-shipped = json.loads(default.read_text())
+shipped = {'bind': '0.0.0.0', 'port': 7450, 'counter': {
+    'market_front': 'tcp://182.254.243.31:40011', 'trade_front': 'tcp://182.254.243.31:40001',
+    'broker': '9999', 'user': '', 'app_id': 'simnow_client_test'}}
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
@@ -103,8 +103,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_recorder').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
-    assert (host.root / 'config/logging.json').read_bytes() == (
-        default.parent / 'logging.json').read_bytes()
+    assert json.loads((host.root / 'config/logging.json').read_text())['file']['retention_days'] == 30
     assert host.settings() == {'bind': shipped['bind'], 'port': 7451,
                                'counter': {**shipped['counter'], 'user': '273005'}}
     text = (host.root / 'config/recorder.json').read_text()
@@ -156,6 +155,26 @@ with tempfile.TemporaryDirectory() as folder:
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-recorder.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-recorder.service', calls
+
+    # Nothing a run stages is left behind, and an upgrade writes its unit again.
+    def staged_files():
+        return sorted(str(path) for folder in (host.root, host.units, host.credentials)
+                      for path in folder.rglob('.*') if path.is_file())
+    assert staged_files() == [], staged_files()
+    (host.units / 'asterion-recorder.service').write_text('[Service]\n')
+    calls, _ = host.run(second, ['n'])
+    assert 'ImportCredential=asterion.ctp.*' in (host.units / 'asterion-recorder.service').read_text()
+    assert 'systemctl daemon-reload' in calls, calls
+    # Input that ends before the password writes no settings.
+    before = (host.root / 'config/recorder.json').read_bytes()
+    result = subprocess.run(
+        ['unshare', '-r', 'bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',
+         'setup', str(host.root / 'bin/setup.sh'), str(host.root), str(host.units), str(host.credentials),
+         str(setup)], input='\n' * 7, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
+        timeout=60)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert (host.root / 'config/recorder.json').read_bytes() == before
+    assert staged_files() == [], staged_files()
 
     # The plain script elsewhere carries no programs.
     result = subprocess.run(['unshare', '-r', 'bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',

@@ -1,5 +1,0 @@
-add_library(asterion_risk_providers STATIC native_risk.cpp risk_module.cpp)
-target_include_directories(asterion_risk_providers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_risk_providers PUBLIC asterion_order_limits_config)
-add_dependencies(asterion_risk_providers asterion_order_limits_plugin)
-asterion_target_defaults(asterion_risk_providers)

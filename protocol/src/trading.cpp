@@ -752,9 +752,8 @@ proto::Command encode_command(const Json& c)
         require_fields(c, {"request_id", "action"});
         result.mutable_live_revoke();
     } else if (action == "live_policy") {
-        require_fields(c, {"request_id", "action", "policy", "risk_artifact"});
+        require_fields(c, {"request_id", "action", "policy"});
         *result.mutable_live_policy()->mutable_policy() = encode_live_policy(c.at("policy"));
-        result.mutable_live_policy()->set_risk_artifact(c.at("risk_artifact").get<std::string>());
     } else if (action == "live_resolve") {
         require_fields(c, {"request_id", "action", "order_id"});
         result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
@@ -794,8 +793,7 @@ Json decode_command(const proto::Command& c)
         case proto::Command::kLivePolicy:
             result.update(
                 {{"action", "live_policy"},
-                    {"policy", decode_live_policy(c.live_policy().policy())},
-                    {"risk_artifact", c.live_policy().risk_artifact()}});
+                    {"policy", decode_live_policy(c.live_policy().policy())}});
             break;
         case proto::Command::kLiveResolve:
             result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
@@ -1110,6 +1108,41 @@ Json decode_live_policy(const proto::LivePolicy& policy)
     };
 }
 
+proto::TradingAccount encode_trading_account(const Json& account)
+{
+    require_fields(account, {"account_id", "broker", "environment"});
+    validate_id(account.at("account_id").get<std::string>());
+    const auto broker = live_broker(account.at("broker"));
+    if (account.at("environment") != "real" && account.at("environment") != "simulation")
+        throw std::invalid_argument("choose the trading account environment");
+    proto::TradingAccount result;
+    result.set_account_id(account.at("account_id"));
+    result.set_environment(
+        account.at("environment") == "real" ? proto::REAL : proto::BROKER_SIMULATION);
+    result.mutable_broker()->set_front(broker.at("front"));
+    result.mutable_broker()->set_broker_id(broker.at("broker_id"));
+    result.mutable_broker()->set_user_id(broker.at("user_id"));
+    result.mutable_broker()->set_app_id(broker.at("app_id"));
+    return result;
+}
+
+Json decode_trading_account(const proto::TradingAccount& account)
+{
+    validate_id(account.account_id());
+    if (account.environment() != proto::REAL && account.environment() != proto::BROKER_SIMULATION)
+        throw std::invalid_argument("choose the trading account environment");
+    return {
+        {"account_id", account.account_id()},
+        {"environment", account.environment() == proto::REAL ? "real" : "simulation"},
+        {"broker",
+            live_broker(
+                {{"front", account.broker().front()},
+                    {"broker_id", account.broker().broker_id()},
+                    {"user_id", account.broker().user_id()},
+                    {"app_id", account.broker().app_id()}})}
+    };
+}
+
 proto::LiveInput encode_live_input(const Json& m)
 {
     require_fields(m, {"type", "account_id", "broker", "policy", "environment"});
@@ -1157,8 +1190,6 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
 {
     validate_id(s.account_id());
     validate_id(s.policy_revision());
-    if (s.risk_artifact().size() != 64)
-        throw std::invalid_argument("invalid risk plugin artifact");
     if (s.segment_count() > 9007199254740991ULL)
         throw std::invalid_argument("invalid trading journal segment count");
     const auto& capacity = s.capacity();
@@ -1195,7 +1226,6 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
         {"environment", input.at("environment")},
         {"account_id", s.account_id()},
         {"policy_revision", s.policy_revision()},
-        {"risk_artifact", s.risk_artifact()},
         {"segment_count", s.segment_count()},
         {"broker", input.at("broker")},
         {"risk", input.at("policy").at("risk")},
@@ -1213,7 +1243,6 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
         {"orders", Json::array()},
         {"trades", Json::array()},
         {"authorization", nullptr},
-        {"strategy", nullptr},
         {"unconfirmed", Json::array()},
         {"costs", Json::array()},
         {"storage_state", s.recovery_required() ? "recovery_required" : "ready"},

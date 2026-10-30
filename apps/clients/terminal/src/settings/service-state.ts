@@ -8,7 +8,6 @@ export const kindLabels: Record<ServiceKind, string> = {
   data: "历史数据服务",
   research: "研究服务",
   lab: "Python 研究服务",
-  live: "CTP 交易",
 };
 export type Binding = {
   service: string;

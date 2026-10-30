@@ -12,7 +12,7 @@
 
 namespace asterion::trading {
 
-// Runtime storage and policy preparation belong to this serial writer. Completions are
+// Runtime storage belongs to this serial writer. Completions are
 // delivered to the account loop; it alone resumes and adopts command results.
 class AccountJournal
 {
@@ -20,9 +20,9 @@ public:
     using Post = std::function<void(std::function<void()>)>;
     // Physical database/file publication ownership; distinct from account execution binding.
     static constexpr auto ownership_file = "account.lock";
-    // Directories beside the journal files: risk plugins, the CTP flow cache,
+    // Directories beside the journal files: the CTP flow cache,
     // sealed segments and owner/, which holds ownership_file alone.
-    static inline const std::set<std::string> sidecars{"plugins", "ctp-flow", "archives", "owner"};
+    static inline const std::set<std::string> sidecars{"ctp-flow", "archives", "owner"};
 
     struct Result
     {
@@ -31,7 +31,6 @@ public:
         std::optional<CommandRecord> command;
         // find_order: the order ID belongs to a recorded submission.
         bool order_known = false;
-        std::unique_ptr<const AccountPolicy> policy;
         ctp::KnownOrders orders{};
         std::uint64_t order_cursor = 0;
     };
@@ -69,7 +68,6 @@ public:
         std::function<Result(SqliteJournal&)> operation;
         Result result;
         std::exception_ptr error;
-        std::unique_ptr<const AccountPolicy> retiring;
 
         bool await_ready() const noexcept
         {
@@ -84,13 +82,6 @@ public:
     Write find_command(std::string id);
     Write find_order(std::string id);
     Write restore_orders(std::string day, std::uint64_t after);
-    Write prepare_policy(
-        std::filesystem::path plugins,
-        PolicyDefinition definition,
-        std::string revision,
-        std::string requested_artifact,
-        std::string current_artifact);
-    Write retire_policy(std::unique_ptr<const AccountPolicy> policy);
 
 private:
     using Job = std::function<void(SqliteJournal&)>;

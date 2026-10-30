@@ -156,7 +156,6 @@ export type LiveSession = {
   mode: "live";
   account_id: string;
   policy_revision: string;
-  risk_artifact: string;
   segment_count: number;
   capacity: {
     records_used: number;
@@ -311,7 +310,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "live" | "market" | "research" | "data" | "lab";
+      kind: "market" | "research" | "data" | "lab";
       plugin_artifacts: string[];
       id: string;
       artifact: string;
@@ -561,8 +560,20 @@ export type CtpConnection = {
   market_front: string;
   revision: string;
   // Whether this account has its trading record; its counter details are then fixed.
-  trading_record: boolean;
-  trading?: { node: string; service: string };
+};
+export type TradingAccount = {
+  account_id: string;
+  environment: "real" | "simulation";
+  broker: { front: string; broker_id: string; user_id: string; app_id: string };
+};
+export type TradingConnection = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  instance: string;
+  fingerprint: string;
+  revision: string;
 };
 export type CtpConnectionEntry = CtpConnection | UnreadableCtpConnection;
 export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
@@ -658,7 +669,6 @@ type ResearchStrategyPackageDefinition = {
   definition: {
     interval_minutes: number;
     program_artifact: string;
-    risk_artifact: string;
   } & (
     | {
         contract: FuturesContract;
@@ -764,7 +774,6 @@ export type TaskRecord = {
   table_refresh?: TableRefreshTarget;
   metadata?: ExperimentMetadata;
   provider_artifact?: string;
-  risk_artifact?: string;
   program_artifact?: string;
   data_source?: string;
   history_dataset_id?: string;
@@ -905,7 +914,6 @@ export type PortfolioBudgetReview = {
     task_id: string;
     input_sha256: string;
     result_digest: string;
-    risk_artifact: string;
     task_instance: string;
   };
   limits: { gross_notional: string | null; margin: string | null };
@@ -2305,6 +2313,8 @@ export type Snapshot = {
   plugin_candidate?: NativePluginInfo;
   data_credentials?: DataCredentialEntry[];
   ctp_connections?: CtpConnectionEntry[];
+  trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
+  trading_fingerprint?: string;
   // The CTP account that supplies market data; trading accounts are independent.
   ctp_market?: string | null;
   // The last check of a provider's saved credential, per source.
@@ -2378,11 +2388,6 @@ export type Snapshot = {
     managed_directory?: string;
     items: NativePluginInfo[];
   };
-  plugins: {
-    id: string;
-    kind: string;
-    state: string;
-  }[];
   diagnostics: {
     log_directory: string;
     succeeded: number;
@@ -2396,8 +2401,9 @@ export type Snapshot = {
     string,
     {
       session: LiveSession | null;
+      account: TradingAccount;
       connection: {
-        transport: "local" | "tcp_tls";
+        transport: "tcp_tls";
         state: "connected" | "disconnected";
         session: string;
         port?: number;
@@ -2440,13 +2446,7 @@ async function call(
 }
 function snapshotContract(result: unknown): Snapshot {
   const value = result as Snapshot;
-  if (
-    !value ||
-    value.protocol !== 1 ||
-    value.phase !== "ready" ||
-    value.asset !== "futures" ||
-    !Array.isArray(value.plugins)
-  ) {
+  if (!value || value.protocol !== 1 || value.phase !== "ready" || value.asset !== "futures") {
     throw new Error(t("本机核心返回了不支持的状态契约"));
   }
   return value;

@@ -48,7 +48,7 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
                                                             io.reactor(),
                                                             endpoint.host,
                                                             endpoint.port,
-                                                            endpoint.tls,
+                                                            ipc::TlsIdentity{},
                                                             capacity[i],
                                                             budget)
                                                       : std::make_unique<ipc::RpcClient>(

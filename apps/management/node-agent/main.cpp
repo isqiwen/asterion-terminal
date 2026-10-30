@@ -18,7 +18,6 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <asterion/kernel/log.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
@@ -84,7 +83,6 @@ class Agent
     // on the blocking pool; the lock orders their installs.
     std::mutex programs_mutex_;
     std::map<wire::ServiceKind, std::string> installed_;
-    ipc::TlsIdentity tls_;
     std::string bind_;
     fs::path sockets_;
     bool local_;
@@ -389,8 +387,7 @@ class Agent
                 configuration.directory,
                 "--health-endpoint",
                 result.health_endpoint});
-        if (configuration.kind == wire::RESEARCH || configuration.kind == wire::TRADING
-            || configuration.kind == wire::DATA)
+        if (configuration.kind == wire::RESEARCH || configuration.kind == wire::DATA)
             args.insert(
                 args.end(),
                 {"--plugin-directory",
@@ -426,27 +423,17 @@ class Agent
                 args.end(),
                 {"--ctp-library",
                     utf8(install_library(configuration.kind, configuration.provider_artifact))});
-        if ((configuration.kind == wire::MARKET || configuration.kind == wire::TRADING)
-            && !configuration.catalog_artifact.empty())
+        if ((configuration.kind == wire::MARKET) && !configuration.catalog_artifact.empty())
             args.insert(
                 args.end(),
-                {configuration.kind == wire::TRADING ? "--ctp-library" : "--ctp-catalog-library",
+                {"--ctp-catalog-library",
                     utf8(install_library(configuration.kind, configuration.catalog_artifact))});
         if (local_)
             args.insert(args.end(), {"--endpoint", result.endpoint});
         else
             args.insert(
                 args.end(),
-                {"--bind",
-                    bind_,
-                    "--port",
-                    std::to_string(configuration.port),
-                    "--tls-ca",
-                    tls_.ca_file,
-                    "--tls-cert",
-                    tls_.certificate_file,
-                    "--tls-key",
-                    tls_.private_key_file});
+                {"--bind", bind_, "--port", std::to_string(configuration.port)});
         result.process = std::make_unique<ChildProcess>(executable, args);
         return result;
     }
@@ -1026,8 +1013,7 @@ class Agent
         const auto& d = r.deploy();
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
-        if (d.kind() != wire::MARKET && d.kind() != wire::RESEARCH && d.kind() != wire::TRADING
-            && d.kind() != wire::DATA)
+        if (d.kind() != wire::MARKET && d.kind() != wire::RESEARCH && d.kind() != wire::DATA)
             throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
             if (d.kind() != wire::MARKET)
@@ -1035,12 +1021,9 @@ class Agent
             validate_artifact_digest(d.provider_artifact());
             co_await verify_artifact(d.provider_artifact(), "provider artifact not installed");
         }
-        if (d.kind() == wire::TRADING && d.catalog_artifact().empty())
-            throw std::invalid_argument("live trading requires the CTP trader library");
         if (!d.catalog_artifact().empty()) {
-            if (d.kind() != wire::MARKET && d.kind() != wire::TRADING)
-                throw std::invalid_argument(
-                    "CTP trader library only belongs to market data or live trading");
+            if (d.kind() != wire::MARKET)
+                throw std::invalid_argument("CTP catalog library only belongs to market data");
             validate_artifact_digest(d.catalog_artifact());
             co_await verify_artifact(d.catalog_artifact(), "catalog artifact not installed");
         }
@@ -1068,27 +1051,9 @@ class Agent
         s.configuration.catalog_artifact = d.catalog_artifact();
         s.configuration.artifact = d.sha256();
         s.configuration.port = static_cast<unsigned short>(d.port());
-        const bool ledger = s.configuration.kind == wire::TRADING;
-        if (local_ && ledger && !d.directory().empty()) {
-            const fs::path ledger(std::u8string(d.directory().begin(), d.directory().end()));
-            co_await prepare([&] {
-                if (!ledger.is_absolute() || !fs::is_directory(ledger))
-                    throw std::invalid_argument(
-                        "local ledger must be an existing absolute directory");
-                require_managed_path(ledger);
-                s.configuration.directory = utf8(fs::canonical(ledger));
-            });
-            for (const auto& [name, existing] : services_) {
-                (void)name;
-                if (existing.configuration.directory == s.configuration.directory)
-                    throw std::invalid_argument("ledger already managed by another service");
-            }
-        } else {
-            if (!d.directory().empty())
-                throw std::invalid_argument("service directory is Agent-owned");
-            s.configuration.directory =
-                utf8(program(s.configuration.kind) / "data" / d.service_id());
-        }
+        if (!d.directory().empty())
+            throw std::invalid_argument("service directory is Agent-owned");
+        s.configuration.directory = utf8(program(s.configuration.kind) / "data" / d.service_id());
         co_await prepare([&] {
             if (s.configuration.kind == wire::RESEARCH) {
                 const auto policy =
@@ -1108,8 +1073,7 @@ class Agent
             if (!fs::create_directory(folder))
                 throw std::invalid_argument("service directory already exists");
             sync_directory(folder.parent_path());
-            if (!local_ || !ledger || d.directory().empty())
-                create_directories_durably(s.configuration.directory);
+            create_directories_durably(s.configuration.directory);
         });
         co_await save(d.service_id(), s.configuration);
         auto [it, added] = services_.emplace(d.service_id(), std::move(s));
@@ -1141,13 +1105,9 @@ class Agent
             });
         };
         co_await verified(u.artifact());
-        if (current.configuration.kind == wire::TRADING && u.catalog_artifact().empty())
-            throw std::invalid_argument("live trading requires the CTP trader library");
         if (!u.catalog_artifact().empty()) {
-            if (current.configuration.kind != wire::MARKET
-                && current.configuration.kind != wire::TRADING)
-                throw std::invalid_argument(
-                    "CTP trader library only belongs to market data or live trading");
+            if (current.configuration.kind != wire::MARKET)
+                throw std::invalid_argument("CTP catalog library only belongs to market data");
             co_await verified(u.catalog_artifact());
         }
         if (current.configuration.kind == wire::MARKET) {
@@ -1232,14 +1192,8 @@ public:
         return response;
     }
 
-    Agent(
-        fs::path root,
-        ipc::TlsIdentity tls,
-        std::string bind,
-        unsigned short control_port,
-        Progress& io_progress)
+    Agent(fs::path root, std::string bind, unsigned short control_port, Progress& io_progress)
         : root_(std::move(root)),
-          tls_(std::move(tls)),
           bind_(std::move(bind)),
           local_(bind_.empty()),
           control_port_(control_port),
@@ -1320,7 +1274,7 @@ public:
             return background_idle();
         }};
         // Stop Data consumers before their source services.
-        for (const auto kind : {wire::LAB, wire::RESEARCH, wire::TRADING, wire::MARKET, wire::DATA})
+        for (const auto kind : {wire::LAB, wire::RESEARCH, wire::MARKET, wire::DATA})
             for (auto& [name, service] : services_)
                 if (service.configuration.kind == kind)
                     co_await stop_processes(service);
@@ -1335,11 +1289,8 @@ public:
         }
     }
 
-    PolledTask<wire::Response> dispatch(
-        wire::Request r,
-        std::string peer,
-        ipc::PeerRole role,
-        std::chrono::steady_clock::time_point deadline)
+    PolledTask<wire::Response>
+    dispatch(wire::Request r, std::string peer, std::chrono::steady_clock::time_point deadline)
     {
         Mutation mutation{*this};
         wire::Response response;
@@ -1352,12 +1303,6 @@ public:
             validate_id(r.correlation_id());
             if (r.version() != 1)
                 throw std::invalid_argument("unsupported node protocol");
-            // Anyone the node CA certified may read status; everything that installs,
-            // runs, reconfigures or exposes programs needs the admin certificate.
-            if (!r.has_status() && role != ipc::PeerRole::admin && role != ipc::PeerRole::local)
-                throw Error(
-                    ErrorCode::permission_denied,
-                    "this operation requires the node administrator certificate");
             if (!r.has_status())
                 co_await admit_mutation(r, mutation, deadline);
             if (r.has_upgrade()) {
@@ -1429,9 +1374,6 @@ int main(int argc, char** argv)
     app.add_option("--endpoint", transport.endpoint);
     app.add_option("--bind", transport.bind);
     app.add_option("--port", transport.port)->check(CLI::Range(1, 65535));
-    app.add_option("--tls-ca", transport.tls.ca_file);
-    app.add_option("--tls-cert", transport.tls.certificate_file);
-    app.add_option("--tls-key", transport.tls.private_key_file);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     if (!inspect.empty())
@@ -1483,7 +1425,6 @@ int main(int argc, char** argv)
                 auto response = co_await agent->dispatch(
                     request,
                     std::move(peer.address),
-                    peer.role,
                     std::chrono::steady_clock::now() + 10s);
                 protocol::log_rpc_result("agent", request, response, request.has_status());
                 co_return response.SerializeAsString();
@@ -1527,12 +1468,7 @@ int main(int argc, char** argv)
                 return true;
             };
             // Bind before starting children; one I/O owner advances requests and supervision.
-            agent = std::make_unique<Agent>(
-                root,
-                transport.tls,
-                transport.bind,
-                transport.port,
-                io_progress);
+            agent = std::make_unique<Agent>(root, transport.bind, transport.port, io_progress);
             options.local_endpoints.push_back(
                 {agent->discovery_endpoint(),
                     [&](const Host::Peer&, std::string frame) -> Host::Reply {

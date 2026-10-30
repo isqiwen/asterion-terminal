@@ -108,18 +108,24 @@ export function ServiceStatus({
   const starting = (s: { state: string; health: string }) =>
     ["running", "starting"].includes(s.state) && s.health === "starting";
   const services = snapshot?.nodes.flatMap(n => n.health?.services ?? []) ?? [];
-  const unhealthy = snapshot?.nodes.some(
-    n =>
-      n.state !== "online" ||
-      !n.health ||
-      n.health.phase === "recovery_required" ||
-      n.health.services.some(
-        s =>
-          s.desired_running &&
-          !starting(s) &&
-          (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health)),
-      ),
-  );
+  const trading = Object.entries(snapshot?.live ?? {});
+  const unhealthy =
+    trading.some(
+      ([, account]) =>
+        account.connection.state !== "connected" || account.connection.health?.phase === "degraded",
+    ) ||
+    snapshot?.nodes.some(
+      n =>
+        n.state !== "online" ||
+        !n.health ||
+        n.health.phase === "recovery_required" ||
+        n.health.services.some(
+          s =>
+            s.desired_running &&
+            !starting(s) &&
+            (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health)),
+        ),
+    );
   const warming =
     !unhealthy &&
     (snapshot?.nodes.some(n => n.health?.phase === "initializing") ||
@@ -129,7 +135,6 @@ export function ServiceStatus({
     research: "研究服务",
     lab: "Python 研究服务",
     data: "数据服务",
-    live: "交易服务",
   };
   const health: Record<string, string> = {
     ready: "正常",
@@ -249,6 +254,38 @@ export function ServiceStatus({
                   ))}
                 </details>
               )}
+            </div>
+          ))}
+          {trading.map(([id, account]) => (
+            <div key={id}>
+              <div className="service-status-row">
+                <span>
+                  {t("交易服务")} · {id}
+                </span>
+                <span>
+                  {t(
+                    uncertain || account.connection.state !== "connected"
+                      ? "待确认"
+                      : health[account.connection.health?.phase ?? "unknown"],
+                  )}
+                </span>
+              </div>
+              <details className="service-connection-details">
+                <summary>{t("连接详情")}</summary>
+                <div>
+                  <div className="service-status-row">
+                    <span>
+                      {account.connection.host}:{account.connection.port}
+                    </span>
+                    <code>{account.connection.session}</code>
+                  </div>
+                  <ExecutionStatus
+                    execution={account.connection.health?.execution ?? null}
+                    stale={uncertain || account.connection.state !== "connected"}
+                    elapsed={Math.max(0, Date.now() - account.connection.last_heartbeat_ms)}
+                  />
+                </div>
+              </details>
             </div>
           ))}
           <div className="service-connection-details">

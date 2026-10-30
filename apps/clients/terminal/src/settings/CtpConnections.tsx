@@ -61,8 +61,6 @@ export function CtpConnections({
         : blank,
     );
   };
-  // Counter details of an account that already trades are fixed.
-  const fixed = !!editing?.trading_record;
   const field = (
     key: keyof typeof blank,
     label: string,
@@ -72,7 +70,6 @@ export function CtpConnections({
       {label}
       <input
         aria-label={label}
-        disabled={fixed && key !== "market_front"}
         required
         maxLength={options.maxLength}
         placeholder={options.placeholder}
@@ -82,7 +79,9 @@ export function CtpConnections({
     </label>
   );
   return (
-    <section className="settings-cards" aria-label={t("CTP 账户")}>
+    <section className="settings-cards" aria-label={t("CTP 行情账户")}>
+      <h3>{t("CTP 行情账户")}</h3>
+      <p>{t("仅供行情登录和合约目录查询，交易账户由交易服务配置。")}</p>
       {unreadable.map(entry => (
         <section className="settings-card" key={entry.id} aria-label={entry.name}>
           <header>
@@ -98,7 +97,6 @@ export function CtpConnections({
             {connection.id === snapshot?.ctp_market && (
               <span className="settings-badge accent">{t("用于行情")}</span>
             )}
-            {connection.trading_record && <span className="settings-badge">{t("已开通交易")}</span>}
           </header>
           <dl>
             <dt>{t("经纪商代码")}</dt>
@@ -147,11 +145,7 @@ export function CtpConnections({
                 {t("确认删除账户")}
               </button>
             ) : (
-              <button
-                disabled={busy || !!connection.trading}
-                onClick={() => setRemoving(connection.id)}
-                title={connection.trading ? t("已绑定交易实例，请保留账户登记。") : undefined}
-              >
+              <button disabled={busy} onClick={() => setRemoving(connection.id)}>
                 {t("删除账户")}
               </button>
             )}
@@ -214,11 +208,6 @@ export function CtpConnections({
               placeholder: "tcp://host:port",
             })}
           </fieldset>
-          {fixed && (
-            <p className="subtle">
-              {t("已开通交易，经纪商代码、投资者账号、AppID 和交易前置不能修改。")}
-            </p>
-          )}
           {/* Next to the buttons it answers. */}
           {error && (
             <p className="alert" role="alert">

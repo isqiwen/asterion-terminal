@@ -34,8 +34,7 @@ research_evidence_document(const nlohmann::json& source, const std::string& inst
                 {"program_artifact", programme},
                 {"input_sha256",
                     source.contains("input_sha256") ? source.at("input_sha256")
-                                                    : nlohmann::json(nullptr)},
-                {"risk_artifact", task.value("risk_artifact", std::string{})}}},
+                                                    : nlohmann::json(nullptr)}}},
         {"description", task.at("metadata")},
         {"experiment", source.at("experiment")},
         {"result", source.at("result")},

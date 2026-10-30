@@ -26,7 +26,7 @@ const renderer = app.isPackaged
 const resources = app.isPackaged
   ? process.resourcesPath
   : path.join(root, "build/electron-resources");
-process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
+process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "features");
 const variables = {
   ASTERION_TRADING_EXECUTABLE: "asterion_trading",
   ASTERION_NODE_MANAGER_EXECUTABLE: "asterion_node_manager",
@@ -204,7 +204,7 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (!["preferences", "connections", "ctp", "sources", "plugins", "about"].includes(category))
+  if (!["preferences", "connections", "ctp", "sources", "features", "about"].includes(category))
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();

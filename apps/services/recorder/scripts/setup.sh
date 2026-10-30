@@ -36,9 +36,57 @@ PROGRAMS=(bin/asterion_recorder bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
 # This script: the release with its archive, or the installed bin/setup.sh.
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
+# Defaults for new configurations only; existing instances keep their own values.
+declare -Ar DEFAULTS=(
+    [bind]='0.0.0.0'
+    [port]='7450'
+    [counter.market_front]='tcp://182.254.243.31:40011'
+    [counter.trade_front]='tcp://182.254.243.31:40001'
+    [counter.broker]='9999'
+    [counter.user]=''
+    [counter.app_id]='simnow_client_test'
+)
+
+logging_settings() {
+    cat <<'JSON'
+{
+  "console": {
+    "enabled": false,
+    "level": "info"
+  },
+  "file": {
+    "enabled": true,
+    "level": "info",
+    "path": "../logs/{program}.log",
+    "retention_days": 30
+  }
+}
+JSON
+}
+
+
 fail() {
     echo "setup: $*" >&2
     exit 1
+}
+
+# Files this run writes before moving them into place, and the unpacked
+# release: removed however the script ends, so nothing half written stays.
+CLEANUP=()
+cleanup() {
+    ((${#CLEANUP[@]})) && rm -rf "${CLEANUP[@]}"
+    return 0
+}
+trap cleanup EXIT
+
+# stage VARIABLE PATH: sets VARIABLE to a fresh name beside PATH for its next
+# version, removed on exit unless moved into place. It runs in this shell, not
+# in a command substitution, so the name reaches CLEANUP.
+stage() {
+    local file
+    file=$(mktemp "$(dirname "$2")/.$(basename "$2").XXXXXX")
+    CLEANUP+=("$file")
+    printf -v "$1" '%s' "$file"
 }
 
 # restart_time_at WEEKDAY HHMM: the end of the trading window at that Beijing
@@ -89,11 +137,15 @@ restart() {
 
 # The current value of a key ("port", "counter.broker") in the settings.
 current() {
+    if [[ ! -f $ROOT/config/recorder.json ]]; then
+        printf '%s' "${DEFAULTS[$1]}"
+        return
+    fi
     python3 -I -c '
 import json, sys
 value = json.load(open(sys.argv[1]))
 for key in sys.argv[2].split("."):
-    value = value.get(key, "") if isinstance(value, dict) else ""
+    value = value[key]
 print(value)' "$ROOT/config/recorder.json" "$1"
 }
 
@@ -102,7 +154,7 @@ ask() {
     local prompt=$2 pattern=$3 default value
     default=$(current "$1")
     while true; do
-        read -r -p "$prompt [${default}]: " value
+        read -r -p "$prompt [${default}]: " value || fail "Input ended"
         value=${value:-$default}
         if [[ $value =~ $pattern ]]; then
             printf '%s' "$value"
@@ -116,7 +168,7 @@ ask() {
 secret() {
     local value
     while true; do
-        read -r -s -p "$1: " value
+        read -r -s -p "$1: " value || fail "Credential input ended"
         echo >&2
         [[ -n $value ]] && break
         echo "  Required" >&2
@@ -126,7 +178,7 @@ secret() {
 
 configure() {
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port market_front trade_front broker user app_id
-    local password auth_code=
+    local password auth_code='' settings encrypted_password encrypted_auth_code=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
@@ -139,7 +191,8 @@ configure() {
     password=$(secret "Password (not shown)")
     [[ -n $app_id ]] && auth_code=$(secret "Authentication code (not shown)")
 
-    # Replaced whole; only the recorder's account may read it.
+    # Replaced whole, every file staged first; only the recorder's account may read it.
+    stage settings "$ROOT/config/recorder.json"
     python3 -I -c '
 import json, sys
 bind, port, market, trade, broker, user, app_id = sys.argv[2:]
@@ -147,18 +200,22 @@ settings = {"bind": bind, "port": int(port), "counter": {
     "market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$ROOT/config/recorder.json.new" "$bind" "$port" "$market_front" "$trade_front" \
+    output.write("\n")' "$settings" "$bind" "$port" "$market_front" "$trade_front" \
         "$broker" "$user" "$app_id"
-    chown "$ACCOUNT:" "$ROOT/config/recorder.json.new"
-    chmod 0600 "$ROOT/config/recorder.json.new"
-    mv "$ROOT/config/recorder.json.new" "$ROOT/config/recorder.json"
-
+    chown "$ACCOUNT:" "$settings"
+    chmod 0600 "$settings"
+    stage encrypted_password "$CREDENTIALS/asterion.ctp.password"
     printf '%s' "$password" |
-        systemd-creds encrypt --name=asterion.ctp.password - "$CREDENTIALS/asterion.ctp.password" >/dev/null
+        systemd-creds encrypt --name=asterion.ctp.password - "$encrypted_password" >/dev/null
     if [[ -n $auth_code ]]; then
+        stage encrypted_auth_code "$CREDENTIALS/asterion.ctp.auth_code"
         printf '%s' "$auth_code" |
-            systemd-creds encrypt --name=asterion.ctp.auth_code - "$CREDENTIALS/asterion.ctp.auth_code" >/dev/null
+            systemd-creds encrypt --name=asterion.ctp.auth_code - "$encrypted_auth_code" >/dev/null
     fi
+    password='' auth_code=''
+    mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
+    [[ -z $encrypted_auth_code ]] || mv -f "$encrypted_auth_code" "$CREDENTIALS/asterion.ctp.auth_code"
+    mv -f "$settings" "$ROOT/config/recorder.json"
     echo "Saved $ROOT/config/recorder.json"
 }
 
@@ -199,27 +256,36 @@ install_once() {
     mkdir -p "$ROOT"/{bin,lib,config,logs,data} "$CREDENTIALS"
     chmod 0700 "$ROOT/config" "$ROOT/logs" "$ROOT/data" "$CREDENTIALS"
     chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs" "$ROOT/data"
-    # Copied once: upgrades never overwrite the configuration files.
-    local name
-    for name in recorder.json logging.json; do
-        if [[ ! -f $ROOT/config/$name ]]; then
-            install -m 0600 "$1/config/$name" "$ROOT/config/$name"
-            chown "$ACCOUNT:" "$ROOT/config/$name"
-        fi
-    done
-    unit_text >"$UNITS/$UNIT"
-    systemctl daemon-reload
+    if [[ ! -f $ROOT/config/logging.json ]]; then
+        local logging
+        stage logging "$ROOT/config/logging.json"
+        logging_settings >"$logging"
+        chown "$ACCOUNT:" "$logging"
+        mv -f "$logging" "$ROOT/config/logging.json"
+    fi
+    write_unit
     systemctl enable "$UNIT" >/dev/null
+}
+
+# The unit of this release, on install and on every upgrade.
+write_unit() {
+    local unit
+    stage unit "$UNITS/$UNIT"
+    unit_text >"$unit"
+    chmod 0644 "$unit"
+    mv -f "$unit" "$UNITS/$UNIT"
+    systemctl daemon-reload
 }
 
 # Replaces the programs in bin/ and lib/, one rename each: a running
 # recorder keeps the files it started with until it restarts.
 place() {
-    local name
+    local name next
     "$1/bin/asterion_recorder" --version >/dev/null 2>&1 || fail "The recorder in this release does not run on this host"
     for name in "${PROGRAMS[@]}"; do
-        install -m 0755 "$1/$name" "$ROOT/$name.new"
-        mv -f "$ROOT/$name.new" "$ROOT/$name"
+        stage next "$ROOT/$name"
+        install -m 0755 "$1/$name" "$next"
+        mv -f "$next" "$ROOT/$name"
     done
 }
 
@@ -229,7 +295,7 @@ main() {
     line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
     if [[ -n $line ]]; then
         unpacked=$(mktemp -d)
-        trap 'rm -rf "$unpacked"' EXIT
+        CLEANUP+=("$unpacked")
         tail -n +"$line" "$SELF" | tar xz --no-same-owner -C "$unpacked"
         source=$unpacked/asterion-recorder
     elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
@@ -247,6 +313,7 @@ main() {
         configure
     elif [[ -x $ROOT/bin/asterion_recorder ]]; then
         place "$source"
+        write_unit
         echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
         local answer
         read -r -p "Change the settings? [y/N]: " answer

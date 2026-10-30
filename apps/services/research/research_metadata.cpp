@@ -139,7 +139,7 @@ PolledTask<> ResearchHost::strategy_operation(Call& call)
     owner.set_node_id(node);
     owner.set_service_id(configuration_.service);
     owner.set_domain("research");
-    // Replay the durable receipt before touching original files or loading modules.
+    // Replay the durable receipt before touching original files.
     if (request.has_mutation()
         && (request.mutation().has_freeze() || request.mutation().has_logic())) {
         auto replay = std::make_shared<MetadataWork>();
@@ -184,15 +184,12 @@ PolledTask<> ResearchHost::strategy_operation(Call& call)
         auto verified = storage_->confirm_result(std::move(read));
         co_await file_work([&] {
             if (request.mutation().has_logic()) {
-                const auto module = risk_providers::Module::selected();
                 captured = research::capture_logic_strategy_package(
                     owner,
                     request.mutation().logic(),
                     verified,
-                    input_digest,
-                    module.artifact());
+                    input_digest);
                 programs::Files programs(configuration_.directory / "programs", owner);
-                (void)programs.preserve(module.path(), module.artifact());
                 (void)programs.find(captured->definition().program_artifact());
                 return;
             }
@@ -203,9 +200,6 @@ PolledTask<> ResearchHost::strategy_operation(Call& call)
                 input_digest);
             programs::Files programs(configuration_.directory / "programs", owner);
             (void)programs.find(captured->definition().program_artifact());
-            risk_providers::Module::pinned(
-                configuration_.directory / source.id(),
-                captured->definition().risk_artifact());
         });
     }
     co_await wait_for_store({}, call.deadline);

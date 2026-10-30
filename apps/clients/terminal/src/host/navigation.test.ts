@@ -7,7 +7,7 @@ import {
   selectModule,
   selectView,
 } from "./navigation";
-import { workspaces } from "../plugins";
+import { workspaces } from "../features";
 import { setLocale, translate } from "../i18n";
 
 test("product catalog has the required modules and places every contributed view exactly once", () => {

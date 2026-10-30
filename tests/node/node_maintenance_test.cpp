@@ -166,7 +166,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
 
     const auto endpoint = (root / "agent.sock").string();
     ChildProcess agent(testing_support::install_agent(root), {"--endpoint", endpoint});
-    NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
+    NodeEndpoint config{"local", "localhost", 0, endpoint};
     std::shared_ptr<AgentClient> client;
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     while (!client) {
@@ -183,15 +183,13 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start)
     client
         ->deploy(
             {.service = "account",
-                .kind = node::proto::TRADING,
+                .kind = node::proto::MARKET,
                 .platform = platform,
                 .programs =
-                    {.executable = ASTERION_TRADE_PATH, .catalog = ASTERION_FAKE_CTP_TRADER},
-                .directory = (root / "ledger").string()})
+                    {.executable = ASTERION_MARKET_PATH,
+                        .provider = ASTERION_FAKE_CTP,
+                        .catalog = ASTERION_FAKE_CTP_TRADER}})
         .get();
-    EXPECT_THROW(
-        (void)client->coordinate_upgrade("upgrade.active-trading", "prepare").get(),
-        std::exception);
     EXPECT_EQ(client->status().get().at("state"), "online");
     EXPECT_TRUE(client->status().get().at("error").get<std::string>().empty());
     EXPECT_FALSE(client->status().get().at("health").at("maintenance").get<bool>());
@@ -330,8 +328,7 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
                 channel.send(response.SerializeAsString(), 3s);
             }
         });
-        auto client =
-            AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+        auto client = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
         if (maintenance)
             EXPECT_NO_THROW(client->maintenance(true, "operation", "test-instance").get());
         else
@@ -379,7 +376,7 @@ TEST(NodeMaintenance, SilentPeerAndBusyAdministrationLeaveStatusAndReadsAvailabl
     const auto endpoint = (root / "agent.sock").string();
     install_node_configuration(root, fs::path(ASTERION_AGENT_PATH).parent_path() / "config");
     ChildProcess agent(testing_support::install_agent(root), {"--endpoint", endpoint});
-    NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
+    NodeEndpoint config{"local", "localhost", 0, endpoint};
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
         try {
@@ -468,7 +465,7 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
     } cleanup{root};
 
     const auto endpoint = (root / "node.sock").string();
-    const NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
+    const NodeEndpoint config{"local", "localhost", 0, endpoint};
     std::unique_ptr<ChildProcess> agent;
     std::shared_ptr<AgentClient> client;
     auto start = [&] {
@@ -579,16 +576,15 @@ protected:
         fs::create_directories(agent.parent_path());
         fs::create_symlink(ASTERION_AGENT_PATH, agent);
         fs::create_directories(root / "services/market/ledger");
-        fs::create_directories(root / "services/trading/ledger");
+        fs::create_directories(root / "services/data/ledger");
         fs::create_directories(root / "artifacts");
         const auto old = sha256_file(ASTERION_AGENT_PATH);
         fs::copy_file(ASTERION_AGENT_PATH, root / "artifacts" / (old + ".bin"));
-        for (const auto& name : {"market", "trading"}) {
+        for (const auto& name : {"market", "data"}) {
             agent::ServiceConfiguration config;
-            config.kind =
-                std::string(name) == "market" ? node::proto::MARKET : node::proto::TRADING;
+            config.kind = std::string(name) == "market" ? node::proto::MARKET : node::proto::DATA;
             config.artifact = old;
-            config.catalog_artifact = old;
+            config.catalog_artifact = config.kind == node::proto::MARKET ? old : "";
             config.provider_artifact = config.kind == node::proto::MARKET ? old : "";
             config.desired = config.kind == node::proto::MARKET;
             config.directory = (root / "services" / name / "ledger").string();
@@ -596,8 +592,9 @@ protected:
             write_file_durably(fs::path(config.directory) / "retained", "business data");
             auto* source = manifest.add_services();
             source->set_kind(config.kind);
-            source->set_executable(config.desired ? ASTERION_MARKET_PATH : ASTERION_TRADE_PATH);
-            source->set_catalog(ASTERION_FAKE_CTP_TRADER);
+            source->set_executable(config.desired ? ASTERION_MARKET_PATH : ASTERION_DATA_PATH);
+            if (config.desired)
+                source->set_catalog(ASTERION_FAKE_CTP_TRADER);
             if (config.desired)
                 source->set_provider(ASTERION_FAKE_CTP);
         }
@@ -655,17 +652,17 @@ TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers
     write_file_durably(base / "market/lib/plugins/market/earlier/plugin.so", "a copy");
     ASSERT_EQ(prepare(), 0);
     const auto market = agent::load_service_configuration(root / "services/market", true, 0);
-    const auto trading = agent::load_service_configuration(root / "services/trading", true, 0);
+    const auto data = agent::load_service_configuration(root / "services/data", true, 0);
     EXPECT_EQ(
         market.plugin_artifacts,
         (std::vector<std::string>{sha256_file(PLUGIN_NEWER), sha256_file(PLUGIN_CUSTOM)}));
     EXPECT_TRUE(market.desired);
-    EXPECT_FALSE(trading.desired);
+    EXPECT_FALSE(data.desired);
     EXPECT_EQ(market.artifact, sha256_file(ASTERION_MARKET_PATH));
     EXPECT_EQ(market.provider_artifact, sha256_file(ASTERION_FAKE_CTP));
     EXPECT_EQ(market.catalog_artifact, sha256_file(ASTERION_FAKE_CTP_TRADER));
-    EXPECT_EQ(trading.artifact, sha256_file(ASTERION_TRADE_PATH));
-    for (const auto& config : {market, trading}) {
+    EXPECT_EQ(data.artifact, sha256_file(ASTERION_DATA_PATH));
+    for (const auto& config : {market, data}) {
         EXPECT_EQ(
             sha256_file(fs::path(config.directory) / "retained"),
             sha256_bytes("business data"));
@@ -684,7 +681,7 @@ TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers
     EXPECT_FALSE(fs::exists(root / "agent.pid"));
     // A start that changes nothing removes nothing.
     for (const auto& hash :
-        {market.artifact, market.provider_artifact, market.catalog_artifact, trading.artifact})
+        {market.artifact, market.provider_artifact, market.catalog_artifact, data.artifact})
         EXPECT_TRUE(fs::exists(copy(hash))) << hash;
 }
 
@@ -692,7 +689,7 @@ TEST_F(ProgramPreparation, SynchronizesBeforeStartupAndPreservesIntentAndLedgers
 // interpreter in place. Any program stands in for the interpreter here.
 TEST_F(ProgramPreparation, RegistersTheLabServiceWithTheBundledInterpreter)
 {
-    manifest.set_python(ASTERION_TRADE_PATH);
+    manifest.set_python(ASTERION_DATA_PATH);
     // Services without a node identity are an older node's: refused, unchanged.
     EXPECT_NE(prepare(), 0);
     EXPECT_FALSE(fs::exists(root / "services/lab"));
@@ -700,8 +697,8 @@ TEST_F(ProgramPreparation, RegistersTheLabServiceWithTheBundledInterpreter)
     ASSERT_EQ(prepare(), 0);
     auto lab = agent::load_service_configuration(root / "services/lab", true, 0);
     EXPECT_EQ(lab.kind, node::proto::LAB);
-    EXPECT_EQ(lab.python, ASTERION_TRADE_PATH);
-    EXPECT_EQ(lab.artifact, sha256_file(ASTERION_TRADE_PATH));
+    EXPECT_EQ(lab.python, ASTERION_DATA_PATH);
+    EXPECT_EQ(lab.artifact, sha256_file(ASTERION_DATA_PATH));
     EXPECT_TRUE(lab.desired);
     EXPECT_TRUE(fs::is_directory(lab.directory));
     const auto modified = fs::last_write_time(root / "services/lab/service.json");
@@ -726,10 +723,10 @@ TEST_F(ProgramPreparation, RegistersTheLabServiceWithTheBundledInterpreter)
 // brings its own programs, and a copy nothing runs would stay behind.
 TEST_F(ProgramPreparation, StagesOnlyWhatAServiceHereRuns)
 {
-    fs::remove_all(root / "services/trading");
+    fs::remove_all(root / "services/data");
     ASSERT_EQ(prepare(), 0);
     EXPECT_TRUE(fs::exists(copy(sha256_file(ASTERION_MARKET_PATH))));
-    EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_TRADE_PATH))));
+    EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_DATA_PATH))));
 }
 
 TEST_F(ProgramPreparation, RejectsRunningAgentAndInvalidSelectionWithoutChangingConfiguration)
@@ -739,7 +736,7 @@ TEST_F(ProgramPreparation, RejectsRunningAgentAndInvalidSelectionWithoutChanging
         FileLock running(root, "agent.lock");
         EXPECT_NE(prepare(), 0);
     }
-    manifest.mutable_services(1)->clear_catalog();
+    manifest.mutable_services(0)->clear_catalog();
     EXPECT_NE(prepare(), 0);
     EXPECT_EQ(sha256_file(root / "services/market/service.json"), before);
     EXPECT_FALSE(fs::exists(root / "agent.pid"));

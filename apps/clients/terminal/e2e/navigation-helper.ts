@@ -1,9 +1,9 @@
 import type { Page } from "@playwright/test";
 import host from "../src/i18n/locales/en-US.json";
-import market from "../plugins/futures-market/locales/en-US.json";
-import data from "../plugins/data-workbench/locales/en-US.json";
-import research from "../plugins/research/locales/en-US.json";
-import trading from "../plugins/trading/locales/en-US.json";
+import market from "../features/futures-market/locales/en-US.json";
+import data from "../features/data-workbench/locales/en-US.json";
+import research from "../features/research/locales/en-US.json";
+import trading from "../features/trading/locales/en-US.json";
 
 // Exercise the public product navigation; do not inject internal route state.
 const destinations = {
@@ -24,7 +24,7 @@ const destinations = {
   market: ["行情", "市场"],
   watchlist: ["行情", "自选"],
   contract: ["行情", "合约"],
-  trading: ["实盘", "交易"],
+  trading: ["实盘"],
 } as const;
 
 export async function openView(page: Page, view: keyof typeof destinations) {

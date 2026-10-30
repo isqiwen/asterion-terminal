@@ -251,20 +251,11 @@ PolledTask<> ResearchHost::reuse_backtest(Call& call)
     backtest::proto::BacktestInput original, input;
     std::string original_bytes;
     co_await file_work([&] {
-        if ((reuse.has_slippage_ticks() || reuse.has_fee_multiplier())
-            && task.risk_artifact() != risk_providers::Module::selected().artifact())
-            throw std::invalid_argument(
-                "cost sensitivity requires the original risk implementation");
         if (candidate) {
-            const auto definition = protocol::strategy_definition(
-                task.input(),
-                task.program_artifact(),
-                task.risk_artifact());
-            if (definition.SerializeAsString() != candidate->definition().SerializeAsString()
-                || task.risk_artifact() != risk_providers::Module::selected().artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "strategy delivery definition or risk implementation changed");
+            const auto definition =
+                protocol::strategy_definition(task.input(), task.program_artifact());
+            if (definition.SerializeAsString() != candidate->definition().SerializeAsString())
+                throw Error(ErrorCode::conflict, "strategy delivery definition changed");
         }
         original = std::move(*verified.mutable_result_task()->mutable_input());
         original_bytes = original.SerializeAsString();

@@ -6,6 +6,7 @@
 #include "market_client.hpp"
 #include "node_client.hpp"
 #include "ctp_connections.hpp"
+#include "trading_connections.hpp"
 #include "data_credentials.hpp"
 #include "plugin_catalog.hpp"
 #include "remote_bundle.hpp"
@@ -150,6 +151,7 @@ struct Application::Impl
         program_directory("terminal") / "data" / "ctp-connections",
         credential_store
     };
+    TradingConnections trading_connections{program_directory("terminal") / "data"};
     // The one CTP account that supplies market data.
     PolledTask<CtpConnection> market_ctp();
     // Where a CTP account keeps its trading record; one record per account.
@@ -285,6 +287,8 @@ struct Application::Impl
     struct SettingsView
     {
         json credentials = json::array(), accounts = json::array(), market = nullptr;
+        json trading = json::array();
+        std::string trading_fingerprint;
         bool operator==(const SettingsView&) const = default;
     };
 

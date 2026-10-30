@@ -225,7 +225,6 @@ void AccountJournal::Write::await_suspend(std::coroutine_handle<> command)
             } catch (...) {
                 error = std::current_exception();
             }
-            retiring.reset();
             // The suspended command owns this awaiter. Posting publishes its result;
             // the writer must not touch it after the account can resume.
             owner.post_([command, trace] {
@@ -254,7 +253,6 @@ AccountJournal::Write AccountJournal::append(JournalEntry entry)
             return result;
         },
         {},
-        {},
         {}
     };
 }
@@ -270,7 +268,6 @@ AccountJournal::Write AccountJournal::find_command(std::string id)
             return result;
         },
         {},
-        {},
         {}
     };
 }
@@ -284,7 +281,6 @@ AccountJournal::Write AccountJournal::find_order(std::string id)
             result.order_known = !journal.order(id).is_null();
             return result;
         },
-        {},
         {},
         {}
     };
@@ -303,57 +299,7 @@ AccountJournal::Write AccountJournal::restore_orders(std::string day, std::uint6
             return result;
         },
         {},
-        {},
         {}
-    };
-}
-
-AccountJournal::Write AccountJournal::prepare_policy(
-    std::filesystem::path plugins,
-    PolicyDefinition definition,
-    std::string revision,
-    std::string requested_artifact,
-    std::string current_artifact)
-{
-    return {
-        *this,
-        [plugins = std::move(plugins),
-            definition = std::move(definition),
-            revision = std::move(revision),
-            requested_artifact = std::move(requested_artifact),
-            current_artifact = std::move(current_artifact)](SqliteJournal&) {
-            auto algorithm = requested_artifact == current_artifact
-                ? risk_providers::Module::pinned(plugins / current_artifact, current_artifact)
-                : risk_providers::Module::selected();
-            if (algorithm.artifact() != requested_artifact)
-                throw Error(
-                    ErrorCode::conflict,
-                    "requested policy algorithm is not the deployed risk plugin");
-            auto policy = std::make_unique<AccountPolicy>(
-                std::move(definition),
-                revision,
-                std::move(algorithm));
-            policy->capture(plugins);
-            Result result;
-            result.policy = std::move(policy);
-            return result;
-        },
-        {},
-        {},
-        {}
-    };
-}
-
-AccountJournal::Write AccountJournal::retire_policy(std::unique_ptr<const AccountPolicy> policy)
-{
-    return {
-        *this,
-        [](SqliteJournal&) {
-            return Result{};
-        },
-        {},
-        {},
-        std::move(policy)
     };
 }
 

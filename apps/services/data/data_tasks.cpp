@@ -129,12 +129,11 @@ public:
     {
         manifest["provider_artifact"] = task.provider_artifact();
         manifest["download_authorization"] = task.download_authorization();
-        manifest["risk_artifact"] = task.risk_artifact();
     }
 
     void read_manifest(const Json& manifest, wire::Task& task, const std::string&) const override
     {
-        require_fields(manifest, {"provider_artifact", "download_authorization", "risk_artifact"});
+        require_fields(manifest, {"provider_artifact", "download_authorization"});
         task.set_provider_artifact(manifest.at("provider_artifact").get<std::string>());
         task.set_download_authorization(manifest.at("download_authorization").get<std::string>());
         if (task.kind() == wire::MATERIAL_ACQUISITION) {
@@ -148,8 +147,6 @@ public:
             if (!hex_digest(task.provider_artifact()))
                 throw std::invalid_argument("invalid task provider artifact");
         }
-        if (!manifest.at("risk_artifact").get<std::string>().empty())
-            throw std::invalid_argument("unexpected task risk artifact");
     }
 
     void validate_result(

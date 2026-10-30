@@ -1,5 +1,5 @@
 #pragma once
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include <asterion/domain/futures.hpp>
 #include <asterion/trading.pb.h>
 
@@ -14,23 +14,17 @@ struct PolicyDefinition
     static PolicyDefinition from_wire(const protocol::proto::LivePolicy& policy);
 };
 
-// One immutable policy owns its algorithm and typed parameters. It owns no
+// One immutable policy owns its typed parameters and built-in limits. It owns no
 // positions or order reservations: those remain facts of the account.
 struct AccountPolicy
 {
     std::string revision;
     PolicyDefinition definition;
-    risk_providers::Module algorithm;
     std::shared_ptr<RiskPort> risk;
 
-    AccountPolicy(
-        PolicyDefinition definition,
-        std::string revision,
-        risk_providers::Module algorithm);
+    AccountPolicy(PolicyDefinition definition, std::string revision);
     const FuturesContract* find(const InstrumentId& id) const;
     void preserve_exposure(const AccountPolicy& previous, const InstrumentId& id) const;
-    // Digest directories retain every historical policy's exact algorithm bytes.
-    void capture(const std::filesystem::path& plugins) const;
 };
 
 } // namespace asterion::trading

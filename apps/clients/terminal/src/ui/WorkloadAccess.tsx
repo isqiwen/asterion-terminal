@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
-import type { TerminalContext } from "../../plugins/contract";
+import type { TerminalContext } from "../../features/contract";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // Entering a workflow prepares its selected owner once. A remote

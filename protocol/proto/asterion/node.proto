@@ -31,12 +31,10 @@ message Finish {
   string sha256 = 1;
 }
 
-// TRADING carries the CTP trader SDK as its catalog artifact.
 enum ServiceKind {
   UNSPECIFIED_SERVICE = 0;
   MARKET = 1;
   RESEARCH = 2;
-  TRADING = 3;
   DATA = 4;
   LAB = 5;
 }

@@ -58,7 +58,9 @@ std::string PluginArtifacts::identity(const std::string& artifact) const
     std::error_code ignored;
     fs::remove(output, ignored);
     if (id.empty() || id.size() > 256)
-        throw std::invalid_argument("native plugin artifact is missing or corrupted");
+        throw std::invalid_argument(
+            "native plugin " + binary(artifact).string()
+            + " cannot be loaded: missing, corrupted or built for another plugin interface");
     return id;
 }
 

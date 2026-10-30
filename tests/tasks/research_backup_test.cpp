@@ -9,7 +9,7 @@
 #include "logic_store.hpp"
 #include "research_logic.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include "risk_module.hpp"
+#include "order_limits.hpp"
 #include "sqlite_database.hpp"
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
@@ -859,10 +859,6 @@ TEST(ResearchColdBackup, StrategyDraftsAndAdmittedUseCloseOriginalEvidenceAcross
                 &resource::proto::Object::kind),
             2);
     }
-    const auto module = risk_providers::Module::filename(restored / "reference");
-    fs::rename(module, folder.path / "held-module");
-    EXPECT_THROW(research::cold_backup(restored, owner()), std::exception);
-    fs::rename(folder.path / "held-module", module);
     {
         sqlite::Database database(restored / "tasks.sqlite", sqlite::Database::Access::writer);
         sqlite::Database::Statement erase(
@@ -926,9 +922,6 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
         *finish.mutable_logic_trial() = tasks::compute_logic_trial(fixed);
         store.commit(tasks::finish(store, std::move(finish)));
         original = tasks::verified_result(store, "logic-run");
-        const auto module = risk_providers::Module::selected();
-        (void)programs::Files(root / "programs", owner())
-            .preserve(module.path(), module.artifact());
         research::proto::StrategyMutation assemble;
         assemble.set_id("assemble-logic");
         auto& request = *assemble.mutable_logic();
@@ -952,8 +945,7 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
             owner(),
             request,
             original,
-            sha256_file(root / "logic-run/input.pb"),
-            module.artifact());
+            sha256_file(root / "logic-run/input.pb"));
         research::Strategies strategies(store, owner(), sqlite::Database::Access::writer);
         expected_package = strategies.apply(assemble, &captured).package();
         research::proto::StrategyMutation deliver;
@@ -993,10 +985,6 @@ TEST(ResearchBackup, IndependentLogicExpectationsAndActualTrialRestoreWithoutDat
             expected_package.SerializeAsString());
         EXPECT_FALSE(strategies.delivery_status("pending-draft").target_accepted());
     }
-    const auto risk = restored / "programs" / expected_package.definition().risk_artifact();
-    fs::rename(risk, folder.path / "held-risk");
-    EXPECT_THROW(research::cold_backup(restored, owner()), std::invalid_argument);
-    fs::rename(folder.path / "held-risk", risk);
     fs::rename(
         restored / "programs" / original.result_task().program_artifact(),
         folder.path / "held-program");

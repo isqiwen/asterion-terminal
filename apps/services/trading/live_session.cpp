@@ -145,7 +145,6 @@ LiveAccountState::LiveAccountState(
         PolicyDefinition::from_wire(protocol::encode_live_policy(manifest.at("policy")));
     auto revision =
         create_manifest.is_null() ? text(header_, "policy_revision") : unique_process_id();
-    auto artifact = create_manifest.is_null() ? text(header_, "risk_artifact") : std::string{};
     std::set<std::string> revisions{revision};
     std::set<std::string> pending_cancels;
     journal_->replay(
@@ -188,7 +187,6 @@ LiveAccountState::LiveAccountState(
                 if (!revisions.insert(revision).second)
                     throw std::invalid_argument("account policy revision is repeated");
                 definition = change->definition;
-                artifact = command.risk_artifact;
             } else if (const auto* resolve = request.as<ResolveOrder>()) {
                 if (!intents_.erase(resolve->order_id))
                     throw std::invalid_argument("live trading record resolves an unknown order");
@@ -201,11 +199,7 @@ LiveAccountState::LiveAccountState(
                     submit->order.quantity
                 };
         });
-    auto algorithm = create_manifest.is_null()
-        ? risk_providers::Module::pinned(directory / "plugins" / artifact, artifact)
-        : risk_providers::Module::selected();
-    policy_ =
-        std::make_unique<AccountPolicy>(std::move(definition), revision, std::move(algorithm));
+    policy_ = std::make_unique<AccountPolicy>(std::move(definition), revision);
     trader_ = std::make_unique<ctp::Trader>(
         ctp_library,
         directory / "ctp-flow",
@@ -213,9 +207,7 @@ LiveAccountState::LiveAccountState(
         std::move(broker_ready));
     trader_->start();
     if (!create_manifest.is_null()) {
-        policy_->capture(directory / "plugins");
         header_ = {
-            {"risk_artifact", policy_->algorithm.artifact()},
             {"manifest", manifest},
             {"policy_revision", policy_->revision},
             {"account_id", account_id}
@@ -366,15 +358,9 @@ void LiveAccountState::check_account(std::string_view account_id) const
 AccountCommand
 LiveAccountState::revise_policy(const AccountRequest& request, const ChangePolicy& change)
 {
-    auto prepared = co_await journal_->prepare_policy(
-        directory_ / "plugins",
-        change.definition,
-        unique_process_id(),
-        change.risk_artifact,
-        policy_->algorithm.artifact());
-    auto next = std::move(prepared.policy);
-    std::exception_ptr failure;
-    try {
+    std::unique_ptr<const AccountPolicy> next =
+        std::make_unique<AccountPolicy>(change.definition, unique_process_id());
+    {
         const auto state = trader_->snapshot();
         if (state.phase != BrokerPhase::ready || !identities_ready(state)
             || !state.positions_reconciled || !unconfirmed(state).empty())
@@ -390,16 +376,9 @@ LiveAccountState::revise_policy(const AccountRequest& request, const ChangePolic
         trader_->disconnect_checked(state.connection_generation, state.exposure_revision);
         end_authorization();
         send_gate_.invalidate();
-        co_await append(
-            policy_entry(request, policy_->revision, next->revision, next->algorithm.artifact()));
+        co_await append(policy_entry(request, policy_->revision, next->revision));
         policy_.swap(next);
-    } catch (...) {
-        failure = std::current_exception();
     }
-    // Both a rejected candidate and a replaced policy release their plugin on the writer.
-    co_await journal_->retire_policy(std::move(next));
-    if (failure)
-        std::rethrow_exception(failure);
 }
 
 void LiveAccountState::admit_revoke(std::string_view account_id, std::string_view revision)
@@ -816,7 +795,6 @@ protocol::proto::LiveSnapshot LiveAccountState::snapshot() const
     result.set_account_id(account_id_);
     result.set_environment(environment_);
     result.set_policy_revision(policy_->revision);
-    result.set_risk_artifact(policy_->algorithm.artifact());
     auto* risk = result.mutable_risk();
     risk->mutable_max_order_quantity()->set_units(
         policy_->definition.limits.max_order_quantity.raw());

@@ -2428,7 +2428,6 @@ TEST_F(
     EXPECT_EQ(result.backtest().portfolio_targets(0).members(1).quantity().units(), d("-2").raw());
     EXPECT_EQ(result.backtest().account().fees().units(), d("20").raw());
     EXPECT_EQ(result.result_task().program_artifact(), fixture_program_artifact);
-    EXPECT_FALSE(result.result_task().risk_artifact().empty());
     EXPECT_NO_THROW(
         protocol::validate_backtest_result(result.result_task().input(), result.backtest()));
     const auto replay = call(submit, {}, 10s).task();

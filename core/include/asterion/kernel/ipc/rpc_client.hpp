@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/kernel/ipc/tls_channel.hpp>
+#include <asterion/kernel/ipc/tcp_channel.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/payload_budget.hpp>
 #include <future>
@@ -31,7 +31,9 @@ private:
 };
 
 // One caller owns this client and pumps its I/O. No application threads, request
-// retries or unbounded queue: each admitted request owns one connection.
+// retries or unbounded queue: each admitted request owns one connection. A TCP
+// client is plain (it sends the connection magic) without a TLS identity and
+// TLS with one; see tcp_channel.hpp.
 class RpcClient
 {
 public:
@@ -43,7 +45,7 @@ public:
     RpcClient(
         std::string host,
         std::uint16_t port,
-        const TlsIdentity& identity,
+        TlsIdentity identity,
         std::size_t capacity,
         PayloadBudget payloads,
         std::size_t frame_bytes = Channel::max_frame);
@@ -58,7 +60,7 @@ public:
         Reactor& reactor,
         std::string host,
         std::uint16_t port,
-        const TlsIdentity& identity,
+        TlsIdentity identity,
         std::size_t capacity,
         PayloadBudget payloads,
         std::size_t frame_bytes = Channel::max_frame);
@@ -93,7 +95,7 @@ private:
         Reactor* reactor,
         std::string host,
         std::uint16_t port,
-        const TlsIdentity& identity,
+        TlsIdentity identity,
         std::size_t capacity,
         PayloadBudget payloads,
         std::size_t frame_bytes);

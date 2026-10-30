@@ -1,6 +1,6 @@
 """The recorder logs in, reads the catalog and records with no client, against
 the test-only CTP libraries; clients read its status and files over plain TCP,
-identified by the protocol's magic number. A second
+identified by the connection magic. A second
 instance continues the recording and reports the first one's segment.
 
     recorder_process.py <asterion_recorder> <test ctp md library> <test ctp trader library>
@@ -61,18 +61,18 @@ def read_varint(data, at):
             return value, at
 
 
-MAGIC = b"\x1d" + (0x41535452).to_bytes(4, "little")  # field 3, fixed32
-
-
-def ask(port, number, body=b"", magic=MAGIC, failure=False):
-    request = b"\x08\x01" + field(2, b"probe") + magic + field(number, body)
+def ask(port, number, body=b"", magic=b"ASTR"):
+    request = b"\x08\x01" + field(2, b"probe") + field(number, body)
     with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
-        connection.sendall(len(request).to_bytes(4, "big") + request)
-        header = connection.recv(4, socket.MSG_WAITALL)
+        connection.sendall(magic + len(request).to_bytes(4, "big") + request)
+        try:
+            header = connection.recv(4, socket.MSG_WAITALL)
+        except ConnectionResetError:
+            return None
+        if not header:
+            return None
         payload = connection.recv(int.from_bytes(header, "big"), socket.MSG_WAITALL)
     response = decode(payload)
-    if failure:
-        return decode(response[20][0])
     assert 20 not in response, decode(response[20][0])
     return decode(response[number][0])
 
@@ -94,7 +94,9 @@ def install(root):
     shutil.copy2(recorder, root / "bin/asterion_recorder")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
-    shutil.copy2(Path(__file__).parents[2] / "apps/services/recorder/config/logging.json", root / "config")
+    (root / "config/logging.json").write_bytes(subprocess.check_output(
+        ["bash", "-c", 'source "$1"; logging_settings', "setup",
+         str(Path(__file__).parents[2] / "apps/services/recorder/scripts/setup.sh")]))
 
 
 def start(root, port):
@@ -145,9 +147,8 @@ with tempfile.TemporaryDirectory(prefix="ast-recorder-") as folder:
         assert text(status, 4) == "connected", status
         assert text(status, 6) == "ready", status
         first_instance = text(status, 1)
-        # A request without the magic number is not answered with data.
-        error = ask(first_endpoint, 10, magic=b"", failure=True)
-        assert text(error, 1) == "permission_denied", error
+        # A connection without the magic is closed unanswered.
+        assert ask(first_endpoint, 10, magic=b"HTTP") is None
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=30)

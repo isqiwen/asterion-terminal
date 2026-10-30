@@ -10,13 +10,15 @@ for binary in sys.argv[1:]:
         assert result.returncode == 0 and result.stdout, (binary, option, result)
     result = subprocess.run([binary, "--not-an-option"], capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and result.stderr, binary
-with tempfile.TemporaryDirectory(prefix="asterion-live-sdk-", ignore_cleanup_errors=True) as folder:
-    result = subprocess.run([sys.argv[2], "--session", "live.test",
-                             "--endpoint", "asterion.test", "--directory", folder],
+with tempfile.TemporaryDirectory(prefix="asterion-trading-", ignore_cleanup_errors=True) as folder:
+    # An installation without the account's configuration: refused, naming it.
+    (Path(folder) / "bin").mkdir()
+    (Path(folder) / "bin/asterion_trading").symlink_to(Path(sys.argv[2]).resolve())
+    result = subprocess.run([str(Path(folder) / "bin/asterion_trading"), "--account", "missing"],
                             capture_output=True, text=True, timeout=10)
-    assert result.returncode != 0 and "--ctp-library is required" in result.stderr, result
-    assert list(Path(folder).iterdir()) == []
-print("CLI11 help, version, invalid arguments and trading without a trader SDK verified")
+    assert result.returncode != 0 and "config/accounts/missing.json" in result.stderr, result
+    assert sorted(p.name for p in Path(folder).iterdir()) == ["bin"], list(Path(folder).iterdir())
+print("CLI11 help, version, invalid arguments and trading without its account configuration verified")
 
 # Every independent application requires an explicit operation/configuration.
 for binary in sys.argv[4:]:

@@ -61,7 +61,7 @@ sudo /opt/asterion/recorder/bin/setup.sh     # 只修改配置
 
 ## 配置文件
 
-`config/recorder.json` 只放监听地址和柜台信息，默认值在仓库的 `apps/services/recorder/config/recorder.json`：
+`config/recorder.json` 只放监听地址和柜台信息，默认值集中定义在 `apps/services/recorder/scripts/setup.sh`，首次配置时回车采用默认值，之后回车保留当前实际值：
 
 ```json
 {
@@ -76,11 +76,12 @@ sudo /opt/asterion/recorder/bin/setup.sh     # 只修改配置
 | `bind`、`port` | 监听的地址与 TCP 端口 |
 | `counter` | 柜台的行情前置、交易前置、经纪公司代码、投资者代码和 AppID（没有则为空） |
 
-`config/logging.json` 是录制程序的日志配置，默认值在仓库的 `apps/services/recorder/config/logging.json`：只写 `logs/` 下的文件，
+`config/logging.json` 是录制程序的日志配置，由安装脚本首次生成：只写 `logs/` 下的文件，
+文件名为 `asterion_recorder_YYYY-MM-DD.log`，按日切分，同一天重启继续追加，不按 PID 分文件。
 info 级别，保留 30 天；控制台输出默认关闭，打开后写到标准错误，由 systemd 收进日志，可用 `journalctl -u asterion-recorder -f`
-查看。各键的含义与其他程序相同，见[运行日志](services.md#运行日志)。安装时与 `recorder.json` 一起复制一次，升级不覆盖。
+查看。各键的含义与其他程序相同，见[运行日志](services.md#运行日志)。安装包不携带默认 JSON 文件；脚本首次生成实际配置，升级不覆盖。
 
-- 路径不是配置：都由安装目录决定。缺键、多出不认识的键、投资者代码未填（配置之前的默认配置）时启动失败，错误写明
+- 路径不是配置：都由安装目录决定。缺键、多出不认识的键、投资者代码未填时启动失败，错误写明
   配置文件的路径和出错的键。
 - 密码和授权码不进配置文件，由 `setup.sh` 用 `systemd-creds` 加密保存，加密绑定本机，别处无法解密。
   单元的 `ImportCredential=asterion.ctp.*` 让 systemd 在启动时把它们解密到只有运行账户可读的 `$CREDENTIALS_DIRECTORY`，

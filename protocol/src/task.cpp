@@ -201,7 +201,6 @@ Json decode_task(const task::proto::Task& task)
                 {"snapshot", task.metadata().derivation().snapshot()}}},
 
         {"provider_artifact", task.provider_artifact()},
-        {"risk_artifact", task.risk_artifact()},
         {"program_artifact", task.program_artifact()},
         {"state", state},
         {"attempt", task.attempt()},

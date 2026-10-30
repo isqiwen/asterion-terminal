@@ -1,30 +1,18 @@
-"""Local real-mode and remote simulation-mode instances, using only test SDKs."""
-import hashlib
+"""Independent real-mode and simulation-mode instances, using only test SDKs."""
 import json
 import os
 from pathlib import Path
-import shutil
-import signal
-import socket
 import subprocess
 import sys
 import tempfile
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
-from installation import install_agent  # noqa: E402
+from trading_installation import install, Programs
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "node"))
-from bundle_fixture import make_bundle
 
 if sys.platform != "linux":
     raise SystemExit(77)
 build = Path(sys.argv[1]).resolve()
-
-
-def port():
-    with socket.socket() as channel:
-        channel.bind(("127.0.0.1", 0))
-        return channel.getsockname()[1]
 
 
 def call(process, method, params=None, error=False):
@@ -47,41 +35,13 @@ def wait(process, condition):
 
 with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder:
     root = Path(folder)
-    remote = root / "remote"
-    remote.mkdir()
-    subprocess.run([str(build / "asterion_test_certificates"), folder], check=True)
-    management_port, trade_port = port(), port()
-    while trade_port == management_port:
-        trade_port = port()
-    agent_env = dict(os.environ, ASTERION_ROOT=str(remote), ASTERION_TEST_NODE_ISOLATED="1")
-    # The remote node's installation, with the defaults its enrollment copies.
-    shutil.copytree(build / "config", remote / "agent" / "config")
-    agent = subprocess.Popen([
-        str(install_agent(remote, build / "asterion_node_agent")), "--bind", "127.0.0.1",
-        "--port", str(management_port), "--tls-ca", str(root / "ca.crt"),
-        "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")],
-        env=agent_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    host = install(root / "trading-host", Programs(str(build / "asterion_trading"),
+        str(build / "asterion_test_certificates"), str(build / "libasterion_test_ctp_trader.so")))
     terminal = None
+    children = {}
     try:
         local = root / "local"
-        enrollment = local / "manager/data/enrollments/remote"
-        enrollment.mkdir(parents=True)
-        for name in ("ca.crt", "client.crt", "client.key"):
-            shutil.copyfile(root / name, enrollment / name)
-        (enrollment / "enrollment.json").write_text(json.dumps(dict(
-            id="remote", host="localhost", port=management_port, os="linux")))
-        resources = make_bundle(root / "resources", build, strip_debug=True)
-        # Replace the disposable bundle's vendor SDKs with test-only providers.
-        bundle = resources / "x86_64"
-        for target, source in (("ctp-trader.so", "libasterion_test_ctp_trader.so"),
-                               ("ctp-md.so", "libasterion_test_ctp.so")):
-            shutil.copyfile(build / source, bundle / target)
-        manifest_path = bundle / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        for name in ("ctp-trader.so", "ctp-md.so"):
-            manifest["files"][name] = hashlib.sha256((bundle / name).read_bytes()).hexdigest()
-        manifest_path.write_text(json.dumps(manifest))
-        env = dict(os.environ, ASTERION_ROOT=str(local), ASTERION_REMOTE_RESOURCES=str(resources),
+        env = dict(os.environ, ASTERION_ROOT=str(local),
                    ASTERION_CTP_LIBRARY=str(build / "libasterion_test_ctp.so"),
                    ASTERION_CTP_CATALOG_LIBRARY=str(build / "libasterion_test_ctp_trader.so"))
 
@@ -92,9 +52,12 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
 
         terminal = launch()
         call(terminal, "market.local")
-        call(terminal, "node.deploy", dict(id="local", service="trading", kind="live", port="0"))
-        call(terminal, "node.connect", {"id": "remote"})
-        call(terminal, "node.deploy", dict(id="remote", service="trading", kind="live", port=str(trade_port)))
+        fingerprint = call(terminal, "trading.identity.prepare")["trading_fingerprint"]
+        for name in ("real", "simulation"):
+            port = host.account(name, terminals=[fingerprint], environment=name, user="000001" if name == "real" else "000002")
+            children[name] = host.start(name)
+            call(terminal, "trading.connections.save", dict(id=name, name=name, revision="",
+                host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         for account in ("real", "simulation"):
             call(terminal, "ctp.connections.save", dict(id=account, name=account, revision="",
                 broker_id="9999", user_id="000001" if account == "real" else "000002",
@@ -103,15 +66,26 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         wait(terminal, lambda s: s["market"]["catalog"]["phase"] == "ready")
         create = dict(max_order_quantity="5", max_gross_quantity="10", max_working_orders="2",
                       max_price_deviation="0.02", contracts=[dict(venue="SHFE", symbol="rb2610")])
-        call(terminal, "live.create", dict(create, account="real", node="local", service="trading", environment="real"))
-        state = call(terminal, "live.create", dict(create, account="simulation", node="remote",
-                                                 service="trading", environment="simulation"))
-        assert state["live"]["real"]["connection"]["transport"] == "local"
+        # A mistyped server pin cannot reserve an account or reach creation.
+        saved = next(c for c in call(terminal, "runtime.snapshot")["trading_connections"] if c["id"] == "real")
+        call(terminal, "trading.connections.save", dict(saved, fingerprint=host.stranger))
+        call(terminal, "live.open", dict(account="real"), error=True)
+        inspected = call(terminal, "runtime.snapshot")
+        assert "trading" not in next(a for a in inspected["ctp_connections"] if a["id"] == "real")
+        revision = next(c["revision"] for c in inspected["trading_connections"] if c["id"] == "real")
+        call(terminal, "trading.connections.save", dict(saved, revision=revision))
+        call(terminal, "live.open", dict(account="real"))
+        observed = call(terminal, "live.open", dict(account="simulation"))
+        assert observed["live"]["real"]["account"]["environment"] == "real"
+        assert observed["live"]["simulation"]["account"]["broker"]["user_id"] == "000002"
+        assert observed["live"]["simulation"]["session"] is None
+        call(terminal, "live.create", dict(create, account="real"))
+        state = call(terminal, "live.create", dict(create, account="simulation"))
+        assert state["live"]["real"]["connection"]["transport"] == "tcp_tls"
         assert state["live"]["simulation"]["connection"]["transport"] == "tcp_tls"
         for account in ("real", "simulation"):
             assert state["live"][account]["session"]["environment"] == account
             assert state["live"][account]["session"]["authorization"] is None
-            call(terminal, "live.connect", dict(account=account, password="test-only", auth_code="test-only"))
         state = wait(terminal, lambda s: all(s["live"][a]["session"]["phase"] == "ready"
                                             for a in ("real", "simulation")))
         # Authorizing one account cannot authorize the other.
@@ -127,35 +101,22 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         state = wait(terminal, lambda s: any(o["id"] == "remote-order" and o["status"] == "filled"
                      for o in s["live"]["simulation"]["session"]["orders"]))
         assert state["live"]["real"]["session"]["orders"] == []
-        bindings = {a["id"]: a["trading"] for a in state["ctp_connections"]}
-        assert bindings["simulation"] == dict(node="remote", service="trading")
-        assert (remote / "trading/data/trading/journal.sqlite").is_file()
+        assert (host.root / "data/simulation/journal.sqlite").is_file()
         assert not (local / "accounts/ctp/simulation/journal.sqlite").exists()
-        local_node = next(n for n in state["nodes"] if n["id"] == "local")
-        local_service = next(s for s in local_node["health"]["services"] if s["id"] == bindings["real"]["service"])
-        real_pid = local_service["pid"]
-        call(terminal, "ctp.connections.save", dict(id="other", name="other", revision="",
-            broker_id="9999", user_id="000003", app_id="test", trade_front="tcp://127.0.0.1:41205",
-            market_front="tcp://127.0.0.1:1"))
-        refused = call(terminal, "live.create", dict(create, account="other", node="remote",
-            service="trading", environment="simulation"), error=True)
-        assert "another account" in refused["message"]
-        current = call(terminal, "runtime.snapshot")
-        assert "trading" not in next(a for a in current["ctp_connections"] if a["id"] == "other")
-        # Closing/reopening the account uses its persisted target, never a local fallback.
+        real_pid = children["real"].pid
+        # Counter settings cannot enter the create command from a Terminal.
+        call(terminal, "live.create", dict(create, account="real", environment="simulation"), error=True)
         call(terminal, "live.close", dict(account="simulation"))
         state = call(terminal, "live.open", dict(account="simulation"))
-        assert state["live"]["simulation"]["connection"]["transport"] == "tcp_tls"
-        call(terminal, "live.close", dict(account="simulation"))
-        refused = call(terminal, "live.create", dict(create, account="simulation", node="local",
-                                                    service="", environment="simulation"), error=True)
-        assert "already bound" in refused["message"]
-        call(terminal, "live.open", dict(account="simulation"))
-        call(terminal, "node.action", dict(id="remote", service="trading", action="stop"))
+        assert state["live"]["simulation"]["account"]["environment"] == "simulation"
+        children["simulation"].terminate()
+        children["simulation"].wait(timeout=15)
         os.kill(real_pid, 0)
         state = call(terminal, "runtime.snapshot")
         assert state["live"]["real"]["session"]["phase"] == "ready"
         call(terminal, "live.close", dict(account="simulation"))
+        call(terminal, "live.open", dict(account="simulation"), error=True)
+        children["simulation"] = host.start("simulation")
         state = call(terminal, "live.open", dict(account="simulation"))
         assert state["live"]["simulation"]["session"]["environment"] == "simulation"
         assert state["live"]["simulation"]["session"]["authorization"] is None
@@ -165,17 +126,22 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         state = call(terminal, "live.open", dict(account="simulation"))
         assert state["live"]["simulation"]["connection"]["transport"] == "tcp_tls"
         assert state["live"]["simulation"]["session"]["account_id"] == "simulation"
+        # Changing a configured account must not silently reuse an existing journal.
+        call(terminal, "live.close", dict(account="real"))
+        children["real"].terminate(); children["real"].wait(timeout=15)
+        config = host.root / "config/accounts/real.json"
+        original = config.read_text()
+        changed = json.loads(original); changed["broker"]["user_id"] = "000009"
+        config.write_text(json.dumps(changed))
+        rejected = subprocess.run([str(host.root / "bin/asterion_trading"), "--account", "real"], capture_output=True, text=True, timeout=15, env=dict(os.environ, CREDENTIALS_DIRECTORY=str(host.root / "test-credentials/real")))
+        assert rejected.returncode != 0 and "differs from its journal" in rejected.stderr
+        assert str(config) in rejected.stderr
+        config.write_text(original)
     finally:
         if terminal and terminal.poll() is None:
             terminal.communicate(timeout=15)
-        agent.terminate()
-        agent.wait(timeout=15)
-        for name in ("manager.pid", "agent.pid"):
-            pidfile = root / "local" / name
-            if pidfile.exists():
-                try:
-                    os.kill(int(pidfile.read_text()), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-        time.sleep(1)
-print("Trading instances preserve placement/environment, use direct mTLS, and isolate lifecycle/authorization")
+        for child in children.values():
+            if child.poll() is None:
+                child.terminate()
+                child.wait(timeout=15)
+print("Independent trading connections isolate accounts, lifecycle and authorization")

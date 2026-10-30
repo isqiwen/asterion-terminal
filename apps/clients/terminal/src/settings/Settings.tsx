@@ -6,10 +6,10 @@ import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from ".
 import { ErrorNotice, type DisplayError } from "../i18n/errors";
 import { translate, useLocale, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
-import type { TerminalPlugin } from "../../plugins/contract";
 import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
 import { DataSources } from "./DataSources";
+import { TradingConnections } from "./TradingConnections";
 import { CtpConnections } from "./CtpConnections";
 import { NativePlugins } from "./NativePlugins";
 import { ResourceCatalogue } from "./ResourceCatalogue";
@@ -17,7 +17,6 @@ import { DataBackup } from "./DataBackup";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 export function Settings({
-  plugins,
   snapshot,
   refresh,
   error,
@@ -25,7 +24,6 @@ export function Settings({
   trade,
   initialPage = "preferences",
 }: {
-  plugins: readonly TerminalPlugin[];
   initialPage?: SettingsPage;
   snapshot: Snapshot | null;
   refresh: () => void;
@@ -164,51 +162,15 @@ export function Settings({
             </label>
           </>
         )}
-        {page === "ctp" && <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "sources" && <DataSources snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "plugins" && (
+        {page === "ctp" && (
           <>
-            <NativePlugins snapshot={snapshot} busy={busy} trade={trade} />
-            <section className="native-plugin-manager" aria-label={t("当前发行版内置能力")}>
-              <section>
-                <h2>{t("当前发行版内置能力")}</h2>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>{t("插件")}</th>
-                      <th>{t("类型")}</th>
-                      <th>{t("状态")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {snapshot?.plugins.map(plugin => (
-                      <tr key={plugin.id}>
-                        <td>{plugin.id}</td>
-                        <td>
-                          {{
-                            data: t("数据"),
-                            execution: t("执行"),
-                            storage: t("存储"),
-                            tool: t("工具"),
-                          }[plugin.kind] ?? plugin.kind}
-                        </td>
-                        <td>{t("可用")}</td>
-                      </tr>
-                    ))}
-                    {plugins.map(plugin => (
-                      <tr key={plugin.id}>
-                        <td>{plugin.workspaces.map(view => view.title).join(" / ")}</td>
-                        <td>{t("用户界面")}</td>
-                        <td>{t("内置 · 随应用发布")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-            </section>
+            <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />
+            <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />
           </>
         )}
+        {page === "sources" && <DataSources snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "plugins" && <NativePlugins snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "about" && (
           <>
             <h2>Asterion Terminal</h2>

@@ -19,5 +19,12 @@
     },
     "resolveJsonModule": true
   },
-  "include": ["src", "plugins", "e2e", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+  "include": [
+    "src",
+    "features",
+    "e2e",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
 }

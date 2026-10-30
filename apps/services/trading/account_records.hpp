@@ -45,7 +45,6 @@ struct ResolveOrder
 struct ChangePolicy
 {
     PolicyDefinition definition;
-    std::string risk_artifact;
 };
 
 struct AccountRequest
@@ -85,7 +84,7 @@ struct CommandRecord
     // SubmitOrder: the identity the broker will report.
     std::string broker_key, trading_day;
     // ChangePolicy: the revision and algorithm it installed.
-    std::string new_policy_revision, risk_artifact;
+    std::string new_policy_revision;
 };
 
 // A broker-confirmed final state that retires a recorded intent.
@@ -144,8 +143,7 @@ JournalEntry submission_entry(
 JournalEntry policy_entry(
     const AccountRequest& request,
     std::string_view policy_revision,
-    std::string_view new_policy_revision,
-    std::string_view risk_artifact);
+    std::string_view new_policy_revision);
 JournalEntry authorization_entry(
     const AccountRequest& request,
     std::string_view policy_revision,

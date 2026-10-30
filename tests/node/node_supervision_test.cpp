@@ -57,8 +57,8 @@ protected:
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             try {
-                client = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint})
-                             .get();
+                client =
+                    AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
                 return;
             } catch (const std::exception&) {
                 ASSERT_FALSE(agent->exited());
@@ -445,8 +445,7 @@ TEST_F(NodeSupervision, SlowProcessReleaseKeepsStatusAndConfirmedStopIntentVisib
     // A stopped child cannot handle SIGTERM: release must wait and then kill it.
     ASSERT_EQ(::kill(static_cast<pid_t>(pid), SIGSTOP), 0);
     auto stopping = std::async(std::launch::async, [&] {
-        auto control =
-            AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+        auto control = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
         control->action("observed", "stop").get();
     });
     const auto deadline = std::chrono::steady_clock::now() + 4s;
@@ -485,8 +484,7 @@ TEST_F(NodeSupervision, FailedCommitFreezesMutationsAndPreservesConfirmedConfigu
     const auto digest = sha256_file(config);
     write_file_durably(pending, "test-owned unfinished publication");
     EXPECT_THROW(client->action("observed", "stop").get(), Error);
-    auto observer =
-        AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+    auto observer = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
     const auto health = observer->status().get().at("health");
     EXPECT_EQ(health.at("phase"), "recovery_required");
     EXPECT_EQ(
@@ -534,8 +532,7 @@ TEST_F(NodeSupervision, IncompleteStartupRemainsObservableWithoutPublishingAPart
     Json health;
     for (;;) {
         try {
-            client =
-                AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
+            client = AgentClient::open(io, NodeEndpoint{"local", "localhost", 0, endpoint}).get();
         } catch (const Error&) {
             ASSERT_FALSE(agent->exited());
             ASSERT_LT(std::chrono::steady_clock::now(), deadline);

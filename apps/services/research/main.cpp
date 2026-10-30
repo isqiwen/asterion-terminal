@@ -26,9 +26,6 @@ int main(int argc, char** argv)
     app.add_option("--session", service);
     app.add_option("--bind", transport.bind);
     app.add_option("--port", transport.port)->check(CLI::Range(1, 65535));
-    app.add_option("--tls-ca", transport.tls.ca_file);
-    app.add_option("--tls-cert", transport.tls.certificate_file);
-    app.add_option("--tls-key", transport.tls.private_key_file);
     app.add_option("--node-id", node_id, "Stable owning Agent identity")->required();
     app.add_option("--discovery-endpoint", discovery_endpoint)->required();
     app.add_option("--health-endpoint", health_endpoint);

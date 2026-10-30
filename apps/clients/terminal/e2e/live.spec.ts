@@ -1,19 +1,19 @@
 import { openView } from "./navigation-helper";
 import { ctpConnection, rpc, seedDataset } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
-import { test, expect } from "./test";
+import { test, expect } from "./trading-fixture";
 import { join } from "node:path";
 
-// Live trading against the isolated Agent's test-only CTP trader SDK: the
+// Live trading against the independent trading host’s test-only CTP trader SDK: the
 // order form stays closed until the account is connected and authorized.
 test(
   "live CTP session connects, authorizes and trades through the execution chain",
-  { tag: "@journey" },
-  async ({ page }) => {
+  { tag: ["@journey", "@trading"] },
+  async ({ page, tradingHost }) => {
     // The broker's flow limit spaces queries a second apart; the whole chain
     // plus the backtest form does not fit the default budget.
     test.setTimeout(90000);
-    const password = "e2e-live-password";
+    const password = "test-only-password";
     const checked = async (label: string) => {
       const state: unknown = await rpc(page.request, "runtime.snapshot");
       checkSnapshot(label, state);
@@ -37,9 +37,7 @@ test(
       const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
       // Both accounts are listed; each has its own state and panel.
       const list = panel.getByRole("navigation", { name: "CTP 账户" });
-      await expect(list.getByRole("button", { name: /^other-account/ })).toContainText(
-        "未开通交易",
-      );
+      await expect(list.getByRole("button", { name: /^other-account/ })).toHaveCount(0);
       await list.getByRole("button", { name: /^live-account/ }).click();
       await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("live-account");
       if (await panel.getByLabel("目录查询密码", { exact: true }).isVisible()) {
@@ -58,13 +56,14 @@ test(
         await panel.getByLabel(label, { exact: true }).fill(value);
       await panel.getByLabel("添加合约", { exact: true }).fill("SHFE.rb2610");
       await panel.getByRole("button", { name: "添加", exact: true }).click();
-      await panel
-        .getByRole("combobox", { name: "柜台环境", exact: true })
-        .selectOption("simulation");
+      await expect(panel.getByRole("combobox", { name: "柜台环境", exact: true })).toHaveCount(0);
+      await expect(panel.getByRole("combobox", { name: "交易服务连接", exact: true })).toHaveCount(
+        0,
+      );
       await panel.getByRole("button", { name: "下一步", exact: true }).click();
       await panel.getByRole("button", { name: "创建 CTP 账户", exact: true }).click();
-      await expect(panel.getByTestId("live-phase")).toHaveText("未连接", { timeout: 20000 });
-      const created = await checked("live account created without broker credentials");
+      await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
+      const created = await checked("live account connects using host credentials");
       const capacity = created.live["live-account"].session!.capacity;
       expect(capacity.records_limit).toBe(100001);
       expect(capacity.records_used).toBeGreaterThan(0);
@@ -74,15 +73,14 @@ test(
       // connection and the permission to send.
       await expect(order).toHaveCount(0);
       await expect(panel.getByRole("combobox", { name: "柜台环境", exact: true })).toHaveCount(0);
-      await panel.getByLabel("我已核对账户与柜台环境", { exact: true }).check();
-      await panel.getByLabel("交易密码", { exact: true }).fill(password);
-      await panel.getByLabel("授权码", { exact: true }).fill("auth-code");
-      await panel.getByRole("button", { name: "连接账户", exact: true }).click();
+      await panel.getByLabel("我已核对账户与柜台环境", { exact: true }).click();
+      await expect(panel.getByLabel("交易密码", { exact: true })).toHaveCount(0);
+      await expect(panel.getByLabel("授权码", { exact: true })).toHaveCount(0);
       await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
       await checked("broker synchronized, authorization absent");
       await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
       const services = page.getByRole("region", { name: "服务连接详情" });
-      await services.getByText("连接详情", { exact: true }).click();
+      await services.getByText("连接详情", { exact: true }).last().click();
       const tradingHealth = services
         .locator("details code")
         .filter({ hasText: created.live["live-account"].connection.session })
@@ -162,17 +160,12 @@ test(
       await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
       await checked("authorization revoked and broker disconnected");
 
-      // Choosing another account only changes the view; this one stays open.
-      await list.getByRole("button", { name: /^other-account/ }).click();
-      await expect(panel.getByRole("heading", { name: "开通交易：other-account" })).toBeVisible();
-      await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未连接");
-      await list.getByRole("button", { name: /^live-account/ }).click();
       // A Terminal that is not attached to the account's service says so and
-      // offers to start it; a launch does that by itself, without logging in.
+      // offers to connect; startup reconnects without logging in.
       await rpc(page.request, "live.close", { account: "live-account" });
       await checked("live client detached");
-      await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("服务未启动");
-      await expect(panel.getByRole("button", { name: "启动交易服务", exact: true })).toBeVisible();
+      await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("服务未连接");
+      await expect(panel.getByRole("button", { name: "连接交易服务", exact: true })).toBeVisible();
       await page.reload();
       await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未连接", {
         timeout: 30000,
@@ -181,7 +174,8 @@ test(
 
       // Current broker rates must not silently apply to earlier history.
       await seedDataset(page.request, [3500, 3501], "live-rates");
-      await openView(page, "backtest");
+      // Seeding restarts research; mount the form after the new service attaches.
+      await page.reload();
       await openView(page, "backtest");
       const openCosts = async () => {
         await page.getByRole("button", { name: "新建回测", exact: true }).click();
@@ -205,26 +199,10 @@ test(
       // A restarted test SDK has no broker-side order memory. Durable terminal
       // evidence keeps the filled intent retired; recovery never resends it.
       const beforeRestart = await checked("recovered live account before process restart");
-      const service = beforeRestart.live["live-account"].connection.session;
+      expect(beforeRestart.live["live-account"].connection.transport).toBe("tcp_tls");
       await rpc(page.request, "live.close", { account: "live-account" });
-      await rpc(page.request, "node.action", { id: "local", service, action: "restart" });
+      await tradingHost.restart();
       await rpc(page.request, "live.open", { account: "live-account" });
-      await rpc(page.request, "live.connect", {
-        account: "live-account",
-        password: "bad",
-        auth_code: "auth-code",
-      });
-      await expect
-        .poll(
-          async () =>
-            (await checked("broker credential rejection")).live["live-account"].session?.phase,
-        )
-        .toBe("error");
-      await rpc(page.request, "live.connect", {
-        account: "live-account",
-        password,
-        auth_code: "auth-code",
-      });
       await expect
         .poll(
           async () =>

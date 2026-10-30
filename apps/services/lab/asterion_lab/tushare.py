@@ -1,7 +1,7 @@
 """Tushare futures tables: contracts (fut_basic), calendars (trade_cal) and
 daily bars (fut_daily).
 
-The mapping rules are those plugins/data/tushare/tables.cpp learned from real
+The mapping rules are those extensions/data/native/tushare/tables.cpp learned from real
 answers; keep the two in step until the C++ Data service is deleted. Numbers are
 read from the JSON text as exact decimals. The token is sent to Tushare and
 nowhere else: no error, log line or stored row repeats it.

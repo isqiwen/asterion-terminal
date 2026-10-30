@@ -471,7 +471,7 @@ query(void* self, const char* id, uint32_t version, uint32_t size, const void** 
 }
 
 static const AstCapability capabilities[] = {
-    {AST_TEST_LIFETIME, 1, "tool"},
+    {AST_TEST_LIFETIME, 1, "data"},
     {AST_HISTORY, 3, "data"},
     {AST_HISTORY_CONNECTION, 1, "data"},
     {AST_HISTORY_TABLES, 1, "data"},
@@ -483,10 +483,13 @@ static const AstCapability capabilities[] = {
 #ifndef FIXTURE_VERSION
 #define FIXTURE_VERSION "1.0.0"
 #endif
+#ifndef FIXTURE_ID
+#define FIXTURE_ID "test.independent.c"
+#endif
 static const AstPlugin plugin = {
     sizeof(AstPlugin),
     BAD_ABI,
-    "test.independent.c",
+    FIXTURE_ID,
     FIXTURE_VERSION,
     ASTERION_PLUGIN_PLATFORM,
     capabilities,

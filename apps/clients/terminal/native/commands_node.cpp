@@ -159,11 +159,7 @@ void Application::Impl::register_node_commands()
                 co_return snapshot();
             });
     for (const auto method :
-        {"node.key.prepare",
-            "node.bootstrap",
-            "node.identity.replace",
-            "node.firewall.inspect",
-            "node.firewall.apply"})
+        {"node.key.prepare", "node.bootstrap", "node.firewall.inspect", "node.firewall.apply"})
         command(
             method,
             [this, method = std::string(method)](const json& p) -> PolledTask<Response> {
@@ -190,16 +186,6 @@ void Application::Impl::register_node_commands()
                                 "private_key",
                                 "known_hosts",
                                 "agent_port"});
-                    else if (method == "node.identity.replace")
-                        fields(
-                            p,
-                            {"id",
-                                "host",
-                                "ssh_port",
-                                "username",
-                                "key_source",
-                                "private_key",
-                                "known_hosts"});
                     else
                         fields(
                             p,
@@ -214,9 +200,8 @@ void Application::Impl::register_node_commands()
                                 "firewall_port",
                                 "firewall_action"});
                     ssh.set_operation(
-                        method == "node.bootstrap"              ? wire::Ssh::ENROLL
-                            : method == "node.identity.replace" ? wire::Ssh::REPLACE_IDENTITY
-                                                                : wire::Ssh::INSPECT_FIREWALL);
+                        method == "node.bootstrap" ? wire::Ssh::ENROLL
+                                                   : wire::Ssh::INSPECT_FIREWALL);
                     ssh.set_id(text(p, "id"));
                     ssh.set_host(text(p, "host"));
                     ssh.set_ssh_port(text(p, "ssh_port"));

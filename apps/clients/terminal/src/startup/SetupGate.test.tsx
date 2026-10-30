@@ -299,66 +299,17 @@ test("an explicitly stopped local Market preserves intent and permits independen
   expect(workbench()).not.toBeNull();
 });
 
-test("restoring account windows preserves explicit local and remote Trading stops", async () => {
+test("restoring account windows connects independent trading services without starting processes", async () => {
   const calls = serveCore(() => {
     const snapshot = readySnapshot();
-    const local = snapshot.nodes[0];
-    const base = local.health!.services[0];
-    local.health!.services.push(
-      {
-        ...base,
-        id: "stopped-trading",
-        kind: "live",
-        state: "stopped",
-        desired_running: false,
-        pid: 0,
-        health: "offline",
-      },
-      {
-        ...base,
-        id: "shared-service-id",
-        kind: "live",
-        state: "running",
-        desired_running: true,
-        pid: 10,
-        health: "ready",
-      },
-    );
-    snapshot.nodes.push({
-      ...local,
-      id: "remote",
-      host: "fixture-remote",
-      port: 7443,
-      health: {
-        ...local.health!,
-        services: [
-          {
-            ...base,
-            id: "shared-service-id",
-            kind: "live",
-            state: "stopped",
-            desired_running: false,
-            pid: 0,
-            health: "offline",
-          },
-        ],
-      },
-    });
-    snapshot.ctp_connections = [
-      ["local-stopped", "local", "stopped-trading"],
-      ["local-running", "local", "shared-service-id"],
-      ["remote-stopped", "remote", "shared-service-id"],
-    ].map(([id, node, service]) => ({
+    snapshot.trading_connections = ["local-stopped", "local-running", "remote-stopped"].map(id => ({
       id,
       name: id,
-      broker_id: "9999",
-      user_id: "fixture-user",
-      app_id: "test-app",
-      trade_front: "tcp://127.0.0.1:41205",
-      market_front: "tcp://127.0.0.1:41213",
-      revision: "revision",
-      trading_record: true,
-      trading: { node, service },
+      host: "127.0.0.1",
+      port: 7460,
+      instance: id,
+      fingerprint: "a".repeat(64),
+      revision: "1",
     }));
     return snapshot;
   });
@@ -366,6 +317,6 @@ test("restoring account windows preserves explicit local and remote Trading stop
   await waitFor(() => expect(workbench()).not.toBeNull());
   expect(
     calls.filter(call => call.method === "live.open").map(call => call.params.account),
-  ).toEqual(["local-running"]);
+  ).toEqual(["local-stopped", "local-running", "remote-stopped"]);
   expect(sent(calls, "node.action")).toEqual([]);
 });

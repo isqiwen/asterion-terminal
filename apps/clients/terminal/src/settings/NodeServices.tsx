@@ -13,7 +13,6 @@ import {
   type ServiceKind,
 } from "./service-state";
 import { RemoteMachine, loadMachineProfiles, type MachineProfile } from "./RemoteMachine";
-import { NodeIdentity } from "./NodeIdentity";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { FirewallPreview } from "./FirewallPreview";
 import { NodeResources } from "./NodeResources";
@@ -40,8 +39,6 @@ export function NodeServices({
   const [view, setView] = useState<"overview" | "machines">("overview");
   const [selected, setSelected] = useState("local");
   const [wizard, setWizard] = useState<MachineProfile | "new" | null>(null);
-  // The machine whose identity is being replaced.
-  const [identity, setIdentity] = useState<MachineProfile | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [saved, setSaved] = useState<MachineProfile[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -78,7 +75,6 @@ export function NodeServices({
     setSelected(id);
     setView("machines");
     setWizard(null);
-    setIdentity(null);
     setDeploying(false);
   }
   function propose(action: Action, target: NodeStatus, service: Service) {
@@ -99,7 +95,6 @@ export function NodeServices({
     let success = false;
     if (pending.action === "use") {
       const kind = pendingService.kind;
-      if (kind === "live") return;
       if (kind === "market") success = await run("market.attach", params);
       else if (kind === "data") success = await run("node.data.attach", params);
       else success = await run("node.research.attach", params);
@@ -149,7 +144,7 @@ export function NodeServices({
       : [];
   return (
     <section className="deployment-center" aria-label={t("运行与部署")}>
-      {!wizard && !identity && (
+      {!wizard && (
         <>
           <div className="deployment-heading">
             <div>
@@ -193,16 +188,7 @@ export function NodeServices({
           <ErrorNotice error={error} namespace="host" />
         </p>
       )}
-      {identity ? (
-        <NodeIdentity
-          key={identity.id}
-          profile={identity}
-          busy={disabled}
-          run={run}
-          onCancel={() => setIdentity(null)}
-          onReplaced={() => manage(identity.id)}
-        />
-      ) : wizard ? (
+      {wizard ? (
         <RemoteMachine
           key={wizard === "new" ? "new" : wizard.id}
           snapshot={snapshot}
@@ -294,15 +280,6 @@ export function NodeServices({
                   >
                     {t("连接已安装节点")}
                   </button>
-                  <button
-                    disabled={disabled}
-                    onClick={() => {
-                      setError("");
-                      setIdentity(profile);
-                    }}
-                  >
-                    {t("更换身份")}
-                  </button>
                   <button disabled={disabled} onClick={() => setWizard(profile)}>
                     {t("继续配置")}
                   </button>
@@ -324,20 +301,6 @@ export function NodeServices({
                 >
                   {t("部署服务")}
                 </button>
-                {saved
-                  .filter(profile => profile.id === node.id)
-                  .map(profile => (
-                    <button
-                      key={profile.id}
-                      disabled={disabled}
-                      onClick={() => {
-                        setError("");
-                        setIdentity(profile);
-                      }}
-                    >
-                      {t("更换身份")}
-                    </button>
-                  ))}
               </div>
               {node.state !== "online" && (
                 <p role="alert">{t("节点失联，以下是最后确认的状态。不会自动切换或重发命令。")}</p>
@@ -378,9 +341,7 @@ export function NodeServices({
                     <legend>{t("部署到 {machine}", { machine: node.id })}</legend>
                     <p className="subtle">
                       {t(
-                        deployment.kind === "live"
-                          ? "每个交易实例拥有独立进程和账本；部署后在交易页面绑定账户，不会自动登录或授权。"
-                          : "数据服务执行取数并保管数据；研究服务执行回测和因子计算，需显式选择已部署的数据服务。",
+                        "数据服务执行取数并保管数据；研究服务执行回测和因子计算，需显式选择已部署的数据服务。",
                       )}
                     </p>
                     {node.id === "local" && deployment.kind === "research" && (
@@ -399,7 +360,6 @@ export function NodeServices({
                       >
                         <option value="research">{t("研究服务")}</option>
                         <option value="data">{t("数据服务")}</option>
-                        <option value="live">{t("CTP 交易")}</option>
                         {node.id !== "local" && <option value="market">{t("实时行情")}</option>}
                       </select>
                     </label>
@@ -510,13 +470,6 @@ export function NodeServices({
                     })}
                   </p>
                   <p>{t("只切换此功能的连接。原服务继续运行，已有数据和任务不会搬到目标机器。")}</p>
-                  {pendingService?.kind === "live" && pendingActive && (
-                    <p>
-                      {t(
-                        "将先断开当前账户连接；若目标连接失败，需要手动重新连接。不会重发交易命令。",
-                      )}
-                    </p>
-                  )}
                 </>
               ) : pending.action === "update" ? (
                 <p>{t("仅更新此服务的程序，保留配置和数据；完成后仍保持停止。")}</p>
@@ -529,9 +482,6 @@ export function NodeServices({
                         tasks: tasks.map(task => task.id).join(", "),
                       })}
                     </p>
-                  )}
-                  {pendingService?.kind === "live" && (
-                    <p>{t("停止交易服务不会自动撤销柜台委托，请先在账户中核对委托与持仓。")}</p>
                   )}
                 </>
               )}

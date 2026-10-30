@@ -25,9 +25,6 @@ int main(int argc, char** argv)
     app.add_option("--health-endpoint", health_endpoint);
     app.add_option("--bind", transport.bind);
     app.add_option("--port", transport.port);
-    app.add_option("--tls-ca", transport.tls.ca_file);
-    app.add_option("--tls-cert", transport.tls.certificate_file);
-    app.add_option("--tls-key", transport.tls.private_key_file);
     app.add_option("--ctp-library", sdk);
     app.add_option("--ctp-catalog-library", catalog_sdk);
     app.add_option("--owner-pid", owner_pid);

@@ -32,7 +32,7 @@ research::proto::StrategyPackage package()
     owner.set_node_id("fixture-node");
     owner.set_service_id("research-one");
     *value.mutable_definition() =
-        protocol::strategy_definition(source_input(), std::string(64, 'a'), std::string(64, 'b'));
+        protocol::strategy_definition(source_input(), std::string(64, 'a'));
     value.set_digest(protocol::strategy_digest(value.definition()));
     value.set_name("Synthetic CTA");
     value.set_purpose("Fixed reference candidate");
@@ -54,8 +54,7 @@ TEST(StrategyPackages, CurrentDefinitionCopiesActualRuleAndUnitsWithoutMarketPay
 {
     const auto input = source_input();
     const auto original = input.SerializeAsString();
-    const auto value =
-        protocol::strategy_definition(input, std::string(64, 'a'), std::string(64, 'b'));
+    const auto value = protocol::strategy_definition(input, std::string(64, 'a'));
     EXPECT_EQ(value.strategy().SerializeAsString(), input.strategies(0).SerializeAsString());
     EXPECT_EQ(
         value.contract().SerializeAsString(),
@@ -66,16 +65,14 @@ TEST(StrategyPackages, CurrentDefinitionCopiesActualRuleAndUnitsWithoutMarketPay
     auto search = input;
     *search.add_strategies() = input.strategies(0);
     EXPECT_THROW(
-        protocol::strategy_definition(search, std::string(64, 'a'), std::string(64, 'b')),
+        protocol::strategy_definition(search, std::string(64, 'a')),
         std::invalid_argument);
     search = input;
     search.mutable_walk_forward()->set_training_days(10);
     EXPECT_THROW(
-        protocol::strategy_definition(search, std::string(64, 'a'), std::string(64, 'b')),
+        protocol::strategy_definition(search, std::string(64, 'a')),
         std::invalid_argument);
-    EXPECT_THROW(
-        protocol::strategy_definition(input, "", std::string(64, 'b')),
-        std::invalid_argument);
+    EXPECT_THROW(protocol::strategy_definition(input, ""), std::invalid_argument);
 }
 
 TEST(StrategyPackages, PortfolioDefinitionFixesEveryMemberWithoutAnIgnoredSingleContract)
@@ -99,8 +96,7 @@ TEST(StrategyPackages, PortfolioDefinitionFixesEveryMemberWithoutAnIgnoredSingle
     *input.mutable_strategies(0) =
         protocol::encode_strategy(Json{{"sides", "both"}, {"rule", policy}});
     const auto original = input.SerializeAsString();
-    const auto definition =
-        protocol::strategy_definition(input, std::string(64, 'a'), std::string(64, 'b'));
+    const auto definition = protocol::strategy_definition(input, std::string(64, 'a'));
     ASSERT_TRUE(definition.has_portfolio());
     EXPECT_FALSE(definition.has_contract());
     EXPECT_FALSE(definition.has_strategy());
@@ -133,7 +129,7 @@ TEST(StrategyPackages, PortfolioDefinitionFixesEveryMemberWithoutAnIgnoredSingle
     auto wrong_source = input;
     wrong_source.mutable_paper()->mutable_contracts(1)->mutable_dataset()->set_interval_minutes(1);
     EXPECT_THROW(
-        protocol::strategy_definition(wrong_source, std::string(64, 'a'), std::string(64, 'b')),
+        protocol::strategy_definition(wrong_source, std::string(64, 'a')),
         std::invalid_argument);
 }
 

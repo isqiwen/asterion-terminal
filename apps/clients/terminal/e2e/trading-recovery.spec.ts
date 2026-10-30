@@ -1,13 +1,13 @@
 import { ctpConnection, rpc } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
-import { test, expect } from "./test";
+import { test, expect } from "./trading-fixture";
 
 test(
   "trading recovery retains account identity and does not restore authorization",
-  { tag: "@journey" },
-  async ({ page }) => {
+  { tag: ["@journey", "@trading"] },
+  async ({ page, tradingHost }) => {
     test.setTimeout(90000);
-    const account = "recovered-account";
+    const account = tradingHost.connection;
     await ctpConnection(page.request, account, {
       broker_id: "9999",
       user_id: "000001",
@@ -21,21 +21,14 @@ test(
     await expect
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).market.catalog.phase)
       .toBe("ready");
+    await rpc(page.request, "live.open", { account });
     await rpc(page.request, "live.create", {
-      node: "local",
-      service: "",
-      environment: "simulation",
       account,
       max_order_quantity: "5",
       max_gross_quantity: "10",
       max_working_orders: "2",
       max_price_deviation: "0.02",
       contracts: [{ venue: "SHFE", symbol: "rb2610" }],
-    });
-    await rpc(page.request, "live.connect", {
-      account,
-      password: "test-password",
-      auth_code: "auth-code",
     });
     await expect
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).live[account].session.phase, {
@@ -53,9 +46,8 @@ test(
       action: "live_authorize",
       user_id: "000001",
     });
-    const service = before.live[account].connection.session;
     await rpc(page.request, "live.close", { account });
-    await rpc(page.request, "node.action", { id: "local", service, action: "restart" });
+    await tradingHost.restart();
     const restored = await rpc(page.request, "live.open", { account });
     checkSnapshot("restored trading account", restored);
     expect(restored.live[account].session!.account_id).toBe(oldRecord);

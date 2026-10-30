@@ -181,9 +181,9 @@ class Sources(unittest.TestCase):
                 for _ in range(2):
                     with server.accept()[0] as connection:
                         stream = connection.makefile("rb")
+                        self.assertEqual(stream.read(4), b"ASTR")
                         size, = struct.unpack("!I", stream.read(4))
                         request = RecorderRequest.FromString(stream.read(size))
-                        self.assertEqual(request.magic, 0x41535452)
                         response = RecorderResponse(version=1, correlation_id=request.correlation_id)
                         if request.WhichOneof("body") == "days":
                             day = response.days.days.add(trading_day="20261026")

@@ -87,8 +87,7 @@ inline Json portfolio_budget_review(const Json& source, const Json& limits)
         {"source",
             {{"task_id", source.at("id")},
                 {"input_sha256", source.at("input_sha256")},
-                {"result_digest", source.at("task").at("result_digest")},
-                {"risk_artifact", source.at("task").value("risk_artifact", std::string{})}}},
+                {"result_digest", source.at("task").at("result_digest")}}},
         {"limits", std::move(normalized)},
         {"checks", std::move(checks)},
         {"portfolio", source.at("portfolio")}

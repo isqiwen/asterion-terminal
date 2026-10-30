@@ -62,6 +62,8 @@ Json decode_snapshot(const proto::Snapshot& snapshot);
 proto::LivePolicy encode_live_policy(const Json& policy);
 void validate_live_policy(const proto::LivePolicy& policy);
 Json decode_live_policy(const proto::LivePolicy& policy);
+proto::TradingAccount encode_trading_account(const Json& account);
+Json decode_trading_account(const proto::TradingAccount& account);
 proto::LiveInput encode_live_input(const Json& manifest);
 Json decode_live_input(const proto::LiveInput& input);
 Json decode_live_snapshot(const proto::LiveSnapshot& snapshot);

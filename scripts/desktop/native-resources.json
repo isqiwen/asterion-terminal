@@ -1,6 +1,5 @@
 {
   "programs": [
-    "asterion_trading",
     "asterion_node_agent",
     "asterion_node_manager",
     "asterion_market",
@@ -14,8 +13,7 @@
     "ctp-md",
     "ctp-trader",
     "plugins/asterion_tushare",
-    "plugins/asterion_shfe",
-    "plugins/asterion_order_limits"
+    "plugins/asterion_shfe"
   ],
   "configuration": [
     "config/research.json",
