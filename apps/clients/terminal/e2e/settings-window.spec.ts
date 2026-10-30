@@ -24,10 +24,8 @@ test("opening connection settings only reads the monitor established by startup"
     return route.continue();
   });
   for (let visit = 0; visit < 2; visit++) {
-    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
-    await expect(settings.getByRole("list", { name: "当前运行位置" })).toContainText("research");
-    await settings.getByRole("button", { name: "机器管理", exact: true }).click();
-    await expect(settings.getByRole("button", { name: "本机 在线", exact: true })).toBeVisible();
+    await settings.getByRole("button", { name: "本机服务", exact: true }).click();
+    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText("research");
     await expect(settings.getByRole("alert")).toHaveCount(0);
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   }
@@ -59,7 +57,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await settings.getByLabel("Language").selectOption("zh-CN");
   await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
   await page.getByRole("button", { name: "连接设置", exact: true }).click();
-  await expect(settings.getByRole("heading", { name: "连接与部署", exact: true })).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "本机服务", exact: true })).toBeVisible();
   expect(page.context().pages()).toHaveLength(2);
   await settings.screenshot({
     path: "apps/clients/terminal/test-results/settings-connections.png",
@@ -70,7 +68,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await closeSettingsWindow(settings);
   await expect(page.getByLabel("每分钟请求上限")).toHaveValue("19");
   const reopened = await openSettingsWindow(page);
-  await expect(reopened.getByRole("heading", { name: "连接与部署", exact: true })).toBeVisible();
+  await expect(reopened.getByRole("heading", { name: "本机服务", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });
   expect(await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
     true,

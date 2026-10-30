@@ -1,6 +1,7 @@
 #!/bin/bash
-# Rebuilds the Linux service bundle (ASTERION_LINUX_BUNDLES or build/linux-bundles) from the
-# current checkout in an Ubuntu 24.04 x86_64 container (Docker/OrbStack).
+# Builds the trading and recorder setup scripts (into ASTERION_LINUX_BUNDLES or
+# build/linux-bundles) from the current checkout in an Ubuntu 24.04 x86_64
+# container (Docker/OrbStack).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK="$ROOT/build/linux-service-work"
@@ -8,11 +9,11 @@ IMAGE=${ASTERION_LINUX_IMAGE:-ubuntu:24.04}
 BUNDLES=${ASTERION_LINUX_BUNDLES:-$ROOT/build/linux-bundles}
 if [[ "$BUNDLES" != /* ]]; then BUNDLES="$ROOT/$BUNDLES"; fi
 if ! command -v docker >/dev/null 2>&1; then
-  echo "Linux service bundle build requires Docker (or OrbStack on macOS). Install and start it, then rerun installer packaging." >&2
+  echo "The Linux setup build requires Docker (or OrbStack on macOS). Install and start it, then rerun." >&2
   exit 1
 fi
 if ! docker info >/dev/null; then
-  echo "Docker is unavailable to the current user. Start Docker/OrbStack and check access, then rerun installer packaging." >&2
+  echo "Docker is unavailable to the current user. Start Docker/OrbStack and check access, then rerun." >&2
   exit 1
 fi
 rm -rf "$WORK/input" "$WORK/output"
@@ -30,6 +31,5 @@ git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/
 docker run --rm --platform linux/amd64 \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
   -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
-cp "$WORK/output/asterion-services-linux-x86_64.zip" "$WORK/output/asterion-recorder-setup.sh" \
-  "$WORK/output/asterion-trading-setup.sh" "$BUNDLES/"
-echo "Linux services bundle updated: $BUNDLES/asterion-services-linux-x86_64.zip"
+cp "$WORK/output/asterion-recorder-setup.sh" "$WORK/output/asterion-trading-setup.sh" "$BUNDLES/"
+echo "Linux setup scripts updated in $BUNDLES"

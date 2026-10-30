@@ -35,25 +35,6 @@ import time
 import uuid
 
 
-def stop_test_agent(directory):
-    """Stop only the Agent created in this run's private temporary directory."""
-    pidfile = Path(directory) / "agent" / "data" / "agent.pid"
-    if not pidfile.exists():
-        return
-    pid = int(pidfile.read_text())
-    if pid <= 1 or pid == os.getpid():
-        raise RuntimeError("invalid isolated Agent process identity")
-    try:
-        os.kill(pid, signal.SIGTERM)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            os.kill(pid, 0)
-            time.sleep(0.05)
-    except ProcessLookupError:
-        return
-    raise RuntimeError("isolated Agent did not exit")
-
-
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -280,12 +261,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
     finally:
         market_password = catalog_password = auth_code = ""
         try:
-            try:
-                core.stdin.close()
-                core.terminate()
-                core.wait(timeout=15)
-            finally:
-                stop_test_agent(folder)
+            # The services the core started exit with it.
+            core.stdin.close()
+            core.terminate()
+            core.wait(timeout=15)
         except Exception as error:
             step("cleanup", False, str(error))
     report["passed"] = all(item["ok"] for item in report["steps"])

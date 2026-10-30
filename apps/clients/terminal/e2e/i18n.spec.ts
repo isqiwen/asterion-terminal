@@ -16,11 +16,12 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-settings.png" });
-  await page.getByRole("button", { name: "Connections & deployment", exact: true }).click();
+  await page.getByRole("button", { name: "Local services", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
-  await page.getByRole("button", { name: "Machines", exact: true }).click();
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(page.getByText("Built in · Shipped with the App", { exact: true })).toHaveCount(4);
+  await expect(
+    page.getByRole("heading", { name: "Plugins each service runs", exact: true }),
+  ).toBeVisible();
   page = await closeSettingsWindow(page);
   for (const workspace of [
     "Market",

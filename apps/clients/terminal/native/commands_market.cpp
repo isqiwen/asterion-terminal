@@ -24,33 +24,18 @@ void Application::Impl::register_market_commands()
     });
     command("market.local", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        if (market && std::ranges::any_of(manager.view(), [](const auto& node) {
-                return node.id == "local";
-            }))
-            co_return snapshot();
-        auto awaited =
-            (co_await manage<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>>(
-                [this]()
-                    -> PolledTask<
-                        std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>> {
-                    auto node = (co_await local_node_client());
-                    auto client = (co_await PollFuture{
-                        MarketClient::open(service_io, (co_await PollFuture{node->local_market()}))
-                    });
-                    co_return std::pair{std::move(node), std::move(client)};
-                }));
-        auto& [node, next] = awaited;
+        // Starts the service when it is stopped; its endpoint stays the same,
+        // so an existing client keeps working.
+        const bool connected = market != nullptr;
+        auto next = co_await manage<std::shared_ptr<MarketClient>>(
+            [this, connected]() -> PolledTask<std::shared_ptr<MarketClient>> {
+                const auto address = co_await PollFuture{services.start(node::proto::MARKET)};
+                if (connected)
+                    co_return nullptr;
+                co_return co_await PollFuture{MarketClient::open(service_io, address)};
+            });
         if (!market)
             market = std::move(next);
-        co_return snapshot();
-    });
-    command("market.attach", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "service"});
-        auto next = (co_await PollFuture{MarketClient::open(
-            service_io,
-            (co_await PollFuture{manager.node(text(p, "id"))
-                    ->service_endpoint(text(p, "service"), asterion::node::proto::MARKET)}))});
-        market = std::move(next);
         co_return snapshot();
     });
     command("market.connect", [this](const json& p) -> PolledTask<Response> {

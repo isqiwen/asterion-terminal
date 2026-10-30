@@ -20,6 +20,22 @@ struct Runtime
 
 using Owner = std::shared_ptr<Runtime>;
 
+// One Terminal per process: it owns the root and the local services it runs,
+// so every Node environment (the main thread and any worker) shares it. It
+// goes when the last environment does.
+std::shared_ptr<Runtime> shared_runtime()
+{
+    static std::mutex mutex;
+    static std::weak_ptr<Runtime> current;
+    std::lock_guard lock(mutex);
+    auto runtime = current.lock();
+    if (!runtime) {
+        runtime = std::make_shared<Runtime>();
+        current = runtime;
+    }
+    return runtime;
+}
+
 void check(napi_status status)
 {
     if (status != napi_ok)
@@ -194,7 +210,7 @@ napi_value call(napi_env env, napi_callback_info info) noexcept
 napi_value init(napi_env env, napi_value exports) noexcept
 {
     try {
-        auto owner = std::make_unique<Owner>(std::make_shared<Runtime>());
+        auto owner = std::make_unique<Owner>(shared_runtime());
         check(napi_set_instance_data(
             env,
             owner.get(),

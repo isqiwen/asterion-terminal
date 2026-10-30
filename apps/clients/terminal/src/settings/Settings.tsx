@@ -61,7 +61,7 @@ export function Settings({
         <nav>
           {[
             ["preferences", t("偏好设置"), "settings"],
-            ["connections", t("连接与部署"), "connections"],
+            ["connections", t("本机服务"), "connections"],
             ["ctp", t("CTP 账户"), "connections"],
             ["sources", t("数据源"), "connections"],
             ["plugins", t("插件"), "plugins"],
@@ -86,7 +86,7 @@ export function Settings({
           {
             {
               preferences: t("偏好设置"),
-              connections: t("连接与部署"),
+              connections: t("本机服务"),
               ctp: t("CTP 账户"),
               sources: t("数据源"),
               plugins: t("插件"),

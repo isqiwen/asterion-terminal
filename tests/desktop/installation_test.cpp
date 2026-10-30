@@ -20,31 +20,11 @@ class Installation : public testing::Test
 {
 protected:
     fs::path root = fs::temp_directory_path() / ("asterion-installer-test-" + unique_process_id());
-    Layout layout{
-        root / "payload",
-        root / "applications/terminal",
-        root / "node",
-        root / "enrollments"
-    };
-    int registered = 0, removed = 0, prepared = 0, started = 0, forgotten = 0;
-    Services services{
-        [&] {
-            ++removed;
-        },
-        [&] {
-            ++registered;
-        },
-        [&] {
-            ++prepared;
-        },
-        [&] {
-            FileLock agent(layout.agent() / "data", "agent.lock"),
-                manager(layout.manager() / "data", "manager.lock");
-            EXPECT_TRUE(inspect(layout).at("installed"));
-            EXPECT_EQ(inspect(layout).at("pending"), "");
-            EXPECT_GT(registered, 0);
-            EXPECT_GT(prepared, 0);
-            ++started;
+    Layout layout{root / "payload", root / "applications/terminal", root / "node"};
+    int added = 0, removed = 0, forgotten = 0;
+    Desktop desktop{
+        [&](bool add) {
+            ++(add ? added : removed);
         },
         [&] {
             // The keychain helper is one of the programs.
@@ -61,7 +41,6 @@ protected:
         replace_file_durably(
             native / "product.json",
             R"({"product":"asterion-terminal","version":"0.1.0"})");
-        replace_file_durably(native / "config/research.json", R"({"task_concurrency":2})");
         replace_file_durably(
             native / "config/logging.json",
             R"({"format":"json","retention_days":30,"console":{"enabled":false,"level":"info"},"file":{"enabled":true,"level":"info"}})");
@@ -75,84 +54,57 @@ protected:
 
 TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
 {
+    const auto settings = layout.root / "research/config/research/research.json";
     EXPECT_FALSE(inspect(layout).at("installed"));
     EXPECT_EQ(inspect(layout).at("deployment_action"), "install");
-    deploy(layout, Deployment::install, services, progress);
+    deploy(layout, Deployment::install, desktop, progress);
     EXPECT_TRUE(inspect(layout).at("installed"));
     EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
-    EXPECT_EQ(registered, 1);
-    EXPECT_EQ(started, 1);
-    const auto identity = contents(layout.agent() / "data/ipc-id");
-    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":7})");
+    EXPECT_EQ(added, 1);
+    EXPECT_TRUE(fs::exists(layout.terminal() / "config/logging.json"));
+    create_directories_durably(settings.parent_path());
+    replace_file_durably(settings, R"({"task_concurrency":7})");
+    replace_file_durably(layout.terminal() / "config/logging.json", "operator logging");
     create_directories_durably(layout.root / "market/data");
     replace_file_durably(layout.root / "market/data/ledger", "operator data");
-    create_directories_durably(layout.enrollment);
-    replace_file_durably(layout.enrollment / "connection", "local connection settings");
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.2.0"})");
     EXPECT_EQ(inspect(layout).at("deployment_action"), "upgrade");
-    deploy(layout, Deployment::upgrade, services, progress);
-    EXPECT_EQ(started, 2);
+    deploy(layout, Deployment::upgrade, desktop, progress);
+    EXPECT_EQ(added, 2);
     EXPECT_EQ(inspect(layout).at("version"), "0.2.0");
-    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":7})");
-    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
-    EXPECT_EQ(prepared, 2);
-    uninstall(layout, true, services, progress);
+    EXPECT_EQ(contents(settings), R"({"task_concurrency":7})");
+    EXPECT_EQ(contents(layout.terminal() / "config/logging.json"), "operator logging");
+    uninstall(layout, true, desktop, progress);
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_FALSE(inspect(layout).at("installed"));
+    EXPECT_EQ(removed, 1);
     EXPECT_EQ(forgotten, 0) << "kept data keeps its saved credentials";
     EXPECT_EQ(contents(layout.root / "market/data/ledger"), "operator data");
-    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
-    EXPECT_EQ(removed, 2);
-    EXPECT_EQ(contents(layout.enrollment / "connection"), "local connection settings");
-}
-
-TEST_F(Installation, ServiceStartFailureDoesNotUndoPublishedInstallation)
-{
-    services.start = [] {
-        throw std::runtime_error("system service start failed");
-    };
-    bool complete = false;
-    EXPECT_THROW(
-        deploy(
-            layout,
-            Deployment::install,
-            services,
-            [&](const char* step) {
-                complete = std::string(step) == "complete";
-            }),
-        std::runtime_error);
-    EXPECT_FALSE(complete);
-    EXPECT_TRUE(inspect(layout).at("installed"));
-    EXPECT_EQ(inspect(layout).at("pending"), "");
-    EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
-    // Repair remains a stopped maintenance operation, even after a start failure.
-    EXPECT_NO_THROW(deploy(layout, Deployment::repair, services, progress));
+    EXPECT_EQ(contents(settings), R"({"task_concurrency":7})");
 }
 
 TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnosticsAndLocks)
 {
-    deploy(layout, Deployment::install, services, progress);
+    deploy(layout, Deployment::install, desktop, progress);
     create_directories_durably(layout.root / "market/data");
     replace_file_durably(layout.root / "market/data/ledger", "operator data");
     create_directories_durably(layout.terminal() / "logs");
     replace_file_durably(layout.terminal() / "logs/installer.log", "diagnostic evidence");
-    create_directories_durably(layout.enrollment);
-    replace_file_durably(layout.enrollment / "connection", "local connection settings");
     const auto outside = root / "external-export";
     replace_file_durably(outside, "preserve external files");
     fs::create_symlink(outside, layout.root / "export-link");
-    auto failing = services;
-    failing.unregister = [] {
-        throw std::runtime_error("system service removal failed");
+    auto failing = desktop;
+    failing.launcher = [](bool) {
+        throw std::runtime_error("launcher removal failed");
     };
     EXPECT_THROW(uninstall(layout, false, failing, progress), std::runtime_error);
     EXPECT_EQ(inspect(layout).at("pending"), "uninstall");
     EXPECT_FALSE(inspect(layout).at("preserve_data"));
-    EXPECT_THROW(uninstall(layout, true, services, progress), std::runtime_error);
+    EXPECT_THROW(uninstall(layout, true, desktop, progress), std::runtime_error);
     EXPECT_TRUE(fs::exists(layout.root / "market/data/ledger"));
-    uninstall(layout, false, services, [&](const char* step) {
+    uninstall(layout, false, desktop, [&](const char* step) {
         if (std::string_view(step) == "complete") {
             EXPECT_THROW(
                 (FileLock(layout.terminal() / "data", "installation.lock")),
@@ -160,17 +112,12 @@ TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnostic
             EXPECT_THROW(
                 (FileLock(layout.terminal() / "data", "terminal.lock")),
                 std::runtime_error);
-            EXPECT_THROW((FileLock(layout.agent() / "data", "agent.lock")), std::runtime_error);
-            EXPECT_THROW((FileLock(layout.manager() / "data", "manager.lock")), std::runtime_error);
         }
     });
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_EQ(forgotten, 1);
-    EXPECT_FALSE(fs::exists(layout.agent() / "config"));
+    EXPECT_FALSE(fs::exists(layout.terminal() / "config"));
     EXPECT_FALSE(fs::exists(layout.root / "market/data/ledger"));
-    EXPECT_FALSE(fs::exists(layout.agent() / "data/ipc-id"));
-    EXPECT_FALSE(fs::exists(layout.manager() / "data/ipc-id"));
-    EXPECT_FALSE(fs::exists(layout.enrollment));
     EXPECT_FALSE(fs::exists(layout.terminal() / "data/installation.json"));
     EXPECT_EQ(contents(outside), "preserve external files");
     EXPECT_EQ(contents(layout.terminal() / "logs/installer.log"), "diagnostic evidence");
@@ -179,90 +126,84 @@ TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnostic
 
 TEST_F(Installation, RepairRestoresMissingProgramsAndPreservesUserState)
 {
-    deploy(layout, Deployment::install, services, progress);
-    const auto identity = contents(layout.agent() / "data/ipc-id");
-    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":7})");
+    deploy(layout, Deployment::install, desktop, progress);
     create_directories_durably(layout.root / "market/data");
     replace_file_durably(layout.root / "market/data/ledger", "operator data");
     fs::remove_all(layout.destination);
     EXPECT_TRUE(inspect(layout).at("installed"));
     EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
-    deploy(layout, Deployment::repair, services, progress);
+    deploy(layout, Deployment::repair, desktop, progress);
     EXPECT_TRUE(fs::exists(native_directory(layout.destination) / "product.json"));
-    EXPECT_EQ(registered, 2);
-    EXPECT_EQ(started, 1);
-    EXPECT_EQ(removed, 1);
-    EXPECT_EQ(prepared, 2);
-    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":7})");
-    EXPECT_EQ(contents(layout.agent() / "data/ipc-id"), identity);
+    EXPECT_EQ(added, 2);
+    EXPECT_EQ(removed, 0);
     EXPECT_EQ(contents(layout.root / "market/data/ledger"), "operator data");
 }
 
 TEST_F(Installation, ReleaseOrderingRejectsWrongOperationsBeforeChangingTheInstallation)
 {
-    deploy(layout, Deployment::install, services, progress);
+    deploy(layout, Deployment::install, desktop, progress);
     const auto record = contents(layout.terminal() / "data/installation.json");
-    EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::upgrade, desktop, progress), std::runtime_error);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.0.9"})");
     EXPECT_EQ(inspect(layout).at("deployment_action"), "");
-    EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
-    EXPECT_THROW(deploy(layout, Deployment::repair, services, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::upgrade, desktop, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::repair, desktop, progress), std::runtime_error);
     EXPECT_EQ(contents(layout.terminal() / "data/installation.json"), record);
-    EXPECT_EQ(removed, 0);
+    EXPECT_EQ(added, 1);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.10.0"})");
-    deploy(layout, Deployment::upgrade, services, progress);
+    deploy(layout, Deployment::upgrade, desktop, progress);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.2.0"})");
     EXPECT_EQ(inspect(layout).at("deployment_action"), "");
-    uninstall(layout, true, services, progress); // An older package may still uninstall.
+    uninstall(layout, true, desktop, progress); // An older package may still uninstall.
     EXPECT_FALSE(inspect(layout).at("installed"));
 }
 
 TEST_F(Installation, FailedUpgradeResumesWithItsTargetVersionAfterPublication)
 {
-    deploy(layout, Deployment::install, services, progress);
+    deploy(layout, Deployment::install, desktop, progress);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.2.0"})");
-    auto failing = services;
-    failing.register_stopped = [] {
-        throw std::runtime_error("system service registration failed");
+    auto failing = desktop;
+    failing.launcher = [](bool) {
+        throw std::runtime_error("launcher registration failed");
     };
     EXPECT_THROW(deploy(layout, Deployment::upgrade, failing, progress), std::runtime_error);
     EXPECT_EQ(inspect(layout).at("pending"), "upgrade");
     EXPECT_EQ(inspect(layout).at("deployment_action"), "upgrade");
-    EXPECT_THROW(deploy(layout, Deployment::repair, services, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::repair, desktop, progress), std::runtime_error);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.3.0"})");
     EXPECT_NE(inspect(layout).at("conflict"), "");
-    EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::upgrade, desktop, progress), std::runtime_error);
     replace_file_durably(
         native_directory(layout.source) / "product.json",
         R"({"product":"asterion-terminal","version":"0.2.0"})");
-    deploy(layout, Deployment::upgrade, services, progress);
+    deploy(layout, Deployment::upgrade, desktop, progress);
     EXPECT_EQ(inspect(layout).at("pending"), "");
     EXPECT_EQ(inspect(layout).at("deployment_action"), "repair");
 }
 
-TEST_F(Installation, FailedRegistrationRequiresExplicitResumeAndPreservesConfiguration)
+TEST_F(Installation, FailedInstallRequiresExplicitResumeAndPreservesConfiguration)
 {
-    auto failing = services;
-    failing.register_stopped = [] {
-        throw std::runtime_error("system service registration failed");
+    auto failing = desktop;
+    failing.launcher = [](bool) {
+        throw std::runtime_error("launcher registration failed");
     };
     EXPECT_THROW(deploy(layout, Deployment::install, failing, progress), std::runtime_error);
     EXPECT_EQ(inspect(layout).at("pending"), "install");
-    EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::runtime_error);
-    replace_file_durably(layout.agent() / "config/research.json", R"({"task_concurrency":9})");
-    deploy(layout, Deployment::install, services, progress);
+    EXPECT_THROW(deploy(layout, Deployment::upgrade, desktop, progress), std::runtime_error);
+    replace_file_durably(layout.terminal() / "config/logging.json", "operator logging");
+    deploy(layout, Deployment::install, desktop, progress);
     EXPECT_EQ(inspect(layout).at("pending"), "");
-    EXPECT_EQ(contents(layout.agent() / "config/research.json"), R"({"task_concurrency":9})");
+    EXPECT_EQ(contents(layout.terminal() / "config/logging.json"), "operator logging");
 }
 
 TEST_F(Installation, RunningTerminalAndForeignDestinationAreNotModified)
@@ -270,38 +211,15 @@ TEST_F(Installation, RunningTerminalAndForeignDestinationAreNotModified)
     create_directories_durably(layout.terminal() / "data");
     {
         FileLock terminal(layout.terminal() / "data", "terminal.lock", FileLock::Access::shared);
-        EXPECT_THROW(deploy(layout, Deployment::install, services, progress), std::runtime_error);
+        EXPECT_THROW(deploy(layout, Deployment::install, desktop, progress), std::runtime_error);
         EXPECT_FALSE(fs::exists(layout.destination));
+        EXPECT_EQ(inspect(layout).at("busy"), Json::array({"terminal"}));
     }
     create_directories_durably(layout.destination);
     replace_file_durably(layout.destination / "foreign", "preserve");
-    EXPECT_THROW(deploy(layout, Deployment::install, services, progress), std::runtime_error);
+    EXPECT_THROW(deploy(layout, Deployment::install, desktop, progress), std::runtime_error);
     EXPECT_EQ(contents(layout.destination / "foreign"), "preserve");
     EXPECT_FALSE(fs::exists(layout.terminal() / "data/installation.json"));
-}
-
-TEST_F(Installation, RemoteMaintenanceMustPrecedeLocalReplacementAndIdentityRemoval)
-{
-    deploy(layout, Deployment::install, services, progress);
-    create_directories_durably(layout.enrollment / "remote");
-    replace_file_durably(layout.enrollment / "remote/enrollment.json", R"({"installed":true})");
-    EXPECT_NO_THROW(deploy(layout, Deployment::repair, services, progress));
-    replace_file_durably(
-        native_directory(layout.source) / "product.json",
-        R"({"product":"asterion-terminal","version":"0.2.0"})");
-    EXPECT_THROW(deploy(layout, Deployment::upgrade, services, progress), std::exception);
-    EXPECT_THROW(uninstall(layout, false, services, progress), std::exception);
-    EXPECT_TRUE(fs::exists(layout.destination));
-    EXPECT_EQ(inspect(layout).at("pending"), "");
-    replace_file_durably(
-        layout.enrollment / ".maintenance.json",
-        R"({"action":"prepare","version":"0.2.0","nodes":[{"id":"remote","phase":"prepared"}]})");
-    EXPECT_NO_THROW(deploy(layout, Deployment::upgrade, services, progress));
-    EXPECT_THROW(uninstall(layout, true, services, progress), std::exception);
-    fs::remove(layout.enrollment / ".maintenance.json");
-    // Removing only the local application preserves remote management identities.
-    EXPECT_NO_THROW(uninstall(layout, true, services, progress));
-    EXPECT_TRUE(fs::exists(layout.enrollment / "remote/enrollment.json"));
 }
 
 } // namespace

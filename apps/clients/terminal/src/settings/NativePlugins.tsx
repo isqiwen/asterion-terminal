@@ -50,15 +50,11 @@ function ServicePlugins({
   items,
   busy,
   trade,
-  maintenance,
-  online,
 }: {
   service: Service;
   items: NativePluginInfo[];
   busy: boolean;
   trade: Props["trade"];
-  maintenance: boolean;
-  online: boolean;
 }) {
   const [draft, setDraft] = useState<{ revision: string; hashes: string[] } | null>(null);
   const [error, setError] = useState<DisplayError>("");
@@ -66,7 +62,7 @@ function ServicePlugins({
   const selected = draft?.hashes ?? service.plugin_artifacts;
   const stale = draft !== null && draft.revision !== service.revision;
   const stopped = service.state === "stopped" && !service.desired_running;
-  const editable = stopped && online && !maintenance && !busy && !stale;
+  const editable = stopped && !busy && !stale;
   const options = availableDataTaskPlugins(items);
   const required = requiredPluginIds(items);
   const pinned = service.plugin_artifacts.filter(
@@ -97,18 +93,14 @@ function ServicePlugins({
         <span className="subtle">{t(stopped ? "已停止" : "运行中")}</span>
         <span className="panel-spacer" />
         <button
-          disabled={busy || maintenance || !online || !service.desired_running}
-          onClick={() =>
-            void run("node.action", { id: "local", service: service.id, action: "stop" })
-          }
+          disabled={busy || !service.desired_running}
+          onClick={() => void run("node.action", { service: service.id, action: "stop" })}
         >
           {t("停止")}
         </button>
         <button
-          disabled={busy || maintenance || !online || !stopped || draft !== null}
-          onClick={() =>
-            void run("node.action", { id: "local", service: service.id, action: "start" })
-          }
+          disabled={busy || !stopped || draft !== null}
+          onClick={() => void run("node.action", { service: service.id, action: "start" })}
         >
           {t("启动")}
         </button>
@@ -144,7 +136,6 @@ function ServicePlugins({
             onClick={async () => {
               if (
                 await run("node.plugins.configure", {
-                  id: "local",
                   service: service.id,
                   revision: draft?.revision ?? service.revision,
                   plugins: selected,
@@ -193,7 +184,6 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
     setError("");
     setInitialPlugins([]);
     try {
-      await trade("node.local");
       await trade("native.plugins.inspect");
     } catch (reason) {
       setError(asDisplayError(reason));
@@ -228,12 +218,10 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
               items={inventory.items}
               busy={busy}
               trade={trade}
-              maintenance={node?.health?.maintenance ?? false}
-              online={node?.state === "online"}
             />
           ))}
           {services.length === 0 && (
-            <fieldset disabled={busy || node?.state !== "online" || node?.health?.maintenance}>
+            <fieldset disabled={busy}>
               <legend>{t("创建本机数据与研究服务")}</legend>
               <p>{t("应用自带的插件始终启用；自行安装的插件可以选择是否启用。")}</p>
               {availableDataTaskPlugins(inventory.items).map(item => (

@@ -12,7 +12,7 @@ C++20 核心与独立服务进程，Electron + React 界面。目标是用 Pytho
   变量、样本与统计、规则逻辑、策略包与评估报告。
 - **交易**：CTP 账户（柜台仿真或实盘）：授权、合约白名单、限额与价格风控、先记录后发送、断线不重发。
   目前只在测试替身上验证过，仿真柜台验收是当前阶段的工作。
-- **节点**：本机完整运行；可通过 SSH 部署到远程 Linux 节点。
+- **部署**：行情、数据与研究服务随 Terminal 在本机运行；交易服务与行情录制在各自的 Linux 主机上独立安装。
 
 能力边界与已知限制见[现状](docs/status.md)，路线与当前阶段见[评估与路线](docs/reviews/project-assessment-2026-10-28.md)。
 
@@ -49,11 +49,10 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | `extensions/` | 对外扩展实现，目前为原生数据源；Python 策略扩展按 M2.1 接入 |
 | `protocol/` | Protobuf 契约与边界校验 |
 | `apps/services/` | 业务服务：行情、数据、研究、交易；`common/tasks` 为数据与研究共用的持久任务机制 |
-| `apps/management/` | Node Manager 与 Node Agent |
-| `apps/common/control/` | 客户端与管理进程共用的控制机制 |
+| `apps/common/control/` | Terminal 与安装器共用的路径、插件目录与状态序列化 |
 | `apps/clients/` | Terminal 桌面端与安装器；Terminal 的 `features/` 是内置界面功能 |
 | `bindings/` | C ABI、Node-API 与原生数据源 SDK |
-| `config/` | 节点默认配置 |
+| `config/` | 本机服务的默认配置 |
 | `tests/` | C++ 与进程测试 |
 
 ## 文档

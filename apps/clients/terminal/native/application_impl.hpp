@@ -4,12 +4,12 @@
 #include "terminal_application.hpp"
 #include <asterion/domain/history_identity.hpp>
 #include "market_client.hpp"
-#include "node_client.hpp"
+#include "local_services.hpp"
+#include "node_paths.hpp"
 #include "ctp_connections.hpp"
 #include "trading_connections.hpp"
 #include "data_credentials.hpp"
 #include "plugin_catalog.hpp"
-#include "remote_bundle.hpp"
 #include "research_client.hpp"
 #include "data_client.hpp"
 #include "trading_client.hpp"
@@ -246,8 +246,8 @@ struct Application::Impl
         co_await io(*account->client);
     }
 
-    ManagerClient manager{service_io};
-    json firewall_plan = nullptr, ssh_key = nullptr;
+    // The local business services; the Terminal starts and supervises them.
+    LocalServices services;
     // UI commands belong to this Native boundary; registration is constructor-only.
     using Command = std::function<PolledTask<Response>(const json&)>;
     std::map<std::string, Command> commands;
@@ -275,11 +275,6 @@ struct Application::Impl
         management_busy = true;
         ResetFlag reset{management_busy};
         co_return co_await work();
-    }
-
-    PolledTask<std::shared_ptr<NodeClient>> local_node_client()
-    {
-        co_return manager.node("local");
     }
 
     // Settings files and the keychain are used by one admitted management job.

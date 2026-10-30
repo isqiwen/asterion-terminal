@@ -41,18 +41,18 @@ def exercise(secret, expected_success):
             deadline = time.monotonic() + 120
             while process.poll() is None:
                 assert time.monotonic() < deadline, "acceptance script timed out"
-                for pidfile in Path(folder).glob("asterion-ctp-*/agent/data/agent.pid"):
-                    try:
-                        pid = int(pidfile.read_text())
-                        assert pid > 1 and pid != os.getpid()
-                        owned.add(pid)
-                    except (FileNotFoundError, ValueError):
-                        pass  # The file can be in the middle of its initial write.
+                # The market service logs as <root>/market/logs/asterion_market-<pid>_<date>.log.
+                for log in Path(folder).glob("asterion-ctp-*/market/logs/asterion_market-*.log"):
+                    owned.add(int(log.name.removeprefix("asterion_market-").split("_")[0]))
                 time.sleep(0.02)
             stdout, stderr = process.communicate(timeout=5)
             assert process.returncode == (0 if expected_success else 1), stdout + stderr
-            assert owned, "did not observe the test-owned Agent"
-            assert not any(alive(pid) for pid in owned), "acceptance left its Agent running"
+            assert owned, "did not observe the test-owned market service"
+            # The service watches the Terminal's process and exits after it.
+            deadline = time.monotonic() + 10
+            while any(alive(pid) for pid in owned) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            assert not any(alive(pid) for pid in owned), "acceptance left its market service running"
         finally:
             if process.poll() is None:
                 process.kill(); process.communicate(timeout=15)

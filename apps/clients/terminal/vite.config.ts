@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 const { labChannel } = createRequire(import.meta.url)("./electron/lab-channel.cjs") as {
@@ -44,9 +44,6 @@ function localCore(): Plugin {
             ...process.env,
             ASTERION_PYTHON: resolve(root, "build/electron-resources/python/bin/python3"),
             ASTERION_ENVIRONMENT: "development",
-            ASTERION_REMOTE_RESOURCES:
-              process.env.ASTERION_REMOTE_RESOURCES ??
-              resolve(root, "build/electron-resources/remote-linux"),
           },
           stdio: ["pipe", "pipe", "pipe"],
           detached: true,
@@ -70,24 +67,6 @@ function localCore(): Plugin {
       };
       let core = startCore();
       const originalNode = process.env.ASTERION_ROOT;
-      // Stops an isolated Agent by its recorded PID; its services follow it.
-      const stopAgent = async (directory: string) => {
-        const pidFile = resolve(directory, "agent.pid");
-        if (!existsSync(pidFile)) return;
-        const pid = Number(readFileSync(pidFile, "utf8"));
-        const alive = () => {
-          try {
-            process.kill(pid, 0);
-            return true;
-          } catch {
-            return false;
-          }
-        };
-        if (!(pid > 0) || !alive()) return;
-        process.kill(pid, "SIGTERM");
-        for (let i = 0; i < 100 && alive(); ++i) await new Promise(r => setTimeout(r, 50));
-        if (alive()) process.kill(pid, "SIGKILL");
-      };
       const send = (request: string) =>
         new Promise<string>((resolve, reject) => {
           const current = core;
@@ -104,46 +83,27 @@ function localCore(): Plugin {
         child.exitCode !== null || child.signalCode !== null
           ? Promise.resolve()
           : new Promise<void>(done => child.once("exit", () => done()));
+      // Closing its input ends the core, which stops the services it started.
+      const stopCore = async () => {
+        const child = core.child;
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill("SIGKILL"), 15000);
+        await exited(child);
+        clearTimeout(timer);
+      };
       closeCore = async () => {
         process.off("SIGINT", interrupt);
-        if (core.failed) {
-          core.child.kill();
-          throw core.failed;
-        }
-        if (process.env.ASTERION_ROOT) {
-          core.child.kill();
-          return;
-        }
-        const response = JSON.parse(
-          await send(
-            JSON.stringify({
-              version: 1,
-              method: "development.shutdown",
-              params: { recover: false },
-            }),
-          ),
-        );
-        if (response.error) {
-          server.config.logger.error(
-            `Development cleanup incomplete; services may remain: ${response.error.message}`,
-          );
-          core.child.kill();
-          throw new Error(response.error.message);
-        }
-        core.child.kill();
+        const failed = core.failed;
+        await stopCore();
+        if (failed) throw failed;
       };
-      // Isolated end-to-end runs only: a fresh core, Agent and node directory
-      // per spec file, so one spec's services and data never affect the next.
-      // The previous Agent is stopped by its recorded PID; its services follow
-      // their supervisor.
+      // Isolated end-to-end runs only: a fresh core and node directory per
+      // spec file, so one spec's services and data never affect the next.
       const isolated = process.env.ASTERION_TEST_NODE_ISOLATED === "1" && !!originalNode;
       const reset = async () => {
-        core.child.kill();
-        await exited(core.child);
-        await stopAgent(process.env.ASTERION_ROOT!);
-        // A node directory holds a copy of every service program: the one
-        // before goes, or a run of forty spec files fills the temporary
-        // filesystem. Services that are still stopping may write once more.
+        await stopCore();
+        // The directory before goes, or a run of forty spec files fills the
+        // temporary filesystem.
         for (const entry of readdirSync(originalNode!))
           rmSync(resolve(originalNode!, entry), {
             recursive: true,

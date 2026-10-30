@@ -165,7 +165,6 @@ body {
   border-left: 2px solid #d3a76c;
   background: #231d15;
 }
-.installer-inline,
 .installer-actions {
   display: flex;
   gap: 10px;
@@ -235,29 +234,4 @@ body {
 .installer-main code {
   display: block;
   overflow-wrap: anywhere;
-}
-
-.installer-remote {
-  margin-top: 24px;
-}
-.installer-remote details > label {
-  display: block;
-  margin: 10px 0;
-}
-.installer-remote input:not([type="checkbox"]),
-.installer-remote textarea {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  color: #d4dde7;
-  background: #101923;
-  border: 1px solid #263644;
-  padding: 8px;
-}
-.installer-remote pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.installer-remote button {
-  margin: 8px 8px 8px 0;
 }

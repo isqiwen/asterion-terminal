@@ -11,7 +11,6 @@ test("@journey minute payload cleanup is explicit, Data-owned and survives servi
   const id = seeded.source_dataset_ids[0];
   const snapshot = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.research_service.service,
     action: "stop",
   });
@@ -34,7 +33,6 @@ test("@journey minute payload cleanup is explicit, Data-owned and survives servi
     (await rpc(page.request, "data.history.retirement.preview", { id })).minute_retirement.state,
   ).toBe("removed");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: "historical-data",
     action: "stop",
   });

@@ -10,12 +10,14 @@ test("checked logic assembles a package and a non-running draft before explicit 
   test.setTimeout(120000);
   page.setDefaultTimeout(10000);
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
-  await page.goto("/");
+  // Seeding reopens Data and Research; the page starts after it, so its
+  // drafts are keyed to the connection it keeps.
   await seedDataset(
     page.request,
     [100, 102, 106, 110, 104, 98, 94, 100, 107, 112, 103, 95],
     "logic-package-source",
   );
+  await page.goto("/");
   await openView(page, "logic");
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByLabel("名称", { exact: true }).fill("固定双均线");
@@ -141,7 +143,7 @@ test("checked logic assembles a package and a non-running draft before explicit 
   const current = await rpc(page.request, "runtime.snapshot");
   const selected = [current.data.service, current.research_service.service];
   for (const service of selected)
-    await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+    await rpc(page.request, "node.action", { service, action: "stop" });
   await expect
     .poll(
       async () =>

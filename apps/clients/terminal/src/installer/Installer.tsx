@@ -3,15 +3,12 @@ import { registerLanguageResources, translate, useLocale } from "../i18n";
 import zh from "../i18n/locales/installer.zh-CN.json";
 import en from "../i18n/locales/installer.en-US.json";
 import "./installer.css";
-import { RemoteNodes, type RemoteRequest, type RemoteView } from "./RemoteNodes";
 registerLanguageResources("installer", { "zh-CN": zh, "en-US": en });
 const t = (key: string) => translate("installer", key);
-type MaintenanceAction = "install" | "upgrade" | "repair" | "uninstall";
-export type Action = MaintenanceAction | "stop";
+export type Action = "install" | "upgrade" | "repair" | "uninstall";
 export interface Installation {
   directory: string;
-  node: string;
-  enrollment: string;
+  root: string;
   installed: boolean;
   version: string;
   candidate_version: string;
@@ -19,14 +16,12 @@ export interface Installation {
   deployment_action: "" | "install" | "upgrade" | "repair";
   busy: string[];
   conflict: string;
-  pending: "" | MaintenanceAction;
+  pending: "" | Action;
   preserve_data: boolean;
 }
 export interface InstallerBridge {
-  remote(input: RemoteRequest): Promise<unknown>;
-  onRemoteProgress(listener: (view: RemoteView) => void): () => void;
   inspect(): Promise<Installation>;
-  run(action: Action, removeUserData: boolean, remoteAll?: boolean): Promise<Installation>;
+  run(action: Action, removeUserData: boolean): Promise<Installation>;
   open(location: "terminal" | "logs" | "data"): Promise<void>;
   onProgress(listener: (step: string) => void): () => void;
 }
@@ -35,20 +30,17 @@ declare global {
     asterionInstaller: InstallerBridge;
   }
 }
-const steps = ["checking", "copying", "publishing", "preparing", "registering", "complete"];
+const steps = ["checking", "copying", "publishing", "registering", "complete"];
 export function Installer({ bridge = window.asterionInstaller }: { bridge?: InstallerBridge }) {
   const { locale, setLocale } = useLocale();
-  const [remoteProgress, setRemoteProgress] = useState<RemoteView>();
   const [view, setView] = useState<Installation>();
-  const [action, setAction] = useState<MaintenanceAction>("install");
+  const [action, setAction] = useState<Action>("install");
   const [working, setWorking] = useState(false);
-  const [remoteChecked, setRemoteChecked] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState(false);
   const [preserveData, setPreserveData] = useState(true);
-  const [remoteAll, setRemoteAll] = useState(false);
   const [removedData, setRemovedData] = useState(false);
   const failure = (error: unknown) =>
     setError(error instanceof Error ? error.message : String(error));
@@ -59,21 +51,12 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
     setAction(next.pending || next.deployment_action || (next.installed ? "repair" : "install"));
   }, []);
   const refresh = useCallback(async () => {
-    setRemoteChecked(false);
     setWorking(true);
     setError("");
     setCompleted(false);
     setStage("");
     try {
-      const inspected = await bridge.inspect();
-      accept(inspected);
-      if (inspected.installed && !inspected.pending) {
-        setRemoteProgress(
-          (await bridge.remote({ maintenance: { action: "INSPECT" } })) as RemoteView,
-        );
-        accept(await bridge.inspect());
-        setRemoteChecked(true);
-      }
+      accept(await bridge.inspect());
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -82,27 +65,17 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
   }, [bridge, accept]);
   useEffect(() => {
     void refresh();
-    const off = bridge.onProgress(setStage);
-    const offRemote = bridge.onRemoteProgress(setRemoteProgress);
-    return () => {
-      off();
-      offRemote();
-    };
+    return bridge.onProgress(setStage);
   }, [bridge, refresh]);
   async function run(selected: Action) {
-    setRemoteChecked(false);
     const removeUserData = selected === "uninstall" && !preserveData;
     setWorking(true);
     setError("");
     setCompleted(false);
     setStage("checking");
     try {
-      accept(
-        await (selected === "uninstall" && remoteAll
-          ? bridge.run(selected, removeUserData, true)
-          : bridge.run(selected, removeUserData)),
-      );
-      setCompleted(selected !== "stop");
+      accept(await bridge.run(selected, removeUserData));
+      setCompleted(true);
       setRemovedData(removeUserData);
       setStage("");
     } catch (error) {
@@ -112,16 +85,10 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
     }
   }
   const changing = action !== "uninstall";
-  const unavailable = (selected: MaintenanceAction) =>
+  const unavailable = (selected: Action) =>
     !view ||
     !!view.conflict ||
-    (!view.pending &&
-      (selected === "upgrade" || (selected === "uninstall" && remoteAll)) &&
-      !remoteChecked) ||
-    view.busy.some(
-      name =>
-        name === "terminal" || (selected === "uninstall" && !remoteAll) || selected === "install",
-    ) ||
+    view.busy.length > 0 ||
     (selected === "uninstall"
       ? !view.installed || (!!view.pending && view.pending !== "uninstall")
       : selected !== (view.pending || view.deployment_action));
@@ -133,7 +100,7 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
       : view?.installed
         ? "maintenanceMode"
         : "installMode";
-  const operations: MaintenanceAction[] = view?.pending
+  const operations: Action[] = view?.pending
     ? [view.pending]
     : view?.installed
       ? [view.deployment_action === "upgrade" ? "upgrade" : "repair", "uninstall"]
@@ -153,9 +120,7 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
           ...(!preserveData ? ["removingData"] : []),
           "complete",
         ]
-      : action === "install" || action === "upgrade"
-        ? [...steps.slice(0, -1), "starting", "complete"]
-        : steps;
+      : steps;
   return (
     <div className="installer-shell">
       <aside className="installer-sidebar">
@@ -234,7 +199,7 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
             <dt>{t("applicationPath")}</dt>
             <dd>{view?.directory || "—"}</dd>
             <dt>{t("dataPath")}</dt>
-            <dd>{view?.node || "—"}</dd>
+            <dd>{view?.root || "—"}</dd>
           </dl>
         </section>
         {view?.busy.length ? (
@@ -243,14 +208,6 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
               {t("running")}: {view.busy.join(" · ")}
             </strong>
             <p>{t("stopInstructions")}</p>
-            <div className="installer-inline">
-              <button
-                disabled={working || view.busy.includes("terminal")}
-                onClick={() => void run("stop")}
-              >
-                {t("stopBackground")}
-              </button>
-            </div>
           </section>
         ) : null}
         {view?.pending && (
@@ -269,20 +226,6 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
           <p role="status" className="installer-notice">
             {t("olderPackage")}
           </p>
-        )}
-        {action === "uninstall" && (
-          <label className="installer-confirm">
-            <input
-              type="checkbox"
-              checked={remoteAll}
-              disabled={working || !!view?.pending}
-              onChange={event => {
-                setRemoteAll(event.target.checked);
-                setConfirmed(false);
-              }}
-            />
-            {t("remoteAll")}
-          </label>
         )}
         <div className="installer-preserve">
           {action === "uninstall" ? (
@@ -306,8 +249,7 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
             <div className="installer-error" role="alert">
               <strong>{t("deleteTitle")}</strong>
               <p>{t("deleteBody")}</p>
-              <code>{view?.node}</code>
-              <code>{view?.enrollment}</code>
+              <code>{view?.root}</code>
               <p>{t("deleteExclusions")}</p>
             </div>
           ) : (
@@ -342,22 +284,10 @@ export function Installer({ bridge = window.asterionInstaller }: { bridge?: Inst
             </button>
           </div>
         )}
-        {!working &&
-          !view?.pending &&
-          (action === "upgrade" || (action === "uninstall" && remoteAll)) &&
-          !remoteChecked && <p role="status">{t("remoteInspectionRequired")}</p>}
         {completed && !error && (
           <p role="status" className="installer-success">
             {t(removedData ? "successRemovedData" : "success")}
           </p>
-        )}
-        {view?.installed && !view.pending && (
-          <RemoteNodes
-            request={input => bridge.remote(input)}
-            progress={remoteProgress}
-            busy={working}
-            setBusy={setWorking}
-          />
         )}
         <footer>
           <label className="installer-confirm">

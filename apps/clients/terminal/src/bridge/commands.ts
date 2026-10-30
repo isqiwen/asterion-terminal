@@ -191,8 +191,7 @@ export type CommandParams = {
   "native.plugins.preview": { path: string };
   "native.plugins.install": { path: string; sha256: string };
   "native.plugins.uninstall": { file: string; sha256: string };
-  "node.plugins.configure": { id: string; service: string; revision: string; plugins: string[] };
-  "node.update": { id: string; service: string; revision: string };
+  "node.plugins.configure": { service: string; revision: string; plugins: string[] };
   "research.sample.submit": {
     id: string;
     owner: TaskOwnerRef;
@@ -211,8 +210,6 @@ export type CommandParams = {
   "node.data.local.open": Record<string, never>;
   "lab.source.configure": Record<string, never>;
   "lab.endpoint": Record<string, never>;
-  "node.data.attach": { id: string; service: string };
-  "node.research.attach": { id: string; service: string };
   "backtest.margins.preview": Record<string, never>;
   "backtest.submit": RiskParameters & {
     performance_assumptions?: PerformanceAssumptions;
@@ -394,7 +391,6 @@ export type CommandParams = {
   };
   "task.quantstats.analyze": { id: string; result_digest: string };
   "market.local": Record<string, never>;
-  "market.attach": { id: string; service: string };
   "market.connect": { password: string; instruments: InstrumentKey[] };
   "market.credentials.save": { account: string; password: string; auth_code: string };
   "market.credentials.clear": { account: string };
@@ -421,22 +417,6 @@ export type CommandParams = {
   "system.backup.resume.preview": { backup: string };
   "system.backup.restore": { backup: string; destination: string };
   "system.backup.cancel": Record<string, never>;
-  "node.initializer.export": { path: string };
-  "node.key.prepare": { id: string };
-  "node.firewall.inspect": {
-    id: string;
-    host: string;
-    ssh_port: string;
-    username: string;
-    key_source: string;
-    private_key: string;
-    known_hosts: string;
-    agent_port: string;
-    firewall_port: string;
-    firewall_action: string;
-  };
-  "node.firewall.apply": { token: string; private_key: string };
-  "node.service_firewall": { id: string; service: string; action: string; token: string };
   "live.create": RiskParameters & {
     account: string;
     max_price_deviation: string;
@@ -453,21 +433,7 @@ export type CommandParams = {
   "live.costs": { account: string };
   "live.act": AccountCommand & LiveAction;
   "live.close": { account: string };
-  "node.bootstrap": {
-    id: string;
-    host: string;
-    ssh_port: string;
-    username: string;
-    key_source: string;
-    private_key: string;
-    known_hosts: string;
-    agent_port: string;
-  };
-  "node.connect": { id: string };
-  "node.local": Record<string, never>;
-  "node.disconnect": { id: string };
-  "node.deploy": { id: string; service: string; port: string; kind: string };
-  "node.action": { id: string; service: string; action: "start" | "stop" | "remove" | "restart" };
+  "node.action": { service: string; action: "start" | "stop" | "restart" };
 };
 export type TerminalCommand = Exclude<keyof CommandParams, "runtime.snapshot">;
 export type CommandCall<K extends keyof CommandParams = TerminalCommand> = {

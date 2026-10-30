@@ -56,10 +56,10 @@ try:
     assert call("data.observation.execute",dict(id="missing-original"),error=True)["code"]=="not_found"
     pending=call("data.observation.read",dict(id="missing-original"))["observation_archive"]
     assert pending["state"]=="admitted" and pending["source"]==lost["reference"] and "capture" not in pending
-    call("node.action",dict(id="local",service=preview["reference"]["service"],action="stop"))
+    call("node.action",dict(service=preview["reference"]["service"],action="stop"))
     assert call("data.observation.execute",dict(id="fixed-observation"))["observation_archive"]==published
     assert call("data.observation.read",dict(id="fixed-observation"))["observation_archive"]==original
-    call("node.action",dict(id="local",service=original["archive"]["service"],action="stop"))
+    call("node.action",dict(service=original["archive"]["service"],action="stop"))
     call("node.data.local.open")
     wait(lambda s:s["data"]["online"])
     assert call("data.observation.read",dict(id="fixed-observation"))["observation_archive"]==original

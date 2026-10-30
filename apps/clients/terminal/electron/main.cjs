@@ -26,11 +26,11 @@ const renderer = app.isPackaged
 const resources = app.isPackaged
   ? process.resourcesPath
   : path.join(root, "build/electron-resources");
-process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "features");
+process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
+// The native programs, libraries and configuration defaults the Terminal's
+// local services run from.
+process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
 const variables = {
-  ASTERION_TRADING_EXECUTABLE: "asterion_trading",
-  ASTERION_NODE_MANAGER_EXECUTABLE: "asterion_node_manager",
-  ASTERION_NODE_AGENT_EXECUTABLE: "asterion_node_agent",
   ASTERION_MARKET_EXECUTABLE: "asterion_market",
   ASTERION_RESEARCH_EXECUTABLE: "asterion_research",
   ASTERION_DATA_SERVICE_EXECUTABLE: "asterion_data",
@@ -42,7 +42,6 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
 process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
 process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
 process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");
-process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
@@ -59,53 +58,9 @@ if (!app.commandLine.hasSwitch("user-data-dir"))
 let main, settings, native;
 let quitting = false;
 let pending = 0;
-const automaticDevelopmentStop = !app.isPackaged && !process.env.ASTERION_ROOT;
-let developmentStopping = false;
-let developmentStopped = false;
-async function stopDevelopment() {
-  if (developmentStopping || developmentStopped) return;
-  developmentStopping = true;
-  for (const win of owned) win.webContents.send("asterion:development-stopping", true);
-  console.log("Stopping local development services…");
-  try {
-    const deadline = Date.now() + 60000;
-    while (pending) {
-      if (Date.now() >= deadline)
-        throw new Error("A native operation is still running; retry closing after it finishes.");
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    if (native) {
-      const response = JSON.parse(
-        await native.request(
-          JSON.stringify({
-            version: 1,
-            method: "development.shutdown",
-            params: { recover: false },
-          }),
-        ),
-      );
-      if (response.error) throw new Error(response.error.message);
-    }
-    developmentStopped = true;
-    console.log("Local development services stopped.");
-    app.quit();
-  } catch (error) {
-    console.error(`Development shutdown failed; background services may remain: ${error.message}`);
-    developmentStopping = false;
-    for (const win of owned) win.webContents.send("asterion:development-stopping", false);
-    const chinese = app.getLocale().startsWith("zh");
-    await dialog.showMessageBox(main, {
-      type: "error",
-      title: chinese ? "开发环境未完全停止" : "Development shutdown incomplete",
-      message: chinese
-        ? "后台服务尚未全部停止。处理错误后，重新关闭开发窗口即可重试。"
-        : "Some background services remain. Resolve the error and close the development window again to retry.",
-      detail: error.message,
-      buttons: [chinese ? "知道了" : "OK"],
-    });
-  }
-}
-if (automaticDevelopmentStop) {
+// Quitting ends the Terminal's process; every local service watches it and
+// stops by itself.
+if (!app.isPackaged) {
   process.on("SIGINT", () => app.quit());
   process.on("SIGTERM", () => app.quit());
   process.on("message", message => {
@@ -204,7 +159,7 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (!["preferences", "connections", "ctp", "sources", "features", "about"].includes(category))
+  if (!["preferences", "connections", "ctp", "sources", "plugins", "about"].includes(category))
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();
@@ -276,12 +231,7 @@ function options(input, save = false) {
     ];
   return result;
 }
-app.on("before-quit", event => {
-  if (automaticDevelopmentStop && !developmentStopped) {
-    event.preventDefault();
-    void stopDevelopment();
-    return;
-  }
+app.on("before-quit", () => {
   quitting = true;
 });
 app.on("window-all-closed", () => app.quit());
@@ -316,12 +266,6 @@ app
     native = require(path.join(resources, "native/asterion_terminal.node"));
     ipcMain.handle("asterion:request", async (event, body) => {
       authorized(event);
-      // Status polls still arrive while the services stop. They get an
-      // ordinary error reply; throwing here only prints a stack per poll.
-      if (developmentStopping)
-        return JSON.stringify({
-          error: { code: "unavailable", message: "Development environment is stopping" },
-        });
       if (typeof body !== "string" || Buffer.byteLength(body) > 65536 || body.includes("\0"))
         throw new Error("Invalid native request");
       // Bound queued native work. The C++ facade rejects concurrent mutations.
@@ -342,7 +286,6 @@ app
     });
     ipcMain.handle("asterion:lab", async (event, payload) => {
       authorized(event);
-      if (developmentStopping) throw new Error("Development environment is stopping");
       if (!(payload instanceof Uint8Array)) throw new Error("Invalid lab request");
       return new Uint8Array(await lab(payload));
     });
@@ -403,12 +346,7 @@ app
       webPreferences: preferences(),
     });
     configure(main);
-    main.on("close", event => {
-      if (automaticDevelopmentStop && !developmentStopped) {
-        event.preventDefault();
-        void stopDevelopment();
-        return;
-      }
+    main.on("close", () => {
       quitting = true;
       settings?.destroy();
     });

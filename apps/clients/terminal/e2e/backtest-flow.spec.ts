@@ -234,7 +234,6 @@ test("data/task access prepares a stopped local service once and does not replac
   await openView(page, "trading");
   const opened = await openResearch(page.request);
   await rpc(page.request, "node.action", {
-    id: "local",
     service: opened.research_service.service,
     action: "stop",
   });

@@ -112,32 +112,6 @@ test("a product's months backtest as its dominant series and roll at real prices
       name: "权益曲线",
     }),
   ).toBeVisible();
-  // The selection names Data versions, so it follows the Data service, not
-  // the Research store: switching stores bound to the same Data keeps it.
-  const originalService = state.research_service!.service;
-  const reattached = await rpc(page.request, "node.research.attach", {
-    id: "local",
-    service: originalService,
-  });
-  expect(reattached.dataset_series).toEqual(state.dataset_series);
-  expect(reattached.datasets).toEqual(state.datasets);
-  const service = "backtest-factor-after-series";
-  const deployed = await rpc(page.request, "node.deploy", {
-    id: "local",
-    service,
-    kind: "research",
-    port: "0",
-  });
-  expect(deployed.dataset_series).toEqual(state.dataset_series);
-  const switched = await rpc(page.request, "node.research.attach", { id: "local", service });
-  checkSnapshot("new store after dominant series", switched);
-  expect(switched.datasets).toEqual(state.datasets);
-  expect(switched.dataset_series).toEqual(state.dataset_series);
-  const restored = await rpc(page.request, "node.research.attach", {
-    id: "local",
-    service: originalService,
-  });
-  expect(restored.dataset_series).toEqual(state.dataset_series);
   expect(
     (await taskRpc(page.request, "research", "task.result", { id: task.id })).task_result.result,
   ).toEqual(result);

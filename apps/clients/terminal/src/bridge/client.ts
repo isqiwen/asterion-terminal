@@ -1,7 +1,7 @@
 import { BackendError } from "../i18n/errors";
 import { translate, type MessageValues, getLocale } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
-import { desktop, save } from "./desktop";
+import { desktop } from "./desktop";
 import type { PriceIncrementChange } from "../ui/contractUnits";
 import { nativeDesktop } from "./desktop";
 export type FuturesContract = {
@@ -246,26 +246,6 @@ export type LiveSession = {
   storage_state: "ready" | "recovery_required";
   connection_state?: "disconnected";
 };
-export type FirewallPlan = {
-  id: string;
-  host: string;
-  service?: string;
-  transport: "ssh" | "agent";
-  token: string;
-  source: string;
-  port: number;
-  backend: string;
-  state: string;
-  can_apply: boolean;
-  rule: string;
-  action: "allow" | "remove";
-  verification: string;
-  // SSH-inspected plans only: target platform, the source address the node
-  // observed for this Terminal, and whether an Asterion-owned rule exists.
-  os?: string;
-  observed_source?: string;
-  owned?: boolean;
-};
 export type { TerminalCommand, CommandParams, CommandCall, CommandHandler } from "./commands";
 import type { TerminalCommand, CommandCall } from "./commands";
 export type ProgressObservation = {
@@ -294,15 +274,6 @@ export type NodeStatus = {
     phase: "initializing" | "ready" | "recovery_required";
     failure: null | { code: string; message: string };
     execution: ExecutionHealth;
-    host_resources: null | {
-      sampled_at_ms: number;
-      cpu_usage_percent: number | null;
-      memory_available_bytes: number;
-      disk_available_bytes: number;
-      disk_path: string;
-      failure: null | { code: string; message: string };
-    };
-    maintenance: boolean;
     pid: number;
     os: string;
     arch: string;
@@ -314,7 +285,6 @@ export type NodeStatus = {
       plugin_artifacts: string[];
       id: string;
       artifact: string;
-      port: number;
       state: string;
       desired_running: boolean;
       pid: number;
@@ -2362,15 +2332,6 @@ export type Snapshot = {
   task_result: null | TaskResult;
   market: LiveMarket | null;
   intraday?: IntradaySeries;
-  initializer?: {
-    name: string;
-    content: string;
-  };
-  ssh_key: {
-    id: string;
-    public_key: string;
-  } | null;
-  firewall_plan: FirewallPlan | null;
   nodes: NodeStatus[];
   protocol: 1;
   product: string;
@@ -2460,30 +2421,6 @@ export function timestamp(ns: string | null): string {
   if (!ns) return "—";
   const date = new Date(Number(BigInt(ns) / 1000000n));
   return date.toLocaleString(getLocale(), { hour12: false, timeZone: "Asia/Shanghai" });
-}
-export async function exportLinuxInitializer(): Promise<boolean> {
-  let destination = "";
-  if (nativeDesktop) {
-    const chosen = await save({
-      title: t("导出 Linux 初始化脚本"),
-      defaultPath: "initialize-linux.py",
-    });
-    if (!chosen) return false;
-    destination = chosen;
-  }
-  const result = await request("node.initializer.export", { path: destination });
-  if (!nativeDesktop) {
-    if (!result.initializer) throw new Error(t("安装包未提供初始化脚本"));
-    const url = URL.createObjectURL(
-      new Blob([result.initializer.content], { type: "text/x-python;charset=utf-8" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.initializer.name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  return true;
 }
 // Polls send the last revision they saw; an unchanged core returns no state.
 export type SnapshotUnchanged = { unchanged: true; revision: number; refreshed_at_ms: number };

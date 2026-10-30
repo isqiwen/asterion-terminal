@@ -71,7 +71,6 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     const source = name =>
       offered.find(item => item.table === name && item.plugin_id === table.plugin_id).source;
     const stopped = await call("node.action", {
-      id: "local",
       service: "historical-data",
       action: "stop",
     });
@@ -150,7 +149,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await page.screenshot({ path: "build/history-archive/native-archive.png" });
     assert.deepEqual(errors, []);
     // Historical versions belong to Data and remain readable while Research is stopped.
-    await call("node.action", { id: "local", service: "research", action: "stop" });
+    await call("node.action", { service: "research", action: "stop" });
     const filter = {
       venue: "",
       product: "",
@@ -162,7 +161,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       .find(node => node.id === "local")
       .health.services.find(item => item.id === "research");
     assert.equal(stoppedTask.state, "stopped");
-    await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+    await call("node.action", { service: "historical-data", action: "stop" });
     await call("node.data.local.open");
     await expect.poll(async () => (await call("runtime.snapshot")).data?.online).toBe(true);
     assert.deepEqual((await call("data.datasets", filter)).history_datasets, [minute]);
@@ -172,15 +171,8 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     );
   } finally {
     if (application) await application.close();
-    try {
-      process.kill(
-        Number(await fs.readFile(path.join(temp, "node", "agent", "data", "agent.pid"), "utf8")),
-        "SIGTERM",
-      );
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (error) {
-      if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
-    }
+    // The services exit with the application that started them.
+    await new Promise(resolve => setTimeout(resolve, 2000));
     await fs.rm(temp, { recursive: true, force: true });
   }
 })().catch(error => {

@@ -23,63 +23,9 @@ const status = (step: string) =>
 // The one step whose row reports a failure.
 const failedStep = () => screen.getByText("失败").parentElement!.querySelector("b")!.textContent;
 const retry = () => fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
-const serviceStarts = [
-  "node.local",
-  "market.local",
-  "node.research.attach",
-  "node.research.local.create",
-];
+const serviceStarts = ["market.local", "node.research.local.open", "node.research.local.create"];
 const sent = (calls: CoreCall[], ...methods: string[]) =>
   calls.map(call => call.method).filter(method => methods.includes(method));
-
-test("Agent initialization failure stays on the Agent step and exposes its cause", async () => {
-  let failure: null | { code: string; message: string } = null;
-  const calls = serveCore(() => {
-    const snapshot = readySnapshot();
-    const health = localHealth(snapshot);
-    health.phase = failure ? "recovery_required" : "initializing";
-    health.failure = failure;
-    return snapshot;
-  });
-  start();
-  await waitFor(() => expect(status("服务管理器")).toBe("进行中"));
-  expect(status("行情服务")).toBe("等待");
-  failure = {
-    code: "invalid_request",
-    message:
-      "Agent initialization failed; inspect node logs: invalid managed service configuration: test-node/services/market-data/service.json",
-  };
-  await waitFor(() => expect(failedStep()).toBe("服务管理器"));
-  const alert = screen.getByRole("alert");
-  expect(alert.textContent).toContain("Agent 初始化失败，请检查节点日志");
-  fireEvent.click(within(alert).getByRole("button", { name: "详情" }));
-  expect(alert.textContent).toContain("invalid managed service configuration");
-  expect(sent(calls, "market.local")).toEqual([]);
-});
-
-test("synchronization failure immediately shows its cause and log without starting services", async () => {
-  const file = "/test-node/logs/agent-123_2026-10-20.log";
-  const calls = serveCore(({ method }) =>
-    method === "node.local"
-      ? {
-          error: {
-            code: "operation_failed",
-            message:
-              "service program synchronization failed: Node failed: invalid managed service configuration\nLog file: " +
-              file,
-          },
-        }
-      : readySnapshot(),
-  );
-  start();
-  const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("服务程序同步失败");
-  expect(alert.textContent).toContain("invalid managed service configuration");
-  expect(alert.textContent).toContain(file);
-  expect(within(alert).queryByRole("button", { name: "详情" })).toBeNull();
-  expect(failedStep()).toBe("服务管理器");
-  expect(sent(calls, "market.local")).toEqual([]);
-});
 
 test("startup lists unloadable plugins and interrupted tasks without blocking entry", async () => {
   serveCore(() => {
@@ -107,25 +53,6 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   expect(workbench()).not.toBeNull();
 });
 
-test("existing Research is restored after inventory recovery without creating services", async () => {
-  // The Agent answers the first attachment before it has recovered its
-  // service inventory.
-  const calls = serveCore(({ method }) => {
-    const snapshot = readySnapshot();
-    if (method === "node.local") {
-      const health = localHealth(snapshot);
-      health.phase = "initializing";
-      health.services = [];
-    }
-    return snapshot;
-  });
-  start();
-  await waitFor(() => expect(workbench()).not.toBeNull());
-  expect(sent(calls, "node.research.attach", "node.research.local.create")).toEqual([
-    "node.research.attach",
-  ]);
-});
-
 for (const [kind, id, label] of [
   ["data", "historical-data", "恢复已有工作区"],
   ["research", "research", "恢复已有工作区"],
@@ -149,7 +76,7 @@ for (const [kind, id, label] of [
     const launch = start();
     // Each service needs its own heartbeat before its step completes.
     await waitFor(() => expect(status(label)).toBe("进行中"));
-    expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+    expect(screen.getAllByRole("progressbar")).toHaveLength(3);
     expect(status("行情服务")).toBe("完成");
 
     expect(workbench()).toBeNull();
@@ -165,9 +92,8 @@ for (const [kind, id, label] of [
 
 test("startup reports the failing step, retries and opens the workbench once every step passes", async () => {
   const failing = new Map([
-    ["node.local", "Agent start failed"],
     ["market.local", "Market start failed"],
-    ["node.research.attach", "Data/Task preparation failed"],
+    ["node.research.local.open", "Data/Task preparation failed"],
   ]);
   const calls = serveCore(({ method }) =>
     failing.has(method) ? { error: { message: failing.get(method)! } } : readySnapshot(),
@@ -177,65 +103,47 @@ test("startup reports the failing step, retries and opens the workbench once eve
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("操作失败");
   fireEvent.click(within(alert).getByRole("button", { name: "详情" }));
-  expect(alert.textContent).toContain("Agent start failed");
-  expect(failedStep()).toBe("服务管理器");
+  expect(alert.textContent).toContain("Market start failed");
+  expect(failedStep()).toBe("行情服务");
   fireEvent.change(screen.getByRole("combobox", { name: "语言" }), { target: { value: "en" } });
   expect(screen.getByRole("button", { name: "RETRY" })).toHaveProperty("disabled", false);
   fireEvent.change(screen.getByRole("combobox", { name: "Language" }), {
     target: { value: "zh" },
   });
   expect(workbench()).toBeNull();
-  failing.delete("node.local");
-  retry();
-  await waitFor(() => expect(failedStep()).toBe("行情服务"));
   failing.delete("market.local");
   retry();
   await waitFor(() => expect(failedStep()).toBe("恢复已有工作区"));
-  failing.delete("node.research.attach");
+  failing.delete("node.research.local.open");
   retry();
   await waitFor(() => expect(workbench()).not.toBeNull());
   // Every attempt starts again from the first step.
   expect(sent(calls, ...serviceStarts)).toEqual([
-    "node.local",
-    "node.local",
     "market.local",
-    "node.local",
     "market.local",
-    "node.research.attach",
-    "node.local",
+    "node.research.local.open",
     "market.local",
-    "node.research.attach",
+    "node.research.local.open",
   ]);
   // A later launch checks the services again before it opens the workbench.
   calls.length = 0;
   launch.unmount();
   launch = start();
   await waitFor(() => expect(workbench()).not.toBeNull());
-  expect(sent(calls, ...serviceStarts)).toEqual([
-    "node.local",
-    "market.local",
-    "node.research.attach",
-  ]);
+  expect(sent(calls, ...serviceStarts)).toEqual(["market.local", "node.research.local.open"]);
   // Having opened before never skips the check of actual service health.
-  failing.set("node.local", "Agent start failed");
+  failing.set("market.local", "Market start failed");
   launch.unmount();
   start();
   await screen.findByRole("button", { name: "重试启动" });
   expect(workbench()).toBeNull();
 });
 
-test("ordinary startup never upgrades installed programs", async () => {
-  const calls = serveCore(() => readySnapshot());
-  start();
-  await waitFor(() => expect(workbench()).not.toBeNull());
-  expect(calls.some(call => call.method === "node.agent.upgrade")).toBe(false);
-});
-
 test("a service that went offline after every start fails its own step", async () => {
   let started = false;
   let online = false;
   serveCore(({ method }) => {
-    if (method === "node.research.attach") started = true;
+    if (method === "node.research.local.open") started = true;
     const snapshot = readySnapshot();
     if (started) snapshot.market!.transport_online = online;
     return snapshot;
@@ -273,8 +181,8 @@ test("Research restores without a Data deployment or connection", async () => {
   });
   start();
   await waitFor(() => expect(workbench()).not.toBeNull());
-  expect(sent(calls, "node.research.attach")).toEqual(["node.research.attach"]);
-  expect(sent(calls, "node.data.attach", "node.data.local.open")).toEqual([]);
+  expect(sent(calls, "node.research.local.open")).toEqual(["node.research.local.open"]);
+  expect(sent(calls, "node.data.local.open")).toEqual([]);
 });
 
 test("an explicitly stopped local Market preserves intent and permits independent Data and Research work", async () => {
@@ -291,9 +199,9 @@ test("an explicitly stopped local Market preserves intent and permits independen
   const notices = await screen.findByRole("list", { name: "进入前请留意" });
   expect(notices.textContent).toContain("本机行情服务按已保存意图保持停止");
   expect(sent(calls, "market.local", "node.action")).toEqual([]);
-  expect(sent(calls, "node.data.attach", "node.research.attach")).toEqual([
-    "node.data.attach",
-    "node.research.attach",
+  expect(sent(calls, "node.data.local.open", "node.research.local.open")).toEqual([
+    "node.data.local.open",
+    "node.research.local.open",
   ]);
   fireEvent.click(screen.getByRole("button", { name: "进入工作台" }));
   expect(workbench()).not.toBeNull();

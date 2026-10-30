@@ -203,7 +203,6 @@ async function closeDesktop(application) {
     const offeredBy = table =>
       offered.find(source => source.table === table && source.plugin_id === dailySource.plugin_id);
     const stopped = await call("node.action", {
-      id: "local",
       service: "historical-data",
       action: "stop",
     });
@@ -213,7 +212,7 @@ async function closeDesktop(application) {
     const root = await fs.realpath(path.join(temp, "node"));
     assert.equal(
       await fs.realpath(service.directory),
-      path.join(root, "services/historical-data/ledger"),
+      path.join(root, "data/data/historical-data"),
     );
     const seeded = await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
@@ -238,6 +237,8 @@ async function closeDesktop(application) {
         timeout: 15000,
       },
     );
+    // A stopped service stays stopped until it is opened again.
+    await call("node.data.local.open");
     await call("node.research.local.open");
     const historySelection = JSON.parse(seeded.stdout);
     assert.ok(historySelection.source_dataset_ids[0]);
@@ -404,35 +405,12 @@ async function closeDesktop(application) {
       await capture(window, window === settings ? "native-settings-125" : "native-workbench-125");
       await contents.evaluate(win => win.webContents.setZoomFactor(1));
     }
-    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
-    const locations = settings.getByRole("list", { name: "当前运行位置", exact: true });
-    await expect(locations).toBeVisible();
-    for (const service of ["历史数据服务", "任务服务"])
-      await expect(locations.getByRole("listitem").filter({ hasText: service })).toContainText(
-        "本机",
-      );
-    await capture(settings, "native-deployment-overview");
-    const deploymentWindow = await application.browserWindow(settings);
-    await deploymentWindow.evaluate(win => win.webContents.setZoomFactor(1.25));
-    await settings.getByRole("button", { name: "添加远程机器", exact: true }).click();
-    await expect(settings.getByRole("region", { name: "添加远程机器", exact: true })).toContainText(
-      "Linux x86_64",
-    );
-    assert.equal(
-      await settings.evaluate(
-        () =>
-          document.documentElement.scrollWidth <= innerWidth &&
-          document.querySelector(".settings-content").scrollWidth <=
-            document.querySelector(".settings-content").clientWidth + 1,
-      ),
-      true,
-    );
-    await capture(settings, "native-deployment-wizard-125");
-    await settings
-      .getByRole("region", { name: "添加远程机器", exact: true })
-      .getByRole("button", { name: "取消", exact: true })
-      .click();
-    await deploymentWindow.evaluate(win => win.webContents.setZoomFactor(1));
+    await settings.getByRole("button", { name: "本机服务", exact: true }).click();
+    const services = settings.getByRole("list", { name: "服务列表", exact: true });
+    await expect(
+      services.getByRole("listitem", { name: "market-data", exact: true }),
+    ).toBeVisible();
+    await capture(settings, "native-local-services");
     await page.evaluate(() => {
       // The public settings helper selects reused windows through this storage event.
       localStorage.setItem(
@@ -467,16 +445,14 @@ async function closeDesktop(application) {
       null,
     );
     assert.equal(await page.evaluate(() => window.open("https://example.com") === null), true);
-    // The workspace in use and the managed Agent survive a whole desktop restart.
+    // The workspace in use survives a whole desktop restart.
     await settings.evaluate(() => window.asterionDesktop.close());
 
     await page.reload();
     await enterWorkbench(page);
     await openView(page, "backtest");
-    const ownedPid = Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8"));
     await closeDesktop(application);
     application = undefined;
-    process.kill(ownedPid, 0); // Closing the desktop must not stop its managed Agent.
     application = await launch();
     const restored = await application.firstWindow();
     await enterWorkbench(restored);
@@ -490,19 +466,14 @@ async function closeDesktop(application) {
     await expect(restored.locator(".watchlist-workspace")).toBeVisible();
     await capture(restored, "native-watchlist");
     console.log(
-      "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, dialog IPC, shortcuts, Agent independence and workspace restore after desktop restart passed",
+      "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, dialog IPC, shortcuts and workspace restore after desktop restart passed",
     );
   } finally {
     try {
       if (application) await closeDesktop(application);
     } finally {
-      const pidFile = path.join(temp, "node", "agent.pid");
-      try {
-        process.kill(Number(await fs.readFile(pidFile, "utf8")), "SIGTERM");
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
-      }
+      // The services exit with the application that started them.
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await fs.rm(temp, { recursive: true, force: true });
     }
   }

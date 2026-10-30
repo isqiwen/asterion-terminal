@@ -28,21 +28,6 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
   // lab service has no client connection yet.
   return null;
 }
-export function matches(active: Binding | null, node: NodeStatus, service: Service) {
-  return (
-    !!active &&
-    active.service === service.id &&
-    (active.remote
-      ? node.id !== "local" && active.host === node.host && active.port === service.port
-      : node.id === "local")
-  );
-}
-export function location(active: Binding | null, nodes: NodeStatus[]) {
-  if (!active) return t("本机（默认）");
-  if (!active.remote) return t("本机");
-  const node = nodes.find(n => n.health?.services.some(s => matches(active, n, s)));
-  return node?.id ?? `${active.host}:${active.port}`;
-}
 export function serviceStatus(node: NodeStatus, service: Service) {
   if (node.state !== "online") return t("状态未知");
   if (service.state === "stopping") return t("停止中");
@@ -61,19 +46,4 @@ export function serviceStatus(node: NodeStatus, service: Service) {
       } as Record<string, string>
     )[service.health] ?? "状态未知",
   );
-}
-
-export function runtimeStatus(snapshot: Snapshot | null, kind: ServiceKind) {
-  const active = binding(snapshot, kind);
-  if (!active) return t("按需启动");
-  if (!active.online) return t("失联 · 状态未知");
-  if (kind === "market")
-    return t(
-      snapshot?.market?.phase === "connected"
-        ? "行情已连接"
-        : snapshot?.market?.phase === "error"
-          ? "行情连接失败"
-          : "等待行情登录",
-    );
-  return t("已连接");
 }

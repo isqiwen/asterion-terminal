@@ -6,11 +6,6 @@ contextBridge.exposeInMainWorld(
     environment: process.argv.includes("--asterion-environment=development")
       ? "development"
       : "production",
-    onDevelopmentStopping: listener => {
-      const handle = (_event, value) => listener(value === true);
-      ipcRenderer.on("asterion:development-stopping", handle);
-      return () => ipcRenderer.removeListener("asterion:development-stopping", handle);
-    },
     request: request => ipcRenderer.invoke("asterion:request", request),
     lab: payload => ipcRenderer.invoke("asterion:lab", payload),
     openSettings: category => ipcRenderer.invoke("asterion:settings", category),

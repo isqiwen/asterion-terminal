@@ -1,7 +1,5 @@
 {
   "programs": [
-    "asterion_node_agent",
-    "asterion_node_manager",
     "asterion_market",
     "asterion_data",
     "asterion_research",

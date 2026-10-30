@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux matches the image the remote bundle is built on. GCC 11 on 22.04
+        # Linux matches the image the host releases are built on. GCC 11 on 22.04
         # leaks initializer-list elements when a later element throws.
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -45,43 +45,14 @@ jobs:
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
-      # Dependencies build optimized: embedded DuckDB with debug information
-      # exceeds the Agent artifact limit on Linux.
+      # Dependencies build optimized; only the project is a debug build.
       - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-debug
       # -k 0 reports every failing translation unit in one run, not only the first.
       - run: cmake --build --preset conan-debug -- -k 0
       - run: python scripts/desktop/python_runtime.py
       - run: ctest --preset conan-debug --output-on-failure
-      - name: Prepare Linux user service manager
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo loginctl enable-linger "$(id -un)"
-          sudo systemctl start "user@$(id -u).service"
-          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
-          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
-      - name: Manager and Agent as OS user services
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        run: python tests/acceptance/node_manager_services.py --build build/Debug --allow-user-services
-      - name: Install SSH acceptance prerequisites
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssh-server
-          sudo mkdir -p /run/sshd
-          sudo systemctl start ssh.service
-      - name: Repair runner sudoers permissions
-        if: runner.os == 'Linux'
-        # The hosted image ships /etc/sudoers.d/runner with mode 0640, which
-        # the initializer's full visudo check rightly rejects.
-        run: sudo chmod 0440 /etc/sudoers.d/runner
-      - name: Real SSH and native system service acceptance
-        if: runner.os == 'Linux'
-        timeout-minutes: 8
-        run: python tests/acceptance/ssh_system_service.py --build build/Debug --allow-system-service
-  remote-linux:
+  linux-hosts:
     strategy:
       fail-fast: false
       matrix:
@@ -99,24 +70,13 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-release
-      - run: python scripts/services/deployment_bundle.py build/Release
-      - name: Verify native Linux executables
-        run: |
-          ./build/Release/asterion_node_agent --version
-          ./build/Release/asterion_trading --version
-          ./build/Release/asterion_market --version
-          ./build/Release/asterion_data --version
-          ./build/Release/asterion_research --version
-          ldd build/Release/asterion_node_agent
-          ldd build/Release/asterion_trading
-      - uses: actions/upload-artifact@v4
-        with:
-          name: remote-linux-${{ matrix.arch }}
-          if-no-files-found: error
-          path: build/Release/deployment/*.zip
-      # The recording host's own release, one self-extracting script, apart
-      # from the services Terminal deploys.
+      # The trading and recording hosts' own releases, one self-extracting
+      # script each.
       - run: cmake --build build/Release --target asterion_trading_setup
+      - name: Verify the trading service
+        run: |
+          ./build/Release/asterion_trading --version
+          ldd build/Release/asterion_trading
       - uses: actions/upload-artifact@v4
         with:
           name: trading-linux-${{ matrix.arch }}
@@ -134,7 +94,7 @@ jobs:
           path: build/Release/asterion-recorder-setup.sh
 
   terminal:
-    needs: [style, core, core-sanitizers, remote-linux]
+    needs: [style, core, core-sanitizers, linux-hosts]
     runs-on: macos-latest
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
@@ -154,13 +114,6 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: remote-linux-*
-          merge-multiple: true
-          path: build/linux-bundles
-      - name: Validate and stage remote Linux services
-        run: python scripts/desktop/remote_resources.py stage
       - name: Build and link native desktop
         run: python scripts/desktop/desktop.py check --prepare-python
       - run: ctest --preset conan-debug --output-on-failure
@@ -189,12 +142,10 @@ jobs:
           if-no-files-found: error
           path: build/desktop-test/*.dmg
 
-  # The browser suite stays on the macOS job: each of its spec files copies the
-  # service programs, which with embedded Linux debug information takes tens of
-  # gigabytes of temporary space. Only the @trading tests run here, because the
-  # trading service runs on Linux only and they skip elsewhere.
+  # The whole browser suite runs on the macOS job. Only the @trading tests run
+  # here, because the trading service runs on Linux only and they skip elsewhere.
   terminal-linux:
-    needs: [style, core, core-sanitizers, remote-linux]
+    needs: [style, core, core-sanitizers, linux-hosts]
     runs-on: ubuntu-24.04
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
@@ -214,13 +165,6 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: remote-linux-*
-          merge-multiple: true
-          path: build/linux-bundles
-      - name: Validate and stage remote Linux services
-        run: python scripts/desktop/remote_resources.py stage
       - name: Prepare a display and the Electron sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces that the
         # Chromium sandbox uses; the Terminal never runs with --no-sandbox.

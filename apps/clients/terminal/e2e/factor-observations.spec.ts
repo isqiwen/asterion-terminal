@@ -72,9 +72,8 @@ test("retained factor observations distinguish zero and unknown labels and survi
   const state = await rpc(page.request, "runtime.snapshot");
   const dataService = state.data.service;
   const researchService = state.research_service.service;
-  await rpc(page.request, "node.action", { id: "local", service: dataService, action: "stop" });
+  await rpc(page.request, "node.action", { service: dataService, action: "stop" });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: researchService,
     action: "restart",
   });
@@ -259,7 +258,7 @@ test("retained holdout evidence distinguishes known crossed labels from unknown 
   });
   expect(original.result.observations[99].forward_return).toBeNull();
   const service = (await rpc(page.request, "runtime.snapshot")).research_service.service;
-  await rpc(page.request, "node.action", { id: "local", service, action: "restart" });
+  await rpc(page.request, "node.action", { service, action: "restart" });
   await expect
     .poll(
       async () =>
@@ -375,7 +374,7 @@ for (const mode of ["search", "rolling"] as const)
       ).toContainText("标签跨开发边界，排除评价");
     }
     const service = (await rpc(page.request, "runtime.snapshot")).research_service.service;
-    await rpc(page.request, "node.action", { id: "local", service, action: "restart" });
+    await rpc(page.request, "node.action", { service, action: "restart" });
     await expect
       .poll(
         async () =>

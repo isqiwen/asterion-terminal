@@ -8,7 +8,6 @@ export type DialogOptions = {
 export interface DesktopBridge {
   readonly platform: string;
   readonly environment: "development" | "production";
-  onDevelopmentStopping(listener: (stopping: boolean) => void): () => void;
   request(body: string): Promise<string>;
   lab(payload: Uint8Array): Promise<Uint8Array>;
   openSettings(category: string): Promise<void>;

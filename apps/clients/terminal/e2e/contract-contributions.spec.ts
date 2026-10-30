@@ -275,12 +275,10 @@ test("original multi-contract contributions keep real fills, account residual an
     }
     await restartServices(page.request, [context.service], async () => {
       await rpc(page.request, "node.action", {
-        id: "local",
         service: context.service,
         action: "stop",
       });
       await rpc(page.request, "node.action", {
-        id: "local",
         service: context.service,
         action: "start",
       });
@@ -295,7 +293,7 @@ test("original multi-contract contributions keep real fills, account residual an
     const state = await rpc(page.request, "runtime.snapshot");
     const selected = [state.data.service, state.research_service.service];
     for (const service of selected)
-      await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+      await rpc(page.request, "node.action", { service, action: "stop" });
     await expect
       .poll(
         async () =>

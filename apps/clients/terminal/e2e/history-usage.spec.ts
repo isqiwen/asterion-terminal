@@ -88,41 +88,21 @@ test("owner ledger retains offline consumers and an unavailable authority is nev
   await expect(usage).not.toContainText("未登记保留引用");
 });
 
-test("unconnected node registrations do not replace Data reference authority or trigger connection", async ({
+test("Data reference authority answers usage without inferring references from processes", async ({
   page,
 }) => {
-  const { mkdir, writeFile, readFile, rm } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-  expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
-  const directory = join(process.env.ASTERION_ROOT!, "enrollments", "offline-inspection-fixture");
   const seeded = await seedHistory(page.request, [100, 101, 102], "offline-ui", { product: "ni" });
-  await mkdir(directory, { recursive: true });
-  const marker = "synthetic registration must remain unread and unchanged";
-  await writeFile(join(directory, "enrollment.json"), marker);
-  try {
-    await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "数据", exact: true })
-      .click();
-    await openView(page, "records");
-    const archive = page.getByRole("region", { name: "数据仓库", exact: true });
-    await archive
-      .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
-      .getByRole("button", { name: "使用情况", exact: true })
-      .click();
-    const usage = archive.getByRole("region", { name: "使用情况", exact: true });
-    await expect(usage).toContainText("当前拥有者未登记保留引用");
-    await expect(usage.getByRole("alert")).toHaveCount(0);
-    await usage.getByText("检查范围与保留说明", { exact: true }).click();
-    await expect(usage).toContainText("不通过进程清单推断引用");
-    expect(await readFile(join(directory, "enrollment.json"), "utf8")).toBe(marker);
-    expect(
-      (await rpc(page.request, "runtime.snapshot")).nodes.some(
-        (node: { id: string }) => node.id === "offline-inspection-fixture",
-      ),
-    ).toBe(false);
-  } finally {
-    await rm(directory, { recursive: true });
-  }
+  await page.goto("/");
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
+  await openView(page, "records");
+  const archive = page.getByRole("region", { name: "数据仓库", exact: true });
+  await archive
+    .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
+    .getByRole("button", { name: "使用情况", exact: true })
+    .click();
+  const usage = archive.getByRole("region", { name: "使用情况", exact: true });
+  await expect(usage).toContainText("当前拥有者未登记保留引用");
+  await expect(usage.getByRole("alert")).toHaveCount(0);
+  await usage.getByText("检查范围与保留说明", { exact: true }).click();
+  await expect(usage).toContainText("不通过进程清单推断引用");
 });

@@ -39,7 +39,6 @@ test("snapshot maintenance preserves shared contents, requires confirmation and 
   );
   const before = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: before.data.service,
     action: "stop",
   });

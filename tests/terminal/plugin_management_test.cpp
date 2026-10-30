@@ -1,6 +1,4 @@
 #include "plugin_catalog.hpp"
-#include "plugin_artifacts.hpp"
-#include "service_configuration.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -94,59 +92,6 @@ TEST_F(PluginManagement, DuplicateIdentityCannotBeSelectedByFilenameOrder)
         EXPECT_EQ(entry.availability, terminal::PluginAvailability::invalid);
     const std::vector<std::string> hashes{sha256_file(good)};
     EXPECT_THROW(catalog.select_data_task_plugins(hashes), std::invalid_argument);
-}
-
-TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifiedArtifacts)
-{
-    fs::create_directory(root / "artifacts");
-    fs::create_directories(root / "services/task");
-    const auto hash = sha256_file(PLUGIN_GOOD);
-    fs::copy_file(PLUGIN_GOOD, root / "artifacts" / (hash + ".bin"));
-    const agent::PluginArtifacts artifacts(root, NODE_AGENT);
-    EXPECT_EQ(artifacts.verify({hash}).at(hash), "test.independent.c");
-    const auto installed = artifacts.materialize("task", {hash});
-    const auto library = installed / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
-    EXPECT_EQ(sha256_file(library), hash);
-    // An interrupted temporary and a truncated copy are derived files: the
-    // next installation removes and rewrites them instead of failing forever.
-    write_file_durably(installed / (library.filename().string() + ".tmp"), "partial");
-    write_file_durably(library, "truncated");
-    EXPECT_EQ(artifacts.materialize("task", {hash}), installed);
-    EXPECT_EQ(sha256_file(library), hash);
-    EXPECT_EQ(std::distance(fs::directory_iterator(installed), fs::directory_iterator{}), 1);
-    // A library whose descriptor cannot be read is rejected by the inspecting
-    // child; the Agent process itself never loads it.
-    const auto broken = sha256_file(PLUGIN_BAD_ABI);
-    fs::copy_file(PLUGIN_BAD_ABI, root / "artifacts" / (broken + ".bin"));
-    EXPECT_THROW(artifacts.verify({broken}), std::invalid_argument);
-    EXPECT_THROW(artifacts.verify({hash, hash}), std::invalid_argument);
-    // A tampered source artifact is never copied.
-    write_file_durably(root / "artifacts" / (hash + ".bin"), "tampered");
-    EXPECT_THROW(artifacts.materialize("task", {hash}), std::invalid_argument);
-}
-
-TEST_F(PluginManagement, ConfigurationKeepsRevisionAndStoppedState)
-{
-    fs::create_directory(root / "ledger");
-    const Json document{
-        {"kind", static_cast<int>(node::proto::RESEARCH)},
-        {"artifact", std::string(64, 'a')},
-        {"provider_artifact", ""},
-        {"plugin_artifacts", Json::array({std::string(64, 'e')})},
-        {"port", 0},
-        {"desired", false},
-        {"directory", (root / "ledger").string()}
-    };
-    write_file_durably(root / "service.json", document.dump());
-    const auto configuration = agent::load_service_configuration(root, true, 0);
-    EXPECT_FALSE(configuration.desired);
-    EXPECT_EQ(agent::service_revision(configuration), sha256_bytes(document.dump()));
-    agent::save_service_configuration(root, configuration);
-    EXPECT_EQ(sha256_file(root / "service.json"), sha256_bytes(document.dump()));
-    write_file_durably(root / "service.pending", "interrupted");
-    EXPECT_THROW(agent::load_service_configuration(root, true, 0), std::runtime_error);
-    EXPECT_THROW(agent::save_service_configuration(root, configuration), std::runtime_error);
-    EXPECT_EQ(sha256_file(root / "service.json"), sha256_bytes(document.dump()));
 }
 
 } // namespace

@@ -32,12 +32,10 @@ test("isolated one-minute replay keeps archive and observed segments explicit", 
     // their explicit startup checks; all market/data replies below are replayed.
     if (
       [
-        "node.local",
         "market.local",
         "native.plugins.inspect",
         "node.data.local.open",
-        "node.data.attach",
-        "node.research.attach",
+        "node.research.local.open",
       ].includes(request.method)
     )
       return route.continue();

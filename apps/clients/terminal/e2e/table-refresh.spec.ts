@@ -20,7 +20,6 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   const candidate = (await rpc(page.request, "native.plugins.preview", { path })).plugin_candidate;
   await rpc(page.request, "native.plugins.install", { path, sha256: candidate.sha256 });
   const state = await rpc(page.request, "node.action", {
-    id: "local",
     service: "historical-data",
     action: "stop",
   });
@@ -28,7 +27,6 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
     .find((node: { id: string }) => node.id === "local")
     .health.services.find((item: { id: string }) => item.id === "historical-data");
   await rpc(page.request, "node.plugins.configure", {
-    id: "local",
     service: "historical-data",
     revision: service.revision,
     plugins: [
@@ -320,7 +318,6 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
   );
   const beforeRestart = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: beforeRestart.data.service,
     action: "stop",
   });

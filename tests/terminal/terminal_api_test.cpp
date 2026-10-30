@@ -89,9 +89,8 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
     };
     invoke("node.research.local.open");
     invoke("node.data.local.open");
-    const auto stopped = invoke(
-        "node.action",
-        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+    const auto stopped =
+        invoke("node.action", {{"service", "historical-data"}, {"action", "stop"}});
     std::string directory;
     for (const auto& node : stopped.at("nodes"))
         if (node.at("id") == "local")
@@ -648,20 +647,6 @@ TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState)
     EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot")).contains("result"));
 }
 
-TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures)
-{
-    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-        asterion_terminal_create(nullptr),
-        asterion_terminal_destroy);
-    ASSERT_NE(runtime, nullptr);
-    for (bool recover : {false, true}) {
-        const auto response =
-            call(runtime.get(), request("development.shutdown", {{"recover", recover}}));
-        ASSERT_TRUE(response.contains("error"));
-        EXPECT_EQ(response.at("error").at("code"), "permission_denied");
-    }
-}
-
 TEST(TerminalApi, Contracts)
 {
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
@@ -736,7 +721,7 @@ TEST(TerminalApi, Contracts)
         std::invalid_argument);
 }
 
-TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions)
+TEST(TerminalApi, DataServiceRestartPreservesItsDirectoryAndPublishedVersions)
 {
     std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
         asterion_terminal_create(nullptr),
@@ -758,35 +743,12 @@ TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions)
                         return item;
         throw std::runtime_error("fixture data service not found");
     };
-    const auto heartbeat = [](const json& snapshot) {
-        for (const auto& node : snapshot.at("nodes"))
-            if (node.at("id") == "local")
-                return node.at("last_heartbeat_ms").get<std::int64_t>();
-        throw std::runtime_error("fixture local Agent observation is missing");
-    };
-    const auto acknowledged = invoke(
-        "node.action",
-        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
-    auto inspected = acknowledged;
-    auto stopped = service(inspected);
-    const auto stop_deadline = std::chrono::steady_clock::now()
-        + asterion::testing_support::bound(std::chrono::seconds(10));
-    // STOP acknowledgement does not promise a stopped process or a fresh
-    // Terminal snapshot. Inspect a later Agent observation before using its revision.
-    while (heartbeat(inspected) <= heartbeat(acknowledged) || stopped.at("state") != "stopped"
-        || stopped.at("desired_running").get<bool>()) {
-        ASSERT_LT(std::chrono::steady_clock::now(), stop_deadline) << stopped.dump();
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        inspected = invoke("runtime.snapshot");
-        stopped = service(inspected);
-    }
-    const auto updated = service(invoke(
-        "node.update",
-        {{"id", "local"}, {"service", "historical-data"}, {"revision", stopped.at("revision")}}));
-    EXPECT_EQ(updated.at("state"), "stopped");
-    EXPECT_FALSE(updated.contains("task_service"));
-    EXPECT_EQ(updated.at("kind"), "data");
-    EXPECT_EQ(updated.at("directory"), stopped.at("directory"));
+    // The Terminal stops its child before it acknowledges.
+    const auto stopped =
+        service(invoke("node.action", {{"service", "historical-data"}, {"action", "stop"}}));
+    EXPECT_EQ(stopped.at("state"), "stopped");
+    EXPECT_FALSE(stopped.at("desired_running").get<bool>());
+    EXPECT_EQ(stopped.at("kind"), "data");
     invoke("node.data.local.open");
     const auto deadline = std::chrono::steady_clock::now()
         + asterion::testing_support::bound(std::chrono::seconds(10));
@@ -815,9 +777,8 @@ TEST(TerminalApi, ARefusedMinuteSeriesIsAnError)
     };
     invoke("node.research.local.open");
     invoke("node.data.local.open");
-    const auto stopped = invoke(
-        "node.action",
-        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+    const auto stopped =
+        invoke("node.action", {{"service", "historical-data"}, {"action", "stop"}});
     std::string directory;
     for (const auto& node : stopped.at("nodes"))
         if (node.at("id") == "local")
@@ -1068,8 +1029,8 @@ TEST(MarketHistory, VolumeUsesPerContractDayBaselineAndResetsOnDiscontinuity)
 
 namespace {
 
-// A disposable Agent directory for this process; the Agent it starts is
-// terminated by its recorded PID and the directory removed at exit.
+// A disposable root for this process, removed at exit. The services a
+// Terminal starts exit with it.
 class IsolatedNode
 {
 public:
@@ -1081,19 +1042,11 @@ public:
         std::filesystem::create_directory(path_);
         ::setenv("ASTERION_ROOT", path_.c_str(), 1);
         ::setenv("ASTERION_TEST_NODE_ISOLATED", "1", 1);
-        // The Agent exits with this process even if CTest kills it on timeout.
-        ::setenv("ASTERION_TEST_OWNER_PID", std::to_string(::getpid()).c_str(), 1);
     }
 
     ~IsolatedNode()
     {
-        for (const auto& file : {path_ / "agent.pid", path_ / "manager/manager.pid"}) {
-            std::ifstream pidfile(file);
-            if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
-                for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        // The Agent's services stop writing within their supervisor grace period.
+        // Services still stopping may write once more.
         std::error_code ignored;
         for (int i = 0; i < 6; ++i) {
             std::filesystem::remove_all(path_, ignored);
@@ -1115,17 +1068,17 @@ int main(int argc, char** argv)
     if (::testing::GTEST_FLAG(list_tests))
         return RUN_ALL_TESTS();
     // CTest runs each case with --isolated-node, so cases run in parallel, each
-    // with its own Agent.
+    // with its own root.
     std::optional<IsolatedNode> node;
     for (int i = 1; i < argc; ++i)
         if (std::string_view(argv[i]) == "--isolated-node")
             node.emplace();
-    // Direct invocation must never register test sessions in the user's daily Agent.
+    // Direct invocation must never touch the user's own root.
     const char* directory = std::getenv("ASTERION_ROOT");
     const char* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
     if (!directory || !*directory || !isolated || std::string_view(isolated) != "1") {
         std::cerr
-            << "Run terminal tests through CTest, with --isolated-node or " "tests/support/isolated_node.py; an isolated test Agent is required.\n";
+            << "Run terminal tests through CTest, with --isolated-node or " "tests/support/isolated_node.py; an isolated test root is required.\n";
         return 2;
     }
     return RUN_ALL_TESTS();
@@ -1170,66 +1123,6 @@ TEST(TerminalApi, LargeNamedDatasetsBacktest)
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
-TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands)
-{
-    // An SSH peer that accepts and never speaks: the probe waits for its timeout.
-    const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT_GE(listener, 0);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address), 0);
-    ASSERT_EQ(::listen(listener, 8), 0);
-    socklen_t size = sizeof address;
-    ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &size), 0);
-    const auto port = std::to_string(ntohs(address.sin_port));
-    const auto folder =
-        std::filesystem::temp_directory_path() / ("asterion-ssh-" + asterion::unique_process_id());
-    std::filesystem::create_directory(folder);
-    ASSERT_EQ(
-        std::system(
-            ("ssh-keygen -q -t ed25519 -N '' -f '" + (folder / "key").string() + "'").c_str()),
-        0);
-    std::ofstream(folder / "known_hosts") << "";
-    std::ifstream key_file(folder / "key");
-    const std::string key{std::istreambuf_iterator<char>(key_file), {}};
-    const json inspect{
-        {"id", "silent"},
-        {"host", "127.0.0.1"},
-        {"ssh_port", port},
-        {"username", "tester"},
-        {"key_source", "provided"},
-        {"private_key", key},
-        {"known_hosts", (folder / "known_hosts").string()},
-        {"agent_port", "7443"},
-        {"firewall_port", "7443"},
-        {"firewall_action", "allow"}
-    };
-    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-        asterion_terminal_create(nullptr),
-        asterion_terminal_destroy);
-    std::atomic<bool> done{false};
-    std::thread slow([&] {
-        (void)call(runtime.get(), request("node.firewall.inspect", inspect));
-        done = true;
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    ASSERT_FALSE(done.load()) << "the probe should still be waiting for the silent peer";
-    const auto started = std::chrono::steady_clock::now();
-    const auto other = call(runtime.get(), request("data.dataset.clear"));
-    EXPECT_TRUE(other.contains("result")) << other.dump();
-    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
-    const auto second = call(runtime.get(), request("node.firewall.inspect", inspect));
-    ASSERT_TRUE(second.contains("error"));
-    EXPECT_NE(
-        second["error"]["message"].get<std::string>().find("another node operation"),
-        std::string::npos);
-    EXPECT_FALSE(done.load());
-    slow.join();
-    ::close(listener);
-    std::filesystem::remove_all(folder);
-}
 
 TEST(PortfolioBudgetReview, ExplicitReviewIsTraceableAndDoesNotMutateTheSource)
 {

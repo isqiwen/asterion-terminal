@@ -1,7 +1,6 @@
 #include <asterion/research.pb.h>
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/durable_file.hpp>
-#include "node_enrollment.hpp"
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
 #include <asterion/kernel/environment.hpp>
@@ -143,21 +142,6 @@ struct ApplicationTestAccess
                 co_return;
             })
             .get();
-    }
-
-    static std::shared_ptr<NodeClient> connect_node(Application& app)
-    {
-        (void)app.dispatch(
-            {{"version", 1}, {"method", "node.connect"}, {"params", {{"id", "fixture"}}}});
-        return app.impl_->manager.node("fixture");
-    }
-
-    static void node(Application& app, std::shared_ptr<NodeClient> client)
-    {
-        (void)app.dispatch(
-            {{"version", 1},
-                {"method", client ? "node.connect" : "node.disconnect"},
-                {"params", {{"id", "fixture"}}}});
     }
 
     // Changes what the core publishes, as an owner operation does.
@@ -1153,156 +1137,6 @@ TEST(TerminalHistoryUsage, SlowQueryDoesNotBlockAndRejectsStaleOrWrongIdentity)
     EXPECT_THROW(app.dispatch(query), Error);
 }
 
-// A Manager protocol fixture isolates UI behavior from OS registration and Agent ownership.
-static std::string manager_fixture_socket(const std::filesystem::path& root)
-{
-    const auto identity = unique_process_id();
-    create_directories_durably(root / "manager");
-    replace_file_durably(root / "manager/ipc-id", identity);
-    const auto sockets = std::filesystem::path("/tmp") / ("ast-manager-" + identity);
-    std::filesystem::create_directories(sockets);
-    std::filesystem::permissions(
-        sockets,
-        std::filesystem::perms::owner_all,
-        std::filesystem::perm_options::replace);
-    return (sockets / "manager.sock").string();
-}
-
-// Isolated (M0.4): on macOS CI the final node.connect reply sometimes lists no
-// nodes. Node Manager and this native layer are deleted in phase 3.
-TEST(TerminalNodeCommands, DISABLED_SlowServiceActionDoesNotBlockNodeObservationOrUnrelatedCommands)
-{
-    MinuteService source;
-
-    struct Environment
-    {
-        std::optional<std::string> previous = environment_variable("ASTERION_ROOT");
-
-        ~Environment()
-        {
-            if (previous)
-                setenv("ASTERION_ROOT", previous->c_str(), 1);
-            else
-                unsetenv("ASTERION_ROOT");
-        }
-    } restore;
-
-    setenv("ASTERION_ROOT", source.root.c_str(), 1);
-    std::promise<void> entered, release;
-    const auto released = release.get_future().share();
-    std::atomic<unsigned> actions{0};
-    // A Manager numbers its views; the Terminal keeps the newest.
-    std::atomic<std::uint64_t> views{0};
-    std::atomic<bool> busy{false}, connected{true};
-    const auto socket = manager_fixture_socket(source.root);
-    testing_support::BlockingService host(
-        {socket, {}, 0, {}},
-        [&](testing_support::Connection& connection, std::stop_token) {
-            manager::proto::Request request;
-            if (!request.ParseFromString(connection.receive(2s)))
-                throw std::runtime_error("invalid fixture request");
-            manager::proto::Response response;
-            response.set_version(1);
-            response.set_correlation_id(request.correlation_id());
-            if (request.has_snapshot())
-                response.mutable_snapshot();
-            else if (request.has_node() && request.node().has_history())
-                response.mutable_history();
-            else if (request.has_node() && request.node().has_action()) {
-                if (busy.exchange(true)) {
-                    response.mutable_error()->set_code("conflict");
-                    response.mutable_error()->set_message(
-                        "another node operation is in progress; retry after it completes");
-                } else {
-                    if (actions.fetch_add(1) == 0)
-                        entered.set_value();
-                    if (released.wait_for(testing_support::bound(4s)) != std::future_status::ready)
-                        throw std::runtime_error("fixture action was not released");
-                    response.mutable_accepted();
-                    busy = false;
-                }
-            } else {
-                if (request.node().has_disconnect())
-                    connected = false;
-                else
-                    connected = true;
-                response.mutable_accepted();
-            }
-            auto* view =
-                request.has_snapshot() ? response.mutable_snapshot() : response.mutable_view();
-            view->set_sequence(++views);
-            if (connected) {
-                auto* node = view->add_nodes();
-                node->set_id("fixture");
-                node->set_online(true);
-                auto* status = node->mutable_health();
-                status->set_instance_id(actions.load() ? "restarted-fixture" : "fixture");
-                status->set_phase(node::proto::Status::READY);
-                status->set_os("macos");
-                status->set_arch("arm64");
-            }
-            connection.send(response.SerializeAsString(), 2s);
-        });
-    auto running = std::async(std::launch::async, [&] {
-        return host.run();
-    });
-
-    struct Stop
-    {
-        std::future<bool>& running;
-
-        ~Stop()
-        {
-            service::request_stop();
-            running.wait();
-        }
-    } stop{running};
-
-    terminal::Application app;
-    auto node = terminal::ApplicationTestAccess::connect_node(app);
-    terminal::ApplicationTestAccess::node(app, node);
-    (void)app.dispatch(request("runtime.snapshot"));
-    auto captured = terminal::ApplicationTestAccess::capture(app);
-    const auto action =
-        request("node.action", {{"id", "fixture"}, {"service", "task"}, {"action", "restart"}});
-    auto pending = std::async(std::launch::async, [&] {
-        return app.dispatch(action);
-    });
-    EXPECT_EQ(entered.get_future().wait_for(testing_support::bound(1s)), std::future_status::ready);
-    auto observation = node->history_inventory();
-    EXPECT_EQ(observation.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    const auto started = std::chrono::steady_clock::now();
-    EXPECT_NO_THROW((void)app.dispatch(request("node.local")));
-    EXPECT_NO_THROW((void)app.dispatch(request("market.disconnect")));
-    EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("protocol"), 1);
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
-    try {
-        (void)app.dispatch(action);
-        ADD_FAILURE() << "concurrent service mutation accepted";
-    } catch (const Error& error) {
-        EXPECT_STREQ(
-            error.what(),
-            "another node operation is in progress; retry after it completes");
-    }
-    EXPECT_EQ(actions.load(), 1U);
-    release.set_value();
-    EXPECT_NO_THROW((void)observation.get());
-    EXPECT_NO_THROW((void)pending.get());
-    EXPECT_NO_THROW((void)app.dispatch(action));
-    EXPECT_EQ(actions.load(), 2U);
-    EXPECT_EQ(
-        app.dispatch(request("node.connect", {{"id", "fixture"}}))
-            .at("nodes")
-            .at(0)
-            .at("health")
-            .at("instance_id"),
-        "restarted-fixture");
-    terminal::ApplicationTestAccess::node(app, {});
-    node.reset();
-    auto retained = std::async(std::launch::async, std::move(captured));
-    EXPECT_EQ(retained.get().at("nodes").at(0).at("health").at("instance_id"), "fixture");
-}
-
 TEST(TerminalHistoryUsage, DataAuthorityRetainsOfflineConsumersWithoutResearchOrNodeDiscovery)
 {
     MinuteService source;
@@ -1320,7 +1154,9 @@ TEST(TerminalHistoryUsage, DataAuthorityRetainsOfflineConsumersWithoutResearchOr
     EXPECT_EQ(usage.at("consumers")[0].at("phase"), "prepared");
     EXPECT_EQ(usage.at("consumers")[1].at("phase"), "confirmed");
     EXPECT_TRUE(result.at("research_service").is_null());
-    EXPECT_TRUE(result.at("nodes").empty());
+    // Only the Terminal's own local services; none is running here.
+    ASSERT_EQ(result.at("nodes").size(), 1U);
+    EXPECT_EQ(result.at("nodes")[0].at("id"), "local");
     source.wrong_identity = true;
     EXPECT_THROW(app.dispatch(query), Error);
 }

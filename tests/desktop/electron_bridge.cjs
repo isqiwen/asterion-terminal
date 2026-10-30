@@ -5,11 +5,8 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { Worker } = require("node:worker_threads");
 const addon = path.resolve(process.argv[2]);
-// Supply the bundled configuration location when loading without the Electron host.
-process.env.ASTERION_NODE_MANAGER_EXECUTABLE = path.join(
-  path.dirname(addon),
-  "asterion_node_manager",
-);
+// The application's programs and configuration, as Electron names them.
+process.env.ASTERION_APPLICATION_DIRECTORY = path.dirname(addon);
 const bridge = require(addon);
 const request = method => bridge.request(JSON.stringify({ version: 1, method, params: {} }));
 const snapshot = () => request("runtime.snapshot");
@@ -60,7 +57,12 @@ async function isolatedPoolCheck() {
 
   await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [__filename, addon, "pool-check"], {
-      env: { ...process.env, UV_THREADPOOL_SIZE: "1" },
+      // Another process is another Terminal: it needs a root of its own.
+      env: {
+        ...process.env,
+        ASTERION_ROOT: path.join(process.env.ASTERION_ROOT, "pool-check"),
+        UV_THREADPOOL_SIZE: "1",
+      },
       stdio: "inherit",
     });
     child.once("error", reject);

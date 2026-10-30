@@ -6,7 +6,6 @@
 #include <asterion/foundation/error.hpp>
 #include <fstream>
 #include <set>
-#include <memory>
 #include <cerrno>
 #include <array>
 #include <charconv>
@@ -129,13 +128,6 @@ std::string deployment_action(const Json& candidate, const Json& record)
     return target == current ? "repair" : "upgrade";
 }
 
-void identity(const fs::path& root)
-{
-    const auto path = root / "ipc-id";
-    if (!fs::exists(path))
-        replace_file_durably(path, unique_process_id());
-}
-
 void exchange(const fs::path& a, const fs::path& b)
 {
 #ifdef __linux__
@@ -169,7 +161,6 @@ Json inspect(const Layout& layout)
     Json result{
         {"directory", layout.destination.string()},
         {"root", layout.root.string()},
-        {"enrollment", layout.enrollment.string()},
         {"installed", false},
         {"version", ""},
         {"candidate_version", ""},
@@ -201,17 +192,13 @@ Json inspect(const Layout& layout)
     }
     if (busy(layout.terminal() / "data", "terminal.lock"))
         result["busy"].push_back("terminal");
-    if (busy(layout.agent() / "data", "agent.lock"))
-        result["busy"].push_back("agent");
-    if (busy(layout.manager() / "data", "manager.lock"))
-        result["busy"].push_back("manager");
     return result;
 }
 
 void deploy(
     const Layout& layout,
     Deployment deployment,
-    const Services& services,
+    const Desktop& desktop,
     const std::function<void(const char*)>& progress)
 {
     require_target(layout);
@@ -220,9 +207,8 @@ void deploy(
         path = path.parent_path())
         if (path == layout.source)
             throw Error(ErrorCode::invalid_request, "installation source overlaps its destination");
-    for (const auto& data :
-        {layout.terminal() / "data", layout.agent() / "data", layout.manager() / "data"})
-        create_directories_durably(data);
+    create_directories_durably(layout.terminal() / "data");
+    // The Terminal holds its lock while it runs, and its services exit with it.
     Ownership ownership(layout);
     const std::string operation = deployment == Deployment::install ? "install"
         : deployment == Deployment::upgrade                         ? "upgrade"
@@ -231,39 +217,12 @@ void deploy(
     if (!registered && (deployment != Deployment::install || fs::exists(layout.destination)))
         throw Error(ErrorCode::conflict, "application destination is not owned by this installer");
     // Recheck under the installation lock: another installer may have completed
-    // since the UI's inspection. No writes or service changes precede this decision.
+    // since the UI's inspection. No writes precede this decision.
     if (deployment_action(candidate, registered ? registration(layout) : Json{}) != operation)
         throw Error(
             ErrorCode::conflict,
             "installation operation is not available for this package");
-    if (deployment != Deployment::install && fs::exists(layout.enrollment)
-        && (deployment == Deployment::upgrade
-            || fs::exists(layout.enrollment / ".maintenance.json"))) {
-        bool installed_remote = false;
-        for (const auto& entry : fs::directory_iterator(layout.enrollment)) {
-            if (entry.path().filename().string().starts_with("."))
-                continue;
-            const auto file = entry.path() / "enrollment.json";
-            if (fs::is_regular_file(file) && read(file).value("installed", true))
-                installed_remote = true;
-        }
-        if (installed_remote) {
-            const auto plan = read(layout.enrollment / ".maintenance.json");
-            if (plan.at("action") != "prepare" || plan.at("version") != candidate.at("version"))
-                throw Error(
-                    ErrorCode::conflict,
-                    "prepare remote nodes for this package before local deployment");
-            for (const auto& node : plan.at("nodes"))
-                if (node.at("phase") != "prepared")
-                    throw Error(ErrorCode::conflict, "remote program preparation is incomplete");
-        }
-    }
     progress("checking");
-    // Check process ownership before writing a pending operation or unregistering services.
-    {
-        FileLock agent(layout.agent() / "data", "agent.lock"),
-            manager(layout.manager() / "data", "manager.lock");
-    }
     Json record{
         {"product", "asterion-terminal"},
         {"version", candidate.at("version")},
@@ -271,10 +230,6 @@ void deploy(
         {"pending", operation}
     };
     replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
-    if (deployment != Deployment::install)
-        services.unregister();
-    auto agent_stopped = std::make_unique<FileLock>(layout.agent() / "data", "agent.lock");
-    auto manager_stopped = std::make_unique<FileLock>(layout.manager() / "data", "manager.lock");
     create_directories_durably(layout.destination.parent_path());
     const auto staged =
         layout.destination.parent_path() / (".asterion-install-" + unique_process_id());
@@ -299,39 +254,26 @@ void deploy(
         fs::rename(staged, layout.destination);
         sync_directory(layout.destination.parent_path());
     }
-    if (deployment == Deployment::install) {
+    if (deployment == Deployment::install)
         terminal::install_node_configuration(
             layout.root,
             native_directory(layout.destination) / "config");
-        identity(layout.agent() / "data");
-        identity(layout.manager() / "data");
-    }
-    progress("preparing");
-    agent_stopped.reset(); // The offline Agent child acquires this lock for preparation.
-    services.prepare_programs();
-    agent_stopped = std::make_unique<FileLock>(layout.agent() / "data", "agent.lock");
     progress("registering");
-    services.register_stopped();
+    desktop.launcher(true);
     record["pending"] = "";
     replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
-    if (deployment == Deployment::install || deployment == Deployment::upgrade) {
-        // Publication is complete. Daemons must acquire their own process locks;
-        // retain installer ownership until both service start requests finish.
-        agent_stopped.reset();
-        manager_stopped.reset();
-        progress("starting");
-        services.start();
-    }
     progress("complete");
 }
 
 void uninstall(
     const Layout& layout,
     bool preserve_data,
-    const Services& services,
+    const Desktop& desktop,
     const std::function<void(const char*)>& progress)
 {
     require_target(layout);
+    if (!preserve_data && fs::is_symlink(layout.root))
+        throw Error(ErrorCode::invalid_request, "invalid uninstall data directory");
     Ownership ownership(layout);
     auto record = registration(layout);
     if (record.at("pending") != "" && record.at("pending") != "uninstall")
@@ -340,62 +282,25 @@ void uninstall(
         throw Error(
             ErrorCode::conflict,
             "continue uninstall with the recorded data retention choice");
-    if (!preserve_data
-        && (!layout.enrollment.is_absolute() || layout.enrollment == layout.enrollment.root_path()
-            || fs::is_symlink(layout.root) || fs::is_symlink(layout.manager())
-            || fs::is_symlink(layout.enrollment)))
-        throw Error(ErrorCode::invalid_request, "invalid uninstall data directory");
-    if (!preserve_data)
-        for (auto path = layout.root; !path.empty() && path != path.root_path();
-            path = path.parent_path())
-            if (path == layout.enrollment)
-                throw Error(ErrorCode::invalid_request, "invalid uninstall data directory");
-    {
-        FileLock agent(layout.agent() / "data", "agent.lock"),
-            manager(layout.manager() / "data", "manager.lock");
-    }
-    if (fs::exists(layout.enrollment / ".maintenance.json"))
-        throw Error(
-            ErrorCode::conflict,
-            "finish remote maintenance before uninstalling this machine");
-    if (!preserve_data && fs::exists(layout.enrollment)) {
-        for (const auto& entry : fs::directory_iterator(layout.enrollment)) {
-            if (entry.path().filename().string().starts_with("."))
-                continue;
-            const auto registration = entry.path() / "enrollment.json";
-            if (fs::is_regular_file(registration) && read(registration).value("installed", true))
-                throw Error(
-                    ErrorCode::conflict,
-                    "uninstall remote nodes before deleting their management identities");
-        }
-    }
     record["pending"] = "uninstall";
     record["preserve_data"] = preserve_data;
     replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
     progress("unregistering");
-    services.unregister();
-    FileLock agent_stopped(layout.agent() / "data", "agent.lock");
-    FileLock manager_stopped(layout.manager() / "data", "manager.lock");
+    desktop.launcher(false);
     if (!preserve_data)
-        services.forget_credentials();
+        desktop.forget_credentials();
     progress("removing");
     fs::remove_all(layout.destination);
     if (!preserve_data) {
         progress("removingData");
-        if (fs::exists(layout.enrollment)) {
-            fs::remove_all(layout.enrollment);
-            sync_directory(layout.enrollment.parent_path());
-        }
         // Keep the locked inodes and the pending record until completion, so
         // another installer cannot acquire a newly created lock during deletion.
-        // Diagnostics remain available if deletion fails and must be resumed.
         // Every program's directory goes but its logs and, while they are held,
-        // the locks and the pending record.
+        // the locks and the pending record: diagnostics remain if deletion
+        // fails and must be resumed.
         static const std::set<std::string> kept{
             "installation.lock",
             "terminal.lock",
-            "agent.lock",
-            "manager.lock",
             "installation.json"
         };
         for (const auto& program : fs::directory_iterator(layout.root)) {

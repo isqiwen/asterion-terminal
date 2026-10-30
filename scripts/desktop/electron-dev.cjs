@@ -16,27 +16,17 @@ function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   if (desktop && desktop.exitCode === null && desktop.signalCode === null) {
-    // Keep Vite available while Electron waits for native work and stops services.
+    // Keep Vite available while Electron stops its native work and services.
     if (desktop.connected) desktop.send({ type: "asterion:development-quit" });
     else desktop.kill("SIGTERM");
   } else if (!desktop) renderer?.kill();
 }
-async function finish(code) {
+// Services exit with Electron, which owns them; nothing is left to stop here.
+function finish(code) {
   if (finishing) return;
   finishing = true;
   stopping = true;
-  // Handles renderer crashes and forced Electron termination as well as normal exit.
-  const cleanup = spawn(process.execPath, [path.join(__dirname, "stop-development.cjs")], {
-    cwd: root,
-    env: process.env,
-    stdio: "inherit",
-    detached: true,
-  });
-  const result = await new Promise(resolve => {
-    cleanup.once("error", () => resolve(1));
-    cleanup.once("exit", value => resolve(value ?? 1));
-  });
-  process.exitCode = result || code || 0;
+  process.exitCode = code || 0;
   renderer?.kill();
 }
 process.on("SIGINT", () => stop());
@@ -64,17 +54,6 @@ probe.listen(port, "127.0.0.1", () =>
     });
     const deadline = Date.now() + 30000;
     (async () => {
-      // End a previous crashed development session before using this build.
-      const cleanup = spawn(process.execPath, [path.join(__dirname, "stop-development.cjs")], {
-        cwd: root,
-        env: process.env,
-        stdio: "inherit",
-      });
-      const cleaned = await new Promise((resolve, reject) => {
-        cleanup.once("error", reject);
-        cleanup.once("exit", code => resolve(code));
-      });
-      if (cleaned !== 0) throw new Error("Previous development services could not be stopped");
       while (!stopping) {
         try {
           if ((await fetch(`http://127.0.0.1:${port}/index.html`)).ok) break;
@@ -92,9 +71,9 @@ probe.listen(port, "127.0.0.1", () =>
       process.send?.({ type: "development-desktop", pid: desktop.pid });
       desktop.once("error", error => {
         console.error(error.message);
-        void finish(1);
+        finish(1);
       });
-      desktop.once("exit", code => void finish(code ?? 1));
+      desktop.once("exit", code => finish(code ?? 1));
     })().catch(error => {
       console.error(error.message);
       stop(1);

@@ -129,7 +129,7 @@ export function DataBackup({ snapshot }: { snapshot: Snapshot | null }) {
     <section className="settings-section" aria-label={t("数据备份与恢复")}>
       <p>
         {t(
-          "先在连接与部署停止所选本机 Data、Intelligence 和 Research。备份保留原记录，不恢复运行状态。交易账户的记录在交易主机的 data/ 目录，由交易主机自己备份。",
+          "先在本机服务停止所选本机 Data、Intelligence 和 Research。备份保留原记录，不恢复运行状态。交易账户的记录在交易主机的 data/ 目录，由交易主机自己备份。",
         )}
       </p>
       <fieldset disabled={busy}>

@@ -107,12 +107,10 @@ test("prior fictional expectations remain fixed through actual causal trial and 
   ).toBeVisible();
   const state = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.data.service,
     action: "stop",
   });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.research_service.service,
     action: "restart",
   });
@@ -158,7 +156,6 @@ test("prior fictional expectations remain fixed through actual causal trial and 
     ).toBe(true);
   }
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.research_service.service,
     action: "stop",
   });

@@ -76,7 +76,6 @@ test("research chain integration @joint: fixed evidence through revision recover
         .plugin_candidate;
       await rpc(page.request, "native.plugins.install", { path, sha256: candidate.sha256 });
       const stopped = await rpc(page.request, "node.action", {
-        id: "local",
         service: "historical-data",
         action: "stop",
       });
@@ -89,7 +88,6 @@ test("research chain integration @joint: fixed evidence through revision recover
         )
         .map((item: { sha256: string }) => item.sha256);
       await rpc(page.request, "node.plugins.configure", {
-        id: "local",
         service: "historical-data",
         revision: service.revision,
         plugins: [...plugins, candidate.sha256],
@@ -397,9 +395,9 @@ test("research chain integration @joint: fixed evidence through revision recover
         .map((s: { id: string; pid: number }) => ({ id: s.id, pid: s.pid }));
       await restartServices(page.request, services, async () => {
         for (const service of [...services].reverse())
-          await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+          await rpc(page.request, "node.action", { service, action: "stop" });
         for (const service of services)
-          await rpc(page.request, "node.action", { id: "local", service, action: "start" });
+          await rpc(page.request, "node.action", { service, action: "start" });
       });
       await openResearchService(page.request);
       await expect

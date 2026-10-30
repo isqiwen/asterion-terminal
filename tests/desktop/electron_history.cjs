@@ -31,7 +31,6 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   const source = table =>
     offered.find(item => item.table === table && item.plugin_id === daily.plugin_id).source;
   const stopped = await call("node.action", {
-    id: "local",
     service: "historical-data",
     action: "stop",
   });
@@ -39,11 +38,11 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     .filter(node => node.id === "local")
     .flatMap(node => node.health?.services ?? [])
     .find(service => service.id === "historical-data");
-  assert.ok(service, "isolated Agent did not report its task service");
+  assert.ok(service, "the isolated Terminal did not report its data service");
   const root = await fs.realpath(path.join(temp, "node"));
   assert.equal(
     path.relative(root, await fs.realpath(service.directory)),
-    path.join("services", "historical-data", "ledger"),
+    path.join("data", "data", "historical-data"),
   );
   assert.equal(service.state, "stopped");
   const seeded = await execFile(
@@ -84,7 +83,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
       },
       {
         timeout: 20000,
-        message: "Agent must dispatch the queued minute worker and publish its result",
+        message: "Data must run the queued minute worker and publish its result",
       },
     )
     .toEqual({ state: "succeeded", error: "" });
@@ -95,7 +94,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   assert.equal(queuedTask.completed, queuedTask.total);
   assert.match(queuedTask.result_digest, /^[0-9a-f]{64}$/);
   // Read through the owning service: SQLite uses an exclusive writer lock.
-  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+  await call("node.action", { service: "historical-data", action: "stop" });
   await call("node.data.local.open");
   await expect
     .poll(async () => (await call("runtime.snapshot")).data.tasks.find(t => t.id === queuedTask.id))
@@ -155,7 +154,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await viewer.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(20);
   await expect(viewer.locator(".history-pagination")).toContainText("101–120 / 120");
-  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+  await call("node.action", { service: "historical-data", action: "stop" });
   await expect(viewer.getByRole("status")).toContainText("历史数据服务未连接", { timeout: 15000 });
   await expect(viewer.locator("tbody tr")).toHaveCount(20);
   await expect(viewer.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
@@ -289,6 +288,6 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(board.locator(".price-chart-cursor")).toContainText("2023-04-30");
   await capture(page, "native-yearly-market");
   console.log(
-    "Electron minute/daily history: Agent-dispatched minute worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",
+    "Electron minute/daily history: minute worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",
   );
 };

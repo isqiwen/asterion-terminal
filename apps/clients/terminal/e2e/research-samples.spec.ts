@@ -63,7 +63,6 @@ test("independent fixed samples feed raw-close statistics without a factor and s
   ).toHaveLength(1);
   const snapshot = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.data.service,
     action: "stop",
   });
@@ -143,7 +142,7 @@ test("independent fixed samples feed raw-close statistics without a factor and s
   ).toBe(false);
   const research = snapshot.research_service.service;
   await restartServices(page.request, [research], () =>
-    rpc(page.request, "node.action", { id: "local", service: research, action: "restart" }),
+    rpc(page.request, "node.action", { service: research, action: "restart" }),
   );
   await openResearch(page.request);
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(

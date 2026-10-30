@@ -67,9 +67,8 @@ try:
     call('market.connect',dict(password='reject-test-only',instruments=[]))
     wait(lambda s:s['market']['phase']=='error' and s['market']['error_code']==3)
     call('market.disconnect')
-    call('node.local')
     state=wait(lambda s:any(n['health'] and any(v['kind']=='market' for v in n['health']['services']) for n in s['nodes']))
-    # Agent heartbeat remains healthy when the feed is deliberately disconnected.
+    # The service's heartbeat remains healthy when the feed is deliberately disconnected.
     wait(lambda s:any(n['health'] and any(v['kind']=='market' and v['health']=='awaiting_input' for v in n['health']['services']) for n in s['nodes']))
 finally:
     process.terminate();stdout,stderr=process.communicate(timeout=8)

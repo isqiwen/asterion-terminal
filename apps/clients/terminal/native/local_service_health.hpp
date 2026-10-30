@@ -7,10 +7,10 @@
 #include <string>
 #include <vector>
 
-namespace asterion::agent {
+namespace asterion::terminal {
 
-// The owner polls these bounded RPCs and keeps their inputs alive while suspended.
-// Revalidate process incarnation and configuration before applying observations.
+// One heartbeat of a local service on its private health endpoint, bounded to
+// 1.5 s. The caller revalidates the process before applying the observation.
 struct HealthObservation
 {
     protocol::ServiceHealth status = protocol::ServiceHealth::starting;
@@ -19,7 +19,8 @@ struct HealthObservation
 
 PolledTask<HealthObservation> probe_service_health(
     node::proto::ServiceKind kind,
-    const std::string& name,
-    const std::string& endpoint);
+    // By value: the coroutine runs after the caller's arguments are gone.
+    std::string name,
+    std::string endpoint);
 
-} // namespace asterion::agent
+} // namespace asterion::terminal

@@ -25,7 +25,7 @@ test("@journey material acquisition uses real Data and Native, preserves source-
     .map((p: { sha256: string }) => p.sha256);
   const serviceId = installed.data.service;
   async function stop() {
-    await rpc(page.request, "node.action", { id: "local", service: serviceId, action: "stop" });
+    await rpc(page.request, "node.action", { service: serviceId, action: "stop" });
     await expect
       .poll(
         async () => {
@@ -45,7 +45,6 @@ test("@journey material acquisition uses real Data and Native, preserves source-
       .find((n: { id: string }) => n.id === "local")
       .health.services.find((s: { id: string }) => s.id === serviceId);
     await rpc(page.request, "node.plugins.configure", {
-      id: "local",
       service: serviceId,
       revision: own.revision,
       plugins,

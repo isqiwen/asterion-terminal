@@ -28,7 +28,7 @@ test("@journey local cold backup verifies scope and restores independently witho
   });
   expect((await rejected.json()).error?.code).toBe("conflict");
   for (const service of services)
-    await rpc(page.request, "node.action", { id: "local", service: service.id, action: "stop" });
+    await rpc(page.request, "node.action", { service: service.id, action: "stop" });
   await expect
     .poll(
       async () => {

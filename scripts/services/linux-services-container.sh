@@ -14,11 +14,7 @@ conan profile detect --force
 python3 scripts/prepare_ctp.py
 conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
 cmake --preset conan-release
-CMAKE_BUILD_PARALLEL_LEVEL=4 python3 scripts/services/deployment_bundle.py build/Release
-mkdir -p /output
-cp build/Release/deployment/asterion-services-linux-x86_64.zip /output/
 # The recording and trading hosts' own releases, one self-extracting script each.
-cmake --build build/Release --target asterion_recorder_setup asterion_trading_setup
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_recorder_setup asterion_trading_setup
+mkdir -p /output
 cp build/Release/asterion-recorder-setup.sh build/Release/asterion-trading-setup.sh /output/
-./build/Release/asterion_data --version
-./build/Release/asterion_research --version

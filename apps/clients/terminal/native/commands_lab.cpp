@@ -17,8 +17,7 @@ void Application::Impl::register_lab_commands()
     // the page.
     command("lab.endpoint", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        const auto node = co_await local_node_client();
-        const auto address = co_await PollFuture{node->service_endpoint("lab", node::proto::LAB)};
+        const auto address = co_await PollFuture{services.start(node::proto::LAB)};
         auto result = snapshot();
         result.values["lab_endpoint"] = {
             {"endpoint", address.endpoint},
@@ -33,8 +32,7 @@ void Application::Impl::register_lab_commands()
         });
         if (!saved || saved->credential.empty())
             throw std::invalid_argument("save the Tushare credential in Settings first");
-        const auto node = co_await local_node_client();
-        const auto address = co_await PollFuture{node->service_endpoint("lab", node::proto::LAB)};
+        const auto address = co_await PollFuture{services.start(node::proto::LAB)};
         lab::proto::Request request;
         request.set_version(1);
         request.set_service_id(address.session);

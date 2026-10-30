@@ -64,7 +64,7 @@ def signature(team="FIXTURETEAM", flags="0x10000(runtime)", extra=""):
 
 class SignatureGuards(unittest.TestCase):
     app = Path("/tmp/runtime-fixture.app")
-    native_name = "asterion_node_agent"
+    native_name = "asterion_market"
 
     def verify(self, description, native_description=None, archs="arm64"):
         def output(command):

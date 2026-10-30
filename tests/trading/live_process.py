@@ -90,7 +90,7 @@ def stop(process):
 
 with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder:
     # The application owns the log path; inherited logger settings cannot split
-    # Terminal events from its isolated Agent and services.
+    # Terminal events from its services.
     env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
     process = launch()
     host = install(Path(os.environ["ASTERION_ROOT"]) / "independent-trading", Programs(
@@ -218,7 +218,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
     root = Path(os.environ["ASTERION_ROOT"])
     assert not (Path(folder) / "terminal-logs").exists()
     assert list((root / "terminal" / "logs").glob("terminal-*.log")), "Terminal logs missing"
-    assert list((root / "agent" / "logs").glob("asterion_node_agent-*.log")), "Agent logs missing"
     records = []
     for path in root.glob("*/logs/*.log"):
         for line in path.read_text(errors="replace").splitlines():

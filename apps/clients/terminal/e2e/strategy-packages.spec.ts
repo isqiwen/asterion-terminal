@@ -147,12 +147,10 @@ test("fixed CTA candidate saves a non-running draft and requires explicit backte
   ).toBeVisible();
   const state = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.data.service,
     action: "stop",
   });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.research_service.service,
     action: "restart",
   });
@@ -200,7 +198,6 @@ test("fixed CTA candidate saves a non-running draft and requires explicit backte
     0,
   );
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.research_service.service,
     action: "stop",
   });

@@ -14,7 +14,7 @@ SELECTION = {"source_dataset_ids", "daily", "begin_day", "end_day"}
 def seed(call, prices, identity="fixture"):
     assert os.environ.get("ASTERION_TEST_NODE_ISOLATED") == "1"
     call("node.data.local.open")
-    snapshot = call("node.action", {"id":"local", "service":"historical-data", "action":"stop"})
+    snapshot = call("node.action", {"service":"historical-data", "action":"stop"})
     service = next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["id"] == "historical-data")
     root = Path(os.environ["ASTERION_ROOT"]).resolve()
     assert Path(service["directory"]).resolve() == root / "data" / "data" / "historical-data"

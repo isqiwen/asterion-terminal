@@ -7,7 +7,7 @@ Research 服务（`apps/services/research/`）承载分析、策略、回测和�
 ## 共同约束
 
 - **所有权**：对象属于某个 Research 实例（`node_id` + `service_id`）。Data 拥有原始固定数据，
-  Research 只保存对固定数据版本的引用及原输入证据；Manager/Agent 只发现服务。
+  Research 只保存对固定数据版本的引用及原输入证据；Terminal 只启动和发现服务。
 - **固定身份**：用于计算的定义一旦固定就不可修改；修改产生新对象并保留父对象和修订理由。
   任务接纳时固化所用定义、Data 版本与实际程序（`program_artifact`）。
 - **时间语义**：只用当前及更早的完整 bar；决策作用于下一 bar。Data 的 `acquired_at_ns` 是本地首次发布时间，

@@ -46,7 +46,7 @@ const root = path.resolve(__dirname, "../..");
     assert.equal(state.conflict, "");
     assert.deepEqual(state.busy, []);
     assert.ok(state.directory.startsWith(temporary));
-    assert.ok(state.node.startsWith(temporary));
+    assert.ok(state.root.startsWith(temporary));
     if (packaged) assert.ok(state.candidate_version);
     assert.equal(await page.evaluate(() => typeof window.require), "undefined");
     assert.equal(await page.evaluate(() => typeof window.process), "undefined");

@@ -296,8 +296,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 <Icon name="tasks" />
               </button>
               <button
-                aria-label={t("连接与部署")}
-                title={t("连接与部署")}
+                aria-label={t("本机服务")}
+                title={t("本机服务")}
                 onClick={() => showSettings("connections")}
               >
                 <Icon name="connections" />

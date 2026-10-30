@@ -50,7 +50,6 @@ test("Market observation is published by Data and remains exactly readable witho
   const rows = await fixed.getByRole("table", { name: "固定观察分钟" }).innerText();
   expect(original.capture.minutes.bars.length).toBeGreaterThan(0);
   await rpc(page.request, "node.action", {
-    id: "local",
     service: original.source.service,
     action: "stop",
   });
@@ -62,7 +61,6 @@ test("Market observation is published by Data and remains exactly readable witho
     original,
   );
   await rpc(page.request, "node.action", {
-    id: "local",
     service: original.archive.service,
     action: "stop",
   });

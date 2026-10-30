@@ -3,8 +3,7 @@ import { test, expect, vi } from "vitest";
 import { Installer, type Installation, type InstallerBridge } from "./Installer";
 const empty: Installation = {
   directory: "/applications/terminal",
-  node: "/data/node",
-  enrollment: "/data/nodes",
+  root: "/data/node",
   installed: false,
   version: "",
   candidate_version: "0.1.0",
@@ -23,12 +22,10 @@ const installed: Installation = {
 };
 function bridge(state: Installation = empty): InstallerBridge {
   return {
-    remote: vi.fn().mockResolvedValue({ nodes: [], pending: null }),
     inspect: vi.fn().mockResolvedValue(state),
     run: vi.fn().mockResolvedValue(installed),
     open: vi.fn().mockResolvedValue(undefined),
     onProgress: () => () => {},
-    onRemoteProgress: () => () => {},
   };
 }
 function operations() {
@@ -94,7 +91,6 @@ test("deleting data is opt-in and changing retention clears the previous confirm
   fireEvent.click(screen.getByRole("checkbox", { name: /我已确认操作范围/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: "保留配置与业务数据" }));
   expect(screen.getByRole("alert").textContent).toContain("/data/node");
-  expect(screen.getByRole("alert").textContent).toContain("/data/nodes");
   expect(
     (screen.getByRole("checkbox", { name: /我已确认永久删除/ }) as HTMLInputElement).checked,
   ).toBe(false);
@@ -151,8 +147,8 @@ test.each([true, false])(
     expect(api.run).not.toHaveBeenCalled();
   },
 );
-test("active Terminal blocks maintenance and stopping background services", async () => {
-  const api = bridge({ ...installed, busy: ["terminal", "agent"] });
+test("active Terminal blocks maintenance", async () => {
+  const api = bridge({ ...installed, busy: ["terminal"] });
   render(<Installer bridge={api} />);
   await screen.findByText("/applications/terminal");
   for (const button of operations().getAllByRole("button"))
@@ -160,71 +156,27 @@ test("active Terminal blocks maintenance and stopping background services", asyn
   expect(
     (screen.getByRole("button", { name: "确认执行 · 修复" }) as HTMLButtonElement).disabled,
   ).toBe(true);
-  expect((screen.getByRole("button", { name: "停止后台服务" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
   expect(api.run).not.toHaveBeenCalled();
 });
 test("unfinished maintenance only offers explicit resume and displays executor failure", async () => {
   const api = bridge({ ...installed, pending: "repair" });
-  vi.mocked(api.run).mockRejectedValue(new Error("system service registration failed: /node/logs"));
+  vi.mocked(api.run).mockRejectedValue(new Error("launcher registration failed: /node/logs"));
   render(<Installer bridge={api} />);
   await screen.findByText("/applications/terminal");
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("继续维护");
   expect(operations().getAllByRole("button")).toHaveLength(1);
   expect(operations().queryByRole("button", { name: /卸载/ })).toBeNull();
   execute("继续执行 · 修复");
-  await screen.findByText("system service registration failed: /node/logs");
+  await screen.findByText("launcher registration failed: /node/logs");
   fireEvent.click(screen.getByRole("button", { name: "打开日志目录" }));
   expect(api.run).toHaveBeenCalledWith("repair", false);
   expect(api.open).toHaveBeenCalledWith("logs");
 });
 
-test("failed remote inspection blocks whole-release upgrade until explicit recheck succeeds", async () => {
-  const api = bridge({ ...installed, candidate_version: "0.2.0", deployment_action: "upgrade" });
-  vi.mocked(api.remote).mockRejectedValueOnce(new Error("remote inspection unavailable"));
-  const view = render(<Installer bridge={api} />);
-  await screen.findByText("remote inspection unavailable");
-  const upgrade = () =>
-    screen.getByRole("button", { name: "确认执行 · 升级" }) as HTMLButtonElement;
-  expect(upgrade().disabled).toBe(true);
-  expect(
-    (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
-  ).toBe(true);
-  expect(api.run).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
-  await waitFor(() => expect(vi.mocked(api.inspect).mock.calls).toHaveLength(3));
-  await waitFor(() =>
-    expect(
-      (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
-    ).toBe(false),
-  );
-  // Ordinary renders cannot restart preflight or restore an old confirmation.
-  view.rerender(<Installer bridge={api} />);
-  expect(api.remote).toHaveBeenCalledTimes(2);
-  expect(upgrade().disabled).toBe(true);
-  execute("确认执行 · 升级");
-  await waitFor(() => expect(api.run).toHaveBeenCalledWith("upgrade", false));
-});
-
-test("remote inspection failure does not block explicit same-release local repair", async () => {
-  const api = bridge(installed);
-  vi.mocked(api.remote).mockRejectedValue(new Error("remote inspection unavailable"));
-  render(<Installer bridge={api} />);
-  await screen.findByText("remote inspection unavailable");
-  expect(
-    (screen.getByRole("checkbox", { name: /我已确认操作范围/ }) as HTMLInputElement).disabled,
-  ).toBe(false);
-  expect(api.run).not.toHaveBeenCalled();
-  execute("确认执行 · 修复");
-  await waitFor(() => expect(api.run).toHaveBeenCalledWith("repair", false));
-});
-
-test("recorded pending upgrade remains explicitly resumable without a new remote inspection", async () => {
+test("recorded pending upgrade remains explicitly resumable", async () => {
   const api = bridge({ ...installed, pending: "upgrade", deployment_action: "" });
   render(<Installer bridge={api} />);
   await screen.findByText("/applications/terminal");
-  expect(api.remote).not.toHaveBeenCalled();
   expect(api.run).not.toHaveBeenCalled();
   execute("继续执行 · 升级");
   await waitFor(() => expect(api.run).toHaveBeenCalledWith("upgrade", false));

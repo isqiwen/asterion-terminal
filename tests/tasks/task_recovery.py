@@ -1,4 +1,4 @@
-"""Task survives a killed Terminal and an Agent-managed service restart."""
+"""Tasks survive a killed Terminal and a restart of the Research service it runs."""
 import json
 from pathlib import Path
 import subprocess
@@ -32,7 +32,7 @@ def close(process):
     process.stdout.close()
 
 
-def completed(process, task_id="agent-recovery"):
+def completed(process, task_id="backtest-recovery"):
     deadline = time.monotonic() + 25
     while time.monotonic() < deadline:
         snapshot = call(process, "runtime.snapshot")
@@ -59,7 +59,7 @@ def select(process, identity):
     return call(process,"data.dataset.select",selections[identity])
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignore_cleanup_errors=True):
+with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-recovery-", ignore_cleanup_errors=True):
     process=launch()
     try:
         invoke=lambda method,params=None:call(process,method,params)
@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
         open_research(process)
         select(process,"short")
-        call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None,"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
+        call(process,"backtest.submit",{"id":"backtest-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None,"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
         call(process,"factor.submit",{"id":"factor-recovery","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         call(process,"factor.submit",{"id":"rolling-recovery","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
     try:
         open_research(process)
         saved={}
-        for identity,count in [("agent-recovery",8),("factor-recovery",160),("rolling-recovery",160)]:
+        for identity,count in [("backtest-recovery",8),("factor-recovery",160),("rolling-recovery",160)]:
             task=completed(process,identity)
             assert task["attempt"]==1,task
             result=call(process,"task.result",{"id":identity})["task_result"]
@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         rolling=saved["rolling-recovery"][1]
         assert rolling["experiment"]["series"][0]["kind"]=="bars",rolling
         assert len(rolling["result"]["folds"])==2 and len(rolling["result"]["samples"])==78,rolling
-        call(process,"node.action",{"id":"local","service":"research","action":"stop"})
+        call(process,"node.action",{"service":"research","action":"stop"})
     finally:close(process)
     process=launch()
     try:
@@ -107,9 +107,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         call(process,"factor.submit",{"id":"repeated-factor","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         completed(process,"repeated-factor")
         assert call(process,"task.result",{"id":"repeated-factor"})["task_result"]["result"]==factor["result"]
-        call(process,"node.action",{"id":"local","service":"research","action":"stop"})
+        call(process,"node.action",{"service":"research","action":"stop"})
         open_research(process)
-        assert completed(process,"agent-recovery") == saved["agent-recovery"][0]
-        assert call(process,"task.result",{"id":"agent-recovery"})["task_result"]==saved["agent-recovery"][1]
+        assert completed(process,"backtest-recovery") == saved["backtest-recovery"][0]
+        assert call(process,"task.result",{"id":"backtest-recovery"})["task_result"]==saved["backtest-recovery"][1]
     finally:close(process)
-print("Agent dispatch, killed Terminal, immutable historical sources, persisted task results and service restart verified")
+print("Killed Terminal, immutable historical sources, persisted task results and service restart verified")

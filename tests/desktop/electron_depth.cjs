@@ -42,11 +42,6 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       ),
       path.join(native, "ctp-trader" + library),
     );
-    await fs.symlink(
-      path.resolve("build/electron-resources/remote-linux"),
-      path.join(resources, "remote-linux"),
-      "dir",
-    );
     application = await electron.launch({
       recordVideo: process.env.ASTERION_UI_VIDEO_DIR
         ? {
@@ -203,21 +198,14 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await page.screenshot({ path: path.resolve("build/native-depth-check/native-depth.png") });
     await call("market.disconnect");
     console.log(
-      "Electron market: production host, isolated SDK, real Agent/market service and Node-API, full catalog with empty watchlist, Chinese names, exact depth, session prices and previous close passed",
+      "Electron market: production host, isolated SDK, real market service and Node-API, full catalog with empty watchlist, Chinese names, exact depth, session prices and previous close passed",
     );
   } finally {
     try {
       if (application) await application.close();
     } finally {
-      try {
-        process.kill(
-          Number(await fs.readFile(path.join(temp, "node/agent.pid"), "utf8")),
-          "SIGTERM",
-        );
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
-      }
+      // The services exit with the application that started them.
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await fs.rm(temp, { recursive: true, force: true });
     }
   }

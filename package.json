@@ -6,7 +6,7 @@
     "dev": "vite --config apps/clients/terminal/vite.config.ts",
     "build": "tsc --noEmit -p apps/clients/terminal/tsconfig.json && vite build --config apps/clients/terminal/vite.config.ts",
     "test:unit": "vitest run --config apps/clients/terminal/vitest.config.ts",
-    "test:e2e": "python3 tests/support/ssh_e2e.py pnpm exec playwright test --config apps/clients/terminal/playwright.config.ts",
+    "test:e2e": "python3 tests/support/e2e.py pnpm exec playwright test --config apps/clients/terminal/playwright.config.ts",
     "test:e2e:journeys": "pnpm run test:e2e --grep @journey",
     "desktop": "node scripts/desktop/desktop.mjs dev",
     "desktop:build": "node scripts/desktop/desktop.mjs build",

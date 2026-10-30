@@ -10,12 +10,8 @@ struct ServicePrograms
     std::filesystem::path executable, provider, catalog;
 };
 
+// The kind's program and CTP libraries inside the application (or as named by
+// the ASTERION_*_EXECUTABLE / ASTERION_CTP_* variables in development and tests).
 ServicePrograms local_service_programs(node::proto::ServiceKind kind);
-ServicePrograms bundled_service_programs(const std::string& arch, node::proto::ServiceKind kind);
-
-// Runs the installed Agent (<root>/agent/bin/asterion_node_agent) offline,
-// after its service has stopped, to prepare the local programs; used by
-// installation and development.
-void prepare_local_programs(const std::filesystem::path& agent);
 
 } // namespace asterion::terminal

@@ -1,22 +1,20 @@
 #include <asterion/research.pb.h>
-#include "supervision_rpc.hpp"
+#include "local_service_health.hpp"
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/health.hpp>
+#include <asterion/protocol/trading.hpp>
 #include <asterion/market.pb.h>
 #include <asterion/data_service.pb.h>
 #include <asterion/lab.pb.h>
 
-namespace asterion::agent {
+namespace asterion::terminal {
 
 using namespace std::chrono_literals;
 
-PolledTask<HealthObservation> probe_service_health(
-    node::proto::ServiceKind kind,
-    const std::string& name,
-    const std::string& endpoint)
+PolledTask<HealthObservation>
+probe_service_health(node::proto::ServiceKind kind, std::string name, std::string endpoint)
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
     const auto correlation = "health." + unique_process_id();
@@ -128,27 +126,7 @@ PolledTask<HealthObservation> probe_service_health(
             {}
         };
     }
-    protocol::proto::Request ping;
-    ping.set_version(1);
-    ping.set_session_id(name);
-    ping.set_correlation_id(correlation);
-    ping.mutable_heartbeat();
-    auto pending = channel.request(ping.SerializeAsString(), 1500ms);
-    co_await PollUntil{[&] {
-        channel.poll();
-        return pending.wait_for(0ms) == std::future_status::ready;
-    }};
-    protocol::proto::Response reply;
-    if (!reply.ParseFromString(*pending.get()))
-        throw std::runtime_error("invalid health response");
-    protocol::validate_message(reply);
-    if (reply.version() != 1 || reply.session_id() != name || reply.correlation_id() != correlation
-        || !reply.has_health())
-        throw std::runtime_error("health identity mismatch");
-    co_return HealthObservation{
-        protocol::trading_health_phase(reply.health()),
-        reply.health().execution()
-    };
+    throw std::invalid_argument("the Terminal supervises no such service kind");
 }
 
-} // namespace asterion::agent
+} // namespace asterion::terminal

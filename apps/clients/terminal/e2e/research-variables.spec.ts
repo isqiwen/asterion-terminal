@@ -94,12 +94,10 @@ test("fixed causal variables drive original factor rows and survive definition r
   ).toEqual(definition);
   const snapshot = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.data.service,
     action: "stop",
   });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.research_service.service,
     action: "restart",
   });

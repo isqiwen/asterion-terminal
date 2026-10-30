@@ -27,7 +27,7 @@ set(asterion_process_test_targets
   asterion_ctp_trader_tests asterion_data_backup_tests asterion_data_credential_tests
   asterion_data_tests asterion_dominant_series_tests asterion_kernel_tests asterion_live_tests
   asterion_logic_store_tests asterion_market_snapshot_tests asterion_material_lifecycle_tests
-  asterion_material_process_tests asterion_node_maintenance_tests asterion_node_supervision_tests
+  asterion_material_process_tests
   asterion_paper_tests asterion_portfolio_tests asterion_quantstats_tests
   asterion_research_backup_tests asterion_research_evaluation_tests asterion_research_sample_tests
   asterion_research_statistics_tests asterion_rpc_host_tests asterion_shfe_margin_tests
@@ -195,17 +195,17 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
 
 
 # tasks: the task service, backtest and factor engines, workers
-add_test(NAME task_agent_recovery COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_agent.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
-set_tests_properties(task_agent_recovery PROPERTIES TIMEOUT 60)
-# lab: the Python research service under the local Agent, with the prepared runtime.
+add_test(NAME task_recovery COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_recovery.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
+set_tests_properties(task_recovery PROPERTIES TIMEOUT 60)
+# lab: the Python research service under the Terminal, with the prepared runtime.
 add_test(NAME lab_warehouse COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/warehouse_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(lab_warehouse PROPERTIES TIMEOUT 60)
 add_test(NAME lab_sources COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/sources_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(lab_sources PROPERTIES TIMEOUT 60)
 add_test(NAME lab_sessions COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/sessions_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)
 add_test(NAME lab_dominant COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/dominant_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)
-add_test(NAME lab_agent COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lab/lab_agent.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_node_agent>)
-set_tests_properties(lab_agent PROPERTIES TIMEOUT 90
+add_test(NAME lab_service COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lab/lab_service.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
+set_tests_properties(lab_service PROPERTIES TIMEOUT 90
   ENVIRONMENT "ASTERION_PYTHON=${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
 foreach(mode handshake frame overload)
   add_test(NAME task_slow_${mode} COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_concurrency.py $<TARGET_FILE:asterion_research> ${mode})
@@ -240,54 +240,13 @@ target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_program_fi
 asterion_unit_tests(asterion_paper_tests tasks/paper_test.cpp asterion_paper 180)
 target_link_libraries(asterion_paper_tests PRIVATE asterion_order_limits asterion_sqlite)
 
-# node: the Agent — supervision, deployment, upgrade, SSH hosts, service contracts
-add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading> $<TARGET_FILE:asterion_node_agent> $<TARGET_FILE:asterion_research> $<TARGET_FILE:asterion_data> $<TARGET_FILE:asterion_node_manager>)
+# node: service command lines and graceful stops
+add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading> $<TARGET_FILE:asterion_research> $<TARGET_FILE:asterion_data>)
 set_tests_properties(cli_contract PROPERTIES TIMEOUT 45)
 add_executable(asterion_test_certificates node/tls_certificates.cpp)
 target_include_directories(asterion_test_certificates PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(asterion_test_certificates PRIVATE cxx_std_20)
 target_link_libraries(asterion_test_certificates PRIVATE asterion_kernel)
-add_test(NAME ssh_keys COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/ssh_keys.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
-add_test(NAME host_initialization COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/host_initialization.py)
-add_test(NAME ssh_bootstrap COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/ssh_bootstrap.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_node_agent>)
-set_tests_properties(ssh_bootstrap PROPERTIES TIMEOUT 240)
-add_test(NAME node_deployment COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/node_deployment.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_node_agent> $<TARGET_FILE:asterion_trading>)
-add_test(NAME node_manager_lifecycle COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/manager_lifecycle.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_node_agent>)
-set_tests_properties(node_manager_lifecycle PROPERTIES TIMEOUT 90)
-set_tests_properties(node_deployment PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77)
-foreach(mode handshake frame overload)
-  add_test(NAME agent_slow_${mode} COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/agent_concurrency.py $<TARGET_FILE:asterion_node_agent> ${mode})
-  set_tests_properties(agent_slow_${mode} PROPERTIES TIMEOUT 30)
-endforeach()
-add_test(NAME market_graceful_stop COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/service_graceful_stop.py market $<TARGET_FILE:asterion_market>)
-add_test(NAME research_graceful_stop COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/service_graceful_stop.py research $<TARGET_FILE:asterion_research>)
-add_executable(asterion_test_node_service_control node/node_service_control.cpp)
-target_include_directories(asterion_test_node_service_control PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories(asterion_test_node_service_control PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_link_libraries(asterion_test_node_service_control PRIVATE asterion_terminal_api CLI11::CLI11)
-asterion_unit_tests(asterion_node_maintenance_tests node/node_maintenance_test.cpp asterion_terminal_api 60)
-target_link_libraries(asterion_node_maintenance_tests PRIVATE asterion_node_storage)
-target_include_directories(asterion_node_maintenance_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_compile_definitions(asterion_node_maintenance_tests PRIVATE ASTERION_AGENT_PATH="$<TARGET_FILE:asterion_node_agent>" ASTERION_DATA_PATH="$<TARGET_FILE:asterion_data>")
-target_compile_definitions(asterion_node_maintenance_tests PRIVATE ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
-target_compile_definitions(asterion_node_maintenance_tests PRIVATE ASTERION_FAKE_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_FAKE_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
-add_dependencies(asterion_node_maintenance_tests asterion_node_agent asterion_trading asterion_market asterion_test_ctp asterion_test_ctp_trader)
-if(UNIX)
-  asterion_unit_tests(asterion_node_supervision_tests node/node_supervision_test.cpp "asterion_terminal_api;asterion_data_client;asterion_data_store;asterion_task_store;asterion_research_host" 90)
-  target_include_directories(asterion_node_supervision_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-  target_compile_definitions(asterion_node_supervision_tests PRIVATE ASTERION_AGENT_PATH="$<TARGET_FILE:asterion_node_agent>")
-  add_dependencies(asterion_node_supervision_tests asterion_node_agent asterion_data asterion_market asterion_research)
-endif()
-add_executable(asterion_test_agent_revision ${CMAKE_SOURCE_DIR}/apps/management/node-agent/main.cpp node/strategy_revision_marker.cpp)
-target_include_directories(asterion_test_agent_revision PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_features(asterion_test_agent_revision PRIVATE cxx_std_20)
-target_compile_definitions(asterion_test_agent_revision PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(asterion_test_agent_revision PRIVATE asterion_node_operations asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
-add_test(NAME agent_program_update COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/node_program_update.py $<TARGET_FILE:asterion_test_node_service_control> $<TARGET_FILE:asterion_node_agent> $<TARGET_FILE:asterion_test_agent_revision>)
-set_tests_properties(agent_program_update PROPERTIES TIMEOUT 60)
-asterion_unit_tests(asterion_firewall_tests node/firewall_test.cpp asterion_node_firewall)
-target_compile_definitions(asterion_node_maintenance_tests PRIVATE PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_CUSTOM="$<TARGET_FILE:plugin_fixture_custom>")
-add_dependencies(asterion_node_maintenance_tests plugin_fixture_good plugin_fixture_newer plugin_fixture_custom)
 
 # terminal: the Terminal's native layer — commands, credentials, plugin management
 asterion_unit_tests(asterion_terminal_query_tests terminal/terminal_minute_query_test.cpp asterion_terminal_api)
@@ -300,7 +259,7 @@ target_compile_features(asterion_test_keychain_helper PRIVATE cxx_std_20)
 target_compile_definitions(asterion_data_credential_tests PRIVATE ASTERION_TEST_KEYCHAIN_HELPER="$<TARGET_FILE:asterion_test_keychain_helper>")
 add_dependencies(asterion_data_credential_tests asterion_test_keychain_helper)
 target_include_directories(asterion_ctp_connection_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_link_libraries(asterion_terminal_query_tests PRIVATE asio::asio asterion_node_management asterion_strategies spdlog::spdlog_header_only)
+target_link_libraries(asterion_terminal_query_tests PRIVATE asio::asio asterion_strategies spdlog::spdlog_header_only)
 add_executable(asterion_terminal_tests terminal/terminal_api_test.cpp)
 target_include_directories(asterion_terminal_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(asterion_terminal_tests PRIVATE asterion_data_store asterion_task_store asterion_terminal_api GTest::gtest)
@@ -315,10 +274,9 @@ gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVER
   DISCOVERY_TIMEOUT 30
   PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
 asterion_unit_tests(asterion_plugin_management_tests terminal/plugin_management_test.cpp asterion_terminal_api)
-target_link_libraries(asterion_plugin_management_tests PRIVATE asterion_node_storage)
 target_include_directories(asterion_plugin_management_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_compile_definitions(asterion_plugin_management_tests PRIVATE NODE_AGENT="$<TARGET_FILE:asterion_node_agent>" PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>")
-add_dependencies(asterion_plugin_management_tests asterion_node_agent plugin_fixture_good plugin_fixture_newer plugin_fixture_bad_abi)
+target_compile_definitions(asterion_plugin_management_tests PRIVATE PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>")
+add_dependencies(asterion_plugin_management_tests plugin_fixture_good plugin_fixture_newer plugin_fixture_bad_abi)
 
 # desktop: the Electron host and what an installer contains
 if(ASTERION_NODE_HEADERS)
@@ -336,9 +294,7 @@ if(ASTERION_NODE_HEADERS)
   add_test(NAME node_bridge_lifecycle COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/electron_bridge_lifecycle.cjs" $<TARGET_FILE:asterion_node_bridge_fixture>)
   set_tests_properties(node_bridge_lifecycle PROPERTIES TIMEOUT 20)
 endif()
-add_test(NAME desktop_resources COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/desktop_resources.py)
 add_test(NAME macos_release_guards COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/macos_release.py)
-add_test(NAME remote_resources COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/remote_resources.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
 
 get_property(asterion_tests DIRECTORY PROPERTY TESTS)
 # Instrumented builds run several times slower: scale every explicit limit.
@@ -368,22 +324,9 @@ target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_PYTHON_PAT
 asterion_unit_tests(asterion_portfolio_tests terminal/portfolio_test.cpp asterion_terminal_api 90)
 target_compile_definitions(asterion_portfolio_tests PRIVATE ASTERION_PYTHON_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
 
-foreach(target asterion_test_node_service_control asterion_node_maintenance_tests asterion_node_supervision_tests asterion_data_credential_tests asterion_plugin_management_tests)
- target_link_libraries(${target} PRIVATE asterion_node_management)
-endforeach()
 
 asterion_unit_tests(asterion_installation_tests desktop/installation_test.cpp asterion_installation)
-target_sources(asterion_installation_tests PRIVATE desktop/startup_test.cpp)
 
-add_executable(asterion_test_manager_rpc node/manager_rpc.cpp)
-target_include_directories(asterion_test_manager_rpc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_test_manager_rpc PRIVATE asterion_protocol asterion_kernel)
-add_test(NAME remote_maintenance COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/remote_maintenance.py $<TARGET_FILE:asterion_test_manager_rpc> $<TARGET_FILE:asterion_node_manager> $<TARGET_FILE:asterion_node_agent>)
-set_tests_properties(remote_maintenance PROPERTIES TIMEOUT 240)
-add_test(NAME remote_host_control COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/remote_host_control.py)
-if(ASTERION_NODE_HEADERS)
-  add_test(NAME installer_orchestration COMMAND "${ASTERION_TEST_NODE}" ${CMAKE_CURRENT_SOURCE_DIR}/desktop/installer_orchestration.cjs)
-endif()
 
 # The shared file mechanism; each domain adapter adds its own semantic validation.
 asterion_unit_tests(asterion_backup_files_tests data/backup_files_test.cpp asterion_backup_files)
@@ -434,7 +377,6 @@ target_link_libraries(asterion_factor_tests PRIVATE asterion_research_tasks aste
 target_link_libraries(asterion_material_task_tests PRIVATE asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_test_minutes PRIVATE asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_data_backup_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_node_supervision_tests PRIVATE asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_logic_store_tests PRIVATE asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_research_backup_tests PRIVATE asterion_program_files asterion_research_tasks asterion_data_tasks)
 target_link_libraries(asterion_research_evaluation_tests PRIVATE asterion_research_tasks asterion_data_tasks)

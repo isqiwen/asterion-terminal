@@ -15,7 +15,6 @@ import tarfile
 from generated_resources import publish_tree
 import macos_release
 import python_runtime
-import remote_resources
 
 ROOT = Path(__file__).resolve().parents[2]
 env = os.environ.copy()
@@ -28,18 +27,6 @@ def run(args, cwd=ROOT, environment=None):
     if executable is None:
         raise SystemExit(f"Required build tool not found: {args[0]}")
     subprocess.run([executable, *args[1:]], cwd=cwd, env=environment or env, check=True)
-
-
-def prepare_installer_services(archives, destination):
-    try:
-        remote_resources.stage(archives, destination)
-    except remote_resources.BundleNeedsBuild as error:
-        print(f"{error}\nBuilding embedded Linux services with Docker/OrbStack...", flush=True)
-        run(["bash", str(ROOT / "scripts/services/build_linux_services.sh")],
-            environment={**env, "ASTERION_LINUX_BUNDLES": str(archives.resolve())})
-        # Validate and publish the newly built output once; a failed rebuild is
-        # reported directly, never retried or replaced by an older bundle.
-        remote_resources.stage(archives, destination)
 
 
 def run_development():
@@ -86,8 +73,7 @@ LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion_node_agent", "asterion_node_manager", "asterion_market", "asterion_data",
-                    "asterion_research")
+SERVICE_PROGRAMS = ("asterion_market", "asterion_data", "asterion_research")
 
 def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
@@ -122,12 +108,9 @@ def stage_native_resources(build, destination):
 def exercise_packaged_programs(native):
     """Task recovery and both vendor SDK lifecycles, run by the packaged programs."""
     def packaged(programs):
-        programs = {"ASTERION_NODE_MANAGER_EXECUTABLE": "asterion_node_manager",
-                    "ASTERION_NODE_AGENT_EXECUTABLE": "asterion_node_agent",
-                    **programs}
         return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
     isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
-    run([*isolated, str(ROOT / "tests/tasks/task_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
+    run([*isolated, str(ROOT / "tests/tasks/task_recovery.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
         environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion_data",
                               "ASTERION_RESEARCH_EXECUTABLE": "asterion_research"}))
     run([*isolated, str(ROOT / "tests/market/ctp_sdk_smoke.py"), str(ROOT / "build/Release")],
@@ -182,10 +165,7 @@ def verify_linux_package(distribution=True):
         native = app / "resources/native"
         verify_native_resources(native, packaged=True)
         python_runtime.verify(app / "resources/python")
-        run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify",
-             "--directory", str(app / "resources/remote-linux")])
-        # The bundled remote services run on other machines, not from this package.
-        local = [path for path in elf_files(app) if app / "resources/remote-linux" not in path.parents]
+        local = elf_files(app)
         required = json.loads((app / "resources/native/runtime-requirements.json").read_text())
         missing = set(debian_dependencies(
             local, [app, *python_runtime.library_directories(app / "resources/python")])) - set(required)
@@ -209,9 +189,9 @@ def write_linux_evidence(package, installed_report):
               "scope": "current user",
               "checks": ["package identity, version and architecture", "exact native resource set",
                          "documented dependencies cover every packaged program",
-                         "bundled remote Linux services", "packaged task recovery and vendor SDK lifecycles",
+                         "packaged task recovery and vendor SDK lifecycles",
                          "unpacked application acceptance"],
-              "limits": ["unsigned archive", "OS service registration requires separate acceptance"]}
+              "limits": ["unsigned archive"]}
     (package.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
@@ -249,10 +229,6 @@ def verify_macos_bundle(distribution=True):
                     verify_macos_target(program, minimum)
             verify_macos_target(app / "Contents/Resources/native/ctp-md.dylib", minimum)
             run(["codesign", "--verify", "--deep", "--strict", str(app)])
-            run([sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "verify", "--directory", str(app / "Contents/Resources/remote-linux")])
-            node = app / "Contents/Resources/native/asterion_node_agent"
-            run(["codesign", "--verify", "--strict", str(node)])
-            run([str(node), "--version"])
             market = app / "Contents/Resources/native/asterion_market"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
@@ -282,28 +258,6 @@ def main():
         return
     if mode == "build" and MACOS:
         macos_release.signing_preflight(env)
-    # Local checks do not stage remote deployment resources. CI validates them
-    # explicitly; installers always require a matching Linux bundle.
-    if mode != "check":
-        resources = ROOT / "build/electron-resources/remote-linux"
-        archives = Path(env.get("ASTERION_LINUX_BUNDLES", str(ROOT / "build/linux-bundles")))
-        stage = [sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "stage", "--archives", str(archives)]
-        if mode == "dev" and archives.is_dir():
-            # Development must not block on the cross-built Linux bundle. A stale
-            # bundle is never staged: remote Linux deployment reports it missing.
-            if subprocess.run(stage, cwd=ROOT, env=env).returncode != 0:
-                shutil.rmtree(resources, ignore_errors=True)
-                resources.mkdir(parents=True, exist_ok=True)
-                print("WARNING: Linux service bundle does not match this source; "
-                      "remote Linux deployment is unavailable in this dev session. "
-                      "Local development will continue. Rebuild with "
-                      "scripts/services/build_linux_services.sh before packaging or remote deployment.",
-                      file=sys.stderr)
-        elif mode != "dev":
-            prepare_installer_services(archives, resources)
-        else:
-            resources.mkdir(parents=True, exist_ok=True)
-        env["ASTERION_REMOTE_RESOURCES"] = str(resources)
     profile = ROOT / "build/local-profile"
     configuration = "Release" if mode in {"build", "package-test"} else "Debug"
     preset = "conan-" + configuration.lower()
@@ -341,8 +295,7 @@ def main():
         # Conan's cache default does not replace a previous deployment target.
         configure += ["-UCMAKE_*_FLAGS*", "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + minimum]
     else:
-        # Linux uses the Conan profile's compiler. Dependencies build optimized:
-        # embedded DuckDB with debug information exceeds the Agent artifact limit.
+        # Linux uses the Conan profile's compiler. Dependencies build optimized.
         install += ["-s", "&:build_type=" + configuration, "-s", "build_type=Release"]
     run(install)
     electron_version = json.loads((ROOT / "node_modules/electron/package.json").read_text())["version"]

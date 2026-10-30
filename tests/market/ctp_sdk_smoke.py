@@ -28,15 +28,23 @@ def call(method, params=None):
     process.stdin.write(json.dumps(dict(version=1, method=method, params=params or {}))+'\n');process.stdin.flush()
     response=json.loads(process.stdout.readline());assert 'error' not in response,response
     return response['result']
+def wait(predicate, seconds=15):
+    deadline=time.monotonic()+seconds
+    while time.monotonic()<deadline:
+        state=call('runtime.snapshot')
+        if predicate(state): return state
+        time.sleep(.1)
+    raise AssertionError('service did not reach the expected state')
 try:
     initial=call('market.local')
     service=next(s for n in initial['nodes'] for s in n['health']['services'] if s['kind']=='market')
-    stopped=call('node.action',dict(id='local',service=service['id'],action='stop'))
+    stopped=call('node.action',dict(service=service['id'],action='stop'))
     current=next(s for n in stopped['nodes'] for s in n['health']['services'] if s['id']==service['id'])
-    updated=call('node.update',dict(id='local',service=service['id'],revision=current['revision']))
-    assert next(s for n in updated['nodes'] for s in n['health']['services'] if s['id']==service['id'])['state']=='stopped'
-    call('node.action',dict(id='local',service=service['id'],action='start'))
-    call('market.attach',dict(id='local',service=service['id']))
+    assert current['state']=='stopped'
+    call('market.local')
+    # The restarted service answers once it reports its first heartbeat.
+    wait(lambda s:any(v['id']==service['id'] and v['health'] in ('ready','awaiting_input')
+                      for n in s['nodes'] for v in n['health']['services']))
     call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='app',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
     call('market.connect',dict(password='loopback-only',instruments=[]))
     time.sleep(.2)

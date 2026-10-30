@@ -1,34 +1,12 @@
 syntax = "proto3";
 import "asterion/health.proto";
 package asterion.node.proto;
+// The local services as the Terminal runs them. Data and Research read a
+// Status through the Terminal's read-only discovery socket.
 message Empty {}
-// Local development bootstrap input, consumed offline before Agent/service startup.
-message ProgramSources {
-  ServiceKind kind = 1;
-  string executable = 2;
-  string provider = 3;
-  string catalog = 4;
-}
-message ServicePrograms {
-  uint32 version = 1;
-  repeated ProgramSources services = 2;
-  repeated string bundled_plugins = 3;
-  // The bundled Python runtime's interpreter; it runs the lab service in place.
-  string python = 4;
-}
-message Upload {
-  string sha256 = 1;
-  uint64 size = 2;
-  string os = 3;
-  string arch = 4;
-}
-message Chunk {
-  string sha256 = 1;
-  uint64 offset = 2;
-  bytes data = 3;
-}
-message Finish {
-  string sha256 = 1;
+// Private service control: freeze admissions, then request cooperative shutdown.
+message Quiesce {
+  bool stop = 1;
 }
 
 enum ServiceKind {
@@ -39,98 +17,16 @@ enum ServiceKind {
   LAB = 5;
 }
 
-message Deploy {
-  string service_id = 1;
-  string sha256 = 2;
-  uint32 port = 3;
-  string directory = 4;
-  ServiceKind kind = 5;
-  string provider_artifact = 6;
-  string catalog_artifact = 10;
-  repeated string plugin_artifacts = 11;
-  reserved 12;
-  reserved 13;
-}
-message Update {
-  string service_id = 1;
-  string expected_revision = 2;
-  string artifact = 3;
-  string provider_artifact = 4;
-  string catalog_artifact = 8;
-  repeated string plugin_artifacts = 9;
-}
-message ConfigurePlugins {
-  string service_id = 1;
-  string expected_revision = 2;
-  repeated string artifacts = 3;
-}
-message Action {
-  string service_id = 1;
-
-  enum Kind {
-    UNSPECIFIED = 0;
-    START = 1;
-    STOP = 2;
-    RESTART = 3;
-  }
-
-  Kind kind = 2;
-}
-message Firewall {
-  string service_id = 1;
-  string action = 2;
-  string token = 3;
-}
-message FirewallPlan {
-  string token = 1;
-  string source = 2;
-  uint32 port = 3;
-  string backend = 4;
-  string state = 5;
-  bool can_apply = 6;
-  string rule = 7;
-  string action = 8;
-  string verification = 9;
-}
-// Private service control: freeze admissions, then request cooperative shutdown.
-message Quiesce {
-  bool stop = 1;
-}
-message Upgrade {
-  string operation_id = 1;
-  string action = 2;
-}
-message UpgradeState {
-  string phase = 1;
-  string detail = 2;
-}
-message Maintenance {
-  string instance_id = 1;
-  string operation_id = 2;
-  bool enter = 3;
-}
-
 message Request {
   uint32 version = 1;
   string correlation_id = 2;
   oneof operation {
     Empty status = 10;
-    Upload upload = 11;
-    Chunk chunk = 12;
-    Finish finish = 13;
-    Deploy deploy = 14;
-    Action action = 15;
-    Firewall firewall = 16;
-    Update update = 17;
-    Maintenance maintenance = 18;
-    Upgrade upgrade = 19;
-    ConfigurePlugins configure_plugins = 20;
   }
 }
 message Service {
   string id = 1;
   string artifact = 2;
-  uint32 port = 3;
   string state = 4;
   bool desired_running = 5;
   uint64 pid = 6;
@@ -143,32 +39,18 @@ message Service {
   ServiceKind kind = 13;
   string revision = 15;
   repeated string plugin_artifacts = 16;
-  reserved 17;
-  reserved 18;
   asterion.runtime.proto.ExecutionHealth execution = 19;
-}
-// Diagnostic host observations. CPU requires
-// two samples. A failed sample has failure set and no usable metric values.
-message HostResources {
-  int64 sampled_at_ms = 1;
-  optional double cpu_usage_percent = 2;
-  uint64 memory_available_bytes = 3;
-  uint64 disk_available_bytes = 4;
-  string disk_path = 5;
-  Error failure = 6;
 }
 message Status {
   string instance_id = 1;
   string discovery_endpoint = 14; // Local read-only locator, never persistent identity.
-  string node_id = 13; // Stable environment identity; instance_id is only an Agent generation.
+  string node_id = 13; // Stable identity of this machine's data; instance_id is one Terminal run.
   string os = 2;
   string arch = 3;
   string version = 4;
   uint64 uptime_ms = 5;
   repeated Service services = 6;
-  bool maintenance = 7;
   uint64 pid = 8;
-  uint32 upgrade_protocol = 9;
 
   enum Phase {
     UNSPECIFIED = 0;
@@ -180,7 +62,6 @@ message Status {
   Phase phase = 10;
   Error failure = 11;
   asterion.runtime.proto.ExecutionHealth execution = 12;
-  HostResources host_resources = 15;
 }
 message Error {
   string message = 1;
@@ -191,9 +72,6 @@ message Response {
   string correlation_id = 2;
   oneof result {
     Status status = 10;
-    Empty accepted = 11;
     Error error = 12;
-    FirewallPlan firewall = 13;
-    UpgradeState upgrade = 14;
   }
 }

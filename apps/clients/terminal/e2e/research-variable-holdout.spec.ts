@@ -99,12 +99,10 @@ test("fixed expression holdout displays original roles, crossing labels and tail
   await expect(rows.nth(40).getByRole("cell").nth(4)).toHaveText("未来标签尚未知");
   const snapshot = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.data.service,
     action: "stop",
   });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.research_service.service,
     action: "restart",
   });

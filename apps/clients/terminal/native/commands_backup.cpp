@@ -23,7 +23,9 @@ local_backup_selections(const std::vector<NodeSnapshot>& nodes, const json& ids)
             throw std::invalid_argument("duplicate or invalid backup service selection");
     const auto node = std::ranges::find(nodes, std::string("local"), &NodeSnapshot::id);
     if (node == nodes.end() || !node->online || !node->health || node->health->node_id().empty())
-        throw Error(ErrorCode::unavailable, "local Agent observation is required for cold backup");
+        throw Error(
+            ErrorCode::unavailable,
+            "local service observation is required for cold backup");
     std::vector<terminal_backup::Selection> result;
     for (const auto& service : node->health->services()) {
         if (!wanted.erase(service.id()))
@@ -112,10 +114,7 @@ void Application::Impl::register_backup_commands()
                     for (const auto& owner : prepared->at("owners"))
                         service_ids.push_back(owner.at("service"));
                 }
-                manager::proto::Request observe;
-                observe.mutable_snapshot();
-                co_await PollFuture{manager.request(std::move(observe))};
-                const auto sources = local_backup_selections(manager.view(), service_ids);
+                const auto sources = local_backup_selections({services.view()}, service_ids);
                 const auto operation = resuming ? prepared->at("backup_id").get<std::string>()
                                                 : text(p, "operation_id");
                 const auto destination = resuming ? text(p, "backup") : text(p, "destination");

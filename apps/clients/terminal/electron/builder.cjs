@@ -46,7 +46,6 @@ module.exports = {
         ...(!mac ? ["runtime-requirements.json"] : []),
       ],
     },
-    { from: "build/electron-resources/remote-linux", to: "remote-linux", filter: ["**/*"] },
   ],
   asar: true,
   electronDist,

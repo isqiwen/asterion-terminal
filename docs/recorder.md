@@ -1,7 +1,7 @@
 # 行情录制（recorder）
 
 `asterion_recorder` 是录制主机上唯一的 Asterion 程序，代码在 `apps/services/recorder/`。它自己登录 CTP 行情，
-订阅全市场，把每笔报价和分钟线写成 Parquet。它不属于任何节点：不由 Agent 或 Manager 启停，Terminal 和行情服务
+订阅全市场，把每笔报价和分钟线写成 Parquet。它由 systemd 看护，Terminal 和行情服务
 的升级、重启都不影响它；Terminal 只读它的状态和文件。接入、分钟聚合和合约目录的代码与行情服务共用。
 
 ## 运行
@@ -30,8 +30,8 @@
 
 录制主机（Ubuntu 24.04 x86_64，决定 D3）上只装录制程序，位置是 `/opt/asterion/recorder/`。发布物只有一个文件
 `asterion-recorder-setup.sh`：自解压脚本，即 `apps/services/recorder/scripts/setup.sh` 后接一行 `__ARCHIVE__` 和安装目录
-（`bin/`、`lib/`、`config/`）的 tar.gz，由 CMake 目标 `asterion_recorder_setup` 生成。它与远程服务包在同一个 Ubuntu 24.04
-环境中构建：CI 的 `remote-linux` 作业把它作为单独的产物 `recorder-linux-x86_64` 上传，与 Terminal 部署的服务包分开；本地用
+（`bin/`、`lib/`、`config/`）的 tar.gz，由 CMake 目标 `asterion_recorder_setup` 生成。它与交易服务的安装脚本在同一个 Ubuntu 24.04
+环境中构建：CI 的 `linux-hosts` 作业把它作为单独的产物 `recorder-linux-x86_64` 上传；本地用
 `scripts/services/build_linux_services.sh`，输出到 `build/linux-bundles/`。
 
 ```sh

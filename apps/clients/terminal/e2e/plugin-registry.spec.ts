@@ -6,7 +6,9 @@ test("Terminal registry drives settings and workspace navigation", async ({ page
   await workbench.goto("/");
   const settings = await openSettingsWindow(workbench);
   await settings.getByRole("button", { name: "插件", exact: true }).click();
-  await expect(settings.getByText("内置 · 随应用发布", { exact: true })).toHaveCount(4);
+  await expect(
+    settings.getByRole("heading", { name: "服务启用的插件", exact: true }),
+  ).toBeVisible();
   const page = await closeSettingsWindow(settings);
   await openView(page, "backtest");
   await expect(page.getByRole("button", { name: "新建回测", exact: true })).toBeVisible();

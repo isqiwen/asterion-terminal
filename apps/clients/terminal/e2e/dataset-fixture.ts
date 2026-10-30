@@ -153,7 +153,6 @@ export async function seedHistory(
     of("futures.contracts").source,
   ];
   const snapshot: Snapshot = await rpc(request, "node.action", {
-    id: "local",
     service: "historical-data",
     action: "stop",
   });

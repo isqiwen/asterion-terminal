@@ -40,8 +40,8 @@ export const test = base.extend<{
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
         process.env.ASTERION_ROOT = (await response.json()).root;
-        // Bring the environment up as the app's startup does (Agent, market
-        // Data and Research services, each past its first heartbeat), so the first
+        // Bring the environment up as the app's startup does (market, Data and
+        // Research services, each past its first heartbeat), so the first
         // test of a file meets the same ready state as the later ones.
         const call = async (method: string, params: object = {}) => {
           const reply = await request.post("/__asterion/api", {
@@ -51,7 +51,6 @@ export const test = base.extend<{
           if (body.error) throw new Error(`${method} after reset: ${body.error.message}`);
           return body.result;
         };
-        await call("node.local");
         await call("market.local");
         await call("node.data.local.open");
         const plugins = (await call("native.plugins.inspect")).native_plugins.items

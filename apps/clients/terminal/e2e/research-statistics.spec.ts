@@ -88,7 +88,6 @@ test("fixed statistics read original columns independently and keep formal rows 
     .fill("合成未来标签独立分布；不反向筛选特征");
   const snapshot = await rpc(page.request, "runtime.snapshot");
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.data.service,
     action: "stop",
   });
@@ -112,7 +111,6 @@ test("fixed statistics read original columns independently and keep formal rows 
   expect(labels.result.rows[0].reason).toBe("VALID");
   expect(labels.result.rows[42]).toMatchObject({ reason: "CROSSED_LABEL", value: null });
   await rpc(page.request, "node.action", {
-    id: "local",
     service: snapshot.research_service.service,
     action: "restart",
   });

@@ -1,7 +1,7 @@
 # Python 研究服务（lab）
 
-`asterion_lab` 是每个本机节点上的 Python 服务，代码在 `apps/services/lab/`，用随包 Python 以
-`python3 -I -B -m asterion_lab` 运行，由 Node Agent 托管（见[服务](services.md)）。它按计划逐步接管
+`asterion_lab` 是本机的 Python 服务，代码在 `apps/services/lab/`，用随包 Python 以
+`python3 -I -B -m asterion_lab` 运行，由 Terminal 启动和看护（见[本机服务](services.md#本机服务)）。它按计划逐步接管
 历史数据与研究；现在负责期货数据仓库和可同时使用的数据源插件。旧的 Data 服务在过渡期间照常工作，两边互不读写。
 
 ## 数据源插件
@@ -151,4 +151,4 @@ AKShare（锁定 1.19.1）只用于核对，不作为数据来源。2026-10-28 �
 
 - 只有日历、合约表、日线、主力连续和首批品种的交易时段；分钟线和录制尚未接入。
 - 采集任务只在内存中登记，服务重启后列表清空；已提交的数据保留，重新提交同一区间只补缺。
-- 只有本机节点有 lab 服务。
+- lab 只在本机运行。

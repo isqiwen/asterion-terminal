@@ -22,7 +22,6 @@ const helper = source
 const html = app.isPackaged
   ? path.join(__dirname, "dist/installer.html")
   : path.join(root, "apps/clients/terminal/dist/installer.html");
-const remoteCredentials = new Map();
 let window,
   busy = false,
   view;
@@ -61,18 +60,11 @@ else {
       )
         throw new Error("Untrusted installer request");
     };
-    const execute = (action, removeUserData = false, remoteRequest) =>
+    const execute = (action, removeUserData = false) =>
       new Promise((resolve, reject) => {
-        // Manager calls use its installed release. A same-release package supplies
-        // that executor during repair even when installed program files are missing.
-        const sameRelease = source && view?.version && view.version === view.candidate_version;
-        const program =
-          ["stop", "remote"].includes(action) && !sameRelease
-            ? path.join(native(destination), "asterion_maintenance")
-            : helper;
         const args = ["--operation", action, "--destination", destination];
         if (removeUserData) args.push("--remove-user-data");
-        if (source && ["inspect", "install", "upgrade", "repair", "remote"].includes(action))
+        if (source && ["inspect", "install", "upgrade", "repair"].includes(action))
           args.push("--source", source);
         const environment = Object.fromEntries(
           Object.entries(process.env).filter(
@@ -80,13 +72,7 @@ else {
           ),
         );
         environment.ASTERION_ENVIRONMENT = "production";
-        const child = spawn(program, args, { stdio: ["pipe", "pipe", "pipe"], env: environment });
-        if (remoteRequest?.maintenance)
-          remoteRequest.maintenance.connections = [
-            ...remoteCredentials.values(),
-            ...(remoteRequest.maintenance.connections || []),
-          ];
-        child.stdin.end(remoteRequest ? JSON.stringify(remoteRequest) : "");
+        const child = spawn(helper, args, { stdio: ["ignore", "pipe", "pipe"], env: environment });
         let result,
           failure,
           stderr = "";
@@ -94,14 +80,8 @@ else {
         lines.on("line", line => {
           try {
             const message = JSON.parse(line);
-            if (message.remote_progress)
-              window.webContents.send("installer:remote-progress", message.remote_progress);
             if (message.step) window.webContents.send("installer:progress", message.step);
-            if (message.result) {
-              result = message.result;
-              if (action === "remote" && Array.isArray(result.nodes))
-                window.webContents.send("installer:remote-progress", result);
-            }
+            if (message.result) result = message.result;
             if (message.error) failure = message.error;
           } catch {
             failure = { code: "operation_failed", message: "Invalid installer executor response" };
@@ -122,7 +102,7 @@ else {
               ),
             );
           else {
-            if (action !== "remote") view = result;
+            view = result;
             resolve({ ...result, source_available: !!source });
           }
         });
@@ -132,56 +112,21 @@ else {
       if (busy) throw new Error("Installation operation is in progress");
       return execute("inspect");
     });
-    ipcMain.handle("installer:remote", async (event, request) => {
+    ipcMain.handle("installer:run", async (event, action, removeUserData = false) => {
       trusted(event);
+      if (!["install", "upgrade", "repair", "uninstall"].includes(action))
+        throw new Error("Unknown installer action");
+      if (typeof removeUserData !== "boolean" || (removeUserData && action !== "uninstall"))
+        throw new Error("user data removal is only available during uninstall");
       if (busy) throw new Error("Installation operation is in progress");
-      for (const entry of request.maintenance?.connections || []) {
-        if (entry?.id) remoteCredentials.set(entry.id, entry);
-      }
       busy = true;
       try {
-        return await execute("remote", false, request);
+        await execute(action, removeUserData);
+        return await execute("inspect");
       } finally {
         busy = false;
       }
     });
-    ipcMain.handle(
-      "installer:run",
-      async (event, action, removeUserData = false, remoteAll = false) => {
-        trusted(event);
-        if (!["install", "upgrade", "repair", "uninstall", "stop"].includes(action))
-          throw new Error("Unknown installer action");
-        if (typeof removeUserData !== "boolean" || (removeUserData && action !== "uninstall"))
-          throw new Error("user data removal is only available during uninstall");
-        if (typeof remoteAll !== "boolean" || (remoteAll && action !== "uninstall"))
-          throw new Error("Invalid remote uninstall scope");
-        if (busy) throw new Error("Installation operation is in progress");
-        busy = true;
-        try {
-          const before = await execute("inspect");
-          if (remoteAll && !before.pending) {
-            await execute("remote", false, {
-              maintenance: { action: "UNINSTALL", removeData: removeUserData },
-            });
-            await execute("stop");
-          }
-          if (!before.pending && action === "upgrade") {
-            window.webContents.send("installer:progress", "remotePreparing");
-            await execute("remote", false, { maintenance: { action: "PREPARE" } });
-            await execute("stop");
-          }
-          if (!before.pending && action === "repair" && before.busy?.length) await execute("stop");
-          await execute(action, removeUserData);
-          if (action === "upgrade") {
-            window.webContents.send("installer:progress", "remoteFinishing");
-            await execute("remote", false, { maintenance: { action: "FINISH" } });
-          }
-          return await execute("inspect");
-        } finally {
-          busy = false;
-        }
-      },
-    );
     ipcMain.handle("installer:open", async (event, location) => {
       trusted(event);
       if (busy || !view) throw new Error("Installer is not ready");

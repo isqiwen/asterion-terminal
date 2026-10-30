@@ -32,22 +32,22 @@ public:
             throw std::invalid_argument("invalid lock name");
         const auto path = directory / name;
         if (std::filesystem::is_symlink(path))
-            throw std::invalid_argument("invalid agent lock path");
+            throw std::invalid_argument("lock path cannot be a symbolic link: " + path.string());
         const bool existing =
             access == Access::shared_existing || access == Access::exclusive_existing;
         if (existing && !std::filesystem::is_regular_file(path))
-            throw std::runtime_error("agent directory is unavailable");
+            throw std::runtime_error("lock file is missing: " + path.string());
         handle_ = ::open(
             path.c_str(),
             (existing ? O_RDONLY : O_RDWR | O_CREAT) | O_NOFOLLOW | O_CLOEXEC,
             0600);
         if (handle_ < 0)
-            throw std::runtime_error("agent directory is unavailable");
+            throw std::runtime_error("cannot open lock file: " + path.string());
         const bool exclusive = access == Access::exclusive || access == Access::exclusive_existing;
         if (::flock(handle_, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) != 0) {
             ::close(handle_);
             handle_ = -1;
-            throw std::runtime_error("agent directory is already owned");
+            throw std::runtime_error("held by another process: " + path.string());
         }
     }
 

@@ -19,31 +19,13 @@ inline bool development_environment()
 }
 
 // The application's native program directory: the bundled programs, plugins
-// and configuration defaults. A program started from elsewhere is given it
-// (the Manager runs from <root>/manager/bin); otherwise it is the directory of
-// the running executable.
-inline std::filesystem::path& configured_application_directory()
-{
-    static std::filesystem::path directory;
-    return directory;
-}
-
-inline void set_application_directory(std::filesystem::path directory)
-{
-    if (!directory.is_absolute())
-        throw std::invalid_argument("invalid application directory: " + directory.string());
-    configured_application_directory() = std::move(directory);
-}
-
+// and configuration defaults the local services run from. Electron and the
+// development entry name it (ASTERION_APPLICATION_DIRECTORY); otherwise it is
+// the directory of the running executable.
 inline std::filesystem::path application_directory()
 {
-    const auto& configured = configured_application_directory();
-    return configured.empty() ? current_executable().parent_path() : configured;
-}
-
-inline std::string local_node_service_name()
-{
-    return development_environment() ? "me.asterion.node-agent.dev" : "";
+    return environment_path("ASTERION_APPLICATION_DIRECTORY")
+        .value_or(current_executable().parent_path());
 }
 
 } // namespace asterion::terminal

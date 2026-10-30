@@ -62,7 +62,6 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
                         std::vector<std::string>(
                             s.plugin_artifacts().begin(),
                             s.plugin_artifacts().end())},
-                    {"port", s.port()},
                     {"state", s.state()},
                     {"desired_running", s.desired_running()},
                     {"pid", s.pid()},
@@ -75,33 +74,14 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
                     {"last_heartbeat_ms", s.last_heartbeat_ms()},
                     {"endpoint", s.endpoint()},
                     {"directory", s.directory()}});
-        Json host_resources = nullptr;
-        if (status.has_host_resources()) {
-            const auto& sample = status.host_resources();
-            host_resources = {
-                {"sampled_at_ms", sample.sampled_at_ms()},
-                {"cpu_usage_percent",
-                    sample.has_cpu_usage_percent() ? Json(sample.cpu_usage_percent())
-                                                   : Json(nullptr)},
-                {"memory_available_bytes", sample.memory_available_bytes()},
-                {"disk_available_bytes", sample.disk_available_bytes()},
-                {"disk_path", sample.disk_path()},
-                {"failure",
-                    sample.has_failure()
-                        ? Json{{"code", sample.failure().code()}, {"message", sample.failure().message()}}
-                        : Json(nullptr)}
-            };
-        }
         health = {
             {"instance_id", status.instance_id()},
-            {"host_resources", std::move(host_resources)},
             {"phase", phase},
             {"failure",
                 status.has_failure()
                     ? Json{{"code", status.failure().code()}, {"message", status.failure().message()}}
                     : Json(nullptr)},
             {"execution", protocol::execution_health_json(status.execution())},
-            {"maintenance", status.maintenance()},
             {"pid", status.pid()},
             {"os", status.os()},
             {"arch", status.arch()},

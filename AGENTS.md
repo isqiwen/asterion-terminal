@@ -24,9 +24,9 @@ phase and its work packages:
   kernel converts targets into orders and enforces [docs/safety.md](docs/safety.md).
 - The user-approved M1.9 consolidates extension boundaries and engineering structure.
   Work only on the active phase. Parts the plan replaces (Data, Research, the
-  shared task store, the C++ rule strategies, Node Manager and SSH
-  orchestration, the Node-API layer and hand-written JSON mappings) get the
-  fixes the active phase needs, never new features.
+  shared task store, the C++ rule strategies, the Node-API layer and
+  hand-written JSON mappings) get the fixes the active phase needs, never new
+  features.
 - Every new mechanism serves a user scenario. Do not add digests, evidence
   records, validators or compatibility layers without one.
 - A phase is done when it worked for real, on real data or the CTP simulation
@@ -43,11 +43,11 @@ phase and its work packages:
 - Business services (`apps/services/`): Market, Data, Research and Trading
   (one process per account). Each owns its state and runs its own tasks
   in bounded thread pools. There is no central task service or worker process.
-- Management (`apps/management/`): Node Manager (on the Terminal machine) owns
-  node registration and Agent connections; Node Agent (on every node) supervises
-  that node's service processes. Both are supervised by the OS service manager.
-  Trading and Recorder are independent Linux installations supervised by systemd.
-  Neither management process proxies business traffic: Terminal connects directly.
+- Local services: Terminal starts Market, Data, Research and Lab on its own
+  machine as child processes (`LocalServices` in
+  `apps/clients/terminal/native/`), one of each, restarts them on failure and
+  they exit with it. Trading and Recorder are independent Linux installations
+  supervised by systemd. Terminal talks to every service directly.
 - IPC: Protobuf from `protocol/proto/`; Unix sockets locally, plain TCP with the
   `ASTR` preface on the LAN, and pinned mutual TLS for all Trading connections.
 - Terminal: Electron + React UI (`apps/clients/terminal/src`, `features/`), C++

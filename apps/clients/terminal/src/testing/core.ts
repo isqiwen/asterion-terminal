@@ -36,7 +36,6 @@ const service = (id: string, kind: Service["kind"]): Service => ({
   plugin_artifacts: [],
   id,
   artifact: "a".repeat(64),
-  port: 0,
   state: "running",
   desired_running: true,
   pid: 1,
@@ -103,8 +102,6 @@ export function readySnapshot(): Snapshot {
       out_of_order: 0,
       subscriptions: [],
     },
-    ssh_key: null,
-    firewall_plan: null,
     nodes: [
       {
         id: "local",
@@ -115,12 +112,10 @@ export function readySnapshot(): Snapshot {
         latency_ms: 1,
         error: "",
         health: {
-          instance_id: "agent",
+          instance_id: "terminal",
           phase: "ready",
           failure: null,
           execution,
-          host_resources: null,
-          maintenance: false,
           pid: 1,
           os: "linux",
           arch: "x86_64",

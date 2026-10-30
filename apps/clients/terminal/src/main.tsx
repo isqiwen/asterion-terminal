@@ -1,7 +1,7 @@
 import { nativeDesktop, desktop, developmentEnvironment } from "./bridge/desktop";
 import "./host/workspace/titlebar.css";
 import { translate, useLocale } from "./i18n";
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Terminal } from "@asterion/terminal/App";
 // The page's title bar is the window's: macOS insets the window buttons at its
@@ -12,12 +12,8 @@ if (nativeDesktop) {
 }
 function EnvironmentLabel() {
   useLocale();
-  const [stopping, setStopping] = useState(false);
-  useEffect(() => (nativeDesktop ? desktop().onDevelopmentStopping(setStopping) : undefined), []);
   return developmentEnvironment ? (
-    <span className="environment-label">
-      {translate("host", stopping ? "正在停止开发环境…" : "开发环境")}
-    </span>
+    <span className="environment-label">{translate("host", "开发环境")}</span>
   ) : null;
 }
 createRoot(document.getElementById("root")!).render(

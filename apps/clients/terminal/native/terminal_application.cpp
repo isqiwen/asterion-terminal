@@ -224,14 +224,12 @@ Application::Impl::Publication Application::Impl::capture()
     const auto data = data_client ? data_client->owner_status() : json(nullptr);
     if (market)
         next.market = market->owner_read();
-    next.nodes = manager.view();
+    next.nodes = {services.view()};
     next.metadata = {
         {"research_service", nullptr},
         {"data", data},
         {"credential_verification", credential_verification},
         {"history_page", nullptr},
-        {"ssh_key", ssh_key},
-        {"firewall_plan", firewall_plan},
         {"protocol", 1},
         {"product", "Asterion Terminal"},
         {"core", "C++20"},

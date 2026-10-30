@@ -6,13 +6,13 @@
 | 交易必须遵守哪些规则 | [交易安全契约](safety.md) |
 | 往哪走、先做什么、做到哪了 | [评估与路线](reviews/project-assessment-2026-10-28.md) |
 | 现在能做什么、有哪些限制 | [现状](status.md) |
-| 系统怎样组成、状态归谁 | [架构](architecture.md) · [Node Manager](architecture/node-manager.md) |
+| 系统怎样组成、状态归谁 | [架构](architecture.md) · [服务与部署](services.md) |
 | 怎样构建、运行与测试 | [开发指南](development.md) |
 | 界面与交互 | [Terminal](terminal.md) |
 | 行情与历史数据 | [行情与数据](market-data.md) · [行情录制](recorder.md) · [Python 研究服务与数据仓库](lab.md) |
 | 研究对象与流程 | [研究](research.md) · [回测](backtest.md) · [策略](strategies.md) · [因子](factors.md) · [任务](tasks.md) |
 | 交易与风控 | [交易](trading.md) · [CTP 仿真验收](acceptance/ctp-simulation.md) |
-| 节点、部署与日志 | [服务](services.md) · [原生插件](native-plugins.md) |
+| 本机服务、部署与日志 | [服务](services.md) · [原生插件](native-plugins.md) |
 
 约定：
 

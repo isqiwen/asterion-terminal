@@ -201,7 +201,6 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect(
     matrix.getByRole("rowheader", { name: "逐日费用与保证金", exact: true }),
   ).toBeVisible();
-  await expect(matrix.getByRole("rowheader", { name: "风险实现摘要", exact: true })).toBeVisible();
   await expect(matrix.getByRole("rowheader", { name: "换月日程", exact: true })).toBeVisible();
   const visibleMatrixRows = await matrix.evaluate(element => {
     const table = element as HTMLTableElement;

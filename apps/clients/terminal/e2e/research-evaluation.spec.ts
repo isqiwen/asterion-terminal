@@ -249,7 +249,7 @@ test("fixed performance evaluation preserves the original account through restar
   const state = await rpc(page.request, "runtime.snapshot");
   const service = state.research_service.service;
   await restartServices(page.request, [service], () =>
-    rpc(page.request, "node.action", { id: "local", service, action: "restart" }),
+    rpc(page.request, "node.action", { service, action: "restart" }),
   );
   expect((await taskRpc(page.request, "research", "task.result.read", { id })).task_result).toEqual(
     first,
@@ -352,7 +352,6 @@ test("fixed performance evaluation preserves the original account through restar
     first,
   );
   await rpc(page.request, "node.action", {
-    id: "local",
     service: state.research_service.service,
     action: "restart",
   });
@@ -374,7 +373,7 @@ test("fixed performance evaluation preserves the original account through restar
   ).toContainText(first.task.result_digest);
   const services = [state.data.service, state.research_service.service];
   for (const service of services)
-    await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+    await rpc(page.request, "node.action", { service, action: "stop" });
   await expect
     .poll(
       async () =>

@@ -1,9 +1,7 @@
 #include "support/timing.hpp"
 #include "terminal/credential_fixture.hpp"
 #include "application_environment.hpp"
-#include "node_client.hpp"
-#include "node_enrollment.hpp"
-#include "node_service.hpp"
+#include "node_paths.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <algorithm>
@@ -54,38 +52,6 @@ TEST(DataCredentials, DirectoryPublicationFailureDoesNotChangeTheCredentialStore
     }
     credentials.save(credential("provider", true), limits);
     EXPECT_EQ(credentials.find("provider")->credential, "secret-provider");
-}
-
-TEST(NodeEnrollment, ManagedKeyIsNotAcknowledgedWhenDirectoryPublicationFails)
-{
-    Directory root;
-
-    struct Environment
-    {
-        std::optional<std::string> directory = environment_variable("ASTERION_ROOT");
-
-        ~Environment()
-        {
-            if (directory)
-                setenv("ASTERION_ROOT", directory->c_str(), 1);
-            else
-                unsetenv("ASTERION_ROOT");
-        }
-    } environment;
-
-    setenv("ASTERION_ROOT", root.path.c_str(), 1);
-    fail_next_directory_syncs_for_testing(1);
-    EXPECT_THROW(terminal::prepare_ssh_key("task"), std::runtime_error);
-    fail_next_directory_syncs_for_testing(0);
-    EXPECT_FALSE(fs::exists(root.path / "manager/data/enrollments/.ssh-keys/task/identity"));
-    const auto prepared = terminal::prepare_ssh_key("task");
-    const auto identity = root.path / "manager/data/enrollments/.ssh-keys/task/identity";
-    const auto before = fs::last_write_time(identity).time_since_epoch().count();
-    fail_next_directory_syncs_for_testing(1);
-    EXPECT_THROW(terminal::prepare_ssh_key("task"), std::runtime_error);
-    fail_next_directory_syncs_for_testing(0);
-    EXPECT_EQ(terminal::prepare_ssh_key("task"), prepared);
-    EXPECT_EQ(fs::last_write_time(identity).time_since_epoch().count(), before);
 }
 
 TEST(DataCredentials, UnreadableFileIsListedWithoutFailingTheSnapshot)
@@ -159,7 +125,7 @@ TEST(DataCredentials, TheSameProviderHasIndependentCredentialsAcrossEnvironments
     EXPECT_EQ(keychain->items.size(), 1U);
 }
 
-TEST(TerminalEnvironment, SeparatesManagedPathsAndServiceIdentityWithoutCreatingFiles)
+TEST(TerminalEnvironment, SeparatesManagedPathsWithoutCreatingFiles)
 {
     struct Environment
     {
@@ -187,35 +153,20 @@ TEST(TerminalEnvironment, SeparatesManagedPathsAndServiceIdentityWithoutCreating
     unsetenv("ASTERION_ROOT");
     unsetenv("XDG_DATA_HOME");
 #ifdef __APPLE__
-    const auto production = home / "Library/Application Support/Asterion/node";
-    const auto development = home / "Library/Application Support/Asterion Development/node";
-    const auto definitions = home / "Library/LaunchAgents";
-    const std::string definition = ".plist";
+    const auto production = home / "Library/Application Support/Asterion";
+    const auto development = home / "Library/Application Support/Asterion Development";
 #else
     const auto production = home / ".local/share/asterion";
     const auto development = home / ".local/share/asterion-development";
-    const auto definitions = home / ".config/systemd/user";
-    const std::string definition = ".service";
 #endif
     setenv("ASTERION_ENVIRONMENT", "production", 1);
     EXPECT_EQ(terminal::asterion_root(), production);
-    EXPECT_EQ(terminal::program_directory("agent"), production / "agent");
-    EXPECT_EQ(terminal::node_enrollment_directory(), home / ".asterion/nodes");
-    EXPECT_TRUE(terminal::local_node_service_name().empty());
-    EXPECT_EQ(
-        terminal::node_service_definition(terminal::local_node_service_name()),
-        definitions / ("me.asterion.node-agent" + definition));
+    EXPECT_EQ(terminal::program_directory("market"), production / "market");
     setenv("ASTERION_ENVIRONMENT", "development", 1);
     EXPECT_EQ(terminal::asterion_root(), development);
-    EXPECT_EQ(terminal::node_enrollment_directory(), development / "manager/data/enrollments");
-    EXPECT_EQ(terminal::local_node_service_name(), "me.asterion.node-agent.dev");
-    EXPECT_EQ(
-        terminal::node_service_definition(terminal::local_node_service_name()),
-        definitions / ("me.asterion.node-agent.dev" + definition));
     Directory isolated;
     setenv("ASTERION_ROOT", isolated.path.c_str(), 1);
     EXPECT_EQ(terminal::asterion_root(), isolated.path);
-    EXPECT_EQ(terminal::node_enrollment_directory(), isolated.path / "manager/data/enrollments");
     EXPECT_FALSE(fs::exists(isolated.path));
     setenv("ASTERION_ENVIRONMENT", "invalid", 1);
     EXPECT_THROW(terminal::asterion_root(), std::invalid_argument);

@@ -3,8 +3,6 @@ add_library(asterion_node_control STATIC
   plugin_catalog.cpp
   node_snapshot.cpp
   service_programs.cpp
-  node_service.cpp
-  remote_bundle.cpp
   node_paths.cpp
 )
 target_include_directories(asterion_node_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

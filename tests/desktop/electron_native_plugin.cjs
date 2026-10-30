@@ -86,7 +86,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     const selected = [...bundled, hash].sort();
     // Adding an optional provider preserves the service's bundled plugins.
     const editor = manager.getByRole("region", { name: "服务插件 historical-data", exact: true });
-    await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+    await call("node.action", { service: "historical-data", action: "stop" });
     await editor.getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true }).check();
     await editor.getByRole("button", { name: "保存插件配置", exact: true }).click();
     await expect
@@ -195,35 +195,13 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
         })
       ).history_page;
     assert.equal((await readMinutes()).bars[0].close, "2");
-    await call("node.action", { id: "local", service: "research", action: "stop" });
+    await call("node.action", { service: "research", action: "stop" });
     assert.equal((await readMinutes()).id, minute.id);
-    await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+    await call("node.action", { service: "historical-data", action: "stop" });
     // Removing the upload cannot remove the service's or submitted task's pinned bytes.
     await fs.unlink(original);
     await application.close();
     application = undefined;
-    // Restart both independently owned management processes along with Electron.
-    // A surviving Manager retains its connection to the Agent stopped by this test.
-    for (const program of ["manager", "agent"]) {
-      const pid = Number(
-        await fs.readFile(path.join(temp, "node", program, "data", `${program}.pid`), "utf8"),
-      );
-      process.kill(pid, "SIGTERM");
-      await expect
-        .poll(
-          () => {
-            try {
-              process.kill(pid, 0);
-              return false;
-            } catch (error) {
-              if (error.code !== "ESRCH") throw error;
-              return true;
-            }
-          },
-          { timeout: 10000 },
-        )
-        .toBe(true);
-    }
     application = await launch();
     page = await application.firstWindow();
     page.on("pageerror", error => errors.push(String(error)));
@@ -252,15 +230,8 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     );
   } finally {
     if (application) await application.close();
-    try {
-      process.kill(
-        Number(await fs.readFile(path.join(temp, "node/agent/data/agent.pid"), "utf8")),
-        "SIGTERM",
-      );
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (error) {
-      if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
-    }
+    // The services exit with the application that started them.
+    await new Promise(resolve => setTimeout(resolve, 2000));
     await fs.rm(temp, { recursive: true, force: true });
   }
 })().catch(error => {

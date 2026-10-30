@@ -239,7 +239,7 @@ export async function portfolioTargetsFlow(page: Page, partial: boolean) {
     : await explicitPortfolioDelivery(page, candidate, evidence, days);
   const context = (await rpc(page.request, "runtime.snapshot")).research_service;
   for (const action of ["stop", "start"])
-    await rpc(page.request, "node.action", { id: "local", service: context.service, action });
+    await rpc(page.request, "node.action", { service: context.service, action });
   await expect
     .poll(async () => (await rpc(page.request, "runtime.snapshot")).research_service?.online, {
       timeout: 10000,
@@ -275,7 +275,7 @@ export async function portfolioTargetsFlow(page: Page, partial: boolean) {
     const state = await rpc(page.request, "runtime.snapshot");
     const selected = [state.data.service, state.research_service.service];
     for (const service of selected)
-      await rpc(page.request, "node.action", { id: "local", service, action: "stop" });
+      await rpc(page.request, "node.action", { service, action: "stop" });
     await expect
       .poll(
         async () =>
