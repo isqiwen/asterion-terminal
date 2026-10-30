@@ -12,7 +12,7 @@ foreach(schema health domain resource trading node manager market task_state tas
 endforeach()
 # Python IPC bindings use the same locked protoc as the C++ transport.
 set(ASTERION_PYTHON_PROTOCOL)
-foreach(schema analytics lab)
+foreach(schema analytics lab recorder)
   set(output "${CMAKE_BINARY_DIR}/generated-python/asterion/${schema}_pb2.py")
   add_custom_command(OUTPUT ${output}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated-python"

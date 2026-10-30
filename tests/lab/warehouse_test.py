@@ -134,6 +134,9 @@ class Mapping(unittest.TestCase):
         self.assertNotIn(TOKEN, str(caught.exception))
 
 
+from asterion_lab.sources.tushare import TushareSource
+
+
 class Acquiring(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -152,7 +155,7 @@ class Acquiring(unittest.TestCase):
     def run_task(self, identity, **options):
         acquisition = Acquisition(self.warehouse, Log())
         task = acquisition.submit(identity, "2026-01-01", "2026-01-31",
-                                  lambda cancelled: Tushare(TOKEN, Budget(500), post=self.vendor,
+                                  lambda cancelled: TushareSource(TOKEN, Budget(500), post=self.vendor,
                                                             cancelled=cancelled), **options)
         for thread in threading.enumerate():
             if thread.name == f"acquisition-{identity}":

@@ -41,7 +41,17 @@ SCHEMAS = {
                   "delivery_description": pl.String, "trading_hours": pl.String},
 }
 
-SQL_TYPES = {pl.String: "varchar", pl.Date: "date", pl.Boolean: "boolean",
+SCHEMAS["minutes"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
+    "day": pl.Date, "start_ms": pl.Int64, "partial": pl.Boolean,
+    **{name: NUMBER for name in ("open", "high", "low", "close", "volume", "average_price", "open_interest")}}
+SCHEMAS["settlement"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
+    "day": pl.Date, **{name: NUMBER for name in ("long_margin_rate", "short_margin_rate",
+        "fee_rate", "fee_per_lot", "close_today_fee_rate", "close_today_fee_per_lot")}}
+SCHEMAS["observations"] = {"exchange": pl.String, "contract": pl.String, "day": pl.Date,
+    "instance": pl.String, "number": pl.Int64, "first_received_ms": pl.Int64,
+    "last_received_ms": pl.Int64, "ticks": pl.Int64, "end": pl.String}
+
+SQL_TYPES = {pl.Int64: "bigint", pl.String: "varchar", pl.Date: "date", pl.Boolean: "boolean",
              NUMBER: "decimal(28, 6)"}
 
 
@@ -113,7 +123,8 @@ EMPTY = Version("", {"format": 1, "parent": None, "created_ns": 0, "partitions":
 
 
 class Warehouse:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, provider="tushare"):
+        self.provider = provider
         self.root = directory / "warehouse"
         (self.root / "versions").mkdir(parents=True, exist_ok=True)
         (self.root / "files").mkdir(exist_ok=True)
@@ -197,7 +208,7 @@ class Writer:
     def commit(self) -> Version:
         if self.partitions == self.base.manifest["partitions"]:
             return self.base
-        manifest = {"format": 1, "parent": self.base.identity or None,
+        manifest = {"format": 1, "provider": self.warehouse.provider, "parent": self.base.identity or None,
                     "created_ns": time.time_ns(), "partitions": self.partitions}
         content = canonical(manifest)
         identity = hashlib.sha256(content).hexdigest()

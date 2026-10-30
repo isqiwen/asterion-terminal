@@ -20,13 +20,18 @@ message Request {
     DominantQuery dominant = 18;
     SessionsQuery sessions = 19;
     CrossCheckQuery cross_check = 20;
+    SourcesQuery sources = 21;
+    SourceRead source_read = 22;
+    SourceCoverageQuery source_coverage = 23;
   }
 }
 message HealthQuery {}
 message ConfigureSource {
-  string provider = 1; // "tushare"
+  string provider = 1;
   string credential = 2;
   uint32 requests_per_minute = 3;
+  string host = 4;
+  uint32 port = 5;
 }
 // Calendars, contract lists and daily bars of every exchange, for open days in
 // [begin_day, end_day] (YYYY-MM-DD) not stored yet.
@@ -39,15 +44,23 @@ message AcquireDaily {
   // Read stored days again, as after a change of the mapping rules. The new
   // version replaces their rows; earlier versions keep theirs.
   bool refresh = 5;
+  string provider = 6;
+  string table = 7;
+  string contract = 8;
 }
 message TasksQuery {}
 message CancelTask {
   string id = 1;
 }
-message SummaryQuery {}
-message CoverageQuery {}
+message SummaryQuery {
+  string provider = 1;
+}
+message CoverageQuery {
+  string provider = 1;
+}
 message DailyBarsQuery {
   string contract = 1; // EXCHANGE/product/YYYY-MM
+  string provider = 4;
   string begin_day = 2;
   string end_day = 3;
 }
@@ -65,10 +78,12 @@ message DominantQuery {
   bool traded = 5;
   // "none", or "ratio": earlier months scaled to the level of the last one.
   string adjustment = 6;
+  string provider = 7;
 }
 // The trading sessions of a product on the exchange's open days in
 // [begin_day, end_day], from reviewed exchange documents.
 message SessionsQuery {
+  string provider = 5;
   string exchange = 1;
   string product = 2;
   string begin_day = 3;
@@ -99,6 +114,9 @@ message Response {
     DominantSeries dominant = 17;
     Sessions sessions = 18;
     CrossCheck cross_check = 19;
+    Sources sources = 21;
+    SourceTable source_table = 22;
+    SourceCoverage source_coverage = 23;
   }
 }
 message Health {
@@ -132,6 +150,9 @@ message Task {
   string dataset_version = 11;
   int64 started_ns = 12;
   int64 finished_ns = 13;
+  string provider = 14;
+  string table = 15;
+  string contract = 16;
 }
 message Tasks {
   repeated Task tasks = 1;
@@ -253,4 +274,56 @@ message CheckGroup {
 message CrossCheck {
   string kind = 1;
   repeated CheckGroup groups = 2;
+}
+
+// All data sources expose the same catalogue, coverage and partition-read operations.
+message SourcesQuery {}
+message SourceDescriptor {
+  string id = 1;
+  repeated string tables = 2;
+  repeated string exchanges = 3;
+  bool requires_credential = 4;
+  bool requires_endpoint = 5;
+  bool configured = 6;
+}
+message Sources {
+  repeated SourceDescriptor sources = 1;
+}
+message SourceRead {
+  string provider = 1;
+  string table = 2;
+  string exchange = 3;
+  string day = 4; // One dated partition; calendars return that year.
+  string contract = 5;
+}
+message SourceCell {
+  optional string value = 1;
+} // Decimal text; absent means unknown.
+message SourceRow {
+  repeated SourceCell cells = 1;
+}
+message SourceTable {
+  string provider = 1;
+  string table = 2;
+  repeated string columns = 3;
+  repeated SourceRow rows = 4;
+  // Recorder-wide observation intervals, not per-contract completeness.
+  repeated SourceObservation observations = 5;
+}
+message SourceObservation {
+  string instance = 1;
+  uint64 number = 2;
+  int64 first_received_ms = 3;
+  int64 last_received_ms = 4;
+  uint64 ticks = 5;
+  string end = 6;
+}
+message SourceCoverageQuery {
+  string provider = 1;
+}
+message SourceCoverage {
+  string provider = 1;
+  bool known = 2;
+  repeated string days = 3;
+  string note = 4;
 }

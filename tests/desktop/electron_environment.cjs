@@ -31,9 +31,9 @@ async function main() {
   const definition = local.definition("me.asterion.node-agent.dev");
   const protectedFiles = [
     local.definition("me.asterion.node-agent"),
-    path.join(production, "bin/asterion_node_agent"),
-    path.join(production, "ipc-id"),
-    path.join(production, "agent.pid"),
+    path.join(production, "agent/bin/asterion_node_agent"),
+    path.join(production, "agent/data/ipc-id"),
+    path.join(production, "agent/data/agent.pid"),
   ];
   const before = await Promise.all(protectedFiles.map(fingerprint));
   const output = path.resolve("build/audit-review/environment");
@@ -81,13 +81,37 @@ async function main() {
     await expect(page.locator(".environment-label")).toBeVisible();
     await enterWorkbench(page);
     await expect(page.locator(".workspace-tabs button")).toHaveCount(7, { timeout: 60000 });
-    await expect(page.locator(".service-status > button")).toHaveClass("good", { timeout: 30000 });
+    const snapshot = () =>
+      page.evaluate(async () => {
+        const response = JSON.parse(
+          await window.asterionDesktop.request(
+            JSON.stringify({ version: 1, method: "runtime.snapshot", params: {} }),
+          ),
+        );
+        if (response.error) throw new Error(response.error.message);
+        return response.result;
+      });
+    await expect
+      .poll(async () => (await snapshot()).market?.transport_online, { timeout: 30000 })
+      .toBe(true);
+    await expect
+      .poll(
+        async () =>
+          (await snapshot()).nodes
+            .find(node => node.id === "local")
+            ?.health?.services.find(service => service.kind === "lab")?.health,
+        { timeout: 30000 },
+      )
+      .toBe("ready");
     assert.ok((await fs.readFile(definition, "utf8")).includes(development));
-    const pid = Number(await fs.readFile(path.join(development, "agent.pid"), "utf8"));
+    const pid = Number(await fs.readFile(path.join(development, "agent/data/agent.pid"), "utf8"));
     assert.equal(await local.servicePid("me.asterion.node-agent.dev"), pid);
-    const productionId = await fingerprint(path.join(production, "ipc-id"));
-    assert.notEqual(await fingerprint(path.join(development, "ipc-id")), productionId);
-    await page.locator(".workspace-tabs button").last().click();
+    const productionId = await fingerprint(path.join(production, "agent/data/ipc-id"));
+    assert.notEqual(await fingerprint(path.join(development, "agent/data/ipc-id")), productionId);
+    const trading = page
+      .getByRole("navigation", { name: /^(业务工作区|Workspaces)$/ })
+      .getByRole("button", { name: /^(实盘|Live)$/ });
+    await trading.click();
     await expect(
       page.getByRole("region", { name: /^(CTP 交易账户|CTP trading account)$/i }),
     ).toBeVisible();
@@ -124,12 +148,15 @@ async function main() {
     application = await launch();
     page = await application.firstWindow();
     await enterWorkbench(page);
-    await expect(page.locator(".workspace-tabs button").last()).toHaveAttribute(
-      "aria-current",
-      "page",
-      { timeout: 60000 },
+    await expect(
+      page
+        .getByRole("navigation", { name: /^(业务工作区|Workspaces)$/ })
+        .getByRole("button", { name: /^(实盘|Live)$/ }),
+    ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
+    assert.notEqual(
+      Number(await fs.readFile(path.join(development, "agent/data/agent.pid"), "utf8")),
+      pid,
     );
-    assert.notEqual(Number(await fs.readFile(path.join(development, "agent.pid"), "utf8")), pid);
     assert.deepEqual(
       await Promise.all(protectedFiles.map(fingerprint)),
       before,
@@ -145,6 +172,7 @@ async function main() {
           checks: [
             "default profile",
             "independent user service",
+            "market transport and Python lab ready",
             "different IPC identity",
             "production identity and program unchanged",
             "Agent and services stop on desktop exit",

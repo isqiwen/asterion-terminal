@@ -72,6 +72,8 @@ export type {
   Coverage as LabCoverage,
   Summary as LabSummary,
   Task as LabTask,
+  SourceDescriptor as LabSource,
+  SourceTable as LabSourceTable,
 } from "../src/generated/asterion/lab_pb";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";

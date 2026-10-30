@@ -1,4 +1,4 @@
-"""Market-wide acquisition from Tushare into the warehouse.
+"""Source-specific acquisition into an immutable warehouse.
 
 One task at a time, on its own thread: calendars of the years asked (once per
 exchange and year, again for the current year), today's contract lists, then
@@ -11,7 +11,7 @@ import datetime
 import threading
 import time
 
-from asterion_lab.tushare import EXCHANGES, SourceError, Tushare
+from asterion_lab.sources.base import EXCHANGES, SourceError, Query
 from asterion_lab.warehouse import Warehouse
 
 STATES = ("running", "succeeded", "failed", "cancelled")
@@ -37,6 +37,9 @@ class Task:
     # Read the days again, though stored: a new version replaces their rows,
     # earlier versions keep theirs.
     refresh: bool = False
+    provider: str = "tushare"
+    table: str = "daily"
+    contract: str = ""
 
 
 class Acquisition:
@@ -50,7 +53,7 @@ class Acquisition:
         return next((task for task in self.tasks.values() if task.state == "running"), None)
 
     def submit(self, identity: str, begin: str, end: str, client_factory, exchanges=(),
-               refresh=False) -> Task:
+               refresh=False, provider="tushare", table="daily", contract="") -> Task:
         first, last = datetime.date.fromisoformat(begin), datetime.date.fromisoformat(end)
         if first > last or first.year < 1990:
             raise ValueError("acquisition needs a range of days from 1990 on")
@@ -63,7 +66,7 @@ class Acquisition:
             if unknown:
                 raise ValueError(f"unknown exchanges {sorted(unknown)}")
             task = Task(identity, begin, end, exchanges=tuple(exchanges) or EXCHANGES,
-                        refresh=refresh)
+                        refresh=refresh, provider=provider, table=table, contract=contract)
             self.tasks[identity] = task
         threading.Thread(target=self.run, args=(task, client_factory), daemon=True,
                          name=f"acquisition-{identity}").start()
@@ -82,6 +85,8 @@ class Acquisition:
         try:
             client = client_factory(task.cancel.is_set)
             self.acquire(task, client)
+            if task.cancel.is_set():
+                raise SourceError("cancelled", "acquisition cancelled")
             task.state = "succeeded"
         except SourceError as error:
             task.state = "cancelled" if error.code == "cancelled" else "failed"
@@ -96,7 +101,9 @@ class Acquisition:
                            "task.finished", task=task.identity, state=task.state,
                            requests=task.requests, days=task.days_done, error=task.error)
 
-    def acquire(self, task: Task, client: Tushare):
+    def acquire(self, task: Task, client):
+        if task.table != "daily" or not {"calendar", "contracts"} <= set(client.tables):
+            return self.acquire_partitions(task, client)
         today = datetime.date.today()
         first = datetime.date.fromisoformat(task.begin)
         last = min(datetime.date.fromisoformat(task.end), today)
@@ -109,11 +116,11 @@ class Acquisition:
             for year in range(first.year, last.year + 1):
                 key = f"calendar/{exchange}/{year}"
                 if not writer.base.has(key) or year == today.year:
-                    writer.put_rows(key, "calendar", client.calendar(exchange, year))
+                    writer.put_rows(key, "calendar", client.read(Query("calendar", exchange, f"{year}-01-01")).rows)
                     task.requests = client.requests
-            listings = client.contracts(exchange)
             writer.put_rows(f"contracts/{exchange}", "contracts",
-                            [listing.row for listing in listings], as_of=today.isoformat())
+                            client.read(Query("contracts", exchange, task.begin)).rows,
+                            as_of=today.isoformat())
             task.requests = client.requests
         commit()
         plan = []
@@ -140,7 +147,7 @@ class Acquisition:
                 month = day[:7]
                 for key in [key for key in pending if key != (exchange, month)]:
                     flush(*key)
-                rows = client.daily(exchange, day)
+                rows = client.read(Query("daily", exchange, day)).rows
                 task.requests = client.requests
                 bucket = pending.setdefault((exchange, month), ([], []))
                 if rows:
@@ -153,3 +160,32 @@ class Acquisition:
             # Days already read are stored however the task ends.
             for key in list(pending):
                 flush(*key)
+
+    def acquire_partitions(self, task, client):
+        first, last = map(datetime.date.fromisoformat, (task.begin, task.end))
+        last = min(last, datetime.date.today())
+        writer = self.warehouse.writer()
+        # Futures trading days are weekdays; holidays are found by asking.
+        days = [day.isoformat() for day in (first + datetime.timedelta(days=n)
+                for n in range((last-first).days+1)) if day.weekday() < 5]
+        task.days_total = len(days) * len(task.exchanges)
+        for exchange in task.exchanges:
+            for day in days:
+                # A partial contract query must never claim exchange-wide coverage.
+                suffix = "/" + task.contract.split("/", 1)[1] if task.contract else ""
+                key = f"{task.table}/{exchange}/{day}{suffix}"
+                if writer.base.has(key) and not task.refresh:
+                    task.days_done += 1
+                    continue
+                batch = client.read(Query(task.table, exchange, day, task.contract))
+                task.requests = client.requests
+                if batch.rows:
+                    writer.put_rows(key, task.table, batch.rows, days=[day])
+                    if batch.observations:
+                        writer.put_rows(f"observations/{exchange}/{day}{suffix}", "observations",
+                                        batch.observations, days=[day])
+                    task.version = writer.commit().identity
+                else:
+                    # An empty answer is not proof of a closed trading day.
+                    task.days_empty += 1
+                task.days_done += 1

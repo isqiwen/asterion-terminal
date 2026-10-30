@@ -19,18 +19,10 @@ import urllib.request
 import certifi
 
 URL = "https://api.tushare.pro"
-EXCHANGES = ("SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX")
+from asterion_lab.sources.base import EXCHANGES, SourceError
 SUFFIXES = {"SHFE": ".SHF", "DCE": ".DCE", "CZCE": ".ZCE", "CFFEX": ".CFX", "INE": ".INE",
             "GFEX": ".GFE"}
 
-
-class SourceError(Exception):
-    """Tushare refused or answered something unusable. The text is our own words
-    and identifiers from market data, safe to show."""
-
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
 
 
 def classify(message: str, code: str) -> str:

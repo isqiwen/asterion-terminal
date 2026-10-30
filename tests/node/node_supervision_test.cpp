@@ -199,6 +199,18 @@ protected:
 
 TEST_F(NodeSupervision, ResourceObservationFailureDoesNotChangeReadiness)
 {
+    // Opening the status socket can precede initialization. Detach storage only
+    // after readiness, so this tests resource observation rather than startup.
+    const auto ready_deadline = std::chrono::steady_clock::now() + testing_support::bound(10s);
+    for (;;) {
+        client->refresh().get();
+        const auto phase = client->status().get().at("health").at("phase");
+        ASSERT_NE(phase, "recovery_required");
+        if (phase == "ready")
+            break;
+        ASSERT_LT(std::chrono::steady_clock::now(), ready_deadline);
+        std::this_thread::sleep_for(20ms);
+    }
     const auto directory = root / "agent" / "data";
     const auto detached = root / "detached";
     fs::rename(directory, detached);

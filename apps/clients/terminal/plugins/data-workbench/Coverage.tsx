@@ -8,6 +8,8 @@ import {
   type LabCoverage as CoverageReply,
   type LabSummary as Summary,
   type LabTask as Task,
+  type LabSource,
+  type LabSourceTable,
   type MessageValues,
   type TerminalContext,
 } from "../contract";
@@ -29,6 +31,52 @@ function day(offset: number) {
 // The futures warehouse of the Python lab service: what is stored, by product
 // and month, and the acquisitions that fill it.
 export function Coverage(context: TerminalContext) {
+  const [sources, setSources] = useState<LabSource[]>([]);
+  const [provider, setProvider] = useState("tushare");
+  const [error, setError] = useState<DisplayError>("");
+  useEffect(() => {
+    let active = true;
+    void lab({ case: "sources", value: {} }, "sources")
+      .then(reply => {
+        if (active) setSources(reply.sources);
+      })
+      .catch(failure => {
+        if (active) setError(asDisplayError(failure));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const source = sources.find(item => item.id === provider);
+  return (
+    <div>
+      <ErrorNotice error={error} />
+      <label>
+        {t("数据源")}
+        <select value={provider} onChange={event => setProvider(event.target.value)}>
+          {sources.map(item => (
+            <option key={item.id} value={item.id}>
+              {item.id}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p>{t("多个来源可同时采集，数据分别保存，不自动切换或混合。")}</p>
+      {source && <SourceCoverage key={provider} context={context} source={source} />}
+    </div>
+  );
+}
+
+function SourceCoverage({ context, source }: { context: TerminalContext; source: LabSource }) {
+  const provider = source.id;
+  const [table, setTable] = useState(source.tables[0]);
+  const [exchange, setExchange] = useState(source.exchanges[0]);
+  const [contract, setContract] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("7450");
+  const [preview, setPreview] = useState<LabSourceTable | null>(null);
+  const [reading, setReading] = useState(false);
+  const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [coverage, setCoverage] = useState<CoverageReply | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -40,18 +88,18 @@ export function Coverage(context: TerminalContext) {
   const refresh = useCallback(async () => {
     try {
       const [nextSummary, nextCoverage, nextTasks] = await Promise.all([
-        lab({ case: "summary", value: {} }, "summary"),
-        lab({ case: "coverage", value: {} }, "coverage"),
+        lab({ case: "summary", value: { provider } }, "summary"),
+        lab({ case: "coverage", value: { provider } }, "coverage"),
         lab({ case: "tasks", value: {} }, "tasks"),
       ]);
       setSummary(nextSummary);
       setCoverage(nextCoverage);
-      setTasks([...nextTasks.tasks].reverse());
+      setTasks([...nextTasks.tasks].filter(task => task.provider === provider).reverse());
       setError("");
     } catch (failure) {
       setError(asDisplayError(failure));
     }
-  }, []);
+  }, [provider]);
   const running = tasks.some(task => task.state === "running");
   useEffect(() => {
     void refresh();
@@ -62,13 +110,57 @@ export function Coverage(context: TerminalContext) {
     return () => clearInterval(timer);
   }, [running, refresh]);
 
+  const configure = async () => {
+    if (source.requiresCredential) await context.trade("lab.source.configure", {});
+    if (source.requiresEndpoint && (host || !source.configured))
+      await lab(
+        {
+          case: "configureSource",
+          value: {
+            provider,
+            host,
+            port: Number(port),
+          },
+        },
+        "accepted",
+      );
+  };
+  const readSource = async () => {
+    setReading(true);
+    setPreview(null);
+    try {
+      await configure();
+      setPreview(
+        await lab(
+          { case: "sourceRead", value: { provider, table, exchange, day: begin, contract } },
+          "sourceTable",
+        ),
+      );
+      setError("");
+    } catch (failure) {
+      setError(asDisplayError(failure));
+    } finally {
+      setReading(false);
+    }
+  };
   const acquire = async () => {
     setSubmitting(true);
     try {
-      // The saved credential goes from the keychain to the service natively.
-      await context.trade("lab.source.configure", {});
+      await configure();
       await lab(
-        { case: "acquire", value: { id: `daily-${Date.now()}`, beginDay: begin, endDay: end } },
+        {
+          case: "acquire",
+          value: {
+            id: `${provider}-${crypto.randomUUID()}`,
+            provider,
+            table,
+            refresh: replace,
+            exchanges: [exchange],
+            contract: table === "minutes" ? contract : "",
+            beginDay: begin,
+            endDay: end,
+          },
+        },
         "accepted",
       );
       await refresh();
@@ -116,8 +208,14 @@ export function Coverage(context: TerminalContext) {
                   <tr key={table.table}>
                     <td>
                       {t(
-                        { daily: "日线", calendar: "交易日历", contracts: "合约表" }[table.table] ??
-                          table.table,
+                        {
+                          daily: "日线",
+                          calendar: "交易日历",
+                          contracts: "合约表",
+                          minutes: "分钟线",
+                          settlement: "结算参数",
+                          observations: "观测区间",
+                        }[table.table] ?? table.table,
                       )}
                     </td>
                     <td>{table.rows.toString()}</td>
@@ -134,7 +232,66 @@ export function Coverage(context: TerminalContext) {
       </section>
       <section aria-label={t("采集")}>
         <h3>{t("采集")}</h3>
-        <p>{t("从 Tushare 采集全部交易所的交易日历、合约表和日线；已入库的日子跳过。")}</p>
+        <label>
+          {t("表")}
+          <select
+            value={table}
+            onChange={event => {
+              setTable(event.target.value);
+              setPreview(null);
+            }}
+          >
+            {source.tables.map(item => (
+              <option key={item} value={item}>
+                {t(item)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {t("交易所")}
+          <select
+            value={exchange}
+            onChange={event => {
+              setExchange(event.target.value);
+              setContract("");
+              setPreview(null);
+            }}
+          >
+            {source.exchanges.map(item => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {t("合约（查询可选，分钟线必填）")}
+          <input
+            value={contract}
+            placeholder="SHFE/rb/2027-01"
+            onChange={event => setContract(event.target.value)}
+          />
+        </label>
+        {source.requiresEndpoint && (
+          <>
+            <label>
+              {t("录制服务地址")}
+              <input value={host} onChange={event => setHost(event.target.value)} />
+            </label>
+            <label>
+              {t("端口")}
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={port}
+                onChange={event => setPort(event.target.value)}
+              />
+            </label>
+          </>
+        )}
+        <p>{t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}</p>
         <label>
           {t("开始日期")}
           <input type="date" value={begin} onChange={event => setBegin(event.target.value)} />
@@ -143,13 +300,83 @@ export function Coverage(context: TerminalContext) {
           {t("结束日期")}
           <input type="date" value={end} onChange={event => setEnd(event.target.value)} />
         </label>
-        <button type="button" disabled={submitting || running || !begin || !end} onClick={acquire}>
+        <label>
+          <input
+            type="checkbox"
+            checked={replace}
+            onChange={event => setReplace(event.target.checked)}
+          />
+          {t("重新采集已有分区，保留旧数据集版本")}
+        </label>
+        <button
+          type="button"
+          disabled={
+            submitting ||
+            running ||
+            !begin ||
+            !end ||
+            !["daily", "minutes", "settlement"].includes(table) ||
+            (table === "minutes" && !contract)
+          }
+          onClick={acquire}
+        >
           {t("开始采集")}
         </button>
+        <button
+          type="button"
+          disabled={reading || !begin || (table === "minutes" && !contract)}
+          onClick={() => void readSource()}
+        >
+          {t("查询开始日期的数据")}
+        </button>
+        {preview && (
+          <section aria-label={t("来源查询结果")}>
+            <p>
+              {preview.provider} · {t(preview.table)} ·{" "}
+              {t("共 {count} 行，预览前 50 行", { count: preview.rows.length })}
+            </p>
+            <div className="coverage-matrix">
+              <table>
+                <thead>
+                  <tr>
+                    {preview.columns.map(column => (
+                      <th key={column}>{column}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.slice(0, 50).map((row, index) => (
+                    <tr key={index}>
+                      {row.cells.map((cell, i) => (
+                        <td key={i}>{cell.value ?? "—"}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {preview.observations.length > 0 && (
+              <>
+                <p>
+                  {t("以下是录制服务的观测区间，不代表此合约全时段完整；区间之间可能存在缺口。")}
+                </p>
+                <ul>
+                  {preview.observations.map(item => (
+                    <li key={`${item.instance}/${item.number}`}>
+                      {new Date(Number(item.firstReceivedMs)).toISOString()} –{" "}
+                      {new Date(Number(item.lastReceivedMs)).toISOString()} · {item.end}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        )}
         {tasks.length > 0 && (
           <table aria-label={t("采集任务")}>
             <thead>
               <tr>
+                <th>{t("表")}</th>
                 <th>{t("区间")}</th>
                 <th>{t("状态")}</th>
                 <th>{t("进度")}</th>
@@ -160,6 +387,7 @@ export function Coverage(context: TerminalContext) {
             <tbody>
               {tasks.map(task => (
                 <tr key={task.id}>
+                  <td>{t(task.table)}</td>
                   <td>
                     {task.beginDay} – {task.endDay}
                   </td>
@@ -189,7 +417,7 @@ export function Coverage(context: TerminalContext) {
       </section>
       <section aria-label={t("日线覆盖")}>
         <h3>{t("日线覆盖")}</h3>
-        <p>{t("每格为该品种当月有日线的天数 / 交易所开市天数。")}</p>
+        <p>{t("每格为该来源已存日线的天数；没有交易日历时，完整性未知。")}</p>
         {coverage && coverage.products.length > 0 ? (
           <div className="coverage-matrix">
             <table>
@@ -216,7 +444,7 @@ export function Coverage(context: TerminalContext) {
                           <td
                             key={month}
                             data-share={cell ? (share >= 1 ? "full" : "partial") : "none"}
-                            title={cell ? `${cell.days} / ${cell.openDays}` : t("无数据")}
+                            title={cell ? `${cell.days} / ${cell.openDays || "?"}` : t("无数据")}
                           >
                             {cell ? cell.days : ""}
                           </td>
