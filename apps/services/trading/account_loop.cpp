@@ -194,27 +194,8 @@ struct LiveSession::Loop
                 active->command.start();
                 continue;
             }
-            if (mutations.empty()) {
-                if (!account.strategy_work_pending())
-                    return;
-                // The run's next step enters like a command, after every queued one.
-                // Nobody waits for its reply: a failed step ends the run.
-                auto step = std::make_shared<Mutation>();
-                step->begin = [](LiveAccountState& owner, std::uint64_t control) {
-                    return owner.advance_strategy(control);
-                };
-                step->trace = account.strategy_run();
-                {
-                    std::lock_guard lock(mutex);
-                    // A stopping process asks nothing of the broker, not even a cancel.
-                    if (!accepting)
-                        return;
-                    ++admitted;
-                    step->control = send_gate.revision();
-                }
-                start(account, std::move(step));
-                continue;
-            }
+            if (mutations.empty())
+                return;
             auto next = std::move(mutations.front());
             mutations.pop_front();
             start(account, std::move(next));
@@ -465,7 +446,6 @@ std::future<void> LiveSession::execute(
     AccountRequest request)
 {
     const bool revoke = request.as<Revoke>();
-    const bool stops = request.as<StopStrategy>();
     const auto* cancel = request.as<CancelOrder>();
     const bool cancels = cancel != nullptr;
     auto id = request.id;
@@ -485,10 +465,6 @@ std::future<void> LiveSession::execute(
             },
             Loop::Admission::stop_sends,
             std::move(id));
-    // Stopping a strategy closes send permission at admission, like a revoke:
-    // a step already under way cannot send afterwards.
-    if (stops)
-        return loop_->mutate(std::move(begin), {}, Loop::Admission::stop_sends, std::move(id));
     return loop_->mutate(
         std::move(begin),
         {},

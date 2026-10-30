@@ -758,28 +758,6 @@ proto::Command encode_command(const Json& c)
     } else if (action == "live_resolve") {
         require_fields(c, {"request_id", "action", "order_id"});
         result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
-    } else if (action == "strategy_start") {
-        require_fields(
-            c,
-            {"request_id",
-                "action",
-                "venue",
-                "symbol",
-                "strategy",
-                "package",
-                "market_endpoint",
-                "market_service"});
-        auto* start = result.mutable_strategy_start();
-        start->set_venue(c.at("venue").get<std::string>());
-        start->set_symbol(c.at("symbol").get<std::string>());
-        InstrumentId{start->venue(), start->symbol()}.validate();
-        *start->mutable_strategy() = encode_strategy(c.at("strategy"));
-        *start->mutable_package() = encode_strategy_object(c.at("package"), "strategy_package");
-        start->set_market_endpoint(c.at("market_endpoint").get<std::string>());
-        start->set_market_service(c.at("market_service").get<std::string>());
-    } else if (action == "strategy_stop") {
-        require_fields(c, {"request_id", "action"});
-        result.mutable_strategy_stop();
     } else
         throw std::invalid_argument("unsupported trading operation");
     return result;
@@ -821,20 +799,6 @@ Json decode_command(const proto::Command& c)
             break;
         case proto::Command::kLiveResolve:
             result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
-            break;
-        case proto::Command::kStrategyStart: {
-            const auto& start = c.strategy_start();
-            result.update(
-                {{"action", "strategy_start"},
-                    {"strategy", decode_strategy(start.strategy())},
-                    {"package", decode_strategy_object(start.package())},
-                    {"market_endpoint", start.market_endpoint()},
-                    {"market_service", start.market_service()}});
-            result.update(instrument_fields(start.venue(), start.symbol()));
-            break;
-        }
-        case proto::Command::kStrategyStop:
-            result["action"] = "strategy_stop";
             break;
         default:
             throw std::invalid_argument("missing trading operation");
@@ -1320,27 +1284,6 @@ Json decode_live_snapshot(const proto::LiveSnapshot& s)
     }
     if (s.has_authorization())
         result["authorization"] = {{"authorized_at_ms", s.authorization().authorized_at_ms()}};
-    if (s.has_strategy()) {
-        const auto& run = s.strategy();
-        if (run.state() != "running" && run.state() != "stopped")
-            throw std::invalid_argument("invalid strategy run state");
-        auto item = instrument_fields(run.venue(), run.symbol());
-        item.update(
-            {{"id", run.id()},
-                {"strategy", decode_strategy(run.strategy())},
-                {"package", decode_strategy_object(run.package())},
-                {"warmup", run.warmup()},
-                {"state", run.state()},
-                {"reason", run.reason()},
-                {"started_ms", run.started_ms()},
-                {"bars", run.bars()},
-                {"bar_ms", run.bar_ms()},
-                {"target", run.has_target() ? Json(get(run.target())) : Json(nullptr)},
-                {"orders", Json::array()}});
-        for (const auto& order : run.orders())
-            item["orders"].push_back(order);
-        result["strategy"] = std::move(item);
-    }
     for (const auto& u : s.unconfirmed())
         result["unconfirmed"].push_back(
             {{"id", u.id()}, {"broker_key", u.broker_key()}, {"trading_day", u.trading_day()}});

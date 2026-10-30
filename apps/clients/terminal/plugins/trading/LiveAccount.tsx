@@ -6,7 +6,6 @@ import { useWorkspaceDraft, type TerminalContext } from "../contract";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket } from "./OrderTicket";
-import { StrategyStart, StrategyStatus } from "./StrategyRun";
 import { t, phases, type Run } from "./live-shared";
 
 export function LiveAccount({
@@ -15,9 +14,8 @@ export function LiveAccount({
   connection,
   snapshot,
   busy,
-  query,
   run,
-}: Pick<TerminalContext, "snapshot" | "busy" | "query"> & {
+}: Pick<TerminalContext, "snapshot" | "busy"> & {
   account: CtpConnection;
   live: LiveSession;
   connection: Snapshot["live"][string]["connection"];
@@ -87,14 +85,10 @@ export function LiveAccount({
     </div>
   );
   // What takes something back is never held back by another command, of this
-  // account or of the window: a cancel, a strategy stop and a revoke are each
-  // disabled only while the same one is on its way.
+  // account or of the window: a cancel and a revoke are each disabled only
+  // while the same one is on its way.
   const [cancelling, setCancelling] = useState<readonly string[]>([]);
   const [revoking, setRevoking] = useState(false);
-  // New orders come from the owner or from one strategy run, never both.
-  const [origin, setOrigin] = useState<"manual" | "strategy">("manual");
-  const [stopping, setStopping] = useState(false);
-  const controlled = live.strategy?.state === "running";
   const cancel = async (id: string) => {
     setCancelling(current => [...current, id]);
     try {
@@ -327,52 +321,7 @@ export function LiveAccount({
           </div>
         </section>
       )}
-      {/* A run outlives the connection: it is shown, and can be stopped, at every step. */}
-      {controlled && (
-        <StrategyStatus
-          live={live}
-          stopping={stopping}
-          onStop={() => {
-            setStopping(true);
-            void act({ action: "strategy_stop" }).finally(() => setStopping(false));
-          }}
-        />
-      )}
-      {stage === "trade" && !controlled && (
-        <div className="activity-tabs" role="group" aria-label={t("下单方式")}>
-          <button aria-pressed={origin === "manual"} onClick={() => setOrigin("manual")}>
-            {t("手动下单")}
-          </button>
-          <button aria-pressed={origin === "strategy"} onClick={() => setOrigin("strategy")}>
-            {t("策略运行")}
-          </button>
-        </div>
-      )}
-      {stage === "trade" &&
-        !controlled &&
-        origin === "strategy" &&
-        connection.transport !== "local" && (
-          <p className="subtle">{t("远程交易实例暂不支持自动策略，请使用手动交易。")}</p>
-        )}
-      {stage === "trade" &&
-        !controlled &&
-        origin === "strategy" &&
-        connection.transport === "local" && (
-          <StrategyStart
-            live={live}
-            busy={busy}
-            query={query}
-            onStart={packageId =>
-              void run("live.strategy.start", {
-                request_id: crypto.randomUUID(),
-                account_id: live.account_id,
-                policy_revision: live.policy_revision,
-                package: packageId,
-              })
-            }
-          />
-        )}
-      {stage === "trade" && !controlled && origin === "manual" && (
+      {stage === "trade" && (
         <OrderTicket
           live={live}
           snapshot={snapshot}

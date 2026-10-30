@@ -1,6 +1,5 @@
 #include "account_records.hpp"
 #include <asterion/foundation/id.hpp>
-#include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <stdexcept>
 
@@ -163,24 +162,6 @@ AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command
                 required_text(command.live_policy().risk_artifact())
             };
             break;
-        case protocol::proto::Command::kStrategyStart: {
-            const auto& start = command.strategy_start();
-            if (result.id.size() > 64)
-                throw std::invalid_argument("strategy run identity is too long");
-            validate_id(start.market_service());
-            protocol::validate_strategy_object(start.package(), "strategy_package");
-            result.operation = StartStrategy{
-                {start.venue(), start.symbol()},
-                start.strategy(),
-                start.package(),
-                required_text(start.market_endpoint()),
-                start.market_service()
-            };
-            break;
-        }
-        case protocol::proto::Command::kStrategyStop:
-            result.operation = StopStrategy{};
-            break;
         default:
             throw std::invalid_argument("unsupported live trading operation");
     }
@@ -227,16 +208,6 @@ std::string_view AccountRequest::action() const noexcept
         std::string_view operator()(const ChangePolicy&) const
         {
             return "live_policy";
-        }
-
-        std::string_view operator()(const StartStrategy&) const
-        {
-            return "strategy_start";
-        }
-
-        std::string_view operator()(const StopStrategy&) const
-        {
-            return "strategy_stop";
         }
     };
 

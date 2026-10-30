@@ -39,7 +39,7 @@ type AccountCommand = {
 };
 export type LiveAction =
   | { action: "live_authorize"; user_id: string }
-  | { action: "live_revoke" | "strategy_stop" }
+  | { action: "live_revoke" }
   | { action: "live_resolve"; order_id: string }
   | { action: "cancel"; order_id: string }
   | {
@@ -445,7 +445,6 @@ export type CommandParams = {
   "live.disconnect": { account: string };
   "live.costs": { account: string };
   "live.act": AccountCommand & LiveAction;
-  "live.strategy.start": AccountCommand & { package: string };
   "live.close": { account: string };
   "node.bootstrap": {
     id: string;

@@ -48,32 +48,10 @@ struct ChangePolicy
     std::string risk_artifact;
 };
 
-// One strategy run on one allowed contract. The request ID is
-// the run's identity and prefixes the ID of every order it places.
-struct StartStrategy
-{
-    InstrumentId instrument;
-    protocol::proto::Strategy strategy;
-    // The strategy package the contract and strategy were taken from.
-    resource::proto::Object package;
-    // The market service on this machine whose minute bars the run reads.
-    std::string market_endpoint, market_service;
-};
-
-struct StopStrategy
-{};
-
 struct AccountRequest
 {
-    using Operation = std::variant<
-        SubmitOrder,
-        CancelOrder,
-        Authorize,
-        Revoke,
-        ResolveOrder,
-        ChangePolicy,
-        StartStrategy,
-        StopStrategy>;
+    using Operation =
+        std::variant<SubmitOrder, CancelOrder, Authorize, Revoke, ResolveOrder, ChangePolicy>;
     std::string id;
     Operation operation;
     // Durable form. A request ID seen again must carry exactly this content.

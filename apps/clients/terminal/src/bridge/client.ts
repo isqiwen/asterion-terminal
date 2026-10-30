@@ -233,26 +233,6 @@ export type LiveSession = {
   }[];
   // Lasts until revoked, a policy change or a service restart.
   authorization: null | { authorized_at_ms: number };
-  // The current or last strategy run; while running it alone places orders.
-  // It continues across connections and trading days.
-  strategy: null | {
-    id: string;
-    venue: string;
-    symbol: string;
-    strategy: StrategyDefinition;
-    // The strategy package the run trades.
-    package: ResourceObject;
-    // Completed bars the rule needs before it gives a target.
-    warmup: number;
-    state: "running" | "stopped";
-    reason: string;
-    started_ms: number;
-    bars: number;
-    bar_ms: number;
-    // The position wanted in lots: positive long, negative short.
-    target: string | null;
-    orders: string[];
-  };
   // Recorded orders the broker does not report; never resent.
   unconfirmed: { id: string; broker_key: string; trading_day: string }[];
   // The account's rates from the broker; costs only when ready.

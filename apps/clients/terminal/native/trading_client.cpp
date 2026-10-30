@@ -15,7 +15,7 @@ struct TradingClient::Impl
     const ServiceEndpoint endpoint;
     std::unique_ptr<ipc::RpcClient> transport;
     std::stop_source lifetime;
-    // One request at a time. Beside it one cancel or strategy stop, and beside
+    // One request at a time. Beside it one cancel, and beside
     // those one revoke: none of them waits here for a command in flight, and a
     // revoke does not wait for a cancel the account service has queued either.
     // That service runs a cancel of a recorded order while a submission waits
@@ -54,9 +54,9 @@ struct TradingClient::Impl
     PolledTask<void> call(wire::Request request, std::stop_token stop)
     {
         const auto& command = request.command();
-        auto& lane = command.has_live_revoke()                    ? revoking
-            : command.has_cancel() || command.has_strategy_stop() ? cancelling
-                                                                  : busy;
+        auto& lane = command.has_live_revoke() ? revoking
+            : command.has_cancel()             ? cancelling
+                                               : busy;
         co_await PollUntil{[&] {
             return !lane || stopped(stop);
         }};

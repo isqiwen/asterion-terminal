@@ -1,4 +1,4 @@
-"""Acceptance: CTP trading and a strategy run against a provider's SIMULATION counter.
+"""Acceptance: CTP trading against a provider's SIMULATION counter.
 
 Runs the real Terminal core (dev bridge) with the packaged vendor SDKs inside an
 isolated node directory and sends real orders to the counter you name. Use it
@@ -10,15 +10,13 @@ The market password and the trading password are asked for separately.
     python3 tests/acceptance/ctp_trading.py --simulation [--build build/Debug] \
         --market-front tcp://<host>:<port> --trade-front tcp://<host>:<port> \
         --broker <broker-id> --user <user-id> --app-id <app-id> \
-        --instrument SHFE:rb2610 [--minutes 8] [--fast 1 --slow 2]
+        --instrument SHFE:rb2610
 
 Checks, in order: market quotes; account synchronization; an order refused
 before authorization; one resting limit order accepted and cancelled; the
-authorization kept across a disconnect and reconnect; a one-minute strategy
-package admitted by the local Research service; a run of that package that
-takes the account, refuses manual orders, receives minute bars and places its
-orders at the deciding bar's close; stopping it. Run it during trading hours. The
-contract's position is reported at the end and left as it is.
+authorization kept across a disconnect and reconnect; revoking it. Run it
+during trading hours. The contract's position is reported at the end and left as
+it is.
 """
 import argparse
 from decimal import Decimal, ROUND_FLOOR
@@ -66,11 +64,6 @@ parser.add_argument("--broker", required=True)
 parser.add_argument("--user", required=True)
 parser.add_argument("--app-id", required=True)
 parser.add_argument("--instrument", required=True, help="VENUE:SYMBOL")
-parser.add_argument("--minutes", type=int, default=8, help="minutes to watch the strategy run")
-parser.add_argument("--fast", type=int, default=1)
-parser.add_argument("--slow", type=int, default=2)
-parser.add_argument("--sides", choices=["both", "long", "short"], default="both",
-                    help="sides the strategy run may hold")
 parser.add_argument("--deviation", default="0.02", help="price deviation limit of the test policy")
 parser.add_argument("--timeout", type=int, default=90, help="seconds to wait for each step")
 parser.add_argument("--report", default="", help="write a JSON report (no credentials)")
@@ -172,59 +165,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         return next((sub.get("quote") for sub in market.get("subscriptions", [])
                      if sub["venue"] == venue and sub["symbol"] == symbol), None)
 
-    def strategy_package(contract):
-        """A one-minute moving-average package on the contract, admitted by Research
-        against a fictional example whose closes make the rule take each side."""
-        call("node.research.local.open")
-        deadline = time.monotonic() + args.timeout
-        while not (call("runtime.snapshot").get("research_service") or {}).get("online"):
-            if time.monotonic() > deadline:
-                raise RuntimeError("the local Research service did not come online")
-            time.sleep(0.5)
-        logic, example, trial, package = (f"{kind}-{uuid.uuid4()}"
-                                          for kind in ("logic", "case", "trial", "strategy"))
-        call("research.logic.register", {
-            "id": str(uuid.uuid4()),
-            "definition": {"id": logic, "name": f"{args.fast}/{args.slow} moving average",
-                           "purpose": "CTP simulation acceptance",
-                           "fast": args.fast, "slow": args.slow}})
-        definition = call("research.logic.read", {"id": logic})["research_logic"]["definition"]
-        closes = ["10"] * (args.slow - 1) + ["13", "7"]
-        rows = [{"state": "warmup"}] * (args.slow - 1) + [
-            {"state": "target_sign", "value": 1}, {"state": "target_sign", "value": -1}]
-        call("research.logic.example.save", {"id": str(uuid.uuid4()), "example": {
-            "id": example, "definition": definition["object"], "name": "fixed directions",
-            "use_scope": "fictional closes", "fictional": True,
-            "observations": [{"closed_at_ns": str((i + 1) * 60_000_000_000),
-                              "available_at_ns": str((i + 1) * 60_000_000_000),
-                              "close": close, "expected": expected}
-                             for i, (close, expected) in enumerate(zip(closes, rows))]}})
-        saved = call("research.logic.example.read", {"id": example})["research_logic"]["example"]
-        call("research.logic.trial", {"id": trial, "example": saved["object"]})
-        deadline = time.monotonic() + args.timeout
-        while True:
-            service = call("runtime.snapshot")["research_service"]
-            state = next((t["state"] for t in service["tasks"] if t["id"] == trial), None)
-            if state == "succeeded":
-                break
-            if state in ("failed", "cancelled") or time.monotonic() > deadline:
-                raise RuntimeError(f"logic trial ended {state}")
-            time.sleep(0.5)
-        result = call("task.result.read", {"id": trial, "owner": {
-            "kind": "research", "node_id": service["node_id"], "service": service["service"],
-            "connection_id": service["connection_id"]}})["task_result"]
-        call("research.strategy.logic.freeze", {"id": str(uuid.uuid4()), "registration": {
-            "id": package, "name": f"{args.instrument} one-minute acceptance",
-            "purpose": "CTP simulation acceptance", "limitations": "fictional check only",
-            "source": {"node": service["owner_node_id"], "service": service["service"],
-                       "domain": "research", "kind": "logic_trial_result", "id": trial,
-                       "version": result["task"]["result_digest"]},
-            "contract": contract, "interval_minutes": 1,
-            "strategy": {"quantity": "1", "sides": args.sides,
-                         "rule": {"kind": "moving_average",
-                                  "fast": args.fast, "slow": args.slow}}}})
-        return package
-
     try:
         step("local market service", bool(call("market.local").get("market")))
         call("ctp.connections.save", {"id": ACCOUNT, "name": ACCOUNT, "revision": "",
@@ -313,68 +253,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                     f"phase={live and live['phase']}"):
             raise RuntimeError("the account did not synchronize again")
 
-        package = strategy_package(live["contracts"][0])
-        step("one-minute strategy package", True, package)
-        call("live.strategy.start", {"account": ACCOUNT, "request_id": str(uuid.uuid4()),
-                                     "account_id": live["account_id"],
-                                     "policy_revision": live["policy_revision"],
-                                     "package": package})
-        run = session()["strategy"]
-        step("strategy started", run and run["state"] == "running", f"run={run and run['id']}")
-        refused("manual order refused while the strategy runs", "strategy controls",
-                order_id="manual", **manual)
-        seen, targets, bars = {}, [], 0
-        deadline = time.monotonic() + args.minutes * 60
-        while time.monotonic() < deadline:
-            live = session()
-            run = live["strategy"]
-            if run["state"] != "running":
-                step("strategy still running", False, run["reason"])
-                break
-            if run["bars"] != bars:
-                bars = run["bars"]
-                print(f"       bars={bars} bar_ms={run['bar_ms']} target={run['target']} "
-                      f"long={held(live)} account_day={live['trading_day']}", flush=True)
-            if run["target"] is not None and (not targets or targets[-1] != run["target"]):
-                targets.append(run["target"])
-            for item in live["orders"]:
-                if not item["id"].startswith(run["id"] + "."):
-                    continue
-                if seen.get(item["id"]) != item["status"]:
-                    if item["id"] not in seen:
-                        bar_ms = int(item["id"][len(run["id"]) + 1:].split(".")[0])
-                        series = call("market.minutes", contract)["intraday"]
-                        close = next((b["close"] for b in series.get("bars", [])
-                                      if b["start_ms"] == bar_ms), None)
-                        step(f"strategy order {item['side']} {item['offset']} at the bar close",
-                             close is not None and Decimal(close) == Decimal(item["limit_price"]),
-                             f"limit={item['limit_price']} bar_close={close}")
-                    seen[item["id"]] = item["status"]
-                    print(f"       order {item['id'][-22:]} {item['status']} "
-                          f"filled={item['filled']}", flush=True)
-            time.sleep(2)
-        if not step("minute bars received", bars > args.slow, f"{bars} bars"):
-            # What the market service observed, to tell a silent feed from bars it held back.
-            series = call("market.minutes", contract)["intraday"]
-            market = call("runtime.snapshot")["market"] or {}
-            latest = quote() or {}
-            step("market service observations", False,
-                 f"first={series.get('first_observation_ms')} "
-                 f"interrupted={series.get('interrupted')} "
-                 f"bars={[b['start_ms'] for b in series.get('bars', [])][-12:]} "
-                 f"out_of_order={market.get('out_of_order')} phase={market.get('phase')} "
-                 f"quote={ {k: latest.get(k) for k in ('last', 'action_day', 'update_time', 'source_ms', 'received_ms')} }")
-        step("strategy produced a target", bool(targets), f"targets={targets}")
-        step("strategy orders", True, f"{len(seen)} placed: {sorted(set(seen.values()))}")
-
-        if session()["strategy"]["state"] == "running":
-            act(action="strategy_stop")
-        live = wait(lambda s: s["strategy"]["state"] == "stopped" and not any(
-            o["id"].startswith(s["strategy"]["id"] + ".") and
-            o["status"] in ("submitted", "accepted", "partially_filled") for o in s["orders"]), 20)
-        step("strategy stopped and its orders left the book", bool(live))
         live = session()
-        step("authorization kept after the stop", live["authorization"] is not None)
         step("no unconfirmed orders", not live["unconfirmed"], live["unconfirmed"])
         print(f"       position kept: long {held(live)} {args.instrument}", flush=True)
         report["position_kept"] = str(held(live))

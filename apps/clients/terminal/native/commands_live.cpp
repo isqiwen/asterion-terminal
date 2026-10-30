@@ -192,52 +192,14 @@ void Application::Impl::register_live_commands()
             (co_await PollFuture{client.execute(command)});
         };
         // What takes something back must not wait for, or be refused because of,
-        // a command of the account in flight: a cancel, a strategy stop, and the
-        // revoke that closes its permission to send. The account's service
+        // a command of the account in flight: a cancel, and the revoke that
+        // closes its permission to send. The account's service
         // decides their order; this boundary only lets them reach it.
         if (const auto action = command.value("action", "");
-            action == "cancel" || action == "strategy_stop" || action == "live_revoke")
+            action == "cancel" || action == "live_revoke")
             co_await control_live_account(p, execute);
         else
             co_await with_live_account(p, execute);
-        co_return snapshot();
-    });
-    // The run trades a one-minute strategy package as Research recorded it, and
-    // reads minute bars from the market service on this machine; neither the
-    // rule nor the market address comes from the page.
-    command("live.strategy.start", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"account", "request_id", "account_id", "policy_revision", "package"});
-        const auto source = market ? market->endpoint() : ServiceEndpoint{};
-        const auto trading = live_account(p)->client->endpoint();
-        if (source.endpoint.empty() || trading.endpoint.empty())
-            throw Error(
-                ErrorCode::unavailable,
-                "strategy execution currently requires local market and trading services");
-        const auto research = research_client;
-        if (!research)
-            throw Error(ErrorCode::unavailable, "select a Research service first");
-        research::proto::StrategyRequest read;
-        read.mutable_get()->set_id(text(p, "package"));
-        const auto package = (co_await PollFuture{research->strategy(read)}).at("package");
-        const auto& definition = package.at("definition");
-        if (!package.at("retirement_reason").get<std::string>().empty())
-            throw Error(ErrorCode::conflict, "a retired strategy package cannot start a run");
-        if (!definition.contains("strategy") || definition.at("interval_minutes") != 1)
-            throw Error(
-                ErrorCode::invalid_request,
-                "a live run requires a single-contract one-minute strategy package");
-        auto command = p;
-        command.erase("account");
-        command["action"] = "strategy_start";
-        command["venue"] = definition.at("contract").at("venue");
-        command["symbol"] = definition.at("contract").at("symbol");
-        command["strategy"] = definition.at("strategy");
-        command["package"] = package.at("object");
-        command["market_endpoint"] = source.endpoint;
-        command["market_service"] = source.session;
-        co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {
-            (co_await PollFuture{client.execute(command)});
-        });
         co_return snapshot();
     });
     command("live.policy.configure", [this](const json& p) -> PolledTask<Response> {

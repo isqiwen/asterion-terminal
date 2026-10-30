@@ -17,8 +17,6 @@ export const plugin: TerminalPlugin = {
     "live.disconnect",
     "live.costs",
     "live.act",
-    "live.strategy.start",
-    "research.strategy.list",
     "live.close",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },

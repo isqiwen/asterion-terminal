@@ -5,7 +5,6 @@
 #include "account_journal.hpp"
 #include "account_command.hpp"
 #include "account_records.hpp"
-#include "strategy_host.hpp"
 #include <asterion/kernel/progress.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <map>
@@ -19,8 +18,8 @@ namespace asterion::trading {
 // authorization, the contract allowlist and exchange units, the pinned
 // pre-trade risk plugin, and a durable record of every order before it is
 // sent. Orders are never resent: after a crash or disconnect the recorded
-// broker keys only attribute broker reports. The authorization and a strategy
-// run outlive a connection; what was recorded for sending never does.
+// broker keys only attribute broker reports. The authorization outlives a
+// connection; what was recorded for sending never does.
 class LiveAccountState
 {
 public:
@@ -64,16 +63,6 @@ public:
     bool holds_intent(const std::string& order_id) const
     {
         return intents_.contains(order_id);
-    }
-
-    // The run owes a step: cancel requests for its orders, or the order that
-    // moves the contract's position to the latest target.
-    bool strategy_work_pending() const;
-    AccountCommand advance_strategy(std::uint64_t control);
-
-    std::string_view strategy_run() const
-    {
-        return run_ ? std::string_view(run_->id) : "";
     }
 
     // Keeps the yielding command suspended, whatever its quote does, until unpark().
@@ -188,48 +177,7 @@ private:
     submit(const AccountRequest& request, const SubmitOrder& submission, std::uint64_t control);
     AccountCommand cancel(const AccountRequest& request, const std::string& order_id);
 
-    // One strategy run: the only originator of new orders while it runs. It
-    // lives inside the authorization, continues across connections and trading
-    // days, and is never restored. An ended run stays for display until the
-    // next one starts.
-    struct Run
-    {
-        std::string id;
-        Instrument instrument;
-        protocol::proto::Strategy strategy;
-        resource::proto::Object package;
-        std::int64_t started_ms = 0;
-        std::unique_ptr<StrategyHost> host;
-        std::uint64_t bars = 0;
-        std::optional<StrategyHost::Bar> bar;
-        // The bar whose target already produced its orders.
-        std::int64_t placed_bar = 0;
-        // Recorded orders of this run that are not retired, and whether a cancel
-        // was requested for each. Pruned only between steps.
-        std::map<std::string, bool> orders;
-        // Empty while running.
-        std::string ended;
-        bool cancel_due = false;
-    };
-
-    std::optional<Run> run_;
-
-    bool running() const
-    {
-        return run_ && run_->ended.empty();
-    }
-
-    AccountCommand start_strategy(
-        const AccountRequest& request,
-        const StartStrategy& start,
-        std::uint64_t control);
-    void end_run(std::string reason, bool cancel);
     void end_authorization();
-    void report(
-        const std::string& run,
-        const std::variant<StrategyHost::Bar, StrategyHost::Failure>& event);
-    AccountCommand place_target(std::uint64_t control);
-    AccountCommand cancel_run_orders();
     void check_account(std::string_view account_id) const;
     void check_price(
         const LimitOrder& order,

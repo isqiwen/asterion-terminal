@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { ctpConnection, minuteStrategyPackage, rpc, seedDataset } from "./dataset-fixture";
+import { ctpConnection, rpc, seedDataset } from "./dataset-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./test";
 import { join } from "node:path";
@@ -114,33 +114,6 @@ test(
       await authorize.click();
       await expect(panel.getByText("已授权", { exact: true })).toBeVisible();
       await checked("account authorized");
-
-      // The authorized account can hand its orders to a strategy run instead.
-      // This market service observes nothing, so the run ends at once, says why
-      // and returns the account to its owner; it never invents bars.
-      await panel.getByRole("button", { name: "策略运行", exact: true }).click();
-      await expect(order).toHaveCount(0);
-      const strategy = panel.getByRole("form", { name: "启动策略" });
-      await expect(strategy.getByTestId("strategy-packages-empty")).toBeVisible();
-      const packageId = await minuteStrategyPackage(
-        page.request,
-        (await checked("strategy package source")).live["live-account"].session!.contracts[0],
-      );
-      await strategy.getByRole("button", { name: "刷新策略包", exact: true }).click();
-      await expect(strategy.getByLabel("运行的策略包", { exact: true })).toHaveValue(packageId);
-      await strategy.getByRole("button", { name: "启动策略", exact: true }).click();
-      await expect(strategy.getByTestId("strategy-ended")).toContainText(
-        "行情服务还没有该合约的行情",
-        { timeout: 15000 },
-      );
-      const ended = await checked("strategy run ended without market observations");
-      expect(ended.live["live-account"].session!.strategy).toMatchObject({
-        state: "stopped",
-        symbol: "rb2610",
-        package: { kind: "strategy_package", id: packageId },
-        orders: [],
-      });
-      await panel.getByRole("button", { name: "手动下单", exact: true }).click();
 
       await order.getByLabel("委托手数", { exact: true }).fill("1");
       await order.getByLabel("限价", { exact: true }).fill("3500.3");

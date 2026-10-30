@@ -101,7 +101,6 @@ export function LivePanel(context: TerminalContext) {
                   connection={entry.connection}
                   snapshot={snapshot}
                   busy={busy}
-                  query={context.query}
                   run={runFor(account.id)}
                 />
               ) : !entry && account.trading_record ? (

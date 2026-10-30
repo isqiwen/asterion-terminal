@@ -46,7 +46,6 @@ const session: LiveSession = {
   orders: [],
   trades: [],
   authorization: { authorized_at_ms: 1 },
-  strategy: null,
   unconfirmed: [],
   costs: [],
   storage_state: "ready",
