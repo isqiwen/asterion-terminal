@@ -1,6 +1,5 @@
 #include "trading_backup.hpp"
 #include "account_journal.hpp"
-#include "facts_archive.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
@@ -24,12 +23,6 @@ void cancelled(std::stop_token stop)
         throw Error(ErrorCode::cancelled, "Trading cold backup interrupted");
 }
 
-struct FixedDecision
-{
-    protocol::proto::TradingFactsReceipt receipt;
-    std::string policy, artifact;
-};
-
 } // namespace
 
 ColdBackup
@@ -38,7 +31,7 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     validate_id(owner.node_id());
     validate_id(owner.service_id());
     if (owner.domain() != "trading" || !directory.is_absolute() || fs::is_symlink(directory)
-        || !fs::is_directory(directory) || fs::is_symlink(directory / "facts"))
+        || !fs::is_directory(directory) || fs::is_symlink(directory / "owner"))
         throw std::invalid_argument("Trading cold backup requires its owned root");
     cancelled(stop);
     const auto root = fs::canonical(directory);
@@ -47,7 +40,7 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     snapshot.owner = owner;
     snapshot.directory = root;
     snapshot.ownership = std::make_unique<FileLock>(
-        root / "facts",
+        root / "owner",
         AccountJournal::ownership_file,
         FileLock::Access::shared_existing);
     std::set<fs::path> declared;
@@ -65,7 +58,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     std::set<std::string> limitations;
     std::set<std::string> risks;
     std::map<std::string, std::string> revisions;
-    std::map<std::string, FixedDecision> facts;
     Json manifest;
     std::string policy, risk;
     const auto files = AccountJournal::inspect_backup(
@@ -94,71 +86,16 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
                     risks.insert(risk);
                 }
             }
-            if (const auto* decision = std::get_if<FactsDecision>(&record)) {
-                const auto& receipt = decision->receipt;
-                if (receipt.reference().owner().SerializeAsString() != owner.SerializeAsString())
-                    throw Error(ErrorCode::conflict, "Trading backup fixed facts owner mismatch");
-                if (receipt.state() == protocol::proto::TradingFactsReceipt::ADMITTED) {
-                    if (facts.size() >= 100000)
-                        throw Error(
-                            ErrorCode::resource_exhausted,
-                            "Trading backup facts count exceeds capacity");
-                    facts.emplace(receipt.reference().id(), FixedDecision{receipt, policy, risk});
-                } else {
-                    // AccountJournal already proved this publication's preceding exact admission.
-                    facts.at(receipt.reference().id()).receipt = receipt;
-                }
-            }
         },
         stop);
     for (const auto& file : files)
         add(file, "sqlite");
-    add(fs::path("facts") / AccountJournal::ownership_file, "coordination");
+    add(fs::path("owner") / AccountJournal::ownership_file, "coordination");
     const auto account = manifest.at("account_id").get<std::string>();
     snapshot.scope = {
         {"account_id", account},
         {"environment", manifest.at("environment").get<std::string>()}
     };
-    const auto environment = manifest.at("environment") == "real"
-        ? protocol::proto::REAL
-        : protocol::proto::BROKER_SIMULATION;
-    FactsArchive archive(root, owner, account, environment);
-    for (const auto& [id, decision] : facts) {
-        cancelled(stop);
-        const auto& receipt = decision.receipt;
-        const auto inspected = archive.inspect(receipt.reference());
-        if (inspected.capture) {
-            const auto& fixed = inspected.capture->facts();
-            if (fixed.policy_revision() != decision.policy
-                || fixed.risk_artifact() != decision.artifact)
-                throw Error(
-                    ErrorCode::conflict,
-                    "Trading backup facts policy differs from its admission");
-        }
-        if (receipt.state() == protocol::proto::TradingFactsReceipt::PUBLISHED) {
-            if (!inspected.object)
-                throw Error(
-                    ErrorCode::not_found,
-                    "Trading backup published facts payload is missing");
-            if (inspected.receipt) {
-                if (inspected.receipt->SerializeAsString() != receipt.SerializeAsString())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "Trading backup facts receipt differs from its journal");
-                result.objects.push_back(receipt.reference());
-            } else
-                limitations.insert("published_facts_receipt_missing");
-        } else {
-            if (inspected.receipt)
-                throw Error(
-                    ErrorCode::conflict,
-                    "Trading publication receipt has no published journal decision");
-            if (!inspected.capture)
-                limitations.insert("admitted_facts_payload_missing");
-        }
-        for (const auto& file : inspected.files)
-            add(file, "protobuf");
-    }
     // Retain every captured risk programme, including a prepared but unadopted policy.
     std::set<std::string> programs;
     if (fs::exists(root / "plugins")) {

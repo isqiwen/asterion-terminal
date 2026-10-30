@@ -17,8 +17,6 @@
 #include <asterion/protocol/research_logic.hpp>
 #include "task_payload.hpp"
 #include "program_files.hpp"
-#include <asterion/protocol/account_review.hpp>
-#include <asterion/protocol/trading_facts.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <unistd.h>
 #include <limits>
@@ -95,7 +93,6 @@ inline void check_retry(const wire::Task& task)
     switch (task.kind()) {
         case wire::BACKTEST:
         case wire::FACTOR:
-        case wire::ACCOUNT_REVIEW:
         case wire::STATISTICS:
         case wire::PERFORMANCE_EVALUATION:
         case wire::SAMPLE:
@@ -171,8 +168,8 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
         co_await file_work([&] {
             if (!prepared_files)
                 input->prepare_files();
-            if (input->execution().has_account_review() || input->execution().has_statistics()
-                || input->execution().has_evaluation() || input->execution().has_logic_trial())
+            if (input->execution().has_statistics() || input->execution().has_evaluation()
+                || input->execution().has_logic_trial())
                 return; // Owned fixed evidence; source domains retain their formal publications.
             if (!call.data_route)
                 throw std::logic_error("research submission has no resolved data owner");
@@ -183,8 +180,8 @@ PolledTask<Store::Change> ResearchHost::submit(const Call& call, F make_input, b
                 id);
             save_research_retention(configuration_.directory / id, retention);
         });
-        if (input->execution().has_account_review() || input->execution().has_statistics()
-            || input->execution().has_evaluation() || input->execution().has_logic_trial()) {
+        if (input->execution().has_statistics() || input->execution().has_evaluation()
+            || input->execution().has_logic_trial()) {
             co_await ready(call);
             if (input->execution().has_logic_trial()) {
                 co_await wait_for_store({}, call.deadline);

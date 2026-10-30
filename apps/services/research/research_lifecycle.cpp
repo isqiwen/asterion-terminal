@@ -27,50 +27,6 @@ PolledTask<> ResearchHost::recover_submission(Call& call)
         const auto object = protocol::variable_object(prepared.execution().variable_definition());
         (void)co_await resolve_variable(call, object);
     }
-    if (prepared.execution().has_account_review()) {
-        const auto& fixed = prepared.execution().account_review();
-        protocol::validate_account_review_execution(fixed);
-        const auto node = configuration_.node_id;
-        if (fixed.owner().node_id() != node || fixed.owner().service_id() != configuration_.service)
-            throw Error(ErrorCode::conflict, "account review preparation belongs to another owner");
-        bool missing = false;
-        co_await file_work([&] {
-            (void)programs::Files(configuration_.directory / "programs", fixed.owner())
-                .find(fixed.program_artifact());
-            missing = !std::filesystem::exists(configuration_.directory / id / "input.pb");
-        });
-        std::optional<research::proto::AccountReviewInput> recovered;
-        if (missing)
-            recovered = co_await account_evidence(
-                call,
-                fixed.request(),
-                fixed.owner(),
-                fixed.program_artifact());
-        std::optional<Store::Submission> input;
-        co_await file_work([&] {
-            if (recovered) {
-                const auto bytes = recovered->SerializeAsString();
-                if (sha256_bytes(bytes) != prepared.record().input_digest()
-                    || bytes.size() != prepared.record().input_bytes())
-                    throw Error(
-                        ErrorCode::conflict,
-                        "recovered account evidence differs from preparation");
-                (void)payload::publish(
-                    configuration_.directory / id / "input.pb",
-                    *recovered,
-                    payload::max_input_bytes);
-            }
-            input.emplace(storage_->resume_submission(id));
-        });
-        *call.response.mutable_task() = (co_await submit(
-                                             call,
-                                             [&] {
-                                                 return std::move(*input);
-                                             },
-                                             true))
-                                            .task();
-        co_return;
-    }
     if (prepared.execution().has_logic_trial()) {
         const auto& fixed = prepared.execution().logic_trial();
         protocol::validate_logic_trial_input(fixed);
@@ -247,28 +203,6 @@ PolledTask<> ResearchHost::abandon_preparation(Call& call)
         });
         call.input_in_time();
         const auto node = configuration_.node_id;
-        if (prepared.execution().has_account_review()) {
-            const auto& fixed = prepared.execution().account_review();
-            protocol::validate_account_review_execution(fixed);
-            if (fixed.owner().node_id() != node
-                || fixed.owner().service_id() != configuration_.service)
-                throw Error(
-                    ErrorCode::conflict,
-                    "account review preparation belongs to another owner");
-            resource::proto::Object object;
-            *object.mutable_owner() = fixed.owner();
-            object.set_kind("account_review");
-            object.set_id(id);
-            object.set_version(prepared.record().input_digest());
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            (void)co_await commit(storage_->abandon_preparation(prepared, object));
-            auto* reply = call.response.mutable_release_decision();
-            *reply->mutable_object() = object;
-            reply->set_state(resource::proto::ReleaseDecision::RELEASED);
-            co_return;
-        }
         if (prepared.execution().has_logic_trial()) {
             const auto& fixed = prepared.execution().logic_trial();
             protocol::validate_logic_trial_input(fixed);
@@ -430,34 +364,6 @@ PolledTask<> ResearchHost::retirement(Call& call)
         // The same Research journal owns both the derivation and its release.
         // Logical retirement preserves all formal input/result/program files.
         preview.set_source_release_confirmed(preview.state() == wire::TaskRetirement::RETIRED);
-        *call.response.mutable_retirement() = std::move(preview);
-        co_return;
-    }
-    if (storage_->describe(request.id()).kind() == wire::ACCOUNT_REVIEW) {
-        wire::PreparedTaskSubmission prepared;
-        co_await file_work([&] {
-            prepared = storage_->prepared_submission_record(request.id());
-        });
-        const auto& fixed = prepared.execution().account_review();
-        protocol::validate_account_review_execution(fixed);
-        if (fixed.owner().node_id() != node || fixed.owner().service_id() != configuration_.service
-            || preview.object().owner().SerializeAsString() != fixed.owner().SerializeAsString()
-            || preview.object().version() != prepared.record().input_digest()
-            || preview.object().kind() != "account_review")
-            throw Error(ErrorCode::conflict, "account review retirement identity changed");
-        if (request.execute() && preview.state() == wire::TaskRetirement::AVAILABLE) {
-            co_await ready(call);
-            call.input_in_time();
-            refuse_during_upgrade(quiescing_);
-            (void)co_await commit(storage_->retire(preview.object()));
-            preview = storage_->retirement(request.id(), node);
-        }
-        if (preview.state() == wire::TaskRetirement::RETIRED) {
-            preview.set_source_release_confirmed(false);
-            preview.mutable_release_error()->set_code("unavailable");
-            preview.mutable_release_error()->set_message(
-                "Trading facts remain retained; source release is not supported");
-        }
         *call.response.mutable_retirement() = std::move(preview);
         co_return;
     }

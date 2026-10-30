@@ -161,7 +161,7 @@ export function ResearchRetirementPanel({
                       }
                     />
                   )}
-                  {!report.source_release_confirmed && report.task.kind !== "account_review" && (
+                  {!report.source_release_confirmed && (
                     <button disabled={busy || pending} onClick={() => void execute()}>
                       {t("重试解除源保留")}
                     </button>

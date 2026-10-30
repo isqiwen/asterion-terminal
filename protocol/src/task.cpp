@@ -7,7 +7,6 @@
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/material.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/domain/trading_days.hpp>
@@ -29,8 +28,6 @@ Json decode_task_retirement(
             expected_kind = "backtest";
         if (value.task().kind() == wire::FACTOR)
             expected_kind = "factor";
-        if (value.task().kind() == wire::ACCOUNT_REVIEW)
-            expected_kind = "account_review";
         if (value.task().kind() == wire::STATISTICS)
             expected_kind = "statistics";
         if (value.task().kind() == wire::PERFORMANCE_EVALUATION)
@@ -176,8 +173,8 @@ Json decode_task(const task::proto::Task& task)
     }
     if (task.kind() != task::proto::BACKTEST && task.kind() != task::proto::FACTOR
         && task.kind() != task::proto::MINUTE_DOWNLOAD && task.kind() != task::proto::TABLE_UPDATE
-        && task.kind() != task::proto::ACCOUNT_REVIEW && task.kind() != task::proto::STATISTICS
-        && task.kind() != task::proto::SAMPLE && task.kind() != task::proto::LOGIC_TRIAL
+        && task.kind() != task::proto::STATISTICS && task.kind() != task::proto::SAMPLE
+        && task.kind() != task::proto::LOGIC_TRIAL
         && task.kind() != task::proto::MATERIAL_ACQUISITION
         && task.kind() != task::proto::PERFORMANCE_EVALUATION)
         throw std::invalid_argument("invalid task kind");
@@ -186,7 +183,6 @@ Json decode_task(const task::proto::Task& task)
             task.kind() == task::proto::MINUTE_DOWNLOAD              ? "minute_download"
                 : task.kind() == task::proto::TABLE_UPDATE           ? "table_update"
                 : task.kind() == task::proto::FACTOR                 ? "factor"
-                : task.kind() == task::proto::ACCOUNT_REVIEW         ? "account_review"
                 : task.kind() == task::proto::STATISTICS             ? "statistics"
                 : task.kind() == task::proto::PERFORMANCE_EVALUATION ? "performance_evaluation"
                 : task.kind() == task::proto::SAMPLE                 ? "sample"
@@ -330,12 +326,6 @@ Json decode_task_result(const task::proto::TaskResponse& response, const std::st
         envelope["input_sha256"] = response.result_input_sha256();
         envelope["experiment"] = decode_statistics_input(task.statistics());
         envelope["result"] = decode_statistics_result(task.statistics(), response.statistics());
-    } else if (task.kind() == task::proto::ACCOUNT_REVIEW && task.has_account_review()
-        && response.has_account_review()) {
-        envelope["input_sha256"] = response.result_input_sha256();
-        envelope["experiment"] = decode_account_review_input(task.account_review());
-        envelope["result"] =
-            decode_account_review_result(task.account_review(), response.account_review());
     } else {
         throw std::invalid_argument("task input and result kind mismatch");
     }

@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 #include "sqlite_journal.hpp"
 #include "account_policy.hpp"
 #include "account_records.hpp"
@@ -19,14 +20,15 @@ public:
     using Post = std::function<void(std::function<void()>)>;
     // Physical database/file publication ownership; distinct from account execution binding.
     static constexpr auto ownership_file = "account.lock";
+    // Directories beside the journal files: risk plugins, the CTP flow cache,
+    // sealed segments and owner/, which holds ownership_file alone.
+    static inline const std::set<std::string> sidecars{"plugins", "ctp-flow", "archives", "owner"};
 
     struct Result
     {
         SqliteJournal::Capacity capacity{};
         // find_command: the record that first used the request ID.
         std::optional<CommandRecord> command;
-        std::optional<protocol::proto::TradingFactsReceipt> facts_receipt;
-        protocol::proto::TradingFactsCapture facts_capture;
         // find_order: the order ID belongs to a recorded submission.
         bool order_known = false;
         std::unique_ptr<const AccountPolicy> policy;
@@ -81,17 +83,6 @@ public:
     Write append(JournalEntry entry);
     Write find_command(std::string id);
     Write find_order(std::string id);
-    Write find_facts(std::string id);
-    Write stage_facts(protocol::proto::TradingFactsCapture);
-    Write facts_payload(
-        resource::proto::Object,
-        std::string account_id,
-        protocol::proto::TradingEnvironment,
-        bool publish);
-    Write seal_facts(
-        protocol::proto::TradingFactsReceipt,
-        std::string account_id,
-        protocol::proto::TradingEnvironment);
     Write restore_orders(std::string day, std::uint64_t after);
     Write prepare_policy(
         std::filesystem::path plugins,

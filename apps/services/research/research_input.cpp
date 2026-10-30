@@ -10,7 +10,6 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/protocol/account_review.hpp>
 
 namespace asterion::tasks {
 
@@ -105,17 +104,6 @@ void resolve_task_input(
         validate_statistics_input(execution.statistics());
         *task.mutable_statistics() = execution.statistics();
         return; // Fixed owned source descriptor; never discover or refetch Data.
-    }
-    if (task.kind() == task::proto::ACCOUNT_REVIEW) {
-        if (stop.stop_requested())
-            throw Error(ErrorCode::cancelled, "task cancelled");
-        if (!task.has_account_review() || !execution.has_account_review()
-            || execution.has_data_owner()
-            || sha256_bytes(task.account_review().SerializeAsString()) != execution.input_sha256()
-            || account_review_execution(task.account_review()).SerializeAsString()
-                != execution.account_review().SerializeAsString())
-            throw std::invalid_argument("account review owned input differs from fixed execution");
-        return; // Complete owned input; never construct a Data client or refetch Trading.
     }
     if (task.definition_case() != task::proto::Task::DEFINITION_NOT_SET
         || execution.input_sha256().size() != 64

@@ -39,8 +39,6 @@ public:
         const data::proto::DataOwner&,
         const task::proto::TaskDerivation& = {});
     [[nodiscard]] std::future<void>
-    submit(const std::string&, const research::proto::AccountReviewRequest&);
-    [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::EvaluationRequest&);
     [[nodiscard]] std::future<void>
     submit(const std::string&, const research::proto::StatisticsRequest&);

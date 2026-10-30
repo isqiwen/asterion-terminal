@@ -273,7 +273,6 @@ message Request {
     LiveCredentials live_connect = 17;
     Empty live_disconnect = 18;
     Empty live_costs = 19;
-    TradingFactsQuery facts = 20;
   }
 }
 message ContractState {
@@ -451,58 +450,6 @@ message LiveSnapshot {
   uint64 connection_generation = 25;
   bool positions_reconciled = 26;
 }
-// A deliberately selected factual projection: no broker connection settings,
-// credential fields, authorization permission or executable strategy state.
-message TradingFacts {
-  asterion.resource.proto.Owner source = 1;
-  string account_id = 2;
-  TradingEnvironment environment = 3;
-  string instance = 4;
-  string id = 5;
-  int64 captured_at_ms = 6;
-  uint64 broker_sequence = 7;
-  uint64 connection_generation = 8;
-  int64 synchronized_ms = 9;
-  string phase = 10;
-  string trading_day = 11;
-  bool positions_reconciled = 12;
-  LiveFunds funds = 13;
-  repeated LivePosition positions = 14;
-  repeated LiveOrder orders = 15;
-  repeated LiveTrade trades = 16;
-  repeated UnconfirmedOrder unconfirmed = 17;
-  bool recovery_required = 18;
-  string policy_revision = 19;
-  string risk_artifact = 20;
-  int32 error_code = 21;
-}
-message TradingFactsCapture {
-  asterion.resource.proto.Object reference = 1;
-  TradingFacts facts = 2;
-}
-message TradingFactsReceipt {
-  enum State {
-    UNSPECIFIED = 0;
-    ADMITTED = 1;
-    PUBLISHED = 2;
-  }
-
-  asterion.resource.proto.Object reference = 1;
-  State state = 2;
-  int64 admitted_at_ms = 3;
-  int64 published_at_ms = 4;
-}
-message TradingFactsStatus {
-  TradingFactsReceipt operation = 1;
-  TradingFactsCapture capture = 2;
-}
-message TradingFactsQuery {
-  oneof operation {
-    string capture = 1;
-    asterion.resource.proto.Object read = 2;
-    string status = 3;
-  }
-}
 message Error {
   string code = 1;
   string message = 2;
@@ -525,6 +472,5 @@ message Response {
     Empty uninitialized = 12;
     Health health = 13;
     LiveSnapshot live = 14;
-    TradingFactsStatus facts = 15;
   }
 }

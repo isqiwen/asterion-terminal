@@ -13,7 +13,6 @@ import "asterion/node.proto";
 import "asterion/trading.proto";
 import "asterion/backtest.proto";
 import "asterion/factor.proto";
-import "asterion/account_review.proto";
 message ResearchSubmit {
   reserved 11;
   StrategyUse strategy_use = 14;
@@ -25,7 +24,6 @@ message ResearchSubmit {
     asterion.backtest.proto.BacktestRequest backtest = 2;
     asterion.factor.proto.FactorRequest factor_request = 3;
     asterion.backtest.proto.BacktestReuse backtest_reuse = 5;
-    AccountReviewRequest account_review = 8;
     StatisticsRequest statistics = 12;
     SampleRequest sample = 13;
     LogicTrialRequest logic_trial = 15;

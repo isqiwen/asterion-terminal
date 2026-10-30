@@ -253,19 +253,17 @@ void Application::Impl::register_data_commands()
                 throw std::invalid_argument("unsupported Data resource kind");
         } else {
             if (kind != "backtest" && kind != "factor" && kind != "backtest_result"
-                && kind != "factor_result" && kind != "account_review"
-                && kind != "account_review_result" && kind != "performance_evaluation"
+                && kind != "factor_result" && kind != "performance_evaluation"
                 && kind != "performance_evaluation_result")
                 throw std::invalid_argument("unsupported Research resource kind");
             value = co_await PollFuture{research_client->retirement(id, false)};
             const bool result = kind == "backtest_result" || kind == "factor_result"
-                || kind == "account_review_result" || kind == "performance_evaluation_result";
+                || kind == "performance_evaluation_result";
             const auto task_kind =
                 (kind == "performance_evaluation" || kind == "performance_evaluation_result")
                 ? "performance_evaluation"
-                : (kind == "account_review" || kind == "account_review_result") ? "account_review"
-                : (kind == "backtest" || kind == "backtest_result")             ? "backtest"
-                                                                                : "factor";
+                : (kind == "backtest" || kind == "backtest_result") ? "backtest"
+                                                                    : "factor";
             if (value.at("task").at("kind") != task_kind)
                 throw Error(ErrorCode::conflict, "Research resource kind changed");
             if ((result ? value.at("task").at("result_digest") : value.at("version")) != version)

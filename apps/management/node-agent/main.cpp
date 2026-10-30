@@ -419,7 +419,7 @@ class Agent
                     "--discovery-endpoint",
                     discovery_endpoint()});
         }
-        if (configuration.kind == wire::MARKET || configuration.kind == wire::TRADING || lab)
+        if (configuration.kind == wire::MARKET || lab)
             args.insert(args.end(), {"--node-id", node_id_});
         if (configuration.kind == wire::MARKET && !configuration.provider_artifact.empty())
             args.insert(

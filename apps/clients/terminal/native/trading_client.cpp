@@ -3,7 +3,6 @@
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/health.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/protocol/trading_facts.hpp>
 
 namespace asterion::terminal {
 
@@ -15,8 +14,6 @@ struct TradingClient::Impl
     ServiceIo& io;
     const ServiceEndpoint endpoint;
     std::unique_ptr<ipc::RpcClient> transport;
-    std::unique_ptr<ipc::RpcClient> facts_transport;
-    bool facts_busy = false;
     std::stop_source lifetime;
     // One request at a time. Beside it one cancel or strategy stop, and beside
     // those one revoke: none of them waits here for a command in flight, and a
@@ -47,16 +44,6 @@ struct TradingClient::Impl
                   endpoint.endpoint,
                   3,
                   io.payload_budget(ServiceIo::PayloadLane::control));
-        auto budget = io.payload_budget(ServiceIo::PayloadLane::data);
-        facts_transport = endpoint.endpoint.empty()
-            ? std::make_unique<ipc::RpcClient>(
-                  io.reactor(),
-                  endpoint.host,
-                  endpoint.port,
-                  endpoint.tls,
-                  2,
-                  budget)
-            : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, 2, budget);
     }
 
     bool stopped(std::stop_token stop) const
@@ -165,92 +152,6 @@ struct TradingClient::Impl
         co_return;
     }
 
-    PolledTask<Json> facts_call(wire::TradingFactsQuery query, std::stop_token stop)
-    {
-        if (endpoint.owner_node_id.empty())
-            throw Error(
-                ErrorCode::unavailable,
-                "fixed trading facts require a stable owning node identity");
-        if (query.has_read()) {
-            protocol::validate_trading_facts_reference(query.read());
-            if (query.read().owner().node_id() != endpoint.owner_node_id
-                || query.read().owner().service_id() != endpoint.session)
-                throw Error(ErrorCode::conflict, "trading facts owner mismatch");
-        } else if (query.has_capture())
-            validate_id(query.capture());
-        else if (query.has_status())
-            validate_id(query.status());
-        else
-            throw std::invalid_argument("missing trading facts operation");
-        co_await PollUntil{[&] {
-            return !facts_busy || stopped(stop);
-        }};
-        if (stopped(stop))
-            throw Error(ErrorCode::cancelled, "trading facts connection closed");
-        facts_busy = true;
-
-        struct Release
-        {
-            bool& busy;
-
-            ~Release()
-            {
-                busy = false;
-            }
-        } release{facts_busy};
-
-        wire::Request request;
-        request.set_version(1);
-        request.set_session_id(endpoint.session);
-        request.set_correlation_id(next_correlation_id());
-        *request.mutable_facts() = std::move(query);
-        auto reply = facts_transport->request(request.SerializeAsString(), 30s);
-        while (reply.wait_for(0ms) != std::future_status::ready) {
-            if (stopped(stop))
-                facts_transport.reset();
-            else
-                facts_transport->poll();
-            co_await std::suspend_always{};
-        }
-        const auto expected_account =
-            last_snapshot ? last_snapshot->at("account_id").get<std::string>() : std::string{};
-        co_return co_await io.read<Json>([raw = reply.get(),
-                                             request = std::move(request),
-                                             node = endpoint.owner_node_id,
-                                             expected_account] {
-            wire::Response response;
-            if (!response.ParseFromString(*raw))
-                throw Error(ErrorCode::unavailable, "invalid trading facts response");
-            protocol::validate_message(response);
-            if (response.version() != request.version()
-                || response.session_id() != request.session_id()
-                || response.correlation_id() != request.correlation_id())
-                throw Error(ErrorCode::unavailable, "trading facts response identity mismatch");
-            if (response.has_error())
-                throw_remote_error(response.error().code(), response.error().message());
-            if (!response.has_facts())
-                throw Error(ErrorCode::unavailable, "missing trading facts response");
-            const auto& status = response.facts();
-            auto result = protocol::decode_trading_facts_status(status);
-            const auto& reference = status.operation().reference();
-            if (reference.owner().node_id() != node
-                || reference.owner().service_id() != request.session_id())
-                throw Error(ErrorCode::conflict, "trading facts owner mismatch");
-            const auto& query = request.facts();
-            if ((query.has_read()
-                    && reference.SerializeAsString() != query.read().SerializeAsString())
-                || (query.has_capture() && reference.id() != query.capture())
-                || (query.has_status() && reference.id() != query.status()))
-                throw Error(ErrorCode::conflict, "trading facts operation identity mismatch");
-            if ((query.has_read() || query.has_capture()) && !status.has_capture())
-                throw Error(ErrorCode::unavailable, "fixed trading facts payload is missing");
-            if (status.has_capture() && !expected_account.empty()
-                && status.capture().facts().account_id() != expected_account)
-                throw Error(ErrorCode::conflict, "trading facts belong to another account");
-            return result;
-        });
-    }
-
     PolledTask<void>
     initialize(Json manifest, const std::string& expected_account, std::stop_token stop)
     {
@@ -307,7 +208,6 @@ struct TradingClient::Impl
             next = std::chrono::steady_clock::now() + (failed ? 5s : 500ms);
         }
         transport.reset();
-        facts_transport.reset();
         co_return;
     }
 
@@ -391,14 +291,6 @@ std::future<void> TradingClient::create(const Json& manifest)
             wire::Request ping;
             ping.mutable_heartbeat();
             co_await state->call(std::move(ping), stop);
-        });
-}
-
-std::future<Json> TradingClient::facts(wire::TradingFactsQuery query)
-{
-    return io_.submit<Json>(
-        [state = impl_, query = std::move(query)](std::stop_token stop) mutable {
-            return state->facts_call(std::move(query), stop);
         });
 }
 

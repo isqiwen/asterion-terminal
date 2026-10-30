@@ -3,7 +3,6 @@
 #include "task_payload.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
@@ -26,7 +25,7 @@ namespace {
 
 // Kind, resource, manifest, definition, result, finish; calculation, publishes,
 // execution carries input, references history.
-constexpr std::array<tasks::KindSpec, 7> research_kinds{{
+constexpr std::array<tasks::KindSpec, 6> research_kinds{{
     {wire::BACKTEST,
         "backtest",
         "backtest.task",
@@ -38,16 +37,6 @@ constexpr std::array<tasks::KindSpec, 7> research_kinds{{
         true,
         true},
     {wire::FACTOR, "factor", "factor.task", "factor", "factor", "factor", true, false, true, true},
-    {wire::ACCOUNT_REVIEW,
-        "account_review",
-        "account_review.task",
-        "account_review",
-        "account_review",
-        "account_review",
-        true,
-        false,
-        false,
-        false},
     {wire::STATISTICS,
         "statistics",
         "statistics.task",
@@ -83,12 +72,6 @@ constexpr std::array<tasks::KindSpec, 7> research_kinds{{
 
 // Program files live beside the tasks.
 constexpr std::array<std::string_view, 1> research_directories{"programs"};
-
-// Kinds that execute a fixed Research program, named in their manifest.
-bool runs_program(wire::TaskKind kind)
-{
-    return kind != wire::ACCOUNT_REVIEW;
-}
 
 // How a list names a dominant series: the product by the first and last month
 // it is read from.
@@ -295,16 +278,6 @@ public:
                     * (task.statistics().request().end_index()
                         - task.statistics().request().begin_index()));
                 break;
-            case wire::ACCOUNT_REVIEW: {
-                protocol::validate_account_review_input(task.account_review());
-                const auto& facts = task.account_review().evidence().capture().facts();
-                task.set_source_name(
-                    task.account_review().evidence().operation().reference().owner().service_id());
-                task.set_instrument(facts.account_id());
-                task.set_trading_day(facts.trading_day());
-                task.set_total(1);
-                break;
-            }
             case wire::FACTOR:
                 describe_factor(task);
                 break;
@@ -332,8 +305,7 @@ public:
         manifest["provider_artifact"] = task.provider_artifact();
         manifest["download_authorization"] = task.download_authorization();
         manifest["risk_artifact"] = task.risk_artifact();
-        if (runs_program(task.kind()))
-            manifest["program_artifact"] = task.program_artifact();
+        manifest["program_artifact"] = task.program_artifact();
         if (task.has_strategy_use())
             manifest["strategy_use"] = protocol::decode_strategy_use(task.strategy_use());
         if (task.has_variable_definition())
@@ -349,19 +321,16 @@ public:
         auto fields = manifest;
         fields.erase("strategy_use");
         fields.erase("variable_definition");
-        if (runs_program(task.kind()))
-            fields.erase("program_artifact");
+        fields.erase("program_artifact");
         require_fields(fields, {"provider_artifact", "download_authorization", "risk_artifact"});
         if (!manifest.at("provider_artifact").get<std::string>().empty()
             || !manifest.at("download_authorization").get<std::string>().empty())
             throw std::invalid_argument("unexpected task provider artifact");
-        if (runs_program(task.kind())) {
-            task.set_program_artifact(manifest.at("program_artifact").get<std::string>());
-            if (!task.program_artifact().empty() || task.kind() == wire::STATISTICS
-                || task.kind() == wire::PERFORMANCE_EVALUATION || task.kind() == wire::SAMPLE
-                || task.kind() == wire::LOGIC_TRIAL)
-                validate_digest(task.program_artifact());
-        }
+        task.set_program_artifact(manifest.at("program_artifact").get<std::string>());
+        if (!task.program_artifact().empty() || task.kind() == wire::STATISTICS
+            || task.kind() == wire::PERFORMANCE_EVALUATION || task.kind() == wire::SAMPLE
+            || task.kind() == wire::LOGIC_TRIAL)
+            validate_digest(task.program_artifact());
         if (manifest.contains("strategy_use")) {
             *task.mutable_strategy_use() =
                 protocol::encode_strategy_use(manifest.at("strategy_use"));
@@ -470,10 +439,6 @@ public:
             protocol::require_backtest_scoring_assumptions(
                 static_cast<std::size_t>(task.input().strategies_size()),
                 task.input().performance_assumptions());
-        // An identical account review shares the original's fixed input.
-        if (task.has_account_review() && !admission.reusable)
-            admission.reusable =
-                admission.records.same_input(wire::ACCOUNT_REVIEW, admission.reuse_digest);
     }
 
     void confirm_admission(const wire::Task& task, const tasks::Records& records) const override
@@ -542,11 +507,6 @@ public:
                 break;
             case wire::STATISTICS:
                 protocol::validate_statistics_result(task.statistics(), result.statistics());
-                break;
-            case wire::ACCOUNT_REVIEW:
-                protocol::validate_account_review_result(
-                    task.account_review(),
-                    result.account_review());
                 break;
             default:
                 throw std::logic_error("research task kind has no result");

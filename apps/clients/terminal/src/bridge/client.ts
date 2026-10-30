@@ -793,7 +793,6 @@ export type TaskRecord = {
     | "factor"
     | "minute_download"
     | "table_update"
-    | "account_review"
     | "statistics"
     | "performance_evaluation"
     | "sample"
@@ -1609,23 +1608,6 @@ export type BacktestPerformance = PerformanceFigures & {
   development: PerformanceFigures | null;
   holdout: PerformanceFigures | null;
 };
-export type AccountReviewResult = {
-  owner: { node: string; service: string; domain: "research" };
-  source: TradingFacts["reference"];
-  account_id: string;
-  environment: "real" | "simulation";
-  program_artifact: string;
-  conclusion: "evidence_insufficient";
-  position_records: number;
-  order_records: number;
-  trade_records: number;
-  unconfirmed_orders: number;
-  funds_present: boolean;
-  positions_reconciled: boolean;
-  broker_ready: boolean;
-  recovery_required: boolean;
-  limitations: string[];
-};
 export type ResearchSampleEvaluation =
   { mode: "full_sample" } | { mode: "holdout"; split_index: number };
 export type ResearchSampleInput = {
@@ -1771,18 +1753,6 @@ export type TaskResult =
       task: TaskRecord;
       experiment: MaterialRequest;
       result: MaterialReceipt;
-    }
-  | {
-      id: string;
-      kind: "account_review";
-      input_sha256: string;
-      task: TaskRecord;
-      experiment: {
-        owner: AccountReviewResult["owner"];
-        program_artifact: string;
-        evidence: TradingFactsStatus;
-      };
-      result: AccountReviewResult;
     }
   | {
       id: string;
@@ -2306,39 +2276,6 @@ export type ObservationArchive = {
   archive?: ResourceObject;
   capture?: MarketObservation;
 };
-export type TradingFacts = {
-  reference: Omit<ResourceObject, "domain"> & { domain: "trading" };
-  account_id: string;
-  environment: "real" | "simulation";
-  instance: string;
-  captured_at_ms: string;
-  broker_sequence: string;
-  connection_generation: string;
-  synchronized_ms: string;
-  phase: LiveSession["phase"];
-  error_code: number;
-  trading_day: string;
-  positions_reconciled: boolean;
-  recovery_required: boolean;
-  policy_revision: string;
-  risk_artifact: string;
-  complete_history: false;
-  atomic_ledger_cut: false;
-  missing_evidence: string[];
-  funds: LiveSession["funds"];
-  positions: LiveSession["positions"];
-  orders: LiveSession["orders"];
-  trades: LiveSession["trades"];
-  unconfirmed: LiveSession["unconfirmed"];
-};
-export type TradingFactsStatus = {
-  id: string;
-  reference: TradingFacts["reference"];
-  state: "admitted" | "published";
-  admitted_at_ms: string;
-  published_at_ms?: string;
-  capture?: TradingFacts;
-};
 export type MaterialRequest = {
   id: string;
   source_id: string;
@@ -2379,7 +2316,6 @@ export type Snapshot = {
   material_sources?: MaterialSource[];
   material_task?: TaskRecord;
   material_read?: MaterialRead;
-  trading_facts?: TradingFactsStatus;
   market_observation?: MarketObservation;
   observation_archive?: ObservationArchive;
   resources?: ResourceCatalogue;

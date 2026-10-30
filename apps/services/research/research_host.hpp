@@ -133,13 +133,7 @@ private:
     PolledTask<> submit_logic_trial(Call& call);
     PolledTask<research::proto::VariableDefinition>
     resolve_variable(Call&, resource::proto::Object);
-    PolledTask<> submit_account_review(Call& call);
     PolledTask<ResearchProgram> program(const Call& call);
-    PolledTask<research::proto::AccountReviewInput> account_evidence(
-        const Call&,
-        const research::proto::AccountReviewRequest&,
-        const resource::proto::Owner&,
-        const std::string& artifact);
     PolledTask<> claim(Call& call);
     PolledTask<> finish(Call& call, const task::proto::TaskFinish& result);
 

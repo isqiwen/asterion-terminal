@@ -457,9 +457,9 @@ decode_task_response(const research::proto::ResearchRequest& request, const std:
             : request.has_list()          ? !response.has_tasks()
             : request.has_result()
             ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes()
-                  && !response.has_table_update() && !response.has_account_review()
-                  && !response.has_statistics() && !response.has_sample()
-                  && !response.has_logic_trial() && !response.has_evaluation())
+                  && !response.has_table_update() && !response.has_statistics()
+                  && !response.has_sample() && !response.has_logic_trial()
+                  && !response.has_evaluation())
             : !response.has_task())
         throw Error(ErrorCode::unavailable, "unexpected task response");
     return response;
@@ -711,12 +711,6 @@ struct ResearchClient::Impl : std::enable_shared_from_this<Impl>
                     throw Error(
                         ErrorCode::conflict,
                         "statistics source must belong to this Research service");
-                if (response.has_account_review()
-                    && (response.account_review().owner().node_id() != node
-                        || response.account_review().owner().service_id() != request.service_id()))
-                    throw Error(
-                        ErrorCode::conflict,
-                        "account review result belongs to another Research owner");
                 auto evidence = protocol::decode_task_result(response, request.result().id());
                 if (response.has_backtest()) {
                     evidence["portfolio"] =
@@ -934,15 +928,6 @@ ResearchClient::submit(const std::string& id, const research::proto::StatisticsR
     research::proto::ResearchRequest request;
     request.mutable_submit()->set_id(id);
     *request.mutable_submit()->mutable_statistics() = input;
-    return impl_->mutate(std::move(request));
-}
-
-std::future<void>
-ResearchClient::submit(const std::string& id, const research::proto::AccountReviewRequest& input)
-{
-    research::proto::ResearchRequest request;
-    request.mutable_submit()->set_id(id);
-    *request.mutable_submit()->mutable_account_review() = input;
     return impl_->mutate(std::move(request));
 }
 

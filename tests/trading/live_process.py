@@ -113,15 +113,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         assert live["phase"] == "disconnected" and live["authorization"] is None
         assert live["contracts"][0]["price_increment"] == "0.5"
         assert live["contracts"][0]["multiplier"] == "10"
-        # Real Agent + Trading + Native path: fixed evidence needs no broker login,
-        # trading authorization or order. A retry may never freeze a newer value.
-        facts = trade(process, "live.facts.capture", dict(id="fixed-native-facts"))["trading_facts"]
-        assert facts["state"] == "published" and facts["capture"]["phase"] == "disconnected", facts
-        assert facts["capture"]["funds"] is None and facts["capture"]["account_id"] == "account", facts
-        assert facts["capture"]["environment"] == "simulation", facts
-        assert not facts["capture"]["complete_history"] and not facts["capture"]["atomic_ledger_cut"], facts
-        assert not any(key in facts["capture"] for key in ("broker", "authorization", "strategy")), facts
-        assert trade(process, "live.facts.read", dict(reference=facts["reference"]))["trading_facts"] == facts
         # Readiness is independent of process liveness and successful initialization.
         state = wait(process, lambda s: s["live"]["account"]["connection"]["health"] is not None)
         health = state["live"]["account"]["connection"]["health"]
@@ -151,8 +142,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         assert isinstance(broker_observation["connection_generation"], str), broker_observation
         assert int(broker_observation["connection_generation"]) >= 0, broker_observation
         assert all(observed["execution"][key]["observed"] for key in ("io", "state", "persistence"))
-        assert trade(process, "live.facts.capture", dict(id="fixed-native-facts"))["trading_facts"] == facts
-        assert trade(process, "live.facts.status", dict(id="fixed-native-facts"))["trading_facts"] == facts
         trade(process, "live.act", dict(request_id="authorize", action="live_authorize",
                                        user_id="000001"))
         trade(process, "live.act", submit("tick", "1", "3500.25"), error=True)
@@ -202,7 +191,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         live = session(state)
         assert live["phase"] == "disconnected" and live["authorization"] is None, live
         assert live["positions_reconciled"] is False, live
-        assert trade(process, "live.facts.read", dict(reference=facts["reference"]))["trading_facts"] == facts
         assert isinstance(live["broker_sequence"], str), live
         assert isinstance(live["connection_generation"], str), live
         trade(process, "live.act", submit("after", "1"), error=True)

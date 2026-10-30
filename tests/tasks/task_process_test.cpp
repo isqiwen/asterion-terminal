@@ -1922,31 +1922,7 @@ TEST(ResearchDataDiscovery, AmbiguousOrUnavailableOwnerCannotSilentlyChangeSourc
     rejects({}, ErrorCode::unavailable);
 }
 
-TEST(ResearchFactsDiscovery, ExactOwnerIsResolvedWithoutADataServiceOrSubstitution)
-{
-    node::proto::Status status;
-    status.set_phase(node::proto::Status::READY);
-    status.set_node_id("node-one");
-    auto* service = status.add_services();
-    service->set_kind(node::proto::TRADING);
-    service->set_id("trading-one");
-    service->set_state("running");
-    service->set_endpoint("/trading.sock");
-    resource::proto::Owner owner;
-    owner.set_domain("trading");
-    owner.set_node_id("node-one");
-    owner.set_service_id("trading-one");
-    EXPECT_EQ(tasks::resolve_research_facts(status, owner).endpoint, "/trading.sock");
-    service->set_state("stopped");
-    EXPECT_THROW((void)tasks::resolve_research_facts(status, owner), Error);
-    service->set_state("running");
-    service->set_id("trading-two");
-    EXPECT_THROW((void)tasks::resolve_research_facts(status, owner), Error);
-    owner.set_node_id("other-node");
-    EXPECT_THROW((void)tasks::resolve_research_facts(status, owner), Error);
-}
-
-TEST(ResearchFactsDiscovery, ProgramIdentityComesFromTheObservedResearchProcess)
+TEST(ResearchDiscovery, ProgramIdentityComesFromTheObservedResearchProcess)
 {
     node::proto::Status status;
     status.set_phase(node::proto::Status::READY);

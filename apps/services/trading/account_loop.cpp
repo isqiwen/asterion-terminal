@@ -506,33 +506,6 @@ std::future<protocol::proto::LiveSnapshot> LiveSession::snapshot() const
         Loop::Admission::observation);
 }
 
-LiveSession::FactsOperation
-LiveSession::capture_facts(resource::proto::Owner owner, std::string instance, std::string id)
-{
-    auto result = std::make_shared<protocol::proto::TradingFactsStatus>();
-    auto completed = loop_->mutate([owner = std::move(owner),
-                                       instance = std::move(instance),
-                                       id = std::move(id),
-                                       result](LiveAccountState& account, std::uint64_t) {
-        return account.capture_facts(owner, instance, id, *result);
-    });
-    return {std::move(completed), std::move(result)};
-}
-
-LiveSession::FactsOperation LiveSession::inspect_facts(resource::proto::Owner owner, std::string id)
-{
-    auto result = std::make_shared<protocol::proto::TradingFactsStatus>();
-    auto completed = loop_->mutate(
-        [owner = std::move(owner),
-            id = std::move(id),
-            result](LiveAccountState& account, std::uint64_t) {
-            return account.inspect_facts(owner, id, *result);
-        },
-        {},
-        Loop::Admission::observation);
-    return {std::move(completed), std::move(result)};
-}
-
 bool LiveSession::recovery_required() const noexcept
 {
     return loop_->failed.load();

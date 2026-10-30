@@ -50,7 +50,7 @@ export const modules = [
     id: "live",
     title: "实盘",
     icon: "trading",
-    views: ["workspace.trading", "workspace.account-review"],
+    views: ["workspace.trading"],
   },
 ] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
 export type NavigationOptions = {

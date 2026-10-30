@@ -262,8 +262,6 @@ PolledTask<> ResearchHost::submit_operation(Call& call)
             co_return co_await submit_sample(call);
         case Definition::kLogicTrial:
             co_return co_await submit_logic_trial(call);
-        case Definition::kAccountReview:
-            co_return co_await submit_account_review(call);
         case Definition::DEFINITION_NOT_SET:
             break;
     }

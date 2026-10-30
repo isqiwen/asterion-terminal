@@ -8,9 +8,6 @@ import { lazy } from "react";
 import "./research.css";
 import type { TerminalPlugin } from "../contract";
 const Backtest = lazy(() => import("./Backtest").then(module => ({ default: module.Backtest })));
-const AccountReview = lazy(() =>
-  import("./AccountReview").then(module => ({ default: module.AccountReview })),
-);
 const ResearchSamples = lazy(() =>
   import("./ResearchSamples").then(m => ({ default: m.ResearchSamples })),
 );
@@ -79,7 +76,6 @@ export const plugin: TerminalPlugin = {
     "statistics.submit",
     "evaluation.submit",
     "research.sample.submit",
-    "account.review.submit",
     "factor.reuse",
     "data.tables.coverage",
     "data.tables.products",
@@ -103,14 +99,13 @@ export const plugin: TerminalPlugin = {
         task =>
           task.kind === "backtest" ||
           task.kind === "factor" ||
-          task.kind === "account_review" ||
           task.kind === "statistics" ||
           task.kind === "performance_evaluation" ||
           task.kind === "sample",
       )
       .map(task => ({
         id: `research:${context.snapshot?.research_service?.node_id}:${context.snapshot?.research_service?.service}:${task.id}`,
-        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("样本") : task.kind === "statistics" ? t("统计") : task.kind === "account_review" ? t("账户核对") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
+        title: `${task.instrument} · ${task.kind === "performance_evaluation" ? t("固定绩效评价") : task.kind === "sample" ? t("样本") : task.kind === "statistics" ? t("统计") : task.kind === "factor" ? t("因子分析") : `${t("策略回测")} · ${task.trading_day}`}`,
         status: t(
           task.retired
             ? "已退役"
@@ -135,11 +130,9 @@ export const plugin: TerminalPlugin = {
                 ? "workspace.research-samples"
                 : task.kind === "statistics"
                   ? "workspace.research-statistics"
-                  : task.kind === "account_review"
-                    ? "workspace.account-review"
-                    : task.kind === "backtest"
-                      ? "workspace.backtest"
-                      : "workspace.factor",
+                  : task.kind === "backtest"
+                    ? "workspace.backtest"
+                    : "workspace.factor",
             {
               page: "research",
               params: {
@@ -178,15 +171,6 @@ export const plugin: TerminalPlugin = {
         <WorkloadAccess context={context}>
           {ready => <ResearchStatistics {...ready} />}
         </WorkloadAccess>
-      ),
-    },
-    {
-      id: "workspace.account-review",
-      get title() {
-        return t("账户核对");
-      },
-      component: context => (
-        <WorkloadAccess context={context}>{ready => <AccountReview {...ready} />}</WorkloadAccess>
       ),
     },
     {

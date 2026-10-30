@@ -271,40 +271,6 @@ void Application::Impl::register_live_commands()
         });
         co_return snapshot();
     });
-    for (const auto* method : {"live.facts.capture", "live.facts.status", "live.facts.read"})
-        command(method, [this, method = std::string(method)](const json& p) -> PolledTask<Response> {
-            const bool reading = method == "live.facts.read";
-            if (reading)
-                fields(p, {"account", "reference"});
-            else
-                fields(p, {"account", "id"});
-            const auto id = text(p, "account");
-            const auto selected = live_account(p);
-            protocol::proto::TradingFactsQuery query;
-            if (reading) {
-                const auto& r = p.at("reference");
-                fields(r, {"node", "service", "domain", "kind", "id", "version"});
-                auto& ref = *query.mutable_read();
-                ref.mutable_owner()->set_node_id(text(r, "node"));
-                ref.mutable_owner()->set_service_id(text(r, "service"));
-                ref.mutable_owner()->set_domain(text(r, "domain"));
-                ref.set_kind(text(r, "kind"));
-                ref.set_id(text(r, "id"));
-                ref.set_version(text(r, "version"));
-            } else if (method == "live.facts.capture")
-                query.set_capture(text(p, "id"));
-            else
-                query.set_status(text(p, "id"));
-            auto value = co_await PollFuture{selected->client->facts(std::move(query))};
-            const auto current = live.find(id);
-            if (current == live.end() || current->second != selected)
-                throw Error(
-                    ErrorCode::conflict,
-                    "trading account selection changed; inspect the original facts operation before retrying");
-            auto result = snapshot();
-            result.values["trading_facts"] = std::move(value);
-            co_return result;
-        });
     command("live.close", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account"});
         const auto id = text(p, "account");

@@ -1,5 +1,4 @@
 #include "account_records.hpp"
-#include <asterion/protocol/trading_facts.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -262,34 +261,6 @@ Json Authorization::json() const
 
 JournalRecord parse_record(const Json& record)
 {
-    if (record.is_object() && record.contains("facts_decision")) {
-        require_fields(record, {"facts_decision"});
-        const auto& f = record.at("facts_decision");
-        require_fields(
-            f,
-            {"node", "service", "id", "version", "state", "admitted_at_ms", "published_at_ms"});
-        protocol::proto::TradingFactsReceipt receipt;
-        auto& ref = *receipt.mutable_reference();
-        ref.mutable_owner()->set_node_id(text(f, "node"));
-        ref.mutable_owner()->set_service_id(text(f, "service"));
-        ref.mutable_owner()->set_domain("trading");
-        ref.set_kind("trading_facts");
-        ref.set_id(text(f, "id"));
-        ref.set_version(text(f, "version"));
-        const auto state = text(f, "state");
-        if (state != "admitted" && state != "published")
-            throw std::invalid_argument("invalid trading facts decision");
-        if (!f.at("admitted_at_ms").is_number_integer()
-            || !f.at("published_at_ms").is_number_integer())
-            throw std::invalid_argument("invalid trading facts decision times");
-        receipt.set_state(
-            state == "admitted" ? protocol::proto::TradingFactsReceipt::ADMITTED
-                                : protocol::proto::TradingFactsReceipt::PUBLISHED);
-        receipt.set_admitted_at_ms(f.at("admitted_at_ms").get<std::int64_t>());
-        receipt.set_published_at_ms(f.at("published_at_ms").get<std::int64_t>());
-        protocol::validate_trading_facts_receipt(receipt);
-        return FactsDecision{std::move(receipt)};
-    }
     if (record.is_object() && record.contains("orders_terminal")) {
         require_fields(record, {"orders_terminal"});
         const auto& orders = record.at("orders_terminal");
@@ -422,41 +393,6 @@ JournalEntry entry(const CancelResult& record)
     result.trace.request_id = record.request_id;
     result.trace.outcome = record.acknowledged ? "dispatch_acknowledged" : "unknown";
     result.body = {{"cancel_result", record.request_id}, {"outcome", result.trace.outcome}};
-    return result;
-}
-
-std::string
-facts_decision_key(std::string_view id, protocol::proto::TradingFactsReceipt::State state)
-{
-    validate_id(id);
-    if (state != protocol::proto::TradingFactsReceipt::ADMITTED
-        && state != protocol::proto::TradingFactsReceipt::PUBLISHED)
-        throw std::invalid_argument("invalid trading facts decision state");
-    return "@facts/" + std::string(id)
-        + (state == protocol::proto::TradingFactsReceipt::ADMITTED ? "/admitted" : "/published");
-}
-
-JournalEntry entry(const FactsDecision& decision)
-{
-    const auto& r = decision.receipt;
-    protocol::validate_trading_facts_receipt(r);
-    const auto& ref = r.reference();
-    const auto state =
-        r.state() == protocol::proto::TradingFactsReceipt::ADMITTED ? "admitted" : "published";
-    JournalEntry result;
-    result.command_id = facts_decision_key(ref.id(), r.state());
-    result.trace.request_id = ref.id();
-    result.trace.action = std::string("facts.") + state;
-    result.body = {
-        {"facts_decision",
-            {{"node", ref.owner().node_id()},
-                {"service", ref.owner().service_id()},
-                {"id", ref.id()},
-                {"version", ref.version()},
-                {"state", state},
-                {"admitted_at_ms", r.admitted_at_ms()},
-                {"published_at_ms", r.published_at_ms()}}}
-    };
     return result;
 }
 

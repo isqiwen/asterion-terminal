@@ -11,7 +11,6 @@
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <charconv>
 
 namespace asterion::terminal {
@@ -405,36 +404,6 @@ void Application::Impl::register_task_commands()
                 ErrorCode::conflict,
                 "data/research service selection changed during operation; inspect the original services before retrying");
         task_result = nullptr;
-        co_return snapshot();
-    });
-    command("account.review.submit", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "owner", "source", "account_id", "environment"});
-        validate_id(text(p, "id"));
-        if (task_owner_is_data(p))
-            throw std::invalid_argument("account review requires a Research owner");
-        const auto client = research_client;
-        const auto& source = p.at("source");
-        fields(source, {"node", "service", "domain", "kind", "id", "version"});
-        research::proto::AccountReviewRequest input;
-        auto& ref = *input.mutable_source();
-        ref.mutable_owner()->set_node_id(text(source, "node"));
-        ref.mutable_owner()->set_service_id(text(source, "service"));
-        ref.mutable_owner()->set_domain(text(source, "domain"));
-        ref.set_kind(text(source, "kind"));
-        ref.set_id(text(source, "id"));
-        ref.set_version(text(source, "version"));
-        input.set_account_id(text(p, "account_id"));
-        const auto environment = text(p, "environment");
-        if (environment != "real" && environment != "simulation")
-            throw std::invalid_argument("account review requires an explicit trading environment");
-        input.set_environment(
-            environment == "real" ? protocol::proto::REAL : protocol::proto::BROKER_SIMULATION);
-        protocol::validate_account_review_request(input);
-        co_await PollFuture{client->submit(text(p, "id"), input)};
-        if (research_client != client)
-            throw Error(
-                ErrorCode::conflict,
-                "research owner changed; inspect the original account review");
         co_return snapshot();
     });
     command("task.page", [this](const json& p) -> PolledTask<Response> {

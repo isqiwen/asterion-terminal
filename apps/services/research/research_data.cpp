@@ -44,30 +44,6 @@ resolve_research_data(const node::proto::Status& status, const data::proto::Data
     return route;
 }
 
-ResearchFactsRoute
-resolve_research_facts(const node::proto::Status& status, const resource::proto::Owner& selected)
-{
-    if (status.phase() != node::proto::Status::READY || status.has_failure())
-        throw Error(ErrorCode::unavailable, "trading facts discovery is not ready");
-    validate_id(status.node_id());
-    validate_id(selected.node_id());
-    validate_id(selected.service_id());
-    if (selected.domain() != "trading")
-        throw Error(ErrorCode::invalid_request, "fixed facts require a trading owner");
-    if (selected.node_id() != status.node_id())
-        throw Error(ErrorCode::conflict, "trading facts owner requires another node resolver");
-    for (const auto& service : status.services()) {
-        if (service.id() != selected.service_id())
-            continue;
-        if (service.kind() != node::proto::TRADING)
-            throw Error(ErrorCode::conflict, "selected facts owner is not trading");
-        if (service.state() != "running" || service.endpoint().empty())
-            throw Error(ErrorCode::unavailable, "selected trading facts owner is unavailable");
-        return {selected, service.endpoint()};
-    }
-    throw Error(ErrorCode::not_found, "selected trading facts owner is not deployed");
-}
-
 ResearchProgram resolve_research_program(
     const node::proto::Status& status,
     const std::string& id,
@@ -181,14 +157,6 @@ PolledTask<ResearchDataRoute> ResearchData::resolve(
     co_return resolve_research_data(co_await observe(timeout, std::move(parent)), selected);
 }
 
-PolledTask<ResearchFactsRoute> ResearchData::resolve_facts(
-    resource::proto::Owner selected,
-    std::chrono::milliseconds timeout,
-    std::string parent)
-{
-    co_return resolve_research_facts(co_await observe(timeout, std::move(parent)), selected);
-}
-
 PolledTask<ResearchProgram> ResearchData::program(
     std::string service,
     std::uint64_t pid,
@@ -238,14 +206,6 @@ ResearchData::observe(std::chrono::milliseconds timeout, std::string parent)
 
 PolledTask<Payload> ResearchData::read(
     const ResearchDataRoute& route,
-    std::string request,
-    std::chrono::milliseconds timeout)
-{
-    co_return co_await read_endpoint(route.endpoint, std::move(request), timeout);
-}
-
-PolledTask<Payload> ResearchData::read(
-    const ResearchFactsRoute& route,
     std::string request,
     std::chrono::milliseconds timeout)
 {

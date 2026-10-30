@@ -688,8 +688,6 @@
   "本机行情服务按已保存意图保持停止，数据与研究工作区仍可使用": "Local Market remains stopped as requested. Data and Research workspaces remain available.",
   "观察归档": "Observation archive",
   "名称为归档操作 ID；在 Data 历史数据仓库读取原件，不提供删除。": "The name is the archive operation ID. Read originals in Data Historical Warehouse; deletion is unavailable.",
-  "账户审阅固定输入": "Fixed Account Review Input",
-  "账户审阅正式结果": "Account Review Result",
   "研究执行程序原件": "Original Research Execution Program",
   "账户标识": "Account ID",
   "账户环境": "Account Environment",

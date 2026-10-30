@@ -501,40 +501,6 @@ PolledTask<ResearchProgram> ResearchHost::program(const Call& call)
     co_return observed;
 }
 
-PolledTask<research::proto::AccountReviewInput> ResearchHost::account_evidence(
-    const Call& call,
-    const research::proto::AccountReviewRequest& selected,
-    const resource::proto::Owner& owner,
-    const std::string& artifact)
-{
-    protocol::validate_account_review_request(selected);
-    const auto route =
-        co_await data_.resolve_facts(selected.source().owner(), 5s, call.request.correlation_id());
-    protocol::proto::Request query;
-    query.set_version(1);
-    query.set_session_id(route.owner.service_id());
-    query.set_correlation_id(next_correlation_id());
-    *query.mutable_facts()->mutable_read() = selected.source();
-    const auto raw = co_await data_.read(route, query.SerializeAsString(), 30s);
-    research::proto::AccountReviewInput result;
-    co_await file_work([&] {
-        protocol::proto::Response reply;
-        if (!reply.ParseFromString(*raw))
-            throw Error(ErrorCode::unavailable, "invalid trading facts response");
-        protocol::validate_message(reply);
-        if (reply.version() != query.version() || reply.session_id() != query.session_id()
-            || reply.correlation_id() != query.correlation_id())
-            throw Error(ErrorCode::conflict, "trading facts response identity mismatch");
-        if (reply.has_error())
-            throw_remote_error(reply.error().code(), reply.error().message());
-        if (!reply.has_facts())
-            throw Error(ErrorCode::unavailable, "fixed trading facts are unavailable");
-        result = protocol::make_account_review_input(owner, selected, reply.facts(), artifact);
-    });
-    call.input_in_time();
-    co_return result;
-}
-
 PolledTask<> ResearchHost::submit_logic_trial(Call& call)
 {
     const auto& submission = call.request.submit();
@@ -708,40 +674,6 @@ PolledTask<> ResearchHost::submit_statistics(Call& call)
         auto accepted = task_submission(*storage_, submission.id(), std::move(input));
         set_program_artifact(accepted, observed.artifact);
         return accepted;
-    })).task();
-}
-
-PolledTask<> ResearchHost::submit_account_review(Call& call)
-{
-    const auto& submission = call.request.submit();
-    const auto& selected = submission.account_review();
-    protocol::validate_account_review_request(selected);
-    validate_id(submission.id());
-    if (submission.has_data_owner() || submission.has_derivation())
-        throw std::invalid_argument(
-            "account review does not accept Data selection or experiment derivation");
-    if (const auto found_task = storage_->find_task(submission.id())) {
-        const auto& existing = *found_task;
-        if (existing.kind() != wire::ACCOUNT_REVIEW || existing.has_retirement())
-            throw Error(ErrorCode::conflict, "account review identity is already used or retired");
-        auto read = storage_->prepare_input(submission.id());
-        co_await file_work([&] {
-            read.load_for_claim();
-        });
-        co_await ready(call);
-        if (!read.execution().has_account_review()
-            || read.execution().account_review().request().SerializeAsString()
-                != selected.SerializeAsString())
-            throw Error(
-                ErrorCode::conflict,
-                "account review identity names different fixed evidence");
-        *call.response.mutable_task() = storage_->describe(submission.id());
-        co_return; // Replaying accepted identity needs neither source nor current program.
-    }
-    const auto observed = co_await program(call);
-    auto input = co_await account_evidence(call, selected, observed.owner, observed.artifact);
-    *call.response.mutable_task() = (co_await submit(call, [&] {
-        return task_submission(*storage_, submission.id(), std::move(input));
     })).task();
 }
 

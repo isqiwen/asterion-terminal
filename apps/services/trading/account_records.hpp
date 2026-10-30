@@ -140,15 +140,7 @@ struct CancelResult
     bool acknowledged = false;
 };
 
-struct FactsDecision
-{
-    protocol::proto::TradingFactsReceipt receipt;
-};
-
-// Internal lifetime-index keys cannot collide with a validated trading request ID.
-std::string facts_decision_key(std::string_view id, protocol::proto::TradingFactsReceipt::State);
-using JournalRecord =
-    std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult, FactsDecision>;
+using JournalRecord = std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult>;
 // Any record after the journal header. Throws for content this engine never writes.
 JournalRecord parse_record(const Json& record);
 
@@ -183,7 +175,6 @@ JournalEntry authorization_entry(
 JournalEntry entry(const OrdersTerminal& record);
 JournalEntry entry(const OrderNotSent& record);
 JournalEntry entry(const CancelResult& record);
-JournalEntry entry(const FactsDecision& record);
 
 std::string_view status_name(BrokerOrderStatus status) noexcept;
 

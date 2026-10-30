@@ -8,7 +8,6 @@
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <stdexcept>
 #include <set>
 
@@ -132,8 +131,6 @@ task_execution(const task::proto::Task& task, const std::string& input_sha256)
     } else if (task.has_statistics()) {
         validate_statistics_input(task.statistics());
         *result.mutable_statistics() = task.statistics();
-    } else if (task.has_account_review()) {
-        *result.mutable_account_review() = account_review_execution(task.account_review());
     } else {
         throw std::invalid_argument("missing calculation input");
     }
@@ -215,8 +212,6 @@ TaskDataReferences task_data_references(const task::proto::TaskExecution& execut
         if (execution.has_data_owner() || !execution.schedules().empty()
             || execution.has_historical_margins())
             throw std::invalid_argument("statistics execution contains unrelated parameters");
-    } else if (execution.has_account_review()) {
-        validate_account_review_execution(execution.account_review());
     } else
         throw std::invalid_argument("task references require fixed calculation parameters");
     const auto validate = [](const auto& values) {

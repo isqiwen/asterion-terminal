@@ -9,7 +9,6 @@ import type {
   ResearchSampleEvaluation,
   ResearchSampleInput,
   MarketObservation,
-  TradingFacts,
   MaterialRequest,
 } from "./client";
 // The current UI-to-Native contract. JSON is encoded only by the bridge.
@@ -228,13 +227,6 @@ export type CommandParams = {
     result_digest: string;
     limits: { margin: string | null; gross_notional: string | null };
   };
-  "account.review.submit": {
-    id: string;
-    owner: TaskOwnerRef;
-    source: TradingFacts["reference"];
-    account_id: string;
-    environment: "real" | "simulation";
-  };
   "factor.submit": {
     id: string;
     variable_definition?: import("./client").ResourceObject;
@@ -407,9 +399,6 @@ export type CommandParams = {
   "data.material.submit": MaterialRequest;
   "data.material.task": { id: string };
   "data.material.read": { id: string };
-  "live.facts.capture": { account: string; id: string };
-  "live.facts.status": { account: string; id: string };
-  "live.facts.read": { account: string; reference: TradingFacts["reference"] };
   "system.backup.preview": { operation_id: string; services: string[]; destination: string };
   "system.backup.save": {
     operation_id: string;

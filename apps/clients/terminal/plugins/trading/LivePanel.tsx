@@ -1,5 +1,4 @@
 import type { AccountMethod, CommandCall } from "../../src/bridge/commands";
-import { AccountFacts } from "./AccountFacts";
 import { useState } from "react";
 import {
   ErrorNotice,
@@ -96,22 +95,15 @@ export function LivePanel(context: TerminalContext) {
                 </p>
               )}
               {entry?.session ? (
-                <>
-                  <LiveAccount
-                    account={account}
-                    live={entry.session}
-                    connection={entry.connection}
-                    snapshot={snapshot}
-                    busy={busy}
-                    query={context.query}
-                    run={runFor(account.id)}
-                  />
-                  <AccountFacts
-                    context={context}
-                    account={account.id}
-                    scope={`${account.id}/${account.trading?.node}/${entry.connection.session}`}
-                  />
-                </>
+                <LiveAccount
+                  account={account}
+                  live={entry.session}
+                  connection={entry.connection}
+                  snapshot={snapshot}
+                  busy={busy}
+                  query={context.query}
+                  run={runFor(account.id)}
+                />
               ) : !entry && account.trading_record ? (
                 <div className="workflow-empty">
                   <p>

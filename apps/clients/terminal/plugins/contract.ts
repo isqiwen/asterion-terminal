@@ -10,8 +10,6 @@ export type QueryCommand =
   | "research.variable.check"
   | "research.variable.read"
   | "research.variable.list"
-  | "live.facts.status"
-  | "live.facts.read"
   | "resource.catalogue"
   | "resource.inspect"
   | "task.result.read"

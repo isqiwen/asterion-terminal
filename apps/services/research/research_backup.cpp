@@ -12,7 +12,6 @@
 #include "research_tasks.hpp"
 #include "task_payload.hpp"
 #include "program_files.hpp"
-#include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
@@ -60,67 +59,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
     const auto depend = [&](resource::proto::Object value) {
         if (dependencies.insert(value.SerializeAsString()).second)
             snapshot.dependencies.push_back({std::move(value), false});
-    };
-    const auto inspect_review = [&](const task::proto::StoredTaskRecord& record,
-                                    const task::proto::TaskExecution& execution) {
-        if (!execution.has_account_review())
-            throw std::invalid_argument("account review backup lacks its execution identity");
-        const auto& fixed = execution.account_review();
-        protocol::validate_account_review_execution(fixed);
-        if (fixed.owner().SerializeAsString() != owner.SerializeAsString()
-            || execution.has_data_owner() || execution.input_sha256() != record.input_digest())
-            throw Error(ErrorCode::conflict, "account review backup owner or input mismatch");
-        required_programs.insert(fixed.program_artifact());
-        resource::proto::Object input;
-        *input.mutable_owner() = owner;
-        input.set_kind("account_review");
-        input.set_id(record.task().id());
-        input.set_version(record.input_digest());
-        if (record.task().has_retirement()
-            && record.task().retirement().SerializeAsString() != input.SerializeAsString())
-            throw Error(ErrorCode::conflict, "account review retirement backup mismatch");
-        result.objects.push_back(input);
-        inputs.emplace(input.id(), input);
-        depend(
-            fixed.request().source()); // Embedded evidence is not a backup of the Trading ledger.
-        resource::proto::Object program;
-        *program.mutable_owner() = owner;
-        program.set_kind("research_program");
-        program.set_id(fixed.program_artifact());
-        program.set_version(fixed.program_artifact());
-        depend(std::move(program));
-        const auto file = root / input.id() / "input.pb";
-        if (fs::exists(file)) {
-            research::proto::AccountReviewInput evidence;
-            tasks::payload::parse(
-                tasks::payload::read(
-                    file,
-                    record.input_digest(),
-                    tasks::payload::max_input_bytes,
-                    record.input_bytes()),
-                evidence);
-            if (protocol::account_review_execution(evidence).SerializeAsString()
-                != fixed.SerializeAsString())
-                throw Error(
-                    ErrorCode::conflict,
-                    "account review backup input differs from its execution");
-            if (record.task().state() == task::proto::SUCCEEDED) {
-                research::proto::AccountReviewResult output;
-                tasks::payload::parse(
-                    tasks::payload::read(
-                        root / input.id() / "results"
-                            / (std::to_string(record.task().attempt()) + ".pb"),
-                        record.task().result_digest(),
-                        tasks::payload::max_result_bytes),
-                    output);
-                protocol::validate_account_review_result(evidence, output);
-                auto object = input;
-                object.set_kind("account_review_result");
-                object.set_version(record.task().result_digest());
-                result.objects.push_back(std::move(object));
-            }
-        }
-        return input;
     };
     const auto inspect_calculation_program = [&](const task::proto::StoredTaskRecord& record,
                                                  const task::proto::TaskExecution& execution) {
@@ -308,10 +246,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             origins.push_back(task.metadata());
             return;
         }
-        if (task.kind() == task::proto::ACCOUNT_REVIEW) {
-            (void)inspect_review(record, execution);
-            return;
-        }
         inspect_calculation_program(record, execution);
         if ((task.kind() != task::proto::BACKTEST && task.kind() != task::proto::FACTOR
                 && task.kind() != task::proto::SAMPLE)
@@ -383,12 +317,6 @@ cold_backup(const fs::path& directory, const resource::proto::Owner& owner, std:
             if (inspect_statistics(evidence.record(), execution).SerializeAsString()
                 != decision.SerializeAsString())
                 throw Error(ErrorCode::conflict, "invalid statistics source identity");
-            return;
-        }
-        if (evidence.record().task().kind() == task::proto::ACCOUNT_REVIEW) {
-            if (inspect_review(evidence.record(), execution).SerializeAsString()
-                != decision.SerializeAsString())
-                throw Error(ErrorCode::conflict, "account review abandonment backup mismatch");
             return;
         }
         inspect_calculation_program(evidence.record(), execution);

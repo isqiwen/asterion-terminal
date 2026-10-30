@@ -6,10 +6,8 @@
 #include "backtest/engine.hpp"
 #include "factor/factor_engine.hpp"
 #include "risk_module.hpp"
-#include "coverage.hpp"
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/artifact.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <asterion/foundation/error.hpp>
 
 namespace asterion::tasks {
@@ -71,45 +69,6 @@ task::proto::TaskFinish execute(
             *result.mutable_statistics() =
                 compute_statistics(attempt.task().statistics(), directory, stop, progress);
             break;
-        case task::proto::ACCOUNT_REVIEW: {
-            const auto& input = attempt.task().account_review();
-            if (loaded_program.empty() || loaded_program != input.program_artifact())
-                throw Error(
-                    ErrorCode::conflict,
-                    "account review requires its fixed execution program");
-            const auto& facts = input.evidence().capture().facts();
-            AccountObservationCoverage coverage;
-            coverage.position_records = static_cast<unsigned>(facts.positions_size());
-            coverage.order_records = static_cast<unsigned>(facts.orders_size());
-            coverage.trade_records = static_cast<unsigned>(facts.trades_size());
-            coverage.unconfirmed_orders = static_cast<unsigned>(facts.unconfirmed_size());
-            coverage.broker_ready = facts.phase() == "ready";
-            coverage.positions_reconciled = facts.positions_reconciled();
-            coverage.funds_present = facts.has_funds();
-            coverage.recovery_required = facts.recovery_required();
-            const auto reviewed = review_account_observation(coverage, stop);
-            auto& output = *result.mutable_account_review();
-            *output.mutable_owner() = input.owner();
-            *output.mutable_source() = input.evidence().operation().reference();
-            output.set_account_id(facts.account_id());
-            output.set_environment(facts.environment());
-            output.set_program_artifact(input.program_artifact());
-            output.set_conclusion(research::proto::AccountReviewResult::EVIDENCE_INSUFFICIENT);
-            output.set_position_records(coverage.position_records);
-            output.set_order_records(coverage.order_records);
-            output.set_trade_records(coverage.trade_records);
-            output.set_unconfirmed_orders(coverage.unconfirmed_orders);
-            output.set_broker_ready(coverage.broker_ready);
-            output.set_positions_reconciled(coverage.positions_reconciled);
-            output.set_funds_present(coverage.funds_present);
-            output.set_recovery_required(coverage.recovery_required);
-            for (const auto& limitation : reviewed.limitations)
-                output.add_limitations(limitation);
-            if (stop.stop_requested())
-                throw Error(ErrorCode::cancelled, "task cancelled");
-            progress(1, 1);
-            break;
-        }
         default:
             throw std::invalid_argument("unsupported task kind");
     }

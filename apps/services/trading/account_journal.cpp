@@ -1,5 +1,4 @@
 #include "account_journal.hpp"
-#include "facts_archive.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/trace.hpp>
@@ -61,26 +60,6 @@ Page read_page(
                     throw mismatch();
             }
         }
-        if (const auto* facts = std::get_if<FactsDecision>(&record)) {
-            const auto& r = facts->receipt;
-            if (journal.command_sequence(facts_decision_key(r.reference().id(), r.state()))
-                != sequence)
-                throw std::invalid_argument("trading facts index does not match its decision");
-            if (r.state() == protocol::proto::TradingFactsReceipt::PUBLISHED) {
-                const auto key = facts_decision_key(
-                    r.reference().id(),
-                    protocol::proto::TradingFactsReceipt::ADMITTED);
-                const auto admitted_sequence = journal.command_sequence(key);
-                if (!admitted_sequence || *admitted_sequence >= sequence)
-                    throw std::invalid_argument(
-                        "trading facts publication has no preceding admission");
-                const auto admission =
-                    std::get<FactsDecision>(parse_record(journal.command(key))).receipt;
-                if (admission.reference().SerializeAsString() != r.reference().SerializeAsString()
-                    || admission.admitted_at_ms() != r.admitted_at_ms())
-                    throw std::invalid_argument("trading facts publication changed its admission");
-            }
-        }
         if (const auto excluded = excluded_order(record); !excluded.empty()) {
             const auto index = journal.order_index(excluded);
             if (!index || index->excluded_by != sequence)
@@ -117,19 +96,19 @@ AccountJournal::AccountJournal(
         std::unique_ptr<FileLock> directory_owner;
         std::unique_ptr<SqliteJournal> journal;
         try {
-            const std::set<std::string> sidecars{"plugins", "ctp-flow", "archives", "facts"};
             if (!directory.is_absolute() || std::filesystem::is_symlink(directory)
                 || !std::filesystem::is_directory(directory))
                 throw std::invalid_argument("choose an existing trading record directory");
-            const auto facts = directory / "facts";
-            if (std::filesystem::is_symlink(facts))
+            // The lease alone lives in owner/, beside the business files.
+            const auto owner = directory / "owner";
+            if (std::filesystem::is_symlink(owner))
                 throw std::invalid_argument("invalid journal sidecar directory");
-            const auto lease = facts / ownership_file;
+            const auto lease = owner / ownership_file;
             if (std::filesystem::exists(lease) || std::filesystem::is_symlink(lease)) {
                 // A stopped cut must reject this writer before normal SQLite I/O
                 // could create WAL coordination files inside its inspected directory.
                 directory_owner = std::make_unique<FileLock>(
-                    facts,
+                    owner,
                     ownership_file,
                     FileLock::Access::exclusive_existing);
                 if (std::filesystem::file_size(lease))
@@ -143,8 +122,8 @@ AccountJournal::AccountJournal(
                         validate(header);
                 } else
                     check_journal_directory(directory, sidecars);
-                create_directories_durably(facts);
-                directory_owner = std::make_unique<FileLock>(facts, ownership_file);
+                create_directories_durably(owner);
+                directory_owner = std::make_unique<FileLock>(owner, ownership_file);
             }
             journal = std::make_unique<SqliteJournal>(directory, sidecars, std::move(validate));
             journal->start();
@@ -203,7 +182,7 @@ std::vector<std::filesystem::path> AccountJournal::inspect_backup(
 {
     return SqliteJournal::inspect_backup(
         directory,
-        {"plugins", "ctp-flow", "archives", "facts"},
+        sidecars,
         [&](const SqliteJournal& journal, const Json&) {
             std::uint64_t submitted = 0;
             const auto total = journal.capacity().total_records;
@@ -375,90 +354,6 @@ AccountJournal::Write AccountJournal::retire_policy(std::unique_ptr<const Accoun
         {},
         {},
         std::move(policy)
-    };
-}
-
-AccountJournal::Write AccountJournal::find_facts(std::string id)
-{
-    validate_id(id);
-    return {
-        *this,
-        [id = std::move(id)](SqliteJournal& journal) {
-            Result result;
-            for (auto state :
-                {protocol::proto::TradingFactsReceipt::PUBLISHED,
-                    protocol::proto::TradingFactsReceipt::ADMITTED}) {
-                const auto body = journal.command(facts_decision_key(id, state));
-                if (!body.is_null()) {
-                    result.facts_receipt = std::get<FactsDecision>(parse_record(body)).receipt;
-                    break;
-                }
-            }
-            return result;
-        },
-        {},
-        {},
-        {}
-    };
-}
-
-AccountJournal::Write AccountJournal::stage_facts(protocol::proto::TradingFactsCapture capture)
-{
-    return {
-        *this,
-        [directory = directory_, capture = std::move(capture)](SqliteJournal&) {
-            const auto& f = capture.facts();
-            FactsArchive(directory, f.source(), f.account_id(), f.environment()).stage(capture);
-            return Result{};
-        },
-        {},
-        {},
-        {}
-    };
-}
-
-AccountJournal::Write AccountJournal::facts_payload(
-    resource::proto::Object ref,
-    std::string account_id,
-    protocol::proto::TradingEnvironment environment,
-    bool publish)
-{
-    return {
-        *this,
-        [directory = directory_,
-            ref = std::move(ref),
-            account_id = std::move(account_id),
-            environment,
-            publish](SqliteJournal&) {
-            FactsArchive archive(directory, ref.owner(), account_id, environment);
-            Result result;
-            result.facts_capture = publish ? archive.publish(ref) : archive.read(ref);
-            return result;
-        },
-        {},
-        {},
-        {}
-    };
-}
-
-AccountJournal::Write AccountJournal::seal_facts(
-    protocol::proto::TradingFactsReceipt receipt,
-    std::string account_id,
-    protocol::proto::TradingEnvironment environment)
-{
-    return {
-        *this,
-        [directory = directory_,
-            receipt = std::move(receipt),
-            account_id = std::move(account_id),
-            environment](SqliteJournal&) {
-            FactsArchive(directory, receipt.reference().owner(), account_id, environment)
-                .seal(receipt);
-            return Result{};
-        },
-        {},
-        {},
-        {}
     };
 }
 

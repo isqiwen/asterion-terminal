@@ -9,10 +9,6 @@ Store::Submission
 task_submission(const Store& store, const std::string& id, backtest::proto::BacktestInput input);
 Store::Submission
 task_submission(const Store& store, const std::string& id, factor::proto::FactorInput input);
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::AccountReviewInput input);
 Store::Submission
 task_submission(const Store& store, const std::string& id, research::proto::SampleInput input);
 Store::Submission

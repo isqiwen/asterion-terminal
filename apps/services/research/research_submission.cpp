@@ -3,7 +3,6 @@
 #include "task_payload.hpp"
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/artifact.hpp>
-#include <asterion/protocol/account_review.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/research_statistics.hpp>
@@ -29,23 +28,6 @@ task_submission(const Store& store, const std::string& id, factor::proto::Factor
     task.set_id(id);
     *task.mutable_factor() = std::move(input);
     return store.submission(std::move(task));
-}
-
-Store::Submission task_submission(
-    const Store& store,
-    const std::string& id,
-    research::proto::AccountReviewInput input)
-{
-    protocol::validate_account_review_input(input);
-    if (input.owner().service_id() != store.instance())
-        throw Error(ErrorCode::conflict, "account review belongs to another Research owner");
-    wire::Task task;
-    task.set_id(id);
-    *task.mutable_account_review() = std::move(input);
-    auto submission = store.submission(std::move(task));
-    submission.set_reuse_digest(
-        sha256_bytes(submission.task().account_review().SerializeAsString()));
-    return submission;
 }
 
 Store::Submission

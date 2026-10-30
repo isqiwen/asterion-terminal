@@ -19,20 +19,12 @@ struct ResearchDataRoute
     std::string research_node_id;
 };
 
-struct ResearchFactsRoute
-{
-    resource::proto::Owner owner;
-    std::string endpoint;
-};
-
 struct ResearchProgram
 {
     resource::proto::Owner owner;
     std::string artifact;
 };
 
-ResearchFactsRoute
-resolve_research_facts(const node::proto::Status&, const resource::proto::Owner&);
 ResearchProgram
 resolve_research_program(const node::proto::Status&, const std::string& service, std::uint64_t pid);
 
@@ -62,15 +54,11 @@ public:
     resolve(data::proto::DataOwner, std::chrono::milliseconds timeout, std::string parent);
     PolledTask<Payload>
     read(const ResearchDataRoute&, std::string request, std::chrono::milliseconds timeout);
-    PolledTask<ResearchFactsRoute>
-    resolve_facts(resource::proto::Owner, std::chrono::milliseconds timeout, std::string parent);
     PolledTask<ResearchProgram> program(
         std::string service,
         std::uint64_t pid,
         std::chrono::milliseconds timeout,
         std::string parent);
-    PolledTask<Payload>
-    read(const ResearchFactsRoute&, std::string request, std::chrono::milliseconds timeout);
     void poll();
 
 private:

@@ -28,7 +28,6 @@ public:
     ServiceEndpoint endpoint() const;
     [[nodiscard]] std::future<void> execute(const Json& command);
     [[nodiscard]] std::future<Json> snapshot() const;
-    [[nodiscard]] std::future<Json> facts(protocol::proto::TradingFactsQuery);
 
 private:
     friend class Application;
