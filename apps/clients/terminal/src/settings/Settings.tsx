@@ -12,6 +12,7 @@ import { savePreferences, usePreferences } from "../ui/preferences";
 import { DataSources } from "./DataSources";
 import { TradingConnections } from "./TradingConnections";
 import { CtpConnections } from "./CtpConnections";
+import { RecorderSource } from "./RecorderSource";
 import { NativePlugins } from "./NativePlugins";
 import { ResourceCatalogue } from "./ResourceCatalogue";
 import { DataBackup } from "./DataBackup";
@@ -22,8 +23,7 @@ const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
   ["connections", "本机服务", "connections"],
   ["trading", "交易连接", "trading"],
-  ["ctp", "CTP 行情账户", "market"],
-  ["sources", "数据源", "key"],
+  ["sources", "数据源", "data"],
   ["plugins", "插件", "plugins"],
   ["resources", "业务资产目录", "catalog"],
   ["backup", "数据备份与恢复", "archive"],
@@ -157,8 +157,13 @@ export function Settings({
           </SettingsSection>
         )}
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "ctp" && <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "sources" && <DataSources snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "sources" && (
+          <>
+            <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />
+            <RecorderSource snapshot={snapshot} busy={busy} trade={trade} />
+            <DataSources snapshot={snapshot} busy={busy} trade={trade} />
+          </>
+        )}
         {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "plugins" && (
           <NativePlugins

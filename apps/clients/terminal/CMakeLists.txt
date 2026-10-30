@@ -5,6 +5,7 @@ add_library(asterion_terminal_credentials STATIC
   native/keychain_store.cpp
   native/ctp_connections.cpp
   native/trading_connections.cpp
+  native/recorder_endpoint.cpp
 )
 target_include_directories(asterion_terminal_credentials PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_credentials PUBLIC asterion_node_control)

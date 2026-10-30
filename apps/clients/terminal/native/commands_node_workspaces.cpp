@@ -26,15 +26,22 @@ void Application::Impl::register_data_task_connection_commands()
     // The one local Data and Research service; started when absent or stopped.
     command("node.data.local.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        // One local Data: a concurrent open adopts a client of the same service.
+        // One local Data. Opens that overlap adopt one client: a later one keeps
+        // the connection the first adopted, so pages keyed to it do not reset.
+        const auto generation = data_task_generation;
         const auto address = co_await PollFuture{services.start(node::proto::DATA)};
-        adopt_data(co_await PollFuture{DataClient::open(service_io, address)});
+        auto client = co_await PollFuture{DataClient::open(service_io, address)};
+        if (generation == data_task_generation)
+            adopt_data(std::move(client));
         co_return snapshot();
     });
     command("node.research.local.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
+        const auto generation = data_task_generation;
         const auto address = co_await PollFuture{services.start(node::proto::RESEARCH)};
-        adopt_research(co_await PollFuture{ResearchClient::open(service_io, address)});
+        auto client = co_await PollFuture{ResearchClient::open(service_io, address)};
+        if (generation == data_task_generation)
+            adopt_research(std::move(client));
         co_return snapshot();
     });
 }

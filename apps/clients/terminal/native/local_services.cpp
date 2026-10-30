@@ -111,6 +111,8 @@ struct Service
     std::int64_t last_heartbeat = 0;
     unsigned failures = 0, restarts = 0;
     std::string error, artifact;
+    // Callers of start() waiting for the process to answer its first heartbeat.
+    std::vector<std::promise<ServiceEndpoint>> waiting;
 };
 
 void write_frame(int fd, const std::string& payload)
@@ -450,6 +452,32 @@ struct LocalServices::Impl
             start(name, service, service.retry != Clock::time_point{});
     }
 
+    // A started service is usable once it answers a heartbeat; until then its
+    // socket may not exist yet. Waiting callers fail when it stops running or
+    // never answers.
+    void answer_waiting(const std::string& name, Service& service)
+    {
+        if (service.waiting.empty())
+            return;
+        const bool ready = service.process && service.last_heartbeat
+            && service.health != protocol::ServiceHealth::unresponsive;
+        const bool failed =
+            !service.process || service.health == protocol::ServiceHealth::unresponsive;
+        if (!ready && !failed)
+            return;
+        for (auto& promise : service.waiting) {
+            if (ready)
+                promise.set_value(endpoint(name, service.record.kind));
+            else
+                promise.set_exception(
+                    std::make_exception_ptr(Error(
+                        ErrorCode::unavailable,
+                        service.error.empty() ? "service " + name + " did not start"
+                                              : service.error)));
+        }
+        service.waiting.clear();
+    }
+
     std::shared_ptr<const wire::Status> report() const
     {
         auto status = std::make_shared<wire::Status>();
@@ -550,14 +578,19 @@ struct LocalServices::Impl
             }
             for (auto& job : jobs)
                 job();
-            for (auto& [name, service] : services)
+            for (auto& [name, service] : services) {
                 supervise(name, service);
+                answer_waiting(name, service);
+            }
             publish();
         }
         // Readers of Data first, then Data itself.
         for (const auto& kind : kinds)
-            if (const auto found = services.find(kind.service); found != services.end())
+            if (const auto found = services.find(kind.service); found != services.end()) {
                 stop(found->second);
+                found->second.error = "local services are stopping";
+                answer_waiting(kind.service, found->second);
+            }
         publish();
     }
 
@@ -693,6 +726,11 @@ struct LocalServices::Impl
         return hashes;
     }
 
+    std::future<ServiceEndpoint> launch(
+        wire::ServiceKind kind,
+        std::optional<std::vector<std::string>> research_plugins,
+        bool answering);
+
     ServiceEndpoint endpoint(const std::string& name, wire::ServiceKind kind) const
     {
         const auto found = services.find(name);
@@ -733,43 +771,71 @@ std::future<ServiceEndpoint> LocalServices::start(
     wire::ServiceKind kind,
     std::optional<std::vector<std::string>> research_plugins)
 {
-    return impl_->post<ServiceEndpoint>([this, kind, research_plugins] {
-        auto& impl = *impl_;
-        const auto& item = kind_of(kind);
-        auto found = impl.services.find(item.service);
-        if (found != impl.services.end() && research_plugins)
-            throw std::invalid_argument(
-                "the local research service already exists; configure its plugins");
-        if (found == impl.services.end()) {
-            Record record{kind, true};
-            if (kind == wire::DATA || kind == wire::RESEARCH) {
-                if (research_plugins) {
-                    const auto selection =
-                        local_plugin_catalog().select_data_task_plugins(*research_plugins);
-                    for (const auto& artifact : selection.uploads)
-                        impl.keep_plugin(artifact);
-                    record.plugins = selection.hashes;
-                    std::sort(record.plugins.begin(), record.plugins.end());
-                } else
-                    record.plugins = impl.bundled_plugins();
+    return impl_->launch(kind, std::move(research_plugins), false);
+}
+
+std::future<ServiceEndpoint> LocalServices::serving(wire::ServiceKind kind)
+{
+    return impl_->launch(kind, std::nullopt, true);
+}
+
+std::future<ServiceEndpoint> LocalServices::Impl::launch(
+    wire::ServiceKind kind,
+    std::optional<std::vector<std::string>> research_plugins,
+    bool answering)
+{
+    auto promise = std::make_shared<std::promise<ServiceEndpoint>>();
+    auto result = promise->get_future();
+    (void)post<void>([this, kind, research_plugins, promise, answering] {
+        auto& impl = *this;
+        try {
+            const auto& item = kind_of(kind);
+            auto found = impl.services.find(item.service);
+            if (found != impl.services.end() && research_plugins)
+                throw std::invalid_argument(
+                    "the local research service already exists; configure its plugins");
+            if (found == impl.services.end()) {
+                Record record{kind, true};
+                if (kind == wire::DATA || kind == wire::RESEARCH) {
+                    if (research_plugins) {
+                        const auto selection =
+                            local_plugin_catalog().select_data_task_plugins(*research_plugins);
+                        for (const auto& artifact : selection.uploads)
+                            impl.keep_plugin(artifact);
+                        record.plugins = selection.hashes;
+                        std::sort(record.plugins.begin(), record.plugins.end());
+                    } else
+                        record.plugins = impl.bundled_plugins();
+                }
+                impl.save(item.service, record);
+                found = impl.services.emplace(item.service, Service{std::move(record)}).first;
             }
-            impl.save(item.service, record);
-            found = impl.services.emplace(item.service, Service{std::move(record)}).first;
+            auto& service = found->second;
+            if (!service.record.desired) {
+                auto next = service.record;
+                next.desired = true;
+                impl.save(item.service, next);
+                service.record = std::move(next);
+            }
+            if (!service.process) {
+                service.restarts = 0;
+                impl.start(item.service, service, false);
+            }
+            if (!answering) {
+                promise->set_value(impl.endpoint(item.service, kind));
+                impl.publish();
+                return;
+            }
+            // From here the service answers the caller.
+            service.waiting.push_back(std::move(*promise));
+        } catch (...) {
+            promise->set_exception(std::current_exception());
+            return;
         }
-        auto& service = found->second;
-        if (!service.record.desired) {
-            auto next = service.record;
-            next.desired = true;
-            impl.save(item.service, next);
-            service.record = std::move(next);
-        }
-        if (!service.process) {
-            service.restarts = 0;
-            impl.start(item.service, service, false);
-        }
+        impl.answer_waiting(kind_of(kind).service, impl.services.at(kind_of(kind).service));
         impl.publish();
-        return impl.endpoint(item.service, kind);
     });
+    return result;
 }
 
 std::future<ServiceEndpoint> LocalServices::endpoint(std::string service, wire::ServiceKind kind)

@@ -91,7 +91,7 @@ export function DataSources({
   const current = editing ? describe(editing) : null;
   return (
     <SettingsSection
-      title={t("供应商账号")}
+      title={t("历史数据供应商")}
       label={t("数据源")}
       description={t("下载历史数据要用的供应商凭据。同一账号的全部下载共享一个每分钟请求额度。")}
     >

@@ -82,10 +82,10 @@ export function CtpConnections({
   );
   return (
     <SettingsSection
-      title={t("账户")}
+      title={t("实时行情（CTP）")}
       label={t("CTP 行情账户")}
       description={t(
-        "用于登录行情和查询合约目录，其中一个账户提供行情。交易账户在交易主机上配置，见交易连接。",
+        "本机行情服务用这些期货账户登录行情和查询合约目录，其中一个提供行情。交易账户在交易主机上配置，见交易连接。",
       )}
       actions={
         <button

@@ -5,7 +5,6 @@ export type SettingsPage =
   | "preferences"
   | "connections"
   | "trading"
-  | "ctp"
   | "sources"
   | "plugins"
   | "resources"
@@ -16,7 +15,6 @@ export function settingsPage(value: string | null): SettingsPage {
     "preferences",
     "connections",
     "trading",
-    "ctp",
     "sources",
     "plugins",
     "resources",

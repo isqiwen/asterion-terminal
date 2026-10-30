@@ -2,6 +2,7 @@
 #include "terminal/credential_fixture.hpp"
 #include "application_environment.hpp"
 #include "node_paths.hpp"
+#include "recorder_endpoint.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <algorithm>
@@ -250,4 +251,31 @@ TEST(DataCredentials, ForgettingErasesThisDirectorysSecretsAndKeepsTheSettings)
     EXPECT_EQ(removed.snapshot().size(), 2U);
     EXPECT_EQ(removed.find("one")->credential, "");
     terminal::DataCredentials(root.path / "missing", keychain).forget_remembered();
+}
+
+TEST(RecorderEndpoint, KeepsOneValidAddressAndNeverRewritesAnUnreadableFile)
+{
+    Directory root;
+    const terminal::RecorderEndpoint endpoint(root.path / "terminal/data/recorder.json");
+    EXPECT_TRUE(endpoint.get().is_null());
+    endpoint.save("192.168.1.20", 7450);
+    EXPECT_EQ(endpoint.get(), (Json{{"host", "192.168.1.20"}, {"port", 7450}}));
+    EXPECT_THROW(endpoint.save("bad host", 7450), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("", 7450), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("recorder", 0), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("recorder", 65536), std::invalid_argument);
+    EXPECT_EQ(endpoint.get().at("host"), "192.168.1.20");
+    {
+        std::ofstream(root.path / "terminal/data/recorder.json") << "{\"host\":";
+    }
+    try {
+        (void)endpoint.get();
+        ADD_FAILURE() << "an unreadable file was accepted";
+    } catch (const std::invalid_argument& error) {
+        EXPECT_NE(std::string(error.what()).find("recorder.json"), std::string::npos);
+    }
+    std::ifstream kept(root.path / "terminal/data/recorder.json");
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(kept), {}), "{\"host\":");
+    endpoint.clear();
+    EXPECT_TRUE(endpoint.get().is_null());
 }

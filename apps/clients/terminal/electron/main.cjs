@@ -164,7 +164,6 @@ async function openSettings(category) {
       "preferences",
       "connections",
       "trading",
-      "ctp",
       "sources",
       "plugins",
       "resources",

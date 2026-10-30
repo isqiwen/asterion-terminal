@@ -298,6 +298,7 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
     result["ctp_market"] = settings->market;
     result["trading_connections"] = settings->trading;
     result["trading_fingerprint"] = settings->trading_fingerprint;
+    result["recorder_endpoint"] = settings->recorder;
     auto& accounts = result["live"] = json::object();
     for (const auto& [id, account] : live) {
         accounts[id] = account.render();

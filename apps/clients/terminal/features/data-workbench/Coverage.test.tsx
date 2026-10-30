@@ -80,3 +80,46 @@ test("switching providers keeps a running source independent and submits the sel
     ),
   );
 });
+
+test("a recorder is read with the address saved in Settings, never one typed on this page", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "sources":
+        return {
+          sources: [
+            { id: "recorder", tables: ["minutes"], exchanges: ["SHFE"], requiresEndpoint: true },
+          ],
+        };
+      case "summary":
+        return { datasetVersion: "", tables: [] };
+      case "coverage":
+        return { products: [] };
+      case "tasks":
+        return { tasks: [] };
+      case "sourceRead":
+        return { provider: "recorder", table: "minutes", columns: [], rows: [], observations: [] };
+      default:
+        return {};
+    }
+  });
+  const trade = vi.fn().mockResolvedValue(undefined);
+  const openSettings = vi.fn();
+  render(<Coverage {...({ trade, openSettings } as unknown as TerminalContext)} />);
+  await screen.findByRole("option", { name: "recorder" });
+  fireEvent.change(screen.getByLabelText("数据源"), { target: { value: "recorder" } });
+  await screen.findByRole("button", { name: "打开数据源设置" });
+  expect(screen.queryByLabelText("端口")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开数据源设置" }));
+  expect(openSettings).toHaveBeenCalledWith("sources");
+  fireEvent.change(screen.getByLabelText("合约（查询可选，分钟线必填）"), {
+    target: { value: "SHFE/rb/2027-01" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "查询开始日期的数据" }));
+  await waitFor(() =>
+    expect(trade).toHaveBeenCalledWith("lab.source.configure", { provider: "recorder" }),
+  );
+  expect(request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ case: "configureSource" }),
+    expect.anything(),
+  );
+});

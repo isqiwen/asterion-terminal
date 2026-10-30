@@ -2285,6 +2285,8 @@ export type Snapshot = {
   ctp_connections?: CtpConnectionEntry[];
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   trading_fingerprint?: string;
+  // The saved recording host, or a mark that its settings file is unreadable.
+  recorder_endpoint?: null | { host: string; port: number } | { error: "unreadable" };
   // The CTP account that supplies market data; trading accounts are independent.
   ctp_market?: string | null;
   // The last check of a provider's saved credential, per source.

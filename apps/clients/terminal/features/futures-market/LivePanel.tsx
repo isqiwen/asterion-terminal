@@ -124,7 +124,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
             user: connection.user_id,
           })
         : t("尚未选择行情账户")}{" "}
-      <button type="button" onClick={() => context.openSettings("ctp")}>
+      <button type="button" onClick={() => context.openSettings("sources")}>
         {t("更换")}
       </button>
     </p>

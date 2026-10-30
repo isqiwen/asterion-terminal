@@ -41,10 +41,15 @@ public:
     NodeSnapshot view() const;
     // Registers the kind's service when absent (with the bundled plugins, or the
     // given selection for Research), marks it to run, starts it and returns its
-    // endpoint once its process runs.
+    // endpoint once its process runs. The service clients wait for their
+    // service themselves.
     std::future<ServiceEndpoint> start(
         node::proto::ServiceKind kind,
         std::optional<std::vector<std::string>> research_plugins = std::nullopt);
+    // The same, but returns only once the service answers its first heartbeat,
+    // so its socket accepts connections; fails if it stops first or never
+    // answers. For callers that connect to the socket directly (lab).
+    std::future<ServiceEndpoint> serving(node::proto::ServiceKind kind);
     // A running service's endpoint.
     std::future<ServiceEndpoint> endpoint(std::string service, node::proto::ServiceKind kind);
     // start, stop or restart; a stop is kept across Terminal restarts.

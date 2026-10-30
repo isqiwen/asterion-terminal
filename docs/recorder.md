@@ -2,7 +2,7 @@
 
 `asterion_recorder` 是录制主机上唯一的 Asterion 程序，代码在 `apps/services/recorder/`。它自己登录 CTP 行情，
 订阅全市场，把每笔报价和分钟线写成 Parquet。它由 systemd 看护，Terminal 和行情服务
-的升级、重启都不影响它；Terminal 只读它的状态和文件。接入、分钟聚合和合约目录的代码与行情服务共用。
+的升级、重启都不影响它；Terminal 只读它的状态和文件。它的地址在 Terminal 的“设置 → 数据源 → 行情录制主机”填写一次。接入、分钟聚合和合约目录的代码与行情服务共用。
 
 ## 运行
 

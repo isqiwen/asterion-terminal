@@ -65,12 +65,6 @@ const shapes = {
       <circle cx="18" cy="18" r="2" />
     </>
   ),
-  key: (
-    <>
-      <circle cx="8" cy="15" r="4" />
-      <path d="m11 12 9-9M16 7l3 3M14 9l2 2" />
-    </>
-  ),
   catalog: (
     <>
       <path d="M4 5h16M4 10h16M4 15h10M4 20h10" />

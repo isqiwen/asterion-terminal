@@ -47,13 +47,40 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
         ctp_accounts(),
         selected ? json(selected->id) : json(nullptr),
         trading_connections.snapshot(),
-        trading_connections.fingerprint()
+        trading_connections.fingerprint(),
+        recorder_settings()
     };
     return next == *previous ? previous : std::make_shared<const SettingsView>(std::move(next));
 }
 
+json Application::Impl::recorder_settings() const
+{
+    try {
+        return recorder_endpoint.get();
+    } catch (const std::exception&) {
+        // Shown so it can be saved again; the file itself is left for inspection.
+        return {{"error", "unreadable"}};
+    }
+}
+
 void Application::Impl::register_connection_commands()
 {
+    command("recorder.endpoint.save", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"host", "port"});
+        if (!p.at("port").is_number_unsigned())
+            throw std::invalid_argument("invalid recorder port");
+        co_await settings<void>([&] {
+            recorder_endpoint.save(text(p, "host"), p.at("port").get<unsigned>());
+        });
+        co_return snapshot();
+    });
+    command("recorder.endpoint.clear", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        co_await settings<void>([&] {
+            recorder_endpoint.clear();
+        });
+        co_return snapshot();
+    });
     command("trading.identity.prepare", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
         co_await settings<void>([&] {

@@ -602,7 +602,6 @@
   "仓库里还没有日线。": "The warehouse holds no daily bars yet.",
   "多个来源可同时采集，数据分别保存，不自动切换或混合。": "Sources can acquire concurrently. Data stays separate, without automatic switching or mixing.",
   "合约（查询可选，分钟线必填）": "Contract (optional for queries; required for minutes)",
-  "录制服务地址": "Recorder host",
   "端口": "Port",
   "采集按交易所保存，分钟线按合约保存；已入库分区跳过。": "Acquisition stores exchange partitions, or contract partitions for minutes; stored partitions are skipped.",
   "查询开始日期的数据": "Query data for the start date",
@@ -617,5 +616,7 @@
   "settlement": "Settlement parameters",
   "calendar": "Trading calendar",
   "contracts": "Contracts",
-  "重新采集已有分区，保留旧数据集版本": "Reacquire stored partitions, preserving earlier dataset versions"
+  "重新采集已有分区，保留旧数据集版本": "Reacquire stored partitions, preserving earlier dataset versions",
+  "录制主机的地址在设置的数据源页填写。": "Enter the recording host's address on the Data sources page in Settings.",
+  "打开数据源设置": "Open data source settings"
 }

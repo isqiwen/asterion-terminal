@@ -92,3 +92,34 @@ test("every settings page has its title, and trading connections have their own 
   expect(screen.getByRole("button", { name: "添加交易连接" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "CTP 行情账户" })).toBeNull();
 });
+
+test("data sources hold CTP quotes, the recording host and history vendors together", async () => {
+  const snapshot = readySnapshot();
+  snapshot.recorder_endpoint = null;
+  const trade = vi.fn().mockResolvedValue(undefined);
+  render(
+    <Settings
+      snapshot={snapshot}
+      refresh={() => {}}
+      error=""
+      busy={false}
+      trade={trade}
+      initialPage="sources"
+    />,
+  );
+  for (const name of ["实时行情（CTP）", "行情录制主机", "历史数据供应商"])
+    expect(screen.getByRole("heading", { name, level: 2 })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "CTP 行情账户" })).toBeNull();
+  const recorder = screen.getByRole("region", { name: "行情录制主机" });
+  fireEvent.click(within(recorder).getByRole("button", { name: "填写地址" }));
+  fireEvent.change(within(recorder).getByLabelText("主机地址"), {
+    target: { value: " 192.168.1.20 " },
+  });
+  fireEvent.click(within(recorder).getByRole("button", { name: "保存地址" }));
+  await waitFor(() =>
+    expect(trade).toHaveBeenCalledWith("recorder.endpoint.save", {
+      host: "192.168.1.20",
+      port: 7450,
+    }),
+  );
+});

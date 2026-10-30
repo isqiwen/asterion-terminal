@@ -72,8 +72,6 @@ function SourceCoverage({ context, source }: { context: TerminalContext; source:
   const [table, setTable] = useState(source.tables[0]);
   const [exchange, setExchange] = useState(source.exchanges[0]);
   const [contract, setContract] = useState("");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("7450");
   const [preview, setPreview] = useState<LabSourceTable | null>(null);
   const [reading, setReading] = useState(false);
   const [replace, setReplace] = useState(false);
@@ -110,20 +108,10 @@ function SourceCoverage({ context, source }: { context: TerminalContext; source:
     return () => clearInterval(timer);
   }, [running, refresh]);
 
+  // Lab gets the source's saved settings (credential or address) from the Terminal.
   const configure = async () => {
-    if (source.requiresCredential) await context.trade("lab.source.configure", {});
-    if (source.requiresEndpoint && (host || !source.configured))
-      await lab(
-        {
-          case: "configureSource",
-          value: {
-            provider,
-            host,
-            port: Number(port),
-          },
-        },
-        "accepted",
-      );
+    if (source.requiresCredential || source.requiresEndpoint)
+      await context.trade("lab.source.configure", { provider });
   };
   const readSource = async () => {
     setReading(true);
@@ -274,22 +262,12 @@ function SourceCoverage({ context, source }: { context: TerminalContext; source:
           />
         </label>
         {source.requiresEndpoint && (
-          <>
-            <label>
-              {t("录制服务地址")}
-              <input value={host} onChange={event => setHost(event.target.value)} />
-            </label>
-            <label>
-              {t("端口")}
-              <input
-                type="number"
-                min="1"
-                max="65535"
-                value={port}
-                onChange={event => setPort(event.target.value)}
-              />
-            </label>
-          </>
+          <p className="subtle">
+            {t("录制主机的地址在设置的数据源页填写。")}{" "}
+            <button type="button" onClick={() => context.openSettings("sources")}>
+              {t("打开数据源设置")}
+            </button>
+          </p>
         )}
         <p>{t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}</p>
         <label>

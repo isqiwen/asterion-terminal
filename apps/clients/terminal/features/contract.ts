@@ -110,7 +110,7 @@ export type TerminalContext = {
     id: string,
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
-  openSettings: (page?: "preferences" | "connections" | "trading" | "ctp" | "sources") => void;
+  openSettings: (page?: "preferences" | "connections" | "trading" | "sources") => void;
   query: CommandHandler<Snapshot, QueryCommand>;
   trade: CommandHandler;
 };

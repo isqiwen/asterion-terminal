@@ -59,7 +59,7 @@ async def run(service: Service, owner: int, endpoints):
     service.log.write("info", MODULE, "service.started", version=VERSION)
 
     async def watch_owner():
-        # The Agent's death ends its services; nothing else would stop this one.
+        # The Terminal's death ends its services; nothing else would stop this one.
         while True:
             try:
                 os.kill(owner, 0)
@@ -97,9 +97,14 @@ def main():
         if not directory.is_absolute() or not directory.is_dir():
             raise ValueError(f"service directory is missing: {directory}")
         service = Service(arguments.session, directory, log)
-        asyncio.run(run(service, arguments.owner_pid,
-                        [arguments.endpoint, arguments.health_endpoint]))
-        # An acquisition thread stops at its next request; its stored months stay.
+        # Not asyncio.run: its teardown waits for worker threads, and a thread
+        # blocked on a vendor or a peer would keep this process alive after its
+        # owner is gone. An acquisition thread stops at its next request; its
+        # stored months stay.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run(service, arguments.owner_pid,
+                                    [arguments.endpoint, arguments.health_endpoint]))
         os._exit(0)
     except Exception as error:
         log.write("error", MODULE, "service.failed", message=str(error))

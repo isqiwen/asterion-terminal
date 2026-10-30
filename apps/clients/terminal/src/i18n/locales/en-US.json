@@ -800,5 +800,17 @@
   "随应用启用": "enabled with the app",
   "已停止，可以修改插件；启动后生效。": "Stopped. Plugins can be changed and take effect when it starts.",
   "运行中。修改插件前先在本机服务页停止它及其下载任务。": "Running. Stop it and its downloads on the local services page before changing plugins.",
-  "未登录行情": "Not logged in to market data"
+  "未登录行情": "Not logged in to market data",
+  "行情录制主机": "Recording host",
+  "录制主机自己登录行情，按交易日保存全市场 Tick 与分钟线；这里只填它的只读接口地址，在数据页读取录制数据时使用。": "The recording host logs in to market data itself and keeps every tick and minute of the whole market by trading day. Enter only the address of its read-only interface here; the data page uses it to read recordings.",
+  "修改地址": "Change address",
+  "填写地址": "Enter address",
+  "录制主机设置文件无法读取，已保留原文件供检查；重新填写会覆盖它。": "The recording host settings file cannot be read and was kept for inspection; entering the address again replaces it.",
+  "地址": "Address",
+  "尚未填写录制主机。": "No recording host entered yet.",
+  "主机地址": "Host address",
+  "保存地址": "Save address",
+  "实时行情（CTP）": "Real-time quotes (CTP)",
+  "本机行情服务用这些期货账户登录行情和查询合约目录，其中一个提供行情。交易账户在交易主机上配置，见交易连接。": "The local market data service logs in with these futures accounts to receive quotes and query the contract catalog; one of them supplies market data. Trading accounts are configured on the trading hosts; see Trading connections.",
+  "历史数据供应商": "History vendors"
 }
