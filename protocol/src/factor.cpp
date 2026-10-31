@@ -2,6 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_variable.hpp>
+#include <asterion/futures/replay.hpp>
 #include <cmath>
 #include <charconv>
 #include <algorithm>

@@ -13,6 +13,7 @@ add_library(asterion_futures STATIC
   paper_execution.cpp
   replay_schedule.cpp
   portfolio_targets.cpp
+  replay.cpp
 )
 add_library(Asterion::Futures ALIAS asterion_futures)
 target_link_libraries(asterion_futures PUBLIC Asterion::System)

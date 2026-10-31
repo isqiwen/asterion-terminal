@@ -607,11 +607,6 @@ dominant_roll(const data::proto::DominantSchedule& schedule, const std::string& 
     return *current;
 }
 
-Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment)
-{
-    return quantize(multiply(raw, factor, Rounding::half_up), increment, Rounding::half_up);
-}
-
 Decimal term_carry(const data::proto::TermPoint& point, const std::string& near_month)
 {
     // Delivery months are YYYY-MM.

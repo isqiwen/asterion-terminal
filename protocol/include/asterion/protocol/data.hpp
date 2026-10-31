@@ -124,9 +124,6 @@ void validate_dominant_schedule(
 // The roll in force on a trading day; the first roll before the series begins.
 const data::proto::DominantRoll&
 dominant_roll(const data::proto::DominantSchedule& schedule, const std::string& trading_day);
-// A month's raw price at the level of the series' latest month, back on the
-// price grid. Signals and factors read it; orders and fills never do.
-Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
 Json decode_dominant_schedule(const data::proto::DominantSchedule& schedule);
 // How far `near_month` settled above the later month of a term point, as a
 // year's worth: near over far less one, times twelve over the delivery
