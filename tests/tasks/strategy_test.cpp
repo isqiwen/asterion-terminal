@@ -1,5 +1,5 @@
 #include "strategy.hpp"
-#include "portfolio_targets.hpp"
+#include <asterion/futures/portfolio_targets.hpp>
 #include <asterion/base/error.hpp>
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/trading.hpp>

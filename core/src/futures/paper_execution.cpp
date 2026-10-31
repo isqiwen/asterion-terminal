@@ -1,7 +1,5 @@
-#include "paper_execution.hpp"
-#include "portfolio.hpp"
+#include <asterion/futures/paper_execution.hpp>
 #include <asterion/futures/position_target.hpp>
-#include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <stdexcept>
 
@@ -96,10 +94,8 @@ PaperExecution::PaperExecution(
         }
         total += contract.bars.size();
     }
-    // In-memory replay shares the task protocol budget. Durable sessions
-    // enforce their smaller bar budget before constructing the engine.
-    if (!total || total > protocol::max_dataset_bars)
-        throw std::invalid_argument("paper replay requires 1 to 200000 historical bars");
+    if (!total)
+        throw std::invalid_argument("paper replay requires historical bars");
     for (const auto& contract : data->contracts)
         if (contract.bars.empty())
             throw std::invalid_argument("every portfolio contract requires historical bars");
@@ -418,6 +414,22 @@ std::optional<std::int64_t> PaperExecution::timestamp_ns() const
 PaperExecution::Snapshot PaperExecution::snapshot() const
 {
     return {account_.snapshot(), cursor_, size(), timestamp_ns()};
+}
+
+std::vector<PaperExecution::Event> replay_order(
+    const std::vector<const std::vector<MarketBar>*>& contracts)
+{
+    std::vector<PaperExecution::Event> events;
+    for (std::size_t c = 0; c < contracts.size(); ++c)
+        for (std::size_t b = 0; b < contracts[c]->size(); ++b)
+            events.push_back({c, b});
+    std::ranges::stable_sort(events, [&](const auto& left, const auto& right) {
+        const auto& a = contracts[left.contract]->at(left.bar);
+        const auto& b = contracts[right.contract]->at(right.bar);
+        return a.timestamp_ns != b.timestamp_ns ? a.timestamp_ns < b.timestamp_ns
+                                                : left.contract < right.contract;
+    });
+    return events;
 }
 
 } // namespace asterion

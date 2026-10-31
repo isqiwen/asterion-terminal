@@ -1,14 +1,9 @@
 #pragma once
-#include "paper_execution.hpp"
-#include "replay_schedule.hpp"
+#include <asterion/futures/paper_execution.hpp>
+#include <asterion/futures/replay_schedule.hpp>
 #include <asterion/protocol/trading.hpp>
 
 namespace asterion {
-
-// The single event order of a portfolio replay: bar time, then contract order.
-// PaperExecution, its schedule and strategy replays all consume this order.
-std::vector<PaperExecution::Event> replay_order(
-    const std::vector<const std::vector<MarketBar>*>& contracts);
 
 // Contracts, bars and settlement days of a paper input, in contract order.
 struct PaperPortfolio

@@ -1,24 +1,7 @@
 #include "portfolio.hpp"
 #include <asterion/protocol/data.hpp>
-#include <algorithm>
 
 namespace asterion {
-
-std::vector<PaperExecution::Event> replay_order(
-    const std::vector<const std::vector<MarketBar>*>& contracts)
-{
-    std::vector<PaperExecution::Event> events;
-    for (std::size_t c = 0; c < contracts.size(); ++c)
-        for (std::size_t b = 0; b < contracts[c]->size(); ++b)
-            events.push_back({c, b});
-    std::ranges::stable_sort(events, [&](const auto& left, const auto& right) {
-        const auto& a = contracts[left.contract]->at(left.bar);
-        const auto& b = contracts[right.contract]->at(right.bar);
-        return a.timestamp_ns != b.timestamp_ns ? a.timestamp_ns < b.timestamp_ns
-                                                : left.contract < right.contract;
-    });
-    return events;
-}
 
 PaperPortfolio paper_portfolio(const protocol::proto::PaperInput& input)
 {

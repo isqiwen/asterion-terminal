@@ -1,12 +1,12 @@
 #include "engine.hpp"
 #include <asterion/protocol/data.hpp>
 #include "strategy.hpp"
-#include "portfolio_targets.hpp"
+#include <asterion/futures/portfolio_targets.hpp>
 #include "performance.hpp"
 #include <asterion/futures/trading_days.hpp>
 #include <asterion/futures/order_limits.hpp>
 #include <asterion/futures/order_limits.hpp>
-#include "paper_execution.hpp"
+#include <asterion/futures/paper_execution.hpp>
 #include "portfolio.hpp"
 #include <algorithm>
 #include <map>

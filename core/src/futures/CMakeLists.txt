@@ -10,6 +10,9 @@ add_library(asterion_futures STATIC
   account.cpp
   position_target.cpp
   risk_port.cpp
+  paper_execution.cpp
+  replay_schedule.cpp
+  portfolio_targets.cpp
 )
 add_library(Asterion::Futures ALIAS asterion_futures)
 target_link_libraries(asterion_futures PUBLIC Asterion::System)

@@ -94,7 +94,7 @@ Terminal 不部署、升级、启动或备份交易实例，桌面安装包不�
 
 ## 回测撮合模型
 
-`apps/services/research/backtest/execution`：
+`core/src/futures/paper_execution.cpp`（回放日程 `replay_schedule.cpp`，权重换手数 `portfolio_targets.cpp`）：
 
 - 新委托只参与本合约之后的 K 线撮合，其他合约的 K 线不会使其成交。买入限价被最低价触及时以开盘价与限价中较低者成交；卖出限价被最高价触及时以较高者成交。收盘后标记权益。
 - 同一根 K 线的 10% 成交量向下取整到数量步长，由按到达顺序的委托共享；不推断真实逐笔成交路径。
