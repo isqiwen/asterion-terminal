@@ -20,6 +20,7 @@
 #include <cerrno>
 #include <condition_variable>
 #include <deque>
+#include <fcntl.h>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -103,6 +104,10 @@ struct Record
 
 struct Service
 {
+    explicit Service(Record value)
+        : record(std::move(value))
+    {}
+
     Record record;
     std::unique_ptr<ChildProcess> process;
     protocol::ServiceHealth health = protocol::ServiceHealth::starting;
@@ -206,7 +211,7 @@ struct LocalServices::Impl
         try {
             const auto value = parse_json(raw, 65536);
             require_fields(value, {"kind", "desired", "plugins"});
-            Record record{kind_named(value.at("kind").get<std::string>()).kind};
+            Record record{kind_named(value.at("kind").get<std::string>()).kind, false, {}};
             record.desired = value.at("desired").get<bool>();
             record.plugins = value.at("plugins").get<std::vector<std::string>>();
             for (const auto& hash : record.plugins)
@@ -653,8 +658,9 @@ struct LocalServices::Impl
         sockaddr_un address{};
         if (path.size() >= sizeof(address.sun_path))
             throw std::runtime_error("discovery socket path is too long");
-        listener = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (listener < 0)
+        // macOS has no SOCK_CLOEXEC.
+        listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (listener < 0 || ::fcntl(listener, F_SETFD, FD_CLOEXEC) != 0)
             throw std::runtime_error("cannot create the discovery socket");
         address.sun_family = AF_UNIX;
         std::copy(path.begin(), path.end(), address.sun_path);
@@ -795,7 +801,7 @@ std::future<ServiceEndpoint> LocalServices::Impl::launch(
                 throw std::invalid_argument(
                     "the local research service already exists; configure its plugins");
             if (found == impl.services.end()) {
-                Record record{kind, true};
+                Record record{kind, true, {}};
                 if (kind == wire::DATA || kind == wire::RESEARCH) {
                     if (research_plugins) {
                         const auto selection =
