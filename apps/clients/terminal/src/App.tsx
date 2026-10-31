@@ -1,5 +1,4 @@
 import type { CommandCall } from "./bridge/commands";
-import { TaskPagination } from "./ui/TaskPagination";
 import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
@@ -18,7 +17,7 @@ import { Settings } from "./settings/Settings";
 import { terminalFeatures, workspaces } from "./features";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
 import {
-  topModules,
+  modules,
   initialNavigation,
   currentRoute,
   navigationLocation,
@@ -94,7 +93,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   function showSettings(page?: SettingsPage) {
     void openSettings(page).catch(reason => setError(asDisplayError(reason)));
   }
-  const [tasks, setTasks] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DisplayError>("");
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
@@ -147,7 +145,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         event.preventDefault();
         if (!settingsWindow) showSettings();
       }
-      const module = topModules[Number(event.key) - 1];
+      const module = modules[Number(event.key) - 1];
       if (module) {
         event.preventDefault();
         if (!settingsWindow) setNavigation(previous => selectModule(previous, module.id));
@@ -245,12 +243,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const HeaderTools = current?.headerTools;
   const WorkspaceToolbar = current?.toolbar;
   const panelContext = context;
-  const backgroundTasks = terminalFeatures.flatMap(feature => feature.tasks?.(context) ?? []);
-  const failedTasks =
-    (snapshot?.research_service?.failed_count ?? 0) +
-    (snapshot?.research_service?.interrupted_count ?? 0) +
-    (snapshot?.data?.failed_count ?? 0) +
-    (snapshot?.data?.interrupted_count ?? 0);
   return (
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
@@ -277,7 +269,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         <Workbench
           title={t(route.module.title)}
           showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-          navigation={topModules.map((item, index) => ({
+          navigation={modules.map((item, index) => ({
             id: item.id,
             title: t(item.title),
             icon: <Icon name={item.icon} />,
@@ -287,14 +279,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           }))}
           rail={
             <>
-              <button
-                aria-label={t("任务中心")}
-                title={t("任务中心")}
-                aria-expanded={tasks}
-                onClick={() => setTasks(!tasks)}
-              >
-                <Icon name="tasks" />
-              </button>
               <button
                 aria-label={t("本机服务")}
                 title={t("本机服务")}
@@ -354,52 +338,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
             </div>
           }
 
-          dock={
-            tasks && (
-              <section className="task-dock terminal-tasks" aria-label={t("任务中心")}>
-                <div className="panel-heading">
-                  <h2>{t("任务中心")}</h2>
-                  <span className="panel-spacer" />
-                  <button onClick={() => setTasks(false)} aria-label={t("关闭任务中心")}>
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-                <TaskPagination
-                  kind="data"
-                  taskService={snapshot?.data}
-                  busy={busy}
-                  trade={context.trade}
-                />
-                <TaskPagination
-                  taskService={snapshot?.research_service}
-                  busy={busy}
-                  trade={context.trade}
-                />
-                {backgroundTasks.length ? (
-                  <div className="terminal-task-list">
-                    {backgroundTasks.map(task => (
-                      <button
-                        key={task.id}
-                        onClick={() => {
-                          setTasks(false);
-                          task.open();
-                        }}
-                      >
-                        <strong>{task.title}</strong>
-                        <span>
-                          {task.status} · {task.completed} / {task.total}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="content-caption">
-                    {busy ? t("正在处理本机请求…") : t("暂无后台任务")}
-                  </p>
-                )}
-              </section>
-            )
-          }
           status={
             <>
               <ServiceStatus
@@ -410,22 +348,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 refresh={() => void refresh()}
                 settings={() => showSettings("connections")}
               />
-              <span className="status-divider" />
-              <button
-                className={failedTasks ? "bad" : undefined}
-                aria-expanded={tasks}
-                onClick={() => setTasks(!tasks)}
-              >
-                {t("{p0} 项任务执行中", {
-                  p0: [
-                    ...(snapshot?.research_service?.tasks ?? []),
-                    ...(snapshot?.data?.tasks ?? []),
-                  ].filter(task =>
-                    ["running", "queued", "cancel_requested", "publishing"].includes(task.state),
-                  ).length,
-                })}
-                {failedTasks > 0 && ` · ${t("{p0} 项任务异常", { p0: failedTasks })}`}
-              </button>
               <span className="panel-spacer" />
               <span className="status-updated">
                 {error

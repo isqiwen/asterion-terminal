@@ -20,7 +20,6 @@ export function Workbench({
   toolbar,
   notices,
   body,
-  dock,
   status,
 }: {
   title: string;
@@ -30,7 +29,6 @@ export function Workbench({
   toolbar: ReactNode;
   notices: ReactNode;
   body: ReactNode;
-  dock: ReactNode;
   status: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -88,7 +86,6 @@ export function Workbench({
         </header>
         {notices}
         {body}
-        {dock}
         <footer className="status-bar">{status}</footer>
       </div>
     </div>

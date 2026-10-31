@@ -13,7 +13,7 @@ export function commandContractExamples(
     id: "task",
     action: "cancel",
   });
-  void context.query("data.minutes.evidence", { dataset_id: "data", offset: 0, limit: 20 });
+  void context.query("market.minutes", { venue: "SHFE", symbol: "rb2605" });
   void account("live.open");
   // @ts-expect-error a panel-bound command cannot supply a different account
   void account("live.open", { account: "other" });
@@ -27,8 +27,6 @@ export function commandContractExamples(
   });
   // @ts-expect-error a required account cannot disappear through a host callback
   void send("live.open");
-  // @ts-expect-error pagination is a number, not a UI input string
-  void context.query("data.minutes.evidence", { dataset_id: "data", offset: "0", limit: 20 });
   void send("task.action", {
     owner: { kind: "research", node_id: "local", service: "research", connection_id: "test" },
     // @ts-expect-error parameters belong to their command

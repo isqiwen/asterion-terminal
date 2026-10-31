@@ -14,9 +14,6 @@ import { TradingConnections } from "./TradingConnections";
 import { CtpConnections } from "./CtpConnections";
 import { RecorderSource } from "./RecorderSource";
 import { StrategyRepository } from "./StrategyRepository";
-import { NativePlugins } from "./NativePlugins";
-import { ResourceCatalogue } from "./ResourceCatalogue";
-import { DataBackup } from "./DataBackup";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
@@ -26,9 +23,6 @@ const pages: [SettingsPage, string, IconName][] = [
   ["trading", "交易连接", "trading"],
   ["sources", "数据源", "data"],
   ["research", "研究", "backtest"],
-  ["plugins", "插件", "plugins"],
-  ["resources", "业务资产目录", "catalog"],
-  ["backup", "数据备份与恢复", "archive"],
   ["about", "关于", "info"],
 ];
 export function Settings({
@@ -100,8 +94,6 @@ export function Settings({
           </p>
         )}
         {busy && <p role="status">{t("正在处理…")}</p>}
-        {page === "resources" && <ResourceCatalogue snapshot={snapshot} />}
-        {page === "backup" && <DataBackup snapshot={snapshot} />}
         {page === "preferences" && (
           <SettingsSection title={t("显示")}>
             <div className="settings-fields">
@@ -170,14 +162,6 @@ export function Settings({
           <StrategyRepository snapshot={snapshot} busy={busy} trade={trade} />
         )}
         {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "plugins" && (
-          <NativePlugins
-            snapshot={snapshot}
-            busy={busy}
-            trade={trade}
-            openServices={() => setPage("connections")}
-          />
-        )}
         {page === "about" && (
           <SettingsSection title="Asterion Terminal" description={`${t("版本")} ${version}`}>
             <p className="settings-hint">{t("新版本通过安装包更新。")}</p>

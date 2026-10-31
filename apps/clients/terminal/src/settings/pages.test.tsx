@@ -3,7 +3,6 @@ import { expect, test, vi } from "vitest";
 import { localService, readySnapshot } from "../testing/core";
 import { Connections } from "./Connections";
 import { DataSources } from "./DataSources";
-import { NativePlugins } from "./NativePlugins";
 import { Settings } from "./Settings";
 
 // jsdom does not implement the browser's dialog methods.
@@ -40,42 +39,6 @@ test("a stopped Data service is started from the data source page, not Research"
   expect(screen.queryByText(/多节点/)).toBeNull();
 });
 
-test("plugins of a running service are changed after stopping it on the services page", () => {
-  const snapshot = readySnapshot();
-  const plugin = {
-    file: "asterion_tushare.so",
-    id: "asterion.data.tushare",
-    version: "1.0.0",
-    sha256: "a".repeat(64),
-    capabilities: [{ id: "asterion.history", kind: "data", version: 3 }],
-    selectable: true,
-    state: "available" as const,
-    error: "",
-  };
-  snapshot.native_plugins = { directory: "/app/plugins", items: [plugin] };
-  localService(snapshot, "historical-data").plugin_artifacts = [plugin.sha256];
-  const openServices = vi.fn();
-  render(
-    <NativePlugins
-      snapshot={snapshot}
-      busy={false}
-      trade={vi.fn().mockResolvedValue(undefined)}
-      openServices={openServices}
-    />,
-  );
-  const data = screen.getByRole("region", { name: "服务插件 historical-data" });
-  // A required plugin with one version is always on: text, not a locked checkbox.
-  expect(within(data).queryByRole("checkbox")).toBeNull();
-  expect(data.textContent).toContain("asterion.data.tushare · 1.0.0 · 随应用启用");
-  expect(within(data).queryByRole("button", { name: "停止" })).toBeNull();
-  fireEvent.click(within(data).getByRole("button", { name: "前往本机服务" }));
-  expect(openServices).toHaveBeenCalled();
-  // The catalog says what a plugin provides, not its capability identifiers.
-  const catalog = screen.getByRole("table", { name: "原生插件目录" });
-  expect(catalog.textContent).toContain("分钟 K 线");
-  expect(catalog.textContent).not.toContain("asterion.history /");
-});
-
 test("every settings page has its title, and trading connections have their own page", () => {
   const props = {
     snapshot: readySnapshot(),
@@ -84,8 +47,8 @@ test("every settings page has its title, and trading connections have their own 
     busy: false,
     trade: vi.fn().mockResolvedValue(undefined),
   };
-  const { unmount } = render(<Settings {...props} initialPage="resources" />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("业务资产目录");
+  const { unmount } = render(<Settings {...props} initialPage="research" />);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("研究");
   unmount();
   render(<Settings {...props} initialPage="trading" />);
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("交易连接");

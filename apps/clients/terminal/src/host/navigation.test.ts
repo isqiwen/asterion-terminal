@@ -1,7 +1,6 @@
 import { expect, test } from "vitest";
 import {
   modules,
-  topModules,
   initialNavigation,
   currentRoute,
   navigationLocation,
@@ -12,18 +11,7 @@ import { workspaces } from "../features";
 import { setLocale, translate } from "../i18n";
 
 test("product catalog has the required modules and places every contributed view exactly once", () => {
-  expect(modules.map(module => module.id)).toEqual([
-    "market",
-    "research",
-    "live",
-    "data",
-    "analysis",
-    "strategy",
-    "backtest",
-    "evaluation",
-  ]);
-  // The old research views keep no entry of their own until they are deleted.
-  expect(topModules.map(module => module.id)).toEqual(["market", "research", "live", "data"]);
+  expect(modules.map(module => module.id)).toEqual(["market", "research", "live", "data"]);
   const views = modules.flatMap(module => module.views);
   expect(new Set(views).size).toBe(views.length);
   expect([...views].sort()).toEqual(workspaces.map(view => view.id).sort());
@@ -38,15 +26,11 @@ test("product catalog has the required modules and places every contributed view
 test("first launch opens data and module switching retains each view's location", () => {
   let state = initialNavigation();
   expect(currentRoute(state).view).toBe("workspace.coverage");
-  state = selectView(state, "workspace.factor", { page: "task", params: { id: "factor-1" } });
-  state = selectView(state, "workspace.backtest", { page: "task", params: { id: "backtest-1" } });
-  state = selectModule(state, "analysis");
-  expect(currentRoute(state)).toMatchObject({
-    view: "workspace.factor",
-    options: { params: { id: "factor-1" } },
-  });
-  state = selectModule(state, "backtest");
-  expect(currentRoute(state).options.params?.id).toBe("backtest-1");
+  state = selectView(state, "workspace.watchlist");
+  state = selectModule(state, "research");
+  expect(currentRoute(state).view).toBe("workspace.lab-research");
+  state = selectModule(state, "market");
+  expect(currentRoute(state).view).toBe("workspace.watchlist");
 });
 
 test("market, watchlist and contract routes retain independent parameters", () => {
@@ -68,7 +52,6 @@ test("reload restores the concrete destination without persisting object paramet
   const restored = initialNavigation(JSON.parse(JSON.stringify(location)));
   expect(currentRoute(restored).view).toBe("workspace.trading");
   expect(restored.locations).toEqual({});
+  // A view that no longer exists opens the data page.
   expect(initialNavigation({ ...location, view: "workspace.factor" }).module).toBe("data");
-  const pending = selectView(selectModule(state, "evaluation"), "workspace.risk");
-  expect(currentRoute(initialNavigation(navigationLocation(pending))).view).toBe("workspace.risk");
 });

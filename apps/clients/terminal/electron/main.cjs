@@ -168,9 +168,6 @@ async function openSettings(category) {
       "trading",
       "sources",
       "research",
-      "plugins",
-      "resources",
-      "backup",
       "about",
     ].includes(category)
   )

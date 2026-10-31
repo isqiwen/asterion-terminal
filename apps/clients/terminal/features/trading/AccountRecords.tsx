@@ -1,12 +1,5 @@
-import { useState } from "react";
 import type { LiveSession } from "../../src/bridge/client";
-import {
-  ErrorNotice,
-  asDisplayError,
-  saveCostTemplate,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import type { TerminalContext } from "../contract";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { key, offsets, statuses, t, type Run } from "./live-shared";
@@ -173,12 +166,8 @@ export function AccountRecords({
   );
 }
 
-// The account's margin and commission rates as the broker reports them. A
-// row can become the product's fee template for paper trading and backtests.
+// The account's margin and commission rates as the broker reports them.
 function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; run: Run }) {
-  const [saved, setSaved] = useState<string[]>([]);
-  const [error, setError] = useState<DisplayError | null>(null);
-  const day = live.trading_day.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   const states: Record<LiveSession["costs"][number]["state"], string> = {
     querying: "查询中",
     ready: "已返回",
@@ -186,11 +175,6 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
   };
   return (
     <section className="account-rates" aria-label={t("账户费率")}>
-      {error && (
-        <p role="alert">
-          <ErrorNotice error={error} />
-        </p>
-      )}
       <div className="source-actions">
         <button disabled={busy} onClick={() => void run("live.costs")}>
           {t("查询账户费率")}
@@ -210,15 +194,11 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
                 <th>{t("平今 每手 / 比例")}</th>
                 <th>{t("平昨 每手 / 比例")}</th>
                 <th>{t("状态")}</th>
-                <th>{t("操作")}</th>
               </tr>
             </thead>
             <tbody>
               {live.costs.map(row => {
-                const contract = live.contracts.find(item => key(item) === key(row));
-                const product = contract ? `${contract.venue}/${contract.product}` : "";
                 const c = row.costs;
-                const versionKey = `${product}@${day}`;
                 return (
                   <tr key={key(row)}>
                     <td>{row.symbol}</td>
@@ -229,34 +209,6 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
                     <td>
                       {t(states[row.state])}
                       {row.error_code ? ` (${row.error_code})` : ""}
-                    </td>
-                    <td>
-                      {c && product && (
-                        <button
-                          disabled={saved.includes(versionKey)}
-                          onClick={() => {
-                            try {
-                              saveCostTemplate(
-                                product,
-                                c,
-                                t("CTP 账户 {broker}/{user}", {
-                                  broker: live.broker.broker_id,
-                                  user: live.broker.user_id,
-                                }),
-                                day,
-                              );
-                              setSaved([...saved, versionKey]);
-                              setError(null);
-                            } catch (reason) {
-                              setError(asDisplayError(reason));
-                            }
-                          }}
-                        >
-                          {saved.includes(versionKey)
-                            ? t("已存为 {product} 模板", { product })
-                            : t("存为 {product} 费率模板", { product })}
-                        </button>
-                      )}
                     </td>
                   </tr>
                 );

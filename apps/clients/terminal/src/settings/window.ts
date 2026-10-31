@@ -2,27 +2,11 @@ import { nativeDesktop, desktop } from "../bridge/desktop";
 export const categoryKey = "asterion.settings.category";
 export const selectedPageKey = "asterion.settings.selected-page";
 export type SettingsPage =
-  | "preferences"
-  | "connections"
-  | "trading"
-  | "sources"
-  | "research"
-  | "plugins"
-  | "resources"
-  | "backup"
-  | "about";
+  "preferences" | "connections" | "trading" | "sources" | "research" | "about";
 export function settingsPage(value: string | null): SettingsPage {
-  return [
-    "preferences",
-    "connections",
-    "trading",
-    "sources",
-    "research",
-    "plugins",
-    "resources",
-    "backup",
-    "about",
-  ].includes(value ?? "")
+  return ["preferences", "connections", "trading", "sources", "research", "about"].includes(
+    value ?? "",
+  )
     ? (value as SettingsPage)
     : "preferences";
 }

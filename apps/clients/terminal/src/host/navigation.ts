@@ -1,9 +1,7 @@
 import type { IconName } from "../ui/Icon";
 
 // Product organization is independent of plugin ownership. Each module lists
-// its views in tab order; IDs name the current contributed views. Hidden
-// modules have no entry of their own: the old research views stay reachable
-// from their tasks until the old research service is deleted (M2.6).
+// its views in tab order; IDs name the current contributed views.
 export const modules = [
   {
     id: "market",
@@ -24,37 +22,7 @@ export const modules = [
     icon: "data",
     views: ["workspace.coverage"],
   },
-  {
-    id: "analysis",
-    title: "分析",
-    icon: "info",
-    hidden: true,
-    views: [
-      "workspace.factor",
-      "workspace.factor-comparison",
-      "workspace.research-samples",
-      "workspace.research-statistics",
-      "workspace.research-variables",
-    ],
-  },
-  {
-    id: "strategy",
-    title: "策略",
-    icon: "plugins",
-    hidden: true,
-    views: ["workspace.research-logic", "workspace.strategy-packages"],
-  },
-  { id: "backtest", title: "回测", icon: "backtest", hidden: true, views: ["workspace.backtest"] },
-  {
-    id: "evaluation",
-    title: "评估",
-    icon: "contract",
-    hidden: true,
-    views: ["workspace.performance", "workspace.risk", "workspace.backtest-comparison"],
-  },
-] satisfies { id: string; title: string; icon: IconName; views: string[]; hidden?: boolean }[];
-// The modules the top bar offers, in order.
-export const topModules = modules.filter(module => !("hidden" in module && module.hidden));
+] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
 export type NavigationOptions = {
   marketMode?: "live" | "history";
   page?: string;
