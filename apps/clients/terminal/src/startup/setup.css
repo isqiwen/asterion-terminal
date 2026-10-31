@@ -43,13 +43,13 @@
   margin: 10px 0 0;
   font-size: 12px;
 }
-/* One hairline row per service: name, progress, state. */
+/* One hairline row per module: name, size, progress, state. */
 .setup-steps {
   border-top: 1px solid var(--line);
 }
 .setup-step {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px 48px;
+  grid-template-columns: minmax(0, 1fr) 56px 160px 72px;
   gap: 16px;
   align-items: center;
   height: 40px;
@@ -130,4 +130,9 @@
   color: var(--warning);
   max-height: 96px;
   overflow-y: auto;
+}
+.setup-step > small {
+  text-align: right;
+  font-size: 11px;
+  font-family: var(--font-terminal);
 }

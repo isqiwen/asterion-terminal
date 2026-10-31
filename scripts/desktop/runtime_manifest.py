@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Python runtime the Terminal installs at its first launch (M1.11).
 
-Writes build/electron-resources/native/runtime/: manifest.json, naming the
+Writes build/electron-resources/runtime/: manifest.json, naming the
 interpreter archive and every wheel of the lab's lock for this platform with
 its SHA-256 and size, grouped into the modules the first launch shows; and
 wheels/ with the few packages PyPI publishes no wheel of, built here once.
@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
-DESTINATION = ROOT / "build/electron-resources/native/runtime"
+DESTINATION = ROOT / "build/electron-resources/runtime"
 PYTHON = "3.12.12"
 # Where python-build-standalone publishes; uv's own copy is what it resolves to.
 INTERPRETER_SOURCES = {
@@ -120,6 +120,25 @@ def interpreter(target: dict, staging: Path) -> dict:
             archive.open("wb") as output:
         shutil.copyfileobj(response, output)
     return {"path": path, "sha256": digest(archive), "size": archive.stat().st_size}
+
+
+def verify(directory=DESTINATION):
+    """What an application ships for its first launch: the manifest for this
+    platform, the wheels it bundles as recorded, and its own Python code."""
+    manifest_file = directory / "manifest.json"
+    if not manifest_file.is_file():
+        raise ValueError("Runtime manifest missing; run pnpm prepare:python")
+    manifest = json.loads(manifest_file.read_text())
+    if manifest["platform"] != [sys.platform, platform.machine()]:
+        raise ValueError("Runtime manifest is for another platform; run pnpm prepare:python")
+    for module in manifest["modules"]:
+        for item in module["files"]:
+            if item.get("bundled") and digest(directory / "wheels" / item["file"]) != item["sha256"]:
+                raise ValueError(f"Bundled wheel differs from the manifest: {item['file']}")
+    application = directory / "app"
+    if not (application / "asterion_lab" / "__main__.py").is_file() or \
+            not list(application.glob("asterion_engine.*")):
+        raise ValueError("The application's Python code is missing beside the runtime manifest")
 
 
 def main():

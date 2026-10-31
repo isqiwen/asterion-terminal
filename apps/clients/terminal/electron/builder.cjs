@@ -36,7 +36,9 @@ module.exports = {
     { from: "../dist", to: "dist" },
   ],
   extraResources: [
-    { from: "build/electron-resources/python", to: "python", filter: ["**/*"] },
+    // The Python runtime is installed at the first launch from this manifest;
+    // the application ships only its own Python code beside it.
+    { from: "build/electron-resources/runtime", to: "runtime", filter: ["**/*"] },
     {
       from: "build/electron-resources/native",
       to: "native",

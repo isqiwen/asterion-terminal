@@ -260,7 +260,7 @@ struct Application::Impl
 
     // The Python runtime lab runs on, installed at the first launch.
     PythonRuntime python_runtime{
-        application_directory() / "runtime",
+        application_directory().parent_path() / "runtime",
         program_directory("terminal") / "runtime"
     };
 

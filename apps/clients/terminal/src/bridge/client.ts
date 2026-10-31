@@ -2267,6 +2267,18 @@ export type MaterialRead = {
   reading: { state: "readable" | "invalid_utf8" | "unsupported_media"; readable_bytes: number };
   text: string | null;
 };
+// The Python runtime the first launch installs: each module's bytes so far.
+export type PythonRuntime = {
+  state: "missing" | "installing" | "ready" | "failed";
+  error: string;
+  modules: {
+    id: string;
+    title: string;
+    size: number;
+    done: number;
+    state: "waiting" | "downloading" | "installing" | "done" | "failed";
+  }[];
+};
 export type Snapshot = {
   research_variable?: ResearchVariableReply;
   research_strategy?: ResearchStrategyReply;
@@ -2288,6 +2300,7 @@ export type Snapshot = {
   // The saved recording host, or a mark that its settings file is unreadable.
   recorder_endpoint?: null | { host: string; port: number } | { error: "unreadable" };
   strategy_repository?: null | { path: string } | { error: "unreadable" };
+  python_runtime?: PythonRuntime;
   // The CTP account that supplies market data; trading accounts are independent.
   ctp_market?: string | null;
   // The last check of a provider's saved credential, per source.

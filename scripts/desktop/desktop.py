@@ -15,6 +15,7 @@ import tarfile
 from generated_resources import publish_tree
 import macos_release
 import python_runtime
+import runtime_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 env = os.environ.copy()
@@ -164,11 +165,10 @@ def verify_linux_package(distribution=True):
         app = helpers[0].parent / "resources/terminal"
         native = app / "resources/native"
         verify_native_resources(native, packaged=True)
-        python_runtime.verify(app / "resources/python")
+        runtime_manifest.verify(app / "resources/runtime")
         local = elf_files(app)
         required = json.loads((app / "resources/native/runtime-requirements.json").read_text())
-        missing = set(debian_dependencies(
-            local, [app, *python_runtime.library_directories(app / "resources/python")])) - set(required)
+        missing = set(debian_dependencies(local, [app])) - set(required)
         if missing:
             raise SystemExit("Installer runtime requirements are incomplete: " + ", ".join(sorted(missing)))
         for name in SERVICE_PROGRAMS:
@@ -214,11 +214,11 @@ def verify_macos_bundle(distribution=True):
             run(["codesign", "--verify", "--deep", "--strict", str(apps[0])])
             app = apps[0] / "Contents/Resources/terminal.app"
             verify_native_resources(app / "Contents/Resources/native")
-            python_runtime.verify(app / "Contents/Resources/python")
+            runtime_manifest.verify(app / "Contents/Resources/runtime")
             if distribution:
                 macos_release.verify_application(app, NATIVE_FILES - CONFIG_FILES)
             minimum = "13.0"
-            for program in (app / "Contents/Resources/python").rglob("*"):
+            for program in (app / "Contents/Resources/runtime").rglob("*"):
                 if program.is_file():
                     with program.open("rb") as stream:
                         magic = stream.read(4)
@@ -312,7 +312,10 @@ def main():
     stage_native_resources(ROOT / "build" / configuration, native)
     if arguments.prepare_python:
         python_runtime.prepare(ROOT / "build" / configuration)
+    # Development runs on the prepared runtime; a package ships the manifest
+    # its first launch installs from.
     python_runtime.verify()
+    runtime_manifest.verify()
     run(["pnpm", "build"])
     # Loading and calling the compiled addon is part of desktop:check.
     run([sys.executable, str(ROOT / "tests/support/isolated_node.py"), "node",
@@ -339,8 +342,8 @@ def main():
             ["node", "-p", "JSON.stringify(require('./scripts/desktop/electron-path.cjs')())"],
             cwd=ROOT, env=env, text=True))).parent
         requirements = json.dumps(
-            debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(python_runtime.DESTINATION),
-                                [runtime, *python_runtime.library_directories()]))
+            debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(runtime_manifest.DESTINATION),
+                                [runtime]))
         (native / "runtime-requirements.json").write_text(requirements + "\n")
     output = ROOT / "build" / ("desktop" if mode == "build" else "desktop-test")
     if output.exists():

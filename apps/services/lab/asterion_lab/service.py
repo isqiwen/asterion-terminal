@@ -39,6 +39,7 @@ def text(value) -> str:
 class Rolling:
     request: object  # RollingRun
     candidates: int
+    starting: bool = False
 
 
 def summary(item, row):
@@ -405,15 +406,21 @@ class Service:
                 self.log.write("error", MODULE, "backtest.not_started", run=run.id, message=str(error))
         for sweep, rolling in list(self.rolling.items()):
             members = {f"{sweep}-{n}" for n in range(rolling.candidates)}
-            if any(item[0] == sweep for item in self.waiting) or members & set(self.backtests):
+            if rolling.starting or any(item[0] == sweep for item in self.waiting) \
+                    or members & set(self.backtests):
                 continue
-            del self.rolling[sweep]
-            states = {row["state"] for row in await self.read(self.runs.sweep, sweep)}
-            if states != {"succeeded"}:
-                self.log.write("warning", MODULE, "rolling.skipped", sweep=sweep,
-                               message="not every candidate succeeded")
-                continue
-            await self.launch(rolling.request, "asterion_lab.rolling", rolling.request.base.repository)
+            # Kept until its process runs, so the sweep never looks finished before.
+            rolling.starting = True
+            try:
+                states = {row["state"] for row in await self.read(self.runs.sweep, sweep)}
+                if states != {"succeeded"}:
+                    self.log.write("warning", MODULE, "rolling.skipped", sweep=sweep,
+                                   message="not every candidate succeeded")
+                else:
+                    await self.launch(rolling.request, "asterion_lab.rolling",
+                                      rolling.request.base.repository)
+            finally:
+                del self.rolling[sweep]
 
     async def on_backtest(self, request, response):
         await self.checked_run(request)

@@ -821,5 +821,15 @@
   "研究设置文件无法读取，已保留原文件供检查；重新选择会覆盖它。": "The research settings file cannot be read and is kept for inspection; choosing again replaces it.",
   "策略仓库": "Strategy repository",
   "策略仓库目录": "Strategy repository directory",
-  "选择目录": "Choose directory"
+  "选择目录": "Choose directory",
+  "Asterion Terminal — 首次启动": "Asterion Terminal — First launch",
+  "首次启动": "First launch",
+  "第一次启动：下载并安装研究与数据所需的 Python 运行时，共 {size}。以后启动直接进入工作台。": "First launch: downloading and installing the Python runtime research and data need, {size} in all. Later launches open the workbench directly.",
+  "下载中": "Downloading",
+  "安装中": "Installing",
+  "重试": "Retry",
+  "Python 解释器": "Python interpreter",
+  "报表": "Reports",
+  "组合优化": "Portfolio optimisation",
+  "AKShare 数据源": "AKShare data source"
 }

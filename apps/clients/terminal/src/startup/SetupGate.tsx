@@ -6,152 +6,104 @@ import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
 import { LocalLogsButton } from "../host/components/LocalLogsButton";
-import { request } from "../bridge/client";
+import { request, type PythonRuntime } from "../bridge/client";
 import "./setup.css";
+
+const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
+
+// What the Terminal does in the background once the workbench is open: the
+// local market service, the services a previous session ran, and the saved
+// trading accounts. Where one does not come up, its own page says so.
+async function restore() {
+  const status = await request("runtime.snapshot");
+  const services = status.nodes.find(node => node.id === "local")?.health?.services ?? [];
+  const market = services.find(item => item.id === "market-data" && item.kind === "market");
+  const work: Promise<unknown>[] = [];
+  if (!(market?.state === "stopped" && !market.desired_running)) work.push(request("market.local"));
+  if (services.some(item => item.kind === "data" && item.desired_running))
+    work.push(request("node.data.local.open"));
+  if (services.some(item => item.kind === "research" && item.desired_running))
+    work.push(request("node.research.local.open"));
+  for (const account of (status.trading_connections ?? []).filter(item => !("error" in item)))
+    work.push(request("live.open", { account: account.id }));
+  await Promise.allSettled(work);
+}
+
+// The first launch installs the Python runtime, one row per module; every
+// later launch opens the workbench at once.
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
-  const setLanguage = (value: "zh" | "en") => {
-    try {
-      setLocale(value === "zh" ? "zh-CN" : "en-US");
-    } catch {
-      setError(t("保存失败，请检查本机存储权限。"));
-    }
-  };
-  const steps = [t("行情服务"), t("恢复已有工作区"), t("交易服务")];
-  // Things the user should know before entering; none of them blocks entry,
-  // but the screen waits for the user while there are any.
-  const [notices, setNotices] = useState<string[]>([]);
-  const [step, setStep] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [runtime, setRuntime] = useState<PythonRuntime | null>(null);
   const [entered, setEntered] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const inFlight = useRef(false);
-  async function start() {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setRunning(true);
-    setReady(false);
+  const restored = useRef(false);
+  const enter = () => {
+    setEntered(true);
+    if (restored.current) return;
+    restored.current = true;
+    void restore();
+  };
+  const read = async (install: boolean) => {
+    const reply = await request(install ? "runtime.python.install" : "runtime.python.status");
+    const value = reply.python_runtime ?? null;
+    setRuntime(value);
+    return value;
+  };
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async (install: boolean) => {
+      try {
+        const value = await read(install);
+        if (!active || !value) return;
+        if (value.state === "ready") enter();
+        else if (value.state === "missing") void poll(true);
+        else if (value.state === "installing") timer = setTimeout(() => void poll(false), 500);
+      } catch (reason) {
+        if (active) setError(asDisplayError(reason));
+      }
+    };
+    void poll(false);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+    // Runs once per launch; a retry polls again through retry().
+  }, []);
+  const retry = async () => {
     setError("");
-    setStep(0);
     try {
-      setNotices([]);
-      const core = await request("runtime.snapshot");
-      if (core.protocol !== 1 || core.phase !== "ready") throw new Error(t("本机核心尚未就绪"));
-      // A declared running service completes only after its heartbeat.
-      // An explicitly stopped default Market keeps that saved intent;
-      // it must not prevent independent fixed Data/Research work.
-      const healthy = ["ready", "awaiting_input"];
-      const settled = async (kind: "market" | "data" | "research", failure: string) => {
-        for (const deadline = Date.now() + 20000; ;) {
-          const status = await request("runtime.snapshot");
-          const node = status.nodes.find(n => n.id === "local");
-          const selected =
-            kind === "market"
-              ? status.market?.service
-              : kind === "data"
-                ? status.data?.service
-                : status.research_service?.service;
-          const expected = node?.health?.services.find(service => service.id === selected);
-          const online =
-            kind === "market"
-              ? !!status.market?.transport_online
-              : kind === "data"
-                ? !!status.data?.online
-                : !!status.research_service?.online;
-          if (expected?.state === "failed") throw new Error(t(failure));
-          if (online && expected?.desired_running && healthy.includes(expected.health))
-            return status;
-          if (Date.now() >= deadline) throw new Error(t(failure));
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      };
-      const defaultMarket = core.nodes
-        .find(node => node.id === "local")
-        ?.health?.services.find(
-          service => service.id === "market-data" && service.kind === "market",
-        );
-      const marketStopped = defaultMarket?.state === "stopped" && !defaultMarket.desired_running;
-      let marketReady = core;
-      if (!marketStopped) {
-        await request("market.local");
-        marketReady = await settled("market", "本机行情服务尚未就绪，请重试启动");
+      let value = await read(true);
+      while (value?.state === "installing") {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        value = await read(false);
       }
-      setStep(1);
-      // Restore declared running work; new Data/Research services are prepared by their workflows.
-      const services = marketReady.nodes.find(n => n.id === "local")?.health?.services ?? [];
-      const research = services.find(
-        service => service.kind === "research" && service.desired_running,
-      );
-      const data = services.find(service => service.kind === "data" && service.desired_running);
-      if (data) {
-        await request("node.data.local.open");
-        await settled("data", "本机数据服务尚未就绪，请重试启动");
-      }
-      if (research) {
-        await request("node.research.local.open");
-        await settled("research", "本机研究服务尚未就绪，请重试启动");
-      }
-      const plugins = (await request("native.plugins.inspect")).native_plugins?.items ?? [];
-      const status = await request("runtime.snapshot");
-      // Running Market remains required here; an explicit stop is preserved above.
-      if (!marketStopped && !status.market?.transport_online) {
-        setStep(0);
-        throw new Error(t("本机行情服务尚未就绪，请重试启动"));
-      }
-      const invalid = plugins.filter(plugin => plugin.state === "invalid");
-      const interrupted =
-        (status.research_service?.interrupted_count ?? 0) + (status.data?.interrupted_count ?? 0);
-      setStep(2);
-      // Reconnect saved accounts; only the trading host can start their services.
-      const unopened: string[] = [];
-      for (const account of (status.trading_connections ?? []).filter(item => !("error" in item))) {
-        try {
-          await request("live.open", { account: account.id });
-        } catch {
-          unopened.push(account.name);
-        }
-      }
-      const pending = [
-        ...(marketStopped ? [t("本机行情服务按已保存意图保持停止，数据与研究工作区仍可使用")] : []),
-        ...unopened.map(name =>
-          t("账户 {p0} 的交易服务未能连接，可在交易页查看原因并重试", { p0: name }),
-        ),
-        ...invalid.map(plugin =>
-          t("插件 {p0} 无法加载，可在设置的插件页查看原因", { p0: plugin.id || plugin.file }),
-        ),
-        ...(interrupted ? [t("{p0} 项任务上次被中断，可在任务中心重试", { p0: interrupted })] : []),
-      ];
-      setNotices(pending);
-      setStep(steps.length);
-      setReady(true);
-      // With nothing to point out, the workbench opens by itself; otherwise
-      // the notices stay up until the user enters.
-      if (!pending.length) setEntered(true);
+      if (value?.state === "ready") enter();
     } catch (reason) {
       setError(asDisplayError(reason));
-    } finally {
-      inFlight.current = false;
-      setRunning(false);
     }
-  }
-  useEffect(() => {
-    void start();
-    // start() is guarded by inFlight and must run once per launch, not
-    // whenever its closure is recreated.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  };
   if (entered) return children;
+  // Nothing to show until the Terminal says whether a runtime is installed.
+  if (!runtime && !error) return null;
+  const failed = runtime?.state === "failed";
+  const total = (runtime?.modules ?? []).reduce((sum, module) => sum + module.size, 0);
   return (
-    <WindowFrame title={t("Asterion Terminal — 启动设置")}>
-      <main className="first-setup" aria-label={t("首次设置与启动")}>
+    <WindowFrame title={t("Asterion Terminal — 首次启动")}>
+      <main className="first-setup" aria-label={t("首次启动")}>
         <div className="setup-language-control">
           <select
             className="setup-language"
             aria-label={t("语言")}
             value={language}
-            onChange={e => setLanguage(e.target.value as "zh" | "en")}
+            onChange={event => {
+              try {
+                setLocale(event.target.value === "zh" ? "zh-CN" : "en-US");
+              } catch {
+                setError(t("保存失败，请检查本机存储权限。"));
+              }
+            }}
           >
             <option value="zh">{t("简体中文")}</option>
             <option value="en">English</option>
@@ -163,55 +115,64 @@ export function SetupGate({ children }: { children: ReactNode }) {
               <BrandMark size={48} />
             </div>
             <h1>ASTERION TERMINAL</h1>
-            <p>{ready ? t("工作区已就绪") : t("正在准备你的工作台")}</p>
+            <p>
+              {t(
+                "第一次启动：下载并安装研究与数据所需的 Python 运行时，共 {size}。以后启动直接进入工作台。",
+                {
+                  size: megabytes(total),
+                },
+              )}
+            </p>
           </header>
           <div className="setup-steps" aria-live="polite">
-            {steps.map((title, index) => {
-              const done = index < step;
-              const active = index === step && (running || !!error);
+            {(runtime?.modules ?? []).map(module => {
+              const percent = module.size ? Math.floor((module.done * 100) / module.size) : 0;
+              const done = module.state === "done";
+              const failedHere = module.state === "failed";
+              const installing = module.state === "installing";
               return (
-                <div className="setup-step" key={index}>
-                  <b>{title}</b>
+                <div className="setup-step" key={module.id}>
+                  <b>{t(module.title)}</b>
+                  <small>{megabytes(module.size)}</small>
                   <div
-                    className={`setup-track ${done ? "done" : active ? (error ? "failed" : "indeterminate") : ""}`}
+                    className={`setup-track ${done ? "done" : failedHere ? "failed" : installing ? "indeterminate" : ""}`}
                     role="progressbar"
-                    aria-label={title}
+                    aria-label={t(module.title)}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-valuenow={done ? 100 : active ? undefined : 0}
+                    aria-valuenow={installing ? undefined : percent}
                   >
-                    <i style={done || (active && error) ? { width: "100%" } : undefined} />
+                    <i style={installing ? undefined : { width: `${percent}%` }} />
                   </div>
                   <span
-                    className={
-                      done ? "setup-status-done" : active && error ? "setup-status-failed" : ""
-                    }
+                    className={done ? "setup-status-done" : failedHere ? "setup-status-failed" : ""}
                   >
-                    {done ? t("完成") : active ? (error ? t("失败") : t("进行中")) : t("等待")}
+                    {t(
+                      {
+                        waiting: "等待",
+                        downloading: "下载中",
+                        installing: "安装中",
+                        done: "完成",
+                        failed: "失败",
+                      }[module.state] ?? module.state,
+                    )}
+                    {module.state === "downloading" ? ` ${percent}%` : ""}
                   </span>
                 </div>
               );
             })}
           </div>
-          {ready && notices.length > 0 && (
-            <ul className="setup-notices" aria-label={t("进入前请留意")}>
-              {notices.map(notice => (
-                <li key={notice}>{notice}</li>
-              ))}
-            </ul>
-          )}
-          {error && (
+          {(error || failed) && (
             <p className="setup-error" role="alert">
-              <ErrorNotice error={error} namespace="host" /> <LocalLogsButton />
+              {failed ? runtime?.error : <ErrorNotice error={error} namespace="host" />}{" "}
+              <LocalLogsButton />
             </p>
           )}
-          <button
-            className="setup-begin primary"
-            disabled={running}
-            onClick={() => (ready ? setEntered(true) : void start())}
-          >
-            {running ? t("正在准备") : ready ? t("进入工作台") : t("重试启动")}
-          </button>
+          {(error || failed) && (
+            <button className="setup-begin primary" onClick={() => void retry()}>
+              {t("重试")}
+            </button>
+          )}
         </section>
       </main>
     </WindowFrame>

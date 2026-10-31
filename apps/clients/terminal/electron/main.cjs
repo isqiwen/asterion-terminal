@@ -41,7 +41,9 @@ for (const [key, name] of Object.entries(variables))
 const library = process.platform === "darwin" ? ".dylib" : ".so";
 process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
 process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
-process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");
+// Development runs on the runtime `pnpm prepare:python` made; an installed
+// application installs its own at the first launch.
+if (!app.isPackaged) process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);

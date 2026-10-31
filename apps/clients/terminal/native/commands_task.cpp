@@ -642,12 +642,13 @@ void Application::Impl::register_task_commands()
                     "backtest result changed; reopen the result before analysis");
             sources.push_back(std::move(source));
         }
-        auto report = co_await service_io.admin<json>([sources = std::move(sources), training_end] {
-            return portfolio_report(
-                sources,
-                training_end,
-                environment_path("ASTERION_PYTHON").value_or(std::filesystem::path{}));
-        });
+        auto report = co_await service_io.admin<json>(
+            [sources = std::move(sources), training_end, interpreter = python()] {
+                return portfolio_report(
+                    sources,
+                    training_end,
+                    interpreter.value_or(std::filesystem::path{}));
+            });
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,
@@ -668,11 +669,10 @@ void Application::Impl::register_task_commands()
             throw Error(
                 ErrorCode::conflict,
                 "backtest result changed; reopen the result before analysis");
-        auto report = co_await service_io.admin<json>([source = std::move(source)] {
-            return quantstats_report(
-                source,
-                environment_path("ASTERION_PYTHON").value_or(std::filesystem::path{}));
-        });
+        auto report =
+            co_await service_io.admin<json>([source = std::move(source), interpreter = python()] {
+                return quantstats_report(source, interpreter.value_or(std::filesystem::path{}));
+            });
         if (generation != data_task_generation)
             throw Error(
                 ErrorCode::conflict,

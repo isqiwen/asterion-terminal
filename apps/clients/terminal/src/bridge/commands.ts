@@ -148,6 +148,8 @@ export type CommandParams = {
   };
   "resource.inspect": { object: ResourceObject };
   "runtime.snapshot": Record<string, never>;
+  "runtime.python.status": Record<string, never>;
+  "runtime.python.install": Record<string, never>;
   "data.download.budget.configure": {
     source: string;
     token: string;
