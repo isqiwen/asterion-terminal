@@ -92,7 +92,9 @@ def prepare(build=None):
     run(["uv", "python", "install", PYTHON])
     found = run(["uv", "python", "find", "--no-project", PYTHON], capture_output=True, text=True)
     standalone = Path(found.stdout.strip()).resolve().parents[1]
-    run(["cmake", "--build", build, "--target", "asterion_python_protocol"])
+    # The backtest engine is built for this interpreter's headers.
+    run(["cmake", build, f"-DASTERION_PYTHON_HOME={standalone}"])
+    run(["cmake", "--build", build, "--target", "asterion_python_protocol", "asterion_engine"])
     requirements = run(["uv", "export", "--project", PROJECT, "--frozen", "--no-dev",
                         "--no-emit-project", "--quiet"], capture_output=True, text=True).stdout
     staging = ROOT / "build/python"
@@ -132,6 +134,8 @@ def prepare(build=None):
                 path.unlink()
         shutil.copy2(ANALYTICS, site / "asterion_analytics.py")
         shutil.copytree(build / "generated-python/asterion", site / "asterion")
+        for engine in (build / "engine-python").glob("asterion_engine.*"):
+            shutil.copy2(engine, site / engine.name)
         shutil.copytree(PROJECT / "asterion_lab", site / "asterion_lab",
                         ignore=shutil.ignore_patterns("__pycache__"))
         version = json.loads((build / "product.json").read_text())["version"]
@@ -149,7 +153,7 @@ def prepare(build=None):
             {"platform": [sys.platform, platform.machine()], "python": PYTHON}, indent=2) + "\n")
         verify(prepared)
         # The relocated runtime imports Terminal's Python code without a system Python.
-        run([python, "-I", "-B", "-c", "import asterion_analytics, asterion_lab.__main__"])
+        run([python, "-I", "-B", "-c", "import asterion_analytics, asterion_engine, asterion_lab.__main__"])
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)
     print(f"Prepared offline Python runtime: {DESTINATION}")

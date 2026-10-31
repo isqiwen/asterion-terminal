@@ -33,11 +33,11 @@ Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standa
 
 界面的 Protobuf 类型由 `pnpm generate:protocol` 生成（`@bufbuild/buf` 与 `protoc-gen-es`，pnpm 锁定，不需要 protoc），输出 `apps/clients/terminal/src/generated/` 并提交，不经 Prettier 与 ESLint；修改对应 proto 后重新生成。CI 的样式作业重新生成并要求没有差异。
 
-`pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块、Python 研究服务装为 `asterion_lab` 包，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。依赖只用 wheel 安装，唯一例外是 AKShare 依赖的纯 Python 包 jsonpath（只发布源码包），按锁定哈希从源码构建。Linux 上约 890 MiB，压缩前大小，其中 AKShare 依赖的 V8 运行库约 110 MiB。
+`pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0、skfolio 1.9.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把分析助手装为 `asterion_analytics` 模块、Python 研究服务装为 `asterion_lab` 包，并以同一解释器的头文件（CMake 变量 `ASTERION_PYTHON_HOME`，此后留在构建目录的缓存中）编出回测扩展 `asterion_engine` 装入运行时，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。依赖只用 wheel 安装，唯一例外是 AKShare 依赖的纯 Python 包 jsonpath（只发布源码包），按锁定哈希从源码构建。Linux 上约 890 MiB，压缩前大小，其中 AKShare 依赖的 V8 运行库约 110 MiB。
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。
 
-`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python 依赖、analytics Protobuf 或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向同一解释器。打包时作为独立桌面资源携带，CI 显式准备；macOS 安装包继续核验应用完整签名。
+`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python 依赖、analytics Protobuf、`core` 中回测用到的代码或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向同一解释器。打包时作为独立桌面资源携带，CI 显式准备；macOS 安装包继续核验应用完整签名。
 
 `ctest --test-dir build/Debug -R '^(QuantStats|Portfolio)\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 
