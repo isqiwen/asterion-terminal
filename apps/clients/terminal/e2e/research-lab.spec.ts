@@ -78,6 +78,8 @@ test(
     await backtest(page, "2", "4");
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();
     await expect(page.getByText("K 线与买卖点")).toBeVisible();
+    await page.getByText("QuantStats 指标").click();
+    await expect(page.getByText(/^QuantStats \d/)).toBeVisible({ timeout: 25000 });
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-result.png") });
 
     await backtest(page, "3", "6");

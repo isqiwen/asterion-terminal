@@ -1588,5 +1588,8 @@
   "评价": "Evaluate",
   "选择左侧的策略或因子、填写右侧的配置后运行；结果显示在这里。": "Choose a strategy or factor on the left and fill in the settings on the right; the result shows here.",
   "持有期（K 线数）": "Horizons (bars)",
-  "分组数": "Group count"
+  "分组数": "Group count",
+  "QuantStats 指标": "QuantStats figures",
+  "正在计算…": "Computing…",
+  "按逐日结算权益的日收益计算，无风险利率为零，一年 252 期。": "From daily returns of settled equity, with a zero risk-free rate and 252 periods a year."
 }

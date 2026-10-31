@@ -8,6 +8,7 @@ import {
   type DisplayError,
   type LabDailyBar,
   type LabRunDetail,
+  type LabRunReport,
   type LabRunSummary,
   type MessageValues,
 } from "../contract";
@@ -249,8 +250,60 @@ export function RunResult({ id, state }: { id: string; state: string }) {
           </table>
         </div>
       </details>
+      <QuantStats id={id} />
       <RunDetails record={detail.record} />
     </div>
+  );
+}
+
+const quantStats = [
+  ["sortino", "索提诺比率", false],
+  ["omega", "Omega 比率", false],
+  ["tail_ratio", "尾部比率", false],
+  ["ulcer_index", "溃疡指数", true],
+  ["value_at_risk", "日 VaR（95%）", true],
+  ["conditional_value_at_risk", "日 CVaR（95%）", true],
+] as const;
+
+// QuantStats figures of the run, computed by the lab when first opened.
+function QuantStats({ id }: { id: string }) {
+  const [report, setReport] = useState<LabRunReport | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    if (!asked) return;
+    let active = true;
+    void lab({ case: "runReport", value: { id } }, "runReport")
+      .then(reply => active && setReport(reply))
+      .catch(failure => active && setError(asDisplayError(failure)));
+    return () => {
+      active = false;
+    };
+  }, [asked, id]);
+  return (
+    <details onToggle={event => event.currentTarget.open && setAsked(true)}>
+      <summary>{t("QuantStats 指标")}</summary>
+      {error ? (
+        <ErrorNotice error={error} />
+      ) : !report ? (
+        <p className="subtle">{t("正在计算…")}</p>
+      ) : (
+        <>
+          <dl className="lab-figures">
+            {quantStats.map(([name, label, percent]) => (
+              <div key={name}>
+                <dt>{t(label)}</dt>
+                <dd>{metric(report.figures[name], percent)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="subtle">
+            QuantStats {report.quantstatsVersion} ·{" "}
+            {t("按逐日结算权益的日收益计算，无风险利率为零，一年 252 期。")}
+          </p>
+        </>
+      )}
+    </details>
   );
 }
 

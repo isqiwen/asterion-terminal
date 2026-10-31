@@ -34,6 +34,7 @@ message Request {
     FactorRun factor = 32;
     ChartBarsQuery chart_bars = 33;
     StoredContractsQuery stored_contracts = 34;
+    RunReportQuery run_report = 35;
   }
 }
 message HealthQuery {}
@@ -84,6 +85,17 @@ message ChartBarsQuery {
   string period = 3;
 }
 // The contracts a source has stored, with the days of each table.
+// QuantStats figures of a finished run (asterion_lab/report.py).
+message RunReportQuery {
+  string id = 1;
+}
+message RunReport {
+  string id = 1;
+  string quantstats_version = 2;
+  // sortino, omega, tail_ratio, ulcer_index, value_at_risk and
+  // conditional_value_at_risk; a figure without a value is absent.
+  map<string, double> figures = 3;
+}
 message StoredContractsQuery {
   string provider = 1;
   string contract = 2; // only this one, when given
@@ -148,6 +160,7 @@ message Response {
     FactorResult factor = 28;
     ChartBars chart_bars = 29;
     StoredContracts stored_contracts = 30;
+    RunReport run_report = 31;
   }
 }
 message Health {

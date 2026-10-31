@@ -5,6 +5,7 @@ import collections
 from dataclasses import dataclass
 import datetime
 import itertools
+import json
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
@@ -26,8 +27,8 @@ from asterion_lab.sources.base import Query
 from asterion_lab.sources.akshare import Akshare
 
 MODULE = "lab-service"
-# A factor's evaluation ends within the 30 s the Terminal waits for a reply,
-# so that the reply says why it did not finish.
+# A factor's evaluation or a run's QuantStats figures end within the 30 s the
+# Terminal waits for a reply, so that the reply says why they did not finish.
 FACTOR_SECONDS = 25
 
 
@@ -461,6 +462,27 @@ class Service:
             lines = error.decode(errors="replace").strip().splitlines()
             raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
         response.factor.ParseFromString(output)
+
+    async def on_run_report(self, request, response):
+        """QuantStats figures of a finished run, computed in a child process."""
+        if not IDENTITY.fullmatch(request.id):
+            raise ValueError("run id is invalid")
+        process = await asyncio.create_subprocess_exec(
+            *repository.child("asterion_lab.report"), str(self.directory), request.id,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            output, error = await asyncio.wait_for(process.communicate(), FACTOR_SECONDS)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise ValueError(f"QuantStats took longer than {FACTOR_SECONDS} s")
+        if process.returncode != 0:
+            lines = error.decode(errors="replace").strip().splitlines()
+            raise ValueError(lines[-1] if lines else f"QuantStats exited with {process.returncode}")
+        result = json.loads(output)
+        reply = response.run_report
+        reply.id, reply.quantstats_version = request.id, result["version"]
+        reply.figures.update(result["figures"])
 
     async def checked_run(self, request):
         """A run that can start: an unused id, valid settings, a Git work tree."""

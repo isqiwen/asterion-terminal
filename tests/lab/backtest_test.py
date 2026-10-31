@@ -254,6 +254,14 @@ class Backtests(unittest.TestCase):
             self.assertIn("total_return", row.metrics)
             detail = (await service.reply(Request(version=1, service_id="lab", run={"id": "child"}))).run
             self.assertEqual(detail.summary.state, "succeeded")
+            report = (await service.reply(Request(version=1, service_id="lab",
+                                                  run_report={"id": "child"}))).run_report
+            self.assertTrue(report.quantstats_version)
+            self.assertLessEqual({"tail_ratio", "ulcer_index", "value_at_risk",
+                                  "conditional_value_at_risk"}, set(report.figures))
+            missing = await service.reply(Request(version=1, service_id="lab",
+                                                  run_report={"id": "nothing"}))
+            self.assertEqual(missing.WhichOneof("body"), "error")
             self.assertIn('"commit"', detail.record)
             self.assertEqual(len(detail.days), len(DAYS))
             self.assertTrue(detail.fills and detail.equity[-1].settlement)

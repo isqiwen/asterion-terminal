@@ -74,6 +74,7 @@ export type {
   SourceTable as LabSourceTable,
   DailyBar as LabDailyBar,
   RunDetail as LabRunDetail,
+  RunReport as LabRunReport,
   RunSummary as LabRunSummary,
   Strategies as LabStrategies,
   FactorEntry as LabFactorEntry,
