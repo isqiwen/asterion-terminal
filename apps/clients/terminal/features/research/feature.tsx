@@ -7,6 +7,9 @@ import en from "./locales/en-US.json";
 import { lazy } from "react";
 import "./research.css";
 import type { TerminalFeature } from "../contract";
+const ResearchLab = lazy(() =>
+  import("./ResearchLab").then(module => ({ default: module.ResearchLab })),
+);
 const Backtest = lazy(() => import("./Backtest").then(module => ({ default: module.Backtest })));
 const ResearchSamples = lazy(() =>
   import("./ResearchSamples").then(m => ({ default: m.ResearchSamples })),
@@ -96,6 +99,13 @@ export const feature: TerminalFeature = {
           ),
       })),
   workspaces: [
+    {
+      id: "workspace.lab-research",
+      get title() {
+        return t("研究");
+      },
+      component: context => <ResearchLab {...context} />,
+    },
     {
       id: "workspace.research-samples",
       get title() {

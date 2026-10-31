@@ -51,6 +51,7 @@ def summary(item, row):
     for name, value in row["metrics"].items():
         if value is not None:
             item.metrics[name] = value
+    item.sweep = row.get("sweep", "")
     return item
 
 
@@ -506,6 +507,36 @@ class Service:
             raise ValueError("no such run is running")
         process.terminate()
         response.accepted.SetInParent()
+
+    def run_detail(self, identity):
+        row = next((row for row in self.runs.list() if row["id"] == identity), None)
+        if row is None:
+            raise ValueError(f"no run {identity}")
+        record = (self.runs.root / identity / "run.json").read_text()
+        if row["state"] != "succeeded":
+            return row, record, None
+        return row, record, {name: self.runs.table(identity, name)
+                             for name in ("equity", "settlements", "fills")}
+
+    async def on_run(self, request, response):
+        row, record, tables = await self.read(self.run_detail, request.id)
+        reply = response.run
+        summary(reply.summary, row)
+        reply.record = record
+        if tables is None:
+            return
+        for point in tables["equity"].iter_rows(named=True):
+            reply.equity.add(time_ns=point["time_ns"], equity=text(point["equity"]),
+                             settlement=point["event"] == "settlement")
+        for day in tables["settlements"].iter_rows(named=True):
+            reply.days.add(trading_day=day["trading_day"].isoformat(), time_ns=day["time_ns"],
+                           equity=text(day["equity"]), balance=text(day["balance"]),
+                           fees=text(day["fees"]), margin=text(day["margin"]))
+        for fill in tables["fills"].iter_rows(named=True):
+            reply.fills.add(fill=fill["fill"], order=fill["order"], time_ns=fill["time_ns"],
+                            contract=fill["contract"], side=fill["side"], offset=fill["offset"],
+                            quantity=text(fill["quantity"]), price=text(fill["price"]),
+                            fee=text(fill["fee"]))
 
     async def on_runs(self, _, response):
         for row in await self.read(self.runs.list):

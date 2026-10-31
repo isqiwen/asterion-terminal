@@ -233,6 +233,12 @@ class Backtests(unittest.TestCase):
             (row,) = listed.runs.runs
             self.assertEqual(row.state, "succeeded", row.error)
             self.assertIn("total_return", row.metrics)
+            detail = (await service.reply(Request(version=1, service_id="lab", run={"id": "child"}))).run
+            self.assertEqual(detail.summary.state, "succeeded")
+            self.assertIn('"commit"', detail.record)
+            self.assertEqual(len(detail.days), len(DAYS))
+            self.assertTrue(detail.fills and detail.equity[-1].settlement)
+            self.assertEqual(Decimal(detail.days[-1].equity), Decimal(detail.equity[-1].equity))
             run.id, run.repository = "elsewhere", str(Path(self.temporary.name) / "missing")
             self.assertEqual((await service.reply(request)).error.code, "invalid_request")
 

@@ -812,5 +812,14 @@
   "保存地址": "Save address",
   "实时行情（CTP）": "Real-time quotes (CTP)",
   "本机行情服务用这些期货账户登录行情和查询合约目录，其中一个提供行情。交易账户在交易主机上配置，见交易连接。": "The local market data service logs in with these futures accounts to receive quotes and query the contract catalog; one of them supplies market data. Trading accounts are configured on the trading hosts; see Trading connections.",
-  "历史数据供应商": "History vendors"
+  "历史数据供应商": "History vendors",
+  "交易": "Trading",
+  "你自己的 Git 仓库，策略写在其中 strategies/ 目录下的模块里。研究页从这里列出策略，运行时记下提交号和未提交的改动。": "A Git repository of your own, with strategies in the modules of its strategies/ directory. The research page lists them from here and records the commit and any uncommitted changes of every run.",
+  "保存": "Save",
+  "更换目录": "Change directory",
+  "研究": "Research",
+  "研究设置文件无法读取，已保留原文件供检查；重新选择会覆盖它。": "The research settings file cannot be read and is kept for inspection; choosing again replaces it.",
+  "策略仓库": "Strategy repository",
+  "策略仓库目录": "Strategy repository directory",
+  "选择目录": "Choose directory"
 }

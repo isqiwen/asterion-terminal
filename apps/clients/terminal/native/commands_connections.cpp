@@ -48,7 +48,8 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
         selected ? json(selected->id) : json(nullptr),
         trading_connections.snapshot(),
         trading_connections.fingerprint(),
-        recorder_settings()
+        recorder_settings(),
+        research_settings()
     };
     return next == *previous ? previous : std::make_shared<const SettingsView>(std::move(next));
 }
@@ -63,8 +64,31 @@ json Application::Impl::recorder_settings() const
     }
 }
 
+json Application::Impl::research_settings() const
+{
+    try {
+        return strategy_repository.get();
+    } catch (const std::exception&) {
+        return {{"error", "unreadable"}};
+    }
+}
+
 void Application::Impl::register_connection_commands()
 {
+    command("research.repository.save", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"path"});
+        co_await settings<void>([&] {
+            strategy_repository.save(text(p, "path"));
+        });
+        co_return snapshot();
+    });
+    command("research.repository.clear", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        co_await settings<void>([&] {
+            strategy_repository.clear();
+        });
+        co_return snapshot();
+    });
     command("recorder.endpoint.save", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"host", "port"});
         if (!p.at("port").is_number_unsigned())

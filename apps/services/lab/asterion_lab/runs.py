@@ -195,6 +195,8 @@ class Runs:
         metrics = {}
         for run, name, value in self.index.execute("select run, name, value from metrics"):
             metrics.setdefault(run, {})[name] = value
+        sweeps = dict(self.index.execute("select run, sweep from sweeps"))
         names = ("id", "strategy", "commit", "changes", "dataset_version", "state", "error",
                  "started_ns", "finished_ns")
-        return [{**dict(zip(names, row)), "metrics": metrics.get(row[0], {})} for row in rows]
+        return [{**dict(zip(names, row)), "metrics": metrics.get(row[0], {}),
+                 "sweep": sweeps.get(row[0], "")} for row in rows]

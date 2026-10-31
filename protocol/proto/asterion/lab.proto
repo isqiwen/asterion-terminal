@@ -30,6 +30,7 @@ message Request {
     Sweep sweep = 28;
     SweepQuery sweep_runs = 29;
     CancelSweep cancel_sweep = 30;
+    RunQuery run = 31;
   }
 }
 message HealthQuery {}
@@ -127,6 +128,7 @@ message Response {
     Strategies strategies = 24;
     Runs runs = 25;
     SweepRuns sweep_runs = 26;
+    RunDetail run = 27;
   }
 }
 message Health {
@@ -429,6 +431,8 @@ message RunSummary {
   map<string, double> metrics = 10;
   // In a sweep's runs: the parameter values this run was given.
   map<string, ParameterValue> params = 11;
+  // The sweep this run is one combination of, if any.
+  string sweep = 12;
 }
 message Runs {
   repeated RunSummary runs = 1;
@@ -483,4 +487,41 @@ message SweepRuns {
   string selected = 4;
   // The rolling validation's account, once it has started.
   RunSummary rolling = 5;
+}
+
+// One run's record for its result page. Amounts are exact decimals as text.
+message RunQuery {
+  string id = 1;
+}
+message RunEquity {
+  int64 time_ns = 1;
+  string equity = 2;
+  bool settlement = 3; // a day's settlement, or the mark after a bar
+}
+message RunDay {
+  string trading_day = 1;
+  int64 time_ns = 2;
+  string equity = 3;
+  string balance = 4;
+  string fees = 5;
+  string margin = 6;
+}
+message RunFill {
+  string fill = 1;
+  string order = 2;
+  int64 time_ns = 3;
+  string contract = 4;
+  string side = 5; // buy, sell
+  string offset = 6; // open, close_today, close_yesterday
+  string quantity = 7;
+  string price = 8;
+  string fee = 9;
+}
+message RunDetail {
+  RunSummary summary = 1;
+  // run.json as written when the run started: what reproduces it.
+  string record = 2;
+  repeated RunEquity equity = 3;
+  repeated RunDay days = 4;
+  repeated RunFill fills = 5;
 }

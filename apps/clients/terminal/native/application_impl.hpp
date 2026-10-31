@@ -10,6 +10,7 @@
 #include "trading_connections.hpp"
 #include "data_credentials.hpp"
 #include "recorder_endpoint.hpp"
+#include "strategy_repository.hpp"
 #include "plugin_catalog.hpp"
 #include "research_client.hpp"
 #include "data_client.hpp"
@@ -154,6 +155,9 @@ struct Application::Impl
     };
     TradingConnections trading_connections{program_directory("terminal") / "data"};
     RecorderEndpoint recorder_endpoint{program_directory("terminal") / "data" / "recorder.json"};
+    StrategyRepository strategy_repository{
+        program_directory("terminal") / "data" / "research.json"
+    };
     // The one CTP account that supplies market data.
     PolledTask<CtpConnection> market_ctp();
     // Where a CTP account keeps its trading record; one record per account.
@@ -161,6 +165,7 @@ struct Application::Impl
     json ctp_accounts() const;
     // The saved recorder address for display, or a mark that it is unreadable.
     json recorder_settings() const;
+    json research_settings() const;
     // The credential a download of this source uses: the one typed for this
     // request, otherwise the one saved for the source's provider.
     PolledTask<std::string> source_credential(const std::string& source, std::string typed);
@@ -289,6 +294,7 @@ struct Application::Impl
         json trading = json::array();
         std::string trading_fingerprint;
         json recorder = nullptr;
+        json repository = nullptr;
         bool operator==(const SettingsView&) const = default;
     };
 

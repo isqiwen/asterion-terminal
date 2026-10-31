@@ -165,6 +165,7 @@ async function openSettings(category) {
       "connections",
       "trading",
       "sources",
+      "research",
       "plugins",
       "resources",
       "backup",

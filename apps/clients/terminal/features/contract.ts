@@ -72,6 +72,10 @@ export type {
   Task as LabTask,
   SourceDescriptor as LabSource,
   SourceTable as LabSourceTable,
+  DailyBar as LabDailyBar,
+  RunDetail as LabRunDetail,
+  RunSummary as LabRunSummary,
+  Strategies as LabStrategies,
 } from "../src/generated/asterion/lab_pb";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
@@ -110,7 +114,7 @@ export type TerminalContext = {
     id: string,
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
-  openSettings: (page?: "preferences" | "connections" | "trading" | "sources") => void;
+  openSettings: (page?: "preferences" | "connections" | "trading" | "sources" | "research") => void;
   query: CommandHandler<Snapshot, QueryCommand>;
   trade: CommandHandler;
 };

@@ -211,6 +211,8 @@ export type CommandParams = {
   "lab.source.configure": { provider: string };
   "recorder.endpoint.save": { host: string; port: number };
   "recorder.endpoint.clear": Record<string, never>;
+  "research.repository.save": { path: string };
+  "research.repository.clear": Record<string, never>;
   "lab.endpoint": Record<string, never>;
   "backtest.margins.preview": Record<string, never>;
   "backtest.submit": RiskParameters & {

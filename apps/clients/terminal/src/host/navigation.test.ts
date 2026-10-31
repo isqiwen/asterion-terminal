@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   modules,
+  topModules,
   initialNavigation,
   currentRoute,
   navigationLocation,
@@ -13,13 +14,16 @@ import { setLocale, translate } from "../i18n";
 test("product catalog has the required modules and places every contributed view exactly once", () => {
   expect(modules.map(module => module.id)).toEqual([
     "market",
+    "research",
+    "live",
     "data",
     "analysis",
     "strategy",
     "backtest",
     "evaluation",
-    "live",
   ]);
+  // The old research views keep no entry of their own until they are deleted.
+  expect(topModules.map(module => module.id)).toEqual(["market", "research", "live", "data"]);
   const views = modules.flatMap(module => module.views);
   expect(new Set(views).size).toBe(views.length);
   expect([...views].sort()).toEqual(workspaces.map(view => view.id).sort());

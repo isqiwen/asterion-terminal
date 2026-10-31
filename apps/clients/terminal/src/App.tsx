@@ -18,7 +18,7 @@ import { Settings } from "./settings/Settings";
 import { terminalFeatures, workspaces } from "./features";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
 import {
-  modules,
+  topModules,
   initialNavigation,
   currentRoute,
   navigationLocation,
@@ -147,7 +147,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         event.preventDefault();
         if (!settingsWindow) showSettings();
       }
-      const module = modules.slice(0, 7)[Number(event.key) - 1];
+      const module = topModules[Number(event.key) - 1];
       if (module) {
         event.preventDefault();
         if (!settingsWindow) setNavigation(previous => selectModule(previous, module.id));
@@ -277,7 +277,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         <Workbench
           title={t(route.module.title)}
           showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-          navigation={modules.map((item, index) => ({
+          navigation={topModules.map((item, index) => ({
             id: item.id,
             title: t(item.title),
             icon: <Icon name={item.icon} />,

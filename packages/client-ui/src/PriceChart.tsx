@@ -32,6 +32,8 @@ export type Candle = {
 type Series =
   { kind: "line"; points: readonly PricePoint[] } | { kind: "candles"; points: readonly Candle[] };
 type Line = { label: string; color: string; values: readonly (number | null)[] };
+// A trade at the candle with this index: buys below it, sells above it.
+export type TradeMark = { index: number; side: "buy" | "sell"; text: string };
 type Props = {
   series: Series;
   label: string;
@@ -54,11 +56,13 @@ type Props = {
   };
   referencePrice?: { value: string; label: string };
   showPriceExtremes?: boolean;
+  trades?: readonly TradeMark[];
   mirrorPriceAxis?: boolean;
   formatIndicatorValue?: (value: number) => string;
   formatPrice?: (value: number) => string;
 };
 const emptyLines: readonly Line[] = [];
+const noTrades: readonly TradeMark[] = [];
 const time = (index: number) => (index + 1) as UTCTimestamp;
 const valueAt = (point: PricePoint | Candle) => ("close" in point ? point.close : point.price);
 const numberText = (value: number) => Number(value.toPrecision(8)).toString();
@@ -97,6 +101,7 @@ export function PriceChart(props: Props) {
     oscillator,
     referencePrice,
     showPriceExtremes = false,
+    trades = noTrades,
     mirrorPriceAxis = false,
     formatIndicatorValue = numberText,
   } = props;
@@ -425,14 +430,26 @@ export function PriceChart(props: Props) {
     const candles = layers.current.get("candles");
     if (!candles || series.kind !== "candles") return;
     if (!markers.current) markers.current = createSeriesMarkers(candles, []);
+    const css = getComputedStyle(container.current ?? document.documentElement);
+    const color = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    const traded = trades
+      .filter(trade => trade.index >= 0 && trade.index < count)
+      .map(trade => ({
+        time: time(trade.index),
+        position: trade.side === "buy" ? ("belowBar" as const) : ("aboveBar" as const),
+        color:
+          trade.side === "buy" ? color("--quote-up", "#e45a65") : color("--quote-down", "#45b997"),
+        shape: trade.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const),
+        text: trade.text,
+      }));
     if (!showPriceExtremes || !count) {
-      markers.current.setMarkers([]);
+      markers.current.setMarkers(traded.sort((a, b) => Number(a.time) - Number(b.time)));
       return;
     }
     const visible = series.points.slice(start, end);
     markers.current.setMarkers(
-      (["high", "low"] as const)
-        .map(field => {
+      [
+        ...(["high", "low"] as const).map(field => {
           const best = visible.reduce(
             (at, p, i) =>
               (
@@ -452,10 +469,11 @@ export function PriceChart(props: Props) {
             text: visible[best][field],
             size: 0,
           };
-        })
-        .sort((a, b) => Number(a.time) - Number(b.time)),
+        }),
+        ...traded,
+      ].sort((a, b) => Number(a.time) - Number(b.time)),
     );
-  }, [series, showPriceExtremes, start, end, count]);
+  }, [series, showPriceExtremes, trades, start, end, count]);
 
   useLayoutEffect(() => {
     const api = chart.current;
