@@ -78,8 +78,9 @@ function Figures({ summary, prefix = "" }: { summary: LabRunSummary; prefix?: st
 }
 
 // One run's result: its figures, equity, trades on the bars, months and what
-// reproduces it.
-export function RunResult({ id }: { id: string }) {
+// reproduces it. Read again when `state`, the run's state in the list of
+// runs, changes, so a running run shows its result once it has ended.
+export function RunResult({ id, state }: { id: string; state: string }) {
   const [detail, setDetail] = useState<LabRunDetail | null>(null);
   const [contract, setContract] = useState("");
   const [bars, setBars] = useState<LabDailyBar[]>([]);
@@ -98,7 +99,7 @@ export function RunResult({ id }: { id: string }) {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, state]);
   const record = useMemo(() => (detail ? JSON.parse(detail.record) : null), [detail]);
   useEffect(() => {
     let active = true;

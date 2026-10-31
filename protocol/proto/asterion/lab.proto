@@ -487,6 +487,8 @@ message SweepRuns {
   string selected = 4;
   // The rolling validation's account, once it has started.
   RunSummary rolling = 5;
+  // Runs of the sweep, or its rolling validation, are still to start or to end.
+  bool active = 6;
 }
 
 // One run's record for its result page. Amounts are exact decimals as text.

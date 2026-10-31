@@ -450,8 +450,9 @@ def statistics_record(config: Config) -> dict:
             "holdout_day": config.holdout_day}
 
 
-def run(directory: Path, identity: str, config: Config):
-    """One backtest from start to its record. A failure is recorded as failed."""
+def run(directory: Path, identity: str, config: Config, started=lambda: None):
+    """One backtest from start to its record. A failure is recorded as failed;
+    `started` is called once the record exists."""
     import asterion_engine
 
     runs = Runs(directory)
@@ -465,6 +466,7 @@ def run(directory: Path, identity: str, config: Config):
         params=config.params, provider=config.provider, dataset_version=data.version.identity,
         symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
         costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config)))
+    started()
     try:
         strategy = repository.load(root, config.strategy, config.params)
         contracts, series, first = prepare(data, config)
@@ -479,6 +481,17 @@ def run(directory: Path, identity: str, config: Config):
         raise
 
 
+def number(name: str, text: str) -> Decimal:
+    """A decimal setting of a run, named when it is missing or malformed."""
+    try:
+        value = Decimal(text)
+    except ArithmeticError:
+        value = None
+    if value is None or not value.is_finite():
+        raise ValueError(f"{name} must be a number, not {text!r}")
+    return value
+
+
 def config_of(request) -> Config:
     """A Config from a BacktestRun message."""
     params = {name: getattr(value, value.WhichOneof("value"))
@@ -487,17 +500,18 @@ def config_of(request) -> Config:
     for item in request.costs:
         if len(item.values) != len(COSTS):
             raise ValueError(f"costs of {item.product} have eight values: {', '.join(COSTS)}")
-        costs[item.product] = [Decimal(value) for value in item.values]
+        costs[item.product] = [number(f"{item.product} {name}", value)
+                               for name, value in zip(COSTS, item.values)]
     return Config(
         repository=request.repository, strategy=request.strategy, params=params,
         provider=request.provider or "tushare", symbols=tuple(request.symbols),
-        begin_day=request.begin_day, end_day=request.end_day, deposit=Decimal(request.deposit),
+        begin_day=request.begin_day, end_day=request.end_day, deposit=number("deposit", request.deposit),
         costs=costs, slippage_ticks=request.slippage_ticks,
-        max_order_lots=Decimal(request.max_order_lots),
-        max_gross_lots=Decimal(request.max_gross_lots),
+        max_order_lots=number("max_order_lots", request.max_order_lots),
+        max_gross_lots=number("max_gross_lots", request.max_gross_lots),
         max_working_orders=request.max_working_orders,
-        max_gross_weight=Decimal(request.max_gross_weight or 0),
-        max_net_weight=Decimal(request.max_net_weight or 0),
+        max_gross_weight=number("max_gross_weight", request.max_gross_weight or "0"),
+        max_net_weight=number("max_net_weight", request.max_net_weight or "0"),
         annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
         holdout_day=request.holdout_day)
 
@@ -526,7 +540,8 @@ def main():
     request = BacktestRun()
     request.ParseFromString(sys.stdin.buffer.read())
     try:
-        run(Path(sys.argv[1]), request.id, config_of(request))
+        run(Path(sys.argv[1]), request.id, config_of(request),
+            lambda: print("started", flush=True))
     except BaseException as error:
         print(error, file=sys.stderr)
         sys.exit(1)

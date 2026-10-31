@@ -20,7 +20,7 @@ foreach(schema analytics lab recorder)
     DEPENDS ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto)
   list(APPEND ASTERION_PYTHON_PROTOCOL ${output})
 endforeach()
-add_custom_target(asterion_python_protocol DEPENDS ${ASTERION_PYTHON_PROTOCOL})
+add_custom_target(asterion_python_protocol ALL DEPENDS ${ASTERION_PYTHON_PROTOCOL})
 
 add_library(asterion_protocol STATIC
   ${ASTERION_PROTO_SOURCES}

@@ -24,9 +24,13 @@ import { RunComparison, RunResult, SweepResult, metric, signed, states } from ".
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
-// Runs and sweeps are named by strategy and the time they were asked for.
+// Runs and sweeps are named by strategy and the time they were asked for,
+// to the millisecond so that two runs asked for in one second differ.
 function identity(strategy: string) {
-  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:T.]/g, "")
+    .slice(0, 17);
   return `${strategy.split(".")[0].replace(/[^A-Za-z0-9_-]/g, "-")}-${stamp}`;
 }
 
@@ -47,6 +51,7 @@ export function ResearchLab(context: TerminalContext) {
     id: string;
     runs: LabRunSummary[];
     selected: string;
+    active: boolean;
   } | null>(null);
   const [shown, setShown] = useState<Shown>(null);
   const [compared, setCompared] = useState<string[]>([]);
@@ -76,7 +81,10 @@ export function ResearchLab(context: TerminalContext) {
       .then(setSummary)
       .catch(failure => setError(asDisplayError(failure)));
   }, [readStrategies, readRuns]);
-  const running = runs.some(run => run.state === "running");
+  // Read again while something runs, or the sweep on show has runs to come.
+  const running =
+    runs.some(run => run.state === "running") ||
+    (shown?.kind === "sweep" && sweep?.id === shown.id && sweep.active);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void readRuns(), 2000);
@@ -88,7 +96,12 @@ export function ResearchLab(context: TerminalContext) {
     void lab({ case: "sweepRuns", value: { id: shown.id } }, "sweepRuns")
       .then(reply => {
         if (!active) return;
-        setSweep({ id: reply.id, runs: [...reply.runs], selected: reply.selected });
+        setSweep({
+          id: reply.id,
+          runs: [...reply.runs],
+          selected: reply.selected,
+          active: reply.active,
+        });
       })
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
@@ -240,7 +253,13 @@ export function ResearchLab(context: TerminalContext) {
         </button>
       </aside>
       <main className="lab-center">
-        {shown?.kind === "run" && <RunResult key={shown.id} id={shown.id} />}
+        {shown?.kind === "run" && (
+          <RunResult
+            key={shown.id}
+            id={shown.id}
+            state={runs.find(run => run.id === shown.id)?.state ?? ""}
+          />
+        )}
         {shown?.kind === "sweep" && sweep?.id === shown.id && (
           <SweepResult
             runs={sweep.runs}

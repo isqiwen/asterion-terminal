@@ -387,13 +387,15 @@ class Service:
     async def launch(self, request, module="asterion_lab.backtest", repository_path=None):
         process = await asyncio.create_subprocess_exec(
             *repository.child(module), str(self.directory), cwd=repository_path or request.repository,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         process.stdin.write(request.SerializeToString())
         process.stdin.close()
         self.backtests[request.id] = process
-        asyncio.create_task(self.watch(request.id, process))
+        started = asyncio.get_running_loop().create_future()
+        asyncio.create_task(self.watch(request.id, process, started))
         self.log.write("info", MODULE, "backtest.started", run=request.id)
+        return started
 
     async def pump(self):
         """Starts waiting runs while fewer than the allowed number run, and a
@@ -424,7 +426,10 @@ class Service:
 
     async def on_backtest(self, request, response):
         await self.checked_run(request)
-        await self.launch(request)
+        # Accepted once recorded: whoever asked can read the run at once.
+        error = await (await self.launch(request))
+        if error:
+            raise ValueError(error)
         response.accepted.SetInParent()
 
     async def on_sweep(self, request, response):
@@ -493,10 +498,22 @@ class Service:
                         if row["id"] == f"{request.id}-rolling"), None)
         if rolling:
             summary(reply.rolling, rolling)
+        members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
+        reply.active = bool(reply.waiting or members & set(self.backtests)
+                            or request.id in self.rolling)
 
-    async def watch(self, identity, process):
-        error = (await process.stderr.read()).decode(errors="replace").strip()
+    async def watch(self, identity, process, started):
+        """Resolves `started` with "" once the child has written its run's
+        record, or with why it ended before it could."""
+        recorded = await process.stdout.readline() == b"started\n"
+        if recorded:
+            started.set_result("")
+        # What the strategy prints is read and dropped, so the child never blocks on it.
+        _, error = await asyncio.gather(process.stdout.read(), process.stderr.read())
+        error = error.decode(errors="replace").strip()
         code = await process.wait()
+        if not recorded:
+            started.set_result(error.splitlines()[-1] if error else f"exited with {code}")
         del self.backtests[identity]
         await self.pump()
         if code == 0:
