@@ -282,6 +282,49 @@ class Backtests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_rolling_validation_follows_each_rounds_choice(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            request = self.sweep_request("walk", [2, 3], [4], 2)
+            request.sweep.base.holdout_day = ""
+            request.sweep.walk_forward.training_days, request.sweep.walk_forward.validation_days = 20, 3
+            self.assertEqual((await service.reply(request)).WhichOneof("body"), "accepted")
+            deadline = time.monotonic() + 60
+            while (service.backtests or service.waiting or service.rolling) and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+            reply = (await service.reply(Request(version=1, service_id="lab", sweep_runs={"id": "walk"}))).sweep_runs
+            self.assertEqual(reply.rolling.state, "succeeded", reply.rolling.error)
+            self.assertIn("out_of_sample_total_return", reply.rolling.metrics)
+
+        asyncio.run(scenario())
+        runs = Runs(self.directory)
+        rolling = runs.record("walk-rolling")["statistics"]["rolling"]
+        self.assertEqual([item["first_day"] for item in rolling["rounds"]],
+                         [DAYS[n].isoformat() for n in (20, 23, 26, 29)])
+        for item in rolling["rounds"]:
+            scores = [score for score in item["sharpe"] if score is not None]
+            if scores:
+                self.assertEqual(item["sharpe"][item["selected"]], max(scores))
+            else:
+                self.assertIsNone(item["selected"])
+        # Nothing is held before the first round's validation days.
+        first = backtest.close_ns(DAYS[20].isoformat())
+        self.assertTrue(all(time_ns >= first for time_ns in runs.table("walk-rolling", "fills")["time_ns"]))
+        request = self.sweep_request("refused", [2, 3], [4], 2)
+        request.sweep.walk_forward.training_days, request.sweep.walk_forward.validation_days = 20, 3
+
+        async def refused():
+            service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+            self.assertEqual((await service.reply(request)).error.code, "invalid_request")
+
+        asyncio.run(refused())
+        with self.assertRaises(ValueError):
+            Runs(self.directory).sweep("refused")
+
     def test_a_cancelled_sweep_starts_nothing_more_and_a_new_service_interrupts_leftovers(self):
         class Log:
             def write(self, *args, **kwargs):

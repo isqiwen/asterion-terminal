@@ -2,6 +2,7 @@
 the warehouse run on a small thread pool and acquisition on its own thread."""
 import asyncio
 import collections
+from dataclasses import dataclass
 import datetime
 import itertools
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,7 @@ import os
 from pathlib import Path
 import time
 
-from asterion.lab_pb2 import Request, Response
+from asterion.lab_pb2 import Request, Response, RollingRun
 
 from asterion_lab.acquisition import Acquisition
 from asterion_lab import backtest, crosscheck, dominant, repository
@@ -32,6 +33,12 @@ def text(value) -> str:
     if value is None:
         return ""
     return format(Decimal(value).normalize(), "f")
+
+
+@dataclass
+class Rolling:
+    request: object  # RollingRun
+    candidates: int
 
 
 def summary(item, row):
@@ -65,6 +72,7 @@ class Service:
         self.backtests = {}  # run id -> its child process, while it runs
         self.waiting = collections.deque()  # (sweep, BacktestRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
+        self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
 
     async def reply(self, request: Request) -> Response:
         response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
@@ -374,25 +382,37 @@ class Service:
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
 
-    async def launch(self, request):
+    async def launch(self, request, module="asterion_lab.backtest", repository_path=None):
         process = await asyncio.create_subprocess_exec(
-            *repository.child("asterion_lab.backtest"), str(self.directory), cwd=request.repository,
+            *repository.child(module), str(self.directory), cwd=repository_path or request.repository,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE)
         process.stdin.write(request.SerializeToString())
         process.stdin.close()
         self.backtests[request.id] = process
         asyncio.create_task(self.watch(request.id, process))
-        self.log.write("info", MODULE, "backtest.started", run=request.id, strategy=request.strategy)
+        self.log.write("info", MODULE, "backtest.started", run=request.id)
 
     async def pump(self):
-        """Starts waiting runs while fewer than the allowed number run."""
+        """Starts waiting runs while fewer than the allowed number run, and a
+        sweep's rolling validation once all its candidates have ended."""
         while self.waiting and len(self.backtests) < self.processes:
             _, run = self.waiting.popleft()
             try:
                 await self.launch(run)
             except Exception as error:
                 self.log.write("error", MODULE, "backtest.not_started", run=run.id, message=str(error))
+        for sweep, rolling in list(self.rolling.items()):
+            members = {f"{sweep}-{n}" for n in range(rolling.candidates)}
+            if any(item[0] == sweep for item in self.waiting) or members & set(self.backtests):
+                continue
+            del self.rolling[sweep]
+            states = {row["state"] for row in await self.read(self.runs.sweep, sweep)}
+            if states != {"succeeded"}:
+                self.log.write("warning", MODULE, "rolling.skipped", sweep=sweep,
+                               message="not every candidate succeeded")
+                continue
+            await self.launch(rolling.request, "asterion_lab.rolling", rolling.request.base.repository)
 
     async def on_backtest(self, request, response):
         await self.checked_run(request)
@@ -421,9 +441,20 @@ class Service:
         await self.checked_run(runs[0])
         for run in runs[1:]:
             backtest.config_of(run)
+        rolling = None
+        if request.HasField("walk_forward"):
+            if request.base.holdout_day or len(runs) < 2:
+                raise ValueError("rolling validation compares two or more candidates and takes no holdout")
+            if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
+                raise ValueError("rolling validation needs at least 20 training days and one validation day")
+            rolling = RollingRun(id=f"{request.id}-rolling", sweep=request.id, base=request.base,
+                                 training_days=request.walk_forward.training_days,
+                                 validation_days=request.walk_forward.validation_days)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
         if request.processes:
             self.processes = min(request.processes, os.cpu_count() or 1)
+        if rolling:
+            self.rolling[request.id] = Rolling(rolling, len(runs))
         self.waiting.extend((request.id, run) for run in runs)
         await self.pump()
         response.accepted.SetInParent()
@@ -450,6 +481,10 @@ class Service:
             if sharpe is not None and (best is None or sharpe > best[1]):
                 best = (row["id"], sharpe)
         reply.selected = best[0] if best else ""
+        rolling = next((row for row in await self.read(self.runs.list)
+                        if row["id"] == f"{request.id}-rolling"), None)
+        if rolling:
+            summary(reply.rolling, rolling)
 
     async def watch(self, identity, process):
         error = (await process.stderr.read()).decode(errors="replace").strip()

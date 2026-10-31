@@ -228,7 +228,8 @@ class Records(unittest.TestCase):
         self.assertEqual(runs.list()[0]["state"], "running")
         tables = empty_tables()
         tables["equity"] = pl.DataFrame(
-            {"time_ns": [1, 2], "equity": [Decimal("1000000.12345678"), Decimal("999999.5")]},
+            {"time_ns": [1, 2], "equity": [Decimal("1000000.12345678"), Decimal("999999.5")],
+             "event": ["mark", "settlement"]},
             schema=TABLES["equity"])
         with self.assertRaises(ValueError):
             runs.succeed("run-1", {**tables, "equity": tables["equity"].cast({"equity": pl.Float64})},

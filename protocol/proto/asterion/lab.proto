@@ -447,6 +447,23 @@ message Sweep {
   BacktestRun base = 2;
   repeated ParameterValues values = 3;
   uint32 processes = 4;
+  // Rolling validation once every run has succeeded, instead of a holdout.
+  WalkForward walk_forward = 5;
+}
+// Rounds select by the Sharpe ratio of `training_days` (at least 20) and are
+// followed for `validation_days` (at least 1), at most 100 rounds; one account
+// follows each round's choice (docs/lab.md). Its record is <sweep id>-rolling.
+message WalkForward {
+  uint32 training_days = 1;
+  uint32 validation_days = 2;
+}
+// What the service gives the child that runs a sweep's rolling validation.
+message RollingRun {
+  string id = 1;
+  string sweep = 2;
+  BacktestRun base = 3;
+  uint32 training_days = 4;
+  uint32 validation_days = 5;
 }
 message SweepQuery {
   string id = 1;
@@ -464,4 +481,6 @@ message SweepRuns {
   repeated RunSummary runs = 2;
   uint32 waiting = 3;
   string selected = 4;
+  // The rolling validation's account, once it has started.
+  RunSummary rolling = 5;
 }

@@ -29,7 +29,8 @@ from asterion_lab.warehouse import write_durably
 
 AMOUNT = pl.Decimal(19, 8)
 TABLES = {
-    "equity": {"time_ns": pl.Int64, "equity": AMOUNT},
+    # Every observation: "mark" after a bar, "settlement" at a day's end.
+    "equity": {"time_ns": pl.Int64, "equity": AMOUNT, "event": pl.String},
     "orders": {"order": pl.String, "time_ns": pl.Int64, "symbol": pl.String,
                "contract": pl.String, "side": pl.String, "offset": pl.String,
                "quantity": AMOUNT, "price": AMOUNT, "state": pl.String},

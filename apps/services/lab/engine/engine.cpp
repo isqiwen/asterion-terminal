@@ -319,6 +319,11 @@ public:
         return result;
     }
 
+    void redecide()
+    {
+        replay_->redecide();
+    }
+
     void settle()
     {
         replay_->settle(record_);
@@ -501,6 +506,7 @@ PYBIND11_MODULE(asterion_engine, module)
         .def("want", &Engine::want, py::arg("unit"), py::arg("lots"))
         .def("decide", &Engine::decide)
         .def("weights", &Engine::weights, py::arg("weights"), py::arg("gross"), py::arg("net"))
+        .def("redecide", &Engine::redecide)
         .def("settle", &Engine::settle)
         .def("orders", &Engine::orders)
         .def("fills", &Engine::fills)

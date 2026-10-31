@@ -305,20 +305,27 @@ def prepare(data: Data, config: Config):
     return contracts, series, first
 
 
+def visible(replayed, symbols: dict, contracts: list) -> list:
+    """What a strategy reads of one timestamp's bars: those of the months its
+    symbols trade now."""
+    bars = []
+    for _, contract, unit, leading, day, time_ns, *prices, _ in replayed:
+        if leading:
+            open_, high, low, close, volume = (value / R for value in prices)
+            item = contracts[contract]
+            bars.append(Bar(symbols[unit], item["symbol"],
+                            datetime.datetime.fromtimestamp(time_ns / 10 ** 9, BEIJING),
+                            open_, high, low, close, volume, item["open_interest"][day]))
+    return bars
+
+
 def replay(engine, strategy, symbols: dict, contracts: list, config: Config):
     """Drives the strategy through the engine. `symbols` maps each unit to its symbol."""
     context = Context([symbols[unit] for unit in sorted(symbols)])
     units = {symbol: unit for unit, symbol in symbols.items()}
     while not engine.finished:
         while not engine.day_done:
-            bars = []
-            for _, contract, unit, leading, day, time_ns, *prices, _ in engine.next():
-                if leading:
-                    open_, high, low, close, volume = (value / R for value in prices)
-                    item = contracts[contract]
-                    bars.append(Bar(symbols[unit], item["symbol"],
-                                    datetime.datetime.fromtimestamp(time_ns / 10 ** 9, BEIJING),
-                                    open_, high, low, close, volume, item["open_interest"][day]))
+            bars = visible(engine.next(), symbols, contracts)
             wanted = step(strategy, context, bars) if bars else {}
             if context.mode != "weights":
                 # Lots stand: each bar places them again at its close.
@@ -349,7 +356,8 @@ def tables(engine, contracts: list) -> dict:
     fills = engine.fills()
     return {
         "equity": pl.DataFrame({"time_ns": [point[0] for point in engine.equity],
-                                "equity": amount(point[1] for point in engine.equity)},
+                                "equity": amount(point[1] for point in engine.equity),
+                                "event": [point[2] for point in engine.equity]},
                                schema=TABLES["equity"]),
         "orders": pl.DataFrame({
             "order": [order[0] for order in orders], "time_ns": [order[8] for order in orders],
@@ -386,35 +394,60 @@ STATISTICS = ("total_return", "max_drawdown", "winning_days", "annual_return",
               "annual_volatility", "sharpe", "calmar")
 
 
+def segment(config: Config, engine, first: int, last: int, base: int, begin_ns: int,
+            opening: bool) -> dict:
+    """The statistics of settled days [first, last) from `base` equity."""
+    import asterion_engine
+
+    marks, days = engine.equity, engine.settlements
+    # Where each settlement is among the equity observations.
+    ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
+    values = asterion_engine.performance(
+        base, [(row[0], row[3]) for row in days[first:last]],
+        [point[1] for point in marks[(ends[first - 1] + 1 if first else 0):ends[last - 1] + 1]],
+        begin_ns, days[last - 1][1], config.annual_periods, config.zero_risk_free, opening)
+    return {name: values[name] for name in STATISTICS}
+
+
+def segment_metrics(config: Config, engine, split: int) -> dict:
+    """The statistics of the days from index `split` on, from the equity before them."""
+    days = engine.settlements
+    return segment(config, engine, split, len(days), days[split - 1][3], days[split - 1][1], True)
+
+
 def metrics(config: Config, engine) -> dict:
     """The old engine's statistics of the whole run, and with a holdout day of
     the days before it and of the holdout alone."""
-    import asterion_engine
-
-    marks = engine.equity
     days = engine.settlements
     if not days:
         raise ValueError("the run settled no trading day")
-    # Where each settlement is among the equity observations.
-    ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
-
-    def segment(first, last, base, begin_ns, opening):
-        values = asterion_engine.performance(
-            base, [(row[0], row[3]) for row in days[first:last]],
-            [point[1] for point in marks[(ends[first - 1] + 1 if first else 0):ends[last - 1] + 1]],
-            begin_ns, days[last - 1][1], config.annual_periods, config.zero_risk_free, opening)
-        return {name: values[name] for name in STATISTICS}
-
-    result = segment(0, len(days), raw(config.deposit), marks[0][0], False)
+    result = segment(config, engine, 0, len(days), raw(config.deposit), engine.equity[0][0], False)
     if config.holdout_day:
         split = next((n for n, row in enumerate(days) if row[0] >= config.holdout_day), len(days))
         if not 0 < split < len(days):
             raise ValueError("the holdout day leaves no days before it or after it")
-        for name, value in segment(0, split, raw(config.deposit), marks[0][0], False).items():
+        for name, value in segment(config, engine, 0, split, raw(config.deposit),
+                                   engine.equity[0][0], False).items():
             result[f"development_{name}"] = value
-        for name, value in segment(split, len(days), days[split - 1][3], days[split - 1][1], True).items():
+        for name, value in segment_metrics(config, engine, split).items():
             result[f"holdout_{name}"] = value
     return result
+
+
+def costs_record(config: Config) -> dict:
+    return {"by_product": {key: dict(zip(COSTS, map(str, values))) for key, values in config.costs.items()},
+            "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)}
+
+
+def risk_record(config: Config) -> dict:
+    return {"max_gross_weight": str(config.max_gross_weight), "max_net_weight": str(config.max_net_weight),
+            "max_order_lots": str(config.max_order_lots), "max_gross_lots": str(config.max_gross_lots),
+            "max_working_orders": config.max_working_orders}
+
+
+def statistics_record(config: Config) -> dict:
+    return {"annual_periods": config.annual_periods, "zero_risk_free": config.zero_risk_free,
+            "holdout_day": config.holdout_day}
 
 
 def run(directory: Path, identity: str, config: Config):
@@ -431,16 +464,7 @@ def run(directory: Path, identity: str, config: Config):
         repository=config.repository, strategy=config.strategy, revision=revision,
         params=config.params, provider=config.provider, dataset_version=data.version.identity,
         symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
-        costs={"by_product": {key: dict(zip(COSTS, map(str, values)))
-                              for key, values in config.costs.items()},
-               "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)},
-        statistics={"annual_periods": config.annual_periods, "zero_risk_free": config.zero_risk_free,
-                    "holdout_day": config.holdout_day},
-        risk={"max_gross_weight": str(config.max_gross_weight),
-              "max_net_weight": str(config.max_net_weight),
-              "max_order_lots": str(config.max_order_lots),
-              "max_gross_lots": str(config.max_gross_lots),
-              "max_working_orders": config.max_working_orders}))
+        costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config)))
     try:
         strategy = repository.load(root, config.strategy, config.params)
         contracts, series, first = prepare(data, config)
