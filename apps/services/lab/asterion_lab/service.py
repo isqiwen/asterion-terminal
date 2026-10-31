@@ -14,7 +14,7 @@ import time
 from asterion.lab_pb2 import Request, Response, RollingRun
 
 from asterion_lab.acquisition import Acquisition
-from asterion_lab import backtest, crosscheck, dominant, repository
+from asterion_lab import backtest, chart, crosscheck, dominant, repository
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.tushare import Budget, Tushare
@@ -293,6 +293,69 @@ class Service:
             bars.bars.add(day=day.isoformat(), **dict(zip(
                 ("open", "high", "low", "close", "settlement", "volume", "open_interest"),
                 map(text, values))))
+
+    def chart_bars(self, request):
+        exchange = request.contract.split("/")[0]
+        if request.period in chart.CALENDAR:
+            warehouse = self.warehouse_for("tushare", "daily")
+            version = warehouse.current()
+            rows = warehouse.query(version, """
+                select day, open, high, low, close, volume from daily
+                where contract = ? order by day""", ("daily",), (request.contract,),
+                exchange=exchange)
+            return version, chart.calendar_bars(rows, request.period)
+        if not request.period.isdigit():
+            raise ValueError(f"no chart period {request.period!r}")
+        warehouse = self.warehouse_for(request.provider, "minutes")
+        version = warehouse.current()
+        rows = warehouse.query(version, """
+            select day, start_ms, partial, open, high, low, close, volume from minutes
+            where contract = ? order by start_ms""", ("minutes",), (request.contract,),
+            exchange=exchange)
+        return version, chart.minute_bars(rows, int(request.period))
+
+    async def on_chart_bars(self, request, response):
+        version, bars = await self.read(self.chart_bars, request)
+        reply = response.chart_bars
+        reply.dataset_version, reply.contract, reply.period = (
+            version.identity, request.contract, request.period)
+        for bar, indicator in zip(bars, chart.macd(bar["close"] for bar in bars)):
+            item = reply.bars.add(time_ms=bar["time_ms"], trading_day=bar["trading_day"].isoformat(),
+                                  partial=bar["partial"],
+                                  **{name: text(bar[name]) for name in
+                                     ("open", "high", "low", "close", "volume")})
+            if indicator:
+                item.macd_diff, item.macd_signal, item.macd_histogram = indicator
+
+    def stored_contracts(self, provider, only=""):
+        implementation = plugin(provider)
+        warehouse = self.warehouse_for(provider)
+        version = warehouse.current()
+        found = {}
+        for table in ("daily", "minutes"):
+            if table not in implementation.tables:
+                continue
+            for contract, first, last, days in warehouse.query(version, f"""
+                    select contract, min(day), max(day), count(distinct day) from {table}
+                    where ? = '' or contract = ? group by contract""", (table,), (only, only)):
+                found.setdefault(contract, {})[table] = (first.isoformat(), last.isoformat(), days)
+        names = {}
+        if "contracts" in implementation.tables:
+            names = dict(warehouse.query(version, "select contract, name from contracts",
+                                         ("contracts",)))
+        return version, found, names
+
+    async def on_stored_contracts(self, request, response):
+        version, found, names = await self.read(self.stored_contracts, request.provider,
+                                                request.contract)
+        reply = response.stored_contracts
+        reply.dataset_version, reply.provider = version.identity, request.provider
+        for contract in sorted(found):
+            item = reply.contracts.add(contract=contract, name=names.get(contract) or "")
+            if "daily" in found[contract]:
+                item.daily_first, item.daily_last, item.daily_days = found[contract]["daily"]
+            if "minutes" in found[contract]:
+                item.minute_first, item.minute_last, item.minute_days = found[contract]["minutes"]
 
     def dominant(self, request):
         if request.adjustment not in ("none", "ratio"):

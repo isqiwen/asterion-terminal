@@ -78,6 +78,8 @@ export type {
   Strategies as LabStrategies,
   FactorEntry as LabFactorEntry,
   FactorResult as LabFactorResult,
+  ChartBars as LabChartBars,
+  StoredContract as LabStoredContract,
 } from "../src/generated/asterion/lab_pb";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";

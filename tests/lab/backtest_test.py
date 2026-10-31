@@ -4,6 +4,7 @@ Run with the bundled interpreter:
 python3 -I -B backtest_test.py <source> <generated-python> <engine-directory>
 """
 import asyncio
+import datetime
 from decimal import Decimal
 from pathlib import Path
 import shutil
@@ -15,7 +16,7 @@ import unittest
 
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request  # noqa: E402
-from asterion_lab import backtest  # noqa: E402
+from asterion_lab import backtest, chart  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from asterion_lab.service import Service  # noqa: E402
 from asterion_lab.warehouse import Warehouse  # noqa: E402
@@ -31,6 +32,31 @@ def git(root, *arguments):
 
 COSTS = {"SHFE/rb": [Decimal(0), Decimal(3), Decimal(3), Decimal(3), Decimal("0.1"),
                      Decimal(0), Decimal(0), Decimal(0)]}
+
+
+class Chart(unittest.TestCase):
+    def test_periods_gather_bars_as_the_old_chart_did(self):
+        d = datetime.date
+        rows = [(d(2026, 1, 5), *[Decimal(10)] * 4, Decimal(1)), (d(2026, 1, 6), None, None, None,
+                                                                 Decimal(9), Decimal(0)),
+                (d(2026, 3, 31), Decimal(11), Decimal(14), Decimal(8), Decimal(12), Decimal(2)),
+                (d(2026, 4, 1), *[Decimal(13)] * 4, Decimal(3))]
+        quarters = chart.calendar_bars(rows, "quarter")
+        # The day without an auction is left out; a quarter ends on its last day.
+        self.assertEqual([(bar["trading_day"], bar["open"], bar["high"], bar["low"], bar["close"],
+                           bar["volume"]) for bar in quarters],
+                         [(d(2026, 3, 31), 10, 14, 8, 12, 3), (d(2026, 4, 1), 13, 13, 13, 13, 3)])
+        minutes = [("2026-01-06", 60_000 * n, n == 2, *[Decimal(n)] * 4, Decimal(1)) for n in range(4)]
+        two = chart.minute_bars(minutes, 5)
+        self.assertEqual([(bar["time_ms"], bar["open"], bar["close"], bar["volume"], bar["partial"])
+                          for bar in two], [(300_000, 0, 3, 4, True)])
+
+    def test_macd_waits_for_33_bars(self):
+        values = chart.macd([Decimal(n) for n in range(40)])
+        self.assertIsNone(values[32])
+        diff, signal, histogram = values[33]
+        self.assertAlmostEqual(histogram, 2 * (diff - signal))
+        self.assertGreater(diff, 0)
 
 
 class Backtests(unittest.TestCase):
@@ -152,6 +178,49 @@ class Backtests(unittest.TestCase):
         run.costs[0].values[1] = "3元"
         with self.assertRaisesRegex(ValueError, "SHFE/rb open_fee must be a number"):
             backtest.config_of(run)
+
+    def test_stored_contracts_and_their_minutes_are_listed(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        writer = Warehouse(self.directory).writer()
+        bar = dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05", day=DAYS[1].isoformat(),
+                   partial=False, open=Decimal(3000), high=Decimal(3002), low=Decimal(2999),
+                   close=Decimal(3001), volume=Decimal(4), average_price=None,
+                   open_interest=Decimal(100))
+        writer.put_rows(f"minutes/SHFE/{DAYS[1].isoformat()}/rb/2026-05", "minutes",
+                        [{**bar, "start_ms": 1767618000000}, {**bar, "start_ms": 1767618060000}],
+                        days=[DAYS[1].isoformat()])
+        writer.commit()
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            listed = (await service.reply(Request(version=1, service_id="lab",
+                                                  stored_contracts={"provider": "tushare"}))).stored_contracts
+            stored = {item.contract: item for item in listed.contracts}
+            self.assertEqual(sorted(stored), ["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
+            may = stored["SHFE/rb/2026-05"]
+            self.assertEqual((may.name, may.daily_first, may.daily_days), ("SHFE/rb/2026-05", DAYS[0].isoformat(), 30))
+            self.assertEqual((may.minute_first, may.minute_days), (DAYS[1].isoformat(), 1))
+            self.assertEqual(stored["SHFE/rb/2026-10"].minute_days, 0)
+            query = Request(version=1, service_id="lab", chart_bars={
+                "contract": "SHFE/rb/2026-05", "provider": "tushare", "period": "5"})
+            five = (await service.reply(query)).chart_bars.bars
+            # Both minutes began within 21:00-21:05; the bar ends then.
+            self.assertEqual([(item.time_ms, item.open, item.close, item.volume) for item in five],
+                             [(1767618300000, "3000", "3001", "8")])
+            query.chart_bars.period = "week"
+            weeks = (await service.reply(query)).chart_bars.bars
+            self.assertEqual(len(weeks), 6)
+            self.assertEqual(weeks[0].trading_day, DAYS[4].isoformat())
+            self.assertFalse(weeks[0].HasField("macd_diff"))
+            query.chart_bars.period = "day"
+            days = (await service.reply(query)).chart_bars.bars
+            # Thirty days: all within MACD's warm-up.
+            self.assertEqual(len(days), 30)
+            self.assertFalse(any(item.HasField("macd_diff") for item in days))
+        asyncio.run(scenario())
 
     def test_the_service_runs_a_backtest_in_a_child_process(self):
         class Log:

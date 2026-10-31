@@ -32,6 +32,8 @@ message Request {
     CancelSweep cancel_sweep = 30;
     RunQuery run = 31;
     FactorRun factor = 32;
+    ChartBarsQuery chart_bars = 33;
+    StoredContractsQuery stored_contracts = 34;
   }
 }
 message HealthQuery {}
@@ -72,6 +74,19 @@ message DailyBarsQuery {
   string provider = 4;
   string begin_day = 2;
   string end_day = 3;
+}
+// A contract's bars for the market page's chart (asterion_lab/chart.py):
+// stored minutes gathered by `period` minutes (1, 5, 10, 15, 30 or 60), or
+// daily bars by day, week, month, quarter or year, each with MACD.
+message ChartBarsQuery {
+  string contract = 1; // EXCHANGE/product/YYYY-MM
+  string provider = 2; // where the minutes are: tushare or recorder; days are Tushare's
+  string period = 3;
+}
+// The contracts a source has stored, with the days of each table.
+message StoredContractsQuery {
+  string provider = 1;
+  string contract = 2; // only this one, when given
 }
 // A product's dominant series in [begin_day, end_day]. The dominant month of a
 // day has the largest open interest on the previous trading day among the
@@ -131,6 +146,8 @@ message Response {
     SweepRuns sweep_runs = 26;
     RunDetail run = 27;
     FactorResult factor = 28;
+    ChartBars chart_bars = 29;
+    StoredContracts stored_contracts = 30;
   }
 }
 message Health {
@@ -208,6 +225,42 @@ message DailyBar {
   string settlement = 6;
   string volume = 7;
   string open_interest = 8;
+}
+message ChartBar {
+  int64 time_ms = 1; // when the period ended; days at 15:00 Beijing time of the last day
+  string trading_day = 2; // the last trading day in the bar
+  bool partial = 3; // a recorded minute in it is incomplete
+  // Exact decimals as text.
+  string open = 4;
+  string high = 5;
+  string low = 6;
+  string close = 7;
+  string volume = 8;
+  // Absent for the first 33 bars.
+  optional double macd_diff = 9;
+  optional double macd_signal = 10;
+  optional double macd_histogram = 11;
+}
+message ChartBars {
+  string dataset_version = 1;
+  string contract = 2;
+  string period = 3;
+  repeated ChartBar bars = 4;
+}
+message StoredContract {
+  string contract = 1;
+  string name = 2; // from the contract table, when it has the contract
+  string daily_first = 3;
+  string daily_last = 4;
+  uint32 daily_days = 5;
+  string minute_first = 6;
+  string minute_last = 7;
+  uint32 minute_days = 8;
+}
+message StoredContracts {
+  string dataset_version = 1;
+  string provider = 2;
+  repeated StoredContract contracts = 3;
 }
 message DailyBars {
   string dataset_version = 1;

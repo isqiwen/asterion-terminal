@@ -292,5 +292,16 @@
   "开": "Open",
   "收": "Close",
   "高": "High",
-  "外盘": "Overseas"
+  "外盘": "Overseas",
+  "分钟线 {days} 天": "Minutes on {days} days",
+  "分钟线来源": "Minute source",
+  "另有 {count} 个合约，请用搜索缩小范围": "{count} more contracts; narrow them with the search",
+  "录制": "Recorded",
+  "日线 {days} 天": "Daily bars on {days} days",
+  "采集历史数据": "Acquire historical data",
+  "当前目录没有这个合约的月份": "The catalogue does not name this contract's month",
+  "该月份合约尚无已采集历史数据": "No historical data has been acquired for this contract",
+  "尚无已采集的历史合约": "No historical contract has been acquired yet",
+  "请在数据页采集历史数据。": "Acquire historical data on the Data page.",
+  "Tushare": "Tushare"
 }
