@@ -11,7 +11,7 @@ import time
 from asterion.lab_pb2 import Request, Response
 
 from asterion_lab.acquisition import Acquisition
-from asterion_lab import crosscheck, dominant
+from asterion_lab import crosscheck, dominant, repository
 from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.tushare import Budget, Tushare
 from asterion_lab.sources.base import SourceError
@@ -336,6 +336,10 @@ class Service:
             source = self.sessions.sources[identity]
             reply.sources.add(id=identity, title=source["title"], url=source["url"],
                               published=source["published"], note=source["note"])
+
+    async def on_strategies(self, request, response):
+        response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
+                                                             request.repository))
 
     DAILY_FIELDS = ("open", "high", "low", "close", "settlement", "previous_settlement", "volume",
                     "open_interest")

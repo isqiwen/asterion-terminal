@@ -23,6 +23,7 @@ message Request {
     SourcesQuery sources = 21;
     SourceRead source_read = 22;
     SourceCoverageQuery source_coverage = 23;
+    StrategiesQuery strategies = 24;
   }
 }
 message HealthQuery {}
@@ -117,6 +118,7 @@ message Response {
     Sources sources = 21;
     SourceTable source_table = 22;
     SourceCoverage source_coverage = 23;
+    Strategies strategies = 24;
   }
 }
 message Health {
@@ -326,4 +328,41 @@ message SourceCoverage {
   bool known = 2;
   repeated string days = 3;
   string note = 4;
+}
+
+// The strategies of the user's strategy repository (decision D5): Strategy
+// subclasses in the modules of its strategies/ directory, as the files are now.
+message StrategiesQuery {
+  string repository = 1; // absolute path of the top of its Git work tree
+}
+message ParameterValue {
+  oneof value {
+    bool flag = 1;
+    int64 integer = 2;
+    double number = 3;
+    string text = 4;
+  }
+}
+message StrategyParameter {
+  string name = 1;
+  string kind = 2; // bool, int, float or str
+  ParameterValue default = 3;
+}
+message StrategyEntry {
+  string id = 1; // <module>.<class>
+  string description = 2; // the class's docstring
+  repeated StrategyParameter parameters = 3;
+}
+// A module that failed to import, with the end of its traceback.
+message StrategyModuleError {
+  string module = 1;
+  string message = 2;
+}
+message Strategies {
+  string repository = 1;
+  string commit = 2;
+  // Digest of what differs from the commit; empty when the work tree is clean.
+  string changes = 3;
+  repeated StrategyEntry strategies = 4;
+  repeated StrategyModuleError errors = 5;
 }

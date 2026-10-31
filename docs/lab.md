@@ -2,7 +2,7 @@
 
 `asterion_lab` 是本机的 Python 服务，代码在 `apps/services/lab/`，用随包 Python 以
 `python3 -I -B -m asterion_lab` 运行，由 Terminal 启动和看护（见[本机服务](services.md#本机服务)）。它按计划逐步接管
-历史数据与研究；现在负责期货数据仓库和可同时使用的数据源插件。旧的 Data 服务在过渡期间照常工作，两边互不读写。
+历史数据与研究；现在负责期货数据仓库、可同时使用的数据源插件，以及策略接口与运行记录（回测引擎在 M2.2 接入）。旧的 Data 服务在过渡期间照常工作，两边互不读写。
 
 ## 数据源插件
 
@@ -52,6 +52,7 @@ lab 只保留在内存里；数据覆盖页不再单独填写地址。
 | `dominant` | 一个品种在一段日期内的主力连续：每天的主力合约、所选复权方式下的价格，以及换月记录 |
 | `sessions` | 一个品种在一段日期内每个交易日的日盘与夜盘时段，以及所依据的交易所文件 |
 | `cross_check` | 用第二来源核对：`settlement` 为交易所结算参数对 Tushare，`daily` 为 AKShare 日线对仓库；只报告，不存储 |
+| `strategies` | 列出使用者策略仓库里的策略、参数及默认值、当前提交号和未提交改动的摘要，以及导入失败的模块（见下文“策略”） |
 
 界面用生成的 TS 类型直接请求服务，由 Electron 主进程（开发浏览器中是开发服务端）转发字节，
 见[架构](architecture.md#terminal)。数据工作台的“数据覆盖”页显示当前数据集版本、各表汇总、采集任务
@@ -148,8 +149,56 @@ AKShare（锁定 1.19.1）只用于核对，不作为数据来源。2026-10-28 �
   结算、前结算、成交量、持仓逐值一致（修正上述收盘价规则并重新采集郑商所后）。AKShare 批量读取时偶尔漏掉
   广期所一个品种，单独重读即恢复；核对把它列为单边，而不是差异。大商所无法读取。
 
+## 策略
+
+策略写在使用者自己的私有 Git 仓库里（决定 D5），接口在 `asterion_lab/strategy.py`：
+
+```python
+from asterion_lab.strategy import Strategy
+
+class MaCross(Strategy):
+    """Long while the fast average of closes is above the slow one, short below it."""
+    params = {"fast": 5, "slow": 20, "lots": 1}
+
+    def on_bar(self, ctx, bar):
+        closes = ctx.history(bar.symbol, "close", self.params["slow"])
+        if len(closes) < self.params["slow"]:
+            return
+        up = closes[-self.params["fast"]:].mean() > closes.mean()
+        ctx.target(bar.symbol, self.params["lots"] if up else -self.params["lots"])
+```
+
+- 仓库根目录下 `strategies/` 中每个模块定义的 `Strategy` 子类是一个策略，标识为 `<模块>.<类>`，说明取类的文档字符串。
+  模块可以从仓库根目录导入其他代码（例如共用的因子函数）。示例在 `apps/services/lab/examples/`。
+- `params` 给出每个参数和默认值，类型只能是 bool、int、float、str；运行时只能改成同类型的值（整数可作 float），
+  未知参数或类型不符直接拒绝。
+- 只在完整 bar 上决策：`on_bar(ctx, bar)` 每根 bar 一次；多品种规则改写 `on_bars(ctx, bars)`，同一时刻完成的
+  各品种 bar 一起给出，没有 bar 的品种不在其中，不用前值补齐。价格在研究侧是浮点。
+- `ctx.history(symbol, field, count)` 是截至当前 bar 的最近 `count` 个值（只读 NumPy 数组）；
+  `ctx.target(symbol, lots)` 要求整数手数，`ctx.weights({symbol: weight})` 给出全部组合，未列出的品种为 0。
+  一个策略只用其中一种。目标从下一根 bar 起执行；`ctx` 不提供下单函数，手数换算、风控和全部金额由 C++ 引擎计算。
+- 策略版本是提交号；工作区有未提交或未跟踪的改动时另记差异摘要（`git diff HEAD` 与未跟踪文件内容的 SHA-256）。
+  需要本机安装 Git。
+- 列出策略时在子进程中导入使用者代码（30 秒超时），每次都读当前文件，模块打印的内容不影响结果；导入失败的模块单独报告，
+  其他策略照常列出。
+
+## 运行记录
+
+每次回测一份记录，位于 lab 数据目录：
+
+```
+runs/<运行>/run.json            策略仓库、标识、提交号与差异摘要、参数、数据来源与数据集版本、品种与区间、
+                                引擎版本与依赖摘要、费用与风控参数；开始时写入，之后不改
+runs/<运行>/<表>.parquet        equity、orders、fills、positions、settlements，成功时写入
+runs.sqlite                     每次运行的状态（running、succeeded、failed、interrupted）、错误和指标
+```
+
+金额与价格为 `DECIMAL(19, 8)`，与 C++ `Decimal` 一致。依赖摘要是当前解释器已安装包名与版本列表的 SHA-256。
+表结构见 `asterion_lab/runs.py`。
+
 ## 限制
 
 - 只有日历、合约表、日线、主力连续和首批品种的交易时段；分钟线和录制尚未接入。
+- 策略接口与运行记录已定，回测引擎（M2.2）和界面（M2.4）尚未接入。
 - 采集任务只在内存中登记，服务重启后列表清空；已提交的数据保留，重新提交同一区间只补缺。
 - lab 只在本机运行。
