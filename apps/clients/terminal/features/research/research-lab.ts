@@ -1,9 +1,13 @@
 // What the research page computes without the lab: parameter values from the
-// form, the request for a run or a sweep, and figures read from a run record.
+// form, the request for a run, a sweep or a factor's evaluation, and figures
+// read from a run record.
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { translate, type MessageValues } from "../contract";
 import type {
   BacktestRunSchema,
+  FactorDay,
+  FactorEntry,
+  FactorRunSchema,
   ParameterValueSchema,
   RunDay,
   StrategyParameter,
@@ -13,6 +17,7 @@ const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 type ValueInit = MessageInitShape<typeof ParameterValueSchema>;
 export type RunInit = MessageInitShape<typeof BacktestRunSchema>;
+export type FactorInit = MessageInitShape<typeof FactorRunSchema>;
 
 // The eight cost values of a product, in the lab's order.
 export const costNames = [
@@ -206,4 +211,68 @@ export function heatmap(
     ),
   );
   return { rows, columns, cells };
+}
+
+export type FactorForm = {
+  symbols: string;
+  begin: string;
+  end: string;
+  params: Record<string, string>;
+  horizons: string;
+  groups: string;
+};
+
+export function defaultFactorForm(): FactorForm {
+  return {
+    symbols: "",
+    begin: "",
+    end: "",
+    params: {},
+    horizons: "1, 2, 3, 5, 10, 20",
+    groups: "5",
+  };
+}
+
+// The evaluation the factor form describes. A factor takes one value of each
+// setting: comparing values is a matter of evaluating again.
+export function factorRequest(form: FactorForm, repository: string, factor: FactorEntry) {
+  const symbols = symbolsOf(form.symbols);
+  if (!symbols.length) throw new Error(t("请填写品种"));
+  const params: Record<string, ValueInit> = {};
+  for (const parameter of factor.parameters) {
+    const values = parameterValues(
+      parameter,
+      form.params[parameter.name] ?? defaultText(parameter),
+    );
+    if (values.length > 1)
+      throw new Error(t("因子参数 {name} 只能取一个值", { name: parameter.name }));
+    params[parameter.name] = values[0];
+  }
+  const horizons = symbolsOf(form.horizons).map(Number);
+  if (
+    !horizons.length ||
+    horizons.some(value => !Number.isInteger(value) || value < 1) ||
+    new Set(horizons).size !== horizons.length
+  )
+    throw new Error(t("持有期是互不相同的正整数"));
+  const groups = Number(form.groups);
+  if (!Number.isInteger(groups) || groups < 2) throw new Error(t("分组数至少为 2"));
+  const request: FactorInit = {
+    repository,
+    factor: factor.id,
+    params,
+    provider: "tushare",
+    symbols,
+    beginDay: form.begin,
+    endDay: form.end,
+    horizons,
+    groups,
+  };
+  return request;
+}
+
+// The running sum of the days' IC; a day without one adds nothing.
+export function cumulativeIc(days: readonly FactorDay[]) {
+  let total = 0;
+  return days.map(day => (total += day.ic ?? 0));
 }

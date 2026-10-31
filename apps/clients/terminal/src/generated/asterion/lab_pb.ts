@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/lab.proto.
  */
 export const file_asterion_lab: GenFile = /*@__PURE__*/
-  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byL2CQoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASPwoQY29uZmlndXJlX3NvdXJjZRgLIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Db25maWd1cmVTb3VyY2VIABIzCgdhY3F1aXJlGAwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkFjcXVpcmVEYWlseUgAEi8KBXRhc2tzGA0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzUXVlcnlIABIwCgZjYW5jZWwYDiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsVGFza0gAEjMKB3N1bW1hcnkYDyABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeVF1ZXJ5SAASNQoIY292ZXJhZ2UYECABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEjgKCmRhaWx5X2JhcnMYESABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uRGFpbHlCYXJzUXVlcnlIABI1Cghkb21pbmFudBgSIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFF1ZXJ5SAASNQoIc2Vzc2lvbnMYEyABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNRdWVyeUgAEjoKC2Nyb3NzX2NoZWNrGBQgASgLMiMuYXN0ZXJpb24ubGFiLnByb3RvLkNyb3NzQ2hlY2tRdWVyeUgAEjMKB3NvdXJjZXMYFSABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlc1F1ZXJ5SAASNQoLc291cmNlX3JlYWQYFiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlUmVhZEgAEkIKD3NvdXJjZV9jb3ZlcmFnZRgXIAEoCzInLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VDb3ZlcmFnZVF1ZXJ5SAASOQoKc3RyYXRlZ2llcxgYIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5TdHJhdGVnaWVzUXVlcnlIABIzCghiYWNrdGVzdBgZIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bkgAEi0KBHJ1bnMYGiABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuc1F1ZXJ5SAASMwoKY2FuY2VsX3J1bhgbIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5DYW5jZWxSdW5IABIqCgVzd2VlcBgcIAEoCzIZLmFzdGVyaW9uLmxhYi5wcm90by5Td2VlcEgAEjQKCnN3ZWVwX3J1bnMYHSABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU3dlZXBRdWVyeUgAEjcKDGNhbmNlbF9zd2VlcBgeIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5DYW5jZWxTd2VlcEgAEisKA3J1bhgfIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5SdW5RdWVyeUgAQgYKBGJvZHkiDQoLSGVhbHRoUXVlcnkicAoPQ29uZmlndXJlU291cmNlEhAKCHByb3ZpZGVyGAEgASgJEhIKCmNyZWRlbnRpYWwYAiABKAkSGwoTcmVxdWVzdHNfcGVyX21pbnV0ZRgDIAEoDRIMCgRob3N0GAQgASgJEgwKBHBvcnQYBSABKA0ilQEKDEFjcXVpcmVEYWlseRIKCgJpZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCRIRCglleGNoYW5nZXMYBCADKAkSDwoHcmVmcmVzaBgFIAEoCBIQCghwcm92aWRlchgGIAEoCRINCgV0YWJsZRgHIAEoCRIQCghjb250cmFjdBgIIAEoCSIMCgpUYXNrc1F1ZXJ5IhgKCkNhbmNlbFRhc2sSCgoCaWQYASABKAkiIAoMU3VtbWFyeVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJIiEKDUNvdmVyYWdlUXVlcnkSEAoIcHJvdmlkZXIYASABKAkiWAoORGFpbHlCYXJzUXVlcnkSEAoIY29udHJhY3QYASABKAkSEAoIcHJvdmlkZXIYBCABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkijAEKDURvbWluYW50UXVlcnkSEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIRCgliZWdpbl9kYXkYAyABKAkSDwoHZW5kX2RheRgEIAEoCRIOCgZ0cmFkZWQYBSABKAgSEgoKYWRqdXN0bWVudBgGIAEoCRIQCghwcm92aWRlchgHIAEoCSJoCg1TZXNzaW9uc1F1ZXJ5EhAKCHByb3ZpZGVyGAUgASgJEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSEQoJYmVnaW5fZGF5GAMgASgJEg8KB2VuZF9kYXkYBCABKAkiQwoPQ3Jvc3NDaGVja1F1ZXJ5EgwKBGtpbmQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkiqgcKCFJlc3BvbnNlEg8KB3ZlcnNpb24YASABKA0SEgoKc2VydmljZV9pZBgCIAEoCRIWCg5jb3JyZWxhdGlvbl9pZBgDIAEoCRIsCgZoZWFsdGgYCiABKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uSGVhbHRoSAASKgoFZXJyb3IYCyABKAsyGS5hc3Rlcmlvbi5sYWIucHJvdG8uRXJyb3JIABIwCghhY2NlcHRlZBgMIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5BY2NlcHRlZEgAEioKBXRhc2tzGA0gASgLMhkuYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzSAASLgoHc3VtbWFyeRgOIAEoCzIbLmFzdGVyaW9uLmxhYi5wcm90by5TdW1tYXJ5SAASMAoIY292ZXJhZ2UYDyABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VIABIzCgpkYWlseV9iYXJzGBAgASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLkRhaWx5QmFyc0gAEjYKCGRvbWluYW50GBEgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50U2VyaWVzSAASMAoIc2Vzc2lvbnMYEiABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNIABI1Cgtjcm9zc19jaGVjaxgTIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5Dcm9zc0NoZWNrSAASLgoHc291cmNlcxgVIAEoCzIbLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VzSAASNwoMc291cmNlX3RhYmxlGBYgASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZVRhYmxlSAASPQoPc291cmNlX2NvdmVyYWdlGBcgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZUNvdmVyYWdlSAASNAoKc3RyYXRlZ2llcxgYIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5TdHJhdGVnaWVzSAASKAoEcnVucxgZIAEoCzIYLmFzdGVyaW9uLmxhYi5wcm90by5SdW5zSAASMwoKc3dlZXBfcnVucxgaIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5Td2VlcFJ1bnNIABIsCgNydW4YGyABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRGV0YWlsSABCBgoEYm9keSKGAQoGSGVhbHRoEhMKC2luc3RhbmNlX2lkGAEgASgJEhIKCnByb2Nlc3NfaWQYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIRCgl1cHRpbWVfbXMYBCABKAQSEwoLaW5pdGlhbGl6ZWQYBSABKAgSGgoSY29uZmlndXJlZF9zb3VyY2VzGAYgAygJIiYKBUVycm9yEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSIKCghBY2NlcHRlZCKqAgoEVGFzaxIKCgJpZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCRINCgVzdGF0ZRgEIAEoCRISCgpkYXlzX3RvdGFsGAUgASgNEhEKCWRheXNfZG9uZRgGIAEoDRISCgpkYXlzX2VtcHR5GAcgASgNEhAKCHJlcXVlc3RzGAggASgNEhIKCmVycm9yX2NvZGUYCSABKAkSDQoFZXJyb3IYCiABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAsgASgJEhIKCnN0YXJ0ZWRfbnMYDCABKAMSEwoLZmluaXNoZWRfbnMYDSABKAMSEAoIcHJvdmlkZXIYDiABKAkSDQoFdGFibGUYDyABKAkSEAoIY29udHJhY3QYECABKAkiMAoFVGFza3MSJwoFdGFza3MYASADKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uVGFzayJkCgxUYWJsZVN1bW1hcnkSDQoFdGFibGUYASABKAkSDAoEcm93cxgCIAEoBBISCgpwYXJ0aXRpb25zGAMgASgNEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCSJoCgdTdW1tYXJ5EhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgpjcmVhdGVkX25zGAIgASgDEjAKBnRhYmxlcxgDIAMoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5UYWJsZVN1bW1hcnkiPwoNTW9udGhDb3ZlcmFnZRINCgVtb250aBgBIAEoCRIMCgRkYXlzGAIgASgNEhEKCW9wZW5fZGF5cxgDIAEoDSJnCg9Qcm9kdWN0Q292ZXJhZ2USEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIxCgZtb250aHMYAyADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uTW9udGhDb3ZlcmFnZSJaCghDb3ZlcmFnZRIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSNQoIcHJvZHVjdHMYAiADKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uUHJvZHVjdENvdmVyYWdlIooBCghEYWlseUJhchILCgNkYXkYASABKAkSDAoEb3BlbhgCIAEoCRIMCgRoaWdoGAMgASgJEgsKA2xvdxgEIAEoCRINCgVjbG9zZRgFIAEoCRISCgpzZXR0bGVtZW50GAYgASgJEg4KBnZvbHVtZRgHIAEoCRIVCg1vcGVuX2ludGVyZXN0GAggASgJImIKCURhaWx5QmFycxIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEAoIY29udHJhY3QYAiABKAkSKgoEYmFycxgDIAMoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5EYWlseUJhciJ4CgtEb21pbmFudERheRILCgNkYXkYASABKAkSEAoIY29udHJhY3QYAiABKAkSDAoEb3BlbhgDIAEoCRIMCgRoaWdoGAQgASgJEgsKA2xvdxgFIAEoCRINCgVjbG9zZRgGIAEoCRISCgpzZXR0bGVtZW50GAcgASgJIk4KBFJvbGwSCwoDZGF5GAEgASgJEhUKDWZyb21fY29udHJhY3QYAiABKAkSEwoLdG9fY29udHJhY3QYAyABKAkSDQoFcmF0aW8YBCABKAkilQEKDkRvbWluYW50U2VyaWVzEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgphZGp1c3RtZW50GAIgASgJEi0KBGRheXMYAyADKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uRG9taW5hbnREYXkSJwoFcm9sbHMYBCADKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uUm9sbCIsCg5TZXNzaW9uU2VnbWVudBINCgViZWdpbhgBIAEoCRILCgNlbmQYAiABKAkivgEKClNlc3Npb25EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSEQoJZGF5X2tub3duGAIgASgIEi8KA2RheRgDIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBITCgtuaWdodF9zdGF0ZRgEIAEoCRIxCgVuaWdodBgFIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBIPCgdzb3VyY2VzGAYgAygJIlgKDVNlc3Npb25Tb3VyY2USCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSCwoDdXJsGAMgASgJEhEKCXB1Ymxpc2hlZBgEIAEoCRIMCgRub3RlGAUgASgJIn4KCFNlc3Npb25zEhAKCHJldmlld2VkGAEgASgJEiwKBGRheXMYAiADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbkRheRIyCgdzb3VyY2VzGAMgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25Tb3VyY2UiUQoPQ2hlY2tEaWZmZXJlbmNlEhAKCGNvbnRyYWN0GAEgASgJEg0KBWZpZWxkGAIgASgJEg0KBWZpcnN0GAMgASgJEg4KBnNlY29uZBgEIAEoCSLhAQoKQ2hlY2tHcm91cBIQCghleGNoYW5nZRgBIAEoCRILCgNkYXkYAiABKAkSEwoLdW5hdmFpbGFibGUYAyABKAkSFQoNY29tcGFyZWRfcm93cxgEIAEoDRIXCg9jb21wYXJlZF92YWx1ZXMYBSABKA0SEgoKb25seV9maXJzdBgGIAMoCRITCgtvbmx5X3NlY29uZBgHIAMoCRI4CgtkaWZmZXJlbmNlcxgIIAMoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5DaGVja0RpZmZlcmVuY2USDAoEbm90ZRgJIAEoCSJKCgpDcm9zc0NoZWNrEgwKBGtpbmQYASABKAkSLgoGZ3JvdXBzGAIgAygLMh4uYXN0ZXJpb24ubGFiLnByb3RvLkNoZWNrR3JvdXAiDgoMU291cmNlc1F1ZXJ5Io0BChBTb3VyY2VEZXNjcmlwdG9yEgoKAmlkGAEgASgJEg4KBnRhYmxlcxgCIAMoCRIRCglleGNoYW5nZXMYAyADKAkSGwoTcmVxdWlyZXNfY3JlZGVudGlhbBgEIAEoCBIZChFyZXF1aXJlc19lbmRwb2ludBgFIAEoCBISCgpjb25maWd1cmVkGAYgASgIIkAKB1NvdXJjZXMSNQoHc291cmNlcxgBIAMoCzIkLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VEZXNjcmlwdG9yIl4KClNvdXJjZVJlYWQSEAoIcHJvdmlkZXIYASABKAkSDQoFdGFibGUYAiABKAkSEAoIZXhjaGFuZ2UYAyABKAkSCwoDZGF5GAQgASgJEhAKCGNvbnRyYWN0GAUgASgJIioKClNvdXJjZUNlbGwSEgoFdmFsdWUYASABKAlIAIgBAUIICgZfdmFsdWUiOgoJU291cmNlUm93Ei0KBWNlbGxzGAEgAygLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZUNlbGwiqQEKC1NvdXJjZVRhYmxlEhAKCHByb3ZpZGVyGAEgASgJEg0KBXRhYmxlGAIgASgJEg8KB2NvbHVtbnMYAyADKAkSKwoEcm93cxgEIAMoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VSb3cSOwoMb2JzZXJ2YXRpb25zGAUgAygLMiUuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZU9ic2VydmF0aW9uIoYBChFTb3VyY2VPYnNlcnZhdGlvbhIQCghpbnN0YW5jZRgBIAEoCRIOCgZudW1iZXIYAiABKAQSGQoRZmlyc3RfcmVjZWl2ZWRfbXMYAyABKAMSGAoQbGFzdF9yZWNlaXZlZF9tcxgEIAEoAxINCgV0aWNrcxgFIAEoBBILCgNlbmQYBiABKAkiJwoTU291cmNlQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCSJNCg5Tb3VyY2VDb3ZlcmFnZRIQCghwcm92aWRlchgBIAEoCRINCgVrbm93bhgCIAEoCBIMCgRkYXlzGAMgAygJEgwKBG5vdGUYBCABKAkiJQoPU3RyYXRlZ2llc1F1ZXJ5EhIKCnJlcG9zaXRvcnkYASABKAkiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiZAoRU3RyYXRlZ3lQYXJhbWV0ZXISDAoEbmFtZRgBIAEoCRIMCgRraW5kGAIgASgJEjMKB2RlZmF1bHQYAyABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWUiawoNU3RyYXRlZ3lFbnRyeRIKCgJpZBgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRI5CgpwYXJhbWV0ZXJzGAMgAygLMiUuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5UGFyYW1ldGVyIjYKE1N0cmF0ZWd5TW9kdWxlRXJyb3ISDgoGbW9kdWxlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkisQEKClN0cmF0ZWdpZXMSEgoKcmVwb3NpdG9yeRgBIAEoCRIOCgZjb21taXQYAiABKAkSDwoHY2hhbmdlcxgDIAEoCRI1CgpzdHJhdGVnaWVzGAQgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5RW50cnkSNwoGZXJyb3JzGAUgAygLMicuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5TW9kdWxlRXJyb3IiLwoMUHJvZHVjdENvc3RzEg8KB3Byb2R1Y3QYASABKAkSDgoGdmFsdWVzGAIgAygJIrMECgtCYWNrdGVzdFJ1bhIKCgJpZBgBIAEoCRISCgpyZXBvc2l0b3J5GAIgASgJEhAKCHN0cmF0ZWd5GAMgASgJEjsKBnBhcmFtcxgEIAMoCzIrLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bi5QYXJhbXNFbnRyeRIQCghwcm92aWRlchgFIAEoCRIPCgdzeW1ib2xzGAYgAygJEhEKCWJlZ2luX2RheRgHIAEoCRIPCgdlbmRfZGF5GAggASgJEg8KB2RlcG9zaXQYCSABKAkSLwoFY29zdHMYCiADKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uUHJvZHVjdENvc3RzEhYKDnNsaXBwYWdlX3RpY2tzGAsgASgNEhYKDm1heF9vcmRlcl9sb3RzGAwgASgJEhYKDm1heF9ncm9zc19sb3RzGA0gASgJEhoKEm1heF93b3JraW5nX29yZGVycxgOIAEoDRIYChBtYXhfZ3Jvc3Nfd2VpZ2h0GA8gASgJEhYKDm1heF9uZXRfd2VpZ2h0GBAgASgJEhYKDmFubnVhbF9wZXJpb2RzGBEgASgBEhYKDnplcm9fcmlza19mcmVlGBIgASgIEhMKC2hvbGRvdXRfZGF5GBMgASgJGlEKC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRIxCgV2YWx1ZRgCIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZToCOAEiCwoJUnVuc1F1ZXJ5IhcKCUNhbmNlbFJ1bhIKCgJpZBgBIAEoCSK3AwoKUnVuU3VtbWFyeRIKCgJpZBgBIAEoCRIQCghzdHJhdGVneRgCIAEoCRIOCgZjb21taXQYAyABKAkSDwoHY2hhbmdlcxgEIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YBSABKAkSDQoFc3RhdGUYBiABKAkSDQoFZXJyb3IYByABKAkSEgoKc3RhcnRlZF9ucxgIIAEoAxITCgtmaW5pc2hlZF9ucxgJIAEoAxI8CgdtZXRyaWNzGAogAygLMisuYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkuTWV0cmljc0VudHJ5EjoKBnBhcmFtcxgLIAMoCzIqLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5LlBhcmFtc0VudHJ5Eg0KBXN3ZWVwGAwgASgJGi4KDE1ldHJpY3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAE6AjgBGlEKC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRIxCgV2YWx1ZRgCIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZToCOAEiNAoEUnVucxIsCgRydW5zGAEgAygLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkiUwoPUGFyYW1ldGVyVmFsdWVzEgwKBG5hbWUYASABKAkSMgoGdmFsdWVzGAIgAygLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlBhcmFtZXRlclZhbHVlIsEBCgVTd2VlcBIKCgJpZBgBIAEoCRItCgRiYXNlGAIgASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkJhY2t0ZXN0UnVuEjMKBnZhbHVlcxgDIAMoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZXMSEQoJcHJvY2Vzc2VzGAQgASgNEjUKDHdhbGtfZm9yd2FyZBgFIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5XYWxrRm9yd2FyZCI9CgtXYWxrRm9yd2FyZBIVCg10cmFpbmluZ19kYXlzGAEgASgNEhcKD3ZhbGlkYXRpb25fZGF5cxgCIAEoDSKGAQoKUm9sbGluZ1J1bhIKCgJpZBgBIAEoCRINCgVzd2VlcBgCIAEoCRItCgRiYXNlGAMgASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkJhY2t0ZXN0UnVuEhUKDXRyYWluaW5nX2RheXMYBCABKA0SFwoPdmFsaWRhdGlvbl9kYXlzGAUgASgNIhgKClN3ZWVwUXVlcnkSCgoCaWQYASABKAkiGQoLQ2FuY2VsU3dlZXASCgoCaWQYASABKAkiqQEKCVN3ZWVwUnVucxIKCgJpZBgBIAEoCRIsCgRydW5zGAIgAygLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkSDwoHd2FpdGluZxgDIAEoDRIQCghzZWxlY3RlZBgEIAEoCRIvCgdyb2xsaW5nGAUgASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkSDgoGYWN0aXZlGAYgASgIIhYKCFJ1blF1ZXJ5EgoKAmlkGAEgASgJIkAKCVJ1bkVxdWl0eRIPCgd0aW1lX25zGAEgASgDEg4KBmVxdWl0eRgCIAEoCRISCgpzZXR0bGVtZW50GAMgASgIIm0KBlJ1bkRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIPCgd0aW1lX25zGAIgASgDEg4KBmVxdWl0eRgDIAEoCRIPCgdiYWxhbmNlGAQgASgJEgwKBGZlZXMYBSABKAkSDgoGbWFyZ2luGAYgASgJIpUBCgdSdW5GaWxsEgwKBGZpbGwYASABKAkSDQoFb3JkZXIYAiABKAkSDwoHdGltZV9ucxgDIAEoAxIQCghjb250cmFjdBgEIAEoCRIMCgRzaWRlGAUgASgJEg4KBm9mZnNldBgGIAEoCRIQCghxdWFudGl0eRgHIAEoCRINCgVwcmljZRgIIAEoCRILCgNmZWUYCSABKAki0QEKCVJ1bkRldGFpbBIvCgdzdW1tYXJ5GAEgASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkSDgoGcmVjb3JkGAIgASgJEi0KBmVxdWl0eRgDIAMoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5SdW5FcXVpdHkSKAoEZGF5cxgEIAMoCzIaLmFzdGVyaW9uLmxhYi5wcm90by5SdW5EYXkSKgoFZmlsbHMYBSADKAsyGy5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRmlsbGIGcHJvdG8z");
+  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byKnCgoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASPwoQY29uZmlndXJlX3NvdXJjZRgLIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Db25maWd1cmVTb3VyY2VIABIzCgdhY3F1aXJlGAwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkFjcXVpcmVEYWlseUgAEi8KBXRhc2tzGA0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzUXVlcnlIABIwCgZjYW5jZWwYDiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsVGFza0gAEjMKB3N1bW1hcnkYDyABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeVF1ZXJ5SAASNQoIY292ZXJhZ2UYECABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEjgKCmRhaWx5X2JhcnMYESABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uRGFpbHlCYXJzUXVlcnlIABI1Cghkb21pbmFudBgSIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFF1ZXJ5SAASNQoIc2Vzc2lvbnMYEyABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNRdWVyeUgAEjoKC2Nyb3NzX2NoZWNrGBQgASgLMiMuYXN0ZXJpb24ubGFiLnByb3RvLkNyb3NzQ2hlY2tRdWVyeUgAEjMKB3NvdXJjZXMYFSABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlc1F1ZXJ5SAASNQoLc291cmNlX3JlYWQYFiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlUmVhZEgAEkIKD3NvdXJjZV9jb3ZlcmFnZRgXIAEoCzInLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VDb3ZlcmFnZVF1ZXJ5SAASOQoKc3RyYXRlZ2llcxgYIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5TdHJhdGVnaWVzUXVlcnlIABIzCghiYWNrdGVzdBgZIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bkgAEi0KBHJ1bnMYGiABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuc1F1ZXJ5SAASMwoKY2FuY2VsX3J1bhgbIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5DYW5jZWxSdW5IABIqCgVzd2VlcBgcIAEoCzIZLmFzdGVyaW9uLmxhYi5wcm90by5Td2VlcEgAEjQKCnN3ZWVwX3J1bnMYHSABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU3dlZXBRdWVyeUgAEjcKDGNhbmNlbF9zd2VlcBgeIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5DYW5jZWxTd2VlcEgAEisKA3J1bhgfIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5SdW5RdWVyeUgAEi8KBmZhY3RvchggIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JSdW5IAEIGCgRib2R5Ig0KC0hlYWx0aFF1ZXJ5InAKD0NvbmZpZ3VyZVNvdXJjZRIQCghwcm92aWRlchgBIAEoCRISCgpjcmVkZW50aWFsGAIgASgJEhsKE3JlcXVlc3RzX3Blcl9taW51dGUYAyABKA0SDAoEaG9zdBgEIAEoCRIMCgRwb3J0GAUgASgNIpUBCgxBY3F1aXJlRGFpbHkSCgoCaWQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkSEQoJZXhjaGFuZ2VzGAQgAygJEg8KB3JlZnJlc2gYBSABKAgSEAoIcHJvdmlkZXIYBiABKAkSDQoFdGFibGUYByABKAkSEAoIY29udHJhY3QYCCABKAkiDAoKVGFza3NRdWVyeSIYCgpDYW5jZWxUYXNrEgoKAmlkGAEgASgJIiAKDFN1bW1hcnlRdWVyeRIQCghwcm92aWRlchgBIAEoCSIhCg1Db3ZlcmFnZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJIlgKDkRhaWx5QmFyc1F1ZXJ5EhAKCGNvbnRyYWN0GAEgASgJEhAKCHByb3ZpZGVyGAQgASgJEhEKCWJlZ2luX2RheRgCIAEoCRIPCgdlbmRfZGF5GAMgASgJIowBCg1Eb21pbmFudFF1ZXJ5EhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSEQoJYmVnaW5fZGF5GAMgASgJEg8KB2VuZF9kYXkYBCABKAkSDgoGdHJhZGVkGAUgASgIEhIKCmFkanVzdG1lbnQYBiABKAkSEAoIcHJvdmlkZXIYByABKAkiaAoNU2Vzc2lvbnNRdWVyeRIQCghwcm92aWRlchgFIAEoCRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEhEKCWJlZ2luX2RheRgDIAEoCRIPCgdlbmRfZGF5GAQgASgJIkMKD0Nyb3NzQ2hlY2tRdWVyeRIMCgRraW5kGAEgASgJEhEKCWJlZ2luX2RheRgCIAEoCRIPCgdlbmRfZGF5GAMgASgJIt4HCghSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSLAoGaGVhbHRoGAogASgLMhouYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aEgAEioKBWVycm9yGAsgASgLMhkuYXN0ZXJpb24ubGFiLnByb3RvLkVycm9ySAASMAoIYWNjZXB0ZWQYDCABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uQWNjZXB0ZWRIABIqCgV0YXNrcxgNIAEoCzIZLmFzdGVyaW9uLmxhYi5wcm90by5UYXNrc0gAEi4KB3N1bW1hcnkYDiABKAsyGy5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeUgAEjAKCGNvdmVyYWdlGA8gASgLMhwuYXN0ZXJpb24ubGFiLnByb3RvLkNvdmVyYWdlSAASMwoKZGFpbHlfYmFycxgQIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5EYWlseUJhcnNIABI2Cghkb21pbmFudBgRIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFNlcmllc0gAEjAKCHNlc3Npb25zGBIgASgLMhwuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25zSAASNQoLY3Jvc3NfY2hlY2sYEyABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ3Jvc3NDaGVja0gAEi4KB3NvdXJjZXMYFSABKAsyGy5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlc0gAEjcKDHNvdXJjZV90YWJsZRgWIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VUYWJsZUgAEj0KD3NvdXJjZV9jb3ZlcmFnZRgXIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VDb3ZlcmFnZUgAEjQKCnN0cmF0ZWdpZXMYGCABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ2llc0gAEigKBHJ1bnMYGSABKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuc0gAEjMKCnN3ZWVwX3J1bnMYGiABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uU3dlZXBSdW5zSAASLAoDcnVuGBsgASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlJ1bkRldGFpbEgAEjIKBmZhY3RvchgcIAEoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JSZXN1bHRIAEIGCgRib2R5IoYBCgZIZWFsdGgSEwoLaW5zdGFuY2VfaWQYASABKAkSEgoKcHJvY2Vzc19pZBgCIAEoCRIPCgd2ZXJzaW9uGAMgASgJEhEKCXVwdGltZV9tcxgEIAEoBBITCgtpbml0aWFsaXplZBgFIAEoCBIaChJjb25maWd1cmVkX3NvdXJjZXMYBiADKAkiJgoFRXJyb3ISDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJIgoKCEFjY2VwdGVkIqoCCgRUYXNrEgoKAmlkGAEgASgJEhEKCWJlZ2luX2RheRgCIAEoCRIPCgdlbmRfZGF5GAMgASgJEg0KBXN0YXRlGAQgASgJEhIKCmRheXNfdG90YWwYBSABKA0SEQoJZGF5c19kb25lGAYgASgNEhIKCmRheXNfZW1wdHkYByABKA0SEAoIcmVxdWVzdHMYCCABKA0SEgoKZXJyb3JfY29kZRgJIAEoCRINCgVlcnJvchgKIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YCyABKAkSEgoKc3RhcnRlZF9ucxgMIAEoAxITCgtmaW5pc2hlZF9ucxgNIAEoAxIQCghwcm92aWRlchgOIAEoCRINCgV0YWJsZRgPIAEoCRIQCghjb250cmFjdBgQIAEoCSIwCgVUYXNrcxInCgV0YXNrcxgBIAMoCzIYLmFzdGVyaW9uLmxhYi5wcm90by5UYXNrImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRIMCgRyb3dzGAIgASgEEhIKCnBhcnRpdGlvbnMYAyABKA0SEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJImgKB1N1bW1hcnkSFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEhIKCmNyZWF0ZWRfbnMYAiABKAMSMAoGdGFibGVzGAMgAygLMiAuYXN0ZXJpb24ubGFiLnByb3RvLlRhYmxlU3VtbWFyeSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImcKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjEKBm1vbnRocxgDIAMoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Nb250aENvdmVyYWdlIloKCENvdmVyYWdlEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRI1Cghwcm9kdWN0cxgCIAMoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Qcm9kdWN0Q292ZXJhZ2UiigEKCERhaWx5QmFyEgsKA2RheRgBIAEoCRIMCgRvcGVuGAIgASgJEgwKBGhpZ2gYAyABKAkSCwoDbG93GAQgASgJEg0KBWNsb3NlGAUgASgJEhIKCnNldHRsZW1lbnQYBiABKAkSDgoGdm9sdW1lGAcgASgJEhUKDW9wZW5faW50ZXJlc3QYCCABKAkiYgoJRGFpbHlCYXJzEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRIQCghjb250cmFjdBgCIAEoCRIqCgRiYXJzGAMgAygLMhwuYXN0ZXJpb24ubGFiLnByb3RvLkRhaWx5QmFyIngKC0RvbWluYW50RGF5EgsKA2RheRgBIAEoCRIQCghjb250cmFjdBgCIAEoCRIMCgRvcGVuGAMgASgJEgwKBGhpZ2gYBCABKAkSCwoDbG93GAUgASgJEg0KBWNsb3NlGAYgASgJEhIKCnNldHRsZW1lbnQYByABKAkiTgoEUm9sbBILCgNkYXkYASABKAkSFQoNZnJvbV9jb250cmFjdBgCIAEoCRITCgt0b19jb250cmFjdBgDIAEoCRINCgVyYXRpbxgEIAEoCSKVAQoORG9taW5hbnRTZXJpZXMSFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEhIKCmFkanVzdG1lbnQYAiABKAkSLQoEZGF5cxgDIAMoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudERheRInCgVyb2xscxgEIAMoCzIYLmFzdGVyaW9uLmxhYi5wcm90by5Sb2xsIiwKDlNlc3Npb25TZWdtZW50Eg0KBWJlZ2luGAEgASgJEgsKA2VuZBgCIAEoCSK+AQoKU2Vzc2lvbkRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIRCglkYXlfa25vd24YAiABKAgSLwoDZGF5GAMgAygLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25TZWdtZW50EhMKC25pZ2h0X3N0YXRlGAQgASgJEjEKBW5pZ2h0GAUgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25TZWdtZW50Eg8KB3NvdXJjZXMYBiADKAkiWAoNU2Vzc2lvblNvdXJjZRIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRILCgN1cmwYAyABKAkSEQoJcHVibGlzaGVkGAQgASgJEgwKBG5vdGUYBSABKAkifgoIU2Vzc2lvbnMSEAoIcmV2aWV3ZWQYASABKAkSLAoEZGF5cxgCIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uRGF5EjIKB3NvdXJjZXMYAyADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvblNvdXJjZSJRCg9DaGVja0RpZmZlcmVuY2USEAoIY29udHJhY3QYASABKAkSDQoFZmllbGQYAiABKAkSDQoFZmlyc3QYAyABKAkSDgoGc2Vjb25kGAQgASgJIuEBCgpDaGVja0dyb3VwEhAKCGV4Y2hhbmdlGAEgASgJEgsKA2RheRgCIAEoCRITCgt1bmF2YWlsYWJsZRgDIAEoCRIVCg1jb21wYXJlZF9yb3dzGAQgASgNEhcKD2NvbXBhcmVkX3ZhbHVlcxgFIAEoDRISCgpvbmx5X2ZpcnN0GAYgAygJEhMKC29ubHlfc2Vjb25kGAcgAygJEjgKC2RpZmZlcmVuY2VzGAggAygLMiMuYXN0ZXJpb24ubGFiLnByb3RvLkNoZWNrRGlmZmVyZW5jZRIMCgRub3RlGAkgASgJIkoKCkNyb3NzQ2hlY2sSDAoEa2luZBgBIAEoCRIuCgZncm91cHMYAiADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2hlY2tHcm91cCIOCgxTb3VyY2VzUXVlcnkijQEKEFNvdXJjZURlc2NyaXB0b3ISCgoCaWQYASABKAkSDgoGdGFibGVzGAIgAygJEhEKCWV4Y2hhbmdlcxgDIAMoCRIbChNyZXF1aXJlc19jcmVkZW50aWFsGAQgASgIEhkKEXJlcXVpcmVzX2VuZHBvaW50GAUgASgIEhIKCmNvbmZpZ3VyZWQYBiABKAgiQAoHU291cmNlcxI1Cgdzb3VyY2VzGAEgAygLMiQuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZURlc2NyaXB0b3IiXgoKU291cmNlUmVhZBIQCghwcm92aWRlchgBIAEoCRINCgV0YWJsZRgCIAEoCRIQCghleGNoYW5nZRgDIAEoCRILCgNkYXkYBCABKAkSEAoIY29udHJhY3QYBSABKAkiKgoKU291cmNlQ2VsbBISCgV2YWx1ZRgBIAEoCUgAiAEBQggKBl92YWx1ZSI6CglTb3VyY2VSb3cSLQoFY2VsbHMYASADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlQ2VsbCKpAQoLU291cmNlVGFibGUSEAoIcHJvdmlkZXIYASABKAkSDQoFdGFibGUYAiABKAkSDwoHY29sdW1ucxgDIAMoCRIrCgRyb3dzGAQgAygLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZVJvdxI7CgxvYnNlcnZhdGlvbnMYBSADKAsyJS5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlT2JzZXJ2YXRpb24ihgEKEVNvdXJjZU9ic2VydmF0aW9uEhAKCGluc3RhbmNlGAEgASgJEg4KBm51bWJlchgCIAEoBBIZChFmaXJzdF9yZWNlaXZlZF9tcxgDIAEoAxIYChBsYXN0X3JlY2VpdmVkX21zGAQgASgDEg0KBXRpY2tzGAUgASgEEgsKA2VuZBgGIAEoCSInChNTb3VyY2VDb3ZlcmFnZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJIk0KDlNvdXJjZUNvdmVyYWdlEhAKCHByb3ZpZGVyGAEgASgJEg0KBWtub3duGAIgASgIEgwKBGRheXMYAyADKAkSDAoEbm90ZRgEIAEoCSIlCg9TdHJhdGVnaWVzUXVlcnkSEgoKcmVwb3NpdG9yeRgBIAEoCSJeCg5QYXJhbWV0ZXJWYWx1ZRIOCgRmbGFnGAEgASgISAASEQoHaW50ZWdlchgCIAEoA0gAEhAKBm51bWJlchgDIAEoAUgAEg4KBHRleHQYBCABKAlIAEIHCgV2YWx1ZSJkChFTdHJhdGVneVBhcmFtZXRlchIMCgRuYW1lGAEgASgJEgwKBGtpbmQYAiABKAkSMwoHZGVmYXVsdBgDIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZSJrCg1TdHJhdGVneUVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEjkKCnBhcmFtZXRlcnMYAyADKAsyJS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lQYXJhbWV0ZXIiNgoTU3RyYXRlZ3lNb2R1bGVFcnJvchIOCgZtb2R1bGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSLjAQoKU3RyYXRlZ2llcxISCgpyZXBvc2l0b3J5GAEgASgJEg4KBmNvbW1pdBgCIAEoCRIPCgdjaGFuZ2VzGAMgASgJEjUKCnN0cmF0ZWdpZXMYBCADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lFbnRyeRI3CgZlcnJvcnMYBSADKAsyJy5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lNb2R1bGVFcnJvchIwCgdmYWN0b3JzGAYgAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvckVudHJ5InkKC0ZhY3RvckVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEg4KBmlucHV0cxgDIAMoCRI5CgpwYXJhbWV0ZXJzGAQgAygLMiUuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5UGFyYW1ldGVyIqYCCglGYWN0b3JSdW4SEgoKcmVwb3NpdG9yeRgBIAEoCRIOCgZmYWN0b3IYAiABKAkSOQoGcGFyYW1zGAMgAygLMikuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvclJ1bi5QYXJhbXNFbnRyeRIQCghwcm92aWRlchgEIAEoCRIPCgdzeW1ib2xzGAUgAygJEhEKCWJlZ2luX2RheRgGIAEoCRIPCgdlbmRfZGF5GAcgASgJEhAKCGhvcml6b25zGAggAygNEg4KBmdyb3VwcxgJIAEoDRpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIsIBCg1GYWN0b3JIb3Jpem9uEg8KB2hvcml6b24YASABKA0SDAoEZGF5cxgCIAEoDRIRCgRtZWFuGAMgASgBSACIAQESFgoJZGV2aWF0aW9uGAQgASgBSAGIAQESDwoCaXIYBSABKAFIAogBARIOCgF0GAYgASgBSAOIAQESFQoIcG9zaXRpdmUYByABKAFIBIgBAUIHCgVfbWVhbkIMCgpfZGV2aWF0aW9uQgUKA19pckIECgJfdEILCglfcG9zaXRpdmUigQEKCUZhY3RvckRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIPCgdzeW1ib2xzGAIgASgNEg8KAmljGAMgASgBSACIAQESDgoGZ3JvdXBzGAQgAygBEhcKCmxvbmdfc2hvcnQYBSABKAFIAYgBAUIFCgNfaWNCDQoLX2xvbmdfc2hvcnQiagoLRmFjdG9yR3JvdXASDQoFZ3JvdXAYASABKA0SGAoLbWVhbl9yZXR1cm4YAiABKAFIAIgBARIVCgh0dXJub3ZlchgDIAEoAUgBiAEBQg4KDF9tZWFuX3JldHVybkILCglfdHVybm92ZXIiLwoNRmFjdG9yU2tpcHBlZBIOCgZzeW1ib2wYASABKAkSDgoGcmVhc29uGAIgASgJIqACCgxGYWN0b3JSZXN1bHQSDgoGY29tbWl0GAEgASgJEg8KB2NoYW5nZXMYAiABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAMgASgJEg8KB3N5bWJvbHMYBCADKAkSMgoHc2tpcHBlZBgFIAMoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JTa2lwcGVkEjMKCGhvcml6b25zGAYgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckhvcml6b24SKwoEZGF5cxgHIAMoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JEYXkSLwoGZ3JvdXBzGAggAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckdyb3VwIi8KDFByb2R1Y3RDb3N0cxIPCgdwcm9kdWN0GAEgASgJEg4KBnZhbHVlcxgCIAMoCSKzBAoLQmFja3Rlc3RSdW4SCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIQCghzdHJhdGVneRgDIAEoCRI7CgZwYXJhbXMYBCADKAsyKy5hc3Rlcmlvbi5sYWIucHJvdG8uQmFja3Rlc3RSdW4uUGFyYW1zRW50cnkSEAoIcHJvdmlkZXIYBSABKAkSDwoHc3ltYm9scxgGIAMoCRIRCgliZWdpbl9kYXkYByABKAkSDwoHZW5kX2RheRgIIAEoCRIPCgdkZXBvc2l0GAkgASgJEi8KBWNvc3RzGAogAygLMiAuYXN0ZXJpb24ubGFiLnByb3RvLlByb2R1Y3RDb3N0cxIWCg5zbGlwcGFnZV90aWNrcxgLIAEoDRIWCg5tYXhfb3JkZXJfbG90cxgMIAEoCRIWCg5tYXhfZ3Jvc3NfbG90cxgNIAEoCRIaChJtYXhfd29ya2luZ19vcmRlcnMYDiABKA0SGAoQbWF4X2dyb3NzX3dlaWdodBgPIAEoCRIWCg5tYXhfbmV0X3dlaWdodBgQIAEoCRIWCg5hbm51YWxfcGVyaW9kcxgRIAEoARIWCg56ZXJvX3Jpc2tfZnJlZRgSIAEoCBITCgtob2xkb3V0X2RheRgTIAEoCRpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIgsKCVJ1bnNRdWVyeSIXCglDYW5jZWxSdW4SCgoCaWQYASABKAkitwMKClJ1blN1bW1hcnkSCgoCaWQYASABKAkSEAoIc3RyYXRlZ3kYAiABKAkSDgoGY29tbWl0GAMgASgJEg8KB2NoYW5nZXMYBCABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAUgASgJEg0KBXN0YXRlGAYgASgJEg0KBWVycm9yGAcgASgJEhIKCnN0YXJ0ZWRfbnMYCCABKAMSEwoLZmluaXNoZWRfbnMYCSABKAMSPAoHbWV0cmljcxgKIAMoCzIrLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Lk1ldHJpY3NFbnRyeRI6CgZwYXJhbXMYCyADKAsyKi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuU3VtbWFyeS5QYXJhbXNFbnRyeRINCgVzd2VlcBgMIAEoCRouCgxNZXRyaWNzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgBOgI4ARpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIjQKBFJ1bnMSLAoEcnVucxgBIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5IlMKD1BhcmFtZXRlclZhbHVlcxIMCgRuYW1lGAEgASgJEjIKBnZhbHVlcxgCIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZSLBAQoFU3dlZXASCgoCaWQYASABKAkSLQoEYmFzZRgCIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIzCgZ2YWx1ZXMYAyADKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWVzEhEKCXByb2Nlc3NlcxgEIAEoDRI1Cgx3YWxrX2ZvcndhcmQYBSABKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uV2Fsa0ZvcndhcmQiPQoLV2Fsa0ZvcndhcmQSFQoNdHJhaW5pbmdfZGF5cxgBIAEoDRIXCg92YWxpZGF0aW9uX2RheXMYAiABKA0ihgEKClJvbGxpbmdSdW4SCgoCaWQYASABKAkSDQoFc3dlZXAYAiABKAkSLQoEYmFzZRgDIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIVCg10cmFpbmluZ19kYXlzGAQgASgNEhcKD3ZhbGlkYXRpb25fZGF5cxgFIAEoDSIYCgpTd2VlcFF1ZXJ5EgoKAmlkGAEgASgJIhkKC0NhbmNlbFN3ZWVwEgoKAmlkGAEgASgJIqkBCglTd2VlcFJ1bnMSCgoCaWQYASABKAkSLAoEcnVucxgCIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg8KB3dhaXRpbmcYAyABKA0SEAoIc2VsZWN0ZWQYBCABKAkSLwoHcm9sbGluZxgFIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBmFjdGl2ZRgGIAEoCCIWCghSdW5RdWVyeRIKCgJpZBgBIAEoCSJACglSdW5FcXVpdHkSDwoHdGltZV9ucxgBIAEoAxIOCgZlcXVpdHkYAiABKAkSEgoKc2V0dGxlbWVudBgDIAEoCCJtCgZSdW5EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSDwoHdGltZV9ucxgCIAEoAxIOCgZlcXVpdHkYAyABKAkSDwoHYmFsYW5jZRgEIAEoCRIMCgRmZWVzGAUgASgJEg4KBm1hcmdpbhgGIAEoCSKVAQoHUnVuRmlsbBIMCgRmaWxsGAEgASgJEg0KBW9yZGVyGAIgASgJEg8KB3RpbWVfbnMYAyABKAMSEAoIY29udHJhY3QYBCABKAkSDAoEc2lkZRgFIAEoCRIOCgZvZmZzZXQYBiABKAkSEAoIcXVhbnRpdHkYByABKAkSDQoFcHJpY2UYCCABKAkSCwoDZmVlGAkgASgJItEBCglSdW5EZXRhaWwSLwoHc3VtbWFyeRgBIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBnJlY29yZBgCIAEoCRItCgZlcXVpdHkYAyADKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRXF1aXR5EigKBGRheXMYBCADKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRGF5EioKBWZpbGxzGAUgAygLMhsuYXN0ZXJpb24ubGFiLnByb3RvLlJ1bkZpbGxiBnByb3RvMw");
 
 /**
  * The Python research service. One per node, supervised by the Agent.
@@ -171,6 +171,12 @@ export type Request = Message<"asterion.lab.proto.Request"> & {
      */
     value: RunQuery;
     case: "run";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.FactorRun factor = 32;
+     */
+    value: FactorRun;
+    case: "factor";
   } | { case: undefined; value?: undefined };
 };
 
@@ -642,6 +648,12 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
      */
     value: RunDetail;
     case: "run";
+  } | {
+    /**
+     * @generated from field: asterion.lab.proto.FactorResult factor = 28;
+     */
+    value: FactorResult;
+    case: "factor";
   } | { case: undefined; value?: undefined };
 };
 
@@ -1897,6 +1909,11 @@ export type Strategies = Message<"asterion.lab.proto.Strategies"> & {
    * @generated from field: repeated asterion.lab.proto.StrategyModuleError errors = 5;
    */
   errors: StrategyModuleError[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.FactorEntry factors = 6;
+   */
+  factors: FactorEntry[];
 };
 
 /**
@@ -1905,6 +1922,320 @@ export type Strategies = Message<"asterion.lab.proto.Strategies"> & {
  */
 export const StrategiesSchema: GenMessage<Strategies> = /*@__PURE__*/
   messageDesc(file_asterion_lab, 50);
+
+/**
+ * A factor: a public function of a module in the repository's factors/
+ * directory, named <module>.<function>. Its parameters named after bar fields
+ * receive them; the others are its settings, each with a default.
+ *
+ * @generated from message asterion.lab.proto.FactorEntry
+ */
+export type FactorEntry = Message<"asterion.lab.proto.FactorEntry"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * the function's docstring
+   *
+   * @generated from field: string description = 2;
+   */
+  description: string;
+
+  /**
+   * bar fields, in the function's order
+   *
+   * @generated from field: repeated string inputs = 3;
+   */
+  inputs: string[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.StrategyParameter parameters = 4;
+   */
+  parameters: StrategyParameter[];
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorEntry.
+ * Use `create(FactorEntrySchema)` to create a new message.
+ */
+export const FactorEntrySchema: GenMessage<FactorEntry> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 51);
+
+/**
+ * A factor evaluated across symbols: each day its values rank the symbols
+ * against their returns over the following bars. Symbols are contracts,
+ * products' dominant series or whole exchanges (every product of it).
+ *
+ * @generated from message asterion.lab.proto.FactorRun
+ */
+export type FactorRun = Message<"asterion.lab.proto.FactorRun"> & {
+  /**
+   * @generated from field: string repository = 1;
+   */
+  repository: string;
+
+  /**
+   * @generated from field: string factor = 2;
+   */
+  factor: string;
+
+  /**
+   * @generated from field: map<string, asterion.lab.proto.ParameterValue> params = 3;
+   */
+  params: { [key: string]: ParameterValue };
+
+  /**
+   * @generated from field: string provider = 4;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: repeated string symbols = 5;
+   */
+  symbols: string[];
+
+  /**
+   * @generated from field: string begin_day = 6;
+   */
+  beginDay: string;
+
+  /**
+   * @generated from field: string end_day = 7;
+   */
+  endDay: string;
+
+  /**
+   * bars ahead; the first is the one groups use
+   *
+   * @generated from field: repeated uint32 horizons = 8;
+   */
+  horizons: number[];
+
+  /**
+   * @generated from field: uint32 groups = 9;
+   */
+  groups: number;
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorRun.
+ * Use `create(FactorRunSchema)` to create a new message.
+ */
+export const FactorRunSchema: GenMessage<FactorRun> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 52);
+
+/**
+ * The rank correlation (IC) of the factor with returns `horizon` bars ahead,
+ * over the days with at least three symbols.
+ *
+ * @generated from message asterion.lab.proto.FactorHorizon
+ */
+export type FactorHorizon = Message<"asterion.lab.proto.FactorHorizon"> & {
+  /**
+   * @generated from field: uint32 horizon = 1;
+   */
+  horizon: number;
+
+  /**
+   * @generated from field: uint32 days = 2;
+   */
+  days: number;
+
+  /**
+   * @generated from field: optional double mean = 3;
+   */
+  mean?: number | undefined;
+
+  /**
+   * @generated from field: optional double deviation = 4;
+   */
+  deviation?: number | undefined;
+
+  /**
+   * mean / deviation
+   *
+   * @generated from field: optional double ir = 5;
+   */
+  ir?: number | undefined;
+
+  /**
+   * ir * sqrt(days)
+   *
+   * @generated from field: optional double t = 6;
+   */
+  t?: number | undefined;
+
+  /**
+   * share of days above zero
+   *
+   * @generated from field: optional double positive = 7;
+   */
+  positive?: number | undefined;
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorHorizon.
+ * Use `create(FactorHorizonSchema)` to create a new message.
+ */
+export const FactorHorizonSchema: GenMessage<FactorHorizon> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 53);
+
+/**
+ * @generated from message asterion.lab.proto.FactorDay
+ */
+export type FactorDay = Message<"asterion.lab.proto.FactorDay"> & {
+  /**
+   * @generated from field: string trading_day = 1;
+   */
+  tradingDay: string;
+
+  /**
+   * with a factor value
+   *
+   * @generated from field: uint32 symbols = 2;
+   */
+  symbols: number;
+
+  /**
+   * at the first horizon
+   *
+   * @generated from field: optional double ic = 3;
+   */
+  ic?: number | undefined;
+
+  /**
+   * Cumulative returns of each group, lowest factor first, and of the highest
+   * group less the lowest; absent until the first day with enough symbols.
+   *
+   * @generated from field: repeated double groups = 4;
+   */
+  groups: number[];
+
+  /**
+   * @generated from field: optional double long_short = 5;
+   */
+  longShort?: number | undefined;
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorDay.
+ * Use `create(FactorDaySchema)` to create a new message.
+ */
+export const FactorDaySchema: GenMessage<FactorDay> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 54);
+
+/**
+ * @generated from message asterion.lab.proto.FactorGroup
+ */
+export type FactorGroup = Message<"asterion.lab.proto.FactorGroup"> & {
+  /**
+   * 1 holds the lowest values
+   *
+   * @generated from field: uint32 group = 1;
+   */
+  group: number;
+
+  /**
+   * per bar
+   *
+   * @generated from field: optional double mean_return = 2;
+   */
+  meanReturn?: number | undefined;
+
+  /**
+   * share of members new each day
+   *
+   * @generated from field: optional double turnover = 3;
+   */
+  turnover?: number | undefined;
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorGroup.
+ * Use `create(FactorGroupSchema)` to create a new message.
+ */
+export const FactorGroupSchema: GenMessage<FactorGroup> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 55);
+
+/**
+ * A product of an exchange that was left out, and why.
+ *
+ * @generated from message asterion.lab.proto.FactorSkipped
+ */
+export type FactorSkipped = Message<"asterion.lab.proto.FactorSkipped"> & {
+  /**
+   * @generated from field: string symbol = 1;
+   */
+  symbol: string;
+
+  /**
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorSkipped.
+ * Use `create(FactorSkippedSchema)` to create a new message.
+ */
+export const FactorSkippedSchema: GenMessage<FactorSkipped> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 56);
+
+/**
+ * @generated from message asterion.lab.proto.FactorResult
+ */
+export type FactorResult = Message<"asterion.lab.proto.FactorResult"> & {
+  /**
+   * @generated from field: string commit = 1;
+   */
+  commit: string;
+
+  /**
+   * @generated from field: string changes = 2;
+   */
+  changes: string;
+
+  /**
+   * @generated from field: string dataset_version = 3;
+   */
+  datasetVersion: string;
+
+  /**
+   * as evaluated
+   *
+   * @generated from field: repeated string symbols = 4;
+   */
+  symbols: string[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.FactorSkipped skipped = 5;
+   */
+  skipped: FactorSkipped[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.FactorHorizon horizons = 6;
+   */
+  horizons: FactorHorizon[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.FactorDay days = 7;
+   */
+  days: FactorDay[];
+
+  /**
+   * @generated from field: repeated asterion.lab.proto.FactorGroup groups = 8;
+   */
+  groups: FactorGroup[];
+};
+
+/**
+ * Describes the message asterion.lab.proto.FactorResult.
+ * Use `create(FactorResultSchema)` to create a new message.
+ */
+export const FactorResultSchema: GenMessage<FactorResult> = /*@__PURE__*/
+  messageDesc(file_asterion_lab, 57);
 
 /**
  * The costs of one product, as COSTS in asterion_lab/backtest.py names them:
@@ -1932,7 +2263,7 @@ export type ProductCosts = Message<"asterion.lab.proto.ProductCosts"> & {
  * Use `create(ProductCostsSchema)` to create a new message.
  */
 export const ProductCostsSchema: GenMessage<ProductCosts> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 51);
+  messageDesc(file_asterion_lab, 58);
 
 /**
  * A strategy of the repository over the warehouse's daily bars. A symbol is a
@@ -2052,7 +2383,7 @@ export type BacktestRun = Message<"asterion.lab.proto.BacktestRun"> & {
  * Use `create(BacktestRunSchema)` to create a new message.
  */
 export const BacktestRunSchema: GenMessage<BacktestRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 52);
+  messageDesc(file_asterion_lab, 59);
 
 /**
  * @generated from message asterion.lab.proto.RunsQuery
@@ -2065,7 +2396,7 @@ export type RunsQuery = Message<"asterion.lab.proto.RunsQuery"> & {
  * Use `create(RunsQuerySchema)` to create a new message.
  */
 export const RunsQuerySchema: GenMessage<RunsQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 53);
+  messageDesc(file_asterion_lab, 60);
 
 /**
  * @generated from message asterion.lab.proto.CancelRun
@@ -2082,7 +2413,7 @@ export type CancelRun = Message<"asterion.lab.proto.CancelRun"> & {
  * Use `create(CancelRunSchema)` to create a new message.
  */
 export const CancelRunSchema: GenMessage<CancelRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 54);
+  messageDesc(file_asterion_lab, 61);
 
 /**
  * @generated from message asterion.lab.proto.RunSummary
@@ -2162,7 +2493,7 @@ export type RunSummary = Message<"asterion.lab.proto.RunSummary"> & {
  * Use `create(RunSummarySchema)` to create a new message.
  */
 export const RunSummarySchema: GenMessage<RunSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 55);
+  messageDesc(file_asterion_lab, 62);
 
 /**
  * @generated from message asterion.lab.proto.Runs
@@ -2179,7 +2510,7 @@ export type Runs = Message<"asterion.lab.proto.Runs"> & {
  * Use `create(RunsSchema)` to create a new message.
  */
 export const RunsSchema: GenMessage<Runs> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 56);
+  messageDesc(file_asterion_lab, 63);
 
 /**
  * The values one parameter takes in a sweep.
@@ -2203,7 +2534,7 @@ export type ParameterValues = Message<"asterion.lab.proto.ParameterValues"> & {
  * Use `create(ParameterValuesSchema)` to create a new message.
  */
 export const ParameterValuesSchema: GenMessage<ParameterValues> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 57);
+  messageDesc(file_asterion_lab, 64);
 
 /**
  * The base run once for every combination of the parameters' values, at most
@@ -2246,7 +2577,7 @@ export type Sweep = Message<"asterion.lab.proto.Sweep"> & {
  * Use `create(SweepSchema)` to create a new message.
  */
 export const SweepSchema: GenMessage<Sweep> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 58);
+  messageDesc(file_asterion_lab, 65);
 
 /**
  * Rounds select by the Sharpe ratio of `training_days` (at least 20) and are
@@ -2272,7 +2603,7 @@ export type WalkForward = Message<"asterion.lab.proto.WalkForward"> & {
  * Use `create(WalkForwardSchema)` to create a new message.
  */
 export const WalkForwardSchema: GenMessage<WalkForward> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 59);
+  messageDesc(file_asterion_lab, 66);
 
 /**
  * What the service gives the child that runs a sweep's rolling validation.
@@ -2311,7 +2642,7 @@ export type RollingRun = Message<"asterion.lab.proto.RollingRun"> & {
  * Use `create(RollingRunSchema)` to create a new message.
  */
 export const RollingRunSchema: GenMessage<RollingRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 60);
+  messageDesc(file_asterion_lab, 67);
 
 /**
  * @generated from message asterion.lab.proto.SweepQuery
@@ -2328,7 +2659,7 @@ export type SweepQuery = Message<"asterion.lab.proto.SweepQuery"> & {
  * Use `create(SweepQuerySchema)` to create a new message.
  */
 export const SweepQuerySchema: GenMessage<SweepQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 61);
+  messageDesc(file_asterion_lab, 68);
 
 /**
  * Runs of the sweep not started yet never start; those running end interrupted.
@@ -2347,7 +2678,7 @@ export type CancelSweep = Message<"asterion.lab.proto.CancelSweep"> & {
  * Use `create(CancelSweepSchema)` to create a new message.
  */
 export const CancelSweepSchema: GenMessage<CancelSweep> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 62);
+  messageDesc(file_asterion_lab, 69);
 
 /**
  * A sweep's runs in order. A run that has not started has no state yet, and
@@ -2398,7 +2729,7 @@ export type SweepRuns = Message<"asterion.lab.proto.SweepRuns"> & {
  * Use `create(SweepRunsSchema)` to create a new message.
  */
 export const SweepRunsSchema: GenMessage<SweepRuns> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 63);
+  messageDesc(file_asterion_lab, 70);
 
 /**
  * One run's record for its result page. Amounts are exact decimals as text.
@@ -2417,7 +2748,7 @@ export type RunQuery = Message<"asterion.lab.proto.RunQuery"> & {
  * Use `create(RunQuerySchema)` to create a new message.
  */
 export const RunQuerySchema: GenMessage<RunQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 64);
+  messageDesc(file_asterion_lab, 71);
 
 /**
  * @generated from message asterion.lab.proto.RunEquity
@@ -2446,7 +2777,7 @@ export type RunEquity = Message<"asterion.lab.proto.RunEquity"> & {
  * Use `create(RunEquitySchema)` to create a new message.
  */
 export const RunEquitySchema: GenMessage<RunEquity> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 65);
+  messageDesc(file_asterion_lab, 72);
 
 /**
  * @generated from message asterion.lab.proto.RunDay
@@ -2488,7 +2819,7 @@ export type RunDay = Message<"asterion.lab.proto.RunDay"> & {
  * Use `create(RunDaySchema)` to create a new message.
  */
 export const RunDaySchema: GenMessage<RunDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 66);
+  messageDesc(file_asterion_lab, 73);
 
 /**
  * @generated from message asterion.lab.proto.RunFill
@@ -2549,7 +2880,7 @@ export type RunFill = Message<"asterion.lab.proto.RunFill"> & {
  * Use `create(RunFillSchema)` to create a new message.
  */
 export const RunFillSchema: GenMessage<RunFill> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 67);
+  messageDesc(file_asterion_lab, 74);
 
 /**
  * @generated from message asterion.lab.proto.RunDetail
@@ -2588,5 +2919,5 @@ export type RunDetail = Message<"asterion.lab.proto.RunDetail"> & {
  * Use `create(RunDetailSchema)` to create a new message.
  */
 export const RunDetailSchema: GenMessage<RunDetail> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 68);
+  messageDesc(file_asterion_lab, 75);
 

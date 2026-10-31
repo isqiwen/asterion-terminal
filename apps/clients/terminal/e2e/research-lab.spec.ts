@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync } from "node:fs";
+import { cpSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { rpc } from "./dataset-fixture";
 import { test, expect, type Page } from "./test";
@@ -10,6 +10,8 @@ const source = join(__dirname, "../../../..");
 // the isolated root's lab directory.
 function prepare(root: string) {
   const repository = join(root, "strategies");
+  // The tests of this file share one root.
+  if (existsSync(repository)) return repository;
   cpSync(join(source, "apps/services/lab/examples"), repository, { recursive: true });
   const git = (...args: string[]) =>
     execFileSync("git", [
@@ -88,5 +90,33 @@ test(
     await expect(comparison.getByRole("columnheader", { name: /^ma_cross-\d+$/ })).toHaveCount(2);
     await expect(comparison.getByRole("row", { name: /^总收益 / })).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-comparison.png") });
+  },
+);
+
+test(
+  "a factor from the repository is evaluated across symbols",
+  { tag: "@journey" },
+  async ({ page }) => {
+    const repository = prepare(process.env.ASTERION_ROOT!);
+    await rpc(page.request, "research.repository.save", { path: repository });
+    await page.goto("/");
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: /^momentum price · close/ }).click();
+    const form = page.locator(".lab-config");
+    await form.getByLabel("品种").fill("SHFE/rb/2026-05, SHFE/rb/2026-10, SHFE/rb");
+    await form.getByLabel("开始日").fill("2026-01-05");
+    await form.getByLabel("结束日").fill("2026-02-13");
+    await form.getByLabel("lookback").fill("2");
+    await form.getByLabel("分组数").fill("3");
+    await form.getByRole("button", { name: "评价", exact: true }).click();
+    const decay = page.getByRole("table", { name: "IC 与衰减" });
+    await expect(decay.locator("tbody tr")).toHaveCount(6);
+    await expect(decay.locator("tbody tr").first()).toContainText("1 根");
+    await expect(page.getByRole("table", { name: "分组" }).locator("tbody tr")).toHaveCount(3);
+    await expect(page.getByText("3 个品种")).toBeVisible();
+    await page.screenshot({ path: join(__dirname, "../test-results/research-lab-factor.png") });
   },
 );

@@ -1,10 +1,18 @@
 import { create } from "@bufbuild/protobuf";
 import { expect, test } from "vitest";
-import { RunDaySchema, StrategyParameterSchema } from "../../src/generated/asterion/lab_pb";
+import {
+  FactorDaySchema,
+  FactorEntrySchema,
+  RunDaySchema,
+  StrategyParameterSchema,
+} from "../../src/generated/asterion/lab_pb";
 import { setLocale } from "../../src/i18n";
 import "./feature";
 import {
+  cumulativeIc,
+  defaultFactorForm,
   defaultForm,
+  factorRequest,
   heatmap,
   monthlyReturns,
   parameterValues,
@@ -70,4 +78,28 @@ test("monthly returns compound from the deposit, and a sweep grid fills by its t
       [1, null],
     ],
   });
+});
+
+test("a factor's evaluation takes one value of each setting, horizons and groups", () => {
+  const momentum = create(FactorEntrySchema, {
+    id: "price.momentum",
+    inputs: ["close"],
+    parameters: [integer("lookback", 20n)],
+  });
+  const form = { ...defaultFactorForm(), symbols: "SHFE, DCE/i", begin: "2025-01-02" };
+  const request = factorRequest(form, "/repo", momentum);
+  expect(request.symbols).toEqual(["SHFE", "DCE/i"]);
+  expect(request.params).toEqual({ lookback: { value: { case: "integer", value: 20n } } });
+  expect(request.horizons).toEqual([1, 2, 3, 5, 10, 20]);
+  expect(request.groups).toBe(5);
+  expect(() =>
+    factorRequest({ ...form, params: { lookback: "10, 20" } }, "/repo", momentum),
+  ).toThrow("只能取一个值");
+  expect(() => factorRequest({ ...form, horizons: "1, 1" }, "/repo", momentum)).toThrow("互不相同");
+  expect(() => factorRequest({ ...form, groups: "1" }, "/repo", momentum)).toThrow("至少为 2");
+});
+
+test("the cumulative IC adds nothing on a day without one", () => {
+  const days = [0.1, undefined, -0.05].map(ic => create(FactorDaySchema, { ic }));
+  expect(cumulativeIc(days).map(value => Number(value.toFixed(6)))).toEqual([0.1, 0.1, 0.05]);
 });

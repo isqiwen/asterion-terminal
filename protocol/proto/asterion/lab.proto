@@ -31,6 +31,7 @@ message Request {
     SweepQuery sweep_runs = 29;
     CancelSweep cancel_sweep = 30;
     RunQuery run = 31;
+    FactorRun factor = 32;
   }
 }
 message HealthQuery {}
@@ -129,6 +130,7 @@ message Response {
     Runs runs = 25;
     SweepRuns sweep_runs = 26;
     RunDetail run = 27;
+    FactorResult factor = 28;
   }
 }
 message Health {
@@ -375,6 +377,72 @@ message Strategies {
   string changes = 3;
   repeated StrategyEntry strategies = 4;
   repeated StrategyModuleError errors = 5;
+  repeated FactorEntry factors = 6;
+}
+
+// A factor: a public function of a module in the repository's factors/
+// directory, named <module>.<function>. Its parameters named after bar fields
+// receive them; the others are its settings, each with a default.
+message FactorEntry {
+  string id = 1;
+  string description = 2; // the function's docstring
+  repeated string inputs = 3; // bar fields, in the function's order
+  repeated StrategyParameter parameters = 4;
+}
+
+// A factor evaluated across symbols: each day its values rank the symbols
+// against their returns over the following bars. Symbols are contracts,
+// products' dominant series or whole exchanges (every product of it).
+message FactorRun {
+  string repository = 1;
+  string factor = 2;
+  map<string, ParameterValue> params = 3;
+  string provider = 4;
+  repeated string symbols = 5;
+  string begin_day = 6;
+  string end_day = 7;
+  repeated uint32 horizons = 8; // bars ahead; the first is the one groups use
+  uint32 groups = 9;
+}
+// The rank correlation (IC) of the factor with returns `horizon` bars ahead,
+// over the days with at least three symbols.
+message FactorHorizon {
+  uint32 horizon = 1;
+  uint32 days = 2;
+  optional double mean = 3;
+  optional double deviation = 4;
+  optional double ir = 5; // mean / deviation
+  optional double t = 6; // ir * sqrt(days)
+  optional double positive = 7; // share of days above zero
+}
+message FactorDay {
+  string trading_day = 1;
+  uint32 symbols = 2; // with a factor value
+  optional double ic = 3; // at the first horizon
+  // Cumulative returns of each group, lowest factor first, and of the highest
+  // group less the lowest; absent until the first day with enough symbols.
+  repeated double groups = 4;
+  optional double long_short = 5;
+}
+message FactorGroup {
+  uint32 group = 1; // 1 holds the lowest values
+  optional double mean_return = 2; // per bar
+  optional double turnover = 3; // share of members new each day
+}
+// A product of an exchange that was left out, and why.
+message FactorSkipped {
+  string symbol = 1;
+  string reason = 2;
+}
+message FactorResult {
+  string commit = 1;
+  string changes = 2;
+  string dataset_version = 3;
+  repeated string symbols = 4; // as evaluated
+  repeated FactorSkipped skipped = 5;
+  repeated FactorHorizon horizons = 6;
+  repeated FactorDay days = 7;
+  repeated FactorGroup groups = 8;
 }
 
 // The costs of one product, as COSTS in asterion_lab/backtest.py names them:

@@ -76,6 +76,8 @@ export type {
   RunDetail as LabRunDetail,
   RunSummary as LabRunSummary,
   Strategies as LabStrategies,
+  FactorEntry as LabFactorEntry,
+  FactorResult as LabFactorResult,
 } from "../src/generated/asterion/lab_pb";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";

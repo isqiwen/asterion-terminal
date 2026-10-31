@@ -725,3 +725,36 @@ label.lab-inline {
 .lab-details dd {
   margin: 0;
 }
+/* A factor's IC by horizon: a bar of its mean, coloured by sign. */
+.lab-bar-cell {
+  width: 30%;
+}
+.lab-bar {
+  display: block;
+  height: 8px;
+  min-width: 1px;
+  background: var(--muted);
+}
+.lab-bar.lab-up {
+  background: var(--quote-up);
+}
+.lab-bar.lab-down {
+  background: var(--quote-down);
+}
+.lab-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+.lab-skipped {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+.lab-skipped strong {
+  margin-right: 8px;
+  color: var(--text);
+}

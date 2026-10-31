@@ -108,7 +108,8 @@ class Data:
         self.warehouse = warehouse
         self.version = warehouse.current()
         self.begin, self.end = begin, end
-        self.products = {}
+        # Read once per run: each product's months, increments and contract units.
+        self.products, self.increment_days, self.units, self.multipliers = {}, {}, {}, {}
 
     def check_stored(self, exchange: str):
         rows = self.warehouse.query(self.version, """
@@ -145,6 +146,12 @@ class Data:
 
     def increments(self, exchange: str, product: str) -> dict:
         """The price increment of each traded day in the range."""
+        key = (exchange, product)
+        if key not in self.increment_days:
+            self.increment_days[key] = self.read_increments(exchange, product)
+        return self.increment_days[key]
+
+    def read_increments(self, exchange: str, product: str) -> dict:
         stored = sorted(day for day in self.version.days(exchange))
         first = next((i for i, day in enumerate(stored) if day >= self.begin), len(stored))
         last = next((i for i in range(len(stored) - 1, -1, -1) if stored[i] <= self.end), -1)
@@ -172,9 +179,21 @@ class Data:
                 for i, (day, _) in enumerate(traded) if self.begin <= day <= self.end}
 
     def multiplier(self, exchange: str, contract: str) -> Decimal:
-        rows = self.warehouse.query(self.version, """
-            select distinct multiplier, per_unit, trade_unit, quote_unit from contracts
-            where contract = ?""", ("contracts",), (contract,), exchange=exchange)
+        if contract not in self.multipliers:
+            self.multipliers[contract] = self.read_multiplier(exchange, contract)
+        return self.multipliers[contract]
+
+    def read_multiplier(self, exchange: str, contract: str) -> Decimal:
+        product = contract.split("/")[1]
+        if (exchange, product) not in self.units:
+            units = {}
+            for name, *row in self.warehouse.query(self.version, """
+                    select distinct contract, multiplier, per_unit, trade_unit, quote_unit
+                    from contracts where exchange = ? and product = ?""", ("contracts",),
+                    (exchange, product), exchange=exchange):
+                units.setdefault(name, []).append(tuple(row))
+            self.units[exchange, product] = units
+        rows = self.units[exchange, product].get(contract)
         if not rows:
             raise ValueError(f"the contract table has no {contract}")
         if len(rows) > 1:
@@ -186,7 +205,6 @@ class Data:
         result = (Decimal(1) if scale is None else Decimal(scale)) * Decimal(per_unit) * lots
         # Turnover of a delivery month includes lots that changed hands away from the
         # day's prices, so a day agrees within a twentieth, and most days must.
-        product = contract.split("/")[1]
         implied = [Decimal(row["amount"]) / Decimal(row["volume"]) / Decimal(row["settlement"])
                    for day, row in self.product(exchange, product)[contract].days.items()
                    if self.begin <= day <= self.end and row["amount"] and row["volume"]

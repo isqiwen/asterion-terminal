@@ -5,6 +5,7 @@ import {
   lab,
   translate,
   type DisplayError,
+  type LabFactorResult,
   type LabRunSummary,
   type LabStrategies,
   type LabSummary,
@@ -13,12 +14,16 @@ import {
 } from "../contract";
 import {
   costNames,
+  defaultFactorForm,
   defaultForm,
   defaultText,
+  factorRequest,
   productsOf,
   runRequest,
+  type FactorForm,
   type RunForm,
 } from "./research-lab";
+import { FactorResult } from "./FactorResult";
 import { RunComparison, RunResult, SweepResult, metric, signed, states } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
@@ -35,10 +40,15 @@ function identity(strategy: string) {
 }
 
 type Shown =
-  { kind: "run"; id: string } | { kind: "sweep"; id: string } | { kind: "compare" } | null;
+  | { kind: "run"; id: string }
+  | { kind: "sweep"; id: string }
+  | { kind: "compare" }
+  | { kind: "factor"; result: LabFactorResult }
+  | null;
 
-// The research page: the user's strategies, a run's configuration, its result
-// and every run so far, all on the lab service.
+// The research page: the user's strategies and factors, a run's or an
+// evaluation's configuration, its result and every run so far, all on the lab
+// service.
 export function ResearchLab(context: TerminalContext) {
   const setting = context.snapshot?.strategy_repository;
   const repository = setting && "path" in setting ? setting.path : "";
@@ -46,6 +56,9 @@ export function ResearchLab(context: TerminalContext) {
   const [summary, setSummary] = useState<LabSummary | null>(null);
   const [chosen, setChosen] = useState("");
   const [form, setForm] = useState<RunForm>(defaultForm);
+  // A factor is chosen instead of a strategy, never with one.
+  const [chosenFactor, setChosenFactor] = useState("");
+  const [factorForm, setFactorForm] = useState<FactorForm>(defaultFactorForm);
   const [runs, setRuns] = useState<LabRunSummary[]>([]);
   const [sweep, setSweep] = useState<{
     id: string;
@@ -110,6 +123,25 @@ export function ResearchLab(context: TerminalContext) {
   }, [shown, runs]);
 
   const strategy = strategies?.strategies.find(item => item.id === chosen);
+  const factor = strategies?.factors.find(item => item.id === chosenFactor);
+  const changeFactor = (patch: Partial<FactorForm>) =>
+    setFactorForm(previous => ({ ...previous, ...patch }));
+  const evaluate = async () => {
+    if (!factor) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await lab(
+        { case: "factor", value: factorRequest(factorForm, repository, factor) },
+        "factor",
+      );
+      setShown({ kind: "factor", result });
+    } catch (failure) {
+      setError(asDisplayError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
   const products = productsOf(form.symbols);
   const change = (patch: Partial<RunForm>) => setForm(previous => ({ ...previous, ...patch }));
   const submit = async () => {
@@ -189,6 +221,16 @@ export function ResearchLab(context: TerminalContext) {
       />
     </label>
   );
+  const factorField = (label: string, key: "begin" | "end" | "horizons" | "groups", props = {}) => (
+    <label>
+      <span>{t(label)}</span>
+      <input
+        {...props}
+        value={factorForm[key]}
+        onChange={event => changeFactor({ [key]: event.target.value })}
+      />
+    </label>
+  );
   const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   return (
     <section className="lab-research">
@@ -219,6 +261,7 @@ export function ResearchLab(context: TerminalContext) {
                   aria-pressed={item.id === chosen}
                   onClick={() => {
                     setChosen(item.id);
+                    setChosenFactor("");
                     change({
                       params: Object.fromEntries(
                         item.parameters.map(p => [p.name, defaultText(p)]),
@@ -236,6 +279,39 @@ export function ResearchLab(context: TerminalContext) {
             );
           })}
         </ul>
+        <h4>{t("因子")}</h4>
+        <ul>
+          {strategies?.factors.map(item => {
+            const [module, name] = item.id.split(".");
+            return (
+              <li key={item.id}>
+                <button
+                  aria-pressed={item.id === chosenFactor}
+                  onClick={() => {
+                    setChosenFactor(item.id);
+                    setChosen("");
+                    changeFactor({
+                      params: Object.fromEntries(
+                        item.parameters.map(p => [p.name, defaultText(p)]),
+                      ),
+                    });
+                  }}
+                >
+                  <strong>{name}</strong>
+                  <small>
+                    {module} · {item.inputs.join(", ")}
+                  </small>
+                  {item.description && (
+                    <span>{item.description.split("\n")[0].replace(/`/g, "")}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {strategies && !strategies.factors.length && (
+          <p className="subtle">{t("策略仓库的 factors/ 目录里还没有因子函数。")}</p>
+        )}
         {strategies?.errors.map(item => (
           <details key={item.module} className="lab-module-error">
             <summary>
@@ -272,132 +348,179 @@ export function ResearchLab(context: TerminalContext) {
             }
           />
         )}
+        {shown?.kind === "factor" && <FactorResult result={shown.result} />}
         {shown?.kind === "compare" && compared.length === 2 && (
           <RunComparison ids={[compared[0], compared[1]]} />
         )}
         {!shown && (
           <p className="lab-placeholder">
-            {t("选择左侧的策略、填写右侧的运行配置后运行；结果显示在这里。")}
+            {t("选择左侧的策略或因子、填写右侧的配置后运行；结果显示在这里。")}
           </p>
         )}
       </main>
-      <aside className="lab-config">
-        <h4>{t("运行配置")}</h4>
-        {!strategy ? (
-          <p className="subtle">{t("先选择一个策略。")}</p>
-        ) : (
-          <>
-            <div className="lab-form">
-              <label className="wide">
-                <span>{t("品种")}</span>
+      {factor ? (
+        <aside className="lab-config">
+          <h4>{t("因子评价")}</h4>
+          <div className="lab-form">
+            <label className="wide">
+              <span>{t("品种")}</span>
+              <input
+                value={factorForm.symbols}
+                placeholder={t("SHFE（整个交易所）或 SHFE/rb, SHFE/au")}
+                onChange={event => changeFactor({ symbols: event.target.value })}
+              />
+            </label>
+            {factorField("开始日", "begin", { type: "date" })}
+            {factorField("结束日", "end", { type: "date" })}
+            {factor.parameters.length > 0 && <h5 className="wide">{t("参数")}</h5>}
+            {factor.parameters.map(parameter => (
+              <label key={parameter.name}>
+                <span>
+                  {parameter.name} <small>{parameter.kind}</small>
+                </span>
                 <input
-                  value={form.symbols}
-                  placeholder="SHFE/rb, SHFE/au/2026-12"
-                  onChange={event => change({ symbols: event.target.value })}
+                  value={factorForm.params[parameter.name] ?? ""}
+                  onChange={event =>
+                    changeFactor({
+                      params: { ...factorForm.params, [parameter.name]: event.target.value },
+                    })
+                  }
                 />
               </label>
-              {field("开始日", "begin", { type: "date" })}
-              {field("结束日", "end", { type: "date" })}
-              <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
-              {strategy.parameters.map(parameter => (
-                <label key={parameter.name}>
-                  <span>
-                    {parameter.name} <small>{parameter.kind}</small>
-                  </span>
+            ))}
+            <h5 className="wide">{t("评价")}</h5>
+            {factorField("持有期（K 线数）", "horizons")}
+            {factorField("分组数", "groups")}
+          </div>
+          <footer className="lab-submit">
+            <button
+              className="primary"
+              disabled={busy || context.busy}
+              onClick={() => void evaluate()}
+            >
+              {busy ? t("正在评价…") : t("评价")}
+            </button>
+          </footer>
+        </aside>
+      ) : (
+        <aside className="lab-config">
+          <h4>{t("运行配置")}</h4>
+          {!strategy ? (
+            <p className="subtle">{t("先选择一个策略。")}</p>
+          ) : (
+            <>
+              <div className="lab-form">
+                <label className="wide">
+                  <span>{t("品种")}</span>
                   <input
-                    value={form.params[parameter.name] ?? ""}
-                    onChange={event =>
-                      change({ params: { ...form.params, [parameter.name]: event.target.value } })
-                    }
+                    value={form.symbols}
+                    placeholder="SHFE/rb, SHFE/au/2026-12"
+                    onChange={event => change({ symbols: event.target.value })}
                   />
                 </label>
-              ))}
-              <h5 className="wide">{t("资金与交易")}</h5>
-              {field("初始资金", "deposit")}
-              {field("滑点（跳）", "slippage")}
-              {field("单笔手数", "maxOrderLots")}
-              {field("总持仓手数", "maxGrossLots")}
-              {products.map(product => (
-                <details key={product} className="wide lab-section">
+                {field("开始日", "begin", { type: "date" })}
+                {field("结束日", "end", { type: "date" })}
+                <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
+                {strategy.parameters.map(parameter => (
+                  <label key={parameter.name}>
+                    <span>
+                      {parameter.name} <small>{parameter.kind}</small>
+                    </span>
+                    <input
+                      value={form.params[parameter.name] ?? ""}
+                      onChange={event =>
+                        change({ params: { ...form.params, [parameter.name]: event.target.value } })
+                      }
+                    />
+                  </label>
+                ))}
+                <h5 className="wide">{t("资金与交易")}</h5>
+                {field("初始资金", "deposit")}
+                {field("滑点（跳）", "slippage")}
+                {field("单笔手数", "maxOrderLots")}
+                {field("总持仓手数", "maxGrossLots")}
+                {products.map(product => (
+                  <details key={product} className="wide lab-section">
+                    <summary>
+                      {t("{product} 的费用", { product })}
+                      <small>
+                        {(form.costs[product] ?? []).filter(Boolean).length
+                          ? (form.costs[product] ?? []).join(" · ")
+                          : t("未填写")}
+                      </small>
+                    </summary>
+                    <div className="lab-form">
+                      {costNames.map((name, index) => (
+                        <label key={name}>
+                          <span>{t(name)}</span>
+                          <input
+                            value={form.costs[product]?.[index] ?? ""}
+                            onChange={event => {
+                              const values = [...(form.costs[product] ?? costNames.map(() => ""))];
+                              values[index] = event.target.value;
+                              change({ costs: { ...form.costs, [product]: values } });
+                            }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+                <details className="wide lab-section">
                   <summary>
-                    {t("{product} 的费用", { product })}
-                    <small>
-                      {(form.costs[product] ?? []).filter(Boolean).length
-                        ? (form.costs[product] ?? []).join(" · ")
-                        : t("未填写")}
-                    </small>
+                    {t("更多限额与统计")}
+                    <small>{t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}</small>
                   </summary>
                   <div className="lab-form">
-                    {costNames.map((name, index) => (
-                      <label key={name}>
-                        <span>{t(name)}</span>
-                        <input
-                          value={form.costs[product]?.[index] ?? ""}
-                          onChange={event => {
-                            const values = [...(form.costs[product] ?? costNames.map(() => ""))];
-                            values[index] = event.target.value;
-                            change({ costs: { ...form.costs, [product]: values } });
-                          }}
-                        />
-                      </label>
-                    ))}
+                    {field("在途委托数", "maxWorkingOrders")}
+                    {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
+                    {field("总权重上限", "maxGrossWeight")}
+                    {field("净权重上限", "maxNetWeight")}
+                    {field("每年期数", "annualPeriods")}
+                    <label className="lab-check">
+                      <input
+                        type="checkbox"
+                        checked={form.zeroRiskFree}
+                        onChange={event => change({ zeroRiskFree: event.target.checked })}
+                      />
+                      {t("无风险利率为零")}
+                    </label>
                   </div>
                 </details>
-              ))}
-              <details className="wide lab-section">
-                <summary>
-                  {t("更多限额与统计")}
-                  <small>{t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}</small>
-                </summary>
-                <div className="lab-form">
-                  {field("在途委托数", "maxWorkingOrders")}
-                  {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
-                  {field("总权重上限", "maxGrossWeight")}
-                  {field("净权重上限", "maxNetWeight")}
-                  {field("每年期数", "annualPeriods")}
-                  <label className="lab-check">
-                    <input
-                      type="checkbox"
-                      checked={form.zeroRiskFree}
-                      onChange={event => change({ zeroRiskFree: event.target.checked })}
-                    />
-                    {t("无风险利率为零")}
-                  </label>
+                <h5 className="wide">{t("验证")}</h5>
+                <div className="wide lab-segmented" role="radiogroup">
+                  {(["none", "holdout", "rolling"] as const).map(kind => (
+                    <button
+                      key={kind}
+                      role="radio"
+                      aria-checked={form.validation === kind}
+                      onClick={() => change({ validation: kind })}
+                    >
+                      {t(validation[kind])}
+                    </button>
+                  ))}
                 </div>
-              </details>
-              <h5 className="wide">{t("验证")}</h5>
-              <div className="wide lab-segmented" role="radiogroup">
-                {(["none", "holdout", "rolling"] as const).map(kind => (
-                  <button
-                    key={kind}
-                    role="radio"
-                    aria-checked={form.validation === kind}
-                    onClick={() => change({ validation: kind })}
-                  >
-                    {t(validation[kind])}
-                  </button>
-                ))}
+                {form.validation === "holdout" && field("留出日", "holdoutDay", { type: "date" })}
+                {form.validation === "rolling" && (
+                  <>
+                    {field("训练交易日数", "trainingDays")}
+                    {field("每轮验证交易日数", "validationDays")}
+                  </>
+                )}
               </div>
-              {form.validation === "holdout" && field("留出日", "holdoutDay", { type: "date" })}
-              {form.validation === "rolling" && (
-                <>
-                  {field("训练交易日数", "trainingDays")}
-                  {field("每轮验证交易日数", "validationDays")}
-                </>
-              )}
-            </div>
-            <footer className="lab-submit">
-              <button
-                className="primary"
-                disabled={busy || context.busy}
-                onClick={() => void submit()}
-              >
-                {t("运行")}
-              </button>
-            </footer>
-          </>
-        )}
-      </aside>
+              <footer className="lab-submit">
+                <button
+                  className="primary"
+                  disabled={busy || context.busy}
+                  onClick={() => void submit()}
+                >
+                  {t("运行")}
+                </button>
+              </footer>
+            </>
+          )}
+        </aside>
+      )}
       <footer className="lab-runs">
         <header>
           <h4>{t("运行记录")}</h4>

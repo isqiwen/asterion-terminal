@@ -1,8 +1,10 @@
 """The user's strategy repository: a Git work tree of their own (decision D5).
 
 Its strategies are the Strategy subclasses defined in the modules of its
-`strategies/` directory, named `<module>.<class>`; modules there import the
-repository's other code from its root. A strategy's version is the commit;
+`strategies/` directory, named `<module>.<class>`, and its factors the public
+functions defined in the modules of `factors/`, named `<module>.<function>`;
+modules import the repository's other code from its root, so a strategy can
+use a factor. A strategy's version is the commit;
 uncommitted changes are named by the digest of what differs from it.
 
 Strategy code is the user's: it is imported only in a child process, so that
@@ -22,7 +24,7 @@ import traceback
 
 from asterion.lab_pb2 import Strategies
 
-from asterion_lab.strategy import KINDS, Strategy
+from asterion_lab.strategy import FIELDS, KINDS, Strategy
 
 LISTING_SECONDS = 30
 
@@ -72,14 +74,15 @@ def revision(root: Path) -> Revision:
     return Revision(commit, digest.hexdigest())
 
 
-def import_modules(root: Path):
-    """Each module of strategies/ by name, or the error importing it raised."""
-    sys.path.insert(0, str(root))
-    for path in sorted((root / "strategies").glob("*.py")):
+def import_modules(root: Path, directory="strategies"):
+    """Each module of a directory by name, or the error importing it raised."""
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    for path in sorted((root / directory).glob("*.py")):
         if path.stem.startswith("_"):
             continue
         try:
-            module, error = importlib.import_module(f"strategies.{path.stem}"), None
+            module, error = importlib.import_module(f"{directory}.{path.stem}"), None
         except BaseException:
             module, error = None, traceback.format_exc(limit=-3).strip()
         yield path.stem, module, error
@@ -107,6 +110,46 @@ def load(root: Path, identity: str, values: dict) -> Strategy:
     raise ValueError(f"no strategy {identity} in {root}")
 
 
+def factors(module) -> list:
+    """The module's own public functions, each with its bar inputs and its
+    settings with their defaults."""
+    found = []
+    for name, function in inspect.getmembers(module, inspect.isfunction):
+        if name.startswith("_") or function.__module__ != module.__name__:
+            continue
+        inputs, settings = [], {}
+        for parameter in inspect.signature(function).parameters.values():
+            where = f"factor {module.__name__}.{name}: parameter {parameter.name}"
+            if parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
+                raise TypeError(f"{where} is variadic or positional only")
+            if parameter.name in FIELDS:
+                inputs.append(parameter.name)
+            elif type(parameter.default) in KINDS:
+                settings[parameter.name] = parameter.default
+            else:
+                raise TypeError(f"{where} is no bar field ({', '.join(FIELDS)}) and its default "
+                                "is not a bool, int, float or str")
+        if not inputs:
+            raise TypeError(f"factor {module.__name__}.{name} reads no bar field")
+        found.append((name, function, inputs, settings))
+    return found
+
+
+def factor(root: Path, identity: str):
+    """The repository's factor `<module>.<function>` with its inputs and settings."""
+    root = checked(root)
+    name, _, function_name = identity.partition(".")
+    for module_name, module, error in import_modules(root, "factors"):
+        if module_name != name:
+            continue
+        if error:
+            raise ValueError(f"factor module {name} failed to import:\n{error}")
+        for found in factors(module):
+            if found[0] == function_name:
+                return found[1:]
+    raise ValueError(f"no factor {identity} in {root}")
+
+
 def describe(root: Path) -> Strategies:
     reply = Strategies(repository=str(root))
     root = checked(root)
@@ -120,6 +163,20 @@ def describe(root: Path) -> Strategies:
             entry = reply.strategies.add(id=f"{name}.{cls.__name__}",
                                          description=inspect.getdoc(cls) or "")
             for parameter, value in cls.params.items():
+                item = entry.parameters.add(name=parameter, kind=KINDS[type(value)])
+                setattr(item.default, VALUE_FIELDS[type(value)], value)
+    for name, module, error in import_modules(root, "factors"):
+        try:
+            if error:
+                raise ValueError(error)
+            found = factors(module)
+        except (TypeError, ValueError) as failure:
+            reply.errors.add(module=f"factors/{name}", message=str(failure))
+            continue
+        for function_name, function, inputs, settings in found:
+            entry = reply.factors.add(id=f"{name}.{function_name}",
+                                      description=inspect.getdoc(function) or "", inputs=inputs)
+            for parameter, value in settings.items():
                 item = entry.parameters.add(name=parameter, kind=KINDS[type(value)])
                 setattr(item.default, VALUE_FIELDS[type(value)], value)
     return reply

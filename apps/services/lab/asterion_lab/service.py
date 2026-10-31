@@ -26,6 +26,9 @@ from asterion_lab.sources.base import Query
 from asterion_lab.sources.akshare import Akshare
 
 MODULE = "lab-service"
+# A factor's evaluation ends within the 30 s the Terminal waits for a reply,
+# so that the reply says why it did not finish.
+FACTOR_SECONDS = 25
 
 
 def text(value) -> str:
@@ -372,6 +375,29 @@ class Service:
     async def on_strategies(self, request, response):
         response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
                                                              request.repository))
+
+    async def on_factor(self, request, response):
+        """Evaluates a factor in a child process and replies with its result,
+        within the time the Terminal waits for a reply."""
+        root = Path(request.repository)
+        if not root.is_absolute() or not root.is_dir():
+            raise ValueError(f"strategy repository is not a directory: {root}")
+        process = await asyncio.create_subprocess_exec(
+            *repository.child("asterion_lab.factor"), str(self.directory), cwd=root,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+        try:
+            output, error = await asyncio.wait_for(
+                process.communicate(request.SerializeToString()), FACTOR_SECONDS)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise ValueError(f"the factor took longer than {FACTOR_SECONDS} s; "
+                             "evaluate fewer symbols or a shorter range")
+        if process.returncode != 0:
+            lines = error.decode(errors="replace").strip().splitlines()
+            raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
+        response.factor.ParseFromString(output)
 
     async def checked_run(self, request):
         """A run that can start: an unused id, valid settings, a Git work tree."""
