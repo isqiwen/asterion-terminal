@@ -1555,5 +1555,11 @@
   "选择左侧的策略、填写右侧的运行配置后运行；结果显示在这里。": "Choose a strategy on the left, fill in the run configuration on the right and run it; the result shows here.",
   "选择策略仓库": "Choose a strategy repository",
   "限额": "Limits",
-  "验证": "Validation"
+  "验证": "Validation",
+  "更多限额与统计": "More limits and statistics",
+  "每年 {periods} 期": "{periods} periods a year",
+  "资金与交易": "Capital and trading",
+  "并行进程数": "Processes",
+  "处理器数减一": "processors less one",
+  "留出前": "Before holdout"
 }

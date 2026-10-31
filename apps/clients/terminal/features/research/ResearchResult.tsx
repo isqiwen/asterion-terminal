@@ -27,6 +27,28 @@ const figures = [
   ["winning_days", "上涨日占比", true],
 ] as const;
 
+const prefixes: Record<string, string> = {
+  development_: "留出前",
+  holdout_: "留出段",
+  out_of_sample_: "样本外",
+};
+
+// A metric's name as the page shows it: 夏普比率, 留出前 夏普比率, …
+export function metricLabel(name: string) {
+  const prefix = Object.keys(prefixes).find(item => name.startsWith(item)) ?? "";
+  const base = figures.find(([key]) => key === name.slice(prefix.length));
+  if (!base) return name;
+  return prefix ? `${t(prefixes[prefix])} ${t(base[1])}` : t(base[1]);
+}
+
+const percentMetric = (name: string) => /return|drawdown|volatility|winning/.test(name);
+
+// Gains and losses take the quote colours.
+export function signed(value: number | undefined | null) {
+  if (value === undefined || value === null || value === 0) return "";
+  return value > 0 ? "lab-up" : "lab-down";
+}
+
 export function metric(value: number | undefined, percent: boolean) {
   if (value === undefined) return "—";
   return percent ? `${(value * 100).toFixed(2)}%` : value.toFixed(3);
@@ -40,12 +62,17 @@ function day(timeNs: bigint) {
 function Figures({ summary, prefix = "" }: { summary: LabRunSummary; prefix?: string }) {
   return (
     <dl className="lab-figures">
-      {figures.map(([name, label, percent]) => (
-        <div key={name}>
-          <dt>{t(label)}</dt>
-          <dd>{metric(summary.metrics[prefix + name], percent)}</dd>
-        </div>
-      ))}
+      {figures.map(([name, label, percent]) => {
+        const value = summary.metrics[prefix + name];
+        return (
+          <div key={name}>
+            <dt>{t(label)}</dt>
+            <dd className={name.endsWith("return") ? signed(value) : undefined}>
+              {metric(value, percent)}
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }
@@ -134,15 +161,15 @@ export function RunResult({ id }: { id: string }) {
       <Figures summary={summary} />
       {holdout && (
         <>
-          <h4>{t("留出日 {day} 之前", { day: holdout })}</h4>
+          <h5>{t("留出日 {day} 之前", { day: holdout })}</h5>
           <Figures summary={summary} prefix="development_" />
-          <h4>{t("留出段")}</h4>
+          <h5>{t("留出段")}</h5>
           <Figures summary={summary} prefix="holdout_" />
         </>
       )}
       {rolling && (
         <>
-          <h4>{t("样本外（第一轮验证起）")}</h4>
+          <h5>{t("样本外（第一轮验证起）")}</h5>
           <Figures summary={summary} prefix="out_of_sample_" />
         </>
       )}
@@ -185,10 +212,10 @@ export function RunResult({ id }: { id: string }) {
           )}
         </>
       )}
-      <h4>{t("月度收益")}</h4>
+      <h5>{t("月度收益")}</h5>
       <div className="lab-months">
         {months.map(item => (
-          <span key={item.month} className={item.value >= 0 ? "up" : "down"}>
+          <span key={item.month} className={signed(item.value)}>
             <small>{item.month}</small>
             {metric(item.value, true)}
           </span>
@@ -196,8 +223,8 @@ export function RunResult({ id }: { id: string }) {
       </div>
       <details>
         <summary>{t("成交（{count} 笔）", { count: detail.fills.length })}</summary>
-        <div className="research-table">
-          <table>
+        <div className="lab-scroll">
+          <table className="lab-table">
             <thead>
               <tr>
                 {["交易日", "合约", "方向", "开平", "手数", "价格", "手续费"].map(label => (
@@ -289,8 +316,8 @@ export function RunComparison({ ids }: { ids: readonly [string, string] }) {
   const base = (detail: LabRunDetail) => Number(JSON.parse(detail.record).costs.deposit);
   return (
     <div className="lab-result">
-      <div className="research-table">
-        <table>
+      <div className="lab-scroll">
+        <table className="lab-table">
           <thead>
             <tr>
               <th />
@@ -347,10 +374,12 @@ export function SweepResult({
   runs,
   selected,
   open,
+  rolling,
 }: {
   runs: readonly LabRunSummary[];
   selected: string;
   open: (id: string) => void;
+  rolling?: () => void;
 }) {
   const names = Object.keys(runs[0]?.params ?? {});
   const [measure, setMeasure] = useState<string>(
@@ -367,17 +396,26 @@ export function SweepResult({
   const values = rows.flatMap(row => (row.metric === null ? [] : [row.metric]));
   const low = Math.min(...values),
     high = Math.max(...values);
-  const percent = /return|drawdown|volatility|winning/.test(measure);
+  const percent = percentMetric(measure);
   return (
     <div className="lab-result">
-      <label className="lab-inline">
-        {t("按指标")}
-        <select value={measure} onChange={event => setMeasure(event.target.value)}>
-          {[...new Set(runs.flatMap(run => Object.keys(run.metrics)))].sort().map(name => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-      </label>
+      <div className="lab-toolbar">
+        <label className="lab-inline">
+          {t("按指标")}
+          <select value={measure} onChange={event => setMeasure(event.target.value)}>
+            {[...new Set(runs.flatMap(run => Object.keys(run.metrics)))].sort().map(name => (
+              <option key={name} value={name}>
+                {metricLabel(name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {rolling && (
+          <button className="lab-link" onClick={rolling}>
+            {t("查看滚动验证的账户")}
+          </button>
+        )}
+      </div>
       {grid && (
         <table className="lab-heatmap" aria-label={t("参数热力图")}>
           <thead>
@@ -413,15 +451,15 @@ export function SweepResult({
           </tbody>
         </table>
       )}
-      <div className="research-table">
-        <table>
+      <div className="lab-scroll">
+        <table className="lab-table">
           <thead>
             <tr>
               <th>{t("排名")}</th>
               {names.map(name => (
                 <th key={name}>{name}</th>
               ))}
-              <th>{measure}</th>
+              <th className="numeric">{metricLabel(measure)}</th>
               <th>{t("状态")}</th>
             </tr>
           </thead>
@@ -432,10 +470,12 @@ export function SweepResult({
                 {names.map(name => (
                   <td key={name}>{row.params[name]}</td>
                 ))}
-                <td>{row.metric === null ? "—" : metric(row.metric, percent)}</td>
+                <td className="numeric">
+                  {row.metric === null ? "—" : metric(row.metric, percent)}
+                </td>
                 <td>
                   {row.state === "succeeded" ? (
-                    <button className="link" onClick={() => open(row.id)}>
+                    <button className="lab-link" onClick={() => open(row.id)}>
                       {t("查看")}
                     </button>
                   ) : (

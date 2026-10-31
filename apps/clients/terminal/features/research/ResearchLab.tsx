@@ -19,7 +19,7 @@ import {
   runRequest,
   type RunForm,
 } from "./research-lab";
-import { RunComparison, RunResult, SweepResult, metric, states } from "./ResearchResult";
+import { RunComparison, RunResult, SweepResult, metric, signed, states } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -155,8 +155,8 @@ export function ResearchLab(context: TerminalContext) {
   if (!repository)
     return (
       <section className="lab-research lab-empty">
-        <h2>{t("研究")}</h2>
-        <p>
+        <h3>{t("研究")}</h3>
+        <p className="subtle">
           {t(
             "先在 设置 → 研究 里选择你的策略仓库：一个自己的 Git 仓库，策略放在其中的 strategies/ 目录下。",
           )}
@@ -166,55 +166,76 @@ export function ResearchLab(context: TerminalContext) {
         </button>
       </section>
     );
+  const field = (label: string, key: keyof RunForm, props: Record<string, string> = {}) => (
+    <label>
+      <span>{t(label)}</span>
+      <input
+        {...props}
+        value={form[key] as string}
+        onChange={event => change({ [key]: event.target.value } as Partial<RunForm>)}
+      />
+    </label>
+  );
+  const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   return (
     <section className="lab-research">
       <header className="lab-header">
-        <span>
-          {t("策略仓库")} <code>{repository}</code>
+        <h3>{t("研究")}</h3>
+        <span className="lab-repository" title={repository}>
+          {repository.split("/").filter(Boolean).pop()}
         </span>
-        {strategies && (
-          <span>
-            @<code>{strategies.commit.slice(0, 8)}</code>
-            {strategies.changes && <strong className="lab-dirty"> ● {t("有未提交改动")}</strong>}
-          </span>
-        )}
-        <button onClick={() => void readStrategies()}>{t("刷新")}</button>
-        <button onClick={() => context.openSettings("research")}>{t("更换")}</button>
+        {strategies && <code className="lab-chip">{strategies.commit.slice(0, 8)}</code>}
+        {strategies?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
+        <span className="lab-spacer" />
+        <button className="lab-link" onClick={() => void readStrategies()}>
+          {t("刷新")}
+        </button>
+        <button className="lab-link" onClick={() => context.openSettings("research")}>
+          {t("更换")}
+        </button>
       </header>
       <ErrorNotice error={error} />
       <aside className="lab-strategies">
-        <h3>{t("策略")}</h3>
+        <h4>{t("策略")}</h4>
         <ul>
-          {strategies?.strategies.map(item => (
-            <li key={item.id}>
-              <button
-                aria-pressed={item.id === chosen}
-                title={item.description}
-                onClick={() => {
-                  setChosen(item.id);
-                  change({
-                    params: Object.fromEntries(item.parameters.map(p => [p.name, defaultText(p)])),
-                  });
-                }}
-              >
-                {item.id}
-              </button>
-            </li>
-          ))}
+          {strategies?.strategies.map(item => {
+            const [module, name] = item.id.split(".");
+            return (
+              <li key={item.id}>
+                <button
+                  aria-pressed={item.id === chosen}
+                  onClick={() => {
+                    setChosen(item.id);
+                    change({
+                      params: Object.fromEntries(
+                        item.parameters.map(p => [p.name, defaultText(p)]),
+                      ),
+                    });
+                  }}
+                >
+                  <strong>{name}</strong>
+                  <small>{module}</small>
+                  {item.description && (
+                    <span>{item.description.split("\n")[0].replace(/`/g, "")}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
         {strategies?.errors.map(item => (
           <details key={item.module} className="lab-module-error">
             <summary>
-              ⚠ {item.module}.py {t("导入失败")}
+              {item.module}.py · {t("导入失败")}
             </summary>
             <pre>{item.message}</pre>
           </details>
         ))}
-        <h3>{t("数据")}</h3>
+        <h4>{t("数据")}</h4>
         <p className="subtle">
-          tushare · <code>{summary?.datasetVersion.slice(0, 8) || t("无数据")}</code>
+          Tushare · <code>{summary?.datasetVersion.slice(0, 8) || t("无数据")}</code>
         </p>
-        <button className="link" onClick={() => context.navigate("workspace.coverage")}>
+        <button className="lab-link" onClick={() => context.navigate("workspace.coverage")}>
           {t("查看数据覆盖")}
         </button>
       </aside>
@@ -225,60 +246,45 @@ export function ResearchLab(context: TerminalContext) {
             runs={sweep.runs}
             selected={sweep.selected}
             open={id => setShown({ kind: "run", id })}
+            rolling={
+              runs.some(run => run.id === `${shown.id}-rolling`)
+                ? () => setShown({ kind: "run", id: `${shown.id}-rolling` })
+                : undefined
+            }
           />
-        )}
-        {shown?.kind === "sweep" && runs.some(run => run.id === `${shown.id}-rolling`) && (
-          <button
-            className="link"
-            onClick={() => setShown({ kind: "run", id: `${shown.id}-rolling` })}
-          >
-            {t("查看滚动验证的账户")}
-          </button>
         )}
         {shown?.kind === "compare" && compared.length === 2 && (
           <RunComparison ids={[compared[0], compared[1]]} />
         )}
         {!shown && (
-          <p className="subtle">
+          <p className="lab-placeholder">
             {t("选择左侧的策略、填写右侧的运行配置后运行；结果显示在这里。")}
           </p>
         )}
       </main>
       <aside className="lab-config">
-        <h3>{t("运行配置")}</h3>
+        <h4>{t("运行配置")}</h4>
         {!strategy ? (
           <p className="subtle">{t("先选择一个策略。")}</p>
         ) : (
-          <div className="lab-form">
-            <label>
-              {t("品种")}
-              <input
-                value={form.symbols}
-                placeholder="SHFE/rb, SHFE/au/2026-12"
-                onChange={event => change({ symbols: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("开始日")}
-              <input
-                type="date"
-                value={form.begin}
-                onChange={event => change({ begin: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("结束日")}
-              <input
-                type="date"
-                value={form.end}
-                onChange={event => change({ end: event.target.value })}
-              />
-            </label>
-            <fieldset>
-              <legend>{t("参数（多个值用逗号分隔即为扫描）")}</legend>
+          <>
+            <div className="lab-form">
+              <label className="wide">
+                <span>{t("品种")}</span>
+                <input
+                  value={form.symbols}
+                  placeholder="SHFE/rb, SHFE/au/2026-12"
+                  onChange={event => change({ symbols: event.target.value })}
+                />
+              </label>
+              {field("开始日", "begin", { type: "date" })}
+              {field("结束日", "end", { type: "date" })}
+              <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
               {strategy.parameters.map(parameter => (
                 <label key={parameter.name}>
-                  {parameter.name} <small>{parameter.kind}</small>
+                  <span>
+                    {parameter.name} <small>{parameter.kind}</small>
+                  </span>
                   <input
                     value={form.params[parameter.name] ?? ""}
                     onChange={event =>
@@ -287,259 +293,202 @@ export function ResearchLab(context: TerminalContext) {
                   />
                 </label>
               ))}
-            </fieldset>
-            <label>
-              {t("初始资金")}
-              <input
-                value={form.deposit}
-                onChange={event => change({ deposit: event.target.value })}
-              />
-            </label>
-            {products.map(product => (
-              <fieldset key={product}>
-                <legend>{t("{product} 的费用", { product })}</legend>
-                {costNames.map((name, index) => (
-                  <label key={name}>
-                    {t(name)}
-                    <input
-                      value={form.costs[product]?.[index] ?? ""}
-                      onChange={event => {
-                        const values = [...(form.costs[product] ?? costNames.map(() => ""))];
-                        values[index] = event.target.value;
-                        change({ costs: { ...form.costs, [product]: values } });
-                      }}
-                    />
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-            <label>
-              {t("滑点（跳）")}
-              <input
-                value={form.slippage}
-                onChange={event => change({ slippage: event.target.value })}
-              />
-            </label>
-            <fieldset>
-              <legend>{t("限额")}</legend>
-              <label>
-                {t("单笔手数")}
-                <input
-                  value={form.maxOrderLots}
-                  onChange={event => change({ maxOrderLots: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("总持仓手数")}
-                <input
-                  value={form.maxGrossLots}
-                  onChange={event => change({ maxGrossLots: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("在途委托数")}
-                <input
-                  value={form.maxWorkingOrders}
-                  onChange={event => change({ maxWorkingOrders: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("总权重上限")}
-                <input
-                  value={form.maxGrossWeight}
-                  onChange={event => change({ maxGrossWeight: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("净权重上限")}
-                <input
-                  value={form.maxNetWeight}
-                  onChange={event => change({ maxNetWeight: event.target.value })}
-                />
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend>{t("统计")}</legend>
-              <label>
-                {t("每年期数")}
-                <input
-                  value={form.annualPeriods}
-                  onChange={event => change({ annualPeriods: event.target.value })}
-                />
-              </label>
-              <label className="lab-check">
-                <input
-                  type="checkbox"
-                  checked={form.zeroRiskFree}
-                  onChange={event => change({ zeroRiskFree: event.target.checked })}
-                />
-                {t("无风险利率为零")}
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend>{t("验证")}</legend>
-              {(["none", "holdout", "rolling"] as const).map(kind => (
-                <label key={kind} className="lab-check">
-                  <input
-                    type="radio"
-                    checked={form.validation === kind}
-                    onChange={() => change({ validation: kind })}
-                  />
-                  {t({ none: "不验证", holdout: "留出", rolling: "滚动验证" }[kind])}
-                </label>
+              <h5 className="wide">{t("资金与交易")}</h5>
+              {field("初始资金", "deposit")}
+              {field("滑点（跳）", "slippage")}
+              {field("单笔手数", "maxOrderLots")}
+              {field("总持仓手数", "maxGrossLots")}
+              {products.map(product => (
+                <details key={product} className="wide lab-section">
+                  <summary>
+                    {t("{product} 的费用", { product })}
+                    <small>
+                      {(form.costs[product] ?? []).filter(Boolean).length
+                        ? (form.costs[product] ?? []).join(" · ")
+                        : t("未填写")}
+                    </small>
+                  </summary>
+                  <div className="lab-form">
+                    {costNames.map((name, index) => (
+                      <label key={name}>
+                        <span>{t(name)}</span>
+                        <input
+                          value={form.costs[product]?.[index] ?? ""}
+                          onChange={event => {
+                            const values = [...(form.costs[product] ?? costNames.map(() => ""))];
+                            values[index] = event.target.value;
+                            change({ costs: { ...form.costs, [product]: values } });
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
               ))}
-              {form.validation === "holdout" && (
-                <label>
-                  {t("留出日")}
-                  <input
-                    type="date"
-                    value={form.holdoutDay}
-                    onChange={event => change({ holdoutDay: event.target.value })}
-                  />
-                </label>
-              )}
+              <details className="wide lab-section">
+                <summary>
+                  {t("更多限额与统计")}
+                  <small>{t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}</small>
+                </summary>
+                <div className="lab-form">
+                  {field("在途委托数", "maxWorkingOrders")}
+                  {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
+                  {field("总权重上限", "maxGrossWeight")}
+                  {field("净权重上限", "maxNetWeight")}
+                  {field("每年期数", "annualPeriods")}
+                  <label className="lab-check">
+                    <input
+                      type="checkbox"
+                      checked={form.zeroRiskFree}
+                      onChange={event => change({ zeroRiskFree: event.target.checked })}
+                    />
+                    {t("无风险利率为零")}
+                  </label>
+                </div>
+              </details>
+              <h5 className="wide">{t("验证")}</h5>
+              <div className="wide lab-segmented" role="radiogroup">
+                {(["none", "holdout", "rolling"] as const).map(kind => (
+                  <button
+                    key={kind}
+                    role="radio"
+                    aria-checked={form.validation === kind}
+                    onClick={() => change({ validation: kind })}
+                  >
+                    {t(validation[kind])}
+                  </button>
+                ))}
+              </div>
+              {form.validation === "holdout" && field("留出日", "holdoutDay", { type: "date" })}
               {form.validation === "rolling" && (
                 <>
-                  <label>
-                    {t("训练交易日数")}
-                    <input
-                      value={form.trainingDays}
-                      onChange={event => change({ trainingDays: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    {t("每轮验证交易日数")}
-                    <input
-                      value={form.validationDays}
-                      onChange={event => change({ validationDays: event.target.value })}
-                    />
-                  </label>
+                  {field("训练交易日数", "trainingDays")}
+                  {field("每轮验证交易日数", "validationDays")}
                 </>
               )}
-            </fieldset>
-            <label>
-              {t("并行进程数（空为处理器数减一）")}
-              <input
-                value={form.processes}
-                onChange={event => change({ processes: event.target.value })}
-              />
-            </label>
-            <button
-              className="primary"
-              disabled={busy || context.busy}
-              onClick={() => void submit()}
-            >
-              {t("运行")}
-            </button>
-          </div>
+            </div>
+            <footer className="lab-submit">
+              <button
+                className="primary"
+                disabled={busy || context.busy}
+                onClick={() => void submit()}
+              >
+                {t("运行")}
+              </button>
+            </footer>
+          </>
         )}
       </aside>
       <footer className="lab-runs">
         <header>
-          <h3>{t("运行记录")}</h3>
-          <button disabled={compared.length !== 2} onClick={() => setShown({ kind: "compare" })}>
+          <h4>{t("运行记录")}</h4>
+          <button
+            className="lab-link"
+            disabled={compared.length !== 2}
+            onClick={() => setShown({ kind: "compare" })}
+          >
             {t("比较所选两次")}
           </button>
         </header>
-        <div className="research-table">
-          <table>
-            <thead>
-              <tr>
-                <th>{t("比较")}</th>
-                <th>{t("名称")}</th>
-                <th>{t("策略")}</th>
-                <th>{t("状态")}</th>
-                <th>{t("总收益")}</th>
-                <th>{t("夏普比率")}</th>
-                <th>{t("最大回撤")}</th>
-                <th>{t("开始时间")}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(run => {
-                const group = run.sweep;
-                const members = group ? runs.filter(item => item.sweep === group) : [];
-                return (
-                  <tr key={group || run.id}>
-                    <td>
-                      {!group && (
-                        <input
-                          type="checkbox"
-                          aria-label={t("比较 {id}", { id: run.id })}
-                          checked={compared.includes(run.id)}
-                          disabled={run.state !== "succeeded"}
-                          onChange={event =>
-                            setCompared(previous =>
-                              event.target.checked
-                                ? [...previous.slice(-1), run.id]
-                                : previous.filter(item => item !== run.id),
-                            )
-                          }
-                        />
-                      )}
-                    </td>
-                    <td>
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <th />
+              <th>{t("名称")}</th>
+              <th>{t("策略")}</th>
+              <th>{t("状态")}</th>
+              <th className="numeric">{t("总收益")}</th>
+              <th className="numeric">{t("夏普比率")}</th>
+              <th className="numeric">{t("最大回撤")}</th>
+              <th>{t("开始时间")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(run => {
+              const group = run.sweep;
+              const members = group ? runs.filter(item => item.sweep === group) : [];
+              const current =
+                (shown?.kind === "run" && shown.id === run.id && !group) ||
+                (shown?.kind === "sweep" && shown.id === group);
+              return (
+                <tr key={group || run.id} className={current ? "current" : undefined}>
+                  <td>
+                    {!group && (
+                      <input
+                        type="checkbox"
+                        aria-label={t("比较 {id}", { id: run.id })}
+                        checked={compared.includes(run.id)}
+                        disabled={run.state !== "succeeded"}
+                        onChange={event =>
+                          setCompared(previous =>
+                            event.target.checked
+                              ? [...previous.slice(-1), run.id]
+                              : previous.filter(item => item !== run.id),
+                          )
+                        }
+                      />
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      className="lab-link strong"
+                      onClick={() =>
+                        setShown(group ? { kind: "sweep", id: group } : { kind: "run", id: run.id })
+                      }
+                    >
                       {group
                         ? t("扫描 {id}（{count} 组）", { id: group, count: members.length })
                         : run.id}
-                    </td>
-                    <td>{run.strategy}</td>
-                    <td>
-                      {group
-                        ? t("已完成 {done} / {count}", {
-                            done: members.filter(item => item.state === "succeeded").length,
-                            count: members.length,
-                          })
-                        : t(states[run.state] ?? run.state)}
-                    </td>
-                    <td>{group ? "" : metric(run.metrics.total_return, true)}</td>
-                    <td>{group ? "" : metric(run.metrics.sharpe, false)}</td>
-                    <td>{group ? "" : metric(run.metrics.max_drawdown, true)}</td>
-                    <td>{new Date(Number(run.startedNs / 1_000_000n)).toLocaleString()}</td>
-                    <td>
+                    </button>
+                  </td>
+                  <td className="subtle">{run.strategy}</td>
+                  <td className={`lab-state ${group ? "" : run.state}`}>
+                    {group
+                      ? t("已完成 {done} / {count}", {
+                          done: members.filter(item => item.state === "succeeded").length,
+                          count: members.length,
+                        })
+                      : t(states[run.state] ?? run.state)}
+                  </td>
+                  <td className={`numeric ${signed(run.metrics.total_return)}`}>
+                    {group ? "" : metric(run.metrics.total_return, true)}
+                  </td>
+                  <td className="numeric">{group ? "" : metric(run.metrics.sharpe, false)}</td>
+                  <td className="numeric">{group ? "" : metric(run.metrics.max_drawdown, true)}</td>
+                  <td className="subtle numeric-left">{started(run.startedNs)}</td>
+                  <td>
+                    {((run.state === "running" && !group) ||
+                      (group && members.some(item => item.state === "running"))) && (
                       <button
-                        className="link"
+                        className="lab-link"
                         onClick={() =>
-                          setShown(
-                            group ? { kind: "sweep", id: group } : { kind: "run", id: run.id },
+                          void (
+                            group
+                              ? lab({ case: "cancelSweep", value: { id: group } }, "accepted")
+                              : lab({ case: "cancelRun", value: { id: run.id } }, "accepted")
                           )
+                            .then(readRuns)
+                            .catch(failure => setError(asDisplayError(failure)))
                         }
                       >
-                        {t("查看")}
+                        {t("取消")}
                       </button>
-                      {run.state === "running" && !group && (
-                        <button
-                          className="link"
-                          onClick={() =>
-                            void lab({ case: "cancelRun", value: { id: run.id } }, "accepted")
-                              .then(readRuns)
-                              .catch(failure => setError(asDisplayError(failure)))
-                          }
-                        >
-                          {t("取消")}
-                        </button>
-                      )}
-                      {group && members.some(item => item.state === "running") && (
-                        <button
-                          className="link"
-                          onClick={() =>
-                            void lab({ case: "cancelSweep", value: { id: group } }, "accepted")
-                              .then(readRuns)
-                              .catch(failure => setError(asDisplayError(failure)))
-                          }
-                        >
-                          {t("取消")}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </footer>
     </section>
   );
+}
+
+// When a run started, as month-day and time of the viewer's clock.
+function started(ns: bigint) {
+  const time = new Date(Number(ns / 1_000_000n));
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${two(time.getMonth() + 1)}-${two(time.getDate())} ${two(time.getHours())}:${two(time.getMinutes())}`;
 }
