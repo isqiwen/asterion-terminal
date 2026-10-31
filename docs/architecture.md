@@ -66,7 +66,7 @@ flowchart TB
 | `asterion_data` | 历史版本仓库、全市场数据表、数据集、材料与观测归档；拥有采集任务、执行与发布 |
 | `asterion_research` | 研究类任务（回测、因子、统计、样本、逻辑试算、评估）及研究变量、逻辑、策略包 |
 | `asterion_trading` | Linux 独立安装，每个 CTP 账户一个 systemd 进程；Terminal 以双向固定指纹 TLS 直连，负责授权、风控、先记录后发送、在途订单与成交核对 |
-| `asterion_lab` | Python 研究服务，本机一个，用随包 Python 以 `-I -B -m asterion_lab` 运行。期货数据仓库与 Tushare 采集（见 [lab](lab.md)）；按计划逐步接管 Data 与 Research |
+| `asterion_lab` | Python 研究服务，本机一个，用第一次启动时安装的 Python 运行时（见[开发指南](development.md#python-运行时)）以 `-I -B -m asterion_lab` 运行。期货数据仓库与 Tushare 采集（见 [lab](lab.md)）；按计划逐步接管 Data 与 Research |
 
 - 本机使用 Unix Socket，局域网连接（录制主机）使用以 `ASTR` 开头的不加密 TCP；交易服务使用双向固定证书指纹 TLS（同机也一样）。消息均为 `protocol/proto/asterion/` 中的 Protobuf。
 - 交易实例配置拥有 CTP 账户、前置地址与柜台环境；Terminal 只保存交易连接并读取账户信息，独立设置风险政策。行情账户登记不参与交易身份绑定。交易凭据在交易主机本地输入并按实例加密保存，由 systemd 提供给服务；Terminal 不接收交易凭据。

@@ -29,7 +29,9 @@ pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进�
 
 ### Python 运行时
 
-Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standalone，即 uv 安装的版本），锁定的依赖和 Terminal 的 Python 代码直接装进它自己的 site-packages，不建虚拟环境：虚拟环境记录绝对路径，独立解释器则按自身位置找到前缀。安装版不需要系统 Python，启动和运行时都不下载任何东西。程序以 `python3 -I -B -m <模块>` 启动：不读用户环境变量和用户目录的包，也不往安装目录写字节码；导入数值库因此每次多花约 2 秒。
+Terminal 用一份可重定位的 CPython 3.12.12（python-build-standalone，即 uv 安装的版本），锁定的依赖直接装进它自己的 site-packages，不建虚拟环境：虚拟环境记录绝对路径，独立解释器则按自身位置找到前缀。不需要系统 Python。
+
+安装包不携带运行时（M1.11）。它带的是 `resources/runtime/`：`manifest.json`（由 `scripts/desktop/runtime_manifest.py` 从 `uv.lock` 生成：解释器压缩包与本平台每个 wheel 的文件名、PyPI 路径、SHA-256 与大小，按核心、报表、组合优化、AKShare 分组；macOS 上共约 212 MiB 下载量）、PyPI 上没有 wheel 的包在构建时打成的 wheel（jsonpath），以及 Terminal 自己的 Python 代码 `app/`。第一次启动时原生层的 `PythonRuntime` 逐个下载这些文件：依赖先走清华、阿里云 PyPI 镜像，解释器先走 npmmirror 的 python-build-standalone 镜像，失败退回官方源；断点续传，按清单校验 SHA-256，校验过的文件按摘要保存在 `<根>/terminal/runtime/downloads/`，重试和升级只补缺的。全部校验后在一旁解压解释器、用它自带的 pip 离线安装 wheel，记下清单摘要后整体换入 `<根>/terminal/runtime/python/`，`.pth` 文件指向应用的 `app/`（每次启动按应用位置重写）。实测从空目录完成约 145 秒，安装后约 900 MB。启动页只在没有运行时的那一次出现，此后直接进入工作台。程序以 `python3 -I -B -m <模块>` 启动：不读用户环境变量和用户目录的包，也不往安装目录写字节码；导入数值库因此每次多花约 2 秒。
 
 界面的 Protobuf 类型由 `pnpm generate:protocol` 生成（`@bufbuild/buf` 与 `protoc-gen-es`，pnpm 锁定，不需要 protoc），输出 `apps/clients/terminal/src/generated/` 并提交，不经 Prettier 与 ESLint；修改对应 proto 后重新生成。CI 的样式作业重新生成并要求没有差异。
 
@@ -37,7 +39,7 @@ Terminal 随包携带一份可重定位的 CPython 3.12.12（python-build-standa
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。
 
-`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python 依赖、analytics Protobuf、`core` 中回测用到的代码或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向同一解释器。打包时作为独立桌面资源携带，CI 显式准备；macOS 安装包继续核验应用完整签名。
+`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改分析助手、Python 依赖、analytics Protobuf、`core` 中回测用到的代码或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。开发时 Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向准备好的同一解释器，原生层不安装运行时；安装版不设这个变量。`pnpm prepare:python` 同时生成 `build/electron-resources/runtime/`，打包检查核对其中的清单平台、随附 wheel 的摘要和应用代码；macOS 安装包继续核验应用完整签名。
 
 `ctest --test-dir build/Debug -R '^(QuantStats|Portfolio)\.' --output-on-failure` 实际启动冻结助手并验证 Native/Protobuf/统计链路，须先准备产物。此处不是新增独立 CLI 客户端。
 

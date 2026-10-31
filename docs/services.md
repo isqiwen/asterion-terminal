@@ -1,6 +1,6 @@
 # 服务与部署
 
-部署单元按[架构](architecture.md)中的长期状态与故障边界划分。插件不是独立服务：数据源动态库由消费它们的服务加载，风控规则编译进服务，UI 模块随 Terminal 构建，Polars、QuantStats 与 skfolio 的 analytics 助手运行在随桌面交付的 Python 运行时中。
+部署单元按[架构](architecture.md)中的长期状态与故障边界划分。插件不是独立服务：数据源动态库由消费它们的服务加载，风控规则编译进服务，UI 模块随 Terminal 构建，Polars、QuantStats 与 skfolio 的 analytics 助手运行在 Terminal 第一次启动时安装的 Python 运行时中。
 
 Terminal 管本机服务的进程，所属服务决定任务并发，不选择策略、裁决订单或验算任务。Task 管执行尝试与结果确认，Data 管版本发布与来源预算，Trading 管账户执行权。升级程序、配置插件和恢复业务状态是不同操作；已有任务绑定的插件摘要不随目录或程序升级改变。
 
@@ -18,7 +18,7 @@ Terminal 管本机服务的进程，所属服务决定任务并发，不选择�
   插件复制到服务的 `lib/plugins/<服务>/`。
 - 发现：Data 与 Research 经 Terminal 的只读发现套接字找到彼此与行情服务；它只回答状态请求。
 
-`lab` 用随包 Python 以 `-I -B -m asterion_lab` 运行；开发与测试由 `ASTERION_PYTHON` 指明解释器。
+`lab` 用第一次启动时安装的 Python 运行时以 `-I -B -m asterion_lab` 运行；开发与测试由 `ASTERION_PYTHON` 指明准备好的解释器。
 同一根目录同时只能有一个 Terminal；第二个启动失败并报告 `terminal/data/services.lock`。
 
 Research 链接回测和因子执行代码，启动只读实例 `research.json`；`task_concurrency` 默认 1、允许 1–2。Data 在自身两个固定执行槽处理采集，状态与发布由其串行写入器确认。不存在独立 Task/worker 程序或任务启动 RPC；Research 读取本机 Data，Data 没有反向研究绑定。

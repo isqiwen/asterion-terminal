@@ -1,6 +1,6 @@
 # Python 研究服务（lab）
 
-`asterion_lab` 是本机的 Python 服务，代码在 `apps/services/lab/`，用随包 Python 以
+`asterion_lab` 是本机的 Python 服务，代码在 `apps/services/lab/`，用第一次启动时安装的 Python 运行时以
 `python3 -I -B -m asterion_lab` 运行，由 Terminal 启动和看护（见[本机服务](services.md#本机服务)）。它按计划逐步接管
 历史数据与研究；现在负责期货数据仓库、可同时使用的数据源插件，以及策略接口与运行记录（回测引擎在 M2.2 接入）。旧的 Data 服务在过渡期间照常工作，两边互不读写。
 
