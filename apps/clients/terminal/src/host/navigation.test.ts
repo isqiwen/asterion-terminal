@@ -37,7 +37,7 @@ test("product catalog has the required modules and places every contributed view
 
 test("first launch opens data and module switching retains each view's location", () => {
   let state = initialNavigation();
-  expect(currentRoute(state).view).toBe("workspace.history");
+  expect(currentRoute(state).view).toBe("workspace.coverage");
   state = selectView(state, "workspace.factor", { page: "task", params: { id: "factor-1" } });
   state = selectView(state, "workspace.backtest", { page: "task", params: { id: "backtest-1" } });
   state = selectModule(state, "analysis");

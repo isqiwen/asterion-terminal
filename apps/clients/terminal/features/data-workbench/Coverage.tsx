@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ErrorNotice,
   asDisplayError,
@@ -62,8 +62,57 @@ export function Coverage(context: TerminalContext) {
         </select>
       </label>
       <p>{t("多个来源可同时采集，数据分别保存，不自动切换或混合。")}</p>
+      {source?.requiresEndpoint && (
+        <Recording key={provider} context={context} provider={provider} />
+      )}
       {source && <SourceCoverage key={provider} context={context} source={source} />}
     </div>
+  );
+}
+
+// The trading days the recording service holds, as it reports them.
+function Recording({ context, provider }: { context: TerminalContext; provider: string }) {
+  const [days, setDays] = useState<string[] | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  const [retry, setRetry] = useState(0);
+  const trade = useRef(context.trade);
+  trade.current = context.trade;
+  useEffect(() => {
+    let active = true;
+    setError("");
+    void trade
+      .current("lab.source.configure", { provider })
+      .then(() => lab({ case: "sourceCoverage", value: { provider } }, "sourceCoverage"))
+      .then(reply => active && setDays([...reply.days].sort()))
+      .catch(failure => active && setError(asDisplayError(failure)));
+    return () => {
+      active = false;
+    };
+  }, [provider, retry]);
+  return (
+    <section aria-label={t("录制状态")}>
+      <h3>{t("录制状态")}</h3>
+      {error ? (
+        <>
+          <ErrorNotice error={error} />
+          <button onClick={() => setRetry(value => value + 1)}>{t("重试")}</button>
+        </>
+      ) : !days ? (
+        <p>{t("读取中")}</p>
+      ) : days.length ? (
+        <p>
+          {t("录制服务存有 {count} 个交易日：{first} – {last}；最近：{recent}", {
+            count: days.length,
+            first: days[0],
+            last: days.at(-1)!,
+            recent: days.slice(-5).join("、"),
+          })}
+        </p>
+      ) : (
+        <p>{t("录制服务还没有录到交易日。")}</p>
+      )}
+      <p className="subtle">{t("录到的交易日不代表每个合约、每个时段都完整。")}</p>
+    </section>
   );
 }
 
