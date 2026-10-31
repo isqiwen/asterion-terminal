@@ -2,7 +2,8 @@
 
     runs/<run>/run.json          what was run: strategy, parameters, data, engine, costs, risk
     runs/<run>/<table>.parquet   equity, orders, fills, positions and daily settlements
-    runs.sqlite                  every run's state and metrics, for lists and rankings
+    runs.sqlite                  every run's state and metrics, for lists and rankings,
+                                 and the runs of each parameter sweep with their values
 
 run.json is written when the run starts and never changed. The tables are
 written when it succeeds, before the index says so; a run that stops before
@@ -86,7 +87,10 @@ class Runs:
                 finished_ns integer);
             create table if not exists metrics (
                 run text not null references runs(id), name text not null, value real,
-                primary key (run, name));""")
+                primary key (run, name));
+            create table if not exists sweeps (
+                sweep text not null, position integer not null, run text not null unique,
+                params text not null, primary key (sweep, position));""")
 
     def start(self, identity: str, plan: Plan):
         if not IDENTITY.fullmatch(identity):
@@ -153,6 +157,35 @@ class Runs:
         if name not in TABLES:
             raise ValueError(f"no run table {name}")
         return pl.read_parquet(self.root / identity / f"{name}.parquet")
+
+    def interrupt(self):
+        """Marks the runs a stopped service left running as interrupted; they
+        are not run again."""
+        self.index.execute(
+            "update runs set state = 'interrupted', error = 'the lab service stopped',"
+            " finished_ns = ? where state = 'running'", (time.time_ns(),))
+
+    def plan_sweep(self, sweep: str, runs: list):
+        """The runs of a sweep, each (run id, parameter values), before any starts."""
+        if self.index.execute("select 1 from sweeps where sweep = ?", (sweep,)).fetchone():
+            raise ValueError(f"sweep {sweep} already exists")
+        with self.index:
+            self.index.execute("begin")
+            self.index.executemany(
+                "insert into sweeps (sweep, position, run, params) values (?, ?, ?, ?)",
+                [(sweep, n, run, json.dumps(params, sort_keys=True))
+                 for n, (run, params) in enumerate(runs)])
+
+    def sweep(self, sweep: str) -> list:
+        """A sweep's runs in order, each with its parameter values; a run not
+        started yet, or never started, has no state."""
+        rows = self.index.execute(
+            "select run, params from sweeps where sweep = ? order by position", (sweep,)).fetchall()
+        if not rows:
+            raise ValueError(f"no sweep {sweep}")
+        listed = {row["id"]: row for row in self.list()}
+        return [{**listed.get(run, {"id": run, "state": "", "metrics": {}}),
+                 "params": json.loads(params)} for run, params in rows]
 
     def list(self) -> list:
         rows = self.index.execute(

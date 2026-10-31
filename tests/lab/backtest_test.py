@@ -238,6 +238,81 @@ class Backtests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def sweep_request(self, identity, fast, slow, processes):
+        request = Request(version=1, service_id="lab")
+        sweep = request.sweep
+        sweep.id, sweep.processes = identity, processes
+        run = sweep.base
+        run.repository, run.strategy = str(self.repository), "ma_cross.MaCross"
+        run.symbols.append("SHFE/rb/2026-05")
+        run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+        run.deposit, run.max_order_lots, run.max_gross_lots = "1000000", "10", "10"
+        run.max_working_orders = 10
+        run.annual_periods, run.zero_risk_free, run.holdout_day = 252, True, DAYS[20].isoformat()
+        run.costs.add(product="SHFE/rb", values=[str(value) for value in COSTS["SHFE/rb"]])
+        for name, values in (("fast", fast), ("slow", slow)):
+            item = sweep.values.add(name=name)
+            for value in values:
+                item.values.add(integer=value)
+        return request
+
+    def test_a_sweep_runs_every_combination_in_parallel_and_selects_by_development_sharpe(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            request = self.sweep_request("grid", [2, 3], [4, 5], 2)
+            self.assertEqual((await service.reply(request)).WhichOneof("body"), "accepted")
+            self.assertLessEqual(len(service.backtests), 2)
+            self.assertEqual((await service.reply(request)).error.code, "invalid_request")
+            deadline = time.monotonic() + 60
+            while (service.backtests or service.waiting) and time.monotonic() < deadline:
+                self.assertLessEqual(len(service.backtests), 2)
+                await asyncio.sleep(0.1)
+            reply = (await service.reply(Request(version=1, service_id="lab", sweep_runs={"id": "grid"}))).sweep_runs
+            self.assertEqual([run.id for run in reply.runs], ["grid-0", "grid-1", "grid-2", "grid-3"])
+            self.assertEqual([(run.params["fast"].integer, run.params["slow"].integer) for run in reply.runs],
+                             [(2, 4), (2, 5), (3, 4), (3, 5)])
+            self.assertEqual({run.state for run in reply.runs}, {"succeeded"})
+            sharpe = {run.id: run.metrics["development_sharpe"] for run in reply.runs
+                      if "development_sharpe" in run.metrics}
+            self.assertEqual(reply.selected, max(sharpe, key=sharpe.get) if sharpe else "")
+
+        asyncio.run(scenario())
+
+    def test_a_cancelled_sweep_starts_nothing_more_and_a_new_service_interrupts_leftovers(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            await service.reply(self.sweep_request("stopped", [2, 3, 4], [5, 6, 7], 1))
+            self.assertEqual((len(service.backtests), len(service.waiting)), (1, 8))
+            deadline = time.monotonic() + 30
+            while not any(row["id"] == "stopped-0" for row in Runs(self.directory).list()) \
+                    and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            cancel = Request(version=1, service_id="lab", cancel_sweep={"id": "stopped"})
+            self.assertEqual((await service.reply(cancel)).WhichOneof("body"), "accepted")
+            self.assertFalse(service.waiting)
+            deadline = time.monotonic() + 30
+            while service.backtests and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+            reply = (await service.reply(Request(version=1, service_id="lab", sweep_runs={"id": "stopped"}))).sweep_runs
+            self.assertEqual(len(reply.runs), 9)
+            self.assertIn(reply.runs[0].state, ("interrupted", "succeeded"))
+            self.assertEqual({run.state for run in reply.runs[1:]}, {""})
+
+        asyncio.run(scenario())
+        runs = Runs(self.directory)
+        runs.index.execute("update runs set state = 'running' where id = 'stopped-0'")
+        Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+        self.assertEqual(next(row for row in Runs(self.directory).list() if row["id"] == "stopped-0")["state"],
+                         "interrupted")
+
 
 if __name__ == "__main__":
     unittest.main()

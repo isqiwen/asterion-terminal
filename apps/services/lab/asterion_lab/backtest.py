@@ -478,9 +478,27 @@ def config_of(request) -> Config:
         holdout_day=request.holdout_day)
 
 
+def watch_parent():
+    """Ends this process when the service that started it is gone; the next
+    service marks the run interrupted."""
+    import os
+    import threading
+    import time
+
+    parent = os.getppid()
+
+    def watch():
+        while os.getppid() == parent:
+            time.sleep(1)
+        os._exit(1)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main():
     from asterion.lab_pb2 import BacktestRun
 
+    watch_parent()
     request = BacktestRun()
     request.ParseFromString(sys.stdin.buffer.read())
     try:

@@ -27,6 +27,9 @@ message Request {
     BacktestRun backtest = 25;
     RunsQuery runs = 26;
     CancelRun cancel_run = 27;
+    Sweep sweep = 28;
+    SweepQuery sweep_runs = 29;
+    CancelSweep cancel_sweep = 30;
   }
 }
 message HealthQuery {}
@@ -123,6 +126,7 @@ message Response {
     SourceCoverage source_coverage = 23;
     Strategies strategies = 24;
     Runs runs = 25;
+    SweepRuns sweep_runs = 26;
   }
 }
 message Health {
@@ -423,7 +427,41 @@ message RunSummary {
   int64 finished_ns = 9;
   // A metric without a value (a ratio of nothing) is absent.
   map<string, double> metrics = 10;
+  // In a sweep's runs: the parameter values this run was given.
+  map<string, ParameterValue> params = 11;
 }
 message Runs {
   repeated RunSummary runs = 1;
+}
+
+// The values one parameter takes in a sweep.
+message ParameterValues {
+  string name = 1;
+  repeated ParameterValue values = 2;
+}
+// The base run once for every combination of the parameters' values, at most
+// 10000, each run its own record with id <sweep id>-<n>. At most `processes`
+// runs at once (0: the processors less one); the rest wait their turn.
+message Sweep {
+  string id = 1;
+  BacktestRun base = 2;
+  repeated ParameterValues values = 3;
+  uint32 processes = 4;
+}
+message SweepQuery {
+  string id = 1;
+}
+// Runs of the sweep not started yet never start; those running end interrupted.
+message CancelSweep {
+  string id = 1;
+}
+// A sweep's runs in order. A run that has not started has no state yet, and
+// one cancelled before it started never gets one. With a holdout day,
+// `selected` names the run with the highest Sharpe ratio before the holdout,
+// the first among equals, as the old comparison chose; empty when none has one.
+message SweepRuns {
+  string id = 1;
+  repeated RunSummary runs = 2;
+  uint32 waiting = 3;
+  string selected = 4;
 }

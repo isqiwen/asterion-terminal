@@ -1,7 +1,9 @@
 """Requests of the lab service. One asyncio loop owns the connections; reads of
 the warehouse run on a small thread pool and acquisition on its own thread."""
 import asyncio
+import collections
 import datetime
+import itertools
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
@@ -32,6 +34,19 @@ def text(value) -> str:
     return format(Decimal(value).normalize(), "f")
 
 
+def summary(item, row):
+    """A run's state and metrics as a RunSummary."""
+    item.id = row["id"]
+    if row["state"]:
+        item.strategy, item.commit, item.changes = row["strategy"], row["commit"], row["changes"]
+        item.dataset_version, item.state, item.error = row["dataset_version"], row["state"], row["error"]
+        item.started_ns, item.finished_ns = row["started_ns"], row["finished_ns"] or 0
+    for name, value in row["metrics"].items():
+        if value is not None:
+            item.metrics[name] = value
+    return item
+
+
 class Service:
     def __init__(self, name: str, directory: Path, log):
         self.name = name
@@ -45,7 +60,11 @@ class Service:
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
         self.sessions = Sessions()
         self.runs = Runs(directory)
+        # Runs a stopped service left running ended with it.
+        self.runs.interrupt()
         self.backtests = {}  # run id -> its child process, while it runs
+        self.waiting = collections.deque()  # (sweep, BacktestRun) not started yet
+        self.processes = max(1, (os.cpu_count() or 2) - 1)
 
     async def reply(self, request: Request) -> Response:
         response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
@@ -344,7 +363,8 @@ class Service:
         response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
                                                              request.repository))
 
-    async def on_backtest(self, request, response):
+    async def checked_run(self, request):
+        """A run that can start: an unused id, valid settings, a Git work tree."""
         if not IDENTITY.fullmatch(request.id) or request.id in self.backtests \
                 or (self.runs.root / request.id).exists():
             raise ValueError("run id is invalid or already used")
@@ -353,8 +373,10 @@ class Service:
         if not root.is_absolute() or not root.is_dir():
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
+
+    async def launch(self, request):
         process = await asyncio.create_subprocess_exec(
-            *repository.child("asterion_lab.backtest"), str(self.directory), cwd=root,
+            *repository.child("asterion_lab.backtest"), str(self.directory), cwd=request.repository,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE)
         process.stdin.write(request.SerializeToString())
@@ -362,12 +384,78 @@ class Service:
         self.backtests[request.id] = process
         asyncio.create_task(self.watch(request.id, process))
         self.log.write("info", MODULE, "backtest.started", run=request.id, strategy=request.strategy)
+
+    async def pump(self):
+        """Starts waiting runs while fewer than the allowed number run."""
+        while self.waiting and len(self.backtests) < self.processes:
+            _, run = self.waiting.popleft()
+            try:
+                await self.launch(run)
+            except Exception as error:
+                self.log.write("error", MODULE, "backtest.not_started", run=run.id, message=str(error))
+
+    async def on_backtest(self, request, response):
+        await self.checked_run(request)
+        await self.launch(request)
         response.accepted.SetInParent()
+
+    async def on_sweep(self, request, response):
+        if not IDENTITY.fullmatch(request.id) or any(item[0] == request.id for item in self.waiting):
+            raise ValueError("sweep id is invalid or already used")
+        names = [item.name for item in request.values]
+        if not names or len(set(names)) != len(names) or any(not item.values for item in request.values):
+            raise ValueError("a sweep gives each of its parameters one or more values")
+        combinations = list(itertools.product(*[list(item.values) for item in request.values]))
+        if len(combinations) > 10000:
+            raise ValueError(f"a sweep runs at most 10000 combinations, not {len(combinations)}")
+        runs, planned = [], []
+        for n, values in enumerate(combinations):
+            run = type(request.base)()
+            run.CopyFrom(request.base)
+            run.id = f"{request.id}-{n}"
+            for name, value in zip(names, values):
+                run.params[name].CopyFrom(value)
+            runs.append(run)
+            planned.append((run.id, {name: getattr(value, value.WhichOneof("value"))
+                                     for name, value in zip(names, values)}))
+        await self.checked_run(runs[0])
+        for run in runs[1:]:
+            backtest.config_of(run)
+        await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
+        if request.processes:
+            self.processes = min(request.processes, os.cpu_count() or 1)
+        self.waiting.extend((request.id, run) for run in runs)
+        await self.pump()
+        response.accepted.SetInParent()
+
+    async def on_cancel_sweep(self, request, response):
+        members = {row["id"] for row in await self.read(self.runs.sweep, request.id)}
+        self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
+        for identity in members & set(self.backtests):
+            self.backtests[identity].terminate()
+        response.accepted.SetInParent()
+
+    async def on_sweep_runs(self, request, response):
+        rows = await self.read(self.runs.sweep, request.id)
+        reply = response.sweep_runs
+        reply.id = request.id
+        reply.waiting = sum(item[0] == request.id for item in self.waiting)
+        best = None
+        for row in rows:
+            item = summary(reply.runs.add(), row)
+            for name, value in row["params"].items():
+                field = {bool: "flag", int: "integer", float: "number", str: "text"}[type(value)]
+                setattr(item.params[name], field, value)
+            sharpe = row["metrics"].get("development_sharpe")
+            if sharpe is not None and (best is None or sharpe > best[1]):
+                best = (row["id"], sharpe)
+        reply.selected = best[0] if best else ""
 
     async def watch(self, identity, process):
         error = (await process.stderr.read()).decode(errors="replace").strip()
         code = await process.wait()
         del self.backtests[identity]
+        await self.pump()
         if code == 0:
             self.log.write("info", MODULE, "backtest.finished", run=identity)
             return
@@ -386,14 +474,7 @@ class Service:
 
     async def on_runs(self, _, response):
         for row in await self.read(self.runs.list):
-            item = response.runs.runs.add(
-                id=row["id"], strategy=row["strategy"], commit=row["commit"],
-                changes=row["changes"], dataset_version=row["dataset_version"],
-                state=row["state"], error=row["error"], started_ns=row["started_ns"],
-                finished_ns=row["finished_ns"] or 0)
-            for name, value in row["metrics"].items():
-                if value is not None:
-                    item.metrics[name] = value
+            summary(response.runs.runs.add(), row)
         response.runs.SetInParent()
 
     DAILY_FIELDS = ("open", "high", "low", "close", "settlement", "previous_settlement", "volume",
