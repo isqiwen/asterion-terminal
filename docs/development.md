@@ -265,9 +265,12 @@ CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/conf
 记录随包保存于 `resources/terminal/resources/native/runtime-requirements.json`。
 目标系统需事先提供这些库；安装器不提升权限，也不自动安装系统软件。
 部署程序到 `~/.local/opt/asterion-terminal`，用户应用菜单入口随安装创建。
-卸载必须通过维护窗口，先停止业务与后台服务，再移除应用和系统服务注册；默认保留用户资料，
+卸载通过维护窗口，先关闭 Terminal，再移除应用和桌面启动器；默认保留用户资料，
 仅在用户取消保留并确认删除范围后清理本机资料。
-发行验收会提取内嵌 Terminal，在隔离数据目录运行桌面验收；这不等于真实安装维护验收。
+安装验收（`tests/desktop/electron_installer.py`）在一次性的用户目录里用安装器自己的执行程序安装，
+运行装好的 Terminal 做桌面验收，再连同用户资料卸载，检查只剩日志和锁文件；它直接调用执行程序，不操作安装器窗口。
+准备 Python 运行时时删除为其他平台构建的动态库（如 `py_mini_racer` 的 ARM 版本）和不用的 `libpython3.so`，
+否则依赖分析无法通过。
 
 无需发行验收的 CI 用 `python3 scripts/desktop/desktop.py package-test` 生成名称含 `TEST` 的包到 `build/desktop-test/`，对应校验入口是 `verify-test`。
 

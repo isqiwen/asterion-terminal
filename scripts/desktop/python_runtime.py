@@ -30,7 +30,24 @@ UNUSED = ["include", "share", "lib/python3.12/test", "lib/python3.12/idlelib",
           "lib/python3.12/lib2to3",
           # Linux's link-time copy; the interpreter loads libpython3.12.so.1.0. On
           # macOS libpython3.12.dylib is the library the interpreter loads.
-          "lib/libpython3.12.so"]
+          "lib/libpython3.12.so",
+          # The stable-ABI shim for embedding; no extension here loads it.
+          "lib/libpython3.so"]
+
+
+def foreign_library(path: Path) -> bool:
+    """A shared library built for another platform, which can never load here.
+
+    Wheels such as py_mini_racer ship one for every platform; keeping them
+    makes the package's dependency analysis fail and adds dead weight."""
+    with path.open("rb") as stream:
+        header = stream.read(20)
+    if header[:4] == b"\x7fELF":
+        # e_machine 62 is x86-64; an ELF file is never loaded on macOS.
+        return sys.platform == "darwin" or int.from_bytes(header[18:20], "little") != 62
+    # Mach-O, thin or universal, is never loaded on Linux.
+    return sys.platform == "linux" and header[:4] in (
+        b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")
 
 
 BUILT_FROM_SOURCE = {"jsonpath"}
@@ -109,6 +126,10 @@ def prepare(build=None):
         # Polars needs one CPU runtime: the compatible one, not the default AVX2 build.
         run(["uv", "pip", "uninstall", "--python", python, "polars-runtime-32"])
         site = prepared / SITE
+        for path in [item for item in site.rglob("*") if item.is_file() and not item.is_symlink()
+                     and (".so" in item.suffixes or item.suffix == ".dylib")]:
+            if foreign_library(path):
+                path.unlink()
         shutil.copy2(ANALYTICS, site / "asterion_analytics.py")
         shutil.copytree(build / "generated-python/asterion", site / "asterion")
         shutil.copytree(PROJECT / "asterion_lab", site / "asterion_lab",
