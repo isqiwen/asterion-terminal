@@ -1,7 +1,7 @@
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/base/error.hpp>
 #include <filesystem>
 
 namespace asterion::protocol {

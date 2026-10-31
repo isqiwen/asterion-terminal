@@ -1,7 +1,7 @@
 #include <set>
 #include "analytics.hpp"
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/kernel/environment.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/system/environment.hpp>
 #include "research_export.hpp"
 #include "evaluation_export.hpp"
 #include "application_impl.hpp"

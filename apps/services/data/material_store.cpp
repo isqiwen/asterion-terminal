@@ -1,6 +1,6 @@
 #include "material_store.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <fstream>
 #include <algorithm>

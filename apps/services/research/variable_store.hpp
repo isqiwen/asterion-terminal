@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/research_variable.pb.h>
-#include <asterion/foundation/time.hpp>
+#include <asterion/base/time.hpp>
 #include <filesystem>
 #include <functional>
 #include <memory>

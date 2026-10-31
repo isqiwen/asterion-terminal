@@ -1,8 +1,8 @@
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <algorithm>
 #include <cctype>
 #include <cmath>

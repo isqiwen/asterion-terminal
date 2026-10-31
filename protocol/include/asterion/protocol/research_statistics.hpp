@@ -2,7 +2,7 @@
 #include <asterion/research_statistics.pb.h>
 #include <asterion/factor.pb.h>
 #include <asterion/research_sample.pb.h>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 
 namespace asterion::protocol {
 

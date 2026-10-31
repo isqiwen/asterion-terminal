@@ -1,9 +1,9 @@
 #include "compaction.hpp"
 #include "database.hpp"
 #include "parquet_engine.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <algorithm>
 #include <fstream>
 #include <regex>

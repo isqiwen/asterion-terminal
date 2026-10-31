@@ -1,8 +1,8 @@
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/domain/futures.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/futures/futures.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/research_strategy.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
 #include <charconv>

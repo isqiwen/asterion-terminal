@@ -1,6 +1,6 @@
 #include "application_impl.hpp"
 #include "domain_backup.hpp"
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <set>
 
 namespace asterion::terminal {

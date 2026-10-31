@@ -1,7 +1,7 @@
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include <gtest/gtest.h>
-#include <asterion/domain/order_limits.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/futures/order_limits.hpp>
+#include <asterion/system/process/child.hpp>
 using namespace asterion;
 
 namespace {

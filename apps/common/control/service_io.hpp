@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/polled_task.hpp>
-#include <asterion/kernel/payload_budget.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/polled_task.hpp>
+#include <asterion/system/payload_budget.hpp>
 #include <functional>
 #include <future>
 #include <memory>

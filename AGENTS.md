@@ -34,8 +34,8 @@ phase and its work packages:
 
 ## Architecture (current code)
 
-- Core layers, lowest first: `asterion_foundation` → `asterion_kernel` →
-  `asterion_domain`. Dependencies point down. Implementation belongs to its owning application;
+- Core layers, lowest first: `asterion_base` → `asterion_system` →
+  `asterion_futures`. Dependencies point down. Implementation belongs to its owning application;
   genuinely shared service code lives in `apps/services/common/`. Shared database
   access and built-in order limits live in `core/`; third-party data-source
   implementations live in `extensions/`. Python strategy extension is M2.1. Factors are reusable
@@ -85,7 +85,7 @@ The full contract is [docs/safety.md](docs/safety.md). Its core:
 
 - C++20 with RAII; `Decimal` for money and prices; exceptions never cross C ABI
   or Node-API boundaries. JSON only at protocol and UI boundaries.
-- Durable files go through `kernel/durable_file.hpp`.
+- Durable files go through `system/durable_file.hpp`.
 - Hash only where a digest is an identity (fixed inputs, artifacts, locked
   downloads) or at a trust boundary (cold backup, remote artifacts). Do not
   re-hash or re-validate data the same owner already wrote.

@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/research_strategy.pb.h>
 #include <asterion/backtest.pb.h>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <string_view>
 
 namespace asterion::protocol {

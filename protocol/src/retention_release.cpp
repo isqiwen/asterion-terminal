@@ -1,9 +1,9 @@
 #include <asterion/protocol/retention_release.hpp>
 #include <asterion/research.pb.h>
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 #include <asterion/protocol/service_discovery.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>

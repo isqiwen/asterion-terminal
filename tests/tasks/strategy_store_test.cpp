@@ -9,8 +9,8 @@
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <array>
 using namespace asterion;

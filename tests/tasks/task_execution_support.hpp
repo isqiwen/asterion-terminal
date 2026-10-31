@@ -17,10 +17,10 @@
 #include "history_update.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include "task_events.hpp"
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/durable_file.hpp>
 #include "engine.hpp"
 #include "factor_engine.hpp"
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include "data/bar_fixture.hpp"
 #include "data/shfe_margin_fixture.hpp"
 #include "historical_margins.hpp"
@@ -41,15 +41,15 @@
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/resource.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fstream>
 #include <cstdlib>
 #include <future>
 #include <gtest/gtest.h>
 #include <map>
 using namespace asterion;
-#include <asterion/kernel/ipc/local_channel.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
 #include <thread>
 #include <array>
 #include "history_coverage.hpp"

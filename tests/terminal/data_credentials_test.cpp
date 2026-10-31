@@ -3,8 +3,8 @@
 #include "application_environment.hpp"
 #include "node_paths.hpp"
 #include "recorder_endpoint.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
 #include <algorithm>
 #include <cerrno>
 #include <csignal>

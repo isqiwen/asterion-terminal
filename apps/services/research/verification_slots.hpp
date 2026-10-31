@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <set>
 #include <string>
 #include <utility>

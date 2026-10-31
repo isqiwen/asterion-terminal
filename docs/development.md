@@ -64,7 +64,7 @@ CMake 按工程目录逐层 `add_subdirectory()`：根目录管理项目选项�
 
 
 CMake 目标和项目自有可执行程序、库文件统一使用下划线，例如目标 `asterion_market`
-生成同名程序，`asterion_foundation` 生成 `libasterion_foundation.a`。尽量使用默认目标名，
+生成同名程序，`asterion_base` 生成 `libasterion_base.a`。尽量使用默认目标名，
 只有 Node 原生模块 `asterion_terminal.node` 和公开插件名称等确实不同的场合设置 `OUTPUT_NAME`。
 测试产物、开发桥、桌面与安装器可执行文件、分析助手遵循同一规则。第三方库文件、包标识、
 系统服务登记身份和用户数据目录不随产物改名。单独构建和运行可以直接对应同一个名字：
@@ -132,7 +132,7 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 
 | 目录 | 内容 |
 | --- | --- |
-| `core/` | 基础层、内核、领域和协议的单元测试 |
+| `core/` | `base`、`system`、`futures` 和协议的单元测试 |
 | `market/` | CTP 行情与合约目录、行情服务，行情 SDK 替身 |
 | `trading/` | 实盘会话、CTP 交易、风控限额、交易服务，交易 SDK 替身 |
 | `data/` | 历史数据源、存储、数据服务，数据集种子 |

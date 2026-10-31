@@ -1,6 +1,6 @@
 #pragma once
 #include "support/local_listener.hpp"
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/system/rpc_host.hpp>
 #include <functional>
 #include <list>
 #include <stop_token>

@@ -2,10 +2,10 @@
 #include "task_store.hpp"
 #include "research_data.hpp"
 #include "verification_slots.hpp"
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/polled_task.hpp>
-#include <asterion/kernel/rpc_host.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/polled_task.hpp>
+#include <asterion/system/rpc_host.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <asterion/data_service.pb.h>
 #include <atomic>
 #include <chrono>

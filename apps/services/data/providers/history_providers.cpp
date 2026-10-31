@@ -3,18 +3,18 @@
 #include "response_evidence.hpp"
 #include "margins.hpp"
 #include <asterion/plugin/history_response.h>
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
 #include <asterion/plugin/history_tables.h>
 #include <algorithm>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <cstring>
 #include <set>
 #include <fstream>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <stdexcept>
 
 namespace asterion::history_providers {

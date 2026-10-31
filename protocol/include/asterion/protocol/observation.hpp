@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/market.pb.h>
 #include <asterion/data_service.pb.h>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 
 namespace asterion::protocol {
 

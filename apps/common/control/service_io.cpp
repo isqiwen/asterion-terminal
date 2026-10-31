@@ -1,7 +1,7 @@
 #include "service_io.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/trace.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <array>
 #include <deque>
 #include <list>

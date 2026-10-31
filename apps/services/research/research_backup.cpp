@@ -4,7 +4,7 @@
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>
@@ -13,9 +13,9 @@
 #include "task_payload.hpp"
 #include "program_files.hpp"
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <algorithm>
 #include <map>
 #include <set>

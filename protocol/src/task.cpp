@@ -5,11 +5,11 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/material.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <stdexcept>
 #include <map>
 

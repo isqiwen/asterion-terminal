@@ -1,4 +1,4 @@
-#include "kernel/ipc/timed_operation.hpp"
+#include "system/ipc/timed_operation.hpp"
 #include <functional>
 #include <gtest/gtest.h>
 using namespace asterion;

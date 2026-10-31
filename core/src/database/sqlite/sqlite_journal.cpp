@@ -1,9 +1,9 @@
 #include <asterion/database/sqlite/sqlite_journal.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <asterion/database/sqlite/sqlite_database.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <stdexcept>
 #include <atomic>
 #include <optional>

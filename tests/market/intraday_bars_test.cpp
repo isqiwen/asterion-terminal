@@ -1,4 +1,4 @@
-#include <asterion/domain/intraday_bars.hpp>
+#include <asterion/futures/intraday_bars.hpp>
 #include <asterion/protocol/market.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;

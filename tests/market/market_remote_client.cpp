@@ -1,5 +1,5 @@
 #include "market_client.hpp"
-#include <asterion/kernel/ipc/tcp_channel.hpp>
+#include <asterion/system/ipc/tcp_channel.hpp>
 #include <asterion/protocol/market.hpp>
 #include <chrono>
 #include <iostream>

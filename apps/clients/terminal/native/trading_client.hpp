@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/trading.pb.h>
 #include <memory>
 #include "trading_connections.hpp"

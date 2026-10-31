@@ -1,5 +1,5 @@
 #include "account_exposure.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <stdexcept>
 
 namespace asterion {

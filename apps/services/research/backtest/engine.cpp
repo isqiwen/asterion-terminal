@@ -3,15 +3,15 @@
 #include "strategy.hpp"
 #include "portfolio_targets.hpp"
 #include "performance.hpp"
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/domain/order_limits.hpp>
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/futures/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
 #include <algorithm>
 #include <map>
 #include <cmath>
-#include <asterion/domain/futures.hpp>
+#include <asterion/futures/futures.hpp>
 #include <stdexcept>
 
 namespace asterion::backtest {

@@ -1,5 +1,5 @@
-#include <asterion/kernel/process/resources.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/resources.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <chrono>
 #include <system_error>

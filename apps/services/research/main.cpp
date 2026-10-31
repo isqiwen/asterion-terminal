@@ -1,8 +1,8 @@
 #include "research_host.hpp"
 #include "research_configuration.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include <CLI/CLI.hpp>
 #include <cstdlib>
 #include <iostream>

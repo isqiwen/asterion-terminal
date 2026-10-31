@@ -1,16 +1,16 @@
 #include "session.hpp"
 #include "catalog_job.hpp"
 #include "ctp_feed.hpp"
-#include <asterion/domain/intraday_bars.hpp>
-#include <asterion/foundation/bounded_queue.hpp>
+#include <asterion/futures/intraday_bars.hpp>
+#include <asterion/base/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <map>
 #include <deque>
 #include <asterion/protocol/observation.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <set>
 #include <thread>
 

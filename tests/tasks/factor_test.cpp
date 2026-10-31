@@ -7,10 +7,10 @@
 #include "evaluation.hpp"
 #include "universe.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <cmath>
 #include <fstream>
 #include <gtest/gtest.h>

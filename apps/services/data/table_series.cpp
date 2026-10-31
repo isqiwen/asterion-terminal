@@ -3,9 +3,9 @@
 #include "dominant_plan.hpp"
 #include "macd.hpp"
 #include "table_update.hpp"
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/base/error.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <chrono>

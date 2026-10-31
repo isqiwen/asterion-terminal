@@ -1,8 +1,8 @@
 #include <asterion/protocol/observation.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/base/id.hpp>
 
 namespace asterion::protocol {
 namespace {

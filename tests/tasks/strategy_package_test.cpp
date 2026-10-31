@@ -1,6 +1,6 @@
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include "data/bar_fixture.hpp"
 #include <gtest/gtest.h>
 using namespace asterion;

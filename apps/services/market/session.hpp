@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/system/rpc_host.hpp>
 #include <asterion/market.pb.h>
 #include <filesystem>
 #include <future>

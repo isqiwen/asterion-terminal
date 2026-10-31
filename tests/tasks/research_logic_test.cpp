@@ -1,7 +1,7 @@
 #include "research_logic.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 

@@ -1,5 +1,5 @@
 #include "margins.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/plugin/history_tables.h>
 #include <asterion/plugin/history_response.h>
 #include <asterion/plugin/sdk.hpp>

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/historical_margin.hpp>
+#include <asterion/futures/historical_margin.hpp>
 
 namespace asterion::tushare {
 

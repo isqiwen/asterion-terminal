@@ -1,5 +1,5 @@
 #include <asterion/terminal.h>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include "terminal_application.hpp"
 #include <cstring>
 #include <cstdlib>

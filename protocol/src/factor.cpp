@@ -1,4 +1,4 @@
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_variable.hpp>

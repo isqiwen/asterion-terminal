@@ -4,10 +4,10 @@
 #include "data_retentions.hpp"
 #include "data_backup.hpp"
 #include "domain_backup.hpp"
-#include <asterion/kernel/native_plugin.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/native_plugin.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
 using namespace asterion;

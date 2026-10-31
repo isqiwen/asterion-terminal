@@ -4,11 +4,11 @@
 #include "account_policy.hpp"
 #include "account_records.hpp"
 #include "ctp_order_identity.hpp"
-#include <asterion/foundation/bounded_queue.hpp>
+#include <asterion/base/bounded_queue.hpp>
 #include <coroutine>
 #include <future>
 #include <thread>
-#include <asterion/kernel/progress.hpp>
+#include <asterion/system/progress.hpp>
 
 namespace asterion::trading {
 

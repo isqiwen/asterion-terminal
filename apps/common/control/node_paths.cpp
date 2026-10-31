@@ -1,8 +1,8 @@
 #include "node_paths.hpp"
 #include "application_environment.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <fstream>
 
 namespace asterion::terminal {

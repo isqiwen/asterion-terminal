@@ -1,6 +1,6 @@
 #include "material_store.hpp"
 #include <asterion/protocol/data_client.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <thread>

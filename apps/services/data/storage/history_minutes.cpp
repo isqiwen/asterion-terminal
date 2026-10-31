@@ -2,10 +2,10 @@
 #include "macd.hpp"
 #include "history_metadata.hpp"
 #include "bar_parquet.hpp"
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <chrono>
 #include <fstream>
 #include <mutex>

@@ -1,7 +1,7 @@
 #include "data/history_fixture.hpp"
 #include "history_coverage.hpp"
 #include "history_update.hpp"
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/data.hpp>
 #include <fstream>
 #include <gtest/gtest.h>

@@ -116,7 +116,7 @@ Terminal 不部署、升级、启动或备份交易实例，桌面安装包不�
 
 ## 交易前风控
 
-领域层的订单限额（`core/include/asterion/domain/order_limits.hpp`），通过 `RiskPort` 接入统一提交路径：
+领域层的订单限额（`core/include/asterion/futures/order_limits.hpp`），通过 `RiskPort` 接入统一提交路径：
 
 - 单笔委托数量上限；
 - 每个合约的潜在总持仓上限（多空不抵消，在途开仓计入）；

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <filesystem>
 #include <functional>
 

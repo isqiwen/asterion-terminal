@@ -2,8 +2,8 @@
 #include "margins.hpp"
 #include "history_providers.hpp"
 #include "history_minutes.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <fstream>
 #include <chrono>

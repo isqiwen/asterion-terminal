@@ -2,11 +2,11 @@
 #include "ctp_connections.hpp"
 #include "data_credentials.hpp"
 #include "node_paths.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/process/owner.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/process/owner.hpp>
+#include <asterion/base/error.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
 

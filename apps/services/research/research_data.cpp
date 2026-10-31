@@ -1,14 +1,14 @@
 #include "research_data.hpp"
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/service_discovery.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/trace.hpp>
 #include <algorithm>
 #include <fstream>
 #include <set>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/durable_file.hpp>
 
 namespace asterion::tasks {
 

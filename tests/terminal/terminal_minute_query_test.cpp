@@ -1,12 +1,12 @@
 #include <asterion/research.pb.h>
-#include <asterion/kernel/rpc_host.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/rpc_host.hpp>
+#include <asterion/system/durable_file.hpp>
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
-#include <asterion/kernel/environment.hpp>
+#include <asterion/system/environment.hpp>
 #include <asterion/protocol/trading.hpp>
 #include "terminal/blocking_service.hpp"
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <future>
 #include <asio.hpp>
 #include <latch>

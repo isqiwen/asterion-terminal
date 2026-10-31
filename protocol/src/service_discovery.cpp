@@ -1,8 +1,8 @@
 #include <asterion/protocol/service_discovery.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 #include <algorithm>
 
 namespace asterion::protocol {

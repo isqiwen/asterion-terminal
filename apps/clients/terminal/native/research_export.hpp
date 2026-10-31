@@ -1,8 +1,8 @@
 #pragma once
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
 #include <nlohmann/json.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <set>
 #include <filesystem>
 #include <vector>

@@ -1,9 +1,9 @@
 #include "history_archive.hpp"
 #include "history_minutes.hpp"
-#include <asterion/foundation/id.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/protocol/data.hpp>
 #include <fstream>
 #include <algorithm>

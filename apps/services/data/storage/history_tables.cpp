@@ -1,13 +1,13 @@
 #include "history_tables.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include "table_parquet.hpp"
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <map>
 #include <set>
 #include <algorithm>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>

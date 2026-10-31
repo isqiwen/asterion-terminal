@@ -1,8 +1,8 @@
 // Test-only Native fixture: suspended I/O without services or user state.
 #include "terminal_application.hpp"
 #include "service_io.hpp"
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/base/error.hpp>
 #include <chrono>
 #include <cstdlib>
 

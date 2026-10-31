@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/market.pb.h>
 #include <deque>
 #include <algorithm>

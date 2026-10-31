@@ -5,8 +5,8 @@
 #include "material_store.hpp"
 #include "acquisition_tasks.hpp"
 #include "download_budget.hpp"
-#include <asterion/kernel/rpc_host.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/system/rpc_host.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <chrono>
 #include <deque>
 #include <filesystem>

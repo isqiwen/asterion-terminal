@@ -1,7 +1,7 @@
-#include <asterion/foundation/time.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/process/owner.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/base/time.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/process/owner.hpp>
+#include <asterion/system/trace.hpp>
 #include <gtest/gtest.h>
 #include <chrono>
 #include <ctime>

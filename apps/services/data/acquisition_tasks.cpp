@@ -2,8 +2,8 @@
 #include "data_submission.hpp"
 #include "acquisition_execution.hpp"
 #include "material_providers.hpp"
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/rpc_host.hpp>
 
 namespace asterion::data {
 

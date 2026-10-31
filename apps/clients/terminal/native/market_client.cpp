@@ -1,8 +1,8 @@
 #include "market_client.hpp"
 #include "market_history.hpp"
 #include "market_snapshot.hpp"
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/observation.hpp>
 #include <asterion/protocol/trading.hpp>

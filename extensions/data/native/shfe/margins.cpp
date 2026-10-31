@@ -1,6 +1,6 @@
 #include "margins.hpp"
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <algorithm>
 
 namespace asterion::shfe {

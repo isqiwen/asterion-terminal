@@ -1,7 +1,7 @@
 #include "program_files.hpp"
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>
 #include <fstream>

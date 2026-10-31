@@ -5,8 +5,8 @@
 #include "history_minutes.hpp"
 #include "history_tables.hpp"
 #include "data/data_fixture.hpp"
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/domain/history_tables.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/futures/history_tables.hpp>
 #include <algorithm>
 #include <cctype>
 #include <map>

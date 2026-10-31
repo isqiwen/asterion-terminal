@@ -2,7 +2,7 @@
 // Internal to the Terminal application: shared state of Application and the
 // per-domain command registrations (commands_*.cpp). Not a public API.
 #include "terminal_application.hpp"
-#include <asterion/domain/history_identity.hpp>
+#include <asterion/futures/history_identity.hpp>
 #include "market_client.hpp"
 #include "local_services.hpp"
 #include "node_paths.hpp"
@@ -15,12 +15,12 @@
 #include "data_client.hpp"
 #include "trading_client.hpp"
 #include "service_io.hpp"
-#include <asterion/domain/futures.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/trace.hpp>
-#include <asterion/foundation/time.hpp>
+#include <asterion/futures/futures.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/trace.hpp>
+#include <asterion/base/time.hpp>
 #include <charconv>
 #include <cstdlib>
 #include <cstring>

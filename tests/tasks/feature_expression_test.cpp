@@ -1,5 +1,5 @@
 #include "feature_expression.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <cmath>
 #include <gtest/gtest.h>
 using namespace asterion;

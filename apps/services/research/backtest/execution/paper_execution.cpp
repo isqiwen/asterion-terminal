@@ -1,6 +1,6 @@
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
-#include <asterion/domain/position_target.hpp>
+#include <asterion/futures/position_target.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <stdexcept>

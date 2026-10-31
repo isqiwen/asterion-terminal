@@ -2,7 +2,7 @@
 #include "bar_dataset_source.hpp"
 #include "history_archive.hpp"
 #include "table_update.hpp"
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/data_service.pb.h>
 #include <optional>
 #include <variant>

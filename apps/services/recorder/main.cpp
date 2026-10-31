@@ -1,12 +1,12 @@
 #include "reader.hpp"
 #include "recording.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/rpc_host.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/rpc_host.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <cstdlib>
 #include <iostream>
 

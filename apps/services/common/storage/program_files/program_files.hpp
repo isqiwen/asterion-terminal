@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/resource.pb.h>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <filesystem>
 #include <stop_token>
 #include <vector>

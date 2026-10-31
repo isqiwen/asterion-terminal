@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/domain/intraday_bars.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/futures/intraday_bars.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <deque>
 #include <filesystem>
 #include <future>

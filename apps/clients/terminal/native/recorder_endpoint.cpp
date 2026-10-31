@@ -1,6 +1,6 @@
 #include "recorder_endpoint.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <algorithm>
 #include <cctype>
 #include <fstream>

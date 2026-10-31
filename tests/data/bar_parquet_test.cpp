@@ -1,5 +1,5 @@
 #include "bar_parquet.hpp"
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fstream>
 #include <gtest/gtest.h>
 using namespace asterion;

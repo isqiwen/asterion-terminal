@@ -2,8 +2,8 @@
 #include <asterion/protocol/observation.hpp>
 #include <asterion/protocol/service_discovery.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 
 namespace asterion::data {
 

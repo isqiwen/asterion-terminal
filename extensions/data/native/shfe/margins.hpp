@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/domain/history_tables.hpp>
-#include <asterion/domain/source_response.hpp>
-#include <asterion/foundation/decimal.hpp>
+#include <asterion/futures/history_tables.hpp>
+#include <asterion/futures/source_response.hpp>
+#include <asterion/base/decimal.hpp>
 #include <array>
 
 namespace asterion::shfe {

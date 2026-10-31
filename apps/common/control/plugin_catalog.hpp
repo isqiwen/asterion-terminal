@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/kernel/native_plugin.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/system/native_plugin.hpp>
+#include <asterion/base/serialization.hpp>
 #include <span>
 
 namespace asterion::terminal {

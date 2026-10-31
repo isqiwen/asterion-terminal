@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include <asterion/foundation/bounded_queue.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/bounded_queue.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/base/serialization.hpp>
 #include <future>
 #include <iostream>
 #include <set>

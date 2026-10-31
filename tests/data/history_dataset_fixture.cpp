@@ -1,6 +1,6 @@
 #include "data/history_fixture.hpp"
 #include "data/shfe_margin_fixture.hpp"
-#include <asterion/kernel/environment.hpp>
+#include <asterion/system/environment.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
 

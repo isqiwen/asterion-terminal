@@ -2,7 +2,7 @@
 #include "service_endpoint.hpp"
 #include "service_io.hpp"
 #include "market_snapshot.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <memory>
 
 namespace asterion::terminal {

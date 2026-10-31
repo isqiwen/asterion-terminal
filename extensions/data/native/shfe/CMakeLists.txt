@@ -1,6 +1,6 @@
 add_library(asterion_shfe STATIC margins.cpp)
 target_include_directories(asterion_shfe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_shfe PUBLIC Asterion::Domain)
+target_link_libraries(asterion_shfe PUBLIC Asterion::Futures)
 add_library(asterion_shfe_plugin SHARED native_plugin.cpp)
 target_link_libraries(asterion_shfe_plugin PRIVATE asterion_shfe httplib::httplib)
 set_target_properties(asterion_shfe_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion_shfe" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)

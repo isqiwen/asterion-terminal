@@ -5,10 +5,10 @@
 #include "research_logic.hpp"
 #include "backtest/engine.hpp"
 #include "factor/factor_engine.hpp"
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/base/error.hpp>
 
 namespace asterion::tasks {
 

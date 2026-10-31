@@ -3,20 +3,20 @@
 #include "data_submission.hpp"
 #include "research_logic.hpp"
 #include "strategy_store.hpp"
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include "research_execution.hpp"
 #include "tasks/task_store_support.hpp"
 #include "program_files.hpp"
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include "task_store.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 namespace fs = std::filesystem;

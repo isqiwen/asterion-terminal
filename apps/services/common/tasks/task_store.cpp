@@ -2,11 +2,11 @@
 #include "task_events.hpp"
 #include "task_payload.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <algorithm>

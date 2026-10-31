@@ -1,7 +1,7 @@
 #include "session.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>

@@ -8,8 +8,8 @@
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/research_statistics.hpp>
 #include <asterion/protocol/factor.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <filesystem>
 using namespace asterion;

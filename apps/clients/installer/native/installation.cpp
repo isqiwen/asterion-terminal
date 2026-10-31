@@ -1,9 +1,9 @@
 #include "installation.hpp"
 #include "node_paths.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/file_lock.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/base/error.hpp>
 #include <fstream>
 #include <set>
 #include <cerrno>

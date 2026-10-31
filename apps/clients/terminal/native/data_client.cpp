@@ -5,9 +5,9 @@
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/protocol/task.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 #include <algorithm>
 #include <array>
 

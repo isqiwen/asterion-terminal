@@ -3,9 +3,9 @@
 #include "history_providers.hpp"
 #include "table_update.hpp"
 #include <asterion/protocol/data.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/domain/history_tables.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/futures/history_tables.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 

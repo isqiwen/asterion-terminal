@@ -1,0 +1,16 @@
+add_library(asterion_base STATIC decimal.cpp)
+add_library(Asterion::Base ALIAS asterion_base)
+target_compile_features(asterion_base PUBLIC cxx_std_20)
+target_include_directories(asterion_base PUBLIC ${PROJECT_SOURCE_DIR}/core/include)
+target_link_libraries(asterion_base PUBLIC nlohmann_json::nlohmann_json)
+if(ASTERION_SANITIZERS)
+  if(NOT ASTERION_SANITIZERS MATCHES "^(address,undefined|thread)$")
+    message(FATAL_ERROR "Sanitizers require Clang/GCC and address,undefined or thread")
+  endif()
+  # -g1 keeps line tables for sanitizer stacks without full debug information.
+  target_compile_options(asterion_base PUBLIC -fsanitize=${ASTERION_SANITIZERS} -fno-omit-frame-pointer -g1)
+  target_link_options(asterion_base PUBLIC -fsanitize=${ASTERION_SANITIZERS})
+  # Instrumented builds run several times slower; timing assertions scale.
+  target_compile_definitions(asterion_base PUBLIC ASTERION_SANITIZED=1)
+endif()
+asterion_target_defaults(asterion_base)

@@ -1,8 +1,8 @@
 #include "history_tables.hpp"
 #include <asterion/database/sqlite/sqlite_database.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/base/error.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <map>

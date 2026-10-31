@@ -2,10 +2,10 @@
 #include "observation_store.hpp"
 #include "material_store.hpp"
 #include <asterion/protocol/resource.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
 #include <map>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 
 namespace asterion::data {
 

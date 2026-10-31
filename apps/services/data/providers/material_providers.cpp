@@ -1,6 +1,6 @@
 #include "material_providers.hpp"
 #include "provider_programs.hpp"
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include <asterion/plugin/material.h>
 #include <algorithm>
 #include <chrono>

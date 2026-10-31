@@ -1,6 +1,6 @@
 #include "tasks/task_store_support.hpp"
 #include <asterion/protocol/material.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 namespace fs = std::filesystem;

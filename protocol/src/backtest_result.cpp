@@ -1,5 +1,5 @@
 #include <asterion/protocol/backtest.hpp>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <algorithm>
 #include <set>
 #include <stdexcept>

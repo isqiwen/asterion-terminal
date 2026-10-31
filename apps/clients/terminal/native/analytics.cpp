@@ -1,13 +1,13 @@
 #include "analytics.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/analytics.pb.h>
 #include <algorithm>
 #include <cmath>
 #include <set>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 
 namespace asterion::terminal {
 namespace {

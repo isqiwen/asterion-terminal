@@ -1,6 +1,6 @@
 #include "research_execution.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/data.hpp>

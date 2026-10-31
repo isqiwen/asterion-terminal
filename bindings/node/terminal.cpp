@@ -1,5 +1,5 @@
 #include "terminal_application.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <atomic>
 #include <node_api.h>
 #include <memory>

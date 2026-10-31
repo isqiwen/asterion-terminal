@@ -1,5 +1,5 @@
 #include "research_configuration.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <fstream>
 
 namespace asterion::tasks {

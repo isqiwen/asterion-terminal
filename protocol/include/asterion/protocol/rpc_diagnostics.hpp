@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/log.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/log.hpp>
 #include <string>
 #include <initializer_list>
 #include <optional>

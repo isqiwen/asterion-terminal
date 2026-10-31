@@ -1,5 +1,5 @@
 #include "application_impl.hpp"
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/native_plugin.hpp>
 
 namespace asterion::terminal {
 

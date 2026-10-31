@@ -2,9 +2,9 @@
 #include "margins.hpp"
 #include "history_providers.hpp"
 #include "response_evidence.hpp"
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <algorithm>
 #include <chrono>
 #include <map>

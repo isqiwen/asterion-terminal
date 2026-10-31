@@ -1,6 +1,6 @@
 // Test identities only: writes <name>.crt and <name>.key into the directory for
 // each name and prints "<name> <fingerprint>" lines. Never installed.
-#include <asterion/kernel/ipc/tcp_channel.hpp>
+#include <asterion/system/ipc/tcp_channel.hpp>
 #include <filesystem>
 #include <iostream>
 

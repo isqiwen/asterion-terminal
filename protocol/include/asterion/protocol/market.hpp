@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/domain/intraday_bars.hpp>
-#include <asterion/domain/live_market.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/futures/intraday_bars.hpp>
+#include <asterion/futures/live_market.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/market.pb.h>
 
 namespace asterion::protocol {

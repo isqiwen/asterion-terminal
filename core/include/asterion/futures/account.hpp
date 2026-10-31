@@ -1,0 +1,269 @@
+#pragma once
+#include <asterion/futures/order.hpp>
+#include <optional>
+#include <stdexcept>
+#include <memory>
+#include <set>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+namespace asterion {
+
+// A normal account admission refusal, distinct from malformed orders or ledger failures.
+class InsufficientAvailableFunds final : public std::invalid_argument
+{
+public:
+    InsufficientAvailableFunds()
+        : std::invalid_argument("insufficient available funds")
+    {}
+};
+
+// close lets the exchange assign the order to today's/yesterday's positions;
+// close_today/close_yesterday name the bucket explicitly.
+enum class Offset
+{
+    open,
+    close_today,
+    close_yesterday,
+    close
+};
+// How an exchange assigns a close order to today's and yesterday's positions.
+// SHFE/INE require explicit buckets; CFFEX closes today's first; DCE, CZCE and
+// GFEX close yesterday's first. Verify against current exchange rules before
+// relying on a venue; unknown venues require explicit buckets.
+enum class ClosePolicy
+{
+    explicit_buckets,
+    today_first,
+    yesterday_first
+};
+ClosePolicy close_policy(std::string_view venue) noexcept;
+
+// Costs have a per-lot part and a notional part (price x quantity x
+// multiplier x rate). Notional parts round half-up to 0.01 in the quote
+// currency; per-lot parts are exact. Rates default to 0 (per-lot only).
+struct FuturesCosts
+{
+    Decimal margin_per_lot, open_fee, close_today_fee, close_yesterday_fee;
+    Decimal margin_rate, open_fee_rate, close_today_fee_rate, close_yesterday_fee_rate;
+    void validate() const;
+    // bucket is open, close_today or close_yesterday (never the generic close).
+    Decimal fee(Offset bucket, Decimal quantity, Decimal price, Decimal multiplier) const;
+    Decimal margin(Decimal quantity, Decimal price, Decimal multiplier) const;
+};
+
+struct FuturesCostVersion
+{
+    std::string effective_from, source;
+    FuturesCosts values;
+};
+
+// Ascending immutable versions; the first must cover the first trading day.
+void validate_cost_schedule(const std::vector<FuturesCostVersion>& schedule);
+const FuturesCostVersion&
+costs_on(const std::vector<FuturesCostVersion>& schedule, const std::string& trading_day);
+
+// One contract of a portfolio: its specification and currently active costs.
+struct ContractTerms
+{
+    Instrument instrument;
+    FuturesCosts costs;
+};
+
+// What a portfolio trades at a time: a contract, or a dominant series as one.
+inline constexpr std::size_t max_portfolio_contracts = 20;
+// The contracts an account keeps. A dominant series brings one for every month
+// it trades, so an account of a few series holds many more than it trades at
+// a time.
+inline constexpr std::size_t max_account_contracts = 256;
+
+struct PositionLot
+{
+    InstrumentId instrument;
+    Side side;
+    bool today;
+    Decimal quantity, price;
+    bool operator==(const PositionLot&) const = default;
+};
+
+struct AccountOrder
+{
+    Order order;
+    Offset offset;
+};
+
+// The execution report together with what this account actually charged.
+// Fees belong to the ledger, not to the execution connector's report.
+struct AccountFill
+{
+    Fill execution;
+    Decimal fee;
+};
+
+// Detached account observation. Monetary values remain Decimal until presentation.
+struct AccountSnapshot
+{
+    struct Mark
+    {
+        InstrumentId instrument;
+        Decimal price;
+        bool operator==(const Mark&) const = default;
+    };
+
+    struct OrderView
+    {
+        LimitOrder request;
+        Offset offset;
+        Decimal filled;
+        OrderState state;
+        bool operator==(const OrderView&) const = default;
+    };
+
+    struct FillView
+    {
+        Fill execution;
+        InstrumentId instrument;
+        Decimal fee;
+        bool operator==(const FillView&) const = default;
+    };
+
+    Decimal balance, equity, available, margin, frozen, fees, realized, unrealized;
+    std::vector<Mark> marks;
+    std::vector<PositionLot> positions;
+    std::vector<OrderView> orders;
+    std::vector<FillView> fills;
+    bool operator==(const AccountSnapshot&) const = default;
+};
+
+// Single-currency futures portfolio ledger over a fixed set of contracts.
+// Funds, margin, frozen amounts and fees are account-wide; positions, marks
+// and close rules belong to each contract. Host serializes access. Mutations
+// have a strong exception guarantee; report IDs stay unique for the ledger.
+// Typed queries are the internal API; snapshot() presents the same state.
+class FuturesAccount
+{
+public:
+    FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
+
+    // Roll back a group of mutations unless committed. Captures mutable positions,
+    // marks, costs, price increments and working orders; immutable completed
+    // history stays in place.
+    // The account must outlive its transaction and remain at the same address.
+    class Transaction
+    {
+    public:
+        Transaction(Transaction&&) noexcept;
+        Transaction(const Transaction&) = delete;
+        ~Transaction();
+        void commit() noexcept;
+
+    private:
+        friend class FuturesAccount;
+        explicit Transaction(FuturesAccount&);
+        struct State;
+        std::unique_ptr<State> state_;
+    };
+
+    Transaction transaction();
+    void submit(LimitOrder request, Offset offset);
+    void cancel(const std::string& id);
+    bool fill(const Fill& report);
+    void mark(const InstrumentId& instrument, Decimal price);
+
+    // Whether the account has a price of a contract, in contracts() order, from
+    // a mark or a settlement: an order needs one.
+    bool priced(std::size_t contract) const
+    {
+        return marks_.at(contract) != Decimal{};
+    }
+
+    // Settles every contract at its price, ordered as contracts(). Only with no
+    // outstanding orders; the caller owns the calendar.
+    void settle(const std::vector<Decimal>& prices);
+    // As above for a portfolio whose contracts do not all trade every day: a
+    // contract without a price keeps its mark and must hold no position.
+    void settle_traded(const std::vector<std::optional<Decimal>>& prices);
+    // At a trading-day boundary, after cancelling orders. Revalues margin on
+    // existing positions without changing balances or past fees.
+    void update_costs(const std::vector<FuturesCosts>& costs);
+    // At a trading-day boundary, after cancelling orders: the price increment
+    // each contract trades at from then on. Orders, fills and marks are on it;
+    // prices before stay what they were.
+    void update_price_increments(const std::vector<Decimal>& increments);
+    AccountSnapshot snapshot() const;
+
+    const std::vector<ContractTerms>& contracts() const noexcept
+    {
+        return contracts_;
+    }
+
+    // Index of a contract in contracts(); throws for a contract outside the account.
+    std::size_t contract_index(const InstrumentId& instrument) const;
+
+    const std::vector<AccountOrder>& orders() const noexcept
+    {
+        return orders_;
+    }
+
+    // Stable indexes into orders(), in arrival order. Completed orders remain in
+    // the ledger but do not participate in matching, reservations or risk scans.
+    const std::set<std::size_t>& working_orders() const noexcept
+    {
+        return working_orders_;
+    }
+
+    const std::vector<PositionLot>& positions() const noexcept
+    {
+        return lots_;
+    }
+
+    const std::vector<AccountFill>& fills() const noexcept
+    {
+        return fills_;
+    }
+
+    Decimal balance() const noexcept
+    {
+        return balance_;
+    }
+
+    Decimal fees() const noexcept
+    {
+        return fees_;
+    }
+
+    Decimal realized() const noexcept
+    {
+        return realized_;
+    }
+
+    Decimal available() const;
+    Decimal unrealized() const;
+    Decimal margin() const;
+    Decimal frozen() const;
+    bool has_working_orders() const noexcept;
+    ClosePolicy close_policy(const InstrumentId& instrument) const;
+
+private:
+    // Quantity of position_side still free to close in one contract; `today`
+    // limits it to one bucket, nullopt counts both (generic close).
+    Decimal
+    closable(const InstrumentId& instrument, Side position_side, std::optional<bool> today) const;
+    // Reservation for the rest of a working order at its limit price.
+    Decimal reserved(const AccountOrder& item) const;
+    std::size_t index_of(const std::string& id) const;
+    std::vector<ContractTerms> contracts_;
+    std::vector<Decimal> marks_;
+    Decimal balance_, fees_, realized_;
+    std::vector<PositionLot> lots_;
+    std::vector<AccountOrder> orders_;
+    std::set<std::size_t> working_orders_;
+    std::vector<AccountFill> fills_;
+    // Identity indexes into orders_ and fills_; both vectors only grow.
+    std::unordered_map<std::string, std::size_t> order_index_;
+    std::unordered_map<std::string, std::size_t> fill_index_;
+};
+
+} // namespace asterion

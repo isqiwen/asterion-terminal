@@ -1,6 +1,6 @@
 add_library(asterion_tushare STATIC tushare.cpp tables.cpp https.cpp response_evidence.cpp)
 target_include_directories(asterion_tushare PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_tushare PUBLIC Asterion::Domain PRIVATE httplib::httplib)
+target_link_libraries(asterion_tushare PUBLIC Asterion::Futures PRIVATE httplib::httplib)
 add_library(asterion_tushare_plugin SHARED native_plugin.cpp)
 target_link_libraries(asterion_tushare_plugin PRIVATE asterion_tushare)
 set_target_properties(asterion_tushare_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion_tushare" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)

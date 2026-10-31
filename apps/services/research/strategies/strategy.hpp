@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/domain/market.hpp>
-#include <asterion/domain/position_target.hpp>
+#include <asterion/futures/market.hpp>
+#include <asterion/futures/position_target.hpp>
 #include <asterion/trading.pb.h>
 #include <deque>
 #include <memory>

@@ -7,8 +7,8 @@
 #include "program_files.hpp"
 #include "task_payload.hpp"
 #include <asterion/protocol/research_evaluation.hpp>
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/base/error.hpp>
 #include <array>
 
 namespace asterion::tasks {

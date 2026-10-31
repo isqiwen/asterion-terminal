@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/domain/order_limits.hpp>
-#include <asterion/domain/futures.hpp>
+#include <asterion/futures/order_limits.hpp>
+#include <asterion/futures/futures.hpp>
 #include <asterion/trading.pb.h>
 
 namespace asterion::trading {

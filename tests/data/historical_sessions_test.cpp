@@ -1,4 +1,4 @@
-#include <asterion/domain/historical_sessions.hpp>
+#include <asterion/futures/historical_sessions.hpp>
 #include "session_definition.hpp"
 #include <gtest/gtest.h>
 using namespace asterion;

@@ -1,6 +1,6 @@
 add_library(asterion_history_providers STATIC history_providers.cpp)
 target_include_directories(asterion_history_providers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_history_providers PUBLIC Asterion::Domain PRIVATE asterion_tushare asterion_shfe asterion_provider_programs)
+target_link_libraries(asterion_history_providers PUBLIC Asterion::Futures PRIVATE asterion_tushare asterion_shfe asterion_provider_programs)
 add_dependencies(asterion_history_providers asterion_tushare_plugin asterion_shfe_plugin)
 asterion_target_defaults(asterion_history_providers)
 
@@ -11,5 +11,5 @@ asterion_target_defaults(asterion_material_providers)
 
 add_library(asterion_provider_programs STATIC provider_programs.cpp)
 target_include_directories(asterion_provider_programs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_provider_programs PUBLIC Asterion::Kernel)
+target_link_libraries(asterion_provider_programs PUBLIC Asterion::System)
 asterion_target_defaults(asterion_provider_programs)

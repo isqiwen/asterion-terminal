@@ -1,5 +1,5 @@
 #include "application_impl.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/lab.pb.h>
 
 namespace asterion::terminal {

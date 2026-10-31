@@ -1,5 +1,5 @@
 #include "descriptive_statistics.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/history_store.hpp>
+#include <asterion/futures/history_store.hpp>
 #include <asterion/data.pb.h>
 #include <filesystem>
 #include <optional>

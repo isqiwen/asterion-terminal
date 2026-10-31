@@ -1,7 +1,7 @@
 #include "recorder.hpp"
 #include "parquet_engine.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/log.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/log.hpp>
 #include <cstdio>
 
 namespace asterion::recording {

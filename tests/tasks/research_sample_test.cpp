@@ -5,8 +5,8 @@
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "program_files.hpp"
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <filesystem>
 #include "descriptive_statistics.hpp"
@@ -15,7 +15,7 @@
 #include <asterion/protocol/research_statistics.hpp>
 #include <array>
 #include <asterion/protocol/data.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 

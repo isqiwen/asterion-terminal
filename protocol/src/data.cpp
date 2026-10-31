@@ -1,9 +1,9 @@
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/domain/source_response.hpp>
-#include <asterion/domain/futures.hpp>
-#include <asterion/domain/historical_bars.hpp>
-#include <asterion/domain/history_tables.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/futures/source_response.hpp>
+#include <asterion/futures/futures.hpp>
+#include <asterion/futures/historical_bars.hpp>
+#include <asterion/futures/history_tables.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <stdexcept>
 #include <cmath>

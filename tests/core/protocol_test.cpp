@@ -2,8 +2,8 @@
 #include "support/local_listener.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/health.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
 #include <future>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <fstream>

@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/domain/source_response.hpp>
-#include <asterion/domain/historical_bars.hpp>
-#include <asterion/domain/history_tables.hpp>
+#include <asterion/futures/source_response.hpp>
+#include <asterion/futures/historical_bars.hpp>
+#include <asterion/futures/history_tables.hpp>
 #include <memory>
 #include <functional>
 #include <filesystem>

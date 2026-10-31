@@ -1,6 +1,6 @@
 #include <asterion/protocol/material.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <algorithm>
 
 namespace asterion::protocol {

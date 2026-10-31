@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/time.hpp>
+#include <asterion/base/time.hpp>
 #include <asterion/data_service.pb.h>
 #include <deque>
 #include <filesystem>

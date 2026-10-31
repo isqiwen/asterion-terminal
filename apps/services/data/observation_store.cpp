@@ -1,6 +1,6 @@
 #include "observation_store.hpp"
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <fstream>
 #include <algorithm>

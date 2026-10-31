@@ -1,8 +1,8 @@
 #include <set>
-#include <asterion/domain/futures.hpp>
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/futures/futures.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <cctype>

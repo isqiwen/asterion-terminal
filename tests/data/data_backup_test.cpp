@@ -6,12 +6,12 @@
 #include "data_retentions.hpp"
 #include "task_store.hpp"
 #include "history_providers.hpp"
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include "data/history_fixture.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
 

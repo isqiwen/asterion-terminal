@@ -1,8 +1,8 @@
 #include "research_submission.hpp"
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include "task_payload.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/research_statistics.hpp>

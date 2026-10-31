@@ -1,12 +1,12 @@
 #include "support/data_discovery.hpp"
 #include <asterion/research.pb.h>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/durable_file.hpp>
 #include "support/task_wait.hpp"
 #include "data/history_fixture.hpp"
 #include "table_update.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/task.hpp>

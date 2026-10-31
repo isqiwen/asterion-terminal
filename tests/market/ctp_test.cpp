@@ -1,8 +1,8 @@
 #include "ctp_feed.hpp"
 #include "support/timing.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/market.hpp>
 #include <gtest/gtest.h>
 #include <csignal>

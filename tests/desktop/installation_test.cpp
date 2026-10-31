@@ -1,7 +1,7 @@
 #include "installation.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <gtest/gtest.h>
 #include <fstream>
 

@@ -1,6 +1,6 @@
 #include "../apps/clients/terminal/native/analytics.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/environment.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/environment.hpp>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <iomanip>

@@ -1,6 +1,6 @@
 #include "parquet_engine.hpp"
 #include "recorder.hpp"
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 
 using namespace asterion;

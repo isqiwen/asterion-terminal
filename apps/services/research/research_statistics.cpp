@@ -6,8 +6,8 @@
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/base/error.hpp>
 #include <chrono>
 
 namespace asterion::tasks {

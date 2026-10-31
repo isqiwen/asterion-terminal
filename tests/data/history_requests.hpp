@@ -1,6 +1,6 @@
 #pragma once
 #include "history_minutes.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <string>
 
 // Download definitions for tests, written as the fields a client fills in and

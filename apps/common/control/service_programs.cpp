@@ -1,7 +1,7 @@
 #include "service_programs.hpp"
 #include "application_environment.hpp"
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <stdexcept>
 
 namespace asterion::terminal {

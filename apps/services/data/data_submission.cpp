@@ -1,6 +1,6 @@
 #include "data_submission.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/material.hpp>
 

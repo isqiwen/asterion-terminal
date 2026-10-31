@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/decimal.hpp>
+#include <asterion/base/decimal.hpp>
 #include <chrono>
 #include <span>
 #include <vector>

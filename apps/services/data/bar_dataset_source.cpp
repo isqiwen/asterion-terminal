@@ -3,7 +3,7 @@
 #include "table_series.hpp"
 #include "history_minutes.hpp"
 #include "history_metadata.hpp"
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iterator>

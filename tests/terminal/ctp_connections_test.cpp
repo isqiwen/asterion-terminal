@@ -1,8 +1,8 @@
 #include "ctp_connections.hpp"
 #include "trading_connections.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fstream>
 #include <gtest/gtest.h>
 using namespace asterion;

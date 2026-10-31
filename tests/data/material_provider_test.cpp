@@ -1,7 +1,7 @@
 #include "material_providers.hpp"
 #include "material_store.hpp"
-#include <asterion/kernel/native_plugin.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/native_plugin.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
 using namespace asterion;

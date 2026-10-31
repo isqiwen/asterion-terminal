@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/domain/account.hpp>
-#include <asterion/domain/position_target.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/futures/account.hpp>
+#include <asterion/futures/position_target.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/trading.pb.h>
 
 namespace asterion::protocol {

@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/ipc/tcp_channel.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/system/ipc/tcp_channel.hpp>
 #include <filesystem>
 
 namespace asterion::terminal {

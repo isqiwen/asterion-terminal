@@ -1,6 +1,6 @@
 #include "trading_client.hpp"
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
 #include <asterion/protocol/health.hpp>
 #include <asterion/protocol/trading.hpp>
 

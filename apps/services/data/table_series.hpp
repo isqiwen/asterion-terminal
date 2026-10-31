@@ -1,7 +1,7 @@
 #pragma once
 #include "history_tables.hpp"
-#include <asterion/domain/historical_margin.hpp>
-#include <asterion/foundation/decimal.hpp>
+#include <asterion/futures/historical_margin.hpp>
+#include <asterion/base/decimal.hpp>
 #include <asterion/data.pb.h>
 #include <map>
 #include <string>

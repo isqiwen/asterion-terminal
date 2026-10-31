@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/domain/market.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/futures/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/data.pb.h>
 #include <asterion/data_service.pb.h>

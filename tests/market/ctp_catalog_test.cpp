@@ -1,8 +1,8 @@
 #include "ctp_catalog.hpp"
 #include "ctp_support.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/protocol/market.hpp>
 #include <gtest/gtest.h>
 #include <thread>

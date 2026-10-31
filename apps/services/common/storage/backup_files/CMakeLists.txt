@@ -1,4 +1,4 @@
 add_library(asterion_backup_files STATIC backup_files.cpp)
 target_include_directories(asterion_backup_files PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_backup_files PUBLIC asterion_protocol PRIVATE Asterion::Kernel)
+target_link_libraries(asterion_backup_files PUBLIC asterion_protocol PRIVATE Asterion::System)
 asterion_target_defaults(asterion_backup_files)

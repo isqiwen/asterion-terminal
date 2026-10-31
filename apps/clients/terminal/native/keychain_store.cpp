@@ -1,7 +1,7 @@
 #include "data_credentials.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/process/child.hpp>
 #include <algorithm>
 #include <cerrno>
 #include <csignal>

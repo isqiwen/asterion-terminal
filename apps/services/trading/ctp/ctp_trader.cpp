@@ -4,7 +4,7 @@
 #include "ctp_feed.hpp"
 #include "ctp_support.hpp"
 #include <ThostFtdcTraderApi.h>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <charconv>
 #include <condition_variable>
 #include <deque>

@@ -9,7 +9,7 @@
 #include "logic_store.hpp"
 #include "research_logic.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/domain/order_limits.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
@@ -27,11 +27,11 @@
 #include "engine.hpp"
 #include "tasks/task_store_support.hpp"
 #include "tasks/paper_input.hpp"
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <array>

@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/resource.pb.h>
 #include <filesystem>
 #include <memory>

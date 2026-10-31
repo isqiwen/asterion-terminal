@@ -1,7 +1,7 @@
 #include "support/timing.hpp"
-#include <asterion/kernel/rpc_host.hpp>
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
+#include <asterion/system/rpc_host.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
 #include <asio.hpp>
 #include <cerrno>
 #include <csignal>
@@ -9,9 +9,9 @@
 #include <filesystem>
 #include <tuple>
 #include <map>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <gtest/gtest.h>
 #include <atomic>
 #include <future>

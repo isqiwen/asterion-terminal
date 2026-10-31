@@ -3,8 +3,8 @@
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/process/file_lock.hpp>
 
 namespace asterion::research {
 namespace {

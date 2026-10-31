@@ -1,7 +1,7 @@
 #include "data_host.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include <iostream>
 using namespace std::chrono_literals;
 

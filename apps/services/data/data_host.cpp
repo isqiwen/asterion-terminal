@@ -9,10 +9,10 @@
 #include "history_update.hpp"
 #include "table_series.hpp"
 #include "table_update.hpp"
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/trace.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/trace.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <algorithm>
 #include <fstream>

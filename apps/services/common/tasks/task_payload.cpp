@@ -1,6 +1,6 @@
 #include "task_payload.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/task.hpp>
 #include <algorithm>
 #include <fstream>

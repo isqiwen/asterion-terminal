@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/foundation/decimal.hpp>
+#include <asterion/base/decimal.hpp>
 #include <asterion/data.pb.h>
 #include <map>
 #include <span>

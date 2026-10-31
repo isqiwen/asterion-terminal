@@ -2,8 +2,8 @@
 #include "catalog_job.hpp"
 #include "compaction.hpp"
 #include "ctp_feed.hpp"
-#include <asterion/domain/intraday_bars.hpp>
-#include <asterion/kernel/log.hpp>
+#include <asterion/futures/intraday_bars.hpp>
+#include <asterion/system/log.hpp>
 #include <thread>
 
 namespace asterion::recording {

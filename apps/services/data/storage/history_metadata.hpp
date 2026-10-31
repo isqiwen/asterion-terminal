@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/base/serialization.hpp>
 #include <chrono>
 #include <charconv>
 

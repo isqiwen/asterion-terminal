@@ -2,7 +2,7 @@
 #include <asterion/protocol/resource.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/task_execution.hpp>
-#include <asterion/domain/history_identity.hpp>
+#include <asterion/futures/history_identity.hpp>
 
 #include <algorithm>
 #include <charconv>

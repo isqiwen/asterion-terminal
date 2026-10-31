@@ -1,5 +1,5 @@
 #include "../apps/clients/terminal/native/analytics.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 #include <chrono>
 #include <iomanip>

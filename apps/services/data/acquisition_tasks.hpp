@@ -2,8 +2,8 @@
 #include "data_store.hpp"
 #include "material_store.hpp"
 #include "task_store.hpp"
-#include <asterion/kernel/thread_pool.hpp>
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/system/thread_pool.hpp>
+#include <asterion/system/rpc_host.hpp>
 #include <atomic>
 #include <array>
 #include <algorithm>

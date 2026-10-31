@@ -3,8 +3,8 @@
 #include <asterion/task.pb.h>
 #include <filesystem>
 #include <asterion/node.pb.h>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/polled_task.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/polled_task.hpp>
 #include <chrono>
 #include <vector>
 #include <optional>

@@ -1,6 +1,6 @@
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/backtest.hpp>

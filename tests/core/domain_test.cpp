@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <asterion/domain/order.hpp>
-#include <asterion/domain/position_target.hpp>
+#include <asterion/futures/order.hpp>
+#include <asterion/futures/position_target.hpp>
 
 #include <iostream>
 #include <limits>

@@ -2,7 +2,7 @@
 #include "history_providers.hpp"
 #include "historical_margins.hpp"
 #include "margins.hpp"
-#include <asterion/kernel/native_plugin.hpp>
+#include <asterion/system/native_plugin.hpp>
 #include <asterion/protocol/data.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>

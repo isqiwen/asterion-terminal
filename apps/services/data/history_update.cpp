@@ -1,10 +1,10 @@
 #include "history_update.hpp"
 #include "history_coverage.hpp"
 #include "history_minutes.hpp"
-#include <asterion/domain/historical_sessions.hpp>
-#include <asterion/domain/history_identity.hpp>
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/futures/historical_sessions.hpp>
+#include <asterion/futures/history_identity.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <chrono>

@@ -1,5 +1,5 @@
 #include "calendar_bars.hpp"
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 using namespace asterion::chart_indicators;

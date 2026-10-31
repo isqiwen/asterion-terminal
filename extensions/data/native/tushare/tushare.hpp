@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/domain/historical_bars.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/futures/historical_bars.hpp>
+#include <asterion/base/serialization.hpp>
 #include <chrono>
 #include <functional>
 #include <map>

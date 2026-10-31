@@ -46,7 +46,7 @@ add_library(asterion_protocol STATIC
   src/table_series.cpp
 )
 target_include_directories(asterion_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${ASTERION_PROTO_GEN})
-target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
+target_link_libraries(asterion_protocol PUBLIC Asterion::Futures protobuf::libprotobuf)
 add_library(asterion_data_client STATIC src/data_client.cpp)
 target_link_libraries(asterion_data_client PUBLIC asterion_protocol)
 

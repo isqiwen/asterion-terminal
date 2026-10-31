@@ -1,6 +1,6 @@
 #include "strategy.hpp"
 #include "portfolio_targets.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <gtest/gtest.h>

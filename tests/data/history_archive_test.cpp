@@ -4,9 +4,9 @@
 #include "bar_dataset_source.hpp"
 #include "data/history_fixture.hpp"
 #include "data_store.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <fstream>
 using namespace asterion;

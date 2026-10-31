@@ -1,7 +1,7 @@
 #include "research_logic.hpp"
 #include "strategy.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 
 namespace asterion::tasks {
 

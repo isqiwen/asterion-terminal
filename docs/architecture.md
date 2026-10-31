@@ -23,21 +23,24 @@ flowchart TB
   App -->|Protobuf IPC / TCP / TLS| Services[业务服务]
   Services --> Modules[内置模块]
   Services --> Extensions[数据源扩展]
-  Services --> Domain[领域]
-  Modules --> Domain
-  Extensions --> Domain
-  Domain --> Kernel[内核]
-  Kernel --> Foundation[基础]
+  Services --> Futures[期货]
+  Modules --> Futures
+  Extensions --> Futures
+  Futures --> System[系统]
+  System --> Base[基础]
+  Services --> Database[数据库访问]
+  Database --> System
 ```
 
 | 层 | 目标 | 内容 |
 | --- | --- | --- |
-| 基础 | `asterion_foundation` | `Decimal`（8 位小数定点）、ID、时钟、错误码、序列化 |
-| 内核 | `asterion_kernel` | 原生插件装载、本机 IPC、带连接魔数的 TCP 与固定指纹 TLS、RPC 宿主与客户端、子进程、文件锁、持久写入、线程池、日志 |
-| 领域 | `asterion_domain` | 合约、订单、期货账本、交易时段、分钟线、执行/风险/策略端口 |
+| 基础 `base` | `asterion_base` | `Decimal`（8 位小数定点）、ID、时钟、错误码、序列化 |
+| 系统 `system` | `asterion_system` | 原生插件装载、本机 IPC、带连接魔数的 TCP 与固定指纹 TLS、RPC 宿主与客户端、子进程、文件锁、持久写入、线程池、日志 |
+| 期货 `futures` | `asterion_futures` | 合约、订单、期货账本、交易时段、分钟线、执行/风险/策略端口、订单限额 |
+| 数据库访问 `database/` | `asterion_sqlite` | 每种数据库一个目标，只有用到的程序才链接；目前只有 SQLite |
 | 协议 | `asterion_protocol` | Protobuf 契约、边界校验、界面 JSON 映射 |
 
-依赖只向下。领域接口返回结构化 C++ 类型，金额与价格保留 `Decimal`；JSON 只用于协议边界、
+依赖只向下。头文件在 `core/include/asterion/<模块>/`，实现与 CMake 目标在 `core/src/<模块>/`。期货层接口返回结构化 C++ 类型，金额与价格保留 `Decimal`；JSON 只用于协议边界、
 配置/日志编码和界面展示。
 
 ## 进程
@@ -128,7 +131,7 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 
 | 路径 | 职责 | 第三方扩展 |
 | --- | --- | --- |
-| `core/` | 头文件在 `include/asterion/<模块>/`，实现与 CMake 目标在 `src/<模块>/`：基础、内核、领域（含交易时段、保证金语义与编译进程序的订单限额），以及 `database/` 下按数据库分的共享访问（目前 `sqlite`） | 否 |
+| `core/` | 头文件在 `include/asterion/<模块>/`，实现与 CMake 目标在 `src/<模块>/`：`base`、`system`、`futures`（含交易时段、保证金语义与编译进程序的订单限额），以及 `database/` 下按数据库分的共享访问（目前 `sqlite`） | 否 |
 | `apps/services/common/` | 跨服务共用的 CTP 行情、图表计算、Parquet 和备份文件操作 | 否 |
 | `apps/services/trading/ctp/` | 交易柜台适配 | 否 |
 | `apps/services/data/storage/` | 数据仓库 | 否 |

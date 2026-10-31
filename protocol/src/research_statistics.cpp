@@ -2,10 +2,10 @@
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/base/id.hpp>
 #include <algorithm>
 #include <map>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <array>
 #include <cmath>
 #include <limits>

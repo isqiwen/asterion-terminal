@@ -7,7 +7,7 @@
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "data/data_fixture.hpp"
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;

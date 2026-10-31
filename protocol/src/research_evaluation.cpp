@@ -1,9 +1,9 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/foundation/decimal.hpp>
-#include <asterion/domain/trading_days.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/base/decimal.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>

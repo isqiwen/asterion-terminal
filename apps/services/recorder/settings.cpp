@@ -1,6 +1,6 @@
 #include "settings.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/serialization.hpp>
 #include <fstream>
 #include <set>
 

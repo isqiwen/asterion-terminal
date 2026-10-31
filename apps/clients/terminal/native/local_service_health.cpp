@@ -1,8 +1,8 @@
 #include <asterion/research.pb.h>
 #include "local_service_health.hpp"
-#include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/trace.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/protocol/health.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/market.pb.h>

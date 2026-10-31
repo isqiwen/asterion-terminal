@@ -5,8 +5,8 @@
 #include "account_journal.hpp"
 #include "account_command.hpp"
 #include "account_records.hpp"
-#include <asterion/kernel/progress.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/system/progress.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <map>
 #include <optional>
 

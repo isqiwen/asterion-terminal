@@ -1,7 +1,7 @@
 #pragma once
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/system/rpc_host.hpp>
 #include <filesystem>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <string>
 
 namespace asterion::trading {

@@ -7,9 +7,9 @@
 #include "performance.hpp"
 #include "account_reconciliation.hpp"
 #include "portfolio_budget.hpp"
-#include <asterion/kernel/ipc/rpc_client.hpp>
-#include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/trace.hpp>
+#include <asterion/system/process/child.hpp>
 #include <optional>
 #include <algorithm>
 #include <array>

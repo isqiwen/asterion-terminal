@@ -2,8 +2,8 @@
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <cctype>
 #include <algorithm>
 

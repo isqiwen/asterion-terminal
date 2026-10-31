@@ -2,7 +2,7 @@
 // Test-only access to a closed SqliteJournal: read, count and tamper records.
 #include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/database/sqlite/sqlite_journal.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <filesystem>
 
 namespace asterion::test {

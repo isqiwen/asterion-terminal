@@ -1,7 +1,7 @@
 #include "live_session.hpp"
 #include "live_account_state.hpp"
-#include <asterion/kernel/trace.hpp>
-#include <asterion/kernel/log.hpp>
+#include <asterion/system/trace.hpp>
+#include <asterion/system/log.hpp>
 #include <atomic>
 #include <condition_variable>
 #include <deque>

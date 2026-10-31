@@ -4,10 +4,10 @@
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "support/timing.hpp"
 #include "data/history_fixture.hpp"
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <asterion/terminal.h>
-#include <asterion/domain/futures.hpp>
+#include <asterion/futures/futures.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <cstdlib>

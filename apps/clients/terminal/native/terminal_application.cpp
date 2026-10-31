@@ -1,7 +1,7 @@
 #include "application_impl.hpp"
 #include "application_environment.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/environment.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/environment.hpp>
 #include <array>
 #include <stdexcept>
 #include <ostream>

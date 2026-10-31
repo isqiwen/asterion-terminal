@@ -3,9 +3,9 @@
 #include "table_parquet.hpp"
 #include "table_update.hpp"
 #include <asterion/protocol/data.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fstream>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 using history_files::TableSeries;

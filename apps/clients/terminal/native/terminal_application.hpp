@@ -1,11 +1,11 @@
 #pragma once
 #include <memory>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <future>
 #include <functional>
 #include <exception>
 #include <string>
-#include <asterion/kernel/payload_budget.hpp>
+#include <asterion/system/payload_budget.hpp>
 #include <nlohmann/json.hpp>
 
 namespace asterion::terminal {

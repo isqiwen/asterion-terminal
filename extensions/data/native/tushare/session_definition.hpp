@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/historical_sessions.hpp>
+#include <asterion/futures/historical_sessions.hpp>
 
 namespace asterion::tushare {
 

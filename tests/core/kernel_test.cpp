@@ -1,20 +1,20 @@
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <asterion/kernel/environment.hpp>
+#include <asterion/system/environment.hpp>
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <gtest/gtest.h>
-#include <asterion/kernel/thread_pool.hpp>
-#include <asterion/kernel/polled_task.hpp>
+#include <asterion/system/thread_pool.hpp>
+#include <asterion/system/polled_task.hpp>
 #include <condition_variable>
 #include <future>
 #include <barrier>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <iostream>
 using namespace asterion;
 
@@ -177,7 +177,7 @@ TEST(Kernel, EnvironmentLookupsAreUnicodeAndTreatEmptyAsUnset)
     EXPECT_FALSE(environment_path("ASTERION_TEST_ENVIRONMENT_UNSET").has_value());
 }
 
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fcntl.h>
 #include <unistd.h>
 

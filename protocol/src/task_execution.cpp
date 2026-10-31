@@ -6,7 +6,7 @@
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/research_sample.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include <asterion/foundation/id.hpp>
+#include <asterion/base/id.hpp>
 #include <asterion/protocol/data.hpp>
 #include <stdexcept>
 #include <set>

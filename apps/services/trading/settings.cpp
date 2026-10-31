@@ -1,8 +1,8 @@
 #include "settings.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/foundation/id.hpp>
-#include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/base/id.hpp>
+#include <asterion/base/serialization.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <fstream>
 #include <cstdlib>
 #include <asterion/protocol/trading.hpp>

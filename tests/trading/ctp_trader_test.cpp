@@ -2,10 +2,10 @@
 #include "ctp_trader.hpp"
 #include "ctp_reconciliation.hpp"
 #include <cstring>
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/rpc_host.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/rpc_host.hpp>
 #include <gtest/gtest.h>
 #include <thread>
 #include <future>

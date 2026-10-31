@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/research_sample.pb.h>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 
 namespace asterion::protocol {
 

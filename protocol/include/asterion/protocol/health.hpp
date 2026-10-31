@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/kernel/progress.hpp>
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/system/progress.hpp>
+#include <asterion/base/serialization.hpp>
 #include <asterion/trading.pb.h>
 
 namespace asterion::protocol {

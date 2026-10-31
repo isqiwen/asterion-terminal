@@ -2,8 +2,8 @@
 #include "data_retentions.hpp"
 #include "data/history_fixture.hpp"
 #include <asterion/protocol/resource.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <gtest/gtest.h>
 #include <set>
 using namespace asterion;

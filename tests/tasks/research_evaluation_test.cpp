@@ -4,8 +4,8 @@
 #include "data_submission.hpp"
 #include "support/data_discovery.hpp"
 #include "support/task_wait.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/durable_file.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/durable_file.hpp>
 #include <asterion/research.pb.h>
 #include "engine.hpp"
 #include "task_store.hpp"
@@ -14,10 +14,10 @@
 #include "program_files.hpp"
 #include <asterion/protocol/research_evaluation.hpp>
 #include <asterion/protocol/backtest.hpp>
-#include <asterion/kernel/process/artifact.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/domain/trading_days.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/process/artifact.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/base/error.hpp>
 #include <gtest/gtest.h>
 #include <map>
 #include <filesystem>

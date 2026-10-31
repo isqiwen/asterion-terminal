@@ -1,11 +1,11 @@
 #include "plugin_catalog.hpp"
 #include "node_paths.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/file_lock.hpp>
+#include <asterion/system/process/child.hpp>
 #include <fstream>
 #include <regex>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_tables.h>
 #include <asterion/plugin/material.h>

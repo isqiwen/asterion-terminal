@@ -1,6 +1,6 @@
-#include <asterion/kernel/native_plugin.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/foundation/error.hpp>
+#include <asterion/system/native_plugin.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/base/error.hpp>
 #include <asterion/plugin/sdk.hpp>
 #include <asterion/plugin/history.h>
 #include "support/native-plugin/fixture.h"

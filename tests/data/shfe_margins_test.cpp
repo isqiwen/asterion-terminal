@@ -2,7 +2,7 @@
 #include "historical_margins.hpp"
 #include "table_update.hpp"
 #include <asterion/protocol/data.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 

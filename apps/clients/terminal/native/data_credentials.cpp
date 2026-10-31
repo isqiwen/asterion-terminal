@@ -1,13 +1,13 @@
 #include "data_credentials.hpp"
-#include <asterion/foundation/error.hpp>
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/file_lock.hpp>
+#include <asterion/base/error.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <fstream>
 #include <regex>
 #include <optional>
 #include <algorithm>
-#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/system/process/artifact.hpp>
 
 namespace asterion::terminal {
 namespace fs = std::filesystem;

@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/history_tables.hpp>
+#include <asterion/futures/history_tables.hpp>
 #include <filesystem>
 #include <functional>
 #include <span>

@@ -8,7 +8,7 @@
 #include "data_store.hpp"
 #include "data/data_fixture.hpp"
 #include "tushare.hpp"
-#include <asterion/kernel/environment.hpp>
+#include <asterion/system/environment.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
 using namespace asterion;

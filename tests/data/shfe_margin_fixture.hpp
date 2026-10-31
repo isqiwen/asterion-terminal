@@ -2,7 +2,7 @@
 // Test-only reduced official report shapes, never a production import path.
 #include "../extensions/data/native/shfe/margins.hpp"
 #include "history_tables.hpp"
-#include <asterion/foundation/serialization.hpp>
+#include <asterion/base/serialization.hpp>
 #include <fstream>
 
 namespace asterion::test {

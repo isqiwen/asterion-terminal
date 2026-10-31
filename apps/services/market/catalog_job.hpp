@@ -1,8 +1,8 @@
 #pragma once
 #include "ctp_catalog.hpp"
-#include <asterion/kernel/durable_file.hpp>
-#include <asterion/kernel/log.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/log.hpp>
+#include <asterion/system/thread_pool.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <filesystem>

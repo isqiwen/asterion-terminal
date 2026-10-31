@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/kernel/thread_pool.hpp>
-#include <asterion/domain/live_market.hpp>
+#include <asterion/system/thread_pool.hpp>
+#include <asterion/futures/live_market.hpp>
 #include <filesystem>
 #include <map>
 #include <memory>

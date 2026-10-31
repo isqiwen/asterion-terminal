@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/environment.hpp>
+#include <asterion/system/process/child.hpp>
 #include <filesystem>
 #include <stdexcept>
 #include <string>

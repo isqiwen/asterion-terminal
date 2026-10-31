@@ -1,5 +1,5 @@
 #include "database.hpp"
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 
 namespace asterion::recording {
 

@@ -1,7 +1,7 @@
-#include <asterion/foundation/error.hpp>
+#include <asterion/base/error.hpp>
 #include "support/local_listener.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/process/child.hpp>
 #include <filesystem>
 #include <future>
 #include <gtest/gtest.h>
