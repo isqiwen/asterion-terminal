@@ -1,12 +1,13 @@
-"""Tushare futures tables: contracts (fut_basic), calendars (trade_cal) and
-daily bars (fut_daily).
+"""Tushare futures tables: contracts (fut_basic), calendars (trade_cal), daily
+bars (fut_daily) and a contract's one-minute bars (ft_mins).
 
-The mapping rules are those extensions/data/native/tushare/tables.cpp learned from real
-answers; keep the two in step until the C++ Data service is deleted. Numbers are
+The mapping rules are those the C++ Data service learned from real answers.
+Numbers are
 read from the JSON text as exact decimals. The token is sent to Tushare and
 nowhere else: no error, log line or stored row repeats it.
 """
 from dataclasses import dataclass, field
+import datetime
 from decimal import Decimal
 import json
 import re
@@ -20,6 +21,10 @@ import certifi
 
 URL = "https://api.tushare.pro"
 from asterion_lab.sources.base import EXCHANGES, SourceError
+BEIJING = datetime.timezone(datetime.timedelta(hours=8))
+# ft_mins answers at most a page of rows and takes ranges under 31 days.
+MINUTE_PAGE = 8000
+MINUTE_DAYS = 27
 SUFFIXES = {"SHFE": ".SHF", "DCE": ".DCE", "CZCE": ".ZCE", "CFFEX": ".CFX", "INE": ".INE",
             "GFEX": ".GFE"}
 
@@ -141,6 +146,8 @@ class Tushare:
         self.cancelled = cancelled
         self.requests = 0
         self.catalogues = {}
+        self.calendars = {}  # (exchange, year) -> day -> calendar row
+        self.windows = {}  # contract -> the minutes last read for it
 
     def private(self, text: str) -> bool:
         return self.token in text
@@ -349,3 +356,97 @@ class Tushare:
             except (ValueError, TypeError, AttributeError) as error:
                 raise SourceError("failed", f"{partition}: {code or 'a row without a code'} {error}")
         return rows
+
+    def calendar_day(self, exchange: str, day: str) -> dict | None:
+        """The calendar row of a day, the year's calendar read once."""
+        key = (exchange, int(day[:4]))
+        if key not in self.calendars:
+            self.calendars[key] = {row["day"]: row for row in self.calendar(*key)}
+        return self.calendars[key].get(day)
+
+    def trading_day(self, exchange: str, end: datetime.datetime) -> str:
+        """The trading day of a minute that ended at `end`, Beijing time: the
+        day session's own day, or for the night session the next open day."""
+        def is_open(day):
+            row = self.calendar_day(exchange, day.isoformat())
+            if row is None:
+                raise ValueError(f"the calendar does not cover {day}")
+            return row["open"]
+
+        if 6 <= end.hour < 18:
+            if not is_open(end.date()):
+                raise ValueError(f"a minute at {end} falls on a closed day")
+            return end.date().isoformat()
+        evening = end.date() if end.hour >= 18 else end.date() - datetime.timedelta(days=1)
+        if not is_open(evening):
+            raise ValueError(f"a night minute at {end} follows a closed day")
+        for n in range(1, 32):
+            if is_open(evening + datetime.timedelta(days=n)):
+                return (evening + datetime.timedelta(days=n)).isoformat()
+        raise ValueError(f"no open day follows the night of {evening}")
+
+    def minutes(self, contract: str, day: str) -> list:
+        """A contract's one-minute bars of a trading day. One request window
+        covers up to MINUTE_DAYS days from the day asked, so reading the days
+        of a contract in order asks Tushare about once a month."""
+        window = self.windows.get(contract)
+        if window and day in window["days"]:
+            return window["rows"].get(day, [])
+        exchange, product, _ = contract.split("/")
+        row = self.calendar_day(exchange, day)
+        listing = next((item for item in self.contracts(exchange) if item.contract == contract), None)
+        if listing is None:
+            raise SourceError("failed", f"Tushare lists no contract {contract}")
+        if row is None or not row["open"] or not listing.list_date <= day <= listing.delist_date:
+            return []
+        first = datetime.date.fromisoformat(day)
+        last = min(first + datetime.timedelta(days=MINUTE_DAYS),
+                   datetime.date.fromisoformat(listing.delist_date))
+        # From the evening the trading day's night session opens.
+        begin = row["previous_trading_day"] or (first - datetime.timedelta(days=1)).isoformat()
+        partition = f"futures.minutes {contract} {day}"
+        params = {"ts_code": listing.code, "freq": "1min", "start_date": f"{begin} 18:00:00",
+                  "end_date": f"{last.isoformat()} 15:30:00", "limit": MINUTE_PAGE}
+        fields = "ts_code,trade_time,open,high,low,close,vol,amount,oi"
+        bars, seen = {}, set()
+        while True:
+            table = self.request("ft_mins", {**params, "offset": len(seen)}, fields, partition)
+            for item in table.rows:
+                try:
+                    if table.at(item, "ts_code") != listing.code:
+                        raise ValueError("belongs to another contract")
+                    end = datetime.datetime.fromisoformat(str(table.at(item, "trade_time")))
+                    if end.second or end in seen:
+                        raise ValueError(f"has a repeated or unrounded time {end}")
+                    # Commodity exchanges pause 10:15 to 10:30: a minute labelled 10:30
+                    # would have begun in the pause, so the labels are not minute ends.
+                    if exchange != "CFFEX" and (end.hour, end.minute) == (10, 30):
+                        raise ValueError("labels minutes by their start, not their end")
+                    volume = number(table.at(item, "vol"))
+                    if volume is None or volume != volume.to_integral_value():
+                        raise ValueError(f"has a volume of {volume} at {end}")
+                    seen.add(end)
+                    traded = self.trading_day(exchange, end)
+                    start = end.replace(tzinfo=BEIJING) - datetime.timedelta(minutes=1)
+                    bars.setdefault(traded, []).append({
+                        "exchange": exchange, "product": product, "contract": contract,
+                        "day": traded, "start_ms": int(start.timestamp()) * 1000, "partial": False,
+                        **{name: number(table.at(item, name)) for name in
+                           ("open", "high", "low", "close")},
+                        "volume": volume, "average_price": None,
+                        "open_interest": number(table.at(item, "oi"))})
+                except (ValueError, TypeError) as error:
+                    raise SourceError("failed", f"{partition}: {error}")
+            if len(table.rows) < MINUTE_PAGE:
+                break
+        # The open days the window holds whole; a later night belongs to the next.
+        days = set()
+        for n in range((last - first).days + 1):
+            current = (first + datetime.timedelta(days=n)).isoformat()
+            entry = self.calendar_day(exchange, current)
+            if entry and entry["open"]:
+                days.add(current)
+        rows = {key: sorted(value, key=lambda bar: bar["start_ms"])
+                for key, value in bars.items() if key in days}
+        self.windows[contract] = {"days": days, "rows": rows}
+        return rows.get(day, [])

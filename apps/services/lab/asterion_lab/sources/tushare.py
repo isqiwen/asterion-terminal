@@ -5,7 +5,7 @@ from .base import Source, Batch
 
 class TushareSource(Source):
     identity = "tushare"
-    tables = ("daily", "calendar", "contracts")
+    tables = ("daily", "calendar", "contracts", "minutes")
     requires_credential = True
 
     def __init__(self, credential, budget, cancelled=lambda: False, **options):
@@ -19,6 +19,10 @@ class TushareSource(Source):
                 rows = self.client.calendar(query.exchange, int(query.day[:4]))
             elif query.table == "contracts":
                 rows = [item.row for item in self.client.contracts(query.exchange)]
+            elif query.table == "minutes":
+                if not query.contract:
+                    raise ValueError("Tushare minutes are read per contract")
+                return Batch(self.client.minutes(query.contract, query.day))
             else:
                 rows = self.client.daily(query.exchange, query.day)
             if query.contract:
