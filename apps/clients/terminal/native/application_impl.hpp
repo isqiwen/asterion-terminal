@@ -10,6 +10,9 @@
 #include "trading_connections.hpp"
 #include "data_credentials.hpp"
 #include "recorder_endpoint.hpp"
+#include "python_runtime.hpp"
+#include "application_environment.hpp"
+#include <asterion/system/environment.hpp>
 #include "strategy_repository.hpp"
 #include "plugin_catalog.hpp"
 #include "research_client.hpp"
@@ -255,8 +258,25 @@ struct Application::Impl
         co_await io(*account->client);
     }
 
+    // The Python runtime lab runs on, installed at the first launch.
+    PythonRuntime python_runtime{
+        application_directory() / "runtime",
+        program_directory("terminal") / "runtime"
+    };
+
+    // The development entry names the runtime it prepared; an installed
+    // application uses the one installed at its first launch.
+    std::optional<std::filesystem::path> python() const
+    {
+        if (auto prepared = environment_path("ASTERION_PYTHON"))
+            return prepared;
+        return python_runtime.python();
+    }
+
     // The local business services; the Terminal starts and supervises them.
-    LocalServices services;
+    LocalServices services{[this] {
+        return python();
+    }};
     // UI commands belong to this Native boundary; registration is constructor-only.
     using Command = std::function<PolledTask<Response>(const json&)>;
     std::map<std::string, Command> commands;

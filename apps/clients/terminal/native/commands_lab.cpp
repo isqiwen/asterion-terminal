@@ -12,6 +12,23 @@ using namespace std::chrono_literals;
 // directly.
 void Application::Impl::register_lab_commands()
 {
+    // The first launch installs the Python runtime; the page polls its progress.
+    command("runtime.python.status", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        auto result = snapshot();
+        result.values["python_runtime"] = environment_path("ASTERION_PYTHON")
+            ? json{{"state", "ready"}, {"error", ""}, {"modules", json::array()}}
+            : python_runtime.status();
+        co_return result;
+    });
+    command("runtime.python.install", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        if (!environment_path("ASTERION_PYTHON"))
+            python_runtime.install();
+        auto result = snapshot();
+        result.values["python_runtime"] = python_runtime.status();
+        co_return result;
+    });
     // Where the Electron main process (or the development server) sends the
     // UI's lab requests. It resolves this itself rather than trust a path from
     // the page.

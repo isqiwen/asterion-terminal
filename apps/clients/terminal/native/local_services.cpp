@@ -164,6 +164,7 @@ void read_exactly(int fd, char* data, std::size_t size, Clock::time_point deadli
 
 struct LocalServices::Impl
 {
+    std::function<std::optional<fs::path>()> python;
     const fs::path root = asterion_root();
     const fs::path state = program_directory("terminal") / "data";
     std::unique_ptr<FileLock> owner;
@@ -302,16 +303,12 @@ struct LocalServices::Impl
         fs::path executable;
         std::vector<std::string> args;
         if (kind.kind == wire::LAB) {
-            // Electron and the development entry name the bundled interpreter;
-            // an installed application has it beside its native programs.
-            const auto python =
-                environment_path("ASTERION_PYTHON")
-                    .value_or(application_directory().parent_path() / "python" / "bin" / "python3");
-            if (!fs::is_regular_file(python))
+            const auto interpreter = python();
+            if (!interpreter || !fs::is_regular_file(*interpreter))
                 throw Error(
                     ErrorCode::unavailable,
-                    "lab needs the bundled Python: " + utf8(python));
-            executable = python;
+                    "lab needs the Python runtime; it is installed at the first launch");
+            executable = *interpreter;
             service.artifact = sha256_file(executable);
             // Isolated from the user's environment and site; no bytecode written.
             args = {"-I", "-B", "-m", "asterion_lab"};
@@ -669,7 +666,8 @@ struct LocalServices::Impl
             throw std::runtime_error("cannot listen on the discovery socket " + path);
     }
 
-    Impl()
+    explicit Impl(std::function<std::optional<fs::path>()> interpreter)
+        : python(std::move(interpreter))
     {
         create_directories_durably(state);
         owner = std::make_unique<FileLock>(state, "services.lock");
@@ -753,8 +751,8 @@ struct LocalServices::Impl
     }
 };
 
-LocalServices::LocalServices()
-    : impl_(std::make_unique<Impl>())
+LocalServices::LocalServices(std::function<std::optional<fs::path>()> python)
+    : impl_(std::make_unique<Impl>(std::move(python)))
 {}
 
 LocalServices::~LocalServices() = default;

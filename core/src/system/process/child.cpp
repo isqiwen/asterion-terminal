@@ -1,3 +1,4 @@
+#include <cstring>
 #include <asterion/system/process/child.hpp>
 #include <asterion/base/error.hpp>
 #include <array>
@@ -101,7 +102,9 @@ ChildProcess::ChildProcess(
     posix_spawnattr_destroy(&attrs);
     if (error) {
         impl_->pid = -1;
-        throw Error(ErrorCode::unavailable, "cannot start trading process");
+        throw Error(
+            ErrorCode::unavailable,
+            "cannot start " + executable.string() + ": " + std::strerror(error));
     }
 }
 

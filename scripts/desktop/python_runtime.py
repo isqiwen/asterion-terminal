@@ -17,6 +17,8 @@ import sys
 import tempfile
 
 from generated_resources import publish_tree
+import runtime_manifest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
@@ -79,6 +81,20 @@ def verify(directory=DESTINATION):
         raise ValueError("Bundled Python is not executable")
 
 
+def application_code(build: Path, target: Path):
+    """The Terminal's own Python code: the analytics helper, lab, its protocol
+    types and the backtest engine built for this interpreter."""
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ANALYTICS, target / "asterion_analytics.py")
+    shutil.copytree(build / "generated-python/asterion", target / "asterion")
+    for engine in (build / "engine-python").glob("asterion_engine.*"):
+        shutil.copy2(engine, target / engine.name)
+    shutil.copytree(PROJECT / "asterion_lab", target / "asterion_lab",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    version = json.loads((build / "product.json").read_text())["version"]
+    (target / "asterion_lab/version.py").write_text(f"VERSION = {version!r}\n")
+
+
 def prepare(build=None):
     if (sys.platform, platform.machine()) not in (("linux", "x86_64"), ("darwin", "arm64")):
         raise SystemExit("The Python runtime supports Linux x86_64 and macOS Apple Silicon")
@@ -132,14 +148,7 @@ def prepare(build=None):
                      and (".so" in item.suffixes or item.suffix == ".dylib")]:
             if foreign_library(path):
                 path.unlink()
-        shutil.copy2(ANALYTICS, site / "asterion_analytics.py")
-        shutil.copytree(build / "generated-python/asterion", site / "asterion")
-        for engine in (build / "engine-python").glob("asterion_engine.*"):
-            shutil.copy2(engine, site / engine.name)
-        shutil.copytree(PROJECT / "asterion_lab", site / "asterion_lab",
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        version = json.loads((build / "product.json").read_text())["version"]
-        (site / "asterion_lab/version.py").write_text(f"VERSION = {version!r}\n")
+        application_code(build, site)
         # Installed command scripts name the staging interpreter, and nothing
         # installs packages into a prepared runtime: keep the interpreter only.
         for path in (prepared / "bin").iterdir():
@@ -157,6 +166,11 @@ def prepare(build=None):
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)
     print(f"Prepared offline Python runtime: {DESTINATION}")
+    # What an installed application ships instead: the manifest the first
+    # launch installs from, and its own code beside it.
+    runtime_manifest.main()
+    application_code(build, runtime_manifest.DESTINATION / "app")
+    print(f"Prepared the first-launch runtime manifest: {runtime_manifest.DESTINATION}")
 
 
 if __name__ == "__main__":

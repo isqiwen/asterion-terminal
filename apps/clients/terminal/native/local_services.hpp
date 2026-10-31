@@ -2,6 +2,8 @@
 #include "managed_service.hpp"
 #include "node_snapshot.hpp"
 #include "service_endpoint.hpp"
+#include <filesystem>
+#include <functional>
 #include <future>
 #include <memory>
 #include <optional>
@@ -32,7 +34,8 @@ namespace asterion::terminal {
 class LocalServices
 {
 public:
-    LocalServices();
+    // lab runs on the interpreter `python` names, once there is one.
+    explicit LocalServices(std::function<std::optional<std::filesystem::path>()> python);
     ~LocalServices();
     LocalServices(const LocalServices&) = delete;
     LocalServices& operator=(const LocalServices&) = delete;

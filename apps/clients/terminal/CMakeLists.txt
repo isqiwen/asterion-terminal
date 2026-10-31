@@ -14,6 +14,7 @@ add_dependencies(asterion_terminal_credentials asterion_keychain)
 asterion_target_defaults(asterion_terminal_credentials)
 
 add_library(asterion_terminal_application STATIC
+  native/python_runtime.cpp
   native/market_snapshot.cpp
   native/market_client.cpp
   native/research_client.cpp
@@ -38,7 +39,7 @@ add_library(asterion_terminal_application STATIC
 )
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_chart_indicators asterion_protocol PRIVATE asterion_performance asterion_data_client nlohmann_json::nlohmann_json OpenSSL::Crypto)
+target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_chart_indicators asterion_protocol PRIVATE asterion_performance asterion_data_client nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
 add_dependencies(asterion_terminal_application asterion_market)
 if(APPLE)
   # Kept free of project libraries so its code signature, which the keychain
