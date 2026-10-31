@@ -16,7 +16,9 @@ see the same bars:
   roll, and a month that hands over stays until its bar on or after the roll
   day and the next one.
 
-Costs, slippage and order limits are the run's, as the user gives them.
+Costs, slippage, order limits and the weight budgets are the run's, as the
+user gives them. Lots a strategy targets stand and are placed again at every
+bar's close; weights are sized into lots once, when given.
 
 The service runs each backtest in a child process:
 
@@ -41,6 +43,7 @@ from asterion_lab.warehouse import Warehouse
 R = 10 ** 8
 WINDOW = 20
 BEIJING = datetime.timezone(datetime.timedelta(hours=8))
+PLACES = Decimal("0.00000001")
 COSTS = ("margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee", "margin_rate",
          "open_fee_rate", "close_today_fee_rate", "close_yesterday_fee_rate")
 
@@ -74,6 +77,9 @@ class Config:
     max_order_lots: Decimal
     max_gross_lots: Decimal
     max_working_orders: int
+    # What ctx.weights may ask for in all, gross and net, as shares of equity.
+    max_gross_weight: Decimal = Decimal(0)
+    max_net_weight: Decimal = Decimal(0)
 
 
 @dataclass
@@ -292,7 +298,7 @@ def prepare(data: Data, config: Config):
     return contracts, series, first
 
 
-def replay(engine, strategy, symbols: dict, contracts: list):
+def replay(engine, strategy, symbols: dict, contracts: list, config: Config):
     """Drives the strategy through the engine. `symbols` maps each unit to its symbol."""
     context = Context([symbols[unit] for unit in sorted(symbols)])
     units = {symbol: unit for unit, symbol in symbols.items()}
@@ -306,13 +312,21 @@ def replay(engine, strategy, symbols: dict, contracts: list):
                     bars.append(Bar(symbols[unit], item["symbol"],
                                     datetime.datetime.fromtimestamp(time_ns / 10 ** 9, BEIJING),
                                     open_, high, low, close, volume, item["open_interest"][day]))
-            if bars:
-                wanted = step(strategy, context, bars)
-                if context.mode == "weights":
-                    raise ValueError("weights are not converted to lots yet; use ctx.target")
+            wanted = step(strategy, context, bars) if bars else {}
+            if context.mode != "weights":
+                # Lots stand: each bar places them again at its close.
                 for symbol, lots in wanted.items():
                     engine.want(units[symbol], lots * R)
-            engine.decide()
+                engine.decide()
+            elif wanted:
+                # Weights are sized once, when given, at the closes of that time.
+                lots = engine.weights(
+                    {units[symbol]: raw(Decimal(weight).quantize(PLACES))
+                     for symbol, weight in wanted.items()},
+                    raw(config.max_gross_weight), raw(config.max_net_weight))
+                for unit, quantity in lots.items():
+                    engine.want(unit, quantity)
+                engine.decide()
         engine.settle()
 
 
@@ -389,7 +403,9 @@ def run(directory: Path, identity: str, config: Config):
         costs={"by_product": {key: dict(zip(COSTS, map(str, values)))
                               for key, values in config.costs.items()},
                "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)},
-        risk={"max_order_lots": str(config.max_order_lots),
+        risk={"max_gross_weight": str(config.max_gross_weight),
+              "max_net_weight": str(config.max_net_weight),
+              "max_order_lots": str(config.max_order_lots),
               "max_gross_lots": str(config.max_gross_lots),
               "max_working_orders": config.max_working_orders}))
     try:
@@ -399,7 +415,7 @@ def run(directory: Path, identity: str, config: Config):
             raw(config.deposit), contracts, series,
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
-        replay(engine, strategy, symbols, contracts)
+        replay(engine, strategy, symbols, contracts, config)
         runs.succeed(identity, tables(engine, contracts), metrics(config.deposit, engine))
     except BaseException as error:
         runs.fail(identity, "failed", str(error) or type(error).__name__)
@@ -422,7 +438,9 @@ def config_of(request) -> Config:
         costs=costs, slippage_ticks=request.slippage_ticks,
         max_order_lots=Decimal(request.max_order_lots),
         max_gross_lots=Decimal(request.max_gross_lots),
-        max_working_orders=request.max_working_orders)
+        max_working_orders=request.max_working_orders,
+        max_gross_weight=Decimal(request.max_gross_weight or 0),
+        max_net_weight=Decimal(request.max_net_weight or 0))
 
 
 def main():

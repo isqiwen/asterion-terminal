@@ -146,6 +146,12 @@ public:
     // Settles the trading day once its bars are replayed.
     void settle(Observer& observer);
 
+    // A contract's last bar, once it has had one.
+    const std::optional<Bar>& last(std::size_t contract) const
+    {
+        return last_.at(contract);
+    }
+
     const PaperExecution& execution() const noexcept
     {
         return execution_;

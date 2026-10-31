@@ -397,6 +397,9 @@ message BacktestRun {
   string max_order_lots = 12;
   string max_gross_lots = 13;
   uint32 max_working_orders = 14;
+  // What ctx.weights may ask for in all, gross and net, as shares of equity.
+  string max_gross_weight = 15;
+  string max_net_weight = 16;
 }
 message RunsQuery {}
 message CancelRun {

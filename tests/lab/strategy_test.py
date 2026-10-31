@@ -137,13 +137,17 @@ class Repository(unittest.TestCase):
         head = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True,
                               text=True, check=True).stdout.strip()
         self.assertEqual((listed.commit, listed.changes), (head, ""))
-        self.assertEqual([entry.id for entry in listed.strategies], ["ma_cross.MaCross", "noisy.Noisy"])
-        self.assertTrue(listed.strategies[0].description.startswith("Long while the fast average"))
+        # Modules whose names begin with an underscore hold shared code, not strategies.
+        self.assertEqual([entry.id for entry in listed.strategies],
+                         ["breakout.Breakout", "ma_cross.MaCross", "momentum.Momentum",
+                          "momentum_rank.MomentumRank", "noisy.Noisy", "reversion.Reversion"])
+        strategies = {entry.id: entry for entry in listed.strategies}
+        self.assertTrue(strategies["ma_cross.MaCross"].description.startswith("Long while the mean"))
         self.assertEqual([(item.name, item.kind, item.default.WhichOneof("value"))
-                          for item in listed.strategies[1].parameters],
+                          for item in strategies["noisy.Noisy"].parameters],
                          [("lots", "int", "integer"), ("scale", "float", "number"),
                           ("tag", "str", "text"), ("on", "bool", "flag")])
-        self.assertEqual(listed.strategies[1].parameters[0].default.integer, 3)
+        self.assertEqual(strategies["noisy.Noisy"].parameters[0].default.integer, 3)
         self.assertEqual([error.module for error in listed.errors], ["broken"])
         self.assertIn("missing_package", listed.errors[0].message)
 
@@ -151,8 +155,8 @@ class Repository(unittest.TestCase):
         (self.root / "helpers.py").write_text("LOTS = 4\n")
         changed = repository.revision(self.root).changes
         self.assertEqual(len(changed), 64)
-        self.assertEqual(repository.list_strategies(str(self.root)).strategies[1]
-                         .parameters[0].default.integer, 4)
+        listed = {entry.id: entry for entry in repository.list_strategies(str(self.root)).strategies}
+        self.assertEqual(listed["noisy.Noisy"].parameters[0].default.integer, 4)
         (self.root / "strategies/new.py").write_text("\n")
         self.assertNotIn(repository.revision(self.root).changes, ("", changed))
         git(self.root, "add", ".")
@@ -161,7 +165,7 @@ class Repository(unittest.TestCase):
 
     def test_load_checks_parameters(self):
         strategy = repository.load(self.root, "ma_cross.MaCross", {"fast": 3, "slow": 6})
-        self.assertEqual(strategy.params, {"fast": 3, "slow": 6, "lots": 1})
+        self.assertEqual(strategy.params, {"fast": 3, "slow": 6, "lots": 1, "sides": "both"})
         context = Context(["SHFE/rb"])
         wanted = [step(strategy, context, [bar("SHFE/rb", minute, close)])
                   for minute, close in enumerate([10.0, 11, 12, 13, 14, 15, 9, 8, 7])]
@@ -191,7 +195,7 @@ class Repository(unittest.TestCase):
         request = Request(version=1, service_id="lab")
         request.strategies.repository = str(self.root)
         response = asyncio.run(service.reply(request))
-        self.assertEqual(len(response.strategies.strategies), 2, response)
+        self.assertEqual(len(response.strategies.strategies), 6, response)
         request.strategies.repository = str(Path(self.temporary.name) / "missing")
         response = asyncio.run(service.reply(request))
         self.assertEqual(response.error.code, "invalid_request")

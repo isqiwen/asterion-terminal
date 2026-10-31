@@ -1,6 +1,7 @@
 // asterion_engine: core's Replay for the lab's Python backtests. Amounts and
 // prices cross as the raw int64 of an eight-place Decimal, never as floats.
 #include <asterion/futures/order_limits.hpp>
+#include <asterion/futures/portfolio_targets.hpp>
 #include <asterion/futures/replay.hpp>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -282,6 +283,40 @@ public:
         replay_->decide();
     }
 
+    // Weights of equity by unit as whole lots, toward zero: each unit at the
+    // last close of the month it trades now. Weights beyond the run's gross or
+    // net budget are refused.
+    std::map<std::size_t, std::int64_t>
+    weights(const std::map<std::size_t, std::int64_t>& wanted, std::int64_t gross, std::int64_t net)
+    {
+        const auto& execution = replay_->execution();
+        const auto& account = execution.account();
+        std::vector<WeightedContract> members;
+        std::vector<std::size_t> units;
+        for (const auto& [unit, weight] : wanted) {
+            std::optional<Replay::Bar> latest;
+            for (std::size_t c = 0; c < account.contracts().size(); ++c)
+                if (const auto& bar = replay_->last(c); bar && bar->unit == unit && bar->leading
+                    && (!latest || bar->index > latest->index))
+                    latest = bar;
+            if (!latest)
+                throw std::invalid_argument("a weighted symbol has had no bar yet");
+            const auto& terms = execution.contract(latest->contract).terms.instrument;
+            members.push_back(
+                {terms.id, Decimal::from_raw(weight), latest->close, terms.multiplier});
+            units.push_back(unit);
+        }
+        const auto targets = fixed_weight_targets(
+            account.balance() + account.unrealized(),
+            members,
+            Decimal::from_raw(gross),
+            Decimal::from_raw(net));
+        std::map<std::size_t, std::int64_t> result;
+        for (std::size_t m = 0; m < units.size(); ++m)
+            result.emplace(units[m], targets.members[m].quantity.raw());
+        return result;
+    }
+
     void settle()
     {
         replay_->settle(record_);
@@ -406,6 +441,7 @@ PYBIND11_MODULE(asterion_engine, module)
         .def("next", &Engine::next)
         .def("want", &Engine::want, py::arg("unit"), py::arg("lots"))
         .def("decide", &Engine::decide)
+        .def("weights", &Engine::weights, py::arg("weights"), py::arg("gross"), py::arg("net"))
         .def("settle", &Engine::settle)
         .def("orders", &Engine::orders)
         .def("fills", &Engine::fills)

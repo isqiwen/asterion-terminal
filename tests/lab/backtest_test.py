@@ -58,8 +58,14 @@ def contract_row(contract):
 
 
 def closes(count):
-    # Up for a while, then down: a moving average rule goes long, then short.
-    return [3000 + 10 * i if i < count // 2 else 3000 + 10 * (count - i) for i in range(count)]
+    """Up for a while, then down, each leg with pullbacks: rules that follow a
+    trend take a side, and a price decided at a close comes back to fill."""
+    result, close = [], 3000
+    for i in range(count):
+        rising = i < count // 2
+        close += (30 if i % 2 == 0 else -10) * (1 if rising else -1)
+        result.append(close)
+    return result
 
 
 def warehouse(directory: Path):
@@ -146,6 +152,31 @@ class Backtests(unittest.TestCase):
                 self.assertIsNotNone(row["metrics"]["total_return"])
         self.assertIn("SHFE/rb/2026-10", set(Runs(self.directory).table("series", "fills")["contract"]))
 
+    def test_every_example_rule_trades(self):
+        examples = {"ma_cross.MaCross": {"fast": 2, "slow": 4}, "breakout.Breakout": {"entry": 3, "exit": 2},
+                    "momentum.Momentum": {"lookback": 3}, "reversion.Reversion": {"window": 4, "width": 0.5}}
+        for strategy, params in examples.items():
+            with self.subTest(strategy=strategy):
+                identity = strategy.split(".")[0]
+                backtest.run(self.directory, identity, self.config(
+                    ("SHFE/rb/2026-05",), strategy=strategy, params=params))
+                (row,) = [row for row in Runs(self.directory).list() if row["id"] == identity]
+                self.assertEqual(row["state"], "succeeded", row["error"])
+                self.assertGreater(Runs(self.directory).table(identity, "fills").height, 0)
+
+    def test_a_ranking_holds_weights_of_equity(self):
+        symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
+        config = self.config(symbols, strategy="momentum_rank.MomentumRank",
+                             params={"lookback": 2, "rebalance": 1, "weight": 0.05})
+        with self.assertRaisesRegex(ValueError, "budget"):
+            backtest.run(self.directory, "unbudgeted", config)
+        config.max_gross_weight = config.max_net_weight = Decimal(1)
+        backtest.run(self.directory, "ranked", config)
+        fills = Runs(self.directory).table("ranked", "fills")
+        # 5% of a million at about 3000 times 10 a lot: one lot, toward zero.
+        self.assertEqual(set(fills["quantity"].to_list()), {Decimal(1)})
+        self.assertEqual(set(fills["contract"]), set(symbols))
+
     def test_a_failed_run_is_recorded(self):
         with self.assertRaises(ValueError):
             backtest.run(self.directory, "missing", self.config(("SHFE/rb/2027-01",)))
@@ -164,6 +195,7 @@ class Backtests(unittest.TestCase):
             request = Request(version=1, service_id="lab")
             run = request.backtest
             run.id, run.repository, run.strategy = "child", str(self.repository), "ma_cross.MaCross"
+            run.params["fast"].integer = 2
             run.params["slow"].integer = 4
             run.symbols.append("SHFE/rb/2026-05")
             run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
