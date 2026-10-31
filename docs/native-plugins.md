@@ -10,7 +10,7 @@
 Tushare 与 SHFE 的实现位于 `extensions/data/native/`。第三方安装只接受数据源，不能安装风控、执行、存储或工具模块。
 Python 数据采集逐步接替旧数据层，原生数据 ABI 按 M2 的替换顺序删除，不再扩展为通用插件平台。
 
-订单限额位于 `core/risk/order_limits/`，直接编译进服务，不提供风控 ABI、算法选择或账本算法副本。
+订单限额在领域层（`core/include/asterion/domain/order_limits.hpp`），直接编译进服务，不提供风控 ABI、算法选择或账本算法副本。
 
 ## 插件结构和构建
 

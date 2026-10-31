@@ -1,5 +1,5 @@
 #pragma once
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <filesystem>
 #include <functional>
 #include <asterion/task.pb.h>

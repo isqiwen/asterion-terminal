@@ -1,4 +1,4 @@
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <sqlite3.h>
 #include <atomic>
 #include <stdexcept>

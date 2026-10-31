@@ -1,5 +1,5 @@
 #include "history_tables.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include "table_parquet.hpp"
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/kernel/durable_file.hpp>

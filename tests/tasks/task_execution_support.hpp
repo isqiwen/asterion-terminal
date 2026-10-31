@@ -15,12 +15,12 @@
 #include "support/data_discovery.hpp"
 #include <asterion/protocol/factor.hpp>
 #include "history_update.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include "task_events.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include "engine.hpp"
 #include "factor_engine.hpp"
-#include "order_limits.hpp"
+#include <asterion/domain/order_limits.hpp>
 #include "data/bar_fixture.hpp"
 #include "data/shfe_margin_fixture.hpp"
 #include "historical_margins.hpp"

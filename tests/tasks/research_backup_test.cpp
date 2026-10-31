@@ -9,8 +9,8 @@
 #include "logic_store.hpp"
 #include "research_logic.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include "order_limits.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/domain/order_limits.hpp>
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include "factor_engine.hpp"

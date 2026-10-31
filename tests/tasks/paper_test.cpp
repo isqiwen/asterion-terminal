@@ -6,8 +6,8 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include "paper_execution.hpp"
-#include "order_limits.hpp"
-#include "sqlite_journal.hpp"
+#include <asterion/domain/order_limits.hpp>
+#include <asterion/database/sqlite/sqlite_journal.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <map>
 #include <asterion/protocol/data.hpp>

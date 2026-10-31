@@ -1,6 +1,6 @@
 #include "history_archive.hpp"
 #include "history_minutes.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>

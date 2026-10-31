@@ -128,8 +128,7 @@ Native 每 0.5—2 秒汇总各服务状态并发布带修订号的快照；界�
 
 | 路径 | 职责 | 第三方扩展 |
 | --- | --- | --- |
-| `core/` | 基础、内核与领域事实；共享交易时段及保证金语义 | 否 |
-| `core/storage/sqlite/`、`core/risk/order_limits/` | 共享数据库访问与编译进程序的订单限额 | 否 |
+| `core/` | 头文件在 `include/asterion/<模块>/`，实现与 CMake 目标在 `src/<模块>/`：基础、内核、领域（含交易时段、保证金语义与编译进程序的订单限额），以及 `database/` 下按数据库分的共享访问（目前 `sqlite`） | 否 |
 | `apps/services/common/` | 跨服务共用的 CTP 行情、图表计算、Parquet 和备份文件操作 | 否 |
 | `apps/services/trading/ctp/` | 交易柜台适配 | 否 |
 | `apps/services/data/storage/` | 数据仓库 | 否 |

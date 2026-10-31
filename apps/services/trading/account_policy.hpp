@@ -1,5 +1,5 @@
 #pragma once
-#include "order_limits.hpp"
+#include <asterion/domain/order_limits.hpp>
 #include <asterion/domain/futures.hpp>
 #include <asterion/trading.pb.h>
 

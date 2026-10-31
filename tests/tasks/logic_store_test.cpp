@@ -3,7 +3,7 @@
 #include "data_submission.hpp"
 #include "research_logic.hpp"
 #include "strategy_store.hpp"
-#include "order_limits.hpp"
+#include <asterion/domain/order_limits.hpp>
 #include "data/bar_fixture.hpp"
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -13,7 +13,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include "task_store.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/protocol/research_logic.hpp>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/process/child.hpp>

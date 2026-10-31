@@ -1,6 +1,6 @@
-#include "sqlite_journal.hpp"
+#include <asterion/database/sqlite/sqlite_journal.hpp>
 #include <asterion/foundation/error.hpp>
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>

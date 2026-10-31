@@ -1,4 +1,4 @@
+# SQLite access shared by the services that keep their state in SQLite.
 add_library(asterion_sqlite STATIC sqlite_database.cpp sqlite_journal.cpp)
 target_link_libraries(asterion_sqlite PUBLIC Asterion::Kernel PRIVATE SQLite::SQLite3)
-target_include_directories(asterion_sqlite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 asterion_target_defaults(asterion_sqlite)

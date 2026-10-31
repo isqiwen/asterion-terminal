@@ -4,7 +4,7 @@
 #include "strategy_store.hpp"
 #include "logic_store.hpp"
 #include <asterion/protocol/research_logic.hpp>
-#include "order_limits.hpp"
+#include <asterion/domain/order_limits.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_statistics.hpp>

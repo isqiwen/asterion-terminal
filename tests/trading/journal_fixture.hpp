@@ -1,7 +1,7 @@
 #pragma once
 // Test-only access to a closed SqliteJournal: read, count and tamper records.
-#include "sqlite_database.hpp"
-#include "sqlite_journal.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
+#include <asterion/database/sqlite/sqlite_journal.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <filesystem>
 

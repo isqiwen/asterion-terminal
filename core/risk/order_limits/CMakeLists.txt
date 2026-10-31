@@ -1,4 +1,0 @@
-add_library(asterion_order_limits STATIC config.cpp order_limits.cpp)
-target_link_libraries(asterion_order_limits PUBLIC Asterion::Domain)
-target_include_directories(asterion_order_limits PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-asterion_target_defaults(asterion_order_limits)

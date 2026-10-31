@@ -8,7 +8,7 @@
 #include "data/data_fixture.hpp"
 #include "data/history_fixture.hpp"
 #include "task_store.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include "tasks/task_store_support.hpp"
 #include "data/bar_fixture.hpp"
 #include <asterion/kernel/durable_file.hpp>

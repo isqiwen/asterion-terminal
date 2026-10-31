@@ -5,7 +5,7 @@
 #include "history_archive.hpp"
 #include "history_tables.hpp"
 #include "history_minutes.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/process/artifact.hpp>

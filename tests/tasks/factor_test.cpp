@@ -6,7 +6,7 @@
 #include "tasks/task_store_support.hpp"
 #include "evaluation.hpp"
 #include "universe.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/task_execution.hpp>

@@ -1,6 +1,6 @@
 #include "data_retentions.hpp"
 #include "data_store.hpp"
-#include "sqlite_database.hpp"
+#include <asterion/database/sqlite/sqlite_database.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/durable_file.hpp>
