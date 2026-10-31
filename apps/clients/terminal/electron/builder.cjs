@@ -64,10 +64,7 @@ module.exports = {
     type: "distribution",
     identity: distribution ? process.env.CSC_NAME : "-",
     notarize: distribution,
-    binaries: [
-      ...nativeFiles.map(name => "Contents/Resources/native/" + name),
-      "Contents/Resources/python/bin/python3",
-    ],
+    binaries: nativeFiles.map(name => "Contents/Resources/native/" + name),
     hardenedRuntime: true,
     entitlements: path.join(__dirname, "entitlements.mac.plist"),
     entitlementsInherit: path.join(__dirname, "entitlements.mac.plist"),

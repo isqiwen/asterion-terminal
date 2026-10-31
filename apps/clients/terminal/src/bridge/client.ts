@@ -2276,7 +2276,7 @@ export type PythonRuntime = {
     title: string;
     size: number;
     done: number;
-    state: "waiting" | "downloading" | "installing" | "done" | "failed";
+    state: "waiting" | "downloading" | "downloaded" | "installing" | "done" | "failed";
   }[];
 };
 export type Snapshot = {

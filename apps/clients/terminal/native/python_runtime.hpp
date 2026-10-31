@@ -29,7 +29,7 @@ public:
 
     // {state: missing|installing|ready|failed, error, modules: [{id, title,
     // size, done, state}]}; each module's state is waiting, downloading,
-    // installing, done or failed.
+    // downloaded, installing, done or failed.
     Json status() const;
 
     // Starts installing in the background unless it is installed or under way.

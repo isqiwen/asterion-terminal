@@ -263,7 +263,13 @@ void PythonRuntime::run(std::stop_token stop)
         for (const auto& file : module.files)
             (module.id == "interpreter" ? archives : wheels).push_back(fetch(file, module, stop));
         std::lock_guard lock(mutex_);
-        module.state = "installing";
+        module.state = "downloaded";
+    }
+    {
+        // Nothing is installed before everything is downloaded and verified.
+        std::lock_guard lock(mutex_);
+        for (auto& module : modules_)
+            module.state = "installing";
     }
     // Built aside and swapped in whole.
     const auto staging = directory_ / ".staging";

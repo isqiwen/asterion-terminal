@@ -151,6 +151,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
                       {
                         waiting: "等待",
                         downloading: "下载中",
+                        downloaded: "已下载",
                         installing: "安装中",
                         done: "完成",
                         failed: "失败",
