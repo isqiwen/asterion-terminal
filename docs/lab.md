@@ -208,9 +208,9 @@ class MaCross(Strategy):
 （权益乘权重除以每手价值，向零取整，与旧引擎的固定权重组合同一函数），超过权重预算时运行失败。指标暂为总收益与最大回撤，
 其余绩效指标随 M2.4 移入。
 
-`apps/services/lab/examples/strategies/` 是旧引擎五条规则的改写，用作测试基准：均线（`ma_cross`）、通道突破（`breakout`）、
-动量（`momentum`）、均值回归（`reversion`）与截面动量排名（`momentum_rank`）。单合约规则与旧规则逐根同一方向：
-均线按 8 位定点整数精确比较均值。截面排名按权益的权重持有（旧规则按固定名义金额、四舍五入），所以只有排名与方向和旧规则一致。
+`apps/services/lab/examples/strategies/` 是旧引擎五条规则的改写，作为示例和测试用策略：均线（`ma_cross`）、通道突破（`breakout`）、
+动量（`momentum`）、均值回归（`reversion`）与截面动量排名（`momentum_rank`）。均线按 8 位定点整数精确比较均值；截面排名按权益的权重持有（旧规则按固定名义金额、四舍五入）。
+新回测不以旧引擎为基准。
 
 
 ## 运行记录
