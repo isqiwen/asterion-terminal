@@ -2,7 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include "strategy.hpp"
 #include <asterion/futures/portfolio_targets.hpp>
-#include "performance.hpp"
+#include <asterion/futures/performance.hpp>
 #include <asterion/futures/trading_days.hpp>
 #include <asterion/futures/order_limits.hpp>
 #include <asterion/futures/replay.hpp>

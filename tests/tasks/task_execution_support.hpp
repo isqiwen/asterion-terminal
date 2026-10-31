@@ -8,7 +8,7 @@
 #include "support/task_wait.hpp"
 #include <asterion/protocol/data_client.hpp>
 #include "tasks/paper_input.hpp"
-#include "performance.hpp"
+#include <asterion/futures/performance.hpp>
 #include "portfolio_budget.hpp"
 #include "account_reconciliation.hpp"
 #include "support/local_listener.hpp"

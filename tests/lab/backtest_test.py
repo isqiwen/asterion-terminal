@@ -177,6 +177,27 @@ class Backtests(unittest.TestCase):
         self.assertEqual(set(fills["quantity"].to_list()), {Decimal(1)})
         self.assertEqual(set(fills["contract"]), set(symbols))
 
+    def test_statistics_of_the_run_and_of_its_holdout(self):
+        config = self.config(("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4}, annual_periods=252.0,
+                             zero_risk_free=True, holdout_day=DAYS[20].isoformat())
+        backtest.run(self.directory, "measured", config)
+        (row,) = Runs(self.directory).list()
+        metrics = row["metrics"]
+        for name in backtest.STATISTICS:
+            self.assertIn(f"development_{name}", metrics)
+            self.assertIn(f"holdout_{name}", metrics)
+        self.assertIsNotNone(metrics["sharpe"])
+        # Shorter than a year: no annual return, as the old engine reports.
+        self.assertIsNone(metrics["annual_return"])
+        # The two parts compound into the whole.
+        whole = (1 + metrics["development_total_return"]) * (1 + metrics["holdout_total_return"]) - 1
+        self.assertAlmostEqual(whole, metrics["total_return"], places=9)
+        self.assertEqual(Runs(self.directory).record("measured")["statistics"]["holdout_day"],
+                         DAYS[20].isoformat())
+        with self.assertRaisesRegex(ValueError, "holdout"):
+            backtest.run(self.directory, "late", self.config(
+                ("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4}, holdout_day="2027-01-01"))
+
     def test_a_failed_run_is_recorded(self):
         with self.assertRaises(ValueError):
             backtest.run(self.directory, "missing", self.config(("SHFE/rb/2027-01",)))

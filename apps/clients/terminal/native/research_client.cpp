@@ -4,7 +4,7 @@
 #include <asterion/protocol/research_variable.hpp>
 #include <asterion/protocol/research_strategy.hpp>
 #include <asterion/protocol/research_logic.hpp>
-#include "performance.hpp"
+#include <asterion/futures/performance.hpp>
 #include "account_reconciliation.hpp"
 #include "portfolio_budget.hpp"
 #include <asterion/system/ipc/rpc_client.hpp>

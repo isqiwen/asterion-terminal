@@ -67,6 +67,7 @@ class Plan:
     end_day: str
     costs: dict
     risk: dict
+    statistics: dict
 
 
 class Runs:
@@ -102,7 +103,7 @@ class Runs:
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,
                            "end_day": plan.end_day},
                   "engine": {"version": VERSION, "requirements": requirements()},
-                  "costs": plan.costs, "risk": plan.risk}
+                  "costs": plan.costs, "risk": plan.risk, "statistics": plan.statistics}
         write_durably(directory / "run.json",
                       json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")
         self.index.execute(

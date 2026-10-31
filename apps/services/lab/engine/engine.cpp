@@ -1,6 +1,8 @@
 // asterion_engine: core's Replay for the lab's Python backtests. Amounts and
 // prices cross as the raw int64 of an eight-place Decimal, never as floats.
 #include <asterion/futures/order_limits.hpp>
+#include <asterion/futures/performance.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <asterion/futures/portfolio_targets.hpp>
 #include <asterion/futures/replay.hpp>
 #include <pybind11/pybind11.h>
@@ -388,6 +390,52 @@ private:
     Record record_;
 };
 
+// The old engine's statistics of an equity record. `days`: (trading_day,
+// settlement equity) ascending; `marks`: every equity observation in order;
+// `begin_ns` and `end_ns` bound what the record observed. A statistic without
+// a value carries why.
+py::dict statistics(
+    std::int64_t base,
+    const std::vector<std::pair<std::string, std::int64_t>>& days,
+    const std::vector<std::int64_t>& marks,
+    std::int64_t begin_ns,
+    std::int64_t end_ns,
+    std::optional<double> annual_periods,
+    bool zero_risk_free,
+    bool opening_is_full_period)
+{
+    std::vector<EquityDay> equity;
+    for (const auto& [day, value] : days)
+        equity.push_back(
+            {std::chrono::sys_days(parse_trading_date(day)), Decimal::from_raw(value)});
+    std::vector<Decimal> observed;
+    for (const auto value : marks)
+        observed.push_back(Decimal::from_raw(value));
+    PerformanceContext context;
+    context.begin_ns = begin_ns;
+    context.end_ns = end_ns;
+    context.annual_periods = annual_periods;
+    context.explicitly_zero_risk_free = zero_risk_free;
+    context.opening_is_full_period = opening_is_full_period;
+    const auto result = performance(Decimal::from_raw(base), equity, observed, context);
+    py::dict values;
+    values["trading_days"] = result.trading_days;
+    values["total_return"] = result.total_return;
+    values["max_drawdown"] = result.max_drawdown;
+    values["winning_days"] = result.winning_days;
+    const auto optional =
+        [&](const char* name, const std::optional<double>& value, PerformanceUnavailable why) {
+            values[name] = value ? py::cast(*value) : py::none();
+            values[(std::string(name) + "_unavailable").c_str()] =
+                value ? py::none() : py::cast(std::string(performance_unavailable_name(why)));
+        };
+    optional("annual_return", result.annual_return, result.annual_return_reason);
+    optional("annual_volatility", result.annual_volatility, result.annual_volatility_reason);
+    optional("sharpe", result.sharpe, result.sharpe_reason);
+    optional("calmar", result.calmar, result.calmar_reason);
+    return values;
+}
+
 } // namespace
 } // namespace asterion
 
@@ -395,6 +443,17 @@ PYBIND11_MODULE(asterion_engine, module)
 {
     using asterion::Engine;
     module.doc() = "core's backtest Replay; amounts are raw eight-place decimals";
+    module.def(
+        "performance",
+        &asterion::statistics,
+        py::arg("base"),
+        py::arg("days"),
+        py::arg("marks"),
+        py::arg("begin_ns"),
+        py::arg("end_ns"),
+        py::arg("annual_periods"),
+        py::arg("zero_risk_free"),
+        py::arg("opening_is_full_period") = false);
     py::class_<Engine>(module, "Replay")
         .def(
             py::init<

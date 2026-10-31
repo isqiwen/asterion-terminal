@@ -80,6 +80,13 @@ class Config:
     # What ctx.weights may ask for in all, gross and net, as shares of equity.
     max_gross_weight: Decimal = Decimal(0)
     max_net_weight: Decimal = Decimal(0)
+    # Statistics: periods in a year, and an explicitly zero risk-free rate;
+    # without them the annual figures and the Sharpe ratio stay absent.
+    annual_periods: float | None = None
+    zero_risk_free: bool = False
+    # Days from this one on are the holdout: statistics are also kept for the
+    # days before it and for it alone.
+    holdout_day: str = ""
 
 
 @dataclass
@@ -375,15 +382,39 @@ def tables(engine, contracts: list) -> dict:
     }
 
 
-def metrics(deposit: Decimal, engine) -> dict:
-    days = [Decimal(row[3]).scaleb(-8) for row in engine.settlements]
+STATISTICS = ("total_return", "max_drawdown", "winning_days", "annual_return",
+              "annual_volatility", "sharpe", "calmar")
+
+
+def metrics(config: Config, engine) -> dict:
+    """The old engine's statistics of the whole run, and with a holdout day of
+    the days before it and of the holdout alone."""
+    import asterion_engine
+
+    marks = engine.equity
+    days = engine.settlements
     if not days:
-        return {"total_return": None, "max_drawdown": None}
-    peak, drawdown = deposit, Decimal(0)
-    for equity in days:
-        peak = max(peak, equity)
-        drawdown = max(drawdown, (peak - equity) / peak)
-    return {"total_return": float(days[-1] / deposit - 1), "max_drawdown": float(drawdown)}
+        raise ValueError("the run settled no trading day")
+    # Where each settlement is among the equity observations.
+    ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
+
+    def segment(first, last, base, begin_ns, opening):
+        values = asterion_engine.performance(
+            base, [(row[0], row[3]) for row in days[first:last]],
+            [point[1] for point in marks[(ends[first - 1] + 1 if first else 0):ends[last - 1] + 1]],
+            begin_ns, days[last - 1][1], config.annual_periods, config.zero_risk_free, opening)
+        return {name: values[name] for name in STATISTICS}
+
+    result = segment(0, len(days), raw(config.deposit), marks[0][0], False)
+    if config.holdout_day:
+        split = next((n for n, row in enumerate(days) if row[0] >= config.holdout_day), len(days))
+        if not 0 < split < len(days):
+            raise ValueError("the holdout day leaves no days before it or after it")
+        for name, value in segment(0, split, raw(config.deposit), marks[0][0], False).items():
+            result[f"development_{name}"] = value
+        for name, value in segment(split, len(days), days[split - 1][3], days[split - 1][1], True).items():
+            result[f"holdout_{name}"] = value
+    return result
 
 
 def run(directory: Path, identity: str, config: Config):
@@ -403,6 +434,8 @@ def run(directory: Path, identity: str, config: Config):
         costs={"by_product": {key: dict(zip(COSTS, map(str, values)))
                               for key, values in config.costs.items()},
                "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)},
+        statistics={"annual_periods": config.annual_periods, "zero_risk_free": config.zero_risk_free,
+                    "holdout_day": config.holdout_day},
         risk={"max_gross_weight": str(config.max_gross_weight),
               "max_net_weight": str(config.max_net_weight),
               "max_order_lots": str(config.max_order_lots),
@@ -416,7 +449,7 @@ def run(directory: Path, identity: str, config: Config):
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
-        runs.succeed(identity, tables(engine, contracts), metrics(config.deposit, engine))
+        runs.succeed(identity, tables(engine, contracts), metrics(config, engine))
     except BaseException as error:
         runs.fail(identity, "failed", str(error) or type(error).__name__)
         raise
@@ -440,7 +473,9 @@ def config_of(request) -> Config:
         max_gross_lots=Decimal(request.max_gross_lots),
         max_working_orders=request.max_working_orders,
         max_gross_weight=Decimal(request.max_gross_weight or 0),
-        max_net_weight=Decimal(request.max_net_weight or 0))
+        max_net_weight=Decimal(request.max_net_weight or 0),
+        annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
+        holdout_day=request.holdout_day)
 
 
 def main():

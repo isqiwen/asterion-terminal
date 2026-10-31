@@ -400,6 +400,12 @@ message BacktestRun {
   // What ctx.weights may ask for in all, gross and net, as shares of equity.
   string max_gross_weight = 15;
   string max_net_weight = 16;
+  // Statistics: periods in a year (0 for none) and an explicitly zero
+  // risk-free rate; without both the Sharpe ratio is absent. Days from
+  // holdout_day on are also measured apart from the days before it.
+  double annual_periods = 17;
+  bool zero_risk_free = 18;
+  string holdout_day = 19;
 }
 message RunsQuery {}
 message CancelRun {
