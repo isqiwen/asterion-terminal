@@ -87,6 +87,7 @@ target_compile_definitions(asterion_native_plugin_tests PRIVATE
   PLUGIN_TUSHARE="$<TARGET_FILE:asterion_tushare_plugin>")
 add_dependencies(asterion_native_plugin_tests plugin_fixture_good plugin_fixture_bad_abi plugin_fixture_missing_entry plugin_fixture_empty_table asterion_tushare_plugin)
 asterion_unit_tests(asterion_domain_tests core/domain_test.cpp Asterion::Futures)
+asterion_unit_tests(asterion_replay_tests core/replay_test.cpp Asterion::Futures)
 asterion_unit_tests(asterion_logging_tests core/logger_test.cpp Asterion::System)
 target_link_libraries(asterion_logging_tests PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 
