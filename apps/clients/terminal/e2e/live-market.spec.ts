@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { ctpConnection, rpc } from "./dataset-fixture";
+import { ctpConnection, rpc } from "./rpc-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect, type Page } from "./test";
 

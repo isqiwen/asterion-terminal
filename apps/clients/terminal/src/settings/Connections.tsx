@@ -4,11 +4,10 @@ import type { Snapshot } from "../bridge/client";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { SettingsSection } from "./Section";
-import { kindLabels, serviceStatus, t, type Service } from "./service-state";
+import { kindLabels, serviceStatus, t } from "./service-state";
 type Action = "stop" | "restart";
-type Pending = { service: string; revision: string; action: Action };
+type Pending = { service: string; action: Action };
 const actionLabels: Record<Action, string> = { stop: "停止服务", restart: "重启服务" };
-const active = ["queued", "running", "cancel_requested", "publishing"];
 // The services the Terminal runs on this machine, one of each kind. They start with it and exit
 // with it; a stopped service stays stopped until started here.
 export function Connections({
@@ -34,15 +33,7 @@ export function Connections({
       return false;
     }
   }
-  const target = services.find(s => s.id === pending?.service);
-  const changed = !target || target.revision !== pending?.revision;
-  const tasks = (service: Service | undefined) =>
-    service?.kind === "data" || service?.kind === "research"
-      ? ((service.kind === "data" ? snapshot?.data : snapshot?.research_service)?.tasks.filter(
-          task => active.includes(task.state),
-        ) ?? [])
-      : [];
-  const open = tasks(target);
+  const changed = !services.some(s => s.id === pending?.service);
   return (
     <>
       <SettingsSection
@@ -75,25 +66,13 @@ export function Connections({
                     <>
                       <button
                         disabled={busy || service.state !== "running"}
-                        onClick={() =>
-                          setPending({
-                            service: service.id,
-                            revision: service.revision,
-                            action: "restart",
-                          })
-                        }
+                        onClick={() => setPending({ service: service.id, action: "restart" })}
                       >
                         {t("重启")}
                       </button>
                       <button
                         disabled={busy}
-                        onClick={() =>
-                          setPending({
-                            service: service.id,
-                            revision: service.revision,
-                            action: "stop",
-                          })
-                        }
+                        onClick={() => setPending({ service: service.id, action: "stop" })}
                       >
                         {t("停止")}
                       </button>
@@ -170,16 +149,7 @@ export function Connections({
           {changed ? (
             <p role="alert">{t("目标状态已变化，请取消后重新检查。")}</p>
           ) : (
-            <>
-              <p>{t("此服务的连接会中断，运行中的任务可能中断。")}</p>
-              {open.length > 0 && (
-                <p>
-                  {t("当前可见的未完成任务：{tasks}", {
-                    tasks: open.map(task => task.id).join(", "),
-                  })}
-                </p>
-              )}
-            </>
+            <p>{t("此服务的连接会中断，运行中的任务可能中断。")}</p>
           )}
           {error && (
             <p role="alert">

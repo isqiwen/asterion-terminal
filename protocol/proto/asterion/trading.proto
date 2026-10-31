@@ -3,7 +3,6 @@ import "asterion/health.proto";
 package asterion.protocol.proto;
 
 import "asterion/domain.proto";
-import "asterion/data.proto";
 
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs {
@@ -28,23 +27,6 @@ message RiskLimits {
   Decimal max_order_quantity = 1;
   Decimal max_gross_quantity = 2;
   uint64 max_working_orders = 3;
-}
-// One contract of a backtest portfolio: its bars, trading days and costs. The
-// contract is the dataset's contract.
-// slippage_ticks: what every fill of the contract gives up, in price
-// increments of the fill's day: a buy fills that much above and a sell that
-// much below the price the matching rule finds.
-message PaperContract {
-  asterion.data.proto.BarDataset dataset = 1;
-  CostSchedule cost_schedule = 2;
-  uint32 slippage_ticks = 3;
-}
-// Every contract shares the same trading days; each day ends with the
-// dataset settlement prices.
-message PaperInput {
-  Decimal deposit = 1;
-  RiskLimits risk = 2;
-  repeated PaperContract contracts = 3;
 }
 // A CTP futures account. Non-secret identities only: the password and the
 // authentication code stay in the trading host's systemd credentials.
@@ -98,101 +80,12 @@ enum Side {
   SELL = 2;
 }
 
-// What contracts are compared by; a window counts observations.
-// PRICE_MOMENTUM: the close over the close a window earlier, less one.
-// TERM_STRUCTURE: the mean over a window of how far the dominant month of a
-// series settled above a later month the day before, as a year's worth.
-// VOLATILITY: the sample standard deviation of a window's returns, each from
-// one close to the next; the window holds at least two.
-// Unspecified is invalid.
-enum Factor {
-  FACTOR_UNSPECIFIED = 0;
-  PRICE_MOMENTUM = 1;
-  TERM_STRUCTURE = 2;
-  VOLATILITY = 3;
-}
-
 // Which sides of a contract a strategy may hold. Unspecified is invalid.
 enum PositionSides {
   POSITION_SIDES_UNSPECIFIED = 0;
   LONG_AND_SHORT = 1;
   LONG_ONLY = 2;
   SHORT_ONLY = 3;
-}
-
-// The rules a strategy takes its side by. Windows count completed bars.
-// Long while the average of the last `fast` closes is above that of the last
-// `slow`, short while it is below.
-message MovingAverageCross {
-  uint32 fast = 1;
-  uint32 slow = 2;
-}
-// Long from a close above the highest high of the `entry` bars before it,
-// short from one below their lowest low. The side is given up when a close
-// passes the opposite extreme of the `exit` bars before it.
-message ChannelBreakout {
-  uint32 entry = 1;
-  uint32 exit = 2;
-}
-// Long while the close is above the close `lookback` bars earlier, short
-// while it is below.
-message Momentum {
-  uint32 lookback = 1;
-}
-// Short from a close more than `width` standard deviations above the mean of
-// the last `window` closes, long from one as far below it. The side is given
-// up when a close returns to that mean.
-message BandReversion {
-  uint32 window = 1;
-  Decimal width = 2;
-}
-// A rule over several contracts at once, for backtests: on every
-// `rebalance`-th bar that all of them have, they are ranked by `factor` over
-// a window of `lookback` such bars. The `count` highest are held long and the
-// `count` lowest short until the next ranking, or the other way round when
-// `reversed`; the rest are flat. A held contract holds the lots whose value
-// at that bar's close is nearest `notional`, so contracts of different sizes
-// weigh alike. With a `volatility` window the held contracts' notional, the
-// same in all, is split by the inverse of the standard deviation of each
-// one's returns over that many bars, so that they move alike. The term
-// structure ranks dominant series alone, on the bars of days that have a
-// term point.
-message CrossRank {
-  Factor factor = 1;
-  bool reversed = 2;
-  uint32 lookback = 3;
-  uint32 rebalance = 4;
-  uint32 count = 5;
-  Decimal notional = 6;
-  uint32 volatility = 7;
-}
-// Explicit all-daily offline portfolio policy; signed weights fix direction.
-message FixedWeightPortfolio {
-  message Member {
-    string venue = 1;
-    string symbol = 2;
-    Decimal weight = 3;
-  }
-  repeated Member members = 1;
-  Decimal gross_weight_limit = 2;
-  Decimal net_weight_limit = 3;
-  uint32 rebalance = 4;
-}
-// What a strategy trades by: one rule, the lots it holds while the rule takes
-// a side, and the sides it may hold; it is flat on a side it may not hold and
-// while the rule takes none. A rule over several contracts sizes each by its
-// notional and has no quantity.
-message Strategy {
-  Decimal quantity = 1;
-  PositionSides sides = 2;
-  oneof rule {
-    MovingAverageCross moving_average = 3;
-    ChannelBreakout breakout = 4;
-    Momentum momentum = 5;
-    BandReversion reversion = 6;
-    CrossRank cross = 7;
-    FixedWeightPortfolio fixed_weights = 8;
-  }
 }
 
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
@@ -257,60 +150,6 @@ message Request {
     Empty live_disconnect = 18;
     Empty live_costs = 19;
   }
-}
-message ContractState {
-  Contract contract = 1;
-  Costs costs = 2;
-  Decimal mark = 3;
-  CostSchedule cost_schedule = 4;
-}
-message Position {
-  string venue = 1;
-  string symbol = 2;
-  Side side = 3;
-  bool today = 4;
-  Decimal quantity = 5;
-  Decimal basis = 6;
-}
-message Order {
-  string id = 1;
-  string venue = 2;
-  string symbol = 3;
-  Side side = 4;
-  Offset offset = 5;
-  Decimal quantity = 6;
-  Decimal limit_price = 7;
-  Decimal filled = 8;
-  OrderState state = 9;
-}
-// A paper account's execution and the fee it actually charged, after close-bucket allocation.
-message Fill {
-  string id = 1;
-  string order_id = 2;
-  string venue = 3;
-  string symbol = 4;
-  Decimal quantity = 5;
-  Decimal price = 6;
-  Decimal fee = 7;
-}
-message Snapshot {
-  repeated ContractState contracts = 1;
-  Decimal balance = 2;
-  Decimal equity = 3;
-  Decimal available = 4;
-  Decimal margin = 5;
-  Decimal frozen = 6;
-  Decimal fees = 7;
-  Decimal realized = 8;
-  Decimal unrealized = 9;
-  uint32 cursor = 10;
-  uint32 total = 11;
-  optional int64 timestamp_ns = 12;
-  bool recovery_required = 13;
-  repeated Position positions = 14;
-  repeated Order orders = 15;
-  repeated Fill fills = 16;
-  RiskLimits risk = 17;
 }
 // Broker-reported account state; the broker owns the live ledger.
 message LiveFunds {

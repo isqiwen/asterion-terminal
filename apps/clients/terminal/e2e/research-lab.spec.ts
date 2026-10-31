@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { rpc } from "./dataset-fixture";
+import { rpc } from "./rpc-fixture";
 import { test, expect, type Page } from "./test";
 
 const source = join(__dirname, "../../../..");

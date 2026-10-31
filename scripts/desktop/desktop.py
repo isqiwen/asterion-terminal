@@ -74,7 +74,7 @@ LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion_market", "asterion_data", "asterion_research")
+SERVICE_PROGRAMS = ("asterion_market",)
 
 def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
@@ -83,7 +83,7 @@ def verify_native_resources(directory, packaged=False):
     actual = {path.relative_to(directory).as_posix() for path in entries if path.is_file()}
     expected = NATIVE_FILES | ({"runtime-requirements.json"} if packaged and not MACOS else set())
     if actual != expected or any(path.is_symlink() or
-            (path.is_dir() and path.relative_to(directory).as_posix() not in {"plugins", "config"}) for path in entries):
+            (path.is_dir() and path.relative_to(directory).as_posix() != "config") for path in entries):
         raise ValueError("Native resources differ from the current distribution manifest")
 
 
@@ -95,8 +95,7 @@ def stage_native_resources(build, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".native-stage-", dir=destination.parent) as temporary:
         prepared = Path(temporary) / "native"
-        (prepared / "plugins").mkdir(parents=True)
-        (prepared / "config").mkdir()
+        (prepared / "config").mkdir(parents=True)
         for name in sorted(NATIVE_FILES):
             if name in CONFIG_FILES:
                 shutil.copyfile(build / name, prepared / name)
@@ -107,13 +106,10 @@ def stage_native_resources(build, destination):
 
 
 def exercise_packaged_programs(native):
-    """Task recovery and both vendor SDK lifecycles, run by the packaged programs."""
+    """Both vendor SDK lifecycles, run by the packaged programs."""
     def packaged(programs):
         return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
     isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
-    run([*isolated, str(ROOT / "tests/tasks/task_recovery.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")],
-        environment=packaged({"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion_data",
-                              "ASTERION_RESEARCH_EXECUTABLE": "asterion_research"}))
     run([*isolated, str(ROOT / "tests/market/ctp_sdk_smoke.py"), str(ROOT / "build/Release")],
         environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion_market",
                               "ASTERION_CTP_LIBRARY": "ctp-md" + LIBRARY_SUFFIX,
@@ -232,16 +228,12 @@ def verify_macos_bundle(distribution=True):
             market = app / "Contents/Resources/native/asterion_market"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion_data", "asterion_research"):
-                program = app / "Contents/Resources/native" / name
-                run(["codesign", "--verify", "--strict", str(program)])
-                run([str(program), "--version"])
             library = app / "Contents/Resources/native/ctp-md.dylib"
             run(["codesign", "--verify", "--strict", str(library)])
             exercise_packaged_programs(app / "Contents/Resources/native")
         finally:
             run(["hdiutil", "detach", folder])
-    print("DMG checksum, signatures, packaged task recovery and vendor market/trader lifecycles verified")
+    print("DMG checksum, signatures and vendor market/trader lifecycles verified")
 
 
 def main():

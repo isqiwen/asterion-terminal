@@ -74,10 +74,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
           ),
         ),
       );
-      for (const dir of [
-        path.join(temp, "node/logs"),
-        path.join(temp, "node/services/research/logs"),
-      ])
+      for (const dir of [path.join(temp, "node/logs")])
         for (const file of await fs.readdir(dir).catch(() => []))
           console.error(
             "LOG",

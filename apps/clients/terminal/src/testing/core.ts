@@ -31,9 +31,7 @@ const execution: ExecutionHealth = {
 };
 type Service = NonNullable<NodeStatus["health"]>["services"][number];
 const service = (id: string, kind: Service["kind"]): Service => ({
-  revision: "1",
   kind,
-  plugin_artifacts: [],
   id,
   artifact: "a".repeat(64),
   state: "running",
@@ -47,45 +45,13 @@ const service = (id: string, kind: Service["kind"]): Service => ({
   endpoint: "",
   directory: "",
 });
-const connection = (service: string) => ({
-  node_id: "local",
-  connection_id: service + "-connection",
-  port: 0,
-  service,
-  host: "",
-  remote: false,
-  online: true,
-  error: "",
-});
-
-// What the core reports, as of now, for a local installation with the Agent
-// and its market, data and task services up and nothing else: no accounts,
-// datasets, tasks or quotes. A test changes the parts its case is about.
+// What the core reports, as of now, for a local installation with its market
+// and lab services up and nothing else: no accounts or quotes. A test changes
+// the parts its case is about.
 export function readySnapshot(): Snapshot {
   return {
-    history_page: null,
     revision: 1,
     refreshed_at_ms: Date.now(),
-    research_service: {
-      ...connection("research"),
-      tasks: [],
-      before_sequence: 0,
-      next_before_sequence: 0,
-      failed_count: 0,
-      interrupted_count: 0,
-      capacity: null,
-    },
-    data: {
-      ...connection("historical-data"),
-      sources: [],
-      tasks: [],
-      before_sequence: 0,
-      next_before_sequence: 0,
-      failed_count: 0,
-      interrupted_count: 0,
-      capacity: null,
-    },
-    task_result: null,
     market: {
       watchlist: [],
       catalog: { phase: "idle", error_code: "", diagnostic: "", trading_day: "", contracts: [] },
@@ -121,11 +87,7 @@ export function readySnapshot(): Snapshot {
           arch: "x86_64",
           version: "test",
           uptime_ms: 1,
-          services: [
-            service("market-data", "market"),
-            service("historical-data", "data"),
-            service("research", "research"),
-          ],
+          services: [service("market-data", "market"), service("lab", "lab")],
         },
       },
     ],
@@ -135,9 +97,6 @@ export function readySnapshot(): Snapshot {
     phase: "ready",
     asset: "futures",
     close_policies: {},
-    datasets: [],
-    dataset_series: [],
-    native_plugins: { directory: "", items: [] },
     diagnostics: {
       log_directory: "/test-node/logs",
       succeeded: 0,

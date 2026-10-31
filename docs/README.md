@@ -9,10 +9,10 @@
 | 系统怎样组成、状态归谁 | [架构](architecture.md) · [服务与部署](services.md) |
 | 怎样构建、运行与测试 | [开发指南](development.md) |
 | 界面与交互 | [Terminal](terminal.md) |
-| 行情与历史数据 | [行情与数据](market-data.md) · [行情录制](recorder.md) · [Python 研究服务与数据仓库](lab.md) |
-| 研究对象与流程 | [研究](research.md) · [回测](backtest.md) · [策略](strategies.md) · [因子](factors.md) · [任务](tasks.md) |
+| 行情与历史数据 | [实时行情](market.md) · [行情录制](recorder.md) · [Python 研究服务与数据仓库](lab.md) |
+| 策略、因子、回测与参数扫描 | [lab](lab.md) |
 | 交易与风控 | [交易](trading.md) · [CTP 仿真验收](acceptance/ctp-simulation.md) |
-| 本机服务、部署与日志 | [服务](services.md) · [原生插件](native-plugins.md) |
+| 本机服务、部署与日志 | [服务](services.md) |
 
 约定：
 

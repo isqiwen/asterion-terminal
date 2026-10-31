@@ -15,11 +15,10 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion read-only live market-data host"};
     app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-    std::string service, health_endpoint, directory, sdk, catalog_sdk, node_id;
+    std::string service, health_endpoint, directory, sdk, catalog_sdk;
     std::uint64_t owner_pid = 0;
     service::Transport transport;
     app.add_option("--session", service)->required();
-    app.add_option("--node-id", node_id, "Stable owning Agent node identity");
     app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
     app.add_option("--endpoint", transport.endpoint);
     app.add_option("--health-endpoint", health_endpoint);
@@ -33,8 +32,6 @@ int main(int argc, char** argv)
     try {
         asterion::log::init();
         validate_id(service);
-        if (!node_id.empty())
-            validate_id(node_id);
         transport.validate();
         const auto instance = unique_process_id();
         service::install_stop_signals();
@@ -77,7 +74,7 @@ int main(int argc, char** argv)
                 validate_id(request.correlation_id());
                 if (request.version() != 1 || request.service_id() != service)
                     throw std::invalid_argument("market service identity mismatch");
-                if (control && !request.has_heartbeat() && !request.has_quiesce())
+                if (control && !request.has_heartbeat())
                     throw std::invalid_argument("invalid service health");
                 if (request.has_watch()) {
                     if (watchers == 32)
@@ -146,14 +143,8 @@ int main(int argc, char** argv)
             std::move(options),
             io_progress);
         // Listen before starting resources whose teardown may wait for a provider.
-        state = std::make_unique<market_data::Session>(market_data::Session::Configuration{
-            service,
-            instance,
-            directory,
-            sdk,
-            catalog_sdk,
-            node_id
-        });
+        state = std::make_unique<market_data::Session>(
+            market_data::Session::Configuration{service, instance, directory, sdk, catalog_sdk});
         try {
             if (!host.run())
                 std::_Exit(0);

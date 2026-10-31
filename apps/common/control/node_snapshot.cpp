@@ -10,10 +10,6 @@ const char* service_kind_name(wire::ServiceKind kind)
     switch (kind) {
         case wire::MARKET:
             return "market";
-        case wire::DATA:
-            return "data";
-        case wire::RESEARCH:
-            return "research";
         case wire::LAB:
             return "lab";
         default:
@@ -25,10 +21,8 @@ wire::ServiceKind parse_service_kind(const std::string& name)
 {
     if (name == "market")
         return wire::MARKET;
-    if (name == "data")
-        return wire::DATA;
-    if (name == "research")
-        return wire::RESEARCH;
+    if (name == "lab")
+        return wire::LAB;
     throw std::invalid_argument("invalid service kind");
 }
 
@@ -57,11 +51,6 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
                 {{"id", s.id()},
                     {"kind", service_kind_name(s.kind())},
                     {"artifact", s.artifact()},
-                    {"revision", s.revision()},
-                    {"plugin_artifacts",
-                        std::vector<std::string>(
-                            s.plugin_artifacts().begin(),
-                            s.plugin_artifacts().end())},
                     {"state", s.state()},
                     {"desired_running", s.desired_running()},
                     {"pid", s.pid()},

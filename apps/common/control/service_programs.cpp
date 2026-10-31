@@ -20,12 +20,6 @@ ServicePrograms local_service_programs(node::proto::ServiceKind kind)
             programs.catalog =
                 resolve("ASTERION_CTP_CATALOG_LIBRARY", std::string("ctp-trader") + library);
             break;
-        case node::proto::DATA:
-            programs.executable = resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion_data");
-            break;
-        case node::proto::RESEARCH:
-            programs.executable = resolve("ASTERION_RESEARCH_EXECUTABLE", "asterion_research");
-            break;
         default:
             throw std::invalid_argument("unknown service kind");
     }

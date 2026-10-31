@@ -1,8 +1,7 @@
 async function openView(page, view) {
   const destinations = {
-    history: ["数据", "历史数据"],
-    records: ["数据", "数据仓库"],
-    backtest: ["回测"],
+    research: ["研究"],
+    coverage: ["数据"],
     market: ["行情", "市场"],
     watchlist: ["行情", "自选"],
     contract: ["行情", "合约"],

@@ -5,7 +5,7 @@ import { resolve, join } from "node:path";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
 import { test as base } from "./test";
-import { rpc } from "./dataset-fixture";
+import { rpc } from "./rpc-fixture";
 export { expect } from "./test";
 
 // A test that uses tradingHost is tagged @trading: the trading service runs on

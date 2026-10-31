@@ -3,7 +3,7 @@
 #include <asterion/market.pb.h>
 #include <deque>
 #include <algorithm>
-#include <quote_volume.hpp>
+#include "quote_volume.hpp"
 #include <limits>
 #include <stdexcept>
 

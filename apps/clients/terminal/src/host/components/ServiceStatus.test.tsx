@@ -65,7 +65,7 @@ test("old account progress stays uncertain even while transport responds", () =>
   const report = (stale: boolean) => {
     const snapshot = readySnapshot();
     const account = {
-      ...localService(snapshot, "research"),
+      ...localService(snapshot, "lab"),
       id: "live-1",
       kind: "market" as const,
     };

@@ -1,5 +1,4 @@
 #include <asterion/system/log.hpp>
-#include <asterion/system/native_plugin.hpp>
 #include "live_session.hpp"
 #include "settings.hpp"
 #include "account_journal.hpp"

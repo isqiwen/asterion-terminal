@@ -1,5 +1,4 @@
 #include "account_policy.hpp"
-#include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
 
 namespace asterion::trading {

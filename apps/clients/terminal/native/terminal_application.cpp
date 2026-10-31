@@ -175,12 +175,6 @@ Application::Impl::Impl()
     });
     register_live_commands();
     register_node_commands();
-    register_backup_commands();
-    register_data_commands();
-    register_task_commands();
-    register_backtest_commands();
-    register_factor_commands();
-    register_data_task_connection_commands();
     register_connection_commands();
     register_market_commands();
     register_lab_commands();
@@ -214,22 +208,13 @@ Application::Impl::~Impl()
 Application::Impl::Publication Application::Impl::capture()
 {
     Publication next;
-    next.task_result = task_result;
-    next.plugins = native_plugins;
     next.settings = settings_view;
     for (const auto& [id, account] : live)
         next.live.emplace(id, account->client->owner_view());
-    if (research_client)
-        next.tasks = research_client->owner_view();
-    const auto data = data_client ? data_client->owner_status() : json(nullptr);
     if (market)
         next.market = market->owner_read();
     next.nodes = {services.view()};
     next.metadata = {
-        {"research_service", nullptr},
-        {"data", data},
-        {"credential_verification", credential_verification},
-        {"history_page", nullptr},
         {"protocol", 1},
         {"product", "Asterion Terminal"},
         {"core", "C++20"},
@@ -254,20 +239,6 @@ Application::Impl::Publication Application::Impl::capture()
                     }
                 return policies;
             }()},
-        {"datasets",
-            [&] {
-                json summaries = json::array();
-                for (const auto& item : selections)
-                    summaries.push_back(item.summary);
-                return summaries;
-            }()},
-        {"dataset_series",
-            [&] {
-                json summaries = json::array();
-                for (const auto& item : dataset_series)
-                    summaries.push_back(item.summary);
-                return summaries;
-            }()},
         {"diagnostics",
             {{"succeeded", succeeded},
                 {"log_directory", asterion_root().string()},
@@ -281,9 +252,8 @@ Application::Impl::Publication Application::Impl::capture()
 
 bool Application::Impl::Publication::same_state(const Publication& other) const
 {
-    return metadata == other.metadata && live == other.live && tasks == other.tasks
-        && nodes == other.nodes && settings == other.settings && task_result == other.task_result
-        && plugins == other.plugins && market.header == other.market.header
+    return metadata == other.metadata && live == other.live && nodes == other.nodes
+        && settings == other.settings && market.header == other.market.header
         && market.catalog == other.market.catalog && market.rows == other.market.rows;
 }
 
@@ -314,9 +284,6 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
         }
     }
     result["market"] = market.render(held);
-    result["research_service"] = tasks ? tasks->render() : json(nullptr);
-    result["task_result"] = task_result ? *task_result : json(nullptr);
-    result["native_plugins"] = plugins ? *plugins : json(nullptr);
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
     return result;
@@ -485,55 +452,6 @@ PolledTask<Application::Impl::Response> Application::Impl::dispatch(const json& 
     }
     co_await initialized();
     co_return co_await invoke(method, method == "runtime.snapshot" ? json::object() : params);
-}
-
-const std::vector<DatasetSelection>& Application::Impl::selected() const
-{
-    if (selections.empty())
-        throw std::invalid_argument("select downloaded data and a contract specification first");
-    return selections;
-}
-
-std::optional<std::size_t> Application::Impl::series_of(
-    const protocol::proto::Contract& contract) const
-{
-    for (std::size_t i = 0; i < dataset_series.size(); ++i)
-        if (dataset_series[i].summary.at("venue") == contract.venue()
-            && dataset_series[i].summary.at("product") == contract.product())
-            return i;
-    return std::nullopt;
-}
-
-std::vector<json> Application::Impl::selection_costs(const json& members) const
-{
-    const auto& chosen = selected();
-    // One entry for each contract outside a series, by venue and symbol, and one
-    // for each series, by venue and product: its months all trade at it.
-    auto expected = dataset_series.size();
-    for (const auto& item : chosen)
-        if (!series_of(item.dataset.contract()))
-            ++expected;
-    if (!members.is_array() || members.size() != expected)
-        throw std::invalid_argument("give costs for every selected contract");
-    std::vector<json> result;
-    for (const auto& item : chosen) {
-        const auto& spec = item.dataset.contract();
-        const auto* name = series_of(spec) ? "product" : "symbol";
-        const auto& wanted = series_of(spec) ? spec.product() : spec.symbol();
-        const auto found = std::ranges::find_if(members, [&](const json& entry) {
-            return entry.is_object() && entry.value("venue", "") == spec.venue()
-                && entry.value(name, "") == wanted;
-        });
-        if (found == members.end())
-            throw std::invalid_argument("give costs for every selected contract");
-        require_fields(*found, {"venue", name, "cost_schedule", "slippage_ticks"});
-        const auto schedule = protocol::encode_cost_schedule(found->at("cost_schedule"));
-        (void)costs_on(protocol::cost_schedule(schedule), item.dataset.bars(0).trading_day());
-        result.push_back(
-            {{"cost_schedule", protocol::decode_cost_schedule(schedule)},
-                {"slippage_ticks", found->at("slippage_ticks")}});
-    }
-    return result;
 }
 
 Application::Application()

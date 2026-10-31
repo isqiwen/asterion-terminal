@@ -1,7 +1,7 @@
 import { openView } from "./navigation-helper";
 import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
-test("compact footer exposes services, tasks and navigation", async ({ page }) => {
+test("compact footer exposes services and navigation", async ({ page }) => {
   await page.goto("/");
   const service = page
     .locator(".status-bar")
@@ -15,7 +15,6 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
   await expect(panel).not.toContainText("本机服务");
   await expect(panel).toContainText("此电脑");
   await expect(panel).toContainText("行情服务");
-  await expect(panel).toContainText("数据服务");
   await expect(panel.getByText("market-data", { exact: true })).not.toBeVisible();
   await panel.getByText("连接详情", { exact: true }).click();
   await expect(panel.getByText("market-data", { exact: true })).toBeVisible();
@@ -27,17 +26,6 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
   await service.click();
   await openView(page, "watchlist");
   await expect(panel).toHaveCount(0);
-  await page
-    .locator(".rail-actions")
-    .getByRole("button", { name: "任务中心", exact: true })
-    .click();
-  await expect(page.getByRole("region", { name: "任务中心", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "关闭任务中心", exact: true }).click();
-  await page
-    .locator(".status-bar")
-    .getByRole("button", { name: /项任务执行中/ })
-    .click();
-  await expect(page.getByRole("region", { name: "任务中心", exact: true })).toBeVisible();
   await service.click();
   page = await openSettingsWindow(
     page,

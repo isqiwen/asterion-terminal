@@ -2,7 +2,6 @@
 #include "application_environment.hpp"
 #include "local_service_health.hpp"
 #include "node_paths.hpp"
-#include "plugin_catalog.hpp"
 #include "service_programs.hpp"
 #include <asterion/base/error.hpp>
 #include <asterion/base/id.hpp>
@@ -51,13 +50,10 @@ struct Kind
     const char *service, *program, *executable, *name;
 };
 
-// One service per kind, and the order the destructor stops them in: the
-// services that read Data before Data itself.
-constexpr std::array<Kind, 4> kinds{{
+// One service per kind, in the order the destructor stops them.
+constexpr std::array<Kind, 2> kinds{{
     {wire::LAB, "lab", "lab", "", "lab"},
-    {wire::RESEARCH, "research", "research", "asterion_research", "research"},
     {wire::MARKET, "market-data", "market", "asterion_market", "market"},
-    {wire::DATA, "historical-data", "data", "asterion_data", "data"},
 }};
 
 const Kind& kind_of(wire::ServiceKind kind)
@@ -66,14 +62,6 @@ const Kind& kind_of(wire::ServiceKind kind)
         if (item.kind == kind)
             return item;
     throw std::invalid_argument("the Terminal runs no such local service");
-}
-
-const Kind& kind_named(const std::string& name)
-{
-    for (const auto& item : kinds)
-        if (item.name == name)
-            return item;
-    throw std::invalid_argument("invalid local service record");
 }
 
 const Kind& service_named(const std::string& service)
@@ -88,17 +76,10 @@ struct Record
 {
     wire::ServiceKind kind;
     bool desired = false;
-    std::vector<std::string> plugins;
 
     Json json() const
     {
-        return {{"kind", kind_of(kind).name}, {"desired", desired}, {"plugins", plugins}};
-    }
-
-    // What a plugin change must have seen: the selection and whether it runs.
-    std::string revision() const
-    {
-        return sha256_bytes(json().dump());
+        return {{"kind", kind_of(kind).name}, {"desired", desired}};
     }
 };
 
@@ -119,46 +100,6 @@ struct Service
     // Callers of start() waiting for the process to answer its first heartbeat.
     std::vector<std::promise<ServiceEndpoint>> waiting;
 };
-
-void write_frame(int fd, const std::string& payload)
-{
-    const auto size = static_cast<std::uint32_t>(payload.size());
-    const std::array<unsigned char, 4> header{
-        static_cast<unsigned char>(size >> 24),
-        static_cast<unsigned char>(size >> 16),
-        static_cast<unsigned char>(size >> 8),
-        static_cast<unsigned char>(size)
-    };
-    std::string bytes(reinterpret_cast<const char*>(header.data()), header.size());
-    bytes += payload;
-    for (std::size_t sent = 0; sent < bytes.size();) {
-        const auto written = ::send(fd, bytes.data() + sent, bytes.size() - sent, MSG_NOSIGNAL);
-        if (written <= 0) {
-            if (written < 0 && errno == EINTR)
-                continue;
-            throw std::runtime_error("discovery reply failed");
-        }
-        sent += static_cast<std::size_t>(written);
-    }
-}
-
-// Reads exactly `size` bytes within the deadline.
-void read_exactly(int fd, char* data, std::size_t size, Clock::time_point deadline)
-{
-    for (std::size_t got = 0; got < size;) {
-        const auto left = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now());
-        pollfd descriptor{fd, POLLIN, 0};
-        if (left.count() <= 0 || ::poll(&descriptor, 1, static_cast<int>(left.count())) <= 0)
-            throw std::runtime_error("discovery request timed out");
-        const auto read = ::recv(fd, data + got, size - got, 0);
-        if (read <= 0) {
-            if (read < 0 && errno == EINTR)
-                continue;
-            throw std::runtime_error("discovery peer closed");
-        }
-        got += static_cast<std::size_t>(read);
-    }
-}
 
 } // namespace
 
@@ -181,8 +122,7 @@ struct LocalServices::Impl
     std::deque<std::function<void()>> work;
     std::shared_ptr<const wire::Status> published;
     bool stopping = false;
-    std::jthread supervisor, discovery;
-    int listener = -1;
+    std::jthread supervisor;
 
     fs::path record_file(const std::string& service) const
     {
@@ -194,89 +134,30 @@ struct LocalServices::Impl
         return utf8(sockets / (service + ".sock"));
     }
 
-    std::string discovery_endpoint() const
-    {
-        return utf8(sockets / "discovery.sock");
-    }
-
     void save(const std::string& service, const Record& record) const
     {
         create_directories_durably(record_file(service).parent_path());
         replace_file_durably(record_file(service), record.json().dump());
     }
 
-    Record load(const fs::path& file) const
+    // Reads the run intent of a service, a file named by the service.
+    Record load(const Kind& kind, const fs::path& file) const
     {
         std::ifstream input(file, std::ios::binary);
         const std::string raw{std::istreambuf_iterator<char>(input), {}};
         try {
             const auto value = parse_json(raw, 65536);
-            require_fields(value, {"kind", "desired", "plugins"});
-            Record record{kind_named(value.at("kind").get<std::string>()).kind, false, {}};
-            record.desired = value.at("desired").get<bool>();
-            record.plugins = value.at("plugins").get<std::vector<std::string>>();
-            for (const auto& hash : record.plugins)
-                if (hash.size() != 64
-                    || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
-                    throw std::invalid_argument("invalid plugin digest");
-            if (kind_of(record.kind).service != file.stem().string())
+            if (value.at("kind").get<std::string>() != kind.name)
                 throw std::invalid_argument("service name and kind differ");
-            return record;
+            return Record{kind.kind, value.at("desired").get<bool>()};
         } catch (const std::exception& error) {
             throw std::invalid_argument(
                 "invalid local service record " + file.string() + ": " + error.what());
         }
     }
 
-    // A plugin is kept by its digest for as long as a selection may name it.
-    fs::path plugin_file(const std::string& hash) const
-    {
-        return state / "plugins" / (hash + ".bin");
-    }
-
-    void keep_plugin(const PluginArtifact& artifact) const
-    {
-        const auto file = plugin_file(artifact.sha256);
-        if (fs::exists(file) && sha256_file(file) == artifact.sha256)
-            return;
-        create_directories_durably(file.parent_path());
-        std::ifstream input(artifact.path, std::ios::binary);
-        replace_file_durably(file, std::string{std::istreambuf_iterator<char>(input), {}});
-        if (sha256_file(file) != artifact.sha256)
-            throw std::invalid_argument(
-                "native plugin changed while it was kept: " + file.string());
-    }
-
-    // Exactly the selected plugins, copied by digest into the service's lib/.
-    fs::path materialize(const Kind& kind, const std::vector<std::string>& plugins) const
-    {
-        const auto folder = program_directory(kind.program) / "lib" / "plugins" / kind.service;
-        create_directories_durably(folder);
-        std::set<fs::path> expected;
-        const auto extension = current_platform().os == "macos" ? ".dylib" : ".so";
-        for (const auto& hash : plugins) {
-            const auto source = plugin_file(hash);
-            if (!fs::exists(source) || sha256_file(source) != hash)
-                throw std::invalid_argument(
-                    "native plugin " + source.string()
-                    + " is missing or corrupted; configure the service's plugins again");
-            const auto target = folder / (hash + extension);
-            expected.insert(target);
-            if (!fs::exists(target) || sha256_file(target) != hash) {
-                std::ifstream input(source, std::ios::binary);
-                replace_file_durably(
-                    target,
-                    std::string{std::istreambuf_iterator<char>(input), {}});
-            }
-        }
-        for (const auto& entry : fs::directory_iterator(folder))
-            if (!expected.contains(entry.path()))
-                fs::remove_all(entry.path());
-        return folder;
-    }
-
-    // The program's directories, its logging and Research's settings seeded
-    // once from the application's defaults.
+    // The program's directories and its logging, seeded once from the
+    // application's defaults.
     void prepare_program(const Kind& kind) const
     {
         const auto folder = program_directory(kind.program);
@@ -293,8 +174,6 @@ struct LocalServices::Impl
             replace_file_durably(target, std::string{std::istreambuf_iterator<char>(input), {}});
         };
         seed(folder / "config" / "logging.json", "logging.json");
-        if (kind.kind == wire::RESEARCH)
-            seed(folder / "config" / kind.service / "research.json", "research.json");
     }
 
     std::unique_ptr<ChildProcess> launch(const Kind& kind, Service& service)
@@ -335,27 +214,7 @@ struct LocalServices::Impl
                 "--health-endpoint",
                 health,
                 "--endpoint",
-                endpoint,
-                "--node-id",
-                node_id});
-        if (kind.kind == wire::DATA || kind.kind == wire::RESEARCH)
-            args.insert(
-                args.end(),
-                {"--plugin-directory",
-                    utf8(materialize(kind, service.record.plugins)),
-                    "--discovery-endpoint",
-                    discovery_endpoint()});
-        if (kind.kind == wire::DATA)
-            args.insert(
-                args.end(),
-                {"--internal-endpoint", utf8(sockets / (std::string(kind.service) + ".internal"))});
-        if (kind.kind == wire::RESEARCH)
-            args.insert(
-                args.end(),
-                {"--config",
-                    utf8(
-                        program_directory(kind.program) / "config" / kind.service
-                        / "research.json")});
+                endpoint});
         if (kind.kind == wire::MARKET) {
             const auto programs = local_service_programs(kind.kind);
             if (fs::exists(programs.provider))
@@ -486,7 +345,6 @@ struct LocalServices::Impl
         const auto platform = current_platform();
         status->set_instance_id(instance);
         status->set_node_id(node_id);
-        status->set_discovery_endpoint(discovery_endpoint());
         status->set_phase(wire::Status::READY);
         status->mutable_execution()->set_business_ready(true);
         status->set_pid(current_process_id());
@@ -502,9 +360,6 @@ struct LocalServices::Impl
             item->set_id(name);
             item->set_kind(service.record.kind);
             item->set_artifact(service.artifact);
-            item->set_revision(service.record.revision());
-            for (const auto& hash : service.record.plugins)
-                item->add_plugin_artifacts(hash);
             item->set_desired_running(service.record.desired);
             item->set_restarts(service.restarts);
             item->set_error(service.error);
@@ -586,7 +441,6 @@ struct LocalServices::Impl
             }
             publish();
         }
-        // Readers of Data first, then Data itself.
         for (const auto& kind : kinds)
             if (const auto found = services.find(kind.service); found != services.end()) {
                 stop(found->second);
@@ -594,76 +448,6 @@ struct LocalServices::Impl
                 answer_waiting(kind.service, found->second);
             }
         publish();
-    }
-
-    void answer(int peer) const
-    {
-        std::array<char, 4> header{};
-        const auto deadline = Clock::now() + 2s;
-        read_exactly(peer, header.data(), header.size(), deadline);
-        const auto size = (std::uint32_t(static_cast<unsigned char>(header[0])) << 24)
-            | (std::uint32_t(static_cast<unsigned char>(header[1])) << 16)
-            | (std::uint32_t(static_cast<unsigned char>(header[2])) << 8)
-            | std::uint32_t(static_cast<unsigned char>(header[3]));
-        if (!size || size > 65536)
-            throw std::runtime_error("invalid discovery request size");
-        std::string payload(size, '\0');
-        read_exactly(peer, payload.data(), size, deadline);
-        wire::Request request;
-        wire::Response response;
-        response.set_version(1);
-        try {
-            if (!request.ParseFromString(payload))
-                throw std::invalid_argument("malformed discovery request");
-            response.set_correlation_id(request.correlation_id());
-            validate_id(request.correlation_id());
-            if (request.version() != 1 || !request.has_status())
-                throw Error(ErrorCode::permission_denied, "service discovery is read only");
-            std::lock_guard lock(mutex);
-            if (!published)
-                throw Error(ErrorCode::unavailable, "local services are starting");
-            *response.mutable_status() = *published;
-        } catch (const std::exception& error) {
-            response.clear_status();
-            response.mutable_error()->set_code(std::string(error_name(classify(error))));
-            response.mutable_error()->set_message(error.what());
-        }
-        write_frame(peer, response.SerializeAsString());
-    }
-
-    void serve(std::stop_token stop)
-    {
-        while (!stop.stop_requested()) {
-            pollfd descriptor{listener, POLLIN, 0};
-            if (::poll(&descriptor, 1, 200) <= 0)
-                continue;
-            const int peer = ::accept(listener, nullptr, nullptr);
-            if (peer < 0)
-                continue;
-            try {
-                answer(peer);
-            } catch (const std::exception& error) {
-                log::warn("service discovery request failed: {}", error.what());
-            }
-            ::close(peer);
-        }
-    }
-
-    void listen()
-    {
-        const auto path = discovery_endpoint();
-        sockaddr_un address{};
-        if (path.size() >= sizeof(address.sun_path))
-            throw std::runtime_error("discovery socket path is too long");
-        // macOS has no SOCK_CLOEXEC.
-        listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        if (listener < 0 || ::fcntl(listener, F_SETFD, FD_CLOEXEC) != 0)
-            throw std::runtime_error("cannot create the discovery socket");
-        address.sun_family = AF_UNIX;
-        std::copy(path.begin(), path.end(), address.sun_path);
-        if (::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0
-            || ::listen(listener, 8) != 0)
-            throw std::runtime_error("cannot listen on the discovery socket " + path);
     }
 
     explicit Impl(std::function<std::optional<fs::path>()> interpreter)
@@ -680,20 +464,15 @@ struct LocalServices::Impl
             node_id = "local-" + unique_process_id().substr(0, 16);
             replace_file_durably(identity, node_id);
         }
-        if (fs::exists(state / "services"))
-            for (const auto& entry : fs::directory_iterator(state / "services"))
-                if (entry.path().extension() == ".json")
-                    services.emplace(entry.path().stem().string(), Service{load(entry.path())});
+        for (const auto& kind : kinds)
+            if (const auto file = record_file(kind.service); fs::exists(file))
+                services.emplace(kind.service, Service{load(kind, file)});
         // Short and private: socket paths have a small length limit.
         sockets = fs::path("/tmp") / ("ast-" + instance.substr(0, 12));
         if (!fs::create_directory(sockets))
             throw std::runtime_error("cannot create the private service socket directory");
         fs::permissions(sockets, fs::perms::owner_all, fs::perm_options::replace);
-        listen();
         publish();
-        discovery = std::jthread([this](std::stop_token stop) {
-            serve(stop);
-        });
         supervisor = std::jthread([this](std::stop_token stop) {
             run(stop);
         });
@@ -708,32 +487,11 @@ struct LocalServices::Impl
         wake.notify_one();
         if (supervisor.joinable())
             supervisor.join();
-        discovery.request_stop();
-        if (discovery.joinable())
-            discovery.join();
-        if (listener >= 0)
-            ::close(listener);
         std::error_code ignored;
         fs::remove_all(sockets, ignored);
     }
 
-    std::vector<std::string> bundled_plugins() const
-    {
-        std::vector<std::string> hashes;
-        for (const auto& entry : local_plugin_catalog().entries)
-            if (!entry.managed && entry.availability == PluginAvailability::available
-                && entry.selectable_for_data_tasks()) {
-                keep_plugin(entry.artifact);
-                hashes.push_back(entry.artifact.sha256);
-            }
-        std::sort(hashes.begin(), hashes.end());
-        return hashes;
-    }
-
-    std::future<ServiceEndpoint> launch(
-        wire::ServiceKind kind,
-        std::optional<std::vector<std::string>> research_plugins,
-        bool answering);
+    std::future<ServiceEndpoint> launch(wire::ServiceKind kind, bool answering);
 
     ServiceEndpoint endpoint(const std::string& name, wire::ServiceKind kind) const
     {
@@ -771,46 +529,27 @@ NodeSnapshot LocalServices::view() const
     };
 }
 
-std::future<ServiceEndpoint> LocalServices::start(
-    wire::ServiceKind kind,
-    std::optional<std::vector<std::string>> research_plugins)
+std::future<ServiceEndpoint> LocalServices::start(wire::ServiceKind kind)
 {
-    return impl_->launch(kind, std::move(research_plugins), false);
+    return impl_->launch(kind, false);
 }
 
 std::future<ServiceEndpoint> LocalServices::serving(wire::ServiceKind kind)
 {
-    return impl_->launch(kind, std::nullopt, true);
+    return impl_->launch(kind, true);
 }
 
-std::future<ServiceEndpoint> LocalServices::Impl::launch(
-    wire::ServiceKind kind,
-    std::optional<std::vector<std::string>> research_plugins,
-    bool answering)
+std::future<ServiceEndpoint> LocalServices::Impl::launch(wire::ServiceKind kind, bool answering)
 {
     auto promise = std::make_shared<std::promise<ServiceEndpoint>>();
     auto result = promise->get_future();
-    (void)post<void>([this, kind, research_plugins, promise, answering] {
+    (void)post<void>([this, kind, promise, answering] {
         auto& impl = *this;
         try {
             const auto& item = kind_of(kind);
             auto found = impl.services.find(item.service);
-            if (found != impl.services.end() && research_plugins)
-                throw std::invalid_argument(
-                    "the local research service already exists; configure its plugins");
             if (found == impl.services.end()) {
-                Record record{kind, true, {}};
-                if (kind == wire::DATA || kind == wire::RESEARCH) {
-                    if (research_plugins) {
-                        const auto selection =
-                            local_plugin_catalog().select_data_task_plugins(*research_plugins);
-                        for (const auto& artifact : selection.uploads)
-                            impl.keep_plugin(artifact);
-                        record.plugins = selection.hashes;
-                        std::sort(record.plugins.begin(), record.plugins.end());
-                    } else
-                        record.plugins = impl.bundled_plugins();
-                }
+                Record record{kind, true};
                 impl.save(item.service, record);
                 found = impl.services.emplace(item.service, Service{std::move(record)}).first;
             }
@@ -873,68 +612,6 @@ std::future<void> LocalServices::act(std::string name, std::string action)
         }
         impl.publish();
     });
-}
-
-std::future<void> LocalServices::configure_plugins(
-    std::string name,
-    std::string expected,
-    std::vector<std::string> plugins)
-{
-    return impl_->post<void>([this,
-                                 name = std::move(name),
-                                 expected = std::move(expected),
-                                 plugins = std::move(plugins)] {
-        auto& impl = *impl_;
-        const auto found = impl.services.find(name);
-        if (found == impl.services.end())
-            throw Error(ErrorCode::not_found, "no such local service: " + name);
-        auto& service = found->second;
-        if (service.record.kind != wire::DATA && service.record.kind != wire::RESEARCH)
-            throw std::invalid_argument("service does not support native plugins");
-        if (service.record.desired || service.process)
-            throw std::invalid_argument("stop the service before configuring plugins");
-        if (service.record.revision() != expected)
-            throw std::invalid_argument("service configuration changed; inspect again");
-        const auto selection =
-            local_plugin_catalog().select_data_task_plugins(plugins, service.record.plugins);
-        for (const auto& artifact : selection.uploads)
-            impl.keep_plugin(artifact);
-        auto next = service.record;
-        next.plugins = selection.hashes;
-        std::sort(next.plugins.begin(), next.plugins.end());
-        impl.save(name, next);
-        service.record = std::move(next);
-        service.restarts = 0;
-        service.error.clear();
-        impl.publish();
-    });
-}
-
-std::vector<HistoryService> LocalServices::history() const
-{
-    std::shared_ptr<const wire::Status> status;
-    {
-        std::lock_guard lock(impl_->mutex);
-        status = impl_->published;
-    }
-    std::vector<HistoryService> result;
-    if (!status)
-        return result;
-    for (const auto& service : status->services())
-        if (service.kind() == wire::DATA || service.kind() == wire::RESEARCH)
-            result.push_back(
-                {service.kind(),
-                    service.directory(),
-                    service.state(),
-                    ServiceEndpoint{
-                        "",
-                        service.id(),
-                        0,
-                        service.endpoint(),
-                        "local",
-                        status->node_id()
-                    }});
-    return result;
 }
 
 } // namespace asterion::terminal

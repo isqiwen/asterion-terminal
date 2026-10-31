@@ -5,8 +5,6 @@ export type Service = NonNullable<NodeStatus["health"]>["services"][number];
 export type ServiceKind = Service["kind"];
 export const kindLabels: Record<ServiceKind, string> = {
   market: "行情服务",
-  data: "历史数据服务",
-  research: "研究服务",
   lab: "Python 研究服务",
 };
 export function serviceStatus(node: NodeStatus, service: Service) {

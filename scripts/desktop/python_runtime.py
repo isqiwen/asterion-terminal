@@ -22,7 +22,6 @@ import runtime_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
-ANALYTICS = ROOT / "apps/services/research/reports/report.py"
 DESTINATION = ROOT / "build/electron-resources/python"
 PYTHON = "3.12.12"
 SITE = "lib/python3.12/site-packages"
@@ -82,10 +81,9 @@ def verify(directory=DESTINATION):
 
 
 def application_code(build: Path, target: Path):
-    """The Terminal's own Python code: the analytics helper, lab, its protocol
-    types and the backtest engine built for this interpreter."""
+    """The Terminal's own Python code: lab, its protocol types and the
+    backtest engine built for this interpreter."""
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ANALYTICS, target / "asterion_analytics.py")
     shutil.copytree(build / "generated-python/asterion", target / "asterion")
     for engine in (build / "engine-python").glob("asterion_engine.*"):
         shutil.copy2(engine, target / engine.name)
@@ -162,7 +160,7 @@ def prepare(build=None):
             {"platform": [sys.platform, platform.machine()], "python": PYTHON}, indent=2) + "\n")
         verify(prepared)
         # The relocated runtime imports Terminal's Python code without a system Python.
-        run([python, "-I", "-B", "-c", "import asterion_analytics, asterion_engine, asterion_lab.__main__"])
+        run([python, "-I", "-B", "-c", "import asterion_engine, asterion_lab.__main__"])
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         publish_tree(prepared, DESTINATION)
     print(f"Prepared offline Python runtime: {DESTINATION}")

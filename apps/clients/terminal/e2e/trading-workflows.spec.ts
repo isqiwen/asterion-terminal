@@ -1,20 +1,15 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import { seedDataset } from "./dataset-fixture";
 
 for (const locale of ["zh-CN", "en-US"]) {
-  test(`account and backtest wizards retain drafts and fit ${locale}`, async ({ page }) => {
+  test(`the account and research pages fit ${locale}`, async ({ page }) => {
     const en = locale === "en-US";
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
     await page.goto("/");
     await expect(page.locator(".workspace-tabs")).toBeVisible();
-    await seedDataset(page.request, [100, 101, 102], `workflow-${locale}`);
-    await page.reload();
     await page.setViewportSize({ width: 1024, height: 768 });
-    const button = (zh: string, english: string) =>
-      page.getByRole("button", { name: en ? english : zh, exact: true });
     const fits = async () =>
       expect(
         await page
@@ -27,22 +22,12 @@ for (const locale of ["zh-CN", "en-US"]) {
     ).toBeVisible();
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
-    await openView(page, "backtest");
-    await button("回测", "Backtest").click();
-    await button("新建回测", "New backtest").click();
-    await button("下一步", "Next").click();
-    await page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true }).fill("25000");
+    await openView(page, "research");
+    await expect(
+      page.getByRole("heading", { name: en ? "Research" : "研究", exact: true }),
+    ).toBeVisible();
     await fits();
-    // A draft survives leaving the workspace and coming back.
-    await openView(page, "trading");
-    await openView(page, "backtest");
-    await expect(page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true })).toHaveValue(
-      "25000",
-    );
-    await page.screenshot({
-      path: `apps/clients/terminal/test-results/backtest-setup-${locale}.png`,
-    });
-    // Check visible product copy; hidden drafts can contain user-named datasets.
+    // Check visible product copy in English.
     if (en)
       expect(await page.locator(".terminal-business").innerText()).not.toMatch(/\p{Script=Han}/u);
     expect(errors).toEqual([]);

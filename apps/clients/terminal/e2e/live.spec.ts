@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { ctpConnection, rpc, seedDataset } from "./dataset-fixture";
+import { ctpConnection, rpc } from "./rpc-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./trading-fixture";
 import { join } from "node:path";
@@ -96,15 +96,13 @@ test(
       await expect(
         page.getByRole("button", { name: "CTP：0 个已授权 · 1 个只读 · 0 个未就绪", exact: true }),
       ).toBeVisible();
-      // The account's own rates become the product's fee template.
+      // The broker reports the account's own rates.
       await panel.getByRole("button", { name: "费率", exact: true }).click();
       await panel.getByRole("button", { name: "查询账户费率", exact: true }).click();
       const rates = panel.getByRole("table", { name: "账户费率表" });
       await expect(rates.locator("tbody tr")).toContainText("已返回", { timeout: 15000 });
       await expect(rates.locator("tbody tr")).toContainText("0 / 0.12");
       await checked("broker margin and commission rates received");
-      await rates.getByRole("button", { name: "存为 SHFE/rb 费率模板", exact: true }).click();
-      await expect(rates.getByText("已存为 SHFE/rb 模板", { exact: true })).toBeVisible();
       const authorize = panel.getByRole("button", { name: "允许发送委托", exact: true });
       await expect(authorize).toBeDisabled();
       await panel.screenshot({ path: join(__dirname, "../test-results/live-authorize.png") });
@@ -142,7 +140,7 @@ test(
       await expect(
         page.getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true }),
       ).toBeVisible();
-      await openView(page, "backtest");
+      await openView(page, "research");
       await page
         .getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true })
         .click();
@@ -171,30 +169,6 @@ test(
         timeout: 30000,
       });
       await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
-
-      // Current broker rates must not silently apply to earlier history.
-      await seedDataset(page.request, [3500, 3501], "live-rates");
-      // Seeding restarts research; mount the form after the new service attaches.
-      await page.reload();
-      await openView(page, "backtest");
-      const openCosts = async () => {
-        await page.getByRole("button", { name: "新建回测", exact: true }).click();
-        await page.getByRole("button", { name: "下一步", exact: true }).click();
-      };
-      await openCosts();
-      const costs = page.getByRole("region", { name: "SHFE · rb2610 保证金与手续费" });
-      await expect(costs).toContainText("来源 CTP 账户 9999/000001 · 2026-09-28 起生效");
-      await expect(costs.getByRole("button", { name: "填入模板", exact: true })).toBeDisabled();
-      await expect(costs.getByRole("alert")).toContainText("费率版本未覆盖首个交易日 2026-09-25");
-      await seedDataset(page.request, [3500, 3501], "live-rates-covered", { day: "2026-09-28" });
-      // Seeding restarts the task service, which closes the open form.
-      await page.reload();
-      await openView(page, "backtest");
-      await openCosts();
-      await costs.getByRole("button", { name: "填入模板", exact: true }).click();
-      await expect(costs.getByLabel("保证金率", { exact: true })).toHaveValue("0.12");
-      await expect(costs.getByLabel("平今费率", { exact: true })).toHaveValue("0.0003");
-      await expect(costs.getByLabel("每手平今费", { exact: true })).toHaveValue("1.5");
 
       // A restarted test SDK has no broker-side order memory. Durable terminal
       // evidence keeps the filled intent retired; recovery never resends it.

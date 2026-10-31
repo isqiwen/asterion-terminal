@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { expect, test, vi } from "vitest";
 import { localService, readySnapshot } from "../testing/core";
 import { Connections } from "./Connections";
-import { DataSources } from "./DataSources";
+
 import { Settings } from "./Settings";
 
 // jsdom does not implement the browser's dialog methods.
@@ -27,16 +27,6 @@ test("local services name what a state means and confirm before stopping", async
   await waitFor(() =>
     expect(trade).toHaveBeenCalledWith("node.action", { service: "market-data", action: "stop" }),
   );
-});
-
-test("a stopped Data service is started from the data source page, not Research", () => {
-  const snapshot = readySnapshot();
-  snapshot.data = null;
-  const trade = vi.fn().mockResolvedValue(undefined);
-  render(<DataSources snapshot={snapshot} busy={false} trade={trade} />);
-  fireEvent.click(screen.getByRole("button", { name: "启动历史数据服务" }));
-  expect(trade).toHaveBeenCalledWith("node.data.local.open");
-  expect(screen.queryByText(/多节点/)).toBeNull();
 });
 
 test("every settings page has its title, and trading connections have their own page", () => {

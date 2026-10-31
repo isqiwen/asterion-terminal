@@ -1,4 +1,4 @@
-import { ctpConnection, rpc } from "./dataset-fixture";
+import { ctpConnection, rpc } from "./rpc-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./trading-fixture";
 

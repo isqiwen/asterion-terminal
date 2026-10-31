@@ -22,11 +22,9 @@ phase and its work packages:
   research and data acquisition.
 - Strategies output target positions or weights and never send orders. The C++
   kernel converts targets into orders and enforces [docs/safety.md](docs/safety.md).
-- The user-approved M1.9 consolidates extension boundaries and engineering structure.
-  Work only on the active phase. Parts the plan replaces (Data, Research, the
-  shared task store, the C++ rule strategies, the Node-API layer and
-  hand-written JSON mappings) get the fixes the active phase needs, never new
-  features.
+- Work only on the active phase. Parts the plan replaces (the Node-API layer
+  and hand-written JSON mappings) get the fixes the active phase needs, never
+  new features.
 - Every new mechanism serves a user scenario. Do not add digests, evidence
   records, validators or compatibility layers without one.
 - A phase is done when it worked for real, on real data or the CTP simulation
@@ -37,13 +35,15 @@ phase and its work packages:
 - Core layers, lowest first: `asterion_base` → `asterion_system` →
   `asterion_futures`. Dependencies point down. Implementation belongs to its owning application;
   genuinely shared service code lives in `apps/services/common/`. Shared database
-  access and built-in order limits live in `core/`; third-party data-source
-  implementations live in `extensions/`. Python strategy extension is M2.1. Factors are reusable
-  research functions/packages, not a separate plugin system.
-- Business services (`apps/services/`): Market, Data, Research and Trading
-  (one process per account). Each owns its state and runs its own tasks
-  in bounded thread pools. There is no central task service or worker process.
-- Local services: Terminal starts Market, Data, Research and Lab on its own
+  access and built-in order limits live in `core/`. Data sources live in
+  `apps/services/lab/asterion_lab/sources/`. Strategies are Python classes and
+  factors plain Python functions in the user's strategy repository, not a
+  separate plugin system.
+- Business services (`apps/services/`): Market, Lab (Python: data warehouse,
+  acquisition, research runs; `lab/engine` is the core replay as a Python
+  extension), Recorder and Trading (one process per account). Each owns its
+  state. There is no central task service or worker process.
+- Local services: Terminal starts Market and Lab on its own
   machine as child processes (`LocalServices` in
   `apps/clients/terminal/native/`), one of each, restarts them on failure and
   they exit with it. Trading and Recorder are independent Linux installations
@@ -71,7 +71,7 @@ The full contract is [docs/safety.md](docs/safety.md). Its core:
   data; fixtures are for tests only.
 - Live trading requires authorization, account risk controls and the single
   execution path. Missing or invalid risk configuration rejects execution. Risk rules are compiled
-  into Trading and Research; ledgers record policy parameters and changes, never algorithm copies.
+  into Trading and the backtest engine; ledgers record policy parameters and changes, never algorithm copies.
 - Never resend a trading command automatically after a disconnect or an unknown
   outcome.
 - Credentials are entered locally and never stored in source, logs, chat,

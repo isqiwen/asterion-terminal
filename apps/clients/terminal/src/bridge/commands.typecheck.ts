@@ -8,11 +8,7 @@ export function commandContractExamples(
   account: AccountRun,
 ) {
   void send("market.local");
-  void send("task.action", {
-    owner: { kind: "research", node_id: "local", service: "research", connection_id: "test" },
-    id: "task",
-    action: "cancel",
-  });
+  void send("node.action", { service: "market-data", action: "restart" });
   void context.query("market.minutes", { venue: "SHFE", symbol: "rb2605" });
   void account("live.open");
   // @ts-expect-error a panel-bound command cannot supply a different account
@@ -27,13 +23,13 @@ export function commandContractExamples(
   });
   // @ts-expect-error a required account cannot disappear through a host callback
   void send("live.open");
-  void send("task.action", {
-    owner: { kind: "research", node_id: "local", service: "research", connection_id: "test" },
+  void send("node.action", {
+    service: "market-data",
     // @ts-expect-error parameters belong to their command
     account: "account",
   });
   // @ts-expect-error a query callback cannot send an order or change authorization
   void context.query("live.open", { account: "account" });
-  // @ts-expect-error no parameters are accepted by the catalog inspection command
-  void send("native.plugins.inspect", { path: "plugin" });
+  // @ts-expect-error no parameters are accepted by the runtime status command
+  void send("runtime.python.status", { path: "runtime" });
 }

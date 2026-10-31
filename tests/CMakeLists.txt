@@ -23,16 +23,9 @@ endif()
 # processes, sockets or slow stores. A test program that has any such test is
 # `process`; directly registered script tests below are all `process`.
 set(asterion_process_test_targets
-  asterion_ctp_catalog_tests asterion_ctp_tests
-  asterion_ctp_trader_tests asterion_data_backup_tests asterion_data_credential_tests
-  asterion_data_tests asterion_dominant_series_tests asterion_kernel_tests asterion_live_tests
-  asterion_logic_store_tests asterion_market_snapshot_tests asterion_material_lifecycle_tests
-  asterion_material_process_tests
-  asterion_paper_tests asterion_portfolio_tests asterion_quantstats_tests
-  asterion_research_backup_tests asterion_research_evaluation_tests asterion_research_sample_tests
-  asterion_research_statistics_tests asterion_rpc_host_tests asterion_shfe_margin_tests
-  asterion_strategy_store_tests asterion_task_execution_tests asterion_terminal_query_tests
-  asterion_tushare_tests)
+  asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
+  asterion_data_credential_tests asterion_kernel_tests asterion_live_tests
+  asterion_market_snapshot_tests asterion_rpc_host_tests asterion_terminal_application_tests)
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.
 function(asterion_unit_tests target source library)
@@ -62,11 +55,6 @@ function(asterion_unit_tests target source library)
     PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial} LABELS ${label}
     ${asterion_test_environment})
 endfunction()
-enable_language(C)
-# In this tree the sample plugin builds against this checkout's SDK headers.
-set(ASTERION_PLUGIN_SDK "${CMAKE_SOURCE_DIR}/bindings/plugin/include")
-add_subdirectory(support/native-plugin)
-
 # core: foundation, kernel, domain and protocol
 asterion_unit_tests(asterion_protocol_tests core/protocol_test.cpp asterion_protocol)
 target_link_libraries(asterion_protocol_tests PRIVATE Asterion::System)
@@ -80,12 +68,6 @@ asterion_unit_tests(asterion_transport_tests core/timed_operation_test.cpp Aster
 target_include_directories(asterion_transport_tests PRIVATE ${CMAKE_SOURCE_DIR}/core/src)
 target_link_libraries(asterion_transport_tests PRIVATE asio::asio)
 asterion_unit_tests(asterion_ipc_tests core/ipc_test.cpp Asterion::System)
-asterion_unit_tests(asterion_native_plugin_tests core/native_plugin_test.cpp Asterion::System)
-target_compile_definitions(asterion_native_plugin_tests PRIVATE
-  PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>"
-  PLUGIN_MISSING_ENTRY="$<TARGET_FILE:plugin_fixture_missing_entry>" PLUGIN_EMPTY_TABLE="$<TARGET_FILE:plugin_fixture_empty_table>"
-  PLUGIN_TUSHARE="$<TARGET_FILE:asterion_tushare_plugin>")
-add_dependencies(asterion_native_plugin_tests plugin_fixture_good plugin_fixture_bad_abi plugin_fixture_missing_entry plugin_fixture_empty_table asterion_tushare_plugin)
 asterion_unit_tests(asterion_domain_tests core/domain_test.cpp Asterion::Futures)
 asterion_unit_tests(asterion_replay_tests core/replay_test.cpp Asterion::Futures)
 asterion_unit_tests(asterion_logging_tests core/logger_test.cpp Asterion::System)
@@ -126,8 +108,6 @@ target_compile_definitions(asterion_ctp_tests PRIVATE ASTERION_TEST_CTP="$<TARGE
 add_dependencies(asterion_ctp_tests asterion_test_ctp asterion_market)
 add_test(NAME market_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/market_process.py ${CMAKE_BINARY_DIR})
 set_tests_properties(market_process PROPERTIES TIMEOUT 60)
-add_test(NAME market_observation_archive COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/observation_archive.py ${CMAKE_BINARY_DIR})
-set_tests_properties(market_observation_archive PROPERTIES TIMEOUT 60)
 add_test(NAME ctp_sdk_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/ctp_sdk_smoke.py ${CMAKE_BINARY_DIR})
 set_tests_properties(ctp_sdk_smoke PROPERTIES TIMEOUT 30)
 asterion_unit_tests(asterion_intraday_tests market/intraday_bars_test.cpp asterion_protocol)
@@ -157,52 +137,12 @@ set_tests_properties(live_process PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 add_test(NAME trading_remote_instances COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/remote_instances.py ${CMAKE_BINARY_DIR})
 set_tests_properties(trading_remote_instances PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
 asterion_unit_tests(asterion_order_limits_tests trading/order_limits_test.cpp Asterion::Futures)
-asterion_unit_tests(asterion_material_store_tests data/material_store_test.cpp asterion_data_store)
-asterion_unit_tests(asterion_material_protocol_tests data/material_protocol_test.cpp asterion_protocol)
-asterion_unit_tests(asterion_program_files_tests tasks/program_files_test.cpp asterion_program_files)
 asterion_unit_tests(asterion_live_tests trading/live_session_test.cpp asterion_trading_session 120)
 target_include_directories(asterion_live_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/common/market/ctp)
 target_link_libraries(asterion_live_tests PRIVATE Asterion::Futures asterion_sqlite)
 target_compile_definitions(asterion_live_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
 add_dependencies(asterion_live_tests asterion_test_ctp_trader)
 
-# data: history providers, storage, the data service, dataset seeding
-# Test-only history fixtures used by the process and e2e tests on every platform.
-add_executable(asterion_test_history data/history_dataset_fixture.cpp)
-target_include_directories(asterion_test_history PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_test_history PRIVATE asterion_data_store CLI11::CLI11)
-add_executable(asterion_test_minutes data/minute_dataset_fixture.cpp)
-target_include_directories(asterion_test_minutes PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_test_minutes PRIVATE asterion_data_store asterion_tushare asterion_task_store CLI11::CLI11)
-asterion_unit_tests(asterion_data_tests data/data_service_test.cpp "asterion_data_store;asterion_data_client;asterion_task_store;asterion_sqlite" 45)
-target_compile_definitions(asterion_data_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion_data>" ASTERION_RESEARCH_PATH="$<TARGET_FILE:asterion_research>")
-add_dependencies(asterion_data_tests asterion_data asterion_research)
-asterion_unit_tests(asterion_native_history_plugin_tests data/native_history_plugin_test.cpp asterion_history_providers)
-target_compile_definitions(asterion_native_history_plugin_tests PRIVATE PLUGIN_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:plugin_fixture_good>")
-add_dependencies(asterion_native_history_plugin_tests plugin_fixture_good)
-asterion_unit_tests(asterion_calendar_bar_tests data/calendar_bar_test.cpp asterion_chart_indicators)
-# Crash recovery preserves the provider budget quiet minute before an explicit retry.
-asterion_unit_tests(asterion_tushare_tests data/tushare_test.cpp asterion_task_store 90)
-target_link_libraries(asterion_tushare_tests PRIVATE asterion_data_store asterion_data_client asterion_tushare asterion_sqlite asterion_bar_parquet asterion_factor_engine)
-target_sources(asterion_tushare_tests PRIVATE data/history_archive_test.cpp data/bar_parquet_test.cpp data/history_tables_test.cpp data/tushare_tables_test.cpp data/table_update_test.cpp data/table_series_test.cpp)
-target_sources(asterion_tushare_tests PRIVATE data/minute_evidence_test.cpp data/historical_sessions_test.cpp data/history_repair_gate_test.cpp)
-target_compile_definitions(asterion_tushare_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion_data>" ASTERION_RESEARCH_PATH="$<TARGET_FILE:asterion_research>" PLUGIN_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:plugin_fixture_good>")
-add_dependencies(asterion_tushare_tests asterion_data asterion_research plugin_fixture_good)
-# This process test preserves DownloadBudget's real one-minute restart quiet period.
-# Set only its budget after GoogleTest has populated the discovered cases.
-set(data_refresh_recovery_timeout 90)
-if(ASTERION_SANITIZERS)
-  math(EXPR data_refresh_recovery_timeout "${data_refresh_recovery_timeout} * 5")
-endif()
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/data_refresh_recovery_timeout.cmake"
-  CONTENT "if(TEST TableRefreshOwnership.DataAloneOwnsCancellationRecoveryAndRepeatedSubmission)\n  set_tests_properties(TableRefreshOwnership.DataAloneOwnsCancellationRecoveryAndRepeatedSubmission PROPERTIES TIMEOUT ${data_refresh_recovery_timeout})\nendif()\n")
-set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/data_refresh_recovery_timeout.cmake")
-
-
-# tasks: the task service, backtest and factor engines, workers
-add_test(NAME task_recovery COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_recovery.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
-set_tests_properties(task_recovery PROPERTIES TIMEOUT 60)
 # lab: the Python research service under the Terminal, with the prepared runtime.
 add_test(NAME lab_warehouse COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/warehouse_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(lab_warehouse PROPERTIES TIMEOUT 60)
@@ -223,49 +163,18 @@ add_test(NAME lab_dominant COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resource
 add_test(NAME lab_service COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lab/lab_service.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
 set_tests_properties(lab_service PROPERTIES TIMEOUT 90
   ENVIRONMENT "ASTERION_PYTHON=${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
-foreach(mode handshake frame overload)
-  add_test(NAME task_slow_${mode} COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_concurrency.py $<TARGET_FILE:asterion_research> ${mode})
-  set_tests_properties(task_slow_${mode} PROPERTIES TIMEOUT 30)
-endforeach()
 asterion_unit_tests(asterion_performance_tests core/performance_test.cpp Asterion::Futures)
-asterion_unit_tests(asterion_account_exposure_tests tasks/account_exposure_test.cpp asterion_performance)
-asterion_unit_tests(asterion_static_stress_tests tasks/static_stress_test.cpp asterion_performance)
-asterion_unit_tests(asterion_account_reconciliation_tests tasks/account_reconciliation_test.cpp asterion_performance)
-asterion_unit_tests(asterion_portfolio_budget_tests tasks/portfolio_budget_test.cpp asterion_performance)
-asterion_unit_tests(asterion_strategy_tests tasks/strategy_test.cpp asterion_strategies)
-asterion_unit_tests(asterion_strategy_package_tests tasks/strategy_package_test.cpp asterion_protocol)
-asterion_unit_tests(asterion_research_logic_tests tasks/research_logic_test.cpp asterion_research_logic)
-asterion_unit_tests(asterion_logic_store_tests tasks/logic_store_test.cpp asterion_research_logic_store)
-target_link_libraries(asterion_logic_store_tests PRIVATE asterion_task_store asterion_research_logic asterion_research_host asterion_program_files Asterion::Futures asterion_research_strategies)
-asterion_unit_tests(asterion_strategy_store_tests tasks/strategy_store_test.cpp asterion_research_strategies)
-target_link_libraries(asterion_strategy_store_tests PRIVATE asterion_task_store asterion_program_files asterion_backtest_engine)
-# Explicit offline profiling; timings are evidence, not flaky CTest assertions.
-add_executable(asterion_factor_capacity_probe EXCLUDE_FROM_ALL tasks/factor_capacity.cpp)
-target_include_directories(asterion_factor_capacity_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_factor_capacity_probe PRIVATE asterion_factor_engine asterion_factor_analysis CLI11::CLI11)
-asterion_unit_tests(asterion_factor_tests tasks/factor_test.cpp asterion_factor_engine)
-target_link_libraries(asterion_factor_tests PRIVATE asterion_factor_analysis asterion_sqlite asterion_task_store)
-target_sources(asterion_factor_tests PRIVATE tasks/feature_expression_test.cpp tasks/descriptive_statistics_test.cpp)
-asterion_unit_tests(asterion_task_execution_tests tasks/task_store_test.cpp asterion_backtest_engine 180)
-target_sources(asterion_task_execution_tests PRIVATE tasks/backtest_execution_test.cpp tasks/task_process_test.cpp)
-target_link_libraries(asterion_task_execution_tests PRIVATE asterion_program_files asterion_research_backup asterion_performance asterion_data_store asterion_data_client asterion_factor_engine asterion_strategies asterion_research_host Asterion::Futures asterion_sqlite)
-target_compile_definitions(asterion_task_execution_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion_data>" ASTERION_RESEARCH_PATH="$<TARGET_FILE:asterion_research>")
-add_dependencies(asterion_task_execution_tests asterion_data asterion_research)
-asterion_unit_tests(asterion_dominant_series_tests tasks/dominant_series_test.cpp asterion_backtest_engine)
-target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_program_files asterion_data_store asterion_factor_engine asterion_strategies asterion_task_store Asterion::Futures asterion_sqlite)
-asterion_unit_tests(asterion_paper_tests tasks/paper_test.cpp asterion_paper 180)
-target_link_libraries(asterion_paper_tests PRIVATE Asterion::Futures asterion_sqlite)
 
 # node: service command lines and graceful stops
-add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading> $<TARGET_FILE:asterion_research> $<TARGET_FILE:asterion_data>)
+add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading>)
 set_tests_properties(cli_contract PROPERTIES TIMEOUT 45)
 add_executable(asterion_test_certificates node/tls_certificates.cpp)
 target_include_directories(asterion_test_certificates PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(asterion_test_certificates PRIVATE cxx_std_20)
 target_link_libraries(asterion_test_certificates PRIVATE asterion_system)
 
-# terminal: the Terminal's native layer — commands, credentials, plugin management
-asterion_unit_tests(asterion_terminal_query_tests terminal/terminal_minute_query_test.cpp asterion_terminal_api)
+# terminal: the Terminal's native layer — commands and credentials
+asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_api)
 asterion_unit_tests(asterion_data_credential_tests terminal/data_credentials_test.cpp asterion_terminal_api)
 asterion_unit_tests(asterion_ctp_connection_tests terminal/ctp_connections_test.cpp asterion_terminal_api)
 target_include_directories(asterion_data_credential_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
@@ -275,10 +184,10 @@ target_compile_features(asterion_test_keychain_helper PRIVATE cxx_std_20)
 target_compile_definitions(asterion_data_credential_tests PRIVATE ASTERION_TEST_KEYCHAIN_HELPER="$<TARGET_FILE:asterion_test_keychain_helper>")
 add_dependencies(asterion_data_credential_tests asterion_test_keychain_helper)
 target_include_directories(asterion_ctp_connection_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_link_libraries(asterion_terminal_query_tests PRIVATE asio::asio asterion_strategies spdlog::spdlog_header_only)
+target_link_libraries(asterion_terminal_application_tests PRIVATE asio::asio spdlog::spdlog_header_only)
 add_executable(asterion_terminal_tests terminal/terminal_api_test.cpp)
 target_include_directories(asterion_terminal_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_terminal_tests PRIVATE asterion_data_store asterion_task_store asterion_terminal_api GTest::gtest)
+target_link_libraries(asterion_terminal_tests PRIVATE asterion_terminal_api GTest::gtest)
 # One CTest per case, each with its own isolated Agent.
 set(asterion_terminal_test_timeout 90)
 if(ASTERION_SANITIZERS)
@@ -289,11 +198,6 @@ endif()
 gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
   DISCOVERY_TIMEOUT 30
   PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
-asterion_unit_tests(asterion_plugin_management_tests terminal/plugin_management_test.cpp asterion_terminal_api)
-target_include_directories(asterion_plugin_management_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_compile_definitions(asterion_plugin_management_tests PRIVATE PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>")
-add_dependencies(asterion_plugin_management_tests plugin_fixture_good plugin_fixture_newer plugin_fixture_bad_abi)
-
 # desktop: the Electron host and what an installer contains
 if(ASTERION_NODE_HEADERS)
   find_program(ASTERION_TEST_NODE node REQUIRED)
@@ -324,82 +228,8 @@ if(ASTERION_SANITIZERS)
   endforeach()
 endif()
 
-target_link_libraries(asterion_terminal_tests PRIVATE asterion_performance)
-
-asterion_unit_tests(asterion_shfe_margin_tests data/shfe_margins_test.cpp asterion_data_store)
-target_link_libraries(asterion_shfe_margin_tests PRIVATE asterion_shfe)
-target_link_libraries(asterion_test_history PRIVATE asterion_shfe)
-target_link_libraries(asterion_task_execution_tests PRIVATE asterion_program_files asterion_shfe)
-add_executable(asterion_shfe_margin_probe EXCLUDE_FROM_ALL acceptance/shfe_margin_probe.cpp)
-target_include_directories(asterion_shfe_margin_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_shfe_margin_probe PRIVATE asterion_data_queries asterion_history_providers asterion_shfe CLI11::CLI11)
-
-asterion_unit_tests(asterion_quantstats_tests terminal/quantstats_test.cpp asterion_terminal_api 90)
-target_compile_definitions(asterion_quantstats_tests PRIVATE ASTERION_PYTHON_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
-
-asterion_unit_tests(asterion_portfolio_tests terminal/portfolio_test.cpp asterion_terminal_api 90)
-target_compile_definitions(asterion_portfolio_tests PRIVATE ASTERION_PYTHON_PATH="${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3")
-
-
 asterion_unit_tests(asterion_installation_tests desktop/installation_test.cpp asterion_installation)
 
-
-# The shared file mechanism; each domain adapter adds its own semantic validation.
-asterion_unit_tests(asterion_backup_files_tests data/backup_files_test.cpp asterion_backup_files)
-
-asterion_unit_tests(asterion_research_statistics_tests tasks/research_statistics_test.cpp asterion_research_statistics)
-target_link_libraries(asterion_research_statistics_tests PRIVATE asterion_factor_engine asterion_program_files asterion_task_store)
-asterion_unit_tests(asterion_research_evaluation_tests tasks/research_evaluation_test.cpp asterion_research_evaluation 90)
-target_link_libraries(asterion_research_evaluation_tests PRIVATE asterion_research_host asterion_backtest_engine asterion_program_files asterion_task_store)
-target_compile_definitions(asterion_research_evaluation_tests PRIVATE ASTERION_RESEARCH_PATH=\"$<TARGET_FILE:asterion_research>\")
-add_dependencies(asterion_research_evaluation_tests asterion_research)
-asterion_unit_tests(asterion_research_backup_tests tasks/research_backup_test.cpp asterion_research_backup)
-target_link_libraries(asterion_research_backup_tests PRIVATE asterion_program_files asterion_research_strategies Asterion::Futures asterion_sqlite asterion_research_host asterion_domain_backup asterion_data_store asterion_data_backup asterion_backtest_engine asterion_factor_engine)
-asterion_unit_tests(asterion_data_backup_tests data/data_backup_test.cpp asterion_data_backup)
-target_sources(asterion_data_backup_tests PRIVATE data/resource_catalogue_test.cpp data/observation_archive_test.cpp)
-target_link_libraries(asterion_data_backup_tests PRIVATE asterion_data_store asterion_task_store asterion_domain_backup)
-target_compile_definitions(asterion_data_backup_tests PRIVATE PLUGIN_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:plugin_fixture_good>")
-add_dependencies(asterion_data_backup_tests plugin_fixture_good)
-
-# Synthetic provider loaded only from its own explicit test directory.
-add_library(asterion_test_material_provider SHARED data/material_provider_fixture.cpp)
-target_link_libraries(asterion_test_material_provider PRIVATE Asterion::System)
-set_target_properties(asterion_test_material_provider PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/material-fixtures" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-asterion_unit_tests(asterion_material_provider_tests data/material_provider_test.cpp "asterion_material_providers;asterion_data_store")
-target_compile_definitions(asterion_material_provider_tests PRIVATE MATERIAL_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:asterion_test_material_provider>")
-add_dependencies(asterion_material_provider_tests asterion_test_material_provider)
-
-asterion_unit_tests(asterion_material_task_tests data/material_task_test.cpp asterion_task_store)
-
-asterion_unit_tests(asterion_material_process_tests data/material_process_test.cpp "asterion_data_store;asterion_data_client" 45)
-target_compile_definitions(asterion_material_process_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion_data>" MATERIAL_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:asterion_test_material_provider>")
-add_dependencies(asterion_material_process_tests asterion_data asterion_test_material_provider)
-
-asterion_unit_tests(asterion_material_lifecycle_tests data/material_lifecycle_test.cpp "asterion_data_store;asterion_material_providers;asterion_data_backup;asterion_domain_backup")
-target_compile_definitions(asterion_material_lifecycle_tests PRIVATE MATERIAL_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:asterion_test_material_provider>")
-add_dependencies(asterion_material_lifecycle_tests asterion_test_material_provider)
-
-asterion_unit_tests(asterion_research_variable_tests tasks/research_variable_test.cpp "asterion_research_variables;asterion_research_tasks")
-
-asterion_unit_tests(asterion_research_sample_tests tasks/research_sample_test.cpp asterion_research_sample)
-target_link_libraries(asterion_research_sample_tests PRIVATE asterion_factor_analysis asterion_task_store asterion_program_files asterion_research_statistics)
-
-
-
-# Typed task submissions are owned by the Research and Data services.
-target_link_libraries(asterion_data_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_program_files asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_factor_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_material_task_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_test_minutes PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_data_backup_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_logic_store_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_research_backup_tests PRIVATE asterion_program_files asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_research_evaluation_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_research_sample_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_research_statistics_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_strategy_store_tests PRIVATE asterion_research_tasks asterion_data_tasks)
-target_link_libraries(asterion_task_execution_tests PRIVATE asterion_program_files asterion_research_tasks asterion_data_tasks)
 
 # Applied last so every directly registered test receives them.
 get_property(asterion_tests DIRECTORY PROPERTY TESTS)

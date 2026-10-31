@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/node.pb.h>
-#include <asterion/task.pb.h>
+#include <asterion/health.pb.h>
 #include <asterion/protocol/health.hpp>
 #include <asterion/system/polled_task.hpp>
 #include <optional>

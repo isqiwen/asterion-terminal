@@ -1,13 +1,13 @@
 import { test as base } from "@playwright/test";
 export * from "@playwright/test";
 
-// End-to-end tests drive the real core, Agent and services through the UI.
+// End-to-end tests drive the real core and services through the UI.
 // What a screen does with a given reply belongs in a component test beside
 // its source (*.test.tsx), which needs none of this. The tests tagged
 // @journey are the complete paths a user depends on, one per capability;
 // `pnpm test:e2e:journeys` runs only those.
 //
-// Every spec file starts with a fresh C++ core, Agent and node directory, so
+// Every spec file starts with a fresh C++ core and root directory, so
 // services and data left by one file never affect the next. Specs import
 // `test` from here instead of @playwright/test.
 let currentFile: string | undefined;
@@ -40,9 +40,9 @@ export const test = base.extend<{
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
         process.env.ASTERION_ROOT = (await response.json()).root;
-        // Bring the environment up as the app's startup does (market, Data and
-        // Research services, each past its first heartbeat), so the first
-        // test of a file meets the same ready state as the later ones.
+        // Bring the environment up as the app's startup does (the market
+        // service past its first heartbeat), so the first test of a file
+        // meets the same ready state as the later ones.
         const call = async (method: string, params: object = {}) => {
           const reply = await request.post("/__asterion/api", {
             data: { version: 1, method, params },
@@ -52,13 +52,6 @@ export const test = base.extend<{
           return body.result;
         };
         await call("market.local");
-        await call("node.data.local.open");
-        const plugins = (await call("native.plugins.inspect")).native_plugins.items
-          .filter(
-            (item: { selectable: boolean; managed?: boolean }) => item.selectable && !item.managed,
-          )
-          .map((item: { sha256: string }) => item.sha256);
-        await call("node.research.local.create", { plugins });
         for (const deadline = Date.now() + 60000; ;) {
           const services = (await call("runtime.snapshot")).nodes.flatMap(
             (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>

@@ -42,17 +42,11 @@ def maintain(executor, home, operation, source=None, remove=False):
     return lines[-1]["result"], destination
 
 
-def exercise(program, resources, screenshots):
+def exercise(program, screenshots):
     if not program.is_file():
         raise RuntimeError(f"Installed desktop executable is missing: {program}")
     env = dict(os.environ, ASTERION_TEST_ELECTRON=str(program),
                ASTERION_UI_SCREENSHOTS=str(screenshots))
-    # Fixtures persist provider digests. Use the installed plugins: on macOS
-    # they are re-signed, so their bytes differ from the build-tree libraries.
-    plugins = resources / "native/plugins"
-    if not plugins.is_dir():
-        raise RuntimeError(f"Installed plugin directory is missing: {plugins}")
-    env["ASTERION_PLUGIN_DIRECTORY"] = str(plugins)
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js is required for installed desktop acceptance")
@@ -94,8 +88,7 @@ def main():
                 # Verify and launch the copied app after unmount, not the build tree.
                 run(["codesign", "--verify", "--deep", "--strict", installed])
                 installed = installed / "Contents/Resources/terminal.app"
-                exercise(installed / "Contents/MacOS/asterion_terminal",
-                         installed / "Contents/Resources", output)
+                exercise(installed / "Contents/MacOS/asterion_terminal", output)
             else:
                 with tarfile.open(installer) as archive:
                     archive.extractall(folder, filter="data")
@@ -115,7 +108,7 @@ def main():
                 if not state["installed"] or not launcher.is_file() or not (
                         root / "terminal/config/logging.json").is_file():
                     raise RuntimeError(f"install left an incomplete installation: {state}")
-                exercise(destination / "asterion_terminal", destination / "resources", output)
+                exercise(destination / "asterion_terminal", output)
                 state, _ = maintain(executor, home, "uninstall", remove=True)
                 left = [path for path in root.rglob("*") if path.is_file()
                         and "logs" not in path.parts
@@ -141,11 +134,7 @@ def main():
                    "renderer isolation", "shortcuts", "settings reuse and bounds",
                    "locale synchronization", "retained draft", "dialog IPC adapter",
                    "local services page", "separate data-source settings",
-                   "minute and daily history paging and exact decimals",
-                   "daily chart aggregation and MACD",
-                   "daily download to factor analysis navigation",
-                   "daily factor holdout results and restart recovery",
-                   "backtest data, rules, review, execution and fixed results"],
+                   "research page on the lab service"],
         "limits": ["disposable test profile", "no live market credentials",
                    "dialog adapter mocked; not manual native picker acceptance",
                    *(["installer executor run directly; the installer window is not driven"]

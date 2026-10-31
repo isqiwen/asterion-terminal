@@ -8,7 +8,6 @@
 #include <asterion/protocol/trading.hpp>
 #include <map>
 #include <deque>
-#include <asterion/protocol/observation.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/child.hpp>
 #include <set>
@@ -23,13 +22,11 @@ namespace {
 
 struct State
 {
-    const std::string service, instance, node_id;
-    std::deque<wire::ObservationCapture> observations;
+    const std::string service, instance;
     const std::filesystem::path directory, sdk, catalog_sdk;
     ThreadPool sdk_owner{1, 2};
     std::unique_ptr<ctp::Feed> feed;
     CatalogJob catalog;
-    bool quiescing = false;
     std::vector<InstrumentId> watchlist;
     std::uint64_t applied_catalog = 0, extra_sequence = 0;
     IntradayBars intraday;
@@ -39,7 +36,6 @@ struct State
     State(const Session::Configuration& config)
         : service(config.service),
           instance(config.instance),
-          node_id(config.node_id),
           directory(config.directory),
           sdk(config.sdk),
           catalog_sdk(config.catalog_sdk),
@@ -161,17 +157,6 @@ struct State
         response.set_correlation_id(request.correlation_id());
         try {
             if (control) {
-                if (request.has_quiesce()) {
-                    if (catalog.running() || (feed && feed->phase() != MarketPhase::disconnected)) {
-                        response.mutable_error()->set_code("unavailable");
-                        response.mutable_error()->set_message(
-                            "market connection must be disconnected before upgrade");
-                        return {response.SerializeAsString()};
-                    }
-                    quiescing = true;
-                    if (request.quiesce().stop())
-                        service::request_stop();
-                }
                 auto* h = response.mutable_health();
                 h->set_instance_id(instance);
                 h->set_initialized(!catalog.initializing());
@@ -198,70 +183,9 @@ struct State
                 else
                     *response.mutable_minutes()->mutable_instrument() =
                         request.minutes().instrument();
-            } else if (request.has_observation_preview()) {
-                if (quiescing || node_id.empty())
-                    throw Error(
-                        ErrorCode::unavailable,
-                        "market observation requires a stable node owner");
-                const auto& instrument = request.observation_preview();
-                const InstrumentId id{instrument.venue(), instrument.symbol()};
-                id.validate();
-                const auto series = intraday.series(id);
-                if (!series || series->bars.empty() || stream.empty() || !event_cursor)
-                    throw Error(
-                        ErrorCode::unavailable,
-                        "market has no observations for this contract");
-                wire::ObservationCapture capture;
-                auto* observation = capture.mutable_observation();
-                auto* owner = observation->mutable_source();
-                owner->set_node_id(node_id);
-                owner->set_service_id(service);
-                owner->set_domain("market");
-                observation->set_instance(instance);
-                observation->set_token(unique_process_id());
-                observation->set_captured_at_ms(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count());
-                observation->set_stream_id(stream);
-                observation->set_applied_sequence(event_cursor);
-                *observation->mutable_minutes() = protocol::encode_minutes(*series);
-                observation->set_source_phase(phase());
-                auto* reference = capture.mutable_reference();
-                *reference->mutable_owner() = *owner;
-                reference->set_kind("market_observation");
-                reference->set_id(observation->token());
-                reference->set_version(sha256_bytes(observation->SerializeAsString()));
-                protocol::validate_observation(capture);
-                if (observations.size() == 8)
-                    observations
-                        .pop_front(); // Explicitly volatile bounded preview, never a formal archive.
-                observations.push_back(capture);
-                *response.mutable_observation() = std::move(capture);
-            } else if (request.has_observation_read()) {
-                const auto& reference = request.observation_read();
-                protocol::validate_observation_reference(reference);
-                if (reference.owner().node_id() != node_id
-                    || reference.owner().service_id() != service)
-                    throw Error(ErrorCode::conflict, "market observation owner mismatch");
-                const auto found = std::find_if(
-                    observations.begin(),
-                    observations.end(),
-                    [&](const auto& capture) {
-                        return capture.reference().id() == reference.id();
-                    });
-                if (found == observations.end())
-                    throw Error(
-                        ErrorCode::not_found,
-                        "market observation preview is no longer available");
-                if (found->reference().SerializeAsString() != reference.SerializeAsString())
-                    throw Error(ErrorCode::conflict, "market observation version mismatch");
-                *response.mutable_observation() = *found;
             } else if (request.has_watch()) {
                 *response.mutable_snapshot() = snapshot(held);
             } else {
-                if (quiescing && !request.has_snapshot())
-                    throw Error(ErrorCode::unavailable, "market service is preparing for upgrade");
                 if (request.has_connect()) {
                     if (!feed) {
                         auto plugin =

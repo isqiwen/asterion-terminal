@@ -1,20 +1,15 @@
 {
   "programs": [
     "asterion_market",
-    "asterion_data",
-    "asterion_research",
     "asterion_keychain",
     "asterion_terminal.node",
     "asterion_maintenance"
   ],
   "libraries": [
     "ctp-md",
-    "ctp-trader",
-    "plugins/asterion_tushare",
-    "plugins/asterion_shfe"
+    "ctp-trader"
   ],
   "configuration": [
-    "config/research.json",
     "config/logging.json",
     "product.json"
   ]

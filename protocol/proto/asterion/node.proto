@@ -1,29 +1,14 @@
 syntax = "proto3";
 import "asterion/health.proto";
 package asterion.node.proto;
-// The local services as the Terminal runs them. Data and Research read a
-// Status through the Terminal's read-only discovery socket.
-message Empty {}
-// Private service control: freeze admissions, then request cooperative shutdown.
-message Quiesce {
-  bool stop = 1;
-}
 
+// The local services as the Terminal runs them.
 enum ServiceKind {
   UNSPECIFIED_SERVICE = 0;
   MARKET = 1;
-  RESEARCH = 2;
-  DATA = 4;
   LAB = 5;
 }
 
-message Request {
-  uint32 version = 1;
-  string correlation_id = 2;
-  oneof operation {
-    Empty status = 10;
-  }
-}
 message Service {
   string id = 1;
   string artifact = 2;
@@ -37,13 +22,10 @@ message Service {
   string endpoint = 11;
   string directory = 12;
   ServiceKind kind = 13;
-  string revision = 15;
-  repeated string plugin_artifacts = 16;
   asterion.runtime.proto.ExecutionHealth execution = 19;
 }
 message Status {
   string instance_id = 1;
-  string discovery_endpoint = 14; // Local read-only locator, never persistent identity.
   string node_id = 13; // Stable identity of this machine's data; instance_id is one Terminal run.
   string os = 2;
   string arch = 3;
@@ -66,12 +48,4 @@ message Status {
 message Error {
   string message = 1;
   string code = 2;
-}
-message Response {
-  uint32 version = 1;
-  string correlation_id = 2;
-  oneof result {
-    Status status = 10;
-    Error error = 12;
-  }
 }

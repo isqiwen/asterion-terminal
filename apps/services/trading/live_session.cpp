@@ -8,7 +8,6 @@
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/artifact.hpp>
-#include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <chrono>
 #include <set>

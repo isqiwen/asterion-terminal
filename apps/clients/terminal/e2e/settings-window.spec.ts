@@ -25,7 +25,7 @@ test("opening connection settings only reads the monitor established by startup"
   });
   for (let visit = 0; visit < 2; visit++) {
     await settings.getByRole("button", { name: "本机服务", exact: true }).click();
-    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText("research");
+    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText("market-data");
     await expect(settings.getByRole("alert")).toHaveCount(0);
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   }
@@ -35,13 +35,13 @@ test("opening connection settings only reads the monitor established by startup"
 
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await openView(page, "history");
-  await page.getByLabel("每分钟请求上限").fill("17");
+  await openView(page, "market");
+  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
+  await page.getByLabel("搜索历史合约").fill("rb17");
   const settings = await openSettingsWindow(page);
   await settings.setViewportSize({ width: 760, height: 540 });
   await expect(settings.getByRole("heading", { name: "偏好设置", exact: true })).toBeVisible();
-  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("17");
+  await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb17");
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await settings.getByLabel("Display Density").selectOption("comfortable");
@@ -51,7 +51,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
   await settings.keyboard.press("Control+,");
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
-  await page.getByLabel("Requests per minute", { exact: true }).fill("19");
+  await page.getByLabel("Search historical contracts", { exact: true }).fill("rb19");
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
@@ -66,7 +66,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
     true,
   );
   await closeSettingsWindow(settings);
-  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("19");
+  await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb19");
   const reopened = await openSettingsWindow(page);
   await expect(reopened.getByRole("heading", { name: "本机服务", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });

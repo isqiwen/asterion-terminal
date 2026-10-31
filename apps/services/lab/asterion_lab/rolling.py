@@ -1,4 +1,4 @@
-"""Rolling validation of a sweep, by the old engine's rule (docs/backtest.md).
+"""Rolling validation of a sweep, (docs/lab.md, 参数扫描).
 
 Every candidate of the sweep was replayed alone over all the days. A round
 reads of those replays only its `training` days, before its first validation

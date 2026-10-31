@@ -1,11 +1,11 @@
-"""The Python research service. The Agent starts it as
+"""The Python research service. The Terminal starts it as
 
     python3 -I -B -m asterion_lab --owner-pid <pid> --session <name> --directory <dir>
-        --health-endpoint <socket> --node-id <id> --endpoint <socket>
+        --health-endpoint <socket> --endpoint <socket>
 
 and probes the health endpoint. Requests and replies are Protobuf messages
 (asterion/lab.proto) framed by a 4-byte big-endian length, as every Asterion
-local channel is. The service exits when the Agent that owns it is gone.
+local channel is. The service exits when the Terminal that owns it is gone.
 """
 import argparse
 import asyncio
@@ -86,7 +86,6 @@ def main():
     parser.add_argument("--directory", required=True)
     parser.add_argument("--health-endpoint", required=True)
     parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--node-id", required=True)
     arguments = parser.parse_args()
     # <root>/lab/data/<session>: the lab's installation is <root>/lab.
     log = ProcessLog("asterion_lab", Path(arguments.directory).parents[1])

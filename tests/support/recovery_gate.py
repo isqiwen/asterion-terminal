@@ -12,9 +12,7 @@ TESTS = (
     "Live.SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation",
     "Live.AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay",
     "CtpTrader.LateQueryRepliesCannotReplaceReconnectedAccountState",
-    "TaskStore.DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults",
     "live_process",
-    "task_agent_recovery",
     "RpcHost.PendingRepliesLeaveReadAndControlConnectionsAvailable",
 )
 

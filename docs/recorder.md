@@ -99,7 +99,7 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 ```
 
 - **ticks**：每 30 秒写一个文件，一段观测结束时立即写出。列为段号、本机接收时间、柜台时间（`source_ms`，不能解析时为空）
-  及原始的 `action_day`、`update_time`，报价字段与[行情](market-data.md)相同，价格为 `DECIMAL(18,8)` 精确值，缺失保持为空。
+  及原始的 `action_day`、`update_time`，报价字段与[实时行情](market.md)相同，价格为 `DECIMAL(18,8)` 精确值，缺失保持为空。
   乱序报价也写入，以 `out_of_order` 标记；分钟线不使用它们。
 - **minutes**：与行情服务给策略的分钟线是同一份聚合代码。一根分钟线在下一根出现或换交易日后写出，之后不再改动。
   `partial` 标记观测可能缺了这一分钟的一部分：当日观测从分钟中间开始、在这一分钟内或之前丢过观测、累计成交量回退，

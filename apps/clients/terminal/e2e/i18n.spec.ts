@@ -18,20 +18,10 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-settings.png" });
   await page.getByRole("button", { name: "Local services", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Plugins each service runs", exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Data Source", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "History vendors", exact: true })).toBeVisible();
   page = await closeSettingsWindow(page);
-  for (const workspace of [
-    "Market",
-    "Data",
-    "Analysis",
-    "Strategy",
-    "Backtest",
-    "Evaluation",
-    "Live",
-  ]) {
+  for (const workspace of ["Market", "Research", "Trading", "Data"]) {
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: workspace, exact: true })
@@ -88,7 +78,7 @@ test.describe("startup language", () => {
     await expect(page.getByRole("alert")).toContainText("permission_denied: 原始诊断信息");
     await page.unroute("**/__asterion/api");
     // With every step passed and nothing to point out, the workbench opens.
-    await page.getByRole("button", { name: "RETRY", exact: true }).click();
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "Data", exact: true }),
     ).toBeVisible();

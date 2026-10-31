@@ -7,7 +7,6 @@ const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const execFile = require("node:util").promisify(require("node:child_process").execFile);
 async function closeDesktop(application) {
   let timer;
   try {
@@ -177,151 +176,10 @@ async function closeDesktop(application) {
     await expect(columnDialog).toHaveCount(0);
     await expect(columnButton).toBeFocused();
 
-    await require("./electron_history.cjs")(
-      page,
-      temp,
-      capture,
-      await application.evaluate(() => process.env.ASTERION_PLUGIN_DIRECTORY),
-    );
-    const call = async (method, params = {}) => {
-      const response = await page.evaluate(
-        async ({ method, params }) =>
-          JSON.parse(
-            await window.asterionDesktop.request(JSON.stringify({ version: 1, method, params })),
-          ),
-        { method, params },
-      );
-      assert.equal(response.error, undefined, JSON.stringify(response.error));
-      return response.result;
-    };
-    await call("node.research.local.open");
-    // The daily table is seeded under the sources the installed data source
-    // offers: those are the ones the dataset picker reads settlement prices
-    // and contract units of.
-    const offered = (await call("data.tables.coverage", {})).table_coverage.sources;
-    const dailySource = offered.find(source => source.table === "futures.daily");
-    const offeredBy = table =>
-      offered.find(source => source.table === table && source.plugin_id === dailySource.plugin_id);
-    const stopped = await call("node.action", {
-      service: "historical-data",
-      action: "stop",
-    });
-    const service = stopped.nodes
-      .find(n => n.id === "local")
-      .health.services.find(s => s.id === "historical-data");
-    const root = await fs.realpath(path.join(temp, "node"));
-    assert.equal(
-      await fs.realpath(service.directory),
-      path.join(root, "data/data/historical-data"),
-    );
-    const seeded = await execFile(
-      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
-      [
-        "--directory",
-        service.directory,
-        "--id",
-        "native-history",
-        "--price",
-        "100",
-        "99",
-        "110",
-        "--daily-source",
-        dailySource.source,
-        "--calendar-source",
-        offeredBy("futures.calendar").source,
-        "--contracts-source",
-        offeredBy("futures.contracts").source,
-      ],
-      {
-        env: { ...process.env, ASTERION_ROOT: root, ...testNode },
-        timeout: 15000,
-      },
-    );
-    // A stopped service stays stopped until it is opened again.
-    await call("node.data.local.open");
-    await call("node.research.local.open");
-    const historySelection = JSON.parse(seeded.stdout);
-    assert.ok(historySelection.source_dataset_ids[0]);
-    await call("data.dataset.clear");
-    // Fixtures change the native core outside React; establish a fresh snapshot before UI work.
-    await page.reload();
-    await enterWorkbench(page);
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "数据", exact: true })
-      .click();
-    await openView(page, "history");
-    const minuteDownloads = page.getByRole("region", { name: "历史数据", exact: true });
-    await minuteDownloads.getByLabel("品种", { exact: true }).selectOption("cu");
-    await minuteDownloads
-      .getByLabel("Tushare Token", { exact: true })
-      .fill("electron-fixture-secret");
-
-    await openView(page, "backtest");
-    await page.getByRole("button", { name: "回测", exact: true }).click();
-    await page.getByRole("button", { name: "新建回测", exact: true }).click();
-    const backtestData = page.getByRole("region", { name: "历史数据集", exact: true });
-    await expect(backtestData).toBeVisible();
-    await expect(
-      backtestData.getByRole("list", { name: "已选合约", exact: true }).locator("li"),
-    ).toHaveCount(0);
-    await backtestData.getByRole("button", { name: "分钟线合约", exact: true }).click();
-    const minuteBars = backtestData.getByRole("form", { name: "分钟线合约", exact: true });
-    await minuteBars
-      .getByLabel("K 线来源", { exact: true })
-      .selectOption(historySelection.source_dataset_ids[0]);
-    await minuteBars.getByRole("button", { name: "使用此数据集", exact: true }).click();
-    await expect(backtestData.getByRole("list", { name: "已选合约", exact: true })).toContainText(
-      "3 根 · 1 个交易日",
-    );
-    await capture(page, "native-backtest-data");
-    await page.getByRole("button", { name: "下一步", exact: true }).click();
-    await page.getByLabel("初始资金", { exact: true }).fill("25000");
-    await capture(page, "native-backtest-rules");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "数据", exact: true })
-      .click();
-    await expect(page.getByLabel("CSV 文件路径", { exact: true })).toHaveCount(0);
-    await openView(page, "history");
-    await expect(minuteDownloads.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-    await expect(minuteDownloads.getByLabel("品种", { exact: true })).toHaveValue("cu");
-
-    await openView(page, "backtest");
-    await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("25000");
-    for (const [label, value] of [
-      ["快均线", "1"],
-      ["慢均线", "2"],
-      ["目标手数", "1"],
-      ["单笔数量上限", "1"],
-      ["总持仓量上限", "1"],
-      ["在途委托数上限", "1"],
-      ["每手保证金", "100"],
-      ["滑点（跳）", "0"],
-      ["每手开仓费", "2"],
-      ["每手平今费", "3"],
-      ["每手平昨费", "4"],
-    ])
-      await page.getByLabel(label, { exact: true }).fill(value);
-    await page.getByRole("button", { name: "下一步", exact: true }).click();
-    await capture(page, "native-backtest-review");
-    await page.getByRole("button", { name: "开始回测", exact: true }).click();
-    await expect(page.getByRole("region", { name: "回测进度", exact: true })).toContainText(
-      "已完成",
-      { timeout: 20000 },
-    );
-    await page.getByRole("button", { name: "查看结果", exact: true }).click();
-    await expect(page.getByRole("region", { name: "回测结果", exact: true })).toBeVisible();
-    await page.locator(".terminal-business").evaluate(el => (el.scrollTop = 0));
-    await capture(page, "native-backtest-result");
-
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "数据", exact: true })
-      .click();
-
-    await openView(page, "history");
-    await expect(page.getByLabel("品种", { exact: true })).toHaveValue("cu");
+    // The research page reaches the lab service the Terminal starts.
+    await openView(page, "research");
+    await expect(page.getByRole("heading", { name: "研究", exact: true })).toBeVisible();
+    await capture(page, "native-research");
 
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.press(`${modifier}+b`);

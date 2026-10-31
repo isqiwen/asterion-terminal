@@ -16,16 +16,11 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await page.keyboard.press("Meta+b");
   await expect(page.locator(".activity-rail")).not.toHaveClass(/collapsed/);
   await expect(page.locator(".workspace-tabs .nav-label").first()).toBeVisible();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await openView(page, "records");
+  await openView(page, "coverage");
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   page = await openSettingsWindow(page);
-  await page.getByRole("button", { name: "插件", exact: true }).click();
-  await expect(
-    page
-      .getByRole("table", { name: "原生插件目录" })
-      .getByText("asterion.data.tushare", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "数据源", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Tushare", exact: true })).toBeVisible();
   page = await closeSettingsWindow(page);
   await openView(page, "watchlist");
   await expect(
@@ -41,7 +36,7 @@ test("core connection failure is visible and can be retried", async ({ page }) =
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("本机 C++ 服务不可用");
   await page.unroute("**/__asterion/api");
-  await page.getByRole("button", { name: "重试启动", exact: true }).click();
+  await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
     timeout: 60000,
   });

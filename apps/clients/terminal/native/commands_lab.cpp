@@ -13,20 +13,24 @@ using namespace std::chrono_literals;
 void Application::Impl::register_lab_commands()
 {
     // The first launch installs the Python runtime; the page polls its progress.
-    command("runtime.python.status", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {});
-        auto result = snapshot();
-        result.values["python_runtime"] = environment_path("ASTERION_PYTHON")
+    // A development or test entry names its prepared interpreter: that runtime is ready.
+    const auto runtime = [this] {
+        return environment_path("ASTERION_PYTHON")
             ? json{{"state", "ready"}, {"error", ""}, {"modules", json::array()}}
             : python_runtime.status();
+    };
+    command("runtime.python.status", [this, runtime](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        auto result = snapshot();
+        result.values["python_runtime"] = runtime();
         co_return result;
     });
-    command("runtime.python.install", [this](const json& p) -> PolledTask<Response> {
+    command("runtime.python.install", [this, runtime](const json& p) -> PolledTask<Response> {
         fields(p, {});
         if (!environment_path("ASTERION_PYTHON"))
             python_runtime.install();
         auto result = snapshot();
-        result.values["python_runtime"] = python_runtime.status();
+        result.values["python_runtime"] = runtime();
         co_return result;
     });
     // Where the Electron main process (or the development server) sends the

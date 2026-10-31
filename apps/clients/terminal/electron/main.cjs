@@ -26,14 +26,11 @@ const renderer = app.isPackaged
 const resources = app.isPackaged
   ? process.resourcesPath
   : path.join(root, "build/electron-resources");
-process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
 // The native programs, libraries and configuration defaults the Terminal's
 // local services run from.
 process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
 const variables = {
   ASTERION_MARKET_EXECUTABLE: "asterion_market",
-  ASTERION_RESEARCH_EXECUTABLE: "asterion_research",
-  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion_data",
   ASTERION_KEYCHAIN_EXECUTABLE: "asterion_keychain",
 };
 for (const [key, name] of Object.entries(variables))
@@ -161,16 +158,7 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (
-    ![
-      "preferences",
-      "connections",
-      "trading",
-      "sources",
-      "research",
-      "about",
-    ].includes(category)
-  )
+  if (!["preferences", "connections", "trading", "sources", "research", "about"].includes(category))
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();

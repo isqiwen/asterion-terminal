@@ -38,7 +38,6 @@ PYPI = "https://files.pythonhosted.org/packages/"
 MODULES = [
     ("core", "核心", ["protobuf", "duckdb", "numpy", "polars", "certifi"]),
     ("reports", "报表", ["quantstats"]),
-    ("portfolio", "组合优化", ["skfolio"]),
     ("akshare", "AKShare 数据源", ["akshare"]),
 ]
 # Polars needs one CPU runtime: the compatible one, not the AVX2 default.

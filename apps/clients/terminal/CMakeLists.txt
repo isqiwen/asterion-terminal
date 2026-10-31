@@ -17,19 +17,9 @@ add_library(asterion_terminal_application STATIC
   native/python_runtime.cpp
   native/market_snapshot.cpp
   native/market_client.cpp
-  native/research_client.cpp
-  native/data_client.cpp
   native/terminal_application.cpp
   native/commands_live.cpp
   native/commands_node.cpp
-  native/commands_backup.cpp
-  native/commands_data.cpp
-  native/commands_task.cpp
-  native/analytics.cpp
-  native/commands_backtest.cpp
-  native/commands_factor.cpp
-  native/commands_node_workspaces.cpp
-  native/commands_history_usage.cpp
   native/commands_connections.cpp
   native/commands_market.cpp
   native/commands_lab.cpp
@@ -39,7 +29,7 @@ add_library(asterion_terminal_application STATIC
 )
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_chart_indicators asterion_protocol PRIVATE asterion_performance asterion_data_client nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
+target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
 add_dependencies(asterion_terminal_application asterion_market)
 if(APPLE)
   # Kept free of project libraries so its code signature, which the keychain
@@ -54,13 +44,5 @@ else()
 endif()
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
-add_dependencies(asterion_terminal_application asterion_data asterion_research)
 asterion_target_defaults(asterion_terminal_application)
 asterion_target_defaults(asterion_terminal_dev_bridge)
-
-add_library(asterion_domain_backup STATIC native/domain_backup.cpp)
-target_include_directories(asterion_domain_backup PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_domain_backup PUBLIC asterion_backup_files PRIVATE asterion_data_backup asterion_research_backup)
-asterion_target_defaults(asterion_domain_backup)
-
-target_link_libraries(asterion_terminal_application PRIVATE asterion_domain_backup)

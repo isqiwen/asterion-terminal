@@ -832,5 +832,8 @@
   "报表": "Reports",
   "组合优化": "Portfolio optimisation",
   "AKShare 数据源": "AKShare data source",
-  "已下载": "Downloaded"
+  "已下载": "Downloaded",
+  "采集历史数据要用的供应商凭据。同一账号的全部采集共享一个每分钟请求额度。": "Vendor credentials for acquiring historical data. Every acquisition of an account shares one per-minute request budget.",
+  "日线、交易日历、合约表、1 分钟线": "Daily bars, trading calendar, contract list, one-minute bars",
+  "已不使用": "No longer used"
 }

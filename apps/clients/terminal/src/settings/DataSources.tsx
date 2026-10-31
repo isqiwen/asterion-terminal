@@ -1,32 +1,17 @@
 import type { CommandHandler, CommandCall } from "../bridge/commands";
 import { useState } from "react";
-import type { DataCredential, NativeHistorySource, Snapshot } from "../bridge/client";
-import { translate, useLocale, type MessageValues } from "../i18n";
+import type { DataCredential, Snapshot } from "../bridge/client";
+import { translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
-const checkStates = [
-  "接口访问成功",
-  "尚未验证",
-  "凭据无效",
-  "接口权限不足",
-  "请求受到限流",
-  "网络连接失败",
-  "验证失败",
-];
-const dataType = (source: NativeHistorySource) =>
-  source.intervals.length === 1 && source.intervals[0] === 0 ? "日 K 线" : "分钟 K 线";
-// What a source offers, in words: "分钟 K 线（1、5、15、30、60 分钟）".
-const offered = (source: NativeHistorySource) => {
-  const minutes = source.intervals.filter(value => value > 0);
-  return minutes.length
-    ? t("{type}（{minutes} 分钟）", { type: t(dataType(source)), minutes: minutes.join("、") })
-    : t(dataType(source));
-};
-// One card per data provider. A provider takes a single credential, used by
-// all of its data; saving it checks it at once, so the card says whether it
-// works.
+// The lab's one source that takes a credential, and the bounds the Terminal
+// enforces when it is saved.
+const tushare = "asterion.data.tushare";
+const rateMax = 500;
+// The Tushare token the lab acquires with. A wrong one shows when an
+// acquisition is refused.
 export function DataSources({
   snapshot,
   busy,
@@ -36,12 +21,12 @@ export function DataSources({
   busy: boolean;
   trade: CommandHandler;
 }) {
-  const { locale } = useLocale();
-  const online = !!snapshot?.data?.online;
-  const sources = snapshot?.data?.sources.filter(source => source.connection) ?? [];
   const entries = snapshot?.data_credentials ?? [];
-  const providers = [...new Set(sources.map(source => source.plugin_id))];
-  const [editing, setEditing] = useState("");
+  const entry = entries.find(item => item.provider === tushare);
+  const unreadable = !!entry && "error" in entry;
+  const saved = entry && !("error" in entry) ? (entry as DataCredential) : undefined;
+  const ready = !!saved?.credential_ready;
+  const [editing, setEditing] = useState(false);
   const [credential, setCredential] = useState("");
   const [remember, setRemember] = useState(false);
   const [rate, setRate] = useState("60");
@@ -57,159 +42,76 @@ export function DataSources({
       return false;
     }
   };
-  const describe = (provider: string) => {
-    const own = sources.filter(source => source.plugin_id === provider);
-    const schemas = own.map(source => source.connection!);
-    const entry = entries.find(item => item.provider === provider);
-    return {
-      own,
-      name: [...new Set(own.map(source => source.name))].join(" / ") || provider,
-      label:
-        (locale === "zh-CN" ? schemas[0]?.credential_label_zh : schemas[0]?.credential_label_en) ??
-        t("凭据"),
-      // One credential serves every source, so it has to fit the strictest.
-      maxLength: Math.min(256, ...schemas.map(schema => schema.credential_max_length)),
-      rateMax: Math.min(500, ...schemas.map(schema => schema.requests_per_minute_max)),
-      rateDefault: Math.min(60, ...schemas.map(schema => schema.requests_per_minute_default)),
-      rememberAllowed: schemas.every(schema => schema.remember_allowed),
-      required: schemas.some(schema => schema.credential_required),
-      unreadable: !!entry && "error" in entry,
-      saved: entry && !("error" in entry) ? (entry as DataCredential) : undefined,
-    };
-  };
-  const open = (provider: string) => {
-    const { saved, rateDefault } = describe(provider);
-    setEditing(provider);
+  const open = () => {
+    setEditing(true);
     setCredential("");
     setError("");
     setClearing("");
     setRemember(saved?.remember ?? false);
-    setRate(String(saved?.requests_per_minute ?? rateDefault));
+    setRate(String(saved?.requests_per_minute ?? 60));
   };
-  // Saved entries whose plugin is not loaded still show, so they can be cleared.
-  const orphans = online ? entries.filter(entry => !providers.includes(entry.provider)) : [];
-  const current = editing ? describe(editing) : null;
+  // Credentials saved for other providers before stay listed, so they can be cleared.
+  const others = entries.filter(item => item.provider !== tushare);
   return (
     <SettingsSection
       title={t("历史数据供应商")}
       label={t("数据源")}
-      description={t("下载历史数据要用的供应商凭据。同一账号的全部下载共享一个每分钟请求额度。")}
+      description={t("采集历史数据要用的供应商凭据。同一账号的全部采集共享一个每分钟请求额度。")}
     >
-      {!online && (
-        <div className="settings-item-row">
-          <p role="status" className="settings-hint">
-            {t("历史数据服务未运行，无法读取数据源。")}
-          </p>
-          <button disabled={busy} onClick={() => void run("node.data.local.open")}>
-            {t("启动历史数据服务")}
+      <section className="settings-card" aria-label="Tushare">
+        <header>
+          <h3>Tushare</h3>
+          {unreadable ? (
+            <span className="settings-badge warning">{t("设置文件无法读取")}</span>
+          ) : ready ? (
+            <span className="settings-badge accent">{t("已设置")}</span>
+          ) : saved ? (
+            <span className="settings-badge warning">{t("需要重新输入")}</span>
+          ) : (
+            <span className="settings-badge">{t("未设置")}</span>
+          )}
+        </header>
+        <dl>
+          <dt>{t("提供的数据")}</dt>
+          <dd>{t("日线、交易日历、合约表、1 分钟线")}</dd>
+          {saved && (
+            <>
+              <dt>Token</dt>
+              <dd>
+                {t(saved.remember ? "已保存到本机钥匙串" : "仅本次运行有效，退出后需重新输入")}
+              </dd>
+              <dt>{t("每分钟请求上限")}</dt>
+              <dd>{saved.requests_per_minute}</dd>
+            </>
+          )}
+        </dl>
+        {unreadable && <p role="alert">{t("已保留原文件供检查；重新设置会覆盖它。")}</p>}
+        <footer>
+          <button className={ready ? undefined : "primary"} disabled={busy} onClick={open}>
+            {t("设置 {label}", { label: "Token" })}
           </button>
-        </div>
-      )}
-      {online && !providers.length && !orphans.length && (
-        <p className="settings-hint">{t("没有需要凭据的数据源。")}</p>
-      )}
-      {providers.map(provider => {
-        const { own, name, label, unreadable, saved } = describe(provider);
-        const ready = !!saved?.credential_ready;
-        const verification =
-          snapshot?.credential_verification?.provider === provider
-            ? snapshot.credential_verification
-            : null;
-        return (
-          <section className="settings-card" key={provider} aria-label={name}>
-            <header>
-              <h3>{name}</h3>
-              {unreadable ? (
-                <span className="settings-badge warning">{t("设置文件无法读取")}</span>
-              ) : ready ? (
-                <span className="settings-badge accent">{t("已设置")}</span>
-              ) : saved ? (
-                <span className="settings-badge warning">{t("需要重新输入")}</span>
-              ) : (
-                <span className="settings-badge">{t("未设置")}</span>
-              )}
-            </header>
-            <dl>
-              <dt>{t("提供的数据")}</dt>
-              <dd>{[...new Set(own.map(offered))].join(" · ")}</dd>
-              {saved && (
-                <>
-                  <dt>{label}</dt>
-                  <dd>
-                    {t(saved.remember ? "已保存到本机钥匙串" : "仅本次运行有效，退出后需重新输入")}
-                  </dd>
-                  <dt>{t("每分钟请求上限")}</dt>
-                  <dd>{saved.requests_per_minute}</dd>
-                </>
-              )}
-              {verification?.checks.map(check => {
-                const source = own.find(item => item.id === check.source);
-                return (
-                  <VerificationRow
-                    key={`${check.source}:${check.scope}`}
-                    label={`${source ? t(dataType(source)) : check.source} · ${t(
-                      check.scope === "catalog" ? "合约目录" : "历史数据接口",
-                    )}`}
-                    state={check.state}
-                  />
-                );
-              })}
-            </dl>
-            {unreadable && <p role="alert">{t("已保留原文件供检查；重新设置会覆盖它。")}</p>}
-            <footer>
-              <button
-                className={ready ? undefined : "primary"}
-                disabled={busy}
-                onClick={() => open(provider)}
-              >
-                {t("设置 {label}", { label })}
-              </button>
-              {ready && (
-                <button
-                  disabled={busy}
-                  onClick={() => void run("data.credentials.verify", { provider })}
-                >
-                  {t("验证")}
-                </button>
-              )}
-              {saved && ready && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void run("data.download.budget.configure", {
-                      source: own[0]!.id,
-                      token: "",
-                      requests_per_minute: saved.requests_per_minute,
-                    })
-                  }
-                >
-                  {t("应用共享额度")}
-                </button>
-              )}
-              {(saved || unreadable) && (
-                <ClearButton
-                  busy={busy}
-                  confirming={clearing === provider}
-                  ask={() => setClearing(provider)}
-                  clear={() => void run("data.credentials.clear", { provider })}
-                />
-              )}
-            </footer>
-          </section>
-        );
-      })}
-      {orphans.map(entry => (
-        <section className="settings-card" key={entry.provider} aria-label={entry.provider}>
+          {(saved || unreadable) && (
+            <ClearButton
+              busy={busy}
+              confirming={clearing === tushare}
+              ask={() => setClearing(tushare)}
+              clear={() => void run("data.credentials.clear", { provider: tushare })}
+            />
+          )}
+        </footer>
+      </section>
+      {others.map(item => (
+        <section className="settings-card" key={item.provider} aria-label={item.provider}>
           <header>
-            <h3>{entry.provider}</h3>
-            <span className="settings-badge warning">{t("数据源插件未启用")}</span>
+            <h3>{item.provider}</h3>
+            <span className="settings-badge warning">{t("已不使用")}</span>
           </header>
           <footer>
             <ClearButton
               busy={busy}
-              confirming={clearing === entry.provider}
-              ask={() => setClearing(entry.provider)}
-              clear={() => void run("data.credentials.clear", { provider: entry.provider })}
+              confirming={clearing === item.provider}
+              ask={() => setClearing(item.provider)}
+              clear={() => void run("data.credentials.clear", { provider: item.provider })}
             />
           </footer>
         </section>
@@ -219,37 +121,34 @@ export function DataSources({
           <ErrorNotice error={error} />
         </p>
       )}
-      {current && (
+      {editing && (
         <SettingsDialog
-          title={t("设置 {label}", { label: current.label })}
+          title={t("设置 {label}", { label: "Token" })}
           busy={busy}
-          onCancel={() => setEditing("")}
+          onCancel={() => setEditing(false)}
           onSubmit={async event => {
             event.preventDefault();
-            const provider = editing;
-            const saved = await run("data.credentials.save", {
-              provider,
+            const done = await run("data.credentials.save", {
+              provider: tushare,
               credential,
               remember,
               requests_per_minute: Number(rate),
             });
             setCredential("");
-            if (!saved) return;
-            setEditing("");
-            await run("data.credentials.verify", { provider });
+            if (done) setEditing(false);
           }}
         >
           <fieldset disabled={busy} className="futures-fields">
             <label>
-              {current.label}
+              Token
               <input
-                aria-label={current.label}
+                aria-label="Token"
                 type="password"
                 autoComplete="off"
                 autoFocus
-                maxLength={current.maxLength}
-                required={current.required && !current.saved?.credential_ready}
-                placeholder={current.saved?.credential_ready ? t("留空则保留现有凭据") : undefined}
+                maxLength={256}
+                required={!ready}
+                placeholder={ready ? t("留空则保留现有凭据") : undefined}
                 value={credential}
                 onChange={event => setCredential(event.target.value)}
               />
@@ -261,33 +160,31 @@ export function DataSources({
                 type="number"
                 required
                 min={1}
-                max={current.rateMax}
+                max={rateMax}
                 value={rate}
                 onChange={event => setRate(event.target.value)}
               />
             </label>
           </fieldset>
-          {current.rememberAllowed && (
-            <label className="native-plugin-choice">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={event => setRemember(event.target.checked)}
-              />
-              {t("保存到本机钥匙串，下次启动不用再输入")}
-            </label>
-          )}
+          <label className="native-plugin-choice">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={event => setRemember(event.target.checked)}
+            />
+            {t("保存到本机钥匙串，下次启动不用再输入")}
+          </label>
           {error && (
             <p className="alert" role="alert">
               <ErrorNotice error={error} />
             </p>
           )}
           <div className="source-actions">
-            <button type="button" disabled={busy} onClick={() => setEditing("")}>
+            <button type="button" disabled={busy} onClick={() => setEditing(false)}>
               {t("取消")}
             </button>
             <button className="primary" disabled={busy}>
-              {t("保存并验证")}
+              {t("保存")}
             </button>
           </div>
         </SettingsDialog>
@@ -310,13 +207,5 @@ function ClearButton({
     <button disabled={busy} onClick={confirming ? clear : ask}>
       {t(confirming ? "确认清除" : "清除")}
     </button>
-  );
-}
-function VerificationRow({ label, state }: { label: string; state: number }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd className={state === 0 ? "ok" : "bad"}>{t(checkStates[state] ?? "验证失败")}</dd>
-    </>
   );
 }

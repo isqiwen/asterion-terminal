@@ -9,9 +9,7 @@ endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Ship the maintained defaults verbatim; services never create their own policy.
-foreach(name research logging)
-  configure_file(config/${name}.json config/${name}.json COPYONLY)
-endforeach()
+configure_file(config/logging.json config/logging.json COPYONLY)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -39,7 +37,6 @@ include(cmake/CompilerOptions.cmake)
 
 add_subdirectory(core)
 add_subdirectory(protocol)
-add_subdirectory(extensions)
 add_subdirectory(apps)
 add_subdirectory(bindings)
 

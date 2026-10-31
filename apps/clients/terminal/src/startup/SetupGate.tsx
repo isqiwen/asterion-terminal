@@ -12,18 +12,14 @@ import "./setup.css";
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
 
 // What the Terminal does in the background once the workbench is open: the
-// local market service, the services a previous session ran, and the saved
-// trading accounts. Where one does not come up, its own page says so.
+// local market service and the saved trading accounts. Where one does not
+// come up, its own page says so.
 async function restore() {
   const status = await request("runtime.snapshot");
   const services = status.nodes.find(node => node.id === "local")?.health?.services ?? [];
   const market = services.find(item => item.id === "market-data" && item.kind === "market");
   const work: Promise<unknown>[] = [];
   if (!(market?.state === "stopped" && !market.desired_running)) work.push(request("market.local"));
-  if (services.some(item => item.kind === "data" && item.desired_running))
-    work.push(request("node.data.local.open"));
-  if (services.some(item => item.kind === "research" && item.desired_running))
-    work.push(request("node.research.local.open"));
   for (const account of (status.trading_connections ?? []).filter(item => !("error" in item)))
     work.push(request("live.open", { account: account.id }));
   await Promise.allSettled(work);

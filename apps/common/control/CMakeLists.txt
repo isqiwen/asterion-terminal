@@ -1,6 +1,5 @@
 add_library(asterion_node_control STATIC
   service_io.cpp
-  plugin_catalog.cpp
   node_snapshot.cpp
   service_programs.cpp
   node_paths.cpp

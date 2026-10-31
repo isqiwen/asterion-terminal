@@ -76,9 +76,9 @@ TEST(Protobuf, UnknownFieldsInsideOneofAndRepeatedMessagesAreRejected)
     request.clear_command();
     request.mutable_snapshot();
     EXPECT_NO_THROW(protocol::validate_message(request));
-    wire::Snapshot snapshot;
-    snapshot.add_fills()->mutable_price()->set_units(10);
-    auto* second = snapshot.add_fills()->mutable_quantity();
+    wire::LiveSnapshot snapshot;
+    snapshot.add_orders()->mutable_limit_price()->set_units(10);
+    auto* second = snapshot.add_orders()->mutable_quantity();
     second->GetReflection()->MutableUnknownFields(second)->AddVarint(127, 1);
     EXPECT_THROW(protocol::validate_message(snapshot), std::invalid_argument);
     second->GetReflection()->MutableUnknownFields(second)->Clear();

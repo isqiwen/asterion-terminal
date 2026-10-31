@@ -32,7 +32,7 @@ test("shared code does not import an application or a concrete feature", () => {
       return entry.isDirectory() ? files(child) : /\.(ts|tsx|hpp|cpp)$/.test(child) ? [child] : [];
     });
   }
-  for (const directory of ["core", "extensions"]) {
+  for (const directory of ["core"]) {
     for (const file of files(resolve(root, directory))) {
       const source = readFileSync(file, "utf8");
       const imports = [
@@ -42,7 +42,6 @@ test("shared code does not import an application or a concrete feature", () => {
         expect(name, relative(root, file)).not.toMatch(
           /(?:apps\/|@asterion\/(?:terminal|desktop-bridge|workbench))/,
         );
-        if (directory === "core") expect(name, relative(root, file)).not.toMatch(/extensions\//);
       }
     }
   }
