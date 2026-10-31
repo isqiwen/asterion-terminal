@@ -79,9 +79,10 @@ def import_modules(root: Path):
         if path.stem.startswith("_"):
             continue
         try:
-            yield path.stem, importlib.import_module(f"strategies.{path.stem}"), None
+            module, error = importlib.import_module(f"strategies.{path.stem}"), None
         except BaseException:
-            yield path.stem, None, traceback.format_exc(limit=-3).strip()
+            module, error = None, traceback.format_exc(limit=-3).strip()
+        yield path.stem, module, error
 
 
 def defined(module) -> list:
@@ -127,15 +128,21 @@ def describe(root: Path) -> Strategies:
 VALUE_FIELDS = {bool: "flag", int: "integer", float: "number", str: "text"}
 
 
+def child(module: str) -> list:
+    """The command that runs `module`.main() in a child process that imports
+    from where this process does."""
+    # The child runs elsewhere: relative entries are made absolute.
+    path = [os.path.abspath(entry) for entry in sys.path]
+    start = f"import sys; sys.path[:] = {path!r}; from {module} import main; main()"
+    return [sys.executable, "-I", "-B", "-c", start]
+
+
 def list_strategies(root: str) -> Strategies:
-    """The repository's strategies, imported in a child process that imports
-    this service's code from where this process did."""
+    """The repository's strategies, imported in a child process."""
     if not Path(root).is_absolute() or not Path(root).is_dir():
         raise ValueError(f"strategy repository is not a directory: {root}")
-    packages = [str(Path(__file__).parents[1]), str(Path(sys.modules[Strategies.__module__].__file__).parents[1])]
-    start = f"import sys; sys.path[:0] = {packages!r}; from asterion_lab.repository import main; main()"
     try:
-        result = subprocess.run([sys.executable, "-I", "-B", "-c", start, root],
+        result = subprocess.run([*child("asterion_lab.repository"), root],
                                 capture_output=True, timeout=LISTING_SECONDS, cwd=root)
     except subprocess.TimeoutExpired:
         raise ValueError(f"strategy modules took longer than {LISTING_SECONDS} s to import")

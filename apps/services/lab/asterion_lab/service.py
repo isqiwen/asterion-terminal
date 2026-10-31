@@ -11,7 +11,8 @@ import time
 from asterion.lab_pb2 import Request, Response
 
 from asterion_lab.acquisition import Acquisition
-from asterion_lab import crosscheck, dominant, repository
+from asterion_lab import backtest, crosscheck, dominant, repository
+from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.tushare import Budget, Tushare
 from asterion_lab.sources.base import SourceError
@@ -43,6 +44,8 @@ class Service:
         self.sources = {}  # provider -> (credential, Budget), in memory only
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
         self.sessions = Sessions()
+        self.runs = Runs(directory)
+        self.backtests = {}  # run id -> its child process, while it runs
 
     async def reply(self, request: Request) -> Response:
         response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
@@ -340,6 +343,58 @@ class Service:
     async def on_strategies(self, request, response):
         response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
                                                              request.repository))
+
+    async def on_backtest(self, request, response):
+        if not IDENTITY.fullmatch(request.id) or request.id in self.backtests \
+                or (self.runs.root / request.id).exists():
+            raise ValueError("run id is invalid or already used")
+        backtest.config_of(request)
+        root = Path(request.repository)
+        if not root.is_absolute() or not root.is_dir():
+            raise ValueError(f"strategy repository is not a directory: {root}")
+        await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
+        process = await asyncio.create_subprocess_exec(
+            *repository.child("asterion_lab.backtest"), str(self.directory), cwd=root,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE)
+        process.stdin.write(request.SerializeToString())
+        process.stdin.close()
+        self.backtests[request.id] = process
+        asyncio.create_task(self.watch(request.id, process))
+        self.log.write("info", MODULE, "backtest.started", run=request.id, strategy=request.strategy)
+        response.accepted.SetInParent()
+
+    async def watch(self, identity, process):
+        error = (await process.stderr.read()).decode(errors="replace").strip()
+        code = await process.wait()
+        del self.backtests[identity]
+        if code == 0:
+            self.log.write("info", MODULE, "backtest.finished", run=identity)
+            return
+        self.log.write("warning", MODULE, "backtest.failed", run=identity, exit_code=code,
+                       message=error.splitlines()[-1] if error else "")
+        # A child stopped from outside could not record how it ended.
+        if any(row["id"] == identity and row["state"] == "running" for row in self.runs.list()):
+            self.runs.fail(identity, "interrupted", "cancelled" if code < 0 else error)
+
+    async def on_cancel_run(self, request, response):
+        process = self.backtests.get(request.id)
+        if process is None:
+            raise ValueError("no such run is running")
+        process.terminate()
+        response.accepted.SetInParent()
+
+    async def on_runs(self, _, response):
+        for row in await self.read(self.runs.list):
+            item = response.runs.runs.add(
+                id=row["id"], strategy=row["strategy"], commit=row["commit"],
+                changes=row["changes"], dataset_version=row["dataset_version"],
+                state=row["state"], error=row["error"], started_ns=row["started_ns"],
+                finished_ns=row["finished_ns"] or 0)
+            for name, value in row["metrics"].items():
+                if value is not None:
+                    item.metrics[name] = value
+        response.runs.SetInParent()
 
     DAILY_FIELDS = ("open", "high", "low", "close", "settlement", "previous_settlement", "volume",
                     "open_interest")
