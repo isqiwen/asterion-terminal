@@ -35,7 +35,7 @@ from pathlib import Path
 
 import polars as pl
 
-from asterion_lab import dominant, repository
+from asterion_lab import chart, dominant, repository
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
 from asterion_lab.strategy import Bar, Context, step
 from asterion_lab.warehouse import Warehouse
@@ -87,6 +87,10 @@ class Config:
     # Days from this one on are the holdout: statistics are also kept for the
     # days before it and for it alone.
     holdout_day: str = ""
+    # Bars of this many minutes from `minute_provider`'s minutes, or daily
+    # bars when 0. Settlements, units and the dominant month are the days'.
+    minutes: int = 0
+    minute_provider: str = ""
 
 
 @dataclass
@@ -104,10 +108,13 @@ class Daily:
 class Data:
     """The warehouse's daily table of a version, read per product."""
 
-    def __init__(self, warehouse: Warehouse, begin: str, end: str):
+    def __init__(self, warehouse: Warehouse, begin: str, end: str, minutes: Warehouse = None):
         self.warehouse = warehouse
         self.version = warehouse.current()
         self.begin, self.end = begin, end
+        # Where minutes are read, when a run reads them.
+        self.minute_warehouse = minutes
+        self.minute_version = minutes.current() if minutes else None
         # Read once per run: each product's months, increments and contract units.
         self.products, self.increment_days, self.units, self.multipliers = {}, {}, {}, {}
 
@@ -143,6 +150,17 @@ class Data:
                     open_interest=interest)
             self.products[key] = months
         return self.products[key]
+
+    def minute_bars(self, contract: str, begin: str, end: str, minutes: int) -> list:
+        """A contract's bars of `minutes` from its stored minutes of the
+        trading days in [begin, end] (asterion_lab/chart.py)."""
+        rows = self.minute_warehouse.query(self.minute_version, """
+            select day, start_ms, partial, open, high, low, close, volume, open_interest
+            from minutes where contract = ? and day between ?::date and ?::date
+            order by start_ms""", ("minutes",), (contract, begin, end),
+            exchange=contract.split("/")[0])
+        return chart.minute_bars(
+            [(day.isoformat(), *values) for day, *values in rows], minutes)
 
     def increments(self, exchange: str, product: str) -> dict:
         """The price increment of each traded day in the range."""
@@ -249,6 +267,21 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
     costs = config.costs.get(f"{exchange}/{product}")
     if costs is None:
         raise ValueError(f"the run gives no costs of {exchange}/{product}")
+    interest = lambda value: math.nan if value is None else float(value)
+    if config.minutes:
+        # Minutes of the days that settle; a period is labelled when it ends.
+        settled = set(days)
+        bars = [(bar["trading_day"], bar["time_ms"] * 10 ** 6,
+                 *(raw(bar[name]) for name in ("open", "high", "low", "close", "volume")),
+                 interest(bar["open_interest"]))
+                for bar in data.minute_bars(contract, begin, end, config.minutes)
+                if bar["trading_day"] in settled]
+        if not bars:
+            raise ValueError(f"no stored minutes of {contract} fall inside the requested trading days")
+    else:
+        bars = [(day, close_ns(day), *(raw(month.days[day][name]) for name in
+                                       ("open", "high", "low", "close", "volume")),
+                 interest(month.days[day]["open_interest"])) for day in days]
     return dict(
         venue=exchange, symbol=contract, price_increment=increments[days[0]],
         quantity_increment=R, multiplier=raw(data.multiplier(exchange, contract)),
@@ -256,13 +289,11 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         costs=[dict(effective_from=config.begin_day, source="run",
                     values=[raw(value) for value in costs])],
         increments=changes, slippage_ticks=config.slippage_ticks,
-        bars=[(day, close_ns(day), *(raw(month.days[day][name]) for name in
-                                     ("open", "high", "low", "close", "volume"))) for day in days],
+        bars=[bar[:7] for bar in bars],
         settlements=[(day, raw(row["settlement"])) for day, row in sorted(month.days.items())
                      if begin <= day <= end and row["settlement"] is not None],
-        # Not the engine's: what a strategy reads besides prices.
-        open_interest={day: math.nan if month.days[day]["open_interest"] is None
-                       else float(month.days[day]["open_interest"]) for day in days})
+        # Not the engine's: what a strategy reads besides prices, by bar time.
+        open_interest={bar[1]: bar[7] for bar in bars})
 
 
 def series_input(data: Data, config: Config, exchange: str, product: str):
@@ -333,7 +364,7 @@ def visible(replayed, symbols: dict, contracts: list) -> list:
             item = contracts[contract]
             bars.append(Bar(symbols[unit], item["symbol"],
                             datetime.datetime.fromtimestamp(time_ns / 10 ** 9, BEIJING),
-                            open_, high, low, close, volume, item["open_interest"][day]))
+                            open_, high, low, close, volume, item["open_interest"][time_ns]))
     return bars
 
 
@@ -468,6 +499,27 @@ def statistics_record(config: Config) -> dict:
             "holdout_day": config.holdout_day}
 
 
+def warehouse_of(directory: Path, provider: str) -> Warehouse:
+    """A source's warehouse: Tushare's is the lab's own, others are apart."""
+    return Warehouse(directory) if provider == "tushare" else \
+        Warehouse(directory / "sources" / provider, provider)
+
+
+def open_data(directory: Path, config: Config) -> Data:
+    """The days of the run's source and, for a minute run, the minutes of its minute source."""
+    if config.minutes and config.minute_provider not in ("tushare", "recorder"):
+        raise ValueError("minutes come from tushare or recorder")
+    return Data(warehouse_of(directory, config.provider), config.begin_day, config.end_day,
+                warehouse_of(directory, config.minute_provider) if config.minutes else None)
+
+
+def bars_record(config: Config, data: Data) -> dict:
+    if not config.minutes:
+        return {"period": "day"}
+    return {"period": f"{config.minutes}m", "provider": config.minute_provider,
+            "dataset_version": data.minute_version.identity}
+
+
 def run(directory: Path, identity: str, config: Config, started=lambda: None):
     """One backtest from start to its record. A failure is recorded as failed;
     `started` is called once the record exists."""
@@ -476,14 +528,13 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     runs = Runs(directory)
     root = Path(config.repository)
     revision = repository.revision(repository.checked(root))
-    warehouse = Warehouse(directory) if config.provider == "tushare" else \
-        Warehouse(directory / "sources" / config.provider, config.provider)
-    data = Data(warehouse, config.begin_day, config.end_day)
+    data = open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
         params=config.params, provider=config.provider, dataset_version=data.version.identity,
         symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
-        costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config)))
+        costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config),
+        bars=bars_record(config, data)))
     started()
     try:
         strategy = repository.load(root, config.strategy, config.params)
@@ -510,6 +561,12 @@ def number(name: str, text: str) -> Decimal:
     return value
 
 
+def minutes_of(value: int) -> int:
+    if value and value not in chart.MINUTES:
+        raise ValueError(f"minute periods are {', '.join(map(str, chart.MINUTES))}")
+    return value
+
+
 def config_of(request) -> Config:
     """A Config from a BacktestRun message."""
     params = {name: getattr(value, value.WhichOneof("value"))
@@ -531,7 +588,8 @@ def config_of(request) -> Config:
         max_gross_weight=number("max_gross_weight", request.max_gross_weight or "0"),
         max_net_weight=number("max_net_weight", request.max_net_weight or "0"),
         annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
-        holdout_day=request.holdout_day)
+        holdout_day=request.holdout_day, minutes=minutes_of(request.minutes),
+        minute_provider=request.minute_provider)
 
 
 def watch_parent():

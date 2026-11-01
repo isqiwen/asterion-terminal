@@ -420,6 +420,34 @@ export function ResearchLab(context: TerminalContext) {
                 </label>
                 {field("开始日", "begin", { type: "date" })}
                 {field("结束日", "end", { type: "date" })}
+                <label>
+                  <span>{t("周期")}</span>
+                  <select
+                    value={form.minutes}
+                    onChange={event => change({ minutes: event.target.value })}
+                  >
+                    <option value="0">{t("日线")}</option>
+                    {[1, 5, 10, 15, 30, 60].map(value => (
+                      <option key={value} value={String(value)}>
+                        {t("{count} 分钟", { count: value })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {form.minutes !== "0" && (
+                  <label>
+                    <span>{t("分钟线来源")}</span>
+                    <select
+                      value={form.minuteProvider}
+                      onChange={event =>
+                        change({ minuteProvider: event.target.value as RunForm["minuteProvider"] })
+                      }
+                    >
+                      <option value="tushare">Tushare</option>
+                      <option value="recorder">{t("录制")}</option>
+                    </select>
+                  </label>
+                )}
                 <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
                 {strategy.parameters.map(parameter => (
                   <label key={parameter.name}>

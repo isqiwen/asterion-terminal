@@ -147,5 +147,10 @@
   "分组数": "Group count",
   "QuantStats 指标": "QuantStats figures",
   "正在计算…": "Computing…",
-  "按逐日结算权益的日收益计算，无风险利率为零，一年 252 期。": "From daily returns of settled equity, with a zero risk-free rate and 252 periods a year."
+  "按逐日结算权益的日收益计算，无风险利率为零，一年 252 期。": "From daily returns of settled equity, with a zero risk-free rate and 252 periods a year.",
+  "周期": "Period",
+  "日线": "Daily",
+  "{count} 分钟": "{count} minutes",
+  "分钟线来源": "Minute source",
+  "录制": "Recorded"
 }

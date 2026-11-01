@@ -16,7 +16,6 @@ message Request {
     CancelTask cancel = 14;
     SummaryQuery summary = 15;
     CoverageQuery coverage = 16;
-    DailyBarsQuery daily_bars = 17;
     DominantQuery dominant = 18;
     SessionsQuery sessions = 19;
     CrossCheckQuery cross_check = 20;
@@ -69,12 +68,6 @@ message SummaryQuery {
 }
 message CoverageQuery {
   string provider = 1;
-}
-message DailyBarsQuery {
-  string contract = 1; // EXCHANGE/product/YYYY-MM
-  string provider = 4;
-  string begin_day = 2;
-  string end_day = 3;
 }
 // A contract's bars for the market page's chart (asterion_lab/chart.py):
 // stored minutes gathered by `period` minutes (1, 5, 10, 15, 30 or 60), or
@@ -146,7 +139,6 @@ message Response {
     Tasks tasks = 13;
     Summary summary = 14;
     Coverage coverage = 15;
-    DailyBars daily_bars = 16;
     DominantSeries dominant = 17;
     Sessions sessions = 18;
     CrossCheck cross_check = 19;
@@ -228,17 +220,6 @@ message Coverage {
   string dataset_version = 1;
   repeated ProductCoverage products = 2;
 }
-message DailyBar {
-  string day = 1;
-  // Exact decimals as text; empty when absent.
-  string open = 2;
-  string high = 3;
-  string low = 4;
-  string close = 5;
-  string settlement = 6;
-  string volume = 7;
-  string open_interest = 8;
-}
 message ChartBar {
   int64 time_ms = 1; // when the period ended; days at 15:00 Beijing time of the last day
   string trading_day = 2; // the last trading day in the bar
@@ -274,11 +255,6 @@ message StoredContracts {
   string dataset_version = 1;
   string provider = 2;
   repeated StoredContract contracts = 3;
-}
-message DailyBars {
-  string dataset_version = 1;
-  string contract = 2;
-  repeated DailyBar bars = 3;
 }
 message DominantDay {
   string day = 1;
@@ -546,6 +522,10 @@ message BacktestRun {
   double annual_periods = 17;
   bool zero_risk_free = 18;
   string holdout_day = 19;
+  // Bars of this many minutes (1, 5, 10, 15, 30 or 60) from minute_provider's
+  // stored minutes (tushare or recorder); daily bars when 0.
+  uint32 minutes = 20;
+  string minute_provider = 21;
 }
 message RunsQuery {}
 message CancelRun {

@@ -6,7 +6,7 @@ import {
   lab,
   translate,
   type DisplayError,
-  type LabDailyBar,
+  type LabChartBars,
   type LabRunDetail,
   type LabRunReport,
   type LabRunSummary,
@@ -55,6 +55,14 @@ export function metric(value: number | undefined, percent: boolean) {
   return percent ? `${(value * 100).toFixed(2)}%` : value.toFixed(3);
 }
 
+// When a minute bar ended, Beijing time.
+function minute(timeNs: bigint) {
+  return new Date(Number(timeNs / 1_000_000n) + 8 * 3600_000)
+    .toISOString()
+    .slice(5, 16)
+    .replace("T", " ");
+}
+
 function day(timeNs: bigint) {
   // Settlements and bars are labelled at 15:00 Beijing time.
   return new Date(Number(timeNs / 1_000_000n) + 8 * 3600_000).toISOString().slice(0, 10);
@@ -84,7 +92,7 @@ function Figures({ summary, prefix = "" }: { summary: LabRunSummary; prefix?: st
 export function RunResult({ id, state }: { id: string; state: string }) {
   const [detail, setDetail] = useState<LabRunDetail | null>(null);
   const [contract, setContract] = useState("");
-  const [bars, setBars] = useState<LabDailyBar[]>([]);
+  const [bars, setBars] = useState<LabChartBars["bars"][number][]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
@@ -106,19 +114,27 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     let active = true;
     setBars([]);
     if (!contract || !record) return;
+    // The bars the run read: days, or minutes of its period from its minute source.
+    const bars = record.data.bars ?? { period: "day" };
+    const minutes = bars.period === "day" ? "" : String(bars.period).replace("m", "");
     void lab(
       {
-        case: "dailyBars",
+        case: "chartBars",
         value: {
           contract,
-          provider: record.data.provider,
-          beginDay: record.data.begin_day,
-          endDay: record.data.end_day,
+          provider: minutes ? bars.provider : "tushare",
+          period: minutes || "day",
         },
       },
-      "dailyBars",
+      "chartBars",
     )
-      .then(reply => active && setBars(reply.bars))
+      .then(reply => {
+        if (!active) return;
+        // Only the run's range of a contract's stored bars.
+        const first = record.data.begin_day as string,
+          last = record.data.end_day as string;
+        setBars(reply.bars.filter(bar => bar.tradingDay >= first && bar.tradingDay <= last));
+      })
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
       active = false;
@@ -138,20 +154,24 @@ export function RunResult({ id, state }: { id: string; state: string }) {
       </div>
     );
   const contracts = [...new Set(detail.fills.map(fill => fill.contract))];
-  const candles: Candle[] = bars
-    .filter(bar => bar.open && bar.close)
-    .map(bar => ({
-      timestamp_ns: String(BigInt(Date.parse(`${bar.day}T07:00:00Z`)) * 1_000_000n),
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
-      close: bar.close,
-      volume: bar.volume || "0",
-    }));
+  const daily = (record.data.bars?.period ?? "day") === "day";
+  const candles: Candle[] = bars.map(bar => ({
+    timestamp_ns: String(BigInt(bar.timeMs) * 1_000_000n),
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume || "0",
+  }));
   const trades: TradeMark[] = detail.fills
     .filter(fill => fill.contract === contract)
     .map(fill => ({
-      index: bars.findIndex(bar => bar.day === day(fill.timeNs)),
+      // A day's fills sit on its bar; a minute fill on the bar that ends at its time.
+      index: bars.findIndex(bar =>
+        daily
+          ? bar.tradingDay === day(fill.timeNs)
+          : BigInt(bar.timeMs) * 1_000_000n === fill.timeNs,
+      ),
       side: fill.side === "buy" ? ("buy" as const) : ("sell" as const),
       text: `${fill.side === "buy" ? t("买") : t("卖")} ${Number(fill.quantity)}@${Number(fill.price)}`,
     }));
@@ -206,9 +226,9 @@ export function RunResult({ id, state }: { id: string; state: string }) {
               label={contract}
               volumeLabel={t("成交量")}
               trades={trades.filter(trade => trade.index >= 0)}
-              formatTime={value => day(BigInt(value))}
+              formatTime={value => (daily ? day(BigInt(value)) : minute(BigInt(value)))}
               describe={index =>
-                `${bars[index].day} · ${bars[index].open} ${bars[index].high} ${bars[index].low} ${bars[index].close}`
+                `${daily ? bars[index].tradingDay : minute(BigInt(bars[index].timeMs) * 1_000_000n)} · ${bars[index].open} ${bars[index].high} ${bars[index].low} ${bars[index].close}`
               }
             />
           )}

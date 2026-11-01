@@ -26,12 +26,13 @@ BEIJING = datetime.timezone(datetime.timedelta(hours=8))
 
 def minute_bars(rows, minutes: int) -> list:
     """`rows`: (trading_day, start_ms, partial, open, high, low, close, volume)
-    in time order. Returns dicts with the period's end as `time_ms`."""
+    in time order, optionally followed by open interest, which a bar keeps as
+    of its last minute. Returns dicts with the period's end as `time_ms`."""
     if minutes not in MINUTES:
         raise ValueError(f"minute periods are {', '.join(map(str, MINUTES))}")
     span = minutes * 60_000
     bars = []
-    for day, start, partial, open_, high, low, close, volume in rows:
+    for day, start, partial, open_, high, low, close, volume, *interest in rows:
         if None in (open_, high, low, close):
             continue
         key = (day, start // span)
@@ -40,10 +41,12 @@ def minute_bars(rows, minutes: int) -> list:
             bar["high"], bar["low"] = max(bar["high"], high), min(bar["low"], low)
             bar["close"], bar["volume"] = close, bar["volume"] + (volume or 0)
             bar["partial"] = bar["partial"] or bool(partial)
+            bar["open_interest"] = interest[0] if interest else None
             continue
         bars.append({"key": key, "trading_day": day, "time_ms": (key[1] + 1) * span,
                      "open": open_, "high": high, "low": low, "close": close,
-                     "volume": volume or Decimal(0), "partial": bool(partial)})
+                     "volume": volume or Decimal(0), "partial": bool(partial),
+                     "open_interest": interest[0] if interest else None})
     for bar in bars:
         del bar["key"]
     return bars

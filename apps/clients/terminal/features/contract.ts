@@ -11,7 +11,6 @@ export type {
   Task as LabTask,
   SourceDescriptor as LabSource,
   SourceTable as LabSourceTable,
-  DailyBar as LabDailyBar,
   RunDetail as LabRunDetail,
   RunReport as LabRunReport,
   RunSummary as LabRunSummary,

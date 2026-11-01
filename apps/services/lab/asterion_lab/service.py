@@ -275,26 +275,6 @@ class Service:
                 current = coverage.products.add(exchange=exchange, product=product)
             current.months.add(month=month, days=days, open_days=open_days)
 
-    def daily_bars(self, contract, begin, end, provider):
-        warehouse = self.warehouse_for(provider, "daily")
-        version = warehouse.current()
-        rows = warehouse.query(version, """
-            select day, open, high, low, close, settlement, volume, open_interest from daily
-            where contract = ? and day between ?::date and ?::date order by day""",
-            ("daily",), (contract, begin, end), exchange=contract.split("/")[0])
-        return version, rows
-
-    async def on_daily_bars(self, request, response):
-        version, rows = await self.read(self.daily_bars, request.contract, request.begin_day,
-                                        request.end_day, request.provider)
-        bars = response.daily_bars
-        bars.dataset_version = version.identity
-        bars.contract = request.contract
-        for day, *values in rows:
-            bars.bars.add(day=day.isoformat(), **dict(zip(
-                ("open", "high", "low", "close", "settlement", "volume", "open_interest"),
-                map(text, values))))
-
     def chart_bars(self, request):
         exchange = request.contract.split("/")[0]
         if request.period in chart.CALENDAR:

@@ -22,7 +22,6 @@ from asterion_lab import backtest, repository
 from asterion_lab.backtest import R, raw
 from asterion_lab.runs import Plan, Runs
 from asterion_lab.strategy import Context, step
-from asterion_lab.warehouse import Warehouse
 
 MIN_TRAINING = 20
 MAX_ROUNDS = 100
@@ -140,9 +139,7 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
     chosen, followed = select(runs, candidates, config, training, validation)
     root = Path(config.repository)
     revision = repository.revision(repository.checked(root))
-    warehouse = Warehouse(directory) if config.provider == "tushare" else \
-        Warehouse(directory / "sources" / config.provider, config.provider)
-    data = backtest.Data(warehouse, config.begin_day, config.end_day)
+    data = backtest.open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
         params={"candidates": [row["params"] for row in members]}, provider=config.provider,
@@ -151,7 +148,8 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         risk=backtest.risk_record(config),
         statistics={**backtest.statistics_record(config),
                     "rolling": {"sweep": sweep, "candidates": candidates, "training_days": training,
-                                "validation_days": validation, "rounds": chosen}}))
+                                "validation_days": validation, "rounds": chosen}},
+        bars=backtest.bars_record(config, data)))
     try:
         if data.version.identity != runs.record(candidates[0])["data"]["dataset_version"]:
             raise ValueError("the warehouse changed after the candidates ran")

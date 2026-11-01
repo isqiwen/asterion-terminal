@@ -115,6 +115,46 @@ class Backtests(unittest.TestCase):
                 self.assertIsNotNone(row["metrics"]["total_return"])
         self.assertIn("SHFE/rb/2026-10", set(Runs(self.directory).table("series", "fills")["contract"]))
 
+    def test_minute_bars_are_read_gathered_and_traded(self):
+        # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up
+        # then down, on top of the days' settlements.
+        writer = Warehouse(self.directory).writer()
+        bj = datetime.timezone(datetime.timedelta(hours=8))
+        for n, day in enumerate(DAYS[:10]):
+            start = int(datetime.datetime.combine(day, datetime.time(9), bj).timestamp()) * 1000
+            rows = []
+            for minute in range(10):
+                # On the 5-yuan grid the days' prices imply.
+                close = Decimal(3000 + 5 * (n * 10 + minute if n < 5 else 100 - n * 10 - minute))
+                rows.append(dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05",
+                                 day=day.isoformat(), start_ms=start + minute * 60000, partial=False,
+                                 open=close, high=close + 5, low=close - 5, close=close,
+                                 volume=Decimal(100), average_price=None, open_interest=Decimal(900 + minute)))
+            writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", rows,
+                            days=[day.isoformat()])
+        writer.commit()
+        for minutes, marks in ((1, 10), (5, 2)):
+            with self.subTest(minutes=minutes):
+                identity = f"minutes-{minutes}"
+                backtest.run(self.directory, identity, self.config(
+                    ("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(), minutes=minutes,
+                    minute_provider="tushare"))
+                runs = Runs(self.directory)
+                (row,) = [row for row in runs.list() if row["id"] == identity]
+                self.assertEqual(row["state"], "succeeded", row["error"])
+                self.assertEqual(runs.record(identity)["data"]["bars"]["period"], f"{minutes}m")
+                equity = runs.table(identity, "equity")
+                self.assertEqual((equity["event"] == "mark").sum(), 10 * marks)
+                self.assertEqual(runs.table(identity, "settlements").height, 10)
+                fills = runs.table(identity, "fills")
+                self.assertGreater(fills.height, 0)
+                # A fill happens at a minute's end, never at the days' 15:00 label.
+                self.assertTrue(all(t % (60 * 10 ** 9) == 0 for t in fills["time_ns"]))
+                self.assertFalse(any(t == backtest.close_ns(d.isoformat())
+                                     for t in fills["time_ns"] for d in DAYS[:10]))
+        with self.assertRaisesRegex(ValueError, "minute periods are"):
+            backtest.minutes_of(7)
+
     def test_every_example_rule_trades(self):
         examples = {"ma_cross.MaCross": {"fast": 2, "slow": 4}, "breakout.Breakout": {"entry": 3, "exit": 2},
                     "momentum.Momentum": {"lookback": 3}, "reversion.Reversion": {"window": 4, "width": 0.5}}

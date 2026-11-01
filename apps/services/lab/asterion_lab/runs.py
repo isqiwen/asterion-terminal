@@ -10,7 +10,7 @@ written when it succeeds, before the index says so; a run that stops before
 then keeps only what it started with. Amounts have the ledger's eight decimal
 places, held exactly.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import importlib.metadata
 import io
@@ -70,6 +70,8 @@ class Plan:
     costs: dict
     risk: dict
     statistics: dict
+    # The bars a run reads: days, or minutes of a period from a source.
+    bars: dict = field(default_factory=lambda: {"period": "day"})
 
 
 class Runs:
@@ -106,7 +108,7 @@ class Runs:
                   "params": plan.params,
                   "data": {"provider": plan.provider, "dataset_version": plan.dataset_version,
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,
-                           "end_day": plan.end_day},
+                           "end_day": plan.end_day, "bars": plan.bars},
                   "engine": {"version": VERSION, "requirements": requirements()},
                   "costs": plan.costs, "risk": plan.risk, "statistics": plan.statistics}
         write_durably(directory / "run.json",

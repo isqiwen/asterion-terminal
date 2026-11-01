@@ -108,7 +108,7 @@ class Sources(unittest.TestCase):
                     self.assertEqual(reply.summary.dataset_version, version.identity)
                 self.assertNotEqual(*versions)
                 with self.assertRaises(SourceError) as unsupported:
-                    service.daily_bars("SHFE/rb/2027-01", "2026-10-26", "2026-10-26", "recorder")
+                    service.warehouse_for("recorder", "daily")
                 self.assertEqual(unsupported.exception.code, "unsupported")
                 reply = asyncio.run(request("summary", provider="missing"))
                 self.assertEqual(reply.error.code, "invalid_request")
