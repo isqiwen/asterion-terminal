@@ -5,6 +5,7 @@
 #include <asterion/system/trace.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <google/protobuf/util/json_util.h>
 #include <array>
 
 namespace asterion::terminal {
@@ -39,6 +40,8 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
           endpoint(std::move(value))
     {
         validate_id(endpoint.session);
+        if (endpoint.endpoint.empty() && endpoint.tls.empty())
+            throw std::invalid_argument("Market requires pinned mutual TLS");
         constexpr std::array<std::size_t, channel_count> capacity{1, 8, 1, 1};
         for (std::size_t i = 0; i < transports.size(); ++i) {
             auto budget = io.payload_budget(
@@ -47,7 +50,7 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
                                                             io.reactor(),
                                                             endpoint.host,
                                                             endpoint.port,
-                                                            ipc::TlsIdentity{},
+                                                            endpoint.tls,
                                                             capacity[i],
                                                             budget)
                                                       : std::make_unique<ipc::RpcClient>(
@@ -98,6 +101,11 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
         if (request.has_events()) {
             if (!response.has_events())
                 throw Error(ErrorCode::unavailable, "missing market events");
+            return {std::move(response), {}};
+        }
+        if (request.has_recording_status()) {
+            if (!response.has_recording_status() || response.recording_status().instance().empty())
+                throw Error(ErrorCode::unavailable, "missing market recording status");
             return {std::move(response), {}};
         }
         if (!response.has_snapshot() || response.snapshot().instance_id().empty())
@@ -182,15 +190,6 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl>
         if (response.snapshot)
             publish(std::move(*response.snapshot), generation);
         co_return std::move(response.response);
-    }
-
-    std::future<void> command(wire::Request request)
-    {
-        return io.submit<void>(
-            [state = shared_from_this(), request = std::move(request)](
-                std::stop_token stop) mutable -> PolledTask<void> {
-                co_await state->exchange(std::move(request), stop);
-            });
     }
 
     PolledTask<void> initialize(std::stop_token stop)
@@ -317,6 +316,63 @@ ServiceEndpoint MarketClient::endpoint() const
     return impl_->endpoint;
 }
 
+std::future<Json> MarketClient::data(ServiceIo& io, ServiceEndpoint endpoint, Json payload)
+{
+    return io.submit<Json>(
+        [&io, endpoint = std::move(endpoint), payload = std::move(payload)](
+            std::stop_token stop) -> PolledTask<Json> {
+            auto request = co_await io.read<wire::Request>([&] {
+                wire::Request request;
+                if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
+                    throw std::invalid_argument("invalid Market data request");
+                protocol::validate_message(request);
+                validate_id(request.correlation_id());
+                if (request.version() != 1 || request.service_id() != endpoint.session)
+                    throw std::invalid_argument("Market data request identity mismatch");
+                if (!(request.has_datasets() || request.has_dataset_summary()
+                        || request.has_dataset_coverage() || request.has_acquisition_sources()
+                        || request.has_acquisition_task() || request.has_acquisition_tasks()
+                        || request.has_acquisition_start() || request.has_acquisition_cancel()
+                        || request.has_recorded_days()))
+                    throw std::invalid_argument("unsupported Market data operation");
+                return request;
+            });
+            auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
+                if (endpoint.tls.empty())
+                    throw std::invalid_argument("Market requires pinned mutual TLS");
+                return std::make_unique<ipc::RpcClient>(
+                    io.reactor(),
+                    endpoint.host,
+                    endpoint.port,
+                    endpoint.tls,
+                    1,
+                    io.payload_budget(ServiceIo::PayloadLane::data));
+            });
+            auto reply = transport->request(request.SerializeAsString(), 60s);
+            while (reply.wait_for(0ms) != std::future_status::ready) {
+                if (stop.stop_requested())
+                    transport->cancel();
+                else
+                    transport->poll();
+                co_await std::suspend_always{};
+            }
+            co_return co_await io.read<Json>([raw = reply.get(), &request] {
+                wire::Response response;
+                if (!response.ParseFromString(*raw))
+                    throw Error(ErrorCode::unavailable, "invalid market response");
+                protocol::validate_message(response);
+                if (response.version() != request.version()
+                    || response.service_id() != request.service_id()
+                    || response.correlation_id() != request.correlation_id())
+                    throw Error(ErrorCode::unavailable, "market response identity mismatch");
+                std::string encoded;
+                if (!google::protobuf::util::MessageToJsonString(response, &encoded).ok())
+                    throw Error(ErrorCode::internal_error, "cannot encode Market data response");
+                return Json::parse(encoded);
+            });
+        });
+}
+
 MarketClient::MarketClient(ServiceIo& io, ServiceEndpoint endpoint)
     : impl_(std::make_shared<Impl>(io, std::move(endpoint)))
 {}
@@ -345,55 +401,6 @@ MarketClient::~MarketClient()
     impl_->lifetime.request_stop();
 }
 
-std::future<void> MarketClient::connect(const Json& params)
-{
-    wire::Request request;
-    auto* c = request.mutable_connect();
-    c->set_front(params.at("front").get<std::string>());
-    c->set_broker(params.at("broker").get<std::string>());
-    c->set_user(params.at("user").get<std::string>());
-    c->set_password(params.at("password").get<std::string>());
-    for (const auto& id : params.at("instruments")) {
-        auto* i = c->add_instruments();
-        i->set_venue(id.at("venue").get<std::string>());
-        i->set_symbol(id.at("symbol").get<std::string>());
-    }
-    return impl_->command(std::move(request));
-}
-
-std::future<void> MarketClient::catalog(const Json& params)
-{
-    wire::Request request;
-    auto* c = request.mutable_catalog();
-    c->set_front(params.at("front").get<std::string>());
-    c->set_broker(params.at("broker").get<std::string>());
-    c->set_user(params.at("user").get<std::string>());
-    c->set_password(params.at("password").get<std::string>());
-    c->set_app_id(params.at("app_id").get<std::string>());
-    c->set_auth_code(params.at("auth_code").get<std::string>());
-    return impl_->command(std::move(request));
-}
-
-std::future<void> MarketClient::subscribe(const Json& ids)
-{
-    wire::Request request;
-    for (const auto& id : ids) {
-        auto* i = request.mutable_subscribe()->add_instruments();
-        i->set_venue(id.at("venue").get<std::string>());
-        i->set_symbol(id.at("symbol").get<std::string>());
-    }
-    if (ids.empty())
-        request.mutable_subscribe();
-    return impl_->command(std::move(request));
-}
-
-std::future<void> MarketClient::disconnect()
-{
-    wire::Request request;
-    request.mutable_disconnect();
-    return impl_->command(std::move(request));
-}
-
 std::future<Json> MarketClient::minutes(const std::string& venue, const std::string& symbol)
 {
     const InstrumentId id{venue, symbol};
@@ -420,6 +427,27 @@ std::future<Json> MarketClient::snapshot() const
             },
             ServiceIo::ReadLane::response);
     });
+}
+
+std::future<Json> MarketClient::recording_status()
+{
+    wire::Request request;
+    request.mutable_recording_status();
+    return impl_->io.submit<Json>(
+        [state = impl_, request = std::move(request)](
+            std::stop_token stop) mutable -> PolledTask<Json> {
+            auto response = co_await state->exchange(std::move(request), stop);
+            co_return co_await state->io.read<Json>([response = std::move(response)] {
+                // The UI decodes this with the generated recording schema.
+                std::string encoded;
+                if (!google::protobuf::util::MessageToJsonString(
+                        response.recording_status(),
+                        &encoded)
+                        .ok())
+                    throw Error(ErrorCode::internal_error, "cannot encode market recording status");
+                return Json::parse(encoded);
+            });
+        });
 }
 
 MarketProjection MarketClient::owner_read() const

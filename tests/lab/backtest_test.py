@@ -10,16 +10,18 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
 import time
 import unittest
 
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request  # noqa: E402
-from asterion_lab import backtest, chart  # noqa: E402
+from asterion_lab import backtest, chart, repository  # noqa: E402
+from asterion_strategy import Bar, FIELDS, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
-from asterion_lab.service import Service  # noqa: E402
-from asterion_lab.warehouse import Warehouse  # noqa: E402
+from service_fixture import Service  # noqa: E402
+from warehouse_writer import Dataset, Warehouse, dataset_of  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
@@ -81,7 +83,61 @@ class Backtests(unittest.TestCase):
                       deposit=Decimal(1_000_000), costs=COSTS, slippage_ticks=0,
                       max_order_lots=Decimal(10), max_gross_lots=Decimal(10), max_working_orders=10)
         values.update(changes)
+        values.setdefault("dataset_version", Dataset(self.directory).current().identity)
+        if values.get("minutes"):
+            values.setdefault("minute_dataset_version", dataset_of(
+                self.directory, values["minute_provider"]).current().identity)
         return backtest.Config(**values)
+
+    def publish_incomplete(self):
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
+        return writer.commit().identity
+
+    def test_a_run_reads_its_pinned_version_when_new_data_are_published(self):
+        config = self.config(("SHFE/rb/2026-05",))
+        current = self.publish_incomplete()
+        self.assertNotEqual(config.dataset_version, current)
+        backtest.run(self.directory, "pinned", config)
+        record = Runs(self.directory).record("pinned")
+        self.assertEqual(record["data"]["dataset_version"], config.dataset_version)
+        self.assertEqual(Runs(self.directory).list()[0]["state"], "succeeded")
+        self.assertEqual(len(Runs(self.directory).table("pinned", "settlements")), len(DAYS))
+        with self.assertRaisesRegex(ValueError, "unreadable dataset version"):
+            backtest.run(self.directory, "unavailable", self.config(
+                ("SHFE/rb/2026-05",), dataset_version="a" * 64))
+        self.assertFalse((Runs(self.directory).root / "unavailable").exists())
+
+    def test_admission_pins_both_sources_and_rejects_conflicting_same_source_versions(self):
+        service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+        minute_store = Warehouse(self.directory / "sources/recorder", "recorder")
+        writer = minute_store.writer()
+        bar = dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05",
+                   day=DAYS[0].isoformat(), start_ms=1767574800000, partial=False,
+                   open=Decimal(3000), high=Decimal(3005), low=Decimal(2995), close=Decimal(3000),
+                   volume=Decimal(100), average_price=None, open_interest=Decimal(100))
+        key = f"minutes/SHFE/{DAYS[0].isoformat()}/rb/2026-05"
+        writer.put_rows(key, "minutes", [bar], days=[bar["day"]])
+        minute_version = writer.commit().identity
+        request = self.sweep_request("sources", [2], [4], 1).sweep.base
+        request.minutes, request.minute_provider = 1, "recorder"
+        pinned = service.pin_backtest(request)
+        self.assertEqual(pinned.minute_dataset_version, minute_version)
+        self.publish_incomplete()
+        writer.put_rows(key, "minutes", [{**bar, "close": Decimal(3010)}], days=[bar["day"]])
+        self.assertNotEqual(writer.commit().identity, minute_version)
+        data = backtest.open_data(self.directory, backtest.config_of(pinned))
+        self.assertEqual(data.version.identity, pinned.dataset_version)
+        self.assertEqual(data.minute_version.identity, minute_version)
+        self.assertEqual(data.minute_bars(bar["contract"], bar["day"], bar["day"], 1)[0]["close"],
+                         Decimal(3000))
+        request.minute_provider = "tushare"
+        request.dataset_version = pinned.dataset_version
+        same = service.pin_backtest(request)
+        self.assertEqual(same.dataset_version, same.minute_dataset_version)
+        request.minute_dataset_version = Dataset(self.directory).current().identity
+        with self.assertRaisesRegex(ValueError, "same dataset version"):
+            service.pin_backtest(request)
 
     def test_the_data_are_read_as_the_old_data_service_reads_them(self):
         data = backtest.Data(Warehouse(self.directory), DAYS[0].isoformat(), DAYS[-1].isoformat())
@@ -152,6 +208,18 @@ class Backtests(unittest.TestCase):
                 self.assertTrue(all(t % (60 * 10 ** 9) == 0 for t in fills["time_ns"]))
                 self.assertFalse(any(t == backtest.close_ns(d.isoformat())
                                      for t in fills["time_ns"] for d in DAYS[:10]))
+                import asterion_engine
+                config = self.config(("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(),
+                                     minutes=minutes, minute_provider="tushare")
+                contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+                engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                               (10 * backtest.R, 10 * backtest.R, 10))
+                context = backtest.warmup(engine, repository.load(
+                    self.repository, config.strategy, config.params),
+                    {engine.unit(index): symbol for symbol, index in first.items()}, contracts)
+                self.assertEqual(len(context.history("SHFE/rb/2026-05", "close", 1000)), 10 * marks)
+                self.assertEqual(engine.orders(), [])
+                self.assertEqual(engine.fills(), [])
         with self.assertRaisesRegex(ValueError, "minute periods are"):
             backtest.minutes_of(7)
 
@@ -166,6 +234,49 @@ class Backtests(unittest.TestCase):
                 (row,) = [row for row in Runs(self.directory).list() if row["id"] == identity]
                 self.assertEqual(row["state"], "succeeded", row["error"])
                 self.assertGreater(Runs(self.directory).table(identity, "fills").height, 0)
+
+    def test_warmup_rebuilds_the_same_history_without_orders(self):
+        import asterion_engine
+
+        cases = [(("SHFE/rb/2026-05",), {}), (("SHFE/rb",), {}),
+                 (("SHFE/rb/2026-05", "SHFE/rb/2026-10"),
+                  dict(strategy="momentum_rank.MomentumRank",
+                       params={"lookback": 2, "rebalance": 1, "weight": 0.05},
+                       max_gross_weight=Decimal(1), max_net_weight=Decimal(1)))]
+        for symbols, settings in cases:
+            with self.subTest(symbols=symbols):
+                config = self.config(symbols, **settings)
+                contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+
+                def engine():
+                    return asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                                 (10 * backtest.R, 10 * backtest.R, 10))
+
+                trading, warming = engine(), engine()
+                units = {trading.unit(index): symbol for symbol, index in first.items()}
+                strategy = repository.load(self.repository, config.strategy, config.params)
+                observed = []
+                traded = backtest.replay(trading, strategy, units, contracts, config,
+                                        lambda bars, wanted: observed.append((bars, dict(wanted))))
+                self.assertGreater(len(trading.fills()), 0)
+                warmed_strategy = repository.load(self.repository, config.strategy, config.params)
+                warmed = backtest.warmup(warming, warmed_strategy, units, contracts)
+                self.assertEqual(warming.orders(), [])
+                self.assertEqual(warming.fills(), [])
+                self.assertEqual(warmed.wanted, {})
+                self.assertEqual((warmed.time, warmed.mode), (traded.time, traded.mode))
+                self.assertTrue(any(wanted for _, wanted in observed))
+                for symbol in symbols:
+                    for field in FIELDS:
+                        self.assertEqual(warmed.history(symbol, field, 1000).tolist(),
+                                         traded.history(symbol, field, 1000).tolist())
+                # Continue both strategies with the same next bar, preserving
+                # internal counters as well as ctx.history and its target mode.
+                following = [Bar(bar.symbol, bar.contract, bar.time + datetime.timedelta(days=1),
+                                 bar.open, bar.high, bar.low, bar.close, bar.volume, bar.open_interest)
+                             for bar in observed[-1][0]]
+                self.assertEqual(step(warmed_strategy, warmed, following),
+                                 step(strategy, traded, following))
 
     def test_a_ranking_holds_weights_of_equity(self):
         symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
@@ -256,10 +367,20 @@ class Backtests(unittest.TestCase):
             self.assertEqual(weeks[0].trading_day, DAYS[4].isoformat())
             self.assertFalse(weeks[0].HasField("macd_diff"))
             query.chart_bars.period = "day"
-            days = (await service.reply(query)).chart_bars.bars
+            original = (await service.reply(query)).chart_bars
+            days = original.bars
             # Thirty days: all within MACD's warm-up.
             self.assertEqual(len(days), 30)
             self.assertFalse(any(item.HasField("macd_diff") for item in days))
+            self.publish_incomplete()
+            query.chart_bars.dataset_version = original.dataset_version
+            self.assertEqual((await service.reply(query)).chart_bars, original)
+            query.chart_bars.dataset_version = "a" * 64
+            self.assertEqual((await service.reply(query)).error.code, "invalid_request")
+            query.chart_bars.dataset_version = ""
+            current = (await service.reply(query)).chart_bars
+            self.assertNotEqual(current.dataset_version, original.dataset_version)
+            self.assertLess(len(current.bars), len(original.bars))
         asyncio.run(scenario())
 
     def test_the_service_runs_a_backtest_in_a_child_process(self):
@@ -279,8 +400,10 @@ class Backtests(unittest.TestCase):
             run.deposit, run.max_order_lots, run.max_gross_lots = "1000000", "10", "10"
             run.max_working_orders = 10
             run.costs.add(product="SHFE/rb", values=[str(value) for value in COSTS["SHFE/rb"]])
-            response = await service.reply(request)
-            self.assertEqual(response.WhichOneof("body"), "accepted", response)
+            replies = await asyncio.gather(service.reply(request), service.reply(request))
+            self.assertEqual(sorted(reply.WhichOneof("body") for reply in replies), ["accepted", "error"])
+            self.assertEqual(next(reply for reply in replies if reply.HasField("error")).error.code,
+                             "invalid_request")
             # Accepted means recorded: the run can be read at once.
             query = Request(version=1, service_id="lab", run={"id": "child"})
             self.assertEqual((await service.reply(query)).WhichOneof("body"), "run")
@@ -294,8 +417,10 @@ class Backtests(unittest.TestCase):
             self.assertIn("total_return", row.metrics)
             detail = (await service.reply(Request(version=1, service_id="lab", run={"id": "child"}))).run
             self.assertEqual(detail.summary.state, "succeeded")
-            report = (await service.reply(Request(version=1, service_id="lab",
-                                                  run_report={"id": "child"}))).run_report
+            report_reply = await service.reply(Request(version=1, service_id="lab",
+                                                       run_report={"id": "child"}))
+            self.assertEqual(report_reply.WhichOneof("body"), "run_report", report_reply.error)
+            report = report_reply.run_report
             self.assertTrue(report.quantstats_version)
             self.assertLessEqual({"tail_ratio", "ulcer_index", "value_at_risk",
                                   "conditional_value_at_risk"}, set(report.figures))
@@ -337,7 +462,10 @@ class Backtests(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             request = self.sweep_request("grid", [2, 3], [4, 5], 2)
+            fixed_version = Dataset(self.directory).current().identity
             self.assertEqual((await service.reply(request)).WhichOneof("body"), "accepted")
+            # The queued candidates must keep the inputs accepted for the whole sweep.
+            self.assertNotEqual(self.publish_incomplete(), fixed_version)
             self.assertLessEqual(len(service.backtests), 2)
             self.assertEqual((await service.reply(request)).error.code, "invalid_request")
             query = Request(version=1, service_id="lab", sweep_runs={"id": "grid"})
@@ -352,6 +480,7 @@ class Backtests(unittest.TestCase):
             self.assertEqual([(run.params["fast"].integer, run.params["slow"].integer) for run in reply.runs],
                              [(2, 4), (2, 5), (3, 4), (3, 5)])
             self.assertEqual({run.state for run in reply.runs}, {"succeeded"})
+            self.assertEqual({run.dataset_version for run in reply.runs}, {fixed_version})
             sharpe = {run.id: run.metrics["development_sharpe"] for run in reply.runs
                       if "development_sharpe" in run.metrics}
             self.assertEqual(reply.selected, max(sharpe, key=sharpe.get) if sharpe else "")
@@ -368,12 +497,16 @@ class Backtests(unittest.TestCase):
             request = self.sweep_request("walk", [2, 3], [4], 2)
             request.sweep.base.holdout_day = ""
             request.sweep.walk_forward.training_days, request.sweep.walk_forward.validation_days = 20, 3
+            fixed_version = Dataset(self.directory).current().identity
             self.assertEqual((await service.reply(request)).WhichOneof("body"), "accepted")
+            self.assertNotEqual(self.publish_incomplete(), fixed_version)
             deadline = time.monotonic() + 60
             while (service.backtests or service.waiting or service.rolling) and time.monotonic() < deadline:
                 await asyncio.sleep(0.1)
             reply = (await service.reply(Request(version=1, service_id="lab", sweep_runs={"id": "walk"}))).sweep_runs
             self.assertEqual(reply.rolling.state, "succeeded", reply.rolling.error)
+            self.assertEqual(reply.rolling.dataset_version, fixed_version)
+            self.assertEqual({run.dataset_version for run in reply.runs}, {fixed_version})
             self.assertIn("out_of_sample_total_return", reply.rolling.metrics)
 
         asyncio.run(scenario())
@@ -424,6 +557,16 @@ class Backtests(unittest.TestCase):
             self.assertEqual(len(reply.runs), 9)
             self.assertIn(reply.runs[0].state, ("interrupted", "succeeded"))
             self.assertEqual({run.state for run in reply.runs[1:]}, {""})
+            # Reusing a never-started candidate would attach unrelated results
+            # to the cancelled sweep, including after a service restart.
+            reused = Request(version=1, service_id="lab")
+            reused.backtest.CopyFrom(self.sweep_request("other", [2], [4], 1).sweep.base)
+            reused.backtest.id = "stopped-1"
+            for owner in (service, Service("lab", self.directory, Log())):
+                response = await owner.reply(reused)
+                self.assertEqual(response.error.code, "invalid_request")
+                self.assertFalse(owner.backtests)
+            self.assertFalse((self.directory / "runs/stopped-1").exists())
 
         asyncio.run(scenario())
         runs = Runs(self.directory)

@@ -35,7 +35,7 @@ export function WatchlistToggle({
         onClick={() => {
           setError("");
           context
-            .trade("market.subscribe", {
+            .trade("market.watchlist", {
               instruments: present
                 ? ids.filter(id => !same(id))
                 : [...ids, { venue: row.venue, symbol: row.symbol }],

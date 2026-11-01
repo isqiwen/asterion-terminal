@@ -8,6 +8,7 @@ namespace asterion::ipc::detail {
 // certificate has one of the identity's fingerprints.
 std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity);
 // Throws std::invalid_argument unless the identity is complete and valid.
+std::string peer_fingerprint(SSL* stream);
 void validate_identity(const TlsIdentity& identity);
 
 } // namespace asterion::ipc::detail

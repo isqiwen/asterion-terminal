@@ -146,11 +146,11 @@ Application::Impl::invoke(const std::string& method, const json& params)
     try {
         if (found == commands.end())
             throw Error(ErrorCode::invalid_request, "unsupported command");
-        // Selection and credentials must remain bound to the same market operation
-        // while preparation suspends. Read-only minutes do not acquire this gate.
+        // Selection must remain bound to the same market operation while preparation
+        // suspends. Read-only queries do not acquire this gate.
         std::optional<ResetFlag> market_admission;
-        if ((method.starts_with("market.") && method != "market.minutes")
-            || method == "ctp.connections.market") {
+        if (method.starts_with("market.") && method != "market.minutes"
+            && method != "market.recording" && method != "market.data") {
             if (market_busy)
                 throw Error(
                     ErrorCode::conflict,
@@ -211,8 +211,13 @@ Application::Impl::Publication Application::Impl::capture()
     next.settings = settings_view;
     for (const auto& [id, account] : live)
         next.live.emplace(id, account->client->owner_view());
-    if (market)
+    if (market) {
         next.market = market->owner_read();
+        const auto& saved = settings_view->market_endpoint;
+        next.market.header["watchlist"] = saved.is_object() && saved.contains("instruments")
+            ? saved.at("instruments")
+            : json::array();
+    }
     next.nodes = {services.view()};
     next.metadata = {
         {"protocol", 1},
@@ -263,12 +268,9 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
     auto& nodes_view = result["nodes"] = json::array();
     for (const auto& node : nodes)
         nodes_view.push_back(node_snapshot_json(node));
-    result["data_credentials"] = settings->credentials;
-    result["ctp_connections"] = settings->accounts;
-    result["ctp_market"] = settings->market;
     result["trading_connections"] = settings->trading;
     result["trading_fingerprint"] = settings->trading_fingerprint;
-    result["recorder_endpoint"] = settings->recorder;
+    result["market_endpoint"] = settings->market_endpoint;
     result["strategy_repository"] = settings->repository;
     auto& accounts = result["live"] = json::object();
     for (const auto& [id, account] : live) {
@@ -478,7 +480,13 @@ Application::Application()
     impl_ = std::make_unique<Impl>();
 }
 
-Application::~Application() = default;
+Application::~Application()
+{
+    // Admitted commands still use impl_ and its state after each suspension.
+    // Drain them while both are alive, before unique_ptr clears the pointer.
+    impl_->lifetime.request_stop();
+    impl_->service_io.stop();
+}
 
 json Application::dispatch(const json& request)
 {

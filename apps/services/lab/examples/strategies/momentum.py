@@ -1,5 +1,5 @@
 """Time-series momentum on one contract or dominant series."""
-from asterion_lab.strategy import Strategy
+from asterion_strategy import Strategy
 
 from strategies._rules import lots
 
@@ -8,6 +8,10 @@ class Momentum(Strategy):
     """Long while the close is above the close `lookback` bars earlier, short
     while it is below."""
     params = {"lookback": 20, "lots": 1, "sides": "both"}
+
+    def ready(self, ctx):
+        need = self.params["lookback"] + 1
+        return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
         lookback = self.params["lookback"]

@@ -52,6 +52,13 @@ jobs:
       - run: cmake --build --preset conan-debug -- -k 0
       - run: python scripts/desktop/python_runtime.py
       - run: ctest --preset conan-debug --output-on-failure
+        env:
+          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
+      - name: Market release without a Python runtime
+        if: runner.os == 'Linux'
+        run: |
+          cmake --build build/Debug --target asterion_market_setup
+          build/electron-resources/python/bin/python3 tests/market/package_test.py build/Debug/asterion-market-setup.sh
   linux-hosts:
     strategy:
       fail-fast: false
@@ -65,33 +72,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-release
-      # The trading and recording hosts' own releases, one self-extracting
+      # The trading and Market hosts' own releases, one self-extracting
       # script each.
       - run: cmake --build build/Release --target asterion_trading_setup
       - name: Verify the trading service
         run: |
           ./build/Release/asterion_trading --version
           ldd build/Release/asterion_trading
+      - name: Offline Trading runtime and strategy limits
+        run: python tests/trading/package_test.py build/Release/asterion-trading-setup.sh
       - uses: actions/upload-artifact@v4
         with:
           name: trading-linux-${{ matrix.arch }}
           if-no-files-found: error
           path: build/Release/asterion-trading-setup.sh
-      - run: cmake --build build/Release --target asterion_recorder_setup
-      - name: Verify the recorder
+      - run: cmake --build build/Release --target asterion_market_setup
+      - name: Verify Market
         run: |
-          ./build/Release/asterion_recorder --version
-          ldd build/Release/asterion_recorder
+          ./build/Release/asterion_market --version
+          ldd build/Release/asterion_market
       - uses: actions/upload-artifact@v4
         with:
-          name: recorder-linux-${{ matrix.arch }}
+          name: market-linux-${{ matrix.arch }}
           if-no-files-found: error
-          path: build/Release/asterion-recorder-setup.sh
+          path: build/Release/asterion-market-setup.sh
 
   terminal:
     needs: [style, core, core-sanitizers, linux-hosts]

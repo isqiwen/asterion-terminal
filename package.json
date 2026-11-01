@@ -17,7 +17,7 @@
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" \"packages/client-ui/**/*.{ts,tsx}\" --max-warnings 0",
     "test:desktop": "node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs",
     "prepare:python": "python3 scripts/desktop/python_runtime.py",
-    "generate:protocol": "buf generate protocol/proto --template protocol/buf.gen.yaml --path protocol/proto/asterion/lab.proto",
+    "generate:protocol": "buf generate protocol/proto --template protocol/buf.gen.yaml --path protocol/proto/asterion/lab.proto --path protocol/proto/asterion/market.proto --path protocol/proto/asterion/trading.proto --include-imports",
     "installer": "node scripts/desktop/installer.cjs"
   },
   "dependencies": {

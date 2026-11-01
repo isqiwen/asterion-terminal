@@ -57,6 +57,9 @@ public:
     // Queries the account's margin and commission rates for each contract with
     // its product code; results arrive in snapshot().costs. Requires ready.
     void query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts);
+    // One coalesced positions/funds refresh; funds_completed_at advances only
+    // after a complete response containing the account's actual funds.
+    void refresh_account();
     // Returns immediately. Empty result means unavailable, invalidated or expired.
     std::future<std::optional<BrokerQuote>> quote(const InstrumentId& instrument);
     // The account owner applies queued callbacks and advances quote deadlines.

@@ -1,5 +1,5 @@
 """A moving-average rule on one contract or dominant series."""
-from asterion_lab.strategy import Strategy
+from asterion_strategy import Strategy
 
 from strategies._rules import lots, units
 
@@ -8,6 +8,10 @@ class MaCross(Strategy):
     """Long while the mean of the last `fast` closes is above that of the last
     `slow`, short while it is below, flat when they are equal."""
     params = {"fast": 5, "slow": 20, "lots": 1, "sides": "both"}
+
+    def ready(self, ctx):
+        need = self.params["slow"]
+        return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
         fast, slow = self.params["fast"], self.params["slow"]

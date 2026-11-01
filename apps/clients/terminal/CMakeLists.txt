@@ -5,7 +5,7 @@ add_library(asterion_terminal_credentials STATIC
   native/keychain_store.cpp
   native/ctp_connections.cpp
   native/trading_connections.cpp
-  native/recorder_endpoint.cpp
+  native/market_endpoint.cpp
   native/strategy_repository.cpp
 )
 target_include_directories(asterion_terminal_credentials PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
@@ -30,7 +30,6 @@ add_library(asterion_terminal_application STATIC
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
-add_dependencies(asterion_terminal_application asterion_market)
 if(APPLE)
   # Kept free of project libraries so its code signature, which the keychain
   # uses to grant access, only changes when this file does.

@@ -19,8 +19,8 @@ namespace asterion::terminal {
 class PythonRuntime
 {
 public:
-    // `application`: the shipped runtime directory with manifest.json, the
-    // wheels it bundles and app/, the application's own Python code.
+    // `application`: the shipped runtime directory with manifest.json and
+    // app/, the application's own Python code.
     PythonRuntime(std::filesystem::path application, std::filesystem::path directory);
     ~PythonRuntime();
 
@@ -41,7 +41,6 @@ private:
         std::string name, sha256;
         std::uint64_t size = 0;
         std::vector<std::string> urls; // in the order to try
-        std::filesystem::path bundled; // shipped with the application instead
     };
 
     struct Module

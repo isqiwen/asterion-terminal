@@ -1,19 +1,12 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
-import {
-  ErrorNotice,
-  asDisplayError,
-  type DisplayError,
-  useWorkspaceDraft,
-  type TerminalContext,
-} from "../contract";
+import { useWorkspaceDraft, type TerminalContext } from "../contract";
 import type { TradingConnection, TradingAccount } from "../../src/bridge/client";
 import { t, key, type Run } from "./live-shared";
 
 export function CreateLive({
   account,
   configuration,
-  trade,
   snapshot,
   busy,
   run,
@@ -31,8 +24,6 @@ export function CreateLive({
   };
   const environment = configuration.environment;
   const [step, setStep] = useWorkspaceDraft(`live-create-step:${account.id}`, 0);
-  const [catalogError, setCatalogError] = useState<DisplayError>("");
-  const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
   const [limits, setLimits] = useWorkspaceDraft(`live-risk:${account.id}`, {
     max_order_quantity: "",
     max_gross_quantity: "",
@@ -57,10 +48,6 @@ export function CreateLive({
       </div>
       <p className="subtle">{t("账户信息来自交易服务配置，只能在交易主机上设置。")}</p>
       <p className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</p>
-      {!snapshot?.ctp_market && (
-        <p>{t("请在行情设置中配置合约目录查询账户；它与交易服务账户独立。")}</p>
-      )}
-      {catalogError && <ErrorNotice error={catalogError} namespace="asterion.terminal.trading" />}
       <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
       <form
         onSubmit={event => {
@@ -88,71 +75,7 @@ export function CreateLive({
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
               {catalog?.phase !== "ready" ? (
-                <div>
-                  <p className="subtle">
-                    {t("先读取柜台合约规格，不会创建委托。凭据仅用于本次查询。")}
-                  </p>
-                  <div className="futures-fields">
-                    <label>
-                      {t("交易密码")}
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        aria-label={t("目录查询密码")}
-                        value={catalogCredentials.password}
-                        onChange={e =>
-                          setCatalogCredentials({ ...catalogCredentials, password: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {t("授权码")}
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        aria-label={t("目录查询授权码")}
-                        maxLength={16}
-                        value={catalogCredentials.auth_code}
-                        onChange={e =>
-                          setCatalogCredentials({
-                            ...catalogCredentials,
-                            auth_code: e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      !snapshot?.ctp_market ||
-                      !catalogCredentials.password ||
-                      ["connecting", "authenticating", "logging_in", "querying"].includes(
-                        catalog?.phase ?? "",
-                      )
-                    }
-                    onClick={() => {
-                      setCatalogError("");
-                      const credentials = catalogCredentials;
-                      setCatalogCredentials({ password: "", auth_code: "" });
-                      if (snapshot?.ctp_market)
-                        void trade("market.catalog", {
-                          ...credentials,
-                          account: snapshot.ctp_market,
-                        }).catch(failure => setCatalogError(asDisplayError(failure)));
-                    }}
-                  >
-                    {t("获取合约列表")}
-                  </button>
-                  <p role="status">
-                    {t(
-                      catalog?.phase === "error"
-                        ? "合约查询失败，请核对连接信息后重试。"
-                        : "合约规格未就绪",
-                    )}
-                  </p>
-                </div>
+                <p role="status">{t("连接远程行情服务后可选择合约；柜台凭据在服务主机配置。")}</p>
               ) : (
                 <div className="futures-file">
                   <label>

@@ -115,21 +115,29 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     setBars([]);
     if (!contract || !record) return;
     // The bars the run read: days, or minutes of its period from its minute source.
-    const bars = record.data.bars ?? { period: "day" };
+    const bars = record.data.bars;
     const minutes = bars.period === "day" ? "" : String(bars.period).replace("m", "");
+    const datasetVersion = minutes ? bars.dataset_version : record.data.dataset_version;
+    if (!datasetVersion) {
+      setError(asDisplayError(new Error(t("运行记录缺少数据版本，无法读取对应 K 线。"))));
+      return;
+    }
     void lab(
       {
         case: "chartBars",
         value: {
           contract,
-          provider: minutes ? bars.provider : "tushare",
+          provider: minutes ? bars.provider : record.data.provider,
           period: minutes || "day",
+          datasetVersion,
         },
       },
       "chartBars",
     )
       .then(reply => {
         if (!active) return;
+        if (reply.datasetVersion !== datasetVersion)
+          throw new Error(t("返回的 K 线与运行使用的数据版本不一致。"));
         // Only the run's range of a contract's stored bars.
         const first = record.data.begin_day as string,
           last = record.data.end_day as string;
@@ -154,7 +162,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
       </div>
     );
   const contracts = [...new Set(detail.fills.map(fill => fill.contract))];
-  const daily = (record.data.bars?.period ?? "day") === "day";
+  const daily = record.data.bars.period === "day";
   const candles: Candle[] = bars.map(bar => ({
     timestamp_ns: String(BigInt(bar.timeMs) * 1_000_000n),
     open: bar.open,
@@ -371,18 +379,18 @@ function RunDetails({ record }: { record: string }) {
 }
 
 // Two runs side by side: their figures, and their equity on the days both have.
-export function RunComparison({ ids }: { ids: readonly [string, string] }) {
+export function RunComparison({ ids: [firstId, secondId] }: { ids: readonly [string, string] }) {
   const [details, setDetails] = useState<LabRunDetail[]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void Promise.all(ids.map(id => lab({ case: "run", value: { id } }, "run")))
+    void Promise.all([firstId, secondId].map(id => lab({ case: "run", value: { id } }, "run")))
       .then(replies => active && setDetails(replies))
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
       active = false;
     };
-  }, [ids]);
+  }, [firstId, secondId]);
   if (error) return <ErrorNotice error={error} />;
   if (details.length !== 2) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, second] = details;

@@ -1,11 +1,21 @@
 #include "session.hpp"
 #include "catalog_job.hpp"
 #include "ctp_feed.hpp"
+#include "recording/recorder.hpp"
+#include "recording/reader.hpp"
+#include "recording/compaction.hpp"
+#include "recording/compactor.hpp"
+#include "warehouse/reader.hpp"
+#include "acquisition/manager.hpp"
+#include "acquisition/tushare.hpp"
+#include "acquisition/exchanges.hpp"
+#include "acquisition/recorded.hpp"
 #include <asterion/futures/intraday_bars.hpp>
 #include <asterion/base/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <algorithm>
 #include <map>
 #include <deque>
 #include <asterion/system/process/artifact.hpp>
@@ -17,6 +27,14 @@ namespace asterion::market_data {
 
 using namespace std::chrono_literals;
 namespace wire = market::proto;
+using Clock = std::chrono::steady_clock;
+
+static std::int64_t now_ms()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
 
 namespace {
 
@@ -27,27 +45,75 @@ struct State
     ThreadPool sdk_owner{1, 2};
     std::unique_ptr<ctp::Feed> feed;
     CatalogJob catalog;
-    std::vector<InstrumentId> watchlist;
-    std::uint64_t applied_catalog = 0, extra_sequence = 0;
+    std::uint64_t applied_catalog = 0;
     IntradayBars intraday;
     std::string stream;
     std::uint64_t event_cursor = 0;
+    const Settings settings;
+    std::unique_ptr<recording::Recorder> recorder;
+    const std::int64_t started_ms = now_ms();
+    std::int64_t last_quote_ms = 0;
+    MarketPhase seen = MarketPhase::disconnected;
+    int feed_error = 0;
+    std::uint32_t subscribed = 0;
+    bool catalog_wanted = false;
+    Clock::time_point next_login{}, next_catalog{}, quiet_since = Clock::now();
+    recording::Compactor compactor;
 
-    State(const Session::Configuration& config)
+    State(const Session::Configuration& config, std::shared_ptr<std::shared_mutex> archive)
         : service(config.service),
           instance(config.instance),
-          directory(config.directory),
-          sdk(config.sdk),
-          catalog_sdk(config.catalog_sdk),
-          catalog(sdk_owner)
+          directory(config.settings.directory),
+          sdk(config.settings.ctp_library),
+          catalog_sdk(config.settings.ctp_catalog_library),
+          catalog(sdk_owner),
+          settings(config.settings),
+          compactor(directory / "recordings", std::move(archive))
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
+        {
+            recorder = std::make_unique<recording::Recorder>(directory / "recordings", instance);
+            feed = std::make_unique<ctp::Feed>(sdk_owner, sdk, directory / "ctp-flow");
+            feed->start();
+            login();
+        }
     }
 
     ~State()
     {
         if (feed)
             feed->stop();
+        if (recorder) {
+            try {
+                recorder->close("stopped", now_ms(), intraday);
+            } catch (...) {
+                // The writer reports the failure; provider teardown must finish.
+            }
+        }
+    }
+
+    void login()
+    {
+        feed->connect(settings.market, {});
+        applied_catalog = 0;
+        subscribed = 0;
+        next_login = Clock::now() + 60s;
+    }
+
+    void advance_login()
+    {
+        const auto now = Clock::now();
+        if (feed->phase() == MarketPhase::connected && seen != MarketPhase::connected)
+            catalog_wanted = true;
+        seen = feed->phase();
+        if (seen == MarketPhase::error && now >= next_login)
+            login();
+        if ((catalog_wanted || (next_catalog != Clock::time_point{} && now >= next_catalog))
+            && !catalog.running() && !catalog.initializing()) {
+            catalog.start(catalog_sdk, directory / "ctp-catalog-flow", settings.catalog);
+            catalog_wanted = false;
+            next_catalog = {};
+        }
     }
 
     std::string phase() const
@@ -64,15 +130,22 @@ struct State
         if (feed)
             feed->poll();
         catalog.poll();
+        advance_login();
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
-        if (feed && feed->phase() == MarketPhase::connected && catalog_state.phase() == "ready"
+        if (catalog_state.phase() == "error" && next_catalog == Clock::time_point{})
+            next_catalog = Clock::now() + 5min;
+        if (feed && feed->phase() == MarketPhase::connected
+            && (catalog_state.phase() == "ready"
+                || (!applied_catalog && catalog_state.contracts_size()))
             && applied_catalog != catalog_revision) {
             std::map<InstrumentId, int> multipliers;
             for (const auto& row : catalog_state.contracts())
                 multipliers[{row.instrument().venue(), row.instrument().symbol()}] =
                     row.multiplier();
             feed->set_multipliers(std::move(multipliers));
-            feed->subscribe(interests(catalog_state, watchlist));
+            auto ids = interests(catalog_state);
+            feed->subscribe(ids);
+            subscribed = static_cast<std::uint32_t>(ids.size());
             applied_catalog = catalog_revision;
         }
         if (!feed)
@@ -80,14 +153,25 @@ struct State
         // Bounded work per turn. Client traffic cannot prevent event consumption,
         // and a continuous provider stream cannot starve admitted commands.
         const auto batch = feed->events_after(stream, event_cursor, 1024);
-        if (batch.gap || batch.failed)
+        if (batch.gap || batch.failed) {
             intraday.interrupt();
+            if (recorder)
+                recorder->interrupt(batch.failed ? "feed_failed" : "events_lost");
+        }
         for (const auto& event : batch.events) {
             event_cursor = event.sequence;
             if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-                if (status->phase != MarketPhase::connected)
+                feed_error = status->error_code;
+                if (status->phase != MarketPhase::connected) {
                     intraday.interrupt();
+                    if (recorder)
+                        recorder->interrupt(market_phase_name(status->phase));
+                }
             } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
+                last_quote_ms = quote->quote.received_ms;
+                quiet_since = Clock::now();
+                if (recorder)
+                    recorder->observe(quote->quote, quote->out_of_order, intraday);
                 if (!quote->out_of_order)
                     intraday.observe(quote->quote);
             }
@@ -95,23 +179,24 @@ struct State
         stream = batch.stream_id;
         if (batch.failed)
             event_cursor = batch.latest_sequence;
+        if (recorder) {
+            recorder->poll(now_ms(), intraday);
+            const auto now = Clock::now();
+            compactor.poll(now - quiet_since >= 30min, now, std::chrono::system_clock::now());
+        }
     }
 
-    std::vector<InstrumentId>
-    interests(const wire::CatalogState& state, const std::vector<InstrumentId>& selected)
+    std::vector<InstrumentId> interests(const wire::CatalogState& state)
     {
-        std::vector<InstrumentId> ids = selected;
+        std::vector<InstrumentId> ids;
         std::set<std::string> symbols;
-        for (const auto& id : ids)
-            symbols.insert(id.symbol);
-        if (state.phase() == "ready")
-            for (const auto& row : state.contracts())
-                if (symbols.insert(row.instrument().symbol()).second)
-                    ids.push_back({row.instrument().venue(), row.instrument().symbol()});
+        for (const auto& row : state.contracts())
+            if (symbols.insert(row.instrument().symbol()).second)
+                ids.push_back({row.instrument().venue(), row.instrument().symbol()});
         return ids;
     }
 
-    wire::Snapshot snapshot(WatchCursor* held = nullptr)
+    wire::Snapshot snapshot(WatchCursor* held = nullptr, const wire::Watch* watch = nullptr)
     {
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
         LiveMarketSnapshot state;
@@ -123,7 +208,7 @@ struct State
         auto out = protocol::encode_market(state, instance);
         if (!feed && sdk.empty())
             out.set_phase("sdk_unavailable");
-        out.set_sequence(state.sequence + catalog_revision + extra_sequence + intraday.revision());
+        out.set_sequence(state.sequence + catalog_revision + intraday.revision());
         if (state.subscriptions_delta)
             out.set_base_sequence(held->sequence);
         out.set_catalog_revision(catalog_revision);
@@ -131,10 +216,22 @@ struct State
             out.set_catalog_omitted(true);
         else
             *out.mutable_catalog() = catalog_state;
-        for (const auto& id : watchlist) {
-            auto* row = out.add_watchlist();
-            row->set_venue(id.venue);
-            row->set_symbol(id.symbol);
+        if (watch && !watch->instruments().empty()) {
+            std::set<InstrumentId> selected;
+            for (const auto& id : watch->instruments()) {
+                selected.insert({id.venue(), id.symbol()});
+                *out.add_watchlist() = id;
+            }
+            auto& rows = *out.mutable_subscriptions();
+            rows.erase(
+                std::remove_if(
+                    rows.begin(),
+                    rows.end(),
+                    [&](const auto& row) {
+                        return !selected.contains(
+                            {row.instrument().venue(), row.instrument().symbol()});
+                    }),
+                rows.end());
         }
         for (auto& row : *out.mutable_subscriptions())
             if (const auto change = intraday.change_1m_percent(
@@ -149,18 +246,40 @@ struct State
         return out;
     }
 
-    service::RpcHost::Message process(wire::Request request, WatchCursor* held, bool control)
+    service::RpcHost::Message process(wire::Request request, WatchCursor* held)
     {
         wire::Response response;
         response.set_version(1);
         response.set_service_id(service);
         response.set_correlation_id(request.correlation_id());
         try {
-            if (control) {
-                auto* h = response.mutable_health();
-                h->set_instance_id(instance);
-                h->set_initialized(!catalog.initializing());
-                h->set_phase(phase());
+            if (request.has_recording_status()) {
+                if (!recorder)
+                    throw Error(ErrorCode::unavailable, "this market is not recording");
+                const auto& written = recorder->status();
+                const auto& state = catalog.snapshot().second;
+                auto* out = response.mutable_recording_status();
+                out->set_instance(instance);
+                out->set_version("0.1.0");
+                out->set_started_ms(started_ms);
+                out->set_phase(phase());
+                out->set_error_code(feed_error);
+                out->set_catalog_phase(state.phase());
+                out->set_catalog_trading_day(state.trading_day());
+                out->set_catalog_error(state.error_code());
+                out->set_subscribed(subscribed);
+                out->set_last_quote_ms(last_quote_ms);
+                out->set_trading_day(written.trading_day);
+                out->set_rows(written.rows);
+                out->set_files(written.files);
+                out->set_bytes(written.bytes);
+                out->set_lost(written.lost);
+                out->set_write_error(written.error);
+                out->set_written_ms(written.written_ms);
+                out->set_disk_free_bytes(std::filesystem::space(directory).available);
+                const auto maintenance = compactor.status();
+                out->set_merging(maintenance.day);
+                out->set_merge_error(maintenance.error);
             } else if (request.has_heartbeat()) {
                 auto* h = response.mutable_health();
                 h->set_instance_id(instance);
@@ -184,64 +303,17 @@ struct State
                     *response.mutable_minutes()->mutable_instrument() =
                         request.minutes().instrument();
             } else if (request.has_watch()) {
-                *response.mutable_snapshot() = snapshot(held);
-            } else {
-                if (request.has_connect()) {
-                    if (!feed) {
-                        auto plugin =
-                            std::make_unique<ctp::Feed>(sdk_owner, sdk, directory / "ctp-flow");
-                        plugin->start();
-                        feed = std::move(plugin);
-                    }
-                    auto* c = request.mutable_connect();
+                if (!held || !held->catalog) {
                     std::vector<InstrumentId> ids;
-                    for (const auto& i : c->instruments())
-                        ids.push_back({i.venue(), i.symbol()});
+                    for (const auto& id : request.watch().instruments())
+                        ids.push_back({id.venue(), id.symbol()});
                     if (ids.size() > 50)
-                        throw std::invalid_argument("at most 50 watchlist contracts");
-                    ctp::Configuration config{c->front(), c->broker(), c->user(), c->password()};
-                    c->clear_password();
-                    feed->connect(std::move(config), ids);
-                    watchlist = std::move(ids);
-                    catalog.cancel();
-                    applied_catalog = 0;
-                    ++extra_sequence;
-                } else if (request.has_catalog()) {
-                    if (catalog_sdk.empty())
-                        throw Error(ErrorCode::unavailable, "CTP catalog SDK unavailable");
-                    auto* c = request.mutable_catalog();
-                    ctp::CatalogConfiguration config{
-                        c->front(),
-                        c->broker(),
-                        c->user(),
-                        c->password(),
-                        c->app_id(),
-                        c->auth_code()
-                    };
-                    c->clear_password();
-                    c->clear_auth_code();
-                    catalog.start(
-                        catalog_sdk,
-                        std::filesystem::path(directory) / "ctp-catalog-flow",
-                        std::move(config));
-                } else if (request.has_subscribe()) {
-                    if (!feed)
-                        throw Error(ErrorCode::conflict, "connect market data first");
-                    std::vector<InstrumentId> ids;
-                    for (const auto& i : request.subscribe().instruments())
-                        ids.push_back({i.venue(), i.symbol()});
-                    if (ids.size() > 50)
-                        throw std::invalid_argument("at most 50 watchlist contracts");
+                        throw std::invalid_argument("at most 50 watch contracts");
                     ctp::validate_instruments(ids);
-                    feed->subscribe(interests(catalog.snapshot().second, ids));
-                    watchlist = std::move(ids);
-                    ++extra_sequence;
-                } else if (request.has_disconnect()) {
-                    catalog.cancel();
-                    applied_catalog = 0;
-                    if (feed)
-                        feed->disconnect();
-                } else if (!request.has_snapshot())
+                }
+                *response.mutable_snapshot() = snapshot(held, &request.watch());
+            } else {
+                if (!request.has_snapshot())
                     throw std::invalid_argument("missing market operation");
                 *response.mutable_snapshot() = snapshot();
             }
@@ -264,8 +336,39 @@ struct State
 
 } // namespace
 
+static std::map<std::string, acquisition::Factory>
+sources(const Settings& settings, std::shared_ptr<std::shared_mutex> archive)
+{
+    std::map<std::string, acquisition::Factory> result;
+    result["recorder"] = [root = settings.directory / "recordings", archive](std::stop_token stop) {
+        return std::make_unique<acquisition::Recorded>(root, archive, stop);
+    };
+    for (const auto& exchange : settings.exchanges) {
+        auto id = exchange;
+        std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
+            return std::tolower(c);
+        });
+        result[id] = [exchange](std::stop_token stop) {
+            return std::make_unique<acquisition::Exchange>(exchange, stop);
+        };
+    }
+    if (!settings.tushare_token.empty()) {
+        auto budget = std::make_shared<acquisition::Budget>(settings.tushare_requests_per_minute);
+        result["tushare"] = [token = settings.tushare_token, budget](std::stop_token stop) {
+            return std::make_unique<acquisition::Tushare>(token, budget, stop);
+        };
+    }
+    return result;
+}
+
 struct Session::Loop
 {
+    const Configuration config;
+    std::shared_ptr<std::shared_mutex> archive = std::make_shared<std::shared_mutex>();
+    std::unique_ptr<recording::Reader> reader;
+    acquisition::Manager acquisitions;
+    ThreadPool reads{1, 8};
+
     using Work = std::packaged_task<service::RpcHost::Message(State&)>;
     BoundedQueue<Work> requests{64}, controls{4};
     std::promise<void> completion;
@@ -273,35 +376,41 @@ struct Session::Loop
     std::jthread thread;
 
     explicit Loop(Configuration config)
-        : thread([this, config = std::move(config)](std::stop_token stop) {
-              try {
-                  {
-                      State state(config);
-                      while (!stop.stop_requested()) {
-                          state.advance();
-                          for (int i = 0; i < 4; ++i) {
-                              auto work = controls.try_pop();
-                              if (!work)
-                                  break;
-                              (*work)(state);
-                          }
-                          for (int i = 0; !state.catalog.initializing() && i < 16; ++i) {
-                              auto work = requests.try_pop();
-                              if (!work)
-                                  break;
-                              (*work)(state);
-                          }
-                          std::this_thread::sleep_for(10ms);
-                      }
-                  } // Join provider resources on their owner before reporting completion.
-                  completion.set_value();
-              } catch (...) {
-                  completion.set_exception(std::current_exception());
-              }
-              requests.close();
-              controls.close();
-          })
-    {}
+        : config(config),
+          acquisitions(config.settings.directory, sources(config.settings, archive))
+    {
+        // Recovery finishes before any client or publication can read the archive.
+        recording::finish_compactions(config.settings.directory / "recordings");
+        thread = std::jthread([this, config = std::move(config)](std::stop_token stop) {
+            try {
+                {
+                    State state(config, archive);
+                    while (!stop.stop_requested()) {
+                        state.advance();
+                        for (int i = 0; i < 4; ++i) {
+                            auto work = controls.try_pop();
+                            if (!work)
+                                break;
+                            (*work)(state);
+                        }
+                        for (int i = 0; !state.catalog.initializing() && i < 16; ++i) {
+                            auto work = requests.try_pop();
+                            if (!work)
+                                break;
+                            (*work)(state);
+                        }
+                        std::this_thread::sleep_for(10ms);
+                    }
+                    acquisitions.stop();
+                } // Join provider resources on their owner before reporting completion.
+                completion.set_value();
+            } catch (...) {
+                completion.set_exception(std::current_exception());
+            }
+            requests.close();
+            controls.close();
+        });
+    }
 };
 
 Session::Session(Configuration config)
@@ -311,11 +420,76 @@ Session::Session(Configuration config)
 Session::~Session() = default;
 
 std::future<service::RpcHost::Message>
-Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, bool control)
+Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, bool can_manage)
 {
+    if (request.has_recorded_days() || request.has_recorded_minutes() || request.has_datasets()
+        || request.has_dataset() || request.has_dataset_file() || request.has_dataset_summary()
+        || request.has_acquisition_task() || request.has_acquisition_tasks()
+        || request.has_acquisition_start() || request.has_acquisition_cancel()
+        || request.has_acquisition_sources() || request.has_dataset_coverage()) {
+        auto promise = std::make_shared<std::promise<service::RpcHost::Message>>();
+        auto future = promise->get_future();
+        loop_->reads.submit([loop = loop_.get(), request = std::move(request), promise, can_manage](
+                                std::stop_token) {
+            wire::Response response;
+            response.set_version(1);
+            response.set_service_id(loop->config.service);
+            response.set_correlation_id(request.correlation_id());
+            try {
+                const warehouse::Reader datasets(loop->config.settings.directory);
+                if (request.has_acquisition_sources()) {
+                    *response.mutable_acquisition_sources() = loop->acquisitions.sources();
+                    response.mutable_acquisition_sources()->set_can_manage(can_manage);
+                } else if (request.has_dataset_coverage())
+                    *response.mutable_dataset_coverage() =
+                        datasets.coverage(request.dataset_coverage());
+                else if (request.has_acquisition_start())
+                    *response.mutable_acquisition_task() =
+                        loop->acquisitions.submit(request.acquisition_start());
+                else if (request.has_acquisition_cancel()) {
+                    loop->acquisitions.cancel(request.acquisition_cancel().id());
+                    *response.mutable_acquisition_task() =
+                        loop->acquisitions.get(request.acquisition_cancel().id());
+                } else if (request.has_acquisition_task() || request.has_acquisition_tasks()) {
+                    if (request.has_acquisition_task())
+                        *response.mutable_acquisition_task() =
+                            loop->acquisitions.get(request.acquisition_task().id());
+                    else
+                        *response.mutable_acquisition_tasks() =
+                            loop->acquisitions.list(request.acquisition_tasks());
+                } else if (request.has_datasets())
+                    *response.mutable_datasets() = datasets.sources(request.datasets());
+                else if (request.has_dataset())
+                    *response.mutable_dataset() = datasets.version(request.dataset());
+                else if (request.has_dataset_file())
+                    *response.mutable_dataset_file() = datasets.file(request.dataset_file());
+                else if (request.has_dataset_summary())
+                    *response.mutable_dataset_summary() =
+                        datasets.summary(request.dataset_summary());
+                else {
+                    std::shared_lock lock(*loop->archive);
+                    if (!loop->reader)
+                        loop->reader = std::make_unique<recording::Reader>(
+                            loop->config.settings.directory / "recordings");
+                    if (request.has_recorded_days())
+                        *response.mutable_recorded_days() = loop->reader->days();
+                    else
+                        *response.mutable_recorded_minutes() =
+                            loop->reader->minutes(request.recorded_minutes());
+                }
+            } catch (const std::exception& error) {
+                response.mutable_error()->set_code(std::string(error_name(classify(error))));
+                response.mutable_error()->set_message(error.what());
+            }
+            promise->set_value({response.SerializeAsString()});
+            service::wake_io_owner();
+        });
+        return future;
+    }
+    const bool control = request.has_heartbeat();
     Loop::Work work(
-        [request = std::move(request), cursor = std::move(cursor), control](State& state) mutable {
-            return state.process(std::move(request), cursor.get(), control);
+        [request = std::move(request), cursor = std::move(cursor)](State& state) mutable {
+            return state.process(std::move(request), cursor.get());
         });
     auto future = work.get_future();
     if (!(control ? loop_->controls : loop_->requests).try_push(std::move(work)))

@@ -47,23 +47,8 @@ test(
         revision = polled.revision;
         await page.waitForTimeout(2500);
       }
-      // Live market through the test SDK (ASTERION_CTP_LIBRARY from the e2e wrapper).
-      await call(page.request, "ctp.connections.save", {
-        id: "fixture",
-        name: "Fixture",
-        revision: "",
-        broker_id: "test",
-        user_id: "fixture",
-        app_id: "app",
-        trade_front: "tcp://127.0.0.1:1",
-        market_front: "tcp://127.0.0.1:1",
-      });
-      const connected = await call(page.request, "market.connect", {
-        password: "contract-only",
-        instruments: [{ venue: "SHFE", symbol: "rb2610" }],
-      });
-      check("market connected", connected);
-      check("market disconnected", await call(page.request, "market.disconnect"));
+      check("market connected", await call(page.request, "market.open"));
+      check("client closed", await call(page.request, "market.close"));
     } finally {
       await removeFolder(folder);
     }

@@ -1,0 +1,166 @@
+import { fromJson } from "@bufbuild/protobuf";
+import { useEffect, useRef, useState } from "react";
+import { StatusSchema, type Status } from "../../src/generated/asterion/recording_pb";
+import {
+  ErrorNotice,
+  asDisplayError,
+  getLocale,
+  translate,
+  type DisplayError,
+  type TerminalContext,
+} from "../contract";
+
+const t = (key: string) => translate("asterion.terminal.data-workbench", key);
+const phases: Record<string, string> = {
+  connected: "行情已连接",
+  connecting: "连接中",
+  initializing: "初始化中",
+  logging_in: "登录中",
+  reconnecting: "重连中",
+  disconnected: "行情未连接",
+  error: "行情连接失败",
+};
+const clock = (value: bigint) =>
+  value > 0n
+    ? new Date(Number(value)).toLocaleString(getLocale(), {
+        timeZone: "Asia/Shanghai",
+        hour12: false,
+      })
+    : "—";
+const size = (bytes: bigint) =>
+  `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
+
+// Only this client's status reads are polled. Changing or closing its Market
+// connection discards pending replies without changing the recorder's lifetime.
+export function RecordingStatus({ context }: { context: TerminalContext }) {
+  const market = context.snapshot?.market;
+  const { host, port, service, instance_id: instance, transport_online: online } = market ?? {};
+  const [status, setStatus] = useState<Status | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  const query = useRef(context.query);
+  query.current = context.query;
+  useEffect(() => {
+    setStatus(null);
+    setError("");
+    if (!instance || !online) return;
+    let active = true;
+    let pending = false;
+    const read = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const reply = await query.current("market.recording");
+        if (!active) return;
+        if (!reply.recording) throw new Error(t("未返回录制状态"));
+        const next = fromJson(StatusSchema, reply.recording);
+        if (next.instance !== instance) throw new Error(t("录制状态不属于当前行情服务"));
+        setStatus(next);
+        setError("");
+      } catch (reason) {
+        if (active) {
+          setStatus(null);
+          setError(asDisplayError(reason));
+        }
+      } finally {
+        pending = false;
+      }
+    };
+    void read();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void read();
+    }, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [host, port, service, instance, online]);
+
+  return (
+    <section className="recording-status" aria-label={t("Market 录制监控")}>
+      <h3>{t("Market 录制监控")}</h3>
+      {!market ? (
+        <p>
+          {t("连接远程 Market 后查看录制状态。")}{" "}
+          <button onClick={() => context.navigate("workspace.market", { marketMode: "live" })}>
+            {t("打开实时行情")}
+          </button>
+        </p>
+      ) : !online ? (
+        <p role="status">{t("行情服务失联，录制状态未知。")}</p>
+      ) : error ? (
+        <ErrorNotice error={error} />
+      ) : !status ? (
+        <p>{t("读取中")}</p>
+      ) : (
+        <>
+          <p role="status">{t(phases[status.phase] ?? status.phase)}</p>
+          <dl>
+            <div>
+              <dt>{t("交易日")}</dt>
+              <dd>{status.tradingDay || "—"}</dd>
+            </div>
+            <div>
+              <dt>{t("订阅合约")}</dt>
+              <dd>{status.subscribed.toLocaleString(getLocale())}</dd>
+            </div>
+            <div>
+              <dt>{t("本次启动写入 Tick")}</dt>
+              <dd>{status.rows.toLocaleString(getLocale())}</dd>
+            </div>
+            <div>
+              <dt>{t("写入文件")}</dt>
+              <dd>{status.files.toLocaleString(getLocale())}</dd>
+            </div>
+            <div>
+              <dt>{t("写入大小")}</dt>
+              <dd>{size(status.bytes)}</dd>
+            </div>
+            <div>
+              <dt>{t("磁盘可用空间")}</dt>
+              <dd>{size(status.diskFreeBytes)}</dd>
+            </div>
+            <div>
+              <dt>{t("最后收到行情（北京时间）")}</dt>
+              <dd>{clock(status.lastQuoteMs)}</dd>
+            </div>
+            <div>
+              <dt>{t("最后落盘（北京时间）")}</dt>
+              <dd>{clock(status.writtenMs)}</dd>
+            </div>
+          </dl>
+          {(status.lost > 0n || status.writeError) && (
+            <p role="alert">
+              {t("录制写入异常，部分数据可能丢失。")} {t("丢失 Tick")}:{" "}
+              {status.lost.toLocaleString(getLocale())} {status.writeError}
+            </p>
+          )}
+          {status.catalogError && (
+            <p role="alert">
+              {t("合约目录查询失败")}: {status.catalogError}
+            </p>
+          )}
+          {!!status.errorCode && (
+            <p role="alert">
+              {t("行情连接失败")}: CTP {status.errorCode}
+            </p>
+          )}
+          {status.merging && (
+            <p>
+              {t("正在合并交易日")}: {status.merging}
+            </p>
+          )}
+          {status.mergeError && (
+            <p role="alert">
+              {t("历史文件合并失败")}: {status.mergeError}
+            </p>
+          )}
+        </>
+      )}
+      <p className="subtle">
+        {t(
+          "录制由 Market 独立运行；关闭 Terminal 不会停止。计数仅代表当前实例，不保证历史时段完整。",
+        )}
+      </p>
+    </section>
+  );
+}

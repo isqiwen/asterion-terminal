@@ -39,6 +39,7 @@ class Fake final : public CThostFtdcMdApi
 
     bool reconnect = true;
     bool publication = false, flood = false;
+    bool strategy_stream = false;
     std::optional<CThostFtdcDepthMarketDataField> publication_tick;
 
 public:
@@ -87,6 +88,29 @@ public:
                     tick.Volume += 1;
                     spi->OnRtnDepthMarketData(&tick);
                     gate("hold-publication");
+                }
+                if (strategy_stream && publication_tick) {
+                    auto& tick = *publication_tick;
+                    const auto now = std::chrono::system_clock::now();
+                    auto epoch = std::chrono::system_clock::to_time_t(now) + 8 * 3600;
+                    std::tm tm{};
+                    gmtime_r(&epoch, &tm);
+                    std::strftime(tick.ActionDay, sizeof(tick.ActionDay), "%Y%m%d", &tm);
+                    std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &tm);
+                    std::strftime(tick.UpdateTime, sizeof(tick.UpdateTime), "%H:%M:%S", &tm);
+                    tick.UpdateMillisec = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              now.time_since_epoch())
+                                              .count()
+                        % 1000;
+                    tick.LastPrice = 3510 + n % 20;
+                    tick.BidPrice1 = tick.LastPrice - 1;
+                    tick.AskPrice1 = tick.LastPrice + 1;
+                    ++tick.Volume;
+                    spi->OnRtnDepthMarketData(&tick);
+                    if (std::filesystem::exists(flow / "disconnect")) {
+                        spi->OnFrontDisconnected(4097);
+                        strategy_stream = false;
+                    }
                 }
                 ++n;
             }
@@ -174,6 +198,10 @@ public:
             tick.LowerLimitPrice = std::numeric_limits<double>::max();
             tick.PreSettlementPrice = std::numeric_limits<double>::max();
             tick.UpdateMillisec = 500;
+            if (strategy_stream) {
+                publication_tick = tick;
+                continue; // The worker emits only fresh, ordered observations.
+            }
             if (publication) {
                 std::strcpy(tick.UpdateTime, "00:00:00");
                 if (!publication_tick)
@@ -213,9 +241,10 @@ public:
         require_owner();
         std::lock_guard lock(mutex);
         const std::string user(login->UserID);
-        publication = user == "publication";
+        publication = user == "publication" || user == "concurrency";
         flood = user == "flood";
-        reconnect = user != "steady" && !publication && !flood;
+        strategy_stream = user == "strategy";
+        reconnect = user != "steady" && !publication && !flood && !strategy_stream;
         CThostFtdcRspInfoField info{};
         if (std::string(login->Password) == "reject-test-only")
             info.ErrorID = 3;

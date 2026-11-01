@@ -10,7 +10,7 @@
 # directory. The installed copy, bin/setup.sh, carries nothing and only
 # changes the accounts.
 #
-# The installation is /opt/asterion/trading: bin/ lib/ config/ logs/ data/.
+# The installation is /opt/asterion/trading: bin/ lib/ runtime/ config/ logs/ data/.
 # Each CTP account runs as its own instance, the systemd service
 # asterion-trading@<account>, under the account that ran the install with
 # sudo; its trading record is data/<account>/. The first install creates this
@@ -18,10 +18,9 @@
 # names the Terminals that may connect by theirs. CTP credentials are entered
 # locally and encrypted by systemd-creds, separately for each account.
 #
-# An upgrade replaces only bin/ and lib/. Instances running during trading
-# hours (Beijing weekdays 08:45-15:30 and 20:45-02:45, holidays included, the
-# recorder's rule) are not restarted: a timer restarts them when the window
-# ends. A restart ends the account's authorization.
+# An upgrade requires every account to be stopped, then replaces bin/, lib/
+# and runtime/. It never stops or starts accounts. Configuration edits alone
+# may schedule a restart after trading hours. A restart ends authorization.
 set -euo pipefail
 
 ROOT=/opt/asterion/trading
@@ -30,7 +29,6 @@ CREDENTIALS=/etc/credstore.encrypted
 TEMPLATE=asterion-trading@.service
 RESTART=asterion-trading-restart
 ACCOUNT=
-PROGRAMS=(bin/asterion_trading bin/setup.sh lib/ctp-trader.so)
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
 # Defaults for new configurations only; existing instances keep their own values.
@@ -43,6 +41,7 @@ declare -Ar DEFAULTS=(
     [broker.user_id]=''
     [broker.app_id]='simnow_client_test'
     [broker.front]='tcp://182.254.243.31:40001'
+    [market_front]=''
 )
 
 logging_settings() {
@@ -152,7 +151,7 @@ value() {
         printf '%s' "${DEFAULTS[$2]}"
         return
     fi
-    python3 -I -c '
+    "$ROOT/runtime/python/bin/python3" -I -c '
 import json, sys
 with open(sys.argv[1]) as stream:
     value = json.load(stream)
@@ -202,7 +201,7 @@ secret() {
 }
 
 configure_account() {
-    local name bind port terminals other environment broker user app front password='' auth_code='' answer=''
+    local name bind port terminals other environment broker user app front market_front password='' auth_code='' answer=''
     local file config identity_changed=1 credentials
     name=$(ask "Account name (as the Terminal names its instance)" "" "$NAME")
     file=$ROOT/config/accounts/$name.json
@@ -224,6 +223,7 @@ configure_account() {
     user=$(ask "CTP investor ID" "$(value "$name" broker.user_id)" '^[A-Za-z0-9_]{1,15}$')
     app=$(ask "CTP AppID" "$(value "$name" broker.app_id)" '^[A-Za-z0-9_.-]{1,32}$')
     front=$(ask "CTP trading front" "$(value "$name" broker.front)" '^tcp://[^[:space:]]+:[0-9]+$')
+    market_front=$(ask "CTP market front" "$(value "$name" market_front)" '^tcp://[A-Za-z0-9.-]+:[0-9]+$')
     if [[ -f $file ]] && [[ $environment == "$(value "$name" environment)" &&
         $broker == "$(value "$name" broker.broker_id)" && $user == "$(value "$name" broker.user_id)" &&
         $app == "$(value "$name" broker.app_id)" && $front == "$(value "$name" broker.front)" ]]; then
@@ -241,9 +241,9 @@ configure_account() {
 
     # Everything is asked; now the files, each staged and moved into place.
     stage config "$file"
-    python3 -I -c '
+    "$ROOT/runtime/python/bin/python3" -I -c '
 import json, sys, pathlib
-path, final, bind, port, terminals, environment, broker, user, app, front = sys.argv[1:]
+path, final, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
 identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
 original = pathlib.Path(final)
 if original.exists() and (original.parents[2] / "data" / original.stem / "journal.sqlite").exists():
@@ -257,8 +257,8 @@ for item in terminals.split():
         sys.exit("setup: a fingerprint is 64 hex digits")
     prints.append(digits)
 with open(path, "w") as output:
-    json.dump({"bind": bind, "port": int(port), "terminals": prints, **identity}, output, indent=2)
-    output.write("\n")' "$config" "$file" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front"
+    json.dump({"bind": bind, "port": int(port), "terminals": prints, "market_front": market_front, **identity}, output, indent=2)
+    output.write("\n")' "$config" "$file" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
     chown "$ACCOUNT:" "$config"
     chmod 0600 "$config"
     if [[ -n $password ]]; then
@@ -389,16 +389,28 @@ write_unit() {
     systemctl daemon-reload
 }
 
-# Replace programs atomically. Running instances keep their files until they restart.
+# The caller holds the exclusive installation lock. A failed or interrupted
+# replacement remains closed to account startup until setup succeeds again.
 place() {
-    local name
-    "$1/bin/asterion_trading" --version >/dev/null 2>&1 || fail "The trading service in this release does not run on this host"
-    local next
-    for name in "${PROGRAMS[@]}"; do
-        stage next "$ROOT/$name"
-        install -m 0755 "$1/$name" "$next"
-        mv -f "$next" "$ROOT/$name"
+    local name next
+    next=$(mktemp -d "$ROOT/.program.XXXXXX")
+    CLEANUP+=("$next")
+    for name in bin lib runtime; do
+        cp -a "$1/$name" "$next/$name"
     done
+    chmod -R a+rX,go-w "$next"
+    chmod 0755 "$next/bin/asterion_trading" "$next/bin/setup.sh"
+    "$next/bin/asterion_trading" --version >/dev/null 2>&1 || fail "The trading service in this release does not run on this host"
+    "$next/runtime/python/bin/python3" -I -B -c \
+        'import sys, numpy, google.protobuf; assert sys.version_info[:3] == (3, 12, 12); assert numpy.__version__ == "2.3.5"; assert google.protobuf.__version__ == "5.29.3"; sys.path.insert(0, sys.argv[1]); import asterion_strategy, asterion.strategy_pb2' \
+        "$next/lib/strategy" || fail "The strategy runtime in this release does not run on this host"
+    touch "$ROOT/.program-incomplete"
+    for name in bin lib runtime; do
+        rm -rf "$ROOT/$name"
+        mv "$next/$name" "$ROOT/$name"
+    done
+    write_unit
+    rm "$ROOT/.program-incomplete"
 }
 
 main() {
@@ -423,21 +435,27 @@ main() {
     fi
     if [[ $source == "$ROOT" ]]; then
         menu
-    elif [[ -x $ROOT/bin/asterion_trading ]]; then
-        place "$source"
-        write_unit
-        echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
-        local running=() name
-        for name in $(accounts); do
-            systemctl is-active --quiet "asterion-trading@$name.service" && running+=("$name")
-        done
-        restart "${running[@]}"
     else
-        install_once "$source"
-        place "$source"
-        echo "Installed in $ROOT; the trading service runs as $ACCOUNT."
-        echo "This host's certificate fingerprint: $(fingerprint)"
-        configure_account
+        mkdir -p "$ROOT"
+        # Stable inode shared by all accounts and never replaced with programs.
+        touch "$ROOT/.program.lock"
+        chmod 0644 "$ROOT/.program.lock"
+        local program_lock name
+        exec {program_lock}<"$ROOT/.program.lock"
+        flock --exclusive --nonblock "$program_lock" || fail "Stop all Trading accounts on this host before upgrading; no programs were changed"
+        if [[ -d $ROOT/data ]]; then
+            for name in $(accounts); do cancel_restart "$name"; done
+            place "$source"
+            echo "Upgraded programs and offline strategy runtime in $ROOT; configuration and data unchanged. Start accounts explicitly and authorize again."
+        else
+            install_once "$source"
+            place "$source"
+            # The configured account may start only after installation completes.
+            exec {program_lock}<&-
+            echo "Installed in $ROOT; the trading service runs as $ACCOUNT."
+            echo "This host's certificate fingerprint: $(fingerprint)"
+            configure_account
+        fi
     fi
 }
 

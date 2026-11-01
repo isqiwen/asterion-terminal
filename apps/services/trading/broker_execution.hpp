@@ -176,6 +176,7 @@ struct BrokerSnapshot
     // Wall-clock ms of the last completed funds/positions/orders/trades query.
     std::int64_t synchronized_ms = 0;
     std::optional<BrokerFunds> funds;
+    std::chrono::steady_clock::time_point funds_completed_at;
     std::vector<BrokerPosition> positions;
     std::vector<BrokerOrder> orders;
     std::vector<BrokerTrade> trades;

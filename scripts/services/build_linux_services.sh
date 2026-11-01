@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the trading and recorder setup scripts (into ASTERION_LINUX_BUNDLES or
+# Builds the trading and Market setup scripts (into ASTERION_LINUX_BUNDLES or
 # build/linux-bundles) from the current checkout in an Ubuntu 24.04 x86_64
 # container (Docker/OrbStack).
 set -euo pipefail
@@ -31,5 +31,5 @@ git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/
 docker run --rm --platform linux/amd64 \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
   -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
-cp "$WORK/output/asterion-recorder-setup.sh" "$WORK/output/asterion-trading-setup.sh" "$BUNDLES/"
+cp "$WORK/output/asterion-market-setup.sh" "$WORK/output/asterion-trading-setup.sh" "$BUNDLES/"
 echo "Linux setup scripts updated in $BUNDLES"

@@ -50,6 +50,11 @@ type Shown =
 // evaluation's configuration, its result and every run so far, all on the lab
 // service.
 export function ResearchLab(context: TerminalContext) {
+  const endpoint = context.snapshot?.market_endpoint;
+  const address =
+    endpoint && "host" in endpoint
+      ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
+      : "";
   const setting = context.snapshot?.strategy_repository;
   const repository = setting && "path" in setting ? setting.path : "";
   const [strategies, setStrategies] = useState<LabStrategies | null>(null);
@@ -90,10 +95,17 @@ export function ResearchLab(context: TerminalContext) {
   useEffect(() => {
     void readStrategies();
     void readRuns();
-    void lab({ case: "summary", value: { provider: "tushare" } }, "summary")
-      .then(setSummary)
-      .catch(failure => setError(asDisplayError(failure)));
   }, [readStrategies, readRuns]);
+  useEffect(() => {
+    let active = true;
+    setSummary(null);
+    void lab({ case: "summary", value: { provider: "tushare" } }, "summary")
+      .then(value => active && setSummary(value))
+      .catch(failure => active && setError(asDisplayError(failure)));
+    return () => {
+      active = false;
+    };
+  }, [address]);
   // Read again while something runs, or the sweep on show has runs to come.
   const running =
     runs.some(run => run.state === "running") ||

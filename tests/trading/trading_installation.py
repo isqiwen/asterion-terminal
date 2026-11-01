@@ -115,14 +115,29 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
     installation = install(Path(folder) / "trading", programs)
     port = installation.account("adm")
     config = installation.root / "config/accounts/adm.json"
+    import fcntl
+    def startup_refused(message):
+        result = subprocess.run([str(installation.root / 'bin/asterion_trading'), '--account', 'adm'],
+            capture_output=True, text=True, timeout=10)
+        assert result.returncode != 0 and message in result.stderr, result
+    with (installation.root / '.program.lock').open() as upgrading:
+        fcntl.flock(upgrading, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        startup_refused('held by another process')
+    (installation.root / '.program-incomplete').touch()
+    startup_refused('installation is incomplete')
+    (installation.root / '.program-incomplete').unlink()
     import json
     original = json.loads(config.read_text())
     for invalid in ({k: v for k, v in original.items() if k != "broker"},
                     dict(original, environment="unknown"),
+                    dict(original, market_front="https://invalid"),
+                    dict(original, market_front="tcp://host:99999"),
                     dict(original, broker=dict(original["broker"], password="must-not-be-stored")),
                     dict(original, broker=dict(original["broker"], front="tcp://host:99999"))):
         config.write_text(json.dumps(invalid))
-        rejected = subprocess.run([str(installation.root / "bin/asterion_trading"), "--account", "adm"], capture_output=True, text=True, timeout=10)
+        rejected = subprocess.run([str(installation.root / "bin/asterion_trading"), "--account", "adm"],
+            env=dict(os.environ, CREDENTIALS_DIRECTORY=str(installation.root / "test-credentials/adm")),
+            capture_output=True, text=True, timeout=10)
         assert rejected.returncode != 0 and str(config) in rejected.stderr
         assert "must-not-be-stored" not in rejected.stderr
     config.write_text(json.dumps(original))
@@ -144,6 +159,13 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
         file.write_bytes(saved)
     process = installation.start("adm")
     try:
+        with (installation.root / '.program.lock').open() as upgrading:
+            try:
+                fcntl.flock(upgrading, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise AssertionError('running account did not exclude runtime upgrade')
         with installation.client("adm") as channel:
             heartbeat(channel, b"hb0")
         # Another certificate, none at all, and plain TCP with the magic.

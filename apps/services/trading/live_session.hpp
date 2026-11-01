@@ -1,5 +1,7 @@
 #pragma once
 #include "account_records.hpp"
+#include "strategy_execution.hpp"
+#include <asterion/futures/live_market.hpp>
 #include <asterion/trading.pb.h>
 #include <asterion/base/serialization.hpp>
 #include <filesystem>
@@ -40,6 +42,20 @@ public:
     // Admission is bounded; completion acknowledges the durable command outcome.
     [[nodiscard]] std::future<void>
     execute(std::string_view account_id, std::string_view policy_revision, AccountRequest request);
+    // Internal C++ execution boundary. Registration does not authorize trading.
+    std::future<StrategyAuthorityPtr> register_strategy(
+        std::string instance,
+        std::vector<InstrumentId> contracts,
+        std::optional<StrategyWeightBudget> budget = std::nullopt);
+    std::future<void> release_strategy(StrategyAuthorityPtr authority);
+    std::future<std::string> strategy_failure(StrategyAuthorityPtr authority) const;
+    std::future<void> execute_strategy(StrategyOrderBasis basis, SubmitOrder order);
+    std::future<void> accept_strategy_target(
+        StrategyAuthorityPtr authority,
+        strategy::proto::Decision decision,
+        std::vector<MarketQuote> quotes,
+        std::chrono::steady_clock::time_point expires_at);
+    std::future<void> advance_strategy_target(StrategyAuthorityPtr authority);
     // Detached transport value constructed on the account owner; JSON belongs to Terminal.
     std::future<protocol::proto::LiveSnapshot> snapshot() const;
 

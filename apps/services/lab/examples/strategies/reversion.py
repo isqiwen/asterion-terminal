@@ -1,7 +1,7 @@
 """Band reversion on one contract or dominant series."""
 import math
 
-from asterion_lab.strategy import Strategy
+from asterion_strategy import Strategy
 
 from strategies._rules import lots, units
 
@@ -15,6 +15,10 @@ class Reversion(Strategy):
     def __init__(self, **values):
         super().__init__(**values)
         self.side = {}
+
+    def ready(self, ctx):
+        need = self.params["window"]
+        return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
         window, width = self.params["window"], self.params["width"]

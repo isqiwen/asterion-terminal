@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
 import unittest
 
@@ -18,7 +19,7 @@ from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import repository  # noqa: E402
 from asterion_lab.runs import TABLES, Plan, Runs  # noqa: E402
 from asterion_lab.service import Service  # noqa: E402
-from asterion_lab.strategy import Bar, Context, Strategy, step  # noqa: E402
+from asterion_strategy import Bar, Context, Strategy, step  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
 
@@ -29,6 +30,9 @@ def bar(symbol, minute, close):
 
 
 class Follow(Strategy):
+    def ready(self, ctx):
+        return True
+
     params = {"lots": 2, "scale": 1.0, "name": "x", "short": False}
 
     def on_bar(self, ctx, bar):
@@ -36,6 +40,19 @@ class Follow(Strategy):
 
 
 class Interface(unittest.TestCase):
+    def test_readiness_discards_early_targets_and_restarts_empty(self):
+        class Warm(Follow):
+            def ready(self, ctx):
+                return len(ctx.history("a", "close", self.params["lots"])) == self.params["lots"]
+        context, strategy = Context(["a"]), Warm(lots=2)
+        self.assertEqual(step(strategy, context, [bar("a", 0, 1.0)]), {})
+        self.assertFalse(context.ready)
+        self.assertEqual(step(strategy, context, [bar("a", 1, 2.0)]), {"a": 2})
+        self.assertTrue(context.ready)
+        restarted = Context(["a"])
+        self.assertEqual(step(Warm(lots=2), restarted, [bar("a", 2, 3.0)]), {})
+        self.assertFalse(restarted.ready)
+
     def test_parameters(self):
         self.assertEqual(Follow().params, {"lots": 2, "scale": 1.0, "name": "x", "short": False})
         self.assertEqual(Follow(scale=2, short=True).params["scale"], 2.0)
@@ -83,6 +100,9 @@ class Interface(unittest.TestCase):
             context.weights({"a": 0.5})
 
         class Tilt(Strategy):
+            def ready(self, ctx):
+                return len(ctx.history("a", "close", 1)) > 0 and len(ctx.history("b", "close", 1)) > 0
+
             def on_bars(self, ctx, bars):
                 if len(bars) == 2:
                     ctx.weights({"a": 0.5})
@@ -121,7 +141,7 @@ class Repository(unittest.TestCase):
         (self.root / "strategies/broken.py").write_text("import missing_package\n")
         # A module that prints while it imports; the listing's reply is unharmed.
         (self.root / "strategies/noisy.py").write_text(
-            "from asterion_lab.strategy import Strategy\nfrom helpers import LOTS\nprint('loaded')\n"
+            "from asterion_strategy import Strategy\nfrom helpers import LOTS\nprint('loaded')\n"
             "class Noisy(Strategy):\n    params = {'lots': LOTS, 'scale': 0.5, 'tag': 'n', 'on': True}\n"
             "    def on_bar(self, ctx, bar):\n        pass\n")
         (self.root / "helpers.py").write_text("LOTS = 3\n")
@@ -131,6 +151,25 @@ class Repository(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def test_package_reads_only_declared_sources_without_importing_them(self):
+        from asterion_lab.package import build
+        from asterion.strategy_pb2 import Build
+        request = Build(repository=str(self.root), manifest="strategy.json")
+        package = build(request)
+        self.assertEqual([file.path for file in package.files],
+                         ["strategies/ma_cross.py", "strategies/_rules.py"])
+        self.assertEqual(package.files[0].content, (self.root / "strategies/ma_cross.py").read_bytes())
+        # Preparing source does not require that it can be imported.
+        (self.root / "strategies/ma_cross.py").write_text("raise RuntimeError('do not import')\n")
+        self.assertIn(b"do not import", build(request).files[0].content)
+        with self.assertRaises(ValueError):
+            build(Build(repository=str(self.root), manifest="../strategy.json"))
+        helper = self.root / "strategies/_rules.py"
+        helper.unlink()
+        helper.symlink_to(self.root / "helpers.py")
+        with self.assertRaisesRegex(ValueError, "symbolic links"):
+            build(request)
 
     def test_listing(self):
         listed = repository.list_strategies(str(self.root))
@@ -242,23 +281,29 @@ class Records(unittest.TestCase):
         self.assertEqual((listed[0]["state"], listed[0]["metrics"]),
                          ("succeeded", {"total_return": -0.0000005, "sharpe": None}))
         with self.assertRaises(ValueError):
-            runs.fail("run-1", "failed", "late")
+            runs.end("run-1", "failed", "late")
 
     def test_runs_that_stop(self):
         runs = Runs(self.directory)
         runs.start("run-1", self.plan)
         runs.start("run-2", self.plan)
-        runs.fail("run-1", "failed", "data missing")
-        runs.fail("run-2", "interrupted", "")
-        self.assertEqual({row["id"]: (row["state"], row["error"]) for row in runs.list()},
-                         {"run-1": ("failed", "data missing"), "run-2": ("interrupted", "")})
+        runs.start("run-3", self.plan)
+        runs.end("run-1", "failed", "data missing")
+        runs.end("run-2", "interrupted", "")
+        runs.end("run-3", "stopped", "")
+        # A service restart must preserve an explicit owner stop.
+        restarted = Runs(self.directory)
+        restarted.interrupt()
+        self.assertEqual({row["id"]: (row["state"], row["error"]) for row in restarted.list()},
+                         {"run-1": ("failed", "data missing"), "run-2": ("interrupted", ""),
+                          "run-3": ("stopped", "")})
         with self.assertRaises(ValueError):
             runs.start("run-1", self.plan)
         for identity in ("../x", "", "a b"):
             with self.assertRaises(ValueError):
                 runs.start(identity, self.plan)
         with self.assertRaises(ValueError):
-            runs.fail("run-1", "succeeded", "")
+            runs.end("run-1", "succeeded", "")
 
 
 if __name__ == "__main__":

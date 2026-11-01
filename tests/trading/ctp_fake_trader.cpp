@@ -37,6 +37,7 @@ std::atomic<bool> hold_quote_return = false, quote_return_waiting = false;
 std::atomic<int> insert_return_code{0};
 std::atomic<bool> hold_insert_errors{false};
 std::atomic<int> sdk_creations{0}, sdk_releases{0}, sdk_thread_mismatches{0};
+std::atomic<double> account_balance{1000000.005};
 
 template <std::size_t N>
 void put(char (&dest)[N], const std::string& value)
@@ -384,6 +385,14 @@ public:
         {
             auto& x = exchange();
             std::lock_guard lock(x.mutex);
+            if (catalog_mode == "strategy") {
+                auto epoch = std::time(nullptr) + 8 * 3600;
+                std::tm tm{};
+                gmtime_r(&epoch, &tm);
+                char day[9];
+                std::strftime(day, sizeof(day), "%Y%m%d", &tm);
+                x.trading_day = day;
+            }
             session = ++x.sessions;
             put(login.TradingDay, x.trading_day);
         }
@@ -497,9 +506,9 @@ public:
         first_funds_request.compare_exchange_strong(empty, id);
         if (throttled())
             return -3;
-        emit([id](CThostFtdcTraderSpi* s) {
+        emit([id, balance = account_balance.load()](CThostFtdcTraderSpi* s) {
             CThostFtdcTradingAccountField account{};
-            account.Balance = 1000000.005;
+            account.Balance = balance;
             account.Available = 950000.0;
             account.CurrMargin = 50000.0;
             account.Commission = 12.34;
@@ -857,7 +866,18 @@ public:
                 item.IsTrading = 1;
                 item.VolumeMultiple = 10;
                 item.PriceTick = mode == "catalog-invalid" ? 0 : 0.5;
-                spi->OnRspQryInstrument(&item, &status, id, false);
+                if (mode == "publication" || mode == "catalog-large") {
+                    const int count = mode == "publication" ? 50 : 20000;
+                    for (int index = 0; index < count; ++index) {
+                        const auto symbol = mode == "publication"
+                            ? "rb" + std::to_string(1000 + index)
+                            : std::string(1, static_cast<char>('a' + index / 9000))
+                                + std::to_string(1000 + index % 9000);
+                        put(item.InstrumentID, symbol.c_str());
+                        spi->OnRspQryInstrument(&item, &status, id, false);
+                    }
+                } else
+                    spi->OnRspQryInstrument(&item, &status, id, false);
                 if (mode == "catalog-dup")
                     spi->OnRspQryInstrument(&item, &status, id, false);
                 put(item.InstrumentID, "rb2609");
@@ -1379,6 +1399,7 @@ FAKE_EXPORT void asterion_fake_trader_reset()
     quote_rejection_code = 0;
     quote_rejection_count = 0;
     reject_inserts = false;
+    account_balance = 1000000.005;
     quote_mode = cancel_return_code = 0;
     hold_insert_errors = false;
     auto& x = exchange();
@@ -1388,6 +1409,11 @@ FAKE_EXPORT void asterion_fake_trader_reset()
     x.positions.clear();
     x.trading_day = "20260928";
     x.query_rejections = 0;
+}
+
+FAKE_EXPORT void asterion_fake_trader_balance(double balance)
+{
+    account_balance = balance;
 }
 
 // A read-only broker history fixture for the explicitly requested scale probe.

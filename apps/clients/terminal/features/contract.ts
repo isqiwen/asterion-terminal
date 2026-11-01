@@ -1,16 +1,21 @@
 // Reads a feature may make through `query`; anything that acts goes through `trade`.
-export type QueryCommand = "market.minutes";
+export type QueryCommand = "market.minutes" | "market.recording";
 import type { CommandHandler } from "../src/bridge/commands";
 export { useWorkspaceDraft } from "../src/host/workspace/drafts";
 export { save } from "../src/bridge/desktop";
 export { lab } from "../src/bridge/lab";
+export { marketData } from "../src/bridge/market-data";
+export type {
+  Source as MarketSource,
+  Task as MarketTask,
+} from "../src/generated/asterion/acquisition_pb";
+export type {
+  Summary as MarketSummary,
+  Coverage as MarketCoverage,
+} from "../src/generated/asterion/dataset_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export type {
-  Coverage as LabCoverage,
   Summary as LabSummary,
-  Task as LabTask,
-  SourceDescriptor as LabSource,
-  SourceTable as LabSourceTable,
   RunDetail as LabRunDetail,
   RunReport as LabRunReport,
   RunSummary as LabRunSummary,

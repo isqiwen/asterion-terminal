@@ -1,6 +1,7 @@
 #include "account_records.hpp"
 #include <asterion/base/id.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <asterion/system/process/child.hpp>
 #include <stdexcept>
 
 namespace asterion::trading {
@@ -174,6 +175,33 @@ AccountRequest AccountRequest::from_record(const Json& command)
     return result;
 }
 
+AccountRequest AccountRequest::strategy_order(SubmitOrder order, StrategyOrderSource source)
+{
+    // Use the same durable command encoding as manual submissions. Only the
+    // C++ account entry can attach strategy attribution, outside the wire command.
+    if ((order.order.side != Side::buy && order.order.side != Side::sell)
+        || (order.offset != Offset::open && order.offset != Offset::close_today
+            && order.offset != Offset::close_yesterday && order.offset != Offset::close))
+        throw std::invalid_argument("invalid strategy order side or offset");
+    protocol::proto::Command command;
+    command.set_request_id(unique_process_id());
+    auto* wire = command.mutable_submit();
+    wire->set_order_id(order.order.id);
+    wire->set_venue(order.order.instrument.venue);
+    wire->set_symbol(order.order.instrument.symbol);
+    wire->set_side(order.order.side == Side::buy ? protocol::proto::BUY : protocol::proto::SELL);
+    wire->set_offset(
+        order.offset == Offset::open                  ? protocol::proto::OPEN
+            : order.offset == Offset::close_today     ? protocol::proto::CLOSE_TODAY
+            : order.offset == Offset::close_yesterday ? protocol::proto::CLOSE_YESTERDAY
+                                                      : protocol::proto::CLOSE);
+    wire->mutable_quantity()->set_units(order.order.quantity.raw());
+    wire->mutable_price()->set_units(order.order.limit_price.raw());
+    auto result = from_wire(command);
+    std::get<SubmitOrder>(result.operation).strategy = std::move(source);
+    return result;
+}
+
 std::string_view AccountRequest::action() const noexcept
 {
     struct Name
@@ -266,7 +294,43 @@ JournalRecord parse_record(const Json& record)
     } else if (result.request.as<Authorize>())
         require_fields(record, {"command", "policy_revision", "authorization"});
     else if (result.request.as<SubmitOrder>()) {
-        require_fields(record, {"command", "policy_revision", "broker_key", "trading_day"});
+        if (record.contains("strategy")) {
+            require_fields(
+                record,
+                {"command", "policy_revision", "broker_key", "trading_day", "strategy"});
+            const auto& source = record.at("strategy");
+            if (source.contains("weight_sizing"))
+                require_fields(source, {"instance", "target_sequence", "leg", "weight_sizing"});
+            else
+                require_fields(source, {"instance", "target_sequence", "leg"});
+            if (!source.at("target_sequence").is_number_unsigned()
+                || source.at("target_sequence").get<std::uint64_t>() == 0
+                || !source.at("leg").is_number_unsigned()
+                || source.at("leg").get<std::uint64_t>() >= StrategyOrderSource::max_legs)
+                throw std::invalid_argument("invalid strategy order attribution");
+            StrategyOrderSource origin{
+                text(source, "instance"),
+                source.at("target_sequence").get<std::uint64_t>(),
+                source.at("leg").get<std::uint32_t>()
+            };
+            validate_id(origin.instance);
+            if (source.contains("weight_sizing")) {
+                const auto& sizing = source.at("weight_sizing");
+                require_fields(sizing, {"equity", "weight", "price", "quantity"});
+                origin.weight_sizing = StrategyOrderSource::WeightSizing{
+                    Decimal::parse(text(sizing, "equity")),
+                    Decimal::parse(text(sizing, "weight")),
+                    Decimal::parse(text(sizing, "price")),
+                    Decimal::parse(text(sizing, "quantity"))
+                };
+                if (origin.weight_sizing->equity <= Decimal{}
+                    || origin.weight_sizing->price <= Decimal{})
+                    throw std::invalid_argument("invalid strategy weight sizing basis");
+            }
+            std::get<SubmitOrder>(result.request.operation).strategy = std::move(origin);
+        } else {
+            require_fields(record, {"command", "policy_revision", "broker_key", "trading_day"});
+        }
         result.broker_key = text(record, "broker_key");
         result.trading_day = text(record, "trading_day");
     } else
@@ -291,6 +355,22 @@ JournalEntry submission_entry(
     auto result = command_body(request, policy_revision);
     result.body["broker_key"] = broker_key;
     result.body["trading_day"] = trading_day;
+    if (const auto& origin = request.as<SubmitOrder>()->strategy) {
+        result.body["strategy"] = {
+            {"instance", origin->instance},
+            {"target_sequence", origin->target_sequence},
+            {"leg", origin->leg}
+        };
+        if (origin->weight_sizing) {
+            const auto& sizing = *origin->weight_sizing;
+            result.body["strategy"]["weight_sizing"] = {
+                {"equity", sizing.equity.str()},
+                {"weight", sizing.weight.str()},
+                {"price", sizing.price.str()},
+                {"quantity", sizing.quantity.str()}
+            };
+        }
+    }
     result.order_id = request.order_id();
     result.trace.broker_key = broker_key;
     return result;

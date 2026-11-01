@@ -4,7 +4,6 @@
 #include <asterion/system/process/child.hpp>
 #include <asterion/protocol/health.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/market.pb.h>
 #include <asterion/lab.pb.h>
 
 namespace asterion::terminal {
@@ -16,35 +15,6 @@ probe_service_health(node::proto::ServiceKind kind, std::string name, std::strin
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
     const auto correlation = "health." + unique_process_id();
-    if (kind == node::proto::MARKET) {
-        market::proto::Request ping;
-        ping.set_version(1);
-        ping.set_service_id(name);
-        ping.set_correlation_id(correlation);
-        ping.mutable_heartbeat();
-        auto pending = channel.request(ping.SerializeAsString(), 1500ms);
-        co_await PollUntil{[&] {
-            channel.poll();
-            return pending.wait_for(0ms) == std::future_status::ready;
-        }};
-        market::proto::Response reply;
-        if (!reply.ParseFromString(*pending.get()))
-            throw std::runtime_error("invalid market health");
-        protocol::validate_message(reply);
-        if (reply.version() != 1 || reply.service_id() != name
-            || reply.correlation_id() != correlation || !reply.has_health()
-            || reply.health().instance_id().empty())
-            throw std::runtime_error("market health identity mismatch");
-        const auto phase = reply.health().phase();
-        using protocol::ServiceHealth;
-        co_return HealthObservation{
-            !reply.health().initialized()                        ? ServiceHealth::starting
-                : phase == "connected"                           ? ServiceHealth::ready
-                : phase == "error" || phase == "sdk_unavailable" ? ServiceHealth::degraded
-                                                                 : ServiceHealth::awaiting_input,
-            {}
-        };
-    }
     if (kind == node::proto::LAB) {
         lab::proto::Request ping;
         ping.set_version(1);

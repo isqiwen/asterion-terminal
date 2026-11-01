@@ -14,10 +14,17 @@ test("compact footer exposes services and navigation", async ({ page }) => {
   await expect(panel).not.toContainText("本机核心");
   await expect(panel).not.toContainText("本机服务");
   await expect(panel).toContainText("此电脑");
-  await expect(panel).toContainText("行情服务");
-  await expect(panel.getByText("market-data", { exact: true })).not.toBeVisible();
+  await expect(panel).not.toContainText("Python 研究服务");
+  // Lab is registered by the first research/history operation, not by opening
+  // the workbench or inspecting its connections.
+  await page.keyboard.press("Escape");
+  await openView(page, "market");
+  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
+  await service.click();
+  await expect(panel).toContainText("Python 研究服务");
+  await expect(panel.getByText("lab", { exact: true })).not.toBeVisible();
   await panel.getByText("连接详情", { exact: true }).click();
-  await expect(panel.getByText("market-data", { exact: true })).toBeVisible();
+  await expect(panel.getByText("lab", { exact: true })).toBeVisible();
   await panel.getByText("连接详情", { exact: true }).click();
   await page.screenshot({ path: "apps/clients/terminal/test-results/status-bar-services.png" });
   await page.keyboard.press("Escape");

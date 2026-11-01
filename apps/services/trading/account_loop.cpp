@@ -19,6 +19,8 @@ struct LiveSession::Loop
         command,
         control,
         stop_sends,
+        strategy_stop,
+        strategy_observation,
         observation,
         completion
     };
@@ -71,15 +73,25 @@ struct LiveSession::Loop
             initialized.get();
         }
         std::lock_guard lock(mutex);
-        const auto limit = admission == Admission::command ? 64U : 72U;
-        if (!completion && (stopping || (!accepting && admission != Admission::observation)))
+        // The single runner has one reserved status/release slot. External
+        // requests cannot hide a fault or prevent release of execution ownership.
+        const auto limit = admission == Admission::command ? 64U
+            : (admission == Admission::strategy_stop
+                  || admission == Admission::strategy_observation)
+            ? 73U
+            : 72U;
+        if (!completion
+            && (stopping
+                || (!accepting && admission != Admission::observation
+                    && admission != Admission::strategy_stop
+                    && admission != Admission::strategy_observation)))
             throw Error(ErrorCode::unavailable, "account is stopping");
         if (!completion && admitted >= limit)
             throw Error(ErrorCode::resource_exhausted, "account request queue is full");
         events.push_back(std::move(event));
         // Queue publication and permission invalidation have the same admission
         // boundary. The owner cannot take this event until its original basis is fixed.
-        if (admission == Admission::stop_sends)
+        if (admission == Admission::stop_sends || admission == Admission::strategy_stop)
             send_gate.invalidate();
         if (mutation)
             mutation->control = send_gate.revision();
@@ -153,16 +165,28 @@ struct LiveSession::Loop
                     return;
                 try {
                     interposed->command.result();
-                    interposed->request->result.set_value();
+                    if (interposed->request)
+                        interposed->request->result.set_value();
                 } catch (...) {
-                    interposed->request->result.set_exception(std::current_exception());
+                    if (interposed->request)
+                        interposed->request->result.set_exception(std::current_exception());
+                    else
+                        log::error("strategy cancellation failed");
                 }
+                const bool external = bool(interposed->request);
                 interposed.reset();
                 account.unpark();
-                release_request();
+                if (external)
+                    release_request();
             }
             if (active) {
                 if (!active->command.done()) {
+                    if (account.yields_to_cancel() && account.strategy_cancellation_pending()) {
+                        account.park();
+                        interposed.emplace(Active{nullptr, account.cancel_strategy_order()});
+                        interposed->command.start();
+                        continue;
+                    }
                     if (auto cancel = take_cancel(account)) {
                         interpose(account, std::move(cancel));
                         continue;
@@ -260,7 +284,8 @@ struct LiveSession::Loop
                         std::chrono::steady_clock::now() + std::chrono::milliseconds{500});
                     wake.wait_until(lock, deadline, ready);
                     broker_pending = false;
-                    if (events.empty() && stopping && !active)
+                    if (events.empty() && stopping && !active && mutations.empty()
+                        && !account->storage_work_pending())
                         break;
                     if (!events.empty()) {
                         event = std::move(events.front());
@@ -272,7 +297,9 @@ struct LiveSession::Loop
                 if (event)
                     event(*account);
                 if (account->waiting_for_sdk()) {
-                    TraceScope context((interposed ? interposed : active)->request->trace);
+                    const auto& request = (interposed ? interposed : active)->request;
+                    TraceScope context(
+                        request ? std::string_view(request->trace) : std::string_view{});
                     account->poll_sdk();
                 }
                 finish(*account);
@@ -295,6 +322,10 @@ struct LiveSession::Loop
             return;
         accepting = false;
         send_gate.invalidate();
+        events.push_front([](LiveAccountState& account) {
+            account.fail_strategy("Trading is stopping");
+        });
+        wake.notify_one();
     }
 
     void stop()
@@ -303,10 +334,8 @@ struct LiveSession::Loop
         std::lock_guard lock(mutex);
         if (stopping)
             return;
-        // Final stop follows reply drain. Completion delivery retains its reserved slot.
-        events.push_front([](LiveAccountState& account) {
-            account.disconnect();
-        });
+        // Drain accepted work and strategy cancellation before SDK release.
+        // Completion delivery retains its reserved slot.
         stopping = true;
         wake.notify_one();
     }
@@ -445,6 +474,11 @@ std::future<void> LiveSession::execute(
     std::string_view policy_revision,
     AccountRequest request)
 {
+    if (const auto* order = request.as<SubmitOrder>(); order && order->strategy)
+        throw Error(
+            ErrorCode::invalid_request,
+            "strategy orders require the internal execution entry");
+    const bool submits = request.as<SubmitOrder>() != nullptr;
     const bool revoke = request.as<Revoke>();
     const auto* cancel = request.as<CancelOrder>();
     const bool cancels = cancel != nullptr;
@@ -467,10 +501,86 @@ std::future<void> LiveSession::execute(
             std::move(id));
     return loop_->mutate(
         std::move(begin),
-        {},
+        [submits](LiveAccountState& account) {
+            if (submits)
+                account.require_manual_order();
+        },
         cancels ? Loop::Admission::control : Loop::Admission::command,
         std::move(id),
         std::move(cancel_order));
+}
+
+std::future<StrategyAuthorityPtr> LiveSession::register_strategy(
+    std::string instance,
+    std::vector<InstrumentId> contracts,
+    std::optional<StrategyWeightBudget> budget)
+{
+    return loop_->call([instance = std::move(instance), contracts = std::move(contracts), budget](
+                           LiveAccountState& account) mutable {
+        return account.register_strategy(std::move(instance), std::move(contracts), budget);
+    });
+}
+
+std::future<void> LiveSession::release_strategy(StrategyAuthorityPtr authority)
+{
+    return loop_->call(
+        [authority = std::move(authority)](LiveAccountState& account) {
+            account.release_strategy(authority);
+        },
+        Loop::Admission::strategy_stop);
+}
+
+std::future<std::string> LiveSession::strategy_failure(StrategyAuthorityPtr authority) const
+{
+    return loop_->call(
+        [authority = std::move(authority)](LiveAccountState& account) {
+            return account.strategy_failure(authority);
+        },
+        Loop::Admission::strategy_observation);
+}
+
+std::future<void> LiveSession::execute_strategy(StrategyOrderBasis basis, SubmitOrder order)
+{
+    if (!basis.authority
+        || basis.expires_at > std::chrono::steady_clock::now() + std::chrono::seconds{10})
+        throw Error(
+            ErrorCode::invalid_request,
+            "strategy order requires an account authority and at most 10 seconds of validity");
+    auto request = AccountRequest::strategy_order(
+        std::move(order),
+        {basis.authority->instance(), basis.target_sequence, basis.leg});
+    const auto request_id = request.id;
+    return loop_->mutate(
+        [basis = std::move(basis),
+            request = std::move(request)](LiveAccountState& account, std::uint64_t control) {
+            return account.execute_strategy(basis, request, control);
+        },
+        {},
+        Loop::Admission::command,
+        request_id);
+}
+
+std::future<void> LiveSession::accept_strategy_target(
+    StrategyAuthorityPtr authority,
+    strategy::proto::Decision decision,
+    std::vector<MarketQuote> quotes,
+    std::chrono::steady_clock::time_point expires_at)
+{
+    return loop_->call([authority = std::move(authority),
+                           decision = std::move(decision),
+                           quotes = std::move(quotes),
+                           expires_at](LiveAccountState& account) mutable {
+        account
+            .accept_strategy_target(authority, std::move(decision), std::move(quotes), expires_at);
+    });
+}
+
+std::future<void> LiveSession::advance_strategy_target(StrategyAuthorityPtr authority)
+{
+    return loop_->mutate(
+        [authority = std::move(authority)](LiveAccountState& account, std::uint64_t) {
+            return account.advance_strategy_target(authority);
+        });
 }
 
 std::future<protocol::proto::LiveSnapshot> LiveSession::snapshot() const

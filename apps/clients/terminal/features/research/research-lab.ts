@@ -8,10 +8,11 @@ import type {
   FactorDay,
   FactorEntry,
   FactorRunSchema,
-  ParameterValueSchema,
   RunDay,
   StrategyParameter,
 } from "../../src/generated/asterion/lab_pb";
+
+import type { ParameterValueSchema } from "../../src/generated/asterion/strategy_pb";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

@@ -12,14 +12,12 @@ import "./setup.css";
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
 
 // What the Terminal does in the background once the workbench is open: the
-// local market service and the saved trading accounts. Where one does not
+// saved remote Market and trading connections. Where one does not
 // come up, its own page says so.
 async function restore() {
   const status = await request("runtime.snapshot");
-  const services = status.nodes.find(node => node.id === "local")?.health?.services ?? [];
-  const market = services.find(item => item.id === "market-data" && item.kind === "market");
   const work: Promise<unknown>[] = [];
-  if (!(market?.state === "stopped" && !market.desired_running)) work.push(request("market.local"));
+  if (status.market_endpoint && "host" in status.market_endpoint) work.push(request("market.open"));
   for (const account of (status.trading_connections ?? []).filter(item => !("error" in item)))
     work.push(request("live.open", { account: account.id }));
   await Promise.allSettled(work);
@@ -113,7 +111,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
             <h1>ASTERION TERMINAL</h1>
             <p>
               {t(
-                "第一次启动：下载并安装研究与数据所需的 Python 运行时，共 {size}。以后启动直接进入工作台。",
+                "第一次启动：下载并安装研究所需的 Python 运行时，共 {size}。以后启动直接进入工作台。",
                 {
                   size: megabytes(total),
                 },

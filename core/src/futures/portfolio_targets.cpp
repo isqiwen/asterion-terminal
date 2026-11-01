@@ -25,9 +25,9 @@ PortfolioTargets fixed_weight_targets(
     };
     cancelled();
     if (equity <= Decimal{} || gross_weight_limit < Decimal{} || net_weight_limit < Decimal{}
-        || members.size() < 2 || members.size() > 20)
+        || members.empty() || members.size() > 20)
         throw std::invalid_argument(
-            "fixed-weight targets require positive equity and explicit nonnegative budgets for 2 to 20 contracts");
+            "fixed-weight targets require positive equity and explicit nonnegative budgets for 1 to 20 contracts");
     PortfolioTargets result;
     result.equity = equity;
     result.gross_limit = gross_weight_limit;

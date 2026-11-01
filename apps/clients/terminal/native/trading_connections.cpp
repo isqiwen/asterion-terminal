@@ -148,15 +148,22 @@ void TradingConnections::prepare_identity()
 TradingEndpoint TradingConnections::endpoint(const std::string& id) const
 {
     const auto value = get(id);
-    if (fingerprint().empty())
-        throw std::invalid_argument("prepare the Terminal certificate first");
     return {
         value.at("host"),
         value.at("instance"),
         value.at("port").get<std::uint16_t>(),
-        {(data_ / "tls/client.crt").string(),
-            (data_ / "tls/client.key").string(),
-            {value.at("fingerprint")}}
+        tls(value.at("fingerprint"))
+    };
+}
+
+ipc::TlsIdentity TradingConnections::tls(const std::string& server_fingerprint) const
+{
+    if (fingerprint().empty())
+        throw std::invalid_argument("prepare the Terminal certificate first");
+    return {
+        (data_ / "tls/client.crt").string(),
+        (data_ / "tls/client.key").string(),
+        {ipc::normalize_fingerprint(server_fingerprint)}
     };
 }
 

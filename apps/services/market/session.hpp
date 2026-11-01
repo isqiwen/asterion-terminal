@@ -3,6 +3,7 @@
 #include <asterion/market.pb.h>
 #include <filesystem>
 #include <future>
+#include "settings.hpp"
 
 namespace asterion::market_data {
 
@@ -19,7 +20,7 @@ public:
     struct Configuration
     {
         std::string service, instance;
-        std::filesystem::path directory, sdk, catalog_sdk;
+        Settings settings;
     };
 
     explicit Session(Configuration config);
@@ -27,7 +28,7 @@ public:
     std::future<service::RpcHost::Message> request(
         market::proto::Request request,
         std::shared_ptr<WatchCursor> cursor = {},
-        bool control = false);
+        bool can_manage = false);
     void stop();
     std::shared_future<void> stopped() const;
 

@@ -265,9 +265,7 @@ async function closeDesktop(application) {
     }
     await settings.getByRole("button", { name: "本机服务", exact: true }).click();
     const services = settings.getByRole("list", { name: "服务列表", exact: true });
-    await expect(
-      services.getByRole("listitem", { name: "market-data", exact: true }),
-    ).toBeVisible();
+    await expect(services.getByRole("listitem", { name: "lab", exact: true })).toBeVisible();
     await capture(settings, "native-local-services");
     await page.evaluate(() => {
       // The public settings helper selects reused windows through this storage event.

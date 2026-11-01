@@ -25,7 +25,7 @@ test("an installed runtime opens the workbench at once and restores services beh
   }));
   start();
   await waitFor(() => expect(workbench()).not.toBeNull());
-  await waitFor(() => expect(calls.map(call => call.method)).toContain("market.local"));
+  await waitFor(() => expect(calls.map(call => call.method)).toContain("market.open"));
   expect(calls.map(call => call.method)).not.toContain("runtime.python.install");
 });
 

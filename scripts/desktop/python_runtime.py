@@ -36,31 +36,6 @@ UNUSED = ["include", "share", "lib/python3.12/test", "lib/python3.12/idlelib",
           "lib/libpython3.so"]
 
 
-def foreign_library(path: Path) -> bool:
-    """A shared library built for another platform, which can never load here.
-
-    Wheels such as py_mini_racer ship one for every platform; keeping them
-    makes the package's dependency analysis fail and adds dead weight."""
-    with path.open("rb") as stream:
-        header = stream.read(20)
-    if header[:4] == b"\x7fELF":
-        # e_machine 62 is x86-64; an ELF file is never loaded on macOS.
-        return sys.platform == "darwin" or int.from_bytes(header[18:20], "little") != 62
-    # Mach-O, thin or universal, is never loaded on Linux.
-    return sys.platform == "linux" and header[:4] in (
-        b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")
-
-
-BUILT_FROM_SOURCE = {"jsonpath"}
-
-
-def binary_only(requirements: str) -> list:
-    """Every locked package except the pure-Python ones without wheels."""
-    names = [line.split("==")[0].strip() for line in requirements.splitlines()
-             if "==" in line and not line.lstrip().startswith("#")]
-    return [name for name in names if name not in BUILT_FROM_SOURCE]
-
-
 def executable(directory=DESTINATION):
     return directory / "bin/python3"
 
@@ -89,6 +64,7 @@ def application_code(build: Path, target: Path):
         shutil.copy2(engine, target / engine.name)
     shutil.copytree(PROJECT / "asterion_lab", target / "asterion_lab",
                     ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(ROOT / "apps/services/common/python/asterion_strategy.py", target)
     version = json.loads((build / "product.json").read_text())["version"]
     (target / "asterion_lab/version.py").write_text(f"VERSION = {version!r}\n")
 
@@ -102,7 +78,7 @@ def prepare(build=None):
     def run(args, **options):
         return subprocess.run(list(map(str, args)), cwd=ROOT, check=True, env=environment, **options)
 
-    # Downloads are confined to this explicit preparation entry, never app startup.
+    # Development builds prepare dependencies explicitly; installed apps use PythonRuntime.
     run(["uv", "python", "install", PYTHON])
     found = run(["uv", "python", "find", "--no-project", PYTHON], capture_output=True, text=True)
     standalone = Path(found.stdout.strip()).resolve().parents[1]
@@ -132,20 +108,15 @@ def prepare(build=None):
         locked = temporary / "requirements.txt"
         locked.write_text(requirements)
         python = executable(prepared)
-        # Hashes pin every file. jsonpath (for AKShare) publishes only a source
-        # archive; it is pure Python, so building it is the one build allowed.
+        # Install only platform wheels pinned by the lock.
         run(["uv", "pip", "install", "--python", python, "--require-hashes",
-             *[f"--only-binary={name}" for name in binary_only(requirements)],
+             "--only-binary=:all:",
              "--no-python-downloads", "--python-platform",
              "aarch64-apple-darwin" if sys.platform == "darwin" else "x86_64-manylinux_2_28",
              "-r", locked])
         # Polars needs one CPU runtime: the compatible one, not the default AVX2 build.
         run(["uv", "pip", "uninstall", "--python", python, "polars-runtime-32"])
         site = prepared / SITE
-        for path in [item for item in site.rglob("*") if item.is_file() and not item.is_symlink()
-                     and (".so" in item.suffixes or item.suffix == ".dylib")]:
-            if foreign_library(path):
-                path.unlink()
         application_code(build, site)
         # Installed command scripts name the staging interpreter, and nothing
         # installs packages into a prepared runtime: keep the interpreter only.

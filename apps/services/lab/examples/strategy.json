@@ -1,0 +1,10 @@
+{
+  "name": "ma-cross",
+  "version": "1",
+  "entry": "strategies.ma_cross:MaCross",
+  "runtime": "python3.12-numpy2.3.5",
+  "files": [
+    "strategies/ma_cross.py",
+    "strategies/_rules.py"
+  ]
+}

@@ -1,6 +1,7 @@
 #include "ctp_support.hpp"
 #include "trading/journal_fixture.hpp"
 #include "live_session.hpp"
+#include "strategy_orders.hpp"
 #include <asterion/futures/order_limits.hpp>
 #include <barrier>
 #include <future>
@@ -94,6 +95,52 @@ public:
     auto stopped() const
     {
         return session_.stopped();
+    }
+
+    auto register_strategy(
+        std::string instance = "strategy-run",
+        std::vector<InstrumentId> contracts = {{"SHFE", "rb2610"}},
+        std::optional<trading::StrategyWeightBudget> budget = std::nullopt)
+    {
+        return session_.register_strategy(std::move(instance), std::move(contracts), budget);
+    }
+
+    void accept_target(
+        trading::StrategyAuthorityPtr authority,
+        strategy::proto::Decision decision,
+        std::vector<MarketQuote> quotes,
+        std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 10s)
+    {
+        session_
+            .accept_strategy_target(
+                std::move(authority),
+                std::move(decision),
+                std::move(quotes),
+                deadline)
+            .get();
+    }
+
+    auto advance_target(trading::StrategyAuthorityPtr authority)
+    {
+        return session_.advance_strategy_target(std::move(authority));
+    }
+
+    auto release_strategy(trading::StrategyAuthorityPtr authority)
+    {
+        return session_.release_strategy(std::move(authority));
+    }
+
+    auto strategy_failure(trading::StrategyAuthorityPtr authority) const
+    {
+        return session_.strategy_failure(std::move(authority)).get();
+    }
+
+    auto execute_strategy(trading::StrategyOrderBasis basis, const Json& command)
+    {
+        auto request = trading::AccountRequest::from_wire(protocol::encode_command(command));
+        return session_.execute_strategy(
+            std::move(basis),
+            std::get<trading::SubmitOrder>(request.operation));
     }
 };
 
@@ -1897,4 +1944,906 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
                 {"process_peak_rss_bytes", peak_rss_bytes}});
     }
     RecordProperty("measurements", measurements.dump());
+}
+
+namespace {
+
+class StrategyExecution : public Live
+{
+protected:
+    static trading::StrategyOrderBasis
+    basis(trading::StrategyAuthorityPtr authority, std::uint64_t sequence = 1)
+    {
+        return {std::move(authority), sequence, 0, true, std::chrono::steady_clock::now() + 10s};
+    }
+};
+
+} // namespace
+
+namespace {
+
+class StrategyTarget : public Live
+{
+protected:
+    static strategy::proto::Decision lots(std::int64_t quantity, std::uint64_t sequence = 1)
+    {
+        strategy::proto::Decision decision;
+        decision.set_sequence(sequence);
+        decision.set_ready(true);
+        auto* target = decision.add_targets();
+        target->set_contract("SHFE/rb2610");
+        target->set_lots(quantity);
+        return decision;
+    }
+
+    static MarketQuote quote()
+    {
+        MarketQuote quote;
+        quote.instrument = {"SHFE", "rb2610"};
+        quote.trading_day = "20260928";
+        quote.last = Decimal::parse("3500");
+        quote.bid = Decimal::parse("3499");
+        quote.ask = Decimal::parse("3501");
+        quote.bid_quantity = quote.ask_quantity = 100;
+        quote.lower_limit = Decimal::parse("3300");
+        quote.upper_limit = Decimal::parse("3700");
+        quote.source_ms = quote.received_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+                                                  .count();
+        return quote;
+    }
+
+    template <class Predicate>
+    static Json progress(LiveSession& session, trading::StrategyAuthorityPtr owner, Predicate done)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + 9s;
+        for (;;) {
+            session.advance_target(owner).get();
+            auto state = session.snapshot();
+            if (done(state) || std::chrono::steady_clock::now() >= deadline)
+                return state;
+            std::this_thread::sleep_for(20ms);
+        }
+    }
+};
+
+} // namespace
+
+TEST_F(StrategyTarget, DirectQuotesDriveSerialCloseThenOpenFromReconciledPositions)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    // Execution must use this feed, even when the trading-front quote query fails.
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 31, 100);
+    session.accept_target(owner, lots(1), {quote()});
+    auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 1 && s.at("orders")[0].at("status") == "filled"
+            && s.at("positions_reconciled") == true;
+    });
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    EXPECT_EQ(state.at("orders")[0].at("limit_price"), "3501");
+    session.advance_target(owner).get(); // Retire the settled first batch.
+    session.accept_target(owner, lots(-1, 2), {quote()});
+    state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 3 && s.at("orders")[2].at("status") == "filled"
+            && s.at("positions_reconciled") == true;
+    });
+    ASSERT_EQ(state.at("orders").size(), 3U);
+    EXPECT_EQ(state.at("orders")[1].at("offset"), "close_today");
+    EXPECT_EQ(state.at("orders")[2].at("offset"), "open");
+    for (int i : {1, 2}) {
+        EXPECT_EQ(state.at("orders")[i].at("side"), "sell");
+        EXPECT_EQ(state.at("orders")[i].at("limit_price"), "3499");
+        EXPECT_EQ(state.at("orders")[i].at("status"), "filled");
+    }
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, WarmingCannotSendAndAuthorizationIsRequiredForAReadyTarget)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    auto owner = session.register_strategy().get();
+    auto warming = lots(1);
+    warming.set_ready(false);
+    warming.clear_targets();
+    session.accept_target(owner, warming, {});
+    session.advance_target(owner).get();
+    EXPECT_THROW(session.accept_target(owner, lots(1, 2), {quote()}), Error);
+    act(session, authorize());
+    EXPECT_THROW(session.accept_target(owner, lots(1, 3), {quote()}), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+}
+
+TEST_F(StrategyTarget, StaleQuotesAndMissingOppositeBookCannotProduceOrders)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy("stale").get();
+    auto stale = quote();
+    stale.source_ms -= 10000;
+    EXPECT_THROW(session.accept_target(owner, lots(1), {stale}), Error);
+    session.release_strategy(owner).get();
+    owner = session.register_strategy("missing-book").get();
+    auto missing = quote();
+    missing.ask.reset();
+    session.accept_target(owner, lots(1), {missing});
+    EXPECT_THROW(session.advance_target(owner).get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+}
+
+TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResending)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(3), {quote()}, std::chrono::steady_clock::now() + 1500ms);
+    session.advance_target(owner).get();
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 1);
+    auto state = wait_for(session, [](const Json& s) {
+        return !s.at("orders").empty() && s.at("orders")[0].at("status") == "partially_filled";
+    });
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    session.advance_target(owner).get();
+    state = wait_for(session, [&](const Json&) {
+        return !session.strategy_failure(owner).empty();
+    });
+    state = wait_for(session, [](const Json& s) {
+        return s.at("orders")[0].at("status") == "cancelled";
+    });
+    EXPECT_EQ(state.at("orders").size(), 1U);
+    EXPECT_EQ(state.at("orders")[0].at("filled"), "1");
+    EXPECT_THROW(session.accept_target(owner, lots(3, 2), {quote()}), Error);
+}
+
+TEST_F(StrategyTarget, ManualCancellationEndsTheBatchWithoutReplacingItsOrder)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(3), {quote()});
+    session.advance_target(owner).get();
+    const auto id = session.snapshot().at("orders")[0].at("id");
+    act(session, {{"request_id", "cancel.target"}, {"action", "cancel"}, {"order_id", id}});
+    wait_for(session, [&](const Json&) {
+        return !session.strategy_failure(owner).empty();
+    });
+    EXPECT_THROW(session.advance_target(owner).get(), Error);
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+}
+
+TEST_F(StrategyTarget, TargetAdmissionCannotExtendOrReplaceAnUnfinishedBatch)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(1), {quote()});
+    EXPECT_THROW(session.accept_target(owner, lots(2, 2), {quote()}), Error);
+    EXPECT_THROW(session.advance_target(owner).get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+}
+
+TEST_F(StrategyTarget, RevocationDuringDirectQuoteSubmissionStillFencesDurableDispatch)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(1), {quote()});
+    HeldCommit hold;
+    auto sending = session.advance_target(owner);
+    ASSERT_TRUE(hold.waiting());
+    const auto state = session.snapshot();
+    auto revoking = session.execute(
+        state.at("account_id").get<std::string>(),
+        state.at("policy_revision").get<std::string>(),
+        {{"request_id", "revoke.target"}, {"action", "live_revoke"}});
+    hold.release();
+    EXPECT_THROW(sending.get(), Error);
+    revoking.get();
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+}
+
+TEST_F(StrategyTarget, WeightsWaitForNewEquityAndPersistTheFrozenConversionWithTheOrder)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner =
+            session
+                .register_strategy(
+                    "weighted",
+                    {{"SHFE", "rb2610"}},
+                    trading::StrategyWeightBudget{Decimal::parse("1"), Decimal::parse("1")})
+                .get();
+        auto decision = lots(0);
+        decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+        // Old equity would buy two lots. Only the post-admission response buys one.
+        exchange.call<void (*)(double)>("asterion_fake_trader_balance", 500000.01);
+        session.accept_target(owner, decision, {quote()});
+        session.advance_target(owner).get();
+        EXPECT_TRUE(session.snapshot().at("orders").empty());
+        const auto state = progress(session, owner, [](const Json& s) {
+            return s.at("orders").size() == 1 && s.at("orders")[0].at("status") == "filled"
+                && s.at("positions_reconciled") == true;
+        });
+        ASSERT_EQ(state.at("orders").size(), 1U);
+        EXPECT_EQ(state.at("orders")[0].at("quantity"), "1");
+        session.advance_target(owner).get();
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
+    const auto parsed =
+        trading::parse_record(test::read_record(test::journal_record(directory.path, 2)));
+    const auto& record = std::get<trading::CommandRecord>(parsed);
+    const auto& source = record.request.as<trading::SubmitOrder>()->strategy;
+    ASSERT_TRUE(source && source->weight_sizing);
+    EXPECT_EQ(source->weight_sizing->equity, Decimal::parse("500000.01"));
+    EXPECT_EQ(source->weight_sizing->weight, Decimal::parse("0.07"));
+    EXPECT_EQ(source->weight_sizing->price, Decimal::parse("3500"));
+    EXPECT_EQ(source->weight_sizing->quantity, Decimal::parse("1"));
+    LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(recovered).at("phase"), "ready");
+    EXPECT_TRUE(recovered.snapshot().at("authorization").is_null());
+    EXPECT_EQ(recovered.snapshot().at("orders").size(), 1U);
+}
+
+TEST_F(StrategyTarget, WeightsRequireExplicitBudgetsAndCannotExceedThem)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto decision = lots(0);
+    decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+    auto owner = session.register_strategy("missing-budget").get();
+    EXPECT_THROW(session.accept_target(owner, decision, {quote()}), std::invalid_argument);
+    session.release_strategy(owner).get();
+    owner = session
+                .register_strategy(
+                    "limited",
+                    {{"SHFE", "rb2610"}},
+                    trading::StrategyWeightBudget{Decimal::parse("0.05"), Decimal::parse("0.05")})
+                .get();
+    session.accept_target(owner, decision, {quote()});
+    EXPECT_THROW(
+        progress(
+            session,
+            owner,
+            [](const Json&) {
+                return false;
+            }),
+        std::invalid_argument);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_FALSE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
+{
+    auto definition = manifest();
+    definition["policy"]["contracts"].push_back(contract("rb2611", "rb", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session
+                     .register_strategy(
+                         "portfolio",
+                         {{"SHFE", "rb2610"}, {"SHFE", "rb2611"}},
+                         trading::StrategyWeightBudget{Decimal::parse("1"), Decimal::parse("1")})
+                     .get();
+    auto decision = lots(0);
+    decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+    auto* second = decision.add_targets();
+    second->set_contract("SHFE/rb2611");
+    second->set_weight_units(Decimal::parse("0.07").raw());
+    auto other = quote();
+    other.instrument.symbol = "rb2611";
+    exchange.call<void (*)(double)>("asterion_fake_trader_balance", 500000.01);
+    session.accept_target(owner, decision, {quote(), other});
+    auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 1 && s.at("orders")[0].at("status") == "filled";
+    });
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    exchange.call<void (*)(double)>("asterion_fake_trader_balance", 1000000.01);
+    wait_for(session, [&](const Json&) {
+        const auto snapshot = session.wire_snapshot();
+        return snapshot.has_funds()
+            && snapshot.funds().balance().units() == Decimal::parse("1000000.01").raw();
+    });
+    state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 2 && s.at("orders")[1].at("status") == "filled"
+            && s.at("positions_reconciled") == true;
+    });
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("symbol"), "rb2611");
+    EXPECT_EQ(state.at("orders")[1].at("quantity"), "1");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyExecution, RegistrationIsExclusiveAndNeverGrantsAuthorizationOrReadiness)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    EXPECT_THROW((void)session.register_strategy().get(), Error);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    EXPECT_THROW(
+        (void)session.register_strategy("bad", {{"SHFE", "cu2610"}}).get(),
+        std::invalid_argument);
+    auto owner = session.register_strategy().get();
+    EXPECT_THROW((void)session.register_strategy("second").get(), Error);
+    EXPECT_THROW(act(session, submit("manual", "1")), Error);
+    auto warming = basis(owner);
+    warming.ready = false;
+    EXPECT_THROW(session.execute_strategy(warming, submit("warming", "1")).get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    session.release_strategy(owner).get();
+    owner = session.register_strategy("not-authorized").get();
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner), submit("unauthorized", "1")).get(),
+        std::invalid_argument);
+    act(session, authorize());
+    // A failed execution does not revive when authorization is later granted.
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner, 2), submit("failed.instance", "1")).get(),
+        Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    session.release_strategy(owner).get();
+    EXPECT_NO_THROW(act(session, submit("manual.after.release", "1")));
+}
+
+TEST_F(StrategyExecution, UsesTheExistingRiskAndPriceChecksAndBlocksFurtherLegsAfterFailure)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    for (const auto& order : {submit("too.many", "6"), submit("bad.price", "1", "3701")}) {
+        auto owner = session.register_strategy().get();
+        EXPECT_THROW(session.execute_strategy(basis(owner), order).get(), std::invalid_argument);
+        EXPECT_THROW(
+            session.execute_strategy(basis(owner, 2), submit("cannot.continue", "1")).get(),
+            Error);
+        session.release_strategy(owner).get();
+    }
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+}
+
+TEST_F(StrategyExecution, PlannedOrderIsDurableAndAttributedWithoutRestoringAuthority)
+{
+    trading::StrategyAuthorityPtr old_owner;
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        old_owner = session.register_strategy().get();
+        // The production planner supplies the C++ order leg; Python has no
+        // entry to this interface or the account's limit price selection.
+        BrokerSnapshot facts;
+        facts.phase = BrokerPhase::ready;
+        facts.positions_reconciled = true;
+        const auto policy = trading::PolicyDefinition::from_wire(
+            protocol::encode_live_policy(manifest().at("policy")));
+        const trading::PositionTarget target{{"SHFE", "rb2610"}, Decimal::parse("1")};
+        const auto plan =
+            trading::plan_strategy_orders({&target, 1}, policy.contracts, facts, false);
+        ASSERT_EQ(plan.orders.size(), 1U);
+        const auto& leg = plan.orders[0];
+        auto order = submit("strategy.fill", leg.quantity.str().c_str());
+        EXPECT_NO_THROW(session.execute_strategy(basis(old_owner), order).get());
+        ASSERT_TRUE(order_has_status(
+            wait_for(
+                session,
+                [](const Json& state) {
+                    return order_has_status(state, "strategy.fill", "filled")
+                        && state.at("positions_reconciled") == true;
+                }),
+            "strategy.fill",
+            "filled"));
+        EXPECT_THROW(
+            session.execute_strategy(basis(old_owner), submit("duplicate.target", "1")).get(),
+            Error);
+    }
+    const auto record = test::read_record(test::journal_record(directory.path, 2));
+    const auto decoded = std::get<trading::CommandRecord>(trading::parse_record(record));
+    ASSERT_TRUE(decoded.request.as<trading::SubmitOrder>()->strategy);
+    const auto& source = *decoded.request.as<trading::SubmitOrder>()->strategy;
+    EXPECT_EQ(source.instance, "strategy-run");
+    EXPECT_EQ(source.target_sequence, 1U);
+    EXPECT_EQ(source.leg, 0U);
+    LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(recovered).at("phase"), "ready");
+    EXPECT_TRUE(recovered.snapshot().at("authorization").is_null());
+    act(recovered, authorize("after.restart"));
+    auto fresh = recovered.register_strategy().get();
+    EXPECT_THROW(
+        recovered.execute_strategy(basis(old_owner, 2), submit("old.authority", "1")).get(),
+        Error);
+    EXPECT_NE(fresh, old_owner);
+    recovered.release_strategy(fresh).get();
+}
+
+TEST_F(StrategyExecution, RefusesStaleSequencesSkippedLegsAndChangedTargetDeadlines)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(4));
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    auto admitted = basis(owner, 7);
+    EXPECT_NO_THROW(session.execute_strategy(admitted, submit("first.leg", "3")).get());
+    ASSERT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "first.leg", "accepted");
+            }),
+        "first.leg",
+        "accepted"));
+    EXPECT_THROW(session.execute_strategy(admitted, submit("duplicate.leg", "1")).get(), Error);
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner, 6), submit("older.target", "1")).get(),
+        Error);
+    auto skipped = admitted;
+    skipped.leg = 2;
+    EXPECT_THROW(session.execute_strategy(skipped, submit("skipped.leg", "1")).get(), Error);
+    auto refreshed = basis(owner, 7);
+    refreshed.leg = 1;
+    EXPECT_THROW(
+        session.execute_strategy(refreshed, submit("refreshed.deadline", "1")).get(),
+        Error);
+    auto excessive = basis(owner, 8);
+    excessive.expires_at += 1s;
+    EXPECT_THROW(session.execute_strategy(excessive, submit("excessive.ttl", "1")), Error);
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    auto expired = basis(owner, 8);
+    expired.expires_at = std::chrono::steady_clock::now() - 1s;
+    EXPECT_THROW(session.execute_strategy(expired, submit("already.expired", "1")).get(), Error);
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner, 8), submit("cannot.refresh", "1")).get(),
+        Error);
+    // Expiry ends this instance and cancels its earlier resting leg.
+    EXPECT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "first.leg", "cancelled");
+            }),
+        "first.leg",
+        "cancelled"));
+}
+
+TEST_F(StrategyExecution, ReleasedAuthorityCannotSubmitEvenWhenTheInstanceNameIsReused)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    const auto old = session.register_strategy().get();
+    session.release_strategy(old).get();
+    const auto fresh = session.register_strategy().get();
+    EXPECT_THROW(session.execute_strategy(basis(old), submit("old", "1")).get(), Error);
+    EXPECT_THROW(session.release_strategy(old).get(), Error);
+    EXPECT_NO_THROW(session.execute_strategy(basis(fresh), submit("fresh", "1")).get());
+}
+
+TEST_F(StrategyExecution, ReleaseDuringDurableSubmissionFencesQueuedAndRecordedOrders)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    HeldCommit held;
+    auto sending = session.execute_strategy(basis(owner), submit("stopping", "1"));
+    ASSERT_TRUE(held.waiting());
+    auto queued = session.execute_strategy(basis(owner, 2), submit("queued", "1"));
+    auto stopped = session.release_strategy(owner);
+    EXPECT_EQ(stopped.wait_for(1s), std::future_status::ready);
+    stopped.get();
+    held.release();
+    EXPECT_THROW(sending.get(), Error);
+    EXPECT_THROW(queued.get(), Error);
+    const auto after = session.snapshot();
+    EXPECT_TRUE(after.at("orders").empty());
+    EXPECT_TRUE(after.at("unconfirmed").empty());
+    EXPECT_FALSE(session.recovery_required());
+    EXPECT_NO_THROW(act(session, submit("manual.after.stop", "1")));
+}
+
+TEST_F(StrategyExecution, RevocationDuringDurableSubmissionDoesNotPermitLateDispatch)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    HeldCommit held;
+    auto sending = session.execute_strategy(basis(owner), submit("revoked", "1"));
+    ASSERT_TRUE(held.waiting());
+    const auto current = session.snapshot();
+    auto revoke = session.execute(
+        current.at("account_id").get<std::string>(),
+        current.at("policy_revision").get<std::string>(),
+        {{"request_id", "revoke.strategy"}, {"action", "live_revoke"}});
+    held.release();
+    EXPECT_THROW(sending.get(), Error);
+    EXPECT_NO_THROW(revoke.get());
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+    EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+}
+
+TEST_F(StrategyExecution, TargetExpiryDuringDurableSubmissionDoesNotBorrowTheQuoteDeadline)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    auto target = basis(owner);
+    target.expires_at = std::chrono::steady_clock::now() + 3s;
+    HeldCommit held;
+    auto sending = session.execute_strategy(target, submit("expired.target", "1"));
+    ASSERT_TRUE(held.waiting());
+    std::this_thread::sleep_until(target.expires_at + 20ms);
+    held.release();
+    EXPECT_THROW(sending.get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+}
+
+TEST_F(StrategyExecution, TargetExpiryDuringQuoteQueryProducesNoOrderIntent)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+
+    struct Release
+    {
+        FakeExchange& exchange;
+
+        ~Release()
+        {
+            exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
+        }
+    } release{exchange};
+
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 1);
+    auto target = basis(owner);
+    target.expires_at = std::chrono::steady_clock::now() + 2s;
+    const auto before = session.snapshot().at("capacity").at("records_used");
+    auto sending = session.execute_strategy(target, submit("quote.expired", "1"));
+    std::this_thread::sleep_until(target.expires_at + 20ms);
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
+    EXPECT_THROW(sending.get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_EQ(session.snapshot().at("capacity").at("records_used"), before);
+}
+
+TEST_F(StrategyExecution, ClaimingTheAccountFencesAnAlreadyRecordedManualOrder)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    const auto current = session.snapshot();
+    HeldCommit held;
+    auto manual = session.execute(
+        current.at("account_id").get<std::string>(),
+        current.at("policy_revision").get<std::string>(),
+        submit("manual.in.flight", "1"));
+    ASSERT_TRUE(held.waiting());
+    auto owner = session.register_strategy().get();
+    EXPECT_THROW(act(session, submit("manual.during.strategy", "1")), Error);
+    held.release();
+    EXPECT_THROW(manual.get(), Error);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+    session.release_strategy(owner).get();
+}
+
+TEST_F(StrategyExecution, ReleaseAfterDispatchPreservesTheBrokersOrderAndLateSdkResult)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+
+    struct Release
+    {
+        FakeExchange& exchange;
+
+        ~Release()
+        {
+            exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, 0);
+        }
+    } release{exchange};
+
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 1, -7);
+    auto sending = session.execute_strategy(basis(owner), submit("already.sent", "3"));
+    ASSERT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "already.sent", "accepted");
+            }),
+        "already.sent",
+        "accepted"));
+    auto stopped = session.release_strategy(owner);
+    ASSERT_EQ(stopped.wait_for(1s), std::future_status::ready);
+    stopped.get();
+    EXPECT_TRUE(order_has_status(session.snapshot(), "already.sent", "accepted"));
+    EXPECT_EQ(sending.wait_for(0s), std::future_status::timeout);
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, -7);
+    EXPECT_NO_THROW(sending.get());
+    EXPECT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "already.sent", "cancelled");
+            }),
+        "already.sent",
+        "cancelled"));
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 1);
+}
+
+TEST_F(StrategyExecution, AnInstanceCannotUseAnotherAllowedContract)
+{
+    auto configuration = manifest();
+    configuration["policy"]["contracts"].push_back(contract("rb2611", "rb", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, configuration);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner), submit("outside.selection", "1", "3500", "rb2611"))
+            .get(),
+        std::invalid_argument);
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+}
+
+TEST_F(StrategyExecution, FailureCancelsOnlyThisInstancesOrdersAndPreservesPositions)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(4));
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    act(session, submit("position", "1"));
+    ASSERT_TRUE(wait_for(session, [](const Json& state) {
+        return state.at("positions_reconciled") == true && !state.at("positions").empty();
+    }).at("positions_reconciled"));
+    act(session, submit("manual.resting", "3"));
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("strategy.first", "3")).get();
+    session.execute_strategy(basis(owner, 2), submit("strategy.second", "3")).get();
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    EXPECT_THROW(
+        session.execute_strategy(basis(owner, 3), submit("risk.failure", "6")).get(),
+        std::invalid_argument);
+    const auto after = wait_for(session, [](const Json& state) {
+        return order_has_status(state, "strategy.first", "cancelled")
+            && order_has_status(state, "strategy.second", "cancelled");
+    });
+    EXPECT_TRUE(order_has_status(after, "strategy.first", "cancelled"));
+    EXPECT_TRUE(order_has_status(after, "strategy.second", "cancelled"));
+    EXPECT_TRUE(order_has_status(after, "manual.resting", "accepted"));
+    ASSERT_EQ(after.at("positions").size(), 1U);
+    EXPECT_EQ(after.at("positions")[0].at("today"), "1");
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 2);
+    EXPECT_FALSE(session.strategy_failure(owner).empty());
+    session.release_strategy(owner).get();
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 2);
+}
+
+TEST_F(StrategyExecution, RevocationCancelsRestingOrdersAndReauthorizationCannotReviveTheInstance)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
+    EXPECT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "resting", "cancelled");
+            }),
+        "resting",
+        "cancelled"));
+    EXPECT_EQ(session.strategy_failure(owner), "account authorization ended");
+    act(session, authorize("again"));
+    EXPECT_THROW(session.execute_strategy(basis(owner, 2), submit("old.target", "1")).get(), Error);
+}
+
+TEST_F(StrategyExecution, FailedCancellationIsNotRetriedByStopReconnectOrRecovery)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner = session.register_strategy().get();
+        session.execute_strategy(basis(owner), submit("resting", "3")).get();
+        const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+        const auto records = session.snapshot().at("capacity").at("records_used").get<int>();
+        exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
+        session.release_strategy(owner).get();
+        const auto after = wait_for(session, [records](const Json& state) {
+            return state.at("capacity").at("records_used").get<int>() >= records + 2;
+        });
+        EXPECT_EQ(after.at("capacity").at("records_used"), records + 2);
+        EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
+        EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 1);
+        EXPECT_THROW(session.release_strategy(owner).get(), Error);
+        exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", 0);
+        session.disconnect();
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        EXPECT_TRUE(order_has_status(session.snapshot(), "resting", "accepted"));
+    }
+    LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(recovered).at("phase"), "ready");
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    const auto after = recovered.snapshot();
+    EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
+    EXPECT_TRUE(after.at("authorization").is_null());
+    EXPECT_THROW((void)recovered.register_strategy().get(), Error);
+    auto next = recovered.register_strategy("new-instance").get();
+    recovered.release_strategy(next).get();
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
+    EXPECT_TRUE(order_has_status(recovered.snapshot(), "resting", "accepted"));
+}
+
+TEST_F(StrategyExecution, UnknownSubmissionAndFailedCancellationKeepRiskAcrossRestart)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner = session.register_strategy().get();
+        const auto records = session.snapshot().at("capacity").at("records_used").get<int>();
+        exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
+        EXPECT_THROW(session.execute_strategy(basis(owner), submit("unknown", "3")).get(), Error);
+        const auto after = wait_for(session, [records](const Json& state) {
+            return state.at("capacity").at("records_used").get<int>() >= records + 3;
+        });
+        EXPECT_EQ(after.at("capacity").at("records_used"), records + 3);
+        ASSERT_EQ(after.at("unconfirmed").size(), 1U);
+        EXPECT_EQ(after.at("unconfirmed")[0].at("id"), "unknown");
+        EXPECT_TRUE(after.at("orders").empty());
+        session.release_strategy(owner).get();
+    }
+    exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", 0);
+    LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(recovered).at("phase"), "ready");
+    EXPECT_EQ(recovered.snapshot().at("unconfirmed").size(), 1U);
+    act(recovered, authorize("recovered"));
+    EXPECT_THROW(act(recovered, submit("blocked.by.unknown", "1")), std::invalid_argument);
+}
+
+TEST_F(StrategyExecution, BrokerRejectionEndsTheInstanceAndCancelsItsOtherOrder)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(2));
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    exchange.call<void (*)(int)>("asterion_fake_trader_reject_inserts", 1);
+    session.execute_strategy(basis(owner, 2), submit("rejected", "1")).get();
+    const auto after = wait_for(session, [](const Json& state) {
+        return order_has_status(state, "resting", "cancelled")
+            && order_has_status(state, "rejected", "rejected");
+    });
+    EXPECT_TRUE(order_has_status(after, "resting", "cancelled"));
+    EXPECT_TRUE(order_has_status(after, "rejected", "rejected"));
+    EXPECT_EQ(session.strategy_failure(owner), "broker rejected a strategy order");
+}
+
+TEST_F(StrategyExecution, FaultCancellationPassesAnOrderWaitingForAThrottledQuote)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(2));
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", -3, 100);
+    auto sending = session.execute_strategy(basis(owner, 2), submit("waiting", "1"));
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!exchange.call<int (*)()>("asterion_fake_trader_query_rejections")
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(10ms);
+    ASSERT_GT(exchange.call<int (*)()>("asterion_fake_trader_query_rejections"), 0);
+    session.release_strategy(owner).get();
+    EXPECT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "resting", "cancelled");
+            }),
+        "resting",
+        "cancelled"));
+    EXPECT_EQ(sending.wait_for(0s), std::future_status::timeout);
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 0, 0);
+    EXPECT_THROW(sending.get(), Error);
+    EXPECT_TRUE(find_order(session.snapshot(), "waiting").is_null());
+}
+
+TEST_F(StrategyExecution, AccountShutdownAttemptsCancellationBeforeDisconnectingTheSdk)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    session.close_admission();
+    session.stop();
+    ASSERT_EQ(session.stopped().wait_for(3s), std::future_status::ready);
+    session.stopped().get();
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 1);
+}
+
+TEST_F(StrategyExecution, StopDoesNotRepeatAnEarlierFailedManualCancellation)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
+    EXPECT_THROW(
+        act(session,
+            {{"request_id", "cancel.manual"}, {"action", "cancel"}, {"order_id", "resting"}}),
+        Error);
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    const auto before = session.snapshot().at("capacity");
+    session.release_strategy(owner).get();
+    const auto after = session.snapshot();
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
+    EXPECT_EQ(after.at("capacity"), before);
+    EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
+    exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", 0);
+}
+
+TEST_F(StrategyExecution, DisconnectEndsTheInstanceWithoutRetryingCancellationOnReconnect)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    session.disconnect();
+    EXPECT_FALSE(session.strategy_failure(owner).empty());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    EXPECT_TRUE(order_has_status(session.snapshot(), "resting", "accepted"));
+    EXPECT_FALSE(session.snapshot().at("authorization").is_null());
+    EXPECT_THROW(session.execute_strategy(basis(owner, 2), submit("old.target", "1")).get(), Error);
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    session.release_strategy(owner).get();
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
+    EXPECT_TRUE(order_has_status(session.snapshot(), "resting", "accepted"));
+}
+
+TEST_F(StrategyExecution, FaultCancellationCannotBypassFailedDurabilityOrEraseTheIntent)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner = session.register_strategy().get();
+        session.execute_strategy(basis(owner), submit("resting", "3")).get();
+        const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+        sqlite::fail_next_commits_for_testing(1);
+        session.release_strategy(owner).get();
+        const auto after = wait_for(session, [&](const Json&) {
+            return session.recovery_required();
+        });
+        EXPECT_TRUE(session.recovery_required());
+        EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
+        EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
+    }
+    LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(recovered).at("phase"), "ready");
+    EXPECT_TRUE(order_has_status(recovered.snapshot(), "resting", "accepted"));
+    act(recovered, authorize("after.recovery"));
+    EXPECT_THROW(act(recovered, submit("still.occupied", "1")), std::invalid_argument);
 }

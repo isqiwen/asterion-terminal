@@ -1,0 +1,66 @@
+.strategy-instance,
+.strategy-monitor {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.strategy-instance fieldset {
+  border: 1px solid var(--line);
+  margin: 12px 0;
+  padding: 12px;
+  min-width: 0;
+}
+.strategy-instance select {
+  min-width: 0;
+  width: 100%;
+}
+.account-setup .strategy-instance .checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.account-setup .strategy-instance input[type="checkbox"] {
+  width: auto;
+}
+.strategy-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.strategy-parameter {
+  display: grid;
+  grid-template-columns: 1fr 100px 1fr auto;
+  align-items: end;
+  gap: 10px;
+  margin: 12px 0;
+}
+.strategy-monitor table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.strategy-monitor dl {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  gap: 8px 20px;
+}
+.strategy-monitor dt {
+  color: var(--muted);
+}
+.strategy-monitor dd {
+  margin: 0;
+}
+.strategy-monitor th,
+.strategy-monitor td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.strategy-instance dd,
+.strategy-monitor dd {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .strategy-parameter {
+    grid-template-columns: 1fr 1fr;
+  }
+}

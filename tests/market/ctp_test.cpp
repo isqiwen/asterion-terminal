@@ -1,3 +1,4 @@
+#include "support/market_host.hpp"
 #include "ctp_feed.hpp"
 #include "support/timing.hpp"
 #include <asterion/system/durable_file.hpp>
@@ -501,48 +502,39 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     using namespace std::chrono_literals;
     namespace wire = asterion::market::proto;
     CtpDirectory directory;
-    wire::CatalogState catalog;
-    catalog.set_phase("ready");
-    catalog.set_trading_day("20261003");
+    testing_support::MarketHost host(directory.path, "catalog-large");
+    host.start();
     constexpr int count = 20000;
-    for (int i = 0; i < count; ++i) {
-        auto* row = catalog.add_contracts();
-        row->mutable_instrument()->set_venue("SHFE");
-        row->mutable_instrument()->set_symbol(
-            std::string(1, static_cast<char>('a' + i / 9000)) + std::to_string(1000 + i % 9000));
-        row->set_price_tick("1");
-        row->set_multiplier(10);
-    }
-    replace_file_durably(directory.path / "ctp-catalog.pb", catalog.SerializeAsString());
-    const auto endpoint = "/tmp/ast-catalog-" + unique_process_id() + ".sock";
-    ChildProcess process(
-        ASTERION_MARKET_PATH,
-        {"--session",
-            "catalog.test",
-            "--directory",
-            directory.path.string(),
-            "--endpoint",
-            endpoint});
-    const auto open = [&] {
-        const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(5s);
-        for (;;) {
-            try {
-                return ipc::Channel::connect(endpoint, 100ms);
-            } catch (const std::exception&) {
-                if (process.exited() || std::chrono::steady_clock::now() >= deadline)
-                    throw;
-                std::this_thread::sleep_for(10ms);
-            }
-        }
+    auto open = [&] {
+        return host.open();
     };
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    for (;;) {
+        auto channel = open();
+        wire::Request request;
+        request.set_version(1);
+        request.set_service_id("market-data");
+        request.set_correlation_id("catalog.ready");
+        request.mutable_snapshot();
+        channel.send(request.SerializeAsString(), 2s);
+        wire::Response response;
+        ASSERT_TRUE(response.ParseFromString(channel.receive(2s)));
+        if (response.snapshot().catalog().phase() == "ready")
+            break;
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(20ms);
+    }
     wire::Request watch;
     watch.set_version(1);
-    watch.set_service_id("catalog.test");
+    watch.set_service_id("market-data");
     watch.set_correlation_id("catalog.watch");
-    watch.mutable_watch();
+    // This test measures catalog publication, independently of initial quote churn.
+    auto* filter = watch.mutable_watch()->add_instruments();
+    filter->set_venue("SHFE");
+    filter->set_symbol("rb9999");
     auto connection = open();
     connection.send(watch.SerializeAsString(), testing_support::bound(2s));
-    const auto receive = [&](ipc::Channel& channel) {
+    const auto receive = [&](testing_support::MarketChannel& channel) {
         wire::Response response;
         if (!response.ParseFromString(channel.receive(testing_support::bound(2s)))
             || !response.has_snapshot())
@@ -552,7 +544,7 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     const auto first = receive(connection);
     ASSERT_TRUE(first.has_catalog());
     EXPECT_EQ(first.catalog().contracts_size(), count);
-    EXPECT_EQ(first.catalog().phase(), "cached");
+    EXPECT_EQ(first.catalog().phase(), "ready");
     EXPECT_FALSE(first.catalog_omitted());
     const auto second = receive(connection);
     EXPECT_EQ(second.catalog_revision(), first.catalog_revision());
@@ -562,25 +554,10 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     RecordProperty("catalog_contracts", count);
     RecordProperty("initial_frame_bytes", std::to_string(first.ByteSizeLong()));
     RecordProperty("unchanged_frame_bytes", std::to_string(second.ByteSizeLong()));
-    auto mutation = open();
-    auto disconnect = watch;
-    disconnect.clear_watch();
-    disconnect.mutable_disconnect();
-    mutation.send(disconnect.SerializeAsString(), testing_support::bound(2s));
-    const auto changed = receive(mutation);
-    EXPECT_GT(changed.catalog_revision(), first.catalog_revision());
-    EXPECT_TRUE(changed.has_catalog());
-    auto update = receive(connection);
-    for (int attempt = 0; attempt < 8 && update.catalog_revision() == first.catalog_revision();
-        ++attempt)
-        update = receive(connection);
-    ASSERT_GT(update.catalog_revision(), first.catalog_revision());
-    EXPECT_EQ(update.catalog().contracts_size(), count);
-    EXPECT_FALSE(update.catalog_omitted());
     auto reconnected = open();
     reconnected.send(watch.SerializeAsString(), testing_support::bound(2s));
     const auto initial = receive(reconnected);
-    EXPECT_EQ(initial.catalog_revision(), changed.catalog_revision());
+    EXPECT_EQ(initial.catalog_revision(), first.catalog_revision());
     EXPECT_EQ(initial.catalog().contracts_size(), count);
     EXPECT_FALSE(initial.catalog_omitted());
 }
@@ -591,35 +568,13 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
     using namespace std::chrono_literals;
     namespace wire = asterion::market::proto;
     CtpDirectory directory;
-    const auto endpoint = "/tmp/ast-events-" + unique_process_id() + ".sock";
-    const auto raw = directory.path.u8string();
-    const std::vector<std::string> args{
-        "--session",
-        "events.test",
-        "--directory",
-        std::string(raw.begin(), raw.end()),
-        "--endpoint",
-        endpoint,
-        "--ctp-library",
-        ASTERION_TEST_CTP
-    };
-    auto process = std::make_unique<ChildProcess>(ASTERION_MARKET_PATH, args);
+    testing_support::MarketHost host(directory.path);
+    host.start();
     auto call = [&](wire::Request request) {
         request.set_version(1);
-        request.set_service_id("events.test");
+        request.set_service_id("market-data");
         request.set_correlation_id("events.request");
-        ipc::Channel channel;
-        const auto deadline = std::chrono::steady_clock::now() + 5s;
-        for (;;) {
-            try {
-                channel = ipc::Channel::connect(endpoint, 100ms);
-                break;
-            } catch (const std::exception&) {
-                if (process->exited() || std::chrono::steady_clock::now() >= deadline)
-                    throw;
-                std::this_thread::sleep_for(10ms);
-            }
-        }
+        auto channel = host.open();
         channel.send(request.SerializeAsString(), 2s);
         wire::Response response;
         if (!response.ParseFromString(channel.receive(2s)))
@@ -629,17 +584,6 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
     };
     wire::Request read;
     read.mutable_events()->set_limit(1);
-    EXPECT_EQ(call(read).error().code(), "unavailable");
-    wire::Request connect;
-    auto* config = connect.mutable_connect();
-    config->set_front("tcp://localhost:12345");
-    config->set_broker("fixture");
-    config->set_user("fixture");
-    config->set_password("private-fixture-key");
-    auto* id = config->add_instruments();
-    id->set_venue("SHFE");
-    id->set_symbol("rb2610");
-    ASSERT_TRUE(call(connect).has_snapshot());
     const auto deadline = std::chrono::steady_clock::now() + 5s;
     for (;;) {
         wire::Request request;
@@ -649,9 +593,6 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
-    wire::Request disconnect;
-    disconnect.mutable_disconnect();
-    ASSERT_TRUE(call(disconnect).has_snapshot());
     const auto first = call(read);
     ASSERT_TRUE(first.has_events());
     ASSERT_EQ(first.events().events_size(), 1);
@@ -694,9 +635,7 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
     read.mutable_events()->set_limit(1025);
     EXPECT_EQ(call(read).error().code(), "invalid_request");
     read.mutable_events()->set_limit(1);
-    process.reset();
-    process = std::make_unique<ChildProcess>(ASTERION_MARKET_PATH, args);
-    ASSERT_TRUE(call(connect).has_snapshot());
+    host.start();
     EXPECT_EQ(call(read).error().code(), "invalid_request");
 }
 
@@ -794,35 +733,17 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
     using namespace std::chrono_literals;
     namespace wire = asterion::market::proto;
     CtpDirectory directory;
-    const auto endpoint = "/tmp/ast-quotes-" + unique_process_id() + ".sock";
-    ChildProcess process(
-        ASTERION_MARKET_PATH,
-        {"--session",
-            "quotes.test",
-            "--directory",
-            directory.path.string(),
-            "--endpoint",
-            endpoint,
-            "--ctp-library",
-            ASTERION_TEST_CTP});
+    testing_support::MarketHost host(directory.path, "publication");
+    host.start();
     auto open = [&] {
-        const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(5s);
-        for (;;) {
-            try {
-                return ipc::Channel::connect(endpoint, 100ms);
-            } catch (const std::exception&) {
-                if (process.exited() || std::chrono::steady_clock::now() >= deadline)
-                    throw;
-                std::this_thread::sleep_for(10ms);
-            }
-        }
+        return host.open();
     };
     auto identify = [](wire::Request& request) {
         request.set_version(1);
-        request.set_service_id("quotes.test");
+        request.set_service_id("market-data");
         request.set_correlation_id(unique_process_id());
     };
-    auto receive = [](ipc::Channel& channel) {
+    auto receive = [](testing_support::MarketChannel& channel) {
         wire::Response response;
         if (!response.ParseFromString(channel.receive(testing_support::bound(2s)))
             || !response.has_snapshot())
@@ -835,18 +756,6 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
         channel.send(request.SerializeAsString(), testing_support::bound(2s));
         return receive(channel);
     };
-    wire::Request login;
-    auto* config = login.mutable_connect();
-    config->set_front("tcp://localhost:12345");
-    config->set_broker("test");
-    config->set_user("publication");
-    config->set_password("test-only");
-    for (int i = 1000; i < 1050; ++i) {
-        auto* row = config->add_instruments();
-        row->set_venue("SHFE");
-        row->set_symbol("rb" + std::to_string(i));
-    }
-    EXPECT_FALSE(call(login).subscriptions_delta());
     wire::Request read;
     read.mutable_snapshot();
     const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(5s);
@@ -933,7 +842,7 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
     // More simultaneous watch connections than the former request worker pool.
     // Each retains its own full baseline; neither queries nor stop wait for a
     // watch connection to release a worker.
-    std::vector<ipc::Channel> observers;
+    std::vector<testing_support::MarketChannel> observers;
     for (int i = 0; i < 30; ++i) {
         auto observer = open();
         observer.send(watch.SerializeAsString(), testing_support::bound(2s));
@@ -947,10 +856,9 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
     ASSERT_TRUE(rejected.has_error());
     EXPECT_EQ(rejected.error().code(), "resource_exhausted");
     EXPECT_EQ(call(read).subscriptions_size(), 50);
-    ASSERT_EQ(::kill(static_cast<pid_t>(process.id()), SIGTERM), 0);
-    ASSERT_TRUE(process.wait(testing_support::bound(1s)));
-    EXPECT_EQ(process.exit_code(), 0);
-    EXPECT_FALSE(std::filesystem::exists(endpoint));
+    ASSERT_EQ(::kill(static_cast<pid_t>(host.process->id()), SIGTERM), 0);
+    ASSERT_TRUE(host.process->wait(testing_support::bound(5s)));
+    EXPECT_EQ(host.process->exit_code(), 0);
     RecordProperty("initial_frame_bytes", std::to_string(first.ByteSizeLong()));
     RecordProperty("ten_update_frame_bytes", std::to_string(bytes));
     RecordProperty("exact_full_comparisons", exact_comparisons);

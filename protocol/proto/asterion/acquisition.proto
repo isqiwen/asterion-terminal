@@ -1,0 +1,51 @@
+syntax = "proto3";
+package asterion.acquisition.proto;
+
+// Enabled acquisition capabilities, without provider settings or credentials.
+// Stored sources remain readable independently of this catalogue.
+message SourcesQuery {}
+message Source {
+  string provider = 1;
+  repeated string tables = 2; // Operations accepted by acquisition_start.
+  repeated string exchanges = 3;
+}
+message Sources {
+  repeated Source sources = 1;
+  bool can_manage = 2; // Permission of this authenticated client.
+}
+
+// Persisted intent contains no provider credentials or caller connection.
+message Request {
+  string id = 1;
+  string provider = 2;
+  string table = 3;
+  string begin_day = 4;
+  string end_day = 5;
+  repeated string exchanges = 6;
+  bool refresh = 7;
+  string contract = 8; // Required for minutes: EXCHANGE/product/YYYY-MM.
+}
+message Task {
+  Request request = 1;
+  string state = 2; // queued/running/succeeded/failed/cancelled/interrupted
+  uint64 days_total = 3;
+  uint64 days_done = 4;
+  uint64 days_empty = 5;
+  uint64 requests = 6;
+  string dataset_version = 7;
+  string error_code = 8;
+  string error = 9;
+  int64 started_ns = 10;
+  int64 finished_ns = 11;
+}
+message TaskQuery {
+  string id = 1;
+}
+message TasksQuery {
+  string after_id = 1;
+  uint32 limit = 2; // Default 64, maximum 128.
+}
+message Tasks {
+  repeated Task tasks = 1;
+  string next_id = 2;
+}

@@ -82,7 +82,7 @@ function mount(market: LiveMarket) {
   const view = render(pane(market));
   return { replies, select: (next: LiveMarket) => view.rerender(pane(next)) };
 }
-const note = () => screen.queryByText(/本机行情服务观测/)?.textContent ?? null;
+const note = () => screen.queryByText(/Market 服务观测/)?.textContent ?? null;
 
 test("another market service's series is asked for afresh and a late reply is dropped", async () => {
   const [first, second] = [service("a"), service("b")];

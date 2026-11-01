@@ -37,8 +37,8 @@ import polars as pl
 
 from asterion_lab import chart, dominant, repository
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
-from asterion_lab.strategy import Bar, Context, step
-from asterion_lab.warehouse import Warehouse
+from asterion_strategy import Bar, Context, step
+from asterion_lab.market import Dataset
 
 R = 10 ** 8
 WINDOW = 20
@@ -91,6 +91,8 @@ class Config:
     # bars when 0. Settlements, units and the dominant month are the days'.
     minutes: int = 0
     minute_provider: str = ""
+    dataset_version: str = ""
+    minute_dataset_version: str = ""
 
 
 @dataclass
@@ -108,13 +110,15 @@ class Daily:
 class Data:
     """The warehouse's daily table of a version, read per product."""
 
-    def __init__(self, warehouse: Warehouse, begin: str, end: str, minutes: Warehouse = None):
+    def __init__(self, warehouse: Dataset, begin: str, end: str, minutes: Dataset = None,
+                 *, version: str = "", minute_version: str = ""):
         self.warehouse = warehouse
-        self.version = warehouse.current()
+        self.version = warehouse.version(version) if version else warehouse.current()
         self.begin, self.end = begin, end
         # Where minutes are read, when a run reads them.
         self.minute_warehouse = minutes
-        self.minute_version = minutes.current() if minutes else None
+        self.minute_version = (minutes.version(minute_version) if minute_version else minutes.current()) \
+            if minutes else None
         # Read once per run: each product's months, increments and contract units.
         self.products, self.increment_days, self.units, self.multipliers = {}, {}, {}, {}
 
@@ -368,29 +372,52 @@ def visible(replayed, symbols: dict, contracts: list) -> list:
     return bars
 
 
-def replay(engine, strategy, symbols: dict, contracts: list, config: Config):
-    """Drives the strategy through the engine. `symbols` maps each unit to its symbol."""
-    context = Context([symbols[unit] for unit in sorted(symbols)])
-    units = {symbol: unit for unit, symbol in symbols.items()}
+def observations(engine, symbols: dict, contracts: list):
+    """Replay the same visible bars for research and strategy warmup, without
+    submitting targets. The caller decides whether a bar should trade."""
     while not engine.finished:
         while not engine.day_done:
-            bars = visible(engine.next(), symbols, contracts)
-            wanted = step(strategy, context, bars) if bars else {}
-            if context.mode != "weights":
-                # Lots stand: each bar places them again at its close.
-                for symbol, lots in wanted.items():
-                    engine.want(units[symbol], lots * R)
-                engine.decide()
-            elif wanted:
-                # Weights are sized once, when given, at the closes of that time.
-                lots = engine.weights(
-                    {units[symbol]: raw(Decimal(weight).quantize(PLACES))
-                     for symbol, weight in wanted.items()},
-                    raw(config.max_gross_weight), raw(config.max_net_weight))
-                for unit, quantity in lots.items():
-                    engine.want(unit, quantity)
-                engine.decide()
+            yield visible(engine.next(), symbols, contracts)
         engine.settle()
+
+
+def warmup(engine, strategy, symbols: dict, contracts: list) -> Context:
+    """Rebuild strategy state from history. No target reaches the engine;
+    the returned context continues with the next completed live bar."""
+    context = Context([symbols[unit] for unit in sorted(symbols)])
+    for bars in observations(engine, symbols, contracts):
+        if bars:
+            step(strategy, context, bars)
+    # Historical intent must not be mistaken for a new live decision.
+    context.wanted = {}
+    return context
+
+
+def replay(engine, strategy, symbols: dict, contracts: list, config: Config,
+           decided=lambda bars, wanted: None) -> Context:
+    """Drives the strategy through the engine. `symbols` maps each unit to its
+    symbol; `decided` sees each time's bars and what the strategy asked for."""
+    context = Context([symbols[unit] for unit in sorted(symbols)])
+    units = {symbol: unit for unit, symbol in symbols.items()}
+    for bars in observations(engine, symbols, contracts):
+        wanted = step(strategy, context, bars) if bars else {}
+        if bars:
+            decided(bars, wanted)
+        if context.mode != "weights":
+            # Lots stand: each bar places them again at its close.
+            for symbol, lots in wanted.items():
+                engine.want(units[symbol], lots * R)
+            engine.decide()
+        elif wanted:
+            # Weights are sized once, when given, at the closes of that time.
+            lots = engine.weights(
+                {units[symbol]: raw(Decimal(weight).quantize(PLACES))
+                 for symbol, weight in wanted.items()},
+                raw(config.max_gross_weight), raw(config.max_net_weight))
+            for unit, quantity in lots.items():
+                engine.want(unit, quantity)
+            engine.decide()
+    return context
 
 
 def amount(values) -> pl.Series:
@@ -499,18 +526,19 @@ def statistics_record(config: Config) -> dict:
             "holdout_day": config.holdout_day}
 
 
-def warehouse_of(directory: Path, provider: str) -> Warehouse:
-    """A source's warehouse: Tushare's is the lab's own, others are apart."""
-    return Warehouse(directory) if provider == "tushare" else \
-        Warehouse(directory / "sources" / provider, provider)
+def dataset_of(directory: Path, provider: str) -> Dataset:
+    return Dataset(directory, provider)
 
 
 def open_data(directory: Path, config: Config) -> Data:
     """The days of the run's source and, for a minute run, the minutes of its minute source."""
     if config.minutes and config.minute_provider not in ("tushare", "recorder"):
         raise ValueError("minutes come from tushare or recorder")
-    return Data(warehouse_of(directory, config.provider), config.begin_day, config.end_day,
-                warehouse_of(directory, config.minute_provider) if config.minutes else None)
+    if not config.dataset_version or (config.minutes and not config.minute_dataset_version):
+        raise ValueError("research inputs must name the admitted dataset versions")
+    return Data(dataset_of(directory, config.provider), config.begin_day, config.end_day,
+                dataset_of(directory, config.minute_provider) if config.minutes else None,
+                version=config.dataset_version, minute_version=config.minute_dataset_version)
 
 
 def bars_record(config: Config, data: Data) -> dict:
@@ -546,7 +574,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
         replay(engine, strategy, symbols, contracts, config)
         runs.succeed(identity, tables(engine, contracts), metrics(config, engine))
     except BaseException as error:
-        runs.fail(identity, "failed", str(error) or type(error).__name__)
+        runs.end(identity, "failed", str(error) or type(error).__name__)
         raise
 
 
@@ -589,7 +617,8 @@ def config_of(request) -> Config:
         max_net_weight=number("max_net_weight", request.max_net_weight or "0"),
         annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
         holdout_day=request.holdout_day, minutes=minutes_of(request.minutes),
-        minute_provider=request.minute_provider)
+        minute_provider=request.minute_provider, dataset_version=request.dataset_version,
+        minute_dataset_version=request.minute_dataset_version)
 
 
 def watch_parent():

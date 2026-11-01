@@ -10,8 +10,12 @@ export { expect } from "./test";
 
 // A test that uses tradingHost is tagged @trading: the trading service runs on
 // Linux only, and CI runs these tests in its Linux job.
-export const test = base.extend<{ tradingHost: { connection: string; restart(): Promise<void> } }>({
-  tradingHost: async ({ request, isolatedNode }, runTest) => {
+export const test = base.extend<{
+  strategyRuntime: boolean;
+  tradingHost: { connection: string; restart(): Promise<void> };
+}>({
+  strategyRuntime: [false, { option: true }],
+  tradingHost: async ({ request, isolatedNode, strategyRuntime }, runTest) => {
     void isolatedNode;
     test.skip(process.platform !== "linux", "Trading services run on Linux only");
     const snapshot = await rpc(request, "trading.identity.prepare");
@@ -24,6 +28,7 @@ export const test = base.extend<{ tradingHost: { connection: string; restart(): 
         root,
         build,
         snapshot.trading_fingerprint,
+        strategyRuntime ? "strategy" : "account",
       ],
       { stdio: ["pipe", "pipe", "inherit"] },
     );

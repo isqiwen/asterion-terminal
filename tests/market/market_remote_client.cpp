@@ -1,4 +1,5 @@
 #include "market_client.hpp"
+#include "support/market_channel.hpp"
 #include <asterion/system/ipc/tcp_channel.hpp>
 #include <asterion/protocol/market.hpp>
 #include <chrono>
@@ -7,25 +8,26 @@
 
 int main(int argc, char** argv)
 {
-    if (argc != 2)
+    if (argc != 3)
         return 2;
     try {
+        const std::filesystem::path tls = argv[2];
+        const asterion::ipc::TlsIdentity identity{
+            (tls / "reader.crt").string(),
+            (tls / "reader.key").string(),
+            {asterion::ipc::certificate_fingerprint((tls / "server.crt").string())}
+        };
         asterion::terminal::ServiceEndpoint endpoint{
             "127.0.0.1",
-            "market.test",
+            "market-data",
             static_cast<std::uint16_t>(std::stoi(argv[1])),
-            {}
+            {},
+            "",
+            "",
+            identity
         };
         asterion::terminal::ServiceIo io;
         auto client = asterion::terminal::MarketClient::open(io, endpoint).get();
-        client
-            ->connect(
-                {{"front", "tcp://127.0.0.1:1"},
-                    {"broker", "test"},
-                    {"user", "fixture"},
-                    {"password", "tls-fixture"},
-                    {"instruments", {{{"venue", "SHFE"}, {"symbol", "rb2610"}}}}})
-            .get();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         for (;;) {
             const auto state = client->snapshot().get();
@@ -40,13 +42,12 @@ int main(int argc, char** argv)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         {
-            auto channel = asterion::ipc::TcpChannel::connect(
-                "127.0.0.1",
+            asterion::testing_support::MarketChannel channel(
                 static_cast<std::uint16_t>(std::stoi(argv[1])),
-                std::chrono::seconds(2));
+                identity);
             asterion::market::proto::Request request;
             request.set_version(1);
-            request.set_service_id("market.test");
+            request.set_service_id("market-data");
             request.set_correlation_id("events.test");
             request.mutable_events()->set_limit(1024);
             channel.send(request.SerializeAsString(), std::chrono::seconds(2));
@@ -72,8 +73,14 @@ int main(int argc, char** argv)
             if (response.SerializeAsString().find("tls-fixture") != std::string::npos)
                 return 10;
         }
-        client->disconnect().get();
-        return client->snapshot().get().at("phase") == "disconnected" ? 0 : 5;
+        const auto instance = client->snapshot().get().at("instance_id");
+        const auto recording = client->recording_status().get();
+        if (recording.at("instance") != instance || recording.at("phase") != "connected"
+            || recording.at("subscribed") != 1)
+            return 11;
+        client.reset();
+        auto again = asterion::terminal::MarketClient::open(io, endpoint).get();
+        return again->snapshot().get().at("instance_id") == instance ? 0 : 5;
     } catch (const std::exception& e) {
         std::cerr << e.what();
         return 1;

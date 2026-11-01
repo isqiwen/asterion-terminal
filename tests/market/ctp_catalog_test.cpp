@@ -1,3 +1,4 @@
+#include "support/market_host.hpp"
 #include "ctp_catalog.hpp"
 #include "ctp_support.hpp"
 #include <asterion/base/error.hpp>
@@ -146,25 +147,14 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
         }
     } cleanup{directory};
 
-    const auto endpoint = (directory / "market.sock").string();
-    ChildProcess service(
-        ASTERION_MARKET_PATH,
-        {"--directory",
-            directory.string(),
-            "--endpoint",
-            endpoint,
-            "--session",
-            "catalog-test",
-            "--ctp-library",
-            ASTERION_TEST_CTP,
-            "--ctp-catalog-library",
-            ASTERION_TEST_CTP_TRADER});
+    testing_support::MarketHost host(directory, "catalog-slow");
+    host.start();
     namespace wire = asterion::market::proto;
     auto call = [&](wire::Request request) {
         request.set_version(1);
-        request.set_service_id("catalog-test");
+        request.set_service_id("market-data");
         request.set_correlation_id(unique_process_id());
-        auto channel = ipc::Channel::connect(endpoint, 1s);
+        auto channel = host.open();
         channel.send(request.SerializeAsString(), 1s);
         wire::Response response;
         if (!response.ParseFromString(channel.receive(1s)))
@@ -186,7 +176,7 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
                 if (condition(state))
                     return state;
             } catch (const std::exception&) {
-                if (service.exited())
+                if (host.process->exited())
                     throw;
             }
             if (std::chrono::steady_clock::now() >= deadline)
@@ -194,27 +184,12 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
             std::this_thread::sleep_for(20ms);
         }
     };
-    wait([](const auto&) {
-        return true;
-    });
-    wire::Request login;
-    auto* connection = login.mutable_connect();
-    connection->set_front("tcp://127.0.0.1:1");
-    connection->set_broker("test");
-    connection->set_user("fixture");
-    connection->set_password("fixture-only");
-    call(login);
     wait([](const auto& state) {
-        return state.phase() == "connected";
+        return state.catalog().phase() == "loading";
     });
-    EXPECT_EQ(snapshot().subscriptions_size(), 0);
-    wire::Request request;
-    auto* catalog = request.mutable_catalog();
-    catalog->set_front("tcp://127.0.0.1:1");
-    catalog->set_broker("test");
-    catalog->set_user("catalog");
-    catalog->set_password("fixture-only");
-    EXPECT_EQ(call(request).snapshot().catalog().phase(), "loading");
+    const auto begin = std::chrono::steady_clock::now();
+    EXPECT_EQ(snapshot().catalog().phase(), "loading");
+    EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
     auto ready = wait([](const auto& state) {
         return state.catalog().phase() == "ready" && state.subscriptions_size() == 1
             && state.subscriptions(0).has_quote();
@@ -225,41 +200,12 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
     const auto json = protocol::decode_market(ready);
     EXPECT_EQ(json.at("catalog").at("contracts").size(), 1U);
     EXPECT_TRUE(json.at("watchlist").empty());
-    wire::Request watchlist;
-    auto* item = watchlist.mutable_subscribe()->add_instruments();
-    item->set_venue("SHFE");
-    item->set_symbol("rb2610");
-    EXPECT_EQ(call(watchlist).snapshot().watchlist_size(), 1);
-    watchlist.mutable_subscribe()->clear_instruments();
-    ready = call(watchlist).snapshot();
-    EXPECT_EQ(ready.watchlist_size(), 0);
-    EXPECT_EQ(ready.subscriptions_size(), 1);
-    catalog->set_user("catalog-stall");
-    call(request);
-    wait([&](const auto& state) {
-        return state.catalog().phase() == "loading"
-            && std::filesystem::exists(directory / "ctp-catalog-flow/catalog-query-started");
-    });
-    const auto begin = std::chrono::steady_clock::now();
-    // Waiting for the catalog's last response must yield the shared SDK owner.
-    auto* added = watchlist.mutable_subscribe()->add_instruments();
-    added->set_venue("SHFE");
-    added->set_symbol("rb2710");
-    call(watchlist);
-    const auto while_waiting = wait([](const auto& state) {
-        return state.subscriptions_size() == 1 && state.subscriptions(0).has_quote()
-            && state.subscriptions(0).instrument().symbol() == "rb2710";
-    });
-    EXPECT_EQ(while_waiting.catalog().phase(), "loading");
-    wire::Request disconnect;
-    disconnect.mutable_disconnect();
-    // The catalog loaded earlier in this test remains available offline.
-    EXPECT_EQ(call(disconnect).snapshot().catalog().phase(), "cached");
-    EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
-    // A cancelled query may finish releasing its SDK later; its result cannot
-    // replace the cached catalog or restart subscriptions after disconnect.
-    std::this_thread::sleep_for(200ms);
-    const auto disconnected = snapshot();
-    EXPECT_EQ(disconnected.phase(), "disconnected");
-    EXPECT_EQ(disconnected.catalog().phase(), "cached");
+    wire::Request watch;
+    auto* selected = watch.mutable_watch()->add_instruments();
+    selected->set_venue("SHFE");
+    selected->set_symbol("rb2610");
+    EXPECT_EQ(call(watch).snapshot().watchlist_size(), 1);
+    // Closing this stream does not change the shared catalog or collection.
+    EXPECT_EQ(snapshot().watchlist_size(), 0);
+    EXPECT_EQ(snapshot().subscriptions_size(), 1);
 }

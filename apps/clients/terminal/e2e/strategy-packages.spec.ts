@@ -1,0 +1,119 @@
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { test, expect } from "./trading-fixture";
+import { rpc } from "./rpc-fixture";
+import { openView } from "./navigation-helper";
+
+test.use({ strategyRuntime: true });
+
+test(
+  "publish, configure, start, observe and stop a strategy on the independent Trading host",
+  { tag: ["@journey", "@trading"] },
+  async ({ page, tradingHost }, testInfo) => {
+    test.setTimeout(90000);
+    const repository = mkdtempSync(join(tmpdir(), "ast-package-repo-"));
+    try {
+      cpSync(resolve(__dirname, "../../../../apps/services/lab/examples"), repository, {
+        recursive: true,
+      });
+      execFileSync("git", ["-C", repository, "init", "-q"]);
+      await rpc(page.request, "research.repository.save", { path: repository });
+      await page.goto("/");
+      await openView(page, "trading");
+      const packages = page.getByRole("region", { name: "策略包", exact: true });
+      await packages.getByRole("button", { name: "准备策略包", exact: true }).click();
+      await expect(packages.getByText("ma-cross · 1", { exact: true })).toBeVisible();
+      await expect(
+        packages.getByText("strategies/ma_cross.py, strategies/_rules.py", { exact: true }),
+      ).toBeVisible();
+      await packages.getByRole("button", { name: "发布到此交易主机", exact: true }).click();
+      await expect(packages.getByRole("listitem")).toContainText(
+        "ma-cross · 1 · strategies.ma_cross:MaCross",
+      );
+      await expect(
+        packages.getByRole("button", { name: "发布到此交易主机", exact: true }),
+      ).toHaveCount(0);
+      await tradingHost.restart();
+      await packages.getByRole("button", { name: "读取主机策略包", exact: true }).click();
+      await expect(packages.getByRole("listitem")).toContainText("ma-cross · 1");
+      const state = await rpc(page.request, "trading.strategy", {
+        account: tradingHost.connection,
+        request: { inspect: {} },
+      });
+      expect(state.strategy.packages).toHaveLength(1);
+      expect(state.strategy.instance).toBeUndefined();
+      const account = tradingHost.connection;
+      await rpc(page.request, "live.open", { account });
+      await rpc(page.request, "live.create", {
+        account,
+        max_order_quantity: "5",
+        max_gross_quantity: "10",
+        max_working_orders: "2",
+        max_price_deviation: "0.02",
+        contracts: [{ venue: "SHFE", symbol: "rb2610" }],
+      });
+      await expect
+        .poll(
+          async () => (await rpc(page.request, "runtime.snapshot")).live[account].session.phase,
+          { timeout: 20000 },
+        )
+        .toBe("ready");
+      const form = packages.getByRole("region", { name: "配置策略实例", exact: true });
+      const configure = async (id: string) => {
+        await form.getByLabel("实例 ID", { exact: true }).fill(id);
+        await form
+          .getByRole("combobox", { name: "已发布版本", exact: true })
+          .selectOption("ma-cross/1");
+        await form.getByLabel("SHFE/rb2610", { exact: true }).check();
+        await form.getByRole("button", { name: "核对启动配置", exact: true }).click();
+      };
+      await configure("ui-run-a");
+      await page.screenshot({
+        path: testInfo.outputPath("strategy-configuration.png"),
+        fullPage: true,
+      });
+      expect(
+        (await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } }))
+          .strategy.instance,
+      ).toBeUndefined();
+      await form.getByRole("button", { name: "确认启动", exact: true }).click();
+      const monitor = packages.getByRole("region", { name: "策略运行状态", exact: true });
+      await expect(monitor).toContainText("正在现场预热", { timeout: 20000 });
+      const started = (
+        await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } })
+      ).strategy.instance;
+      expect(started.configuration.id).toBe("ui-run-a");
+      expect(
+        (await rpc(page.request, "runtime.snapshot")).live[account].session.authorization,
+      ).toBeNull();
+      await page.reload();
+      await openView(page, "trading");
+      await expect(monitor).toContainText("ui-run-a");
+      expect(
+        (await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } }))
+          .strategy.instance.processId,
+      ).toBe(started.processId);
+      await page.screenshot({ path: testInfo.outputPath("strategy-instance.png"), fullPage: true });
+      await monitor.getByRole("button", { name: "停止策略并撤单", exact: true }).click();
+      await expect(monitor).toContainText("确认停止实例 ui-run-a");
+      await monitor.getByRole("button", { name: "确认停止并撤单", exact: true }).click();
+      await expect(monitor.getByRole("status")).toHaveText("已停止");
+      await configure("ui-run-b");
+      await form.getByRole("button", { name: "确认启动", exact: true }).click();
+      await expect(monitor).toContainText("正在现场预热");
+      await tradingHost.restart();
+      // An orderly host shutdown records the stop before it exits; a crash is
+      // recovered as interrupted (covered by the strategy process test).
+      await expect(monitor.getByRole("status")).toHaveText("已停止", { timeout: 20000 });
+      const stopped = (
+        await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } })
+      ).strategy.instance;
+      expect(stopped.configuration.id).toBe("ui-run-b");
+      expect(stopped.processId).toBeUndefined();
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  },
+);

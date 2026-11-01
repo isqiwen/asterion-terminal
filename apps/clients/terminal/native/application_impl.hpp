@@ -7,10 +7,8 @@
 #include "market_client.hpp"
 #include "local_services.hpp"
 #include "node_paths.hpp"
-#include "ctp_connections.hpp"
 #include "trading_connections.hpp"
-#include "data_credentials.hpp"
-#include "recorder_endpoint.hpp"
+#include "market_endpoint.hpp"
 #include "python_runtime.hpp"
 #include "application_environment.hpp"
 #include <asterion/system/environment.hpp>
@@ -77,29 +75,13 @@ struct Application::Impl
     std::uint64_t refresh_failures = 0;
     bool refresh_failed = false, settings_failed = false;
     void record_refresh_failure(ErrorCode code) noexcept;
-    // Remembered credentials live in the keychain; the helper is found next to
-    // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
-    std::shared_ptr<CredentialStore> credential_store = keychain_store(keychain_helper());
-    DataCredentials data_credentials{
-        program_directory("terminal") / "data" / "data-providers",
-        credential_store
-    };
-    CtpConnections ctp_connections{
-        program_directory("terminal") / "data" / "ctp-connections",
-        credential_store
-    };
     TradingConnections trading_connections{program_directory("terminal") / "data"};
-    RecorderEndpoint recorder_endpoint{program_directory("terminal") / "data" / "recorder.json"};
+    MarketEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
     StrategyRepository strategy_repository{
         program_directory("terminal") / "data" / "research.json"
     };
-    // The one CTP account that supplies market data.
-    PolledTask<CtpConnection> market_ctp();
-    // Where a CTP account keeps its trading record; one record per account.
-    // Stored accounts, each with whether it has a trading record.
-    json ctp_accounts() const;
     // The saved recorder address for display, or a mark that it is unreadable.
-    json recorder_settings() const;
+    json market_settings() const;
     json research_settings() const;
     std::shared_ptr<MarketClient> market;
 
@@ -211,14 +193,13 @@ struct Application::Impl
         co_return co_await work();
     }
 
-    // Settings files and the keychain are used by one admitted management job.
+    // Settings files are used by one admitted management job.
     // Only the returned display projection is applied to the I/O owner's state.
     struct SettingsView
     {
-        json credentials = json::array(), accounts = json::array(), market = nullptr;
         json trading = json::array();
         std::string trading_fingerprint;
-        json recorder = nullptr;
+        json market_endpoint = nullptr;
         json repository = nullptr;
         bool operator==(const SettingsView&) const = default;
     };

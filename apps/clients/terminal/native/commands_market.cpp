@@ -1,113 +1,99 @@
 #include "application_impl.hpp"
-#include <stdexcept>
 
 namespace asterion::terminal {
 
-// Read-only live market service.
 void Application::Impl::register_market_commands()
 {
-    command("market.credentials.save", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"account", "password", "auth_code"});
-        co_await settings<void>([&] {
-            ctp_connections.remember_market_credentials(
-                text(p, "account"),
-                {text(p, "password"), text(p, "auth_code")});
+    command("market.data", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"request"});
+        const auto saved = co_await settings<json>([&] {
+            return market_endpoint.get();
         });
-        co_return snapshot();
-    });
-    command("market.credentials.clear", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"account"});
-        co_await settings<void>([&] {
-            ctp_connections.forget_market_credentials(text(p, "account"));
+        if (saved.is_null())
+            throw std::invalid_argument("configure the remote Market address first");
+        const auto tls = co_await settings<ipc::TlsIdentity>([&] {
+            return trading_connections.tls(saved.at("fingerprint"));
         });
-        co_return snapshot();
+        const ServiceEndpoint address{
+            saved.at("host").get<std::string>(),
+            "market-data",
+            saved.at("port").get<std::uint16_t>(),
+            {},
+            "",
+            "",
+            tls
+        };
+        auto reply = co_await PollFuture{MarketClient::data(service_io, address, p.at("request"))};
+        const auto current = co_await settings<json>([&] {
+            return market_endpoint.get();
+        });
+        if (current.is_null() || current.at("host") != saved.at("host")
+            || current.at("port") != saved.at("port")
+            || current.at("fingerprint") != saved.at("fingerprint"))
+            throw Error(
+                ErrorCode::conflict,
+                "market service selection changed during operation; inspect the original service before retrying");
+        auto result = read_published(json::object());
+        result.values["market_data"] = std::move(reply);
+        co_return result;
     });
-    command("market.local", [this](const json& p) -> PolledTask<Response> {
+    command("market.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        // Starts the service when it is stopped; its endpoint stays the same,
-        // so an existing client keeps working.
-        const bool connected = market != nullptr;
+        const auto saved = co_await settings<json>([&] {
+            return market_endpoint.get();
+        });
+        if (saved.is_null())
+            throw std::invalid_argument("configure the remote Market address first");
+        const auto tls = co_await settings<ipc::TlsIdentity>([&] {
+            return trading_connections.tls(saved.at("fingerprint"));
+        });
+        const ServiceEndpoint address{
+            saved.at("host").get<std::string>(),
+            "market-data",
+            saved.at("port").get<std::uint16_t>(),
+            {},
+            "",
+            "",
+            tls
+        };
         auto next = co_await manage<std::shared_ptr<MarketClient>>(
-            [this, connected]() -> PolledTask<std::shared_ptr<MarketClient>> {
-                const auto address = co_await PollFuture{services.start(node::proto::MARKET)};
-                if (connected)
-                    co_return nullptr;
+            [this, address]() -> PolledTask<std::shared_ptr<MarketClient>> {
                 co_return co_await PollFuture{MarketClient::open(service_io, address)};
             });
-        if (!market)
-            market = std::move(next);
+        // A settings edit while the connection opens invalidates this selection.
+        const auto current = co_await settings<json>([&] {
+            return market_endpoint.get();
+        });
+        if (current.is_null() || current.at("host") != saved.at("host")
+            || current.at("port") != saved.at("port")
+            || current.at("fingerprint") != saved.at("fingerprint"))
+            throw Error(ErrorCode::conflict, "market address changed during connection");
+        market = std::move(next);
         co_return snapshot();
     });
-    command("market.connect", [this](const json& p) -> PolledTask<Response> {
-        const auto client = market;
-        fields(p, {"password", "instruments"});
-        if (!client)
-            throw std::invalid_argument("start or select a market service first");
-        const auto connection = (co_await market_ctp());
-        auto password = text(p, "password", true);
-        if (password.empty())
-            password = (co_await settings<MarketCredentials>([&] {
-                return ctp_connections.market_credentials(connection);
-            })).password;
-        const json request{
-            {"front", connection.market_front},
-            {"broker", connection.broker_id},
-            {"user", connection.user_id},
-            {"password", password},
-            {"instruments", p.at("instruments")}
-        };
-        co_await PollFuture{client->connect(request)};
-        if (market != client)
-            throw Error(
-                ErrorCode::conflict,
-                "market service selection changed during operation; inspect " "the original service before retrying");
+    command("market.close", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        market.reset();
         co_return snapshot();
     });
-    command("market.subscribe", [this](const json& p) -> PolledTask<Response> {
-        const auto client = market;
+    command("market.watchlist", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"instruments"});
-        if (!client)
-            throw std::invalid_argument("select a market service first");
-        (co_await PollFuture{client->subscribe(p.at("instruments"))});
-        if (market != client)
-            throw Error(
-                ErrorCode::conflict,
-                "market service selection changed during operation; inspect " "the original service before retrying");
+        co_await settings<void>([&] {
+            market_endpoint.select(p.at("instruments"));
+        });
         co_return snapshot();
     });
-    command("market.catalog", [this](const json& p) -> PolledTask<Response> {
-        // The contract catalog is read through the trade front of the named account.
-        const auto client = market;
-        fields(p, {"account", "password", "auth_code"});
-        if (!client)
+    command("market.recording", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        if (!market)
             throw std::invalid_argument("select a market service first");
-        const auto connection = (co_await settings<CtpConnection>([&] {
-            return ctp_connections.get(text(p, "account"));
-        }));
-        MarketCredentials credentials{text(p, "password", true), text(p, "auth_code", true)};
-        if (credentials.password.empty() || credentials.auth_code.empty()) {
-            const auto saved = co_await settings<MarketCredentials>([&] {
-                return ctp_connections.market_credentials(connection);
-            });
-            if (credentials.password.empty())
-                credentials.password = saved.password;
-            if (credentials.auth_code.empty())
-                credentials.auth_code = saved.auth_code;
-        }
-        const json request{
-            {"front", connection.trade_front},
-            {"broker", connection.broker_id},
-            {"user", connection.user_id},
-            {"password", credentials.password},
-            {"app_id", connection.app_id},
-            {"auth_code", credentials.auth_code}
-        };
-        co_await PollFuture{client->catalog(request)};
-        if (market != client)
-            throw Error(
-                ErrorCode::conflict,
-                "market service selection changed during operation; inspect " "the original service before retrying");
-        co_return snapshot();
+        const auto reader = market;
+        auto status = co_await PollFuture{reader->recording_status()};
+        if (market != reader)
+            throw Error(ErrorCode::conflict, "market service selection changed during operation");
+        auto result = read_published(json::object());
+        result.values["recording"] = std::move(status);
+        co_return result;
     });
     // Read-only: retain the selected client while its service request is suspended.
     command("market.minutes", [this](const json& p) -> PolledTask<Response> {
@@ -130,17 +116,6 @@ void Application::Impl::register_market_commands()
         auto result = read_published(json::object());
         result.values["intraday"] = std::move(intraday);
         co_return result;
-    });
-    command("market.disconnect", [this](const json& p) -> PolledTask<Response> {
-        const auto client = market;
-        fields(p, {});
-        if (client)
-            (co_await PollFuture{client->disconnect()});
-        if (market != client)
-            throw Error(
-                ErrorCode::conflict,
-                "market service selection changed during operation; inspect " "the original service before retrying");
-        co_return snapshot();
     });
 }
 

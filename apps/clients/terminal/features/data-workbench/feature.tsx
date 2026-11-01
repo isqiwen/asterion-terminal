@@ -7,7 +7,7 @@ import { lazy } from "react";
 import "./data.css";
 import type { TerminalContext, TerminalFeature } from "../contract";
 const Coverage = lazy(() => import("./Coverage").then(module => ({ default: module.Coverage })));
-// The data page: the lab's warehouse, its acquisitions and the recording service.
+// The data page reads the remote Market warehouse, acquisitions and recording status.
 export const feature: TerminalFeature = {
   id: "asterion.terminal.data-workbench",
   languageResources: { "zh-CN": zh, "en-US": en },

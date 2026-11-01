@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, mkdirSync, copyFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 const { labChannel } = createRequire(import.meta.url)("./electron/lab-channel.cjs") as {
@@ -113,7 +113,19 @@ function localCore(): Plugin {
           });
         // Inside the wrapper's temporary root, which it cleans up at exit.
         process.env.ASTERION_ROOT = mkdtempSync(resolve(originalNode!, "reset-"));
+        const tls = process.env.ASTERION_TEST_MARKET_TLS;
+        if (tls) {
+          const target = resolve(process.env.ASTERION_ROOT!, "terminal/data/tls");
+          mkdirSync(target, { recursive: true });
+          for (const extension of ["crt", "key"])
+            copyFileSync(
+              resolve(tls, `reader.${extension}`),
+              resolve(target, `client.${extension}`),
+            );
+        }
         core = startCore();
+        // The new native host owns a different private Lab socket.
+        lab = createLab();
         return process.env.ASTERION_ROOT;
       };
       const allowed = (
@@ -150,13 +162,15 @@ function localCore(): Plugin {
           );
         });
       // The page's lab requests, as the Electron main process forwards them.
-      const lab = labChannel(async () => {
-        const reply = JSON.parse(
-          await send(JSON.stringify({ version: 1, method: "lab.endpoint", params: {} })),
-        );
-        if (reply.error) throw new Error(reply.error.message);
-        return reply.result.lab_endpoint.endpoint as string;
-      });
+      const createLab = () =>
+        labChannel(async () => {
+          const reply = JSON.parse(
+            await send(JSON.stringify({ version: 1, method: "lab.endpoint", params: {} })),
+          );
+          if (reply.error) throw new Error(reply.error.message);
+          return reply.result.lab_endpoint.endpoint as string;
+        });
+      let lab = createLab();
       server.middlewares.use("/__asterion/lab", (req, res) => {
         if (!allowed(req, "application/octet-stream")) {
           res.statusCode = 403;

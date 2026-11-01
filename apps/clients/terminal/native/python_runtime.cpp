@@ -80,14 +80,10 @@ PythonRuntime::PythonRuntime(fs::path application, fs::path directory)
                 .sha256 = entry.at("sha256").get<std::string>(),
                 .size = entry.at("size").get<std::uint64_t>()
             };
-            if (entry.value("bundled", false))
-                file.bundled = application_ / "wheels" / file.name;
-            else {
-                const auto at = entry.at("path").get<std::string>();
-                for (const auto& mirror : sources.at("mirrors"))
-                    file.urls.push_back(mirror.get<std::string>() + at);
-                file.urls.push_back(sources.at("official").get<std::string>() + at);
-            }
+            const auto at = entry.at("path").get<std::string>();
+            for (const auto& mirror : sources.at("mirrors"))
+                file.urls.push_back(mirror.get<std::string>() + at);
+            file.urls.push_back(sources.at("official").get<std::string>() + at);
             module.files.push_back(std::move(file));
         }
         modules_.push_back(std::move(module));
@@ -175,12 +171,6 @@ fs::path PythonRuntime::fetch(const File& file, Module& module, std::stop_token 
         module.done = module.done - counted + total;
         counted = total;
     };
-    if (!file.bundled.empty()) {
-        if (sha256_file(file.bundled) != file.sha256)
-            throw std::runtime_error("the application's own " + file.name + " is damaged");
-        count(file.size);
-        return file.bundled;
-    }
     // Kept under its digest and its own name, which pip reads a wheel by.
     const auto cache = directory_ / "downloads" / file.sha256;
     create_directories_durably(cache);
@@ -320,7 +310,7 @@ void PythonRuntime::run(std::stop_token stop)
 }
 
 // The application's own Python code (lab, its protocol types, the backtest
-// engine, the analytics helper) is imported from where the application is,
+// engine) is imported from where the application is,
 // which moves with every update.
 void PythonRuntime::link_application() const
 {

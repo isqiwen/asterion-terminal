@@ -3,9 +3,8 @@
 
 Writes build/electron-resources/runtime/: manifest.json, naming the
 interpreter archive and every wheel of the lab's lock for this platform with
-its SHA-256 and size, grouped into the modules the first launch shows; and
-wheels/ with the few packages PyPI publishes no wheel of, built here once.
-The Terminal downloads the rest from a mirror or the official source and
+its SHA-256 and size, grouped into the modules the first launch shows.
+The Terminal downloads them from a mirror or the official source and
 installs nothing it cannot verify against this file.
 
     python3 scripts/desktop/runtime_manifest.py
@@ -38,7 +37,6 @@ PYPI = "https://files.pythonhosted.org/packages/"
 MODULES = [
     ("core", "核心", ["protobuf", "duckdb", "numpy", "polars", "certifi"]),
     ("reports", "报表", ["quantstats"]),
-    ("akshare", "AKShare 数据源", ["akshare"]),
 ]
 # Polars needs one CPU runtime: the compatible one, not the AVX2 default.
 EXCLUDED = {"polars-runtime-32"}
@@ -87,7 +85,7 @@ def wheel_rank(filename: str, target: dict):
                       "manylinux2014_x86_64": (2, 17)}
             match = re.fullmatch(r"manylinux_(\d+)_(\d+)_x86_64", tag)
             version = (int(match[1]), int(match[2])) if match else legacy.get(tag)
-            # Built on Ubuntu 24.04's glibc floor the release supports: 2.28.
+            # Python wheels target glibc 2.28 or earlier.
             score = 1 if version and version <= (2, 28) else None
         if score is not None and (best is None or score > best):
             best = score
@@ -123,19 +121,16 @@ def interpreter(target: dict, staging: Path) -> dict:
 
 def verify(directory=DESTINATION):
     """What an application ships for its first launch: the manifest for this
-    platform, the wheels it bundles as recorded, and its own Python code."""
+    platform and its own Python code."""
     manifest_file = directory / "manifest.json"
     if not manifest_file.is_file():
         raise ValueError("Runtime manifest missing; run pnpm prepare:python")
     manifest = json.loads(manifest_file.read_text())
     if manifest["platform"] != [sys.platform, platform.machine()]:
         raise ValueError("Runtime manifest is for another platform; run pnpm prepare:python")
-    for module in manifest["modules"]:
-        for item in module["files"]:
-            if item.get("bundled") and digest(directory / "wheels" / item["file"]) != item["sha256"]:
-                raise ValueError(f"Bundled wheel differs from the manifest: {item['file']}")
     application = directory / "app"
     if not (application / "asterion_lab" / "__main__.py").is_file() or \
+            not (application / "asterion_strategy.py").is_file() or \
             not list(application.glob("asterion_engine.*")):
         raise ValueError("The application's Python code is missing beside the runtime manifest")
 
@@ -174,7 +169,7 @@ def main():
     if missing:
         raise SystemExit(f"packages no module needs: {', '.join(missing)}")
     shutil.rmtree(DESTINATION, ignore_errors=True)
-    (DESTINATION / "wheels").mkdir(parents=True)
+    DESTINATION.mkdir(parents=True)
     modules = {module: {"id": module, "title": title, "files": []} for module, title, _ in MODULES}
     with tempfile.TemporaryDirectory() as temporary:
         staging = Path(temporary)
@@ -186,31 +181,14 @@ def main():
                       for wheel in item.get("wheels", [])]
             ranked = [entry for entry in ranked if entry[0] is not None]
             files = modules[owner[name]]["files"]
-            if ranked:
-                wheel = max(ranked, key=lambda entry: entry[0])[1]
-                if not wheel["url"].startswith(PYPI):
-                    raise SystemExit(f"{name}: not on PyPI")
-                files.append({"name": name, "file": wheel["url"].rsplit("/", 1)[1],
-                              "path": wheel["url"][len(PYPI):], "sha256": wheel["hash"].removeprefix("sha256:"),
-                              "size": wheel["size"]})
-                continue
-            # No wheel published: built here from the locked source and shipped.
-            sdist = item["sdist"]
-            source = staging / sdist["url"].rsplit("/", 1)[1]
-            with urllib.request.urlopen(sdist["url"]) as response, source.open("wb") as output:
-                shutil.copyfileobj(response, output)
-            if digest(source) != sdist["hash"].removeprefix("sha256:"):
-                raise SystemExit(f"{name}: the source archive does not match the lock")
-            built = staging / "built"
-            subprocess.run(["uv", "build", "--wheel", "--out-dir", str(built), str(source)], check=True,
-                           capture_output=True)
-            (wheel,) = built.glob("*.whl")
-            if wheel_rank(wheel.name, target) is None or wheel_rank(wheel.name, target)[2] != 0:
-                raise SystemExit(f"{name}: builds a platform wheel; it cannot ship as a file")
-            shutil.move(wheel, DESTINATION / "wheels" / wheel.name)
-            files.append({"name": name, "file": wheel.name, "bundled": True,
-                          "sha256": digest(DESTINATION / "wheels" / wheel.name),
-                          "size": (DESTINATION / "wheels" / wheel.name).stat().st_size})
+            if not ranked:
+                raise SystemExit(f"{name}: no wheel for the supported platform")
+            wheel = max(ranked, key=lambda entry: entry[0])[1]
+            if not wheel["url"].startswith(PYPI):
+                raise SystemExit(f"{name}: not on PyPI")
+            files.append({"name": name, "file": wheel["url"].rsplit("/", 1)[1],
+                          "path": wheel["url"][len(PYPI):], "sha256": wheel["hash"].removeprefix("sha256:"),
+                          "size": wheel["size"]})
         manifest = {
             "python": PYTHON,
             "platform": [sys.platform, platform.machine()],

@@ -699,6 +699,9 @@ struct TcpEcho
             transport,
             [this](const auto& peer, std::string request) -> service::RpcHost::Reply {
                 EXPECT_EQ(peer.address, "127.0.0.1");
+                EXPECT_EQ(
+                    peer.fingerprint,
+                    transport.tls.empty() ? std::string{} : transport.tls.peers.front());
                 ++requests;
                 return [request = std::move(request)] {
                     return std::optional<std::string>(request);

@@ -95,6 +95,13 @@ class Runs:
                 sweep text not null, position integer not null, run text not null unique,
                 params text not null, primary key (sweep, position));""")
 
+    def used(self, identity: str) -> bool:
+        """An admitted run keeps its identity, even if its sweep was cancelled
+        before the child started or the service restarted."""
+        return (self.root / identity).exists() or self.index.execute(
+            "select 1 from runs where id = ? union all "
+            "select 1 from sweeps where run = ? limit 1", (identity, identity)).fetchone() is not None
+
     def start(self, identity: str, plan: Plan):
         if not IDENTITY.fullmatch(identity):
             raise ValueError(f"invalid run id: {identity}")
@@ -141,9 +148,11 @@ class Runs:
                                    [(identity, name, value) for name, value in metrics.items()])
             self.finish(identity, "succeeded", "")
 
-    def fail(self, identity: str, state: str, error: str):
-        if state not in ("failed", "interrupted"):
-            raise ValueError(f"a run ends failed or interrupted, not {state}")
+    def end(self, identity: str, state: str, error: str):
+        """How a run ended without results: failed, interrupted from outside,
+        or, a live instance, stopped by its owner."""
+        if state not in ("failed", "interrupted", "stopped"):
+            raise ValueError(f"a run ends failed, interrupted or stopped, not {state}")
         self.finish(identity, state, error)
 
     def finish(self, identity: str, state: str, error: str):

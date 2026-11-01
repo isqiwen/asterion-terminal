@@ -1,136 +1,73 @@
-"""Acceptance: live CTP market data against a provider-configured CTP front.
+"""Read-only acceptance against an independently deployed Market.
 
-Runs the real Terminal core (dev bridge) with the packaged vendor SDK inside an
-isolated node directory, connects, subscribes and waits for real quotes. The
-password is read with getpass, passed only to the local core over its private
-pipe, and never written to disk, logs or the report.
-
-    python3 tests/acceptance/ctp_market.py [--build build/Debug] \
-        --front tcp://<host>:<port> --broker <broker-id> --user <user-id> \
-        --instrument SHFE:rb2610 [--instrument DCE:m2609 ...]
-
-Front addresses and broker ids come from your CTP service provider;
-nothing is assumed here. Exits 0 when every instrument receives a quote.
+Use --host, --port, --fingerprint, --client-identity and --instrument.
+Provider credentials are configured on the Market host. Closing this test must
+leave the same service instance collecting and serving other clients.
 """
 import argparse
-import getpass
 import json
 import os
 from pathlib import Path
 import subprocess
-import signal
+import shutil
 import sys
 import tempfile
 import time
 
-
-ROOT = Path(__file__).resolve().parents[2]
-parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--build", default=str(ROOT / "build/Debug"))
-parser.add_argument("--front", required=True)
-parser.add_argument("--broker", required=True)
-parser.add_argument("--user", required=True)
-parser.add_argument("--instrument", action="append", required=True, help="VENUE:SYMBOL")
-parser.add_argument("--timeout", type=int, default=90, help="seconds to wait for quotes")
-parser.add_argument("--report", default="", help="write a JSON report (no credentials)")
-parser.add_argument("--sdk", default="", help="market SDK library (default: the packaged vendor SDK)")
-parser.add_argument("--password-stdin", action="store_true",
-                    help="read the password from standard input (automation only)")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--build', default=str(Path(__file__).parents[2] / 'build/Debug'))
+parser.add_argument('--host', required=True)
+parser.add_argument('--port', type=int, default=7450)
+parser.add_argument('--fingerprint', required=True, help='Market server certificate fingerprint')
+parser.add_argument('--client-identity', required=True, help='Directory containing registered client.crt and client.key')
+parser.add_argument('--instrument', action='append', required=True, help='VENUE:SYMBOL')
+parser.add_argument('--timeout', type=int, default=90)
+parser.add_argument('--report', default='')
 args = parser.parse_args()
-
-build = Path(args.build).resolve()
-bridge = build / "asterion_terminal_dev_bridge"
-sdk = Path(args.sdk).resolve() if args.sdk else build / (
-    "ctp-md.dylib" if sys.platform == "darwin" else "ctp-md.so")
-report = {"front": args.front, "broker": args.broker, "instruments": args.instrument,
-          "sdk": sdk.name, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-          "passed": False, "steps": []}
-if args.report:
-    # A startup or cleanup failure must never leave a previous passing report.
-    Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-for required in (bridge, sdk):
-    if not required.exists():
-        sys.exit(f"missing {required}; build the project first")
-instruments = []
-for item in args.instrument:
-    venue, _, symbol = item.partition(":")
-    if not venue or not symbol:
-        sys.exit(f"instrument must be VENUE:SYMBOL, got {item!r}")
-    instruments.append({"venue": venue, "symbol": symbol})
-password = (sys.stdin.readline().rstrip("\n") if args.password_stdin
-            else getpass.getpass("Market password (not echoed, not stored): "))
-
-with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=True) as folder:
-    env = dict(os.environ, ASTERION_ROOT=folder, ASTERION_TEST_NODE_ISOLATED="1",
-               ASTERION_CTP_LIBRARY=str(sdk))
-    core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, env=env)
-
+wanted = set(args.instrument)
+if any(len(key.split(':')) != 2 or not all(key.split(':')) for key in wanted):
+    parser.error('instruments must be VENUE:SYMBOL')
+report = {'host':args.host,'port':args.port,'instruments':args.instrument,'passed':False,'steps':[]}
+def step(name, ok, detail=''):
+    report['steps'].append({'step':name,'ok':ok,'detail':detail})
+    print(('ok: ' if ok else 'FAIL: ')+name+' '+detail)
+with tempfile.TemporaryDirectory(prefix='asterion-market-acceptance-') as root:
+    target = Path(root) / 'terminal/data/tls'
+    target.mkdir(parents=True, mode=0o700)
+    for name in ('client.crt', 'client.key'):
+        shutil.copy2(Path(args.client_identity) / name, target / name)
+    (target / 'client.key').chmod(0o600)
+    core = subprocess.Popen([str(Path(args.build)/'asterion_terminal_dev_bridge')],
+        env=dict(os.environ,ASTERION_ROOT=root,ASTERION_TEST_NODE_ISOLATED='1'),
+        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
     def call(method, params=None):
-        core.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
-        core.stdin.flush()
-        response = json.loads(core.stdout.readline())
-        if "error" in response:
-            raise RuntimeError(f"{method}: {response['error']['code']}: {response['error']['message']}")
-        return response["result"]
-
-    def step(name, ok, detail=""):
-        report["steps"].append({"step": name, "ok": ok, "detail": detail,
-                                "at": round(time.monotonic() - begin, 1)})
-        print(f"[{'ok' if ok else 'FAIL'}] {name} {detail}")
-        return ok
-
-    begin = time.monotonic()
-    passed = False
+        core.stdin.write(json.dumps({'version':1,'method':method,'params':params or {}})+'\n');core.stdin.flush()
+        response=json.loads(core.stdout.readline())
+        if 'error' in response:raise RuntimeError(response['error']['message'])
+        return response['result']
     try:
-        state = call("market.local")
-        step("local market service", bool(state.get("market")))
-        # The script runs in its own isolated node: the account it saves is the
-        # only one there and therefore the current one.
-        call("ctp.connections.save", {"id": "acceptance", "name": "acceptance", "revision": "",
-                                      "broker_id": args.broker, "user_id": args.user,
-                                      # Required by the account, unused here:
-                                      # this script only logs in to market data.
-                                      "app_id": "acceptance", "trade_front": args.front,
-                                      "market_front": args.front})
-        state = call("market.connect", {"password": password, "instruments": instruments})
-        password = ""
-        deadline = time.monotonic() + args.timeout
-        seen = {}
-        while time.monotonic() < deadline:
-            market = call("runtime.snapshot")["market"] or {}
-            phase = market.get("phase")
-            if phase == "error":
-                step("session", False, f"error_code {market.get('error_code')}")
-                break
-            for sub in market.get("subscriptions", []):
-                key = f"{sub['venue']}:{sub['symbol']}"
-                if sub.get("quote") and key not in seen:
-                    seen[key] = sub["quote"]
-                    step(f"first quote {key}", True, f"last={sub['quote'].get('last')} "
-                         f"volume={sub['quote'].get('volume')}")
-            if len(seen) == len(instruments):
-                passed = step("all instruments quoted", True, f"phase={phase}")
-                break
-            time.sleep(1)
-        else:
-            step("quotes before timeout", False, f"received {sorted(seen)} of {args.instrument}")
-        final = call("market.disconnect")["market"] or {}
-        step("disconnect", final.get("phase") == "disconnected", final.get("phase", ""))
-    except Exception as error:  # report, never the password
-        step("run", False, str(error))
+        call('market.endpoint.save',{'host':args.host,'port':args.port,'fingerprint':args.fingerprint})
+        original=call('market.open')['market']['instance_id']
+        seen=set();deadline=time.monotonic()+args.timeout
+        while time.monotonic()<deadline:
+            market=call('runtime.snapshot')['market']
+            for row in market['subscriptions']:
+                key=row['venue']+':'+row['symbol']
+                if key in wanted and row.get('quote') and row['quote'].get('last') is not None:
+                    seen.add(key)
+            if wanted<=seen:break
+            time.sleep(.2)
+        step('requested instruments quoted',wanted<=seen,','.join(sorted(seen)))
+        step('client closes',call('market.close')['market'] is None)
+        reopened=call('market.open')['market']
+        step('same service continues',reopened['instance_id']==original)
+    except Exception as error:
+        step('run',False,str(error))
     finally:
-        password = ""
-        try:
-            # The services the core started exit with it.
-            core.stdin.close()
-            core.terminate()
-            core.wait(timeout=15)
-        except Exception as error:
-            step("cleanup", False, str(error))
-    passed = passed and all(item["ok"] for item in report["steps"])
-    report["passed"] = passed
-    if args.report:
-        Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("PASSED" if passed else "FAILED")
-    sys.exit(0 if passed else 1)
+        core.stdin.close()
+        try:core.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            core.kill();core.wait();step('Terminal cleanup',False)
+    report['passed']=bool(report['steps']) and all(item['ok'] for item in report['steps'])
+if args.report:Path(args.report).write_text(json.dumps(report,ensure_ascii=False,indent=2))
+sys.exit(0 if report['passed'] else 1)

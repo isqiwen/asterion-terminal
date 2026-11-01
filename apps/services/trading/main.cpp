@@ -1,9 +1,11 @@
 #include <asterion/system/log.hpp>
 #include "live_session.hpp"
 #include "settings.hpp"
+#include "strategy_host.hpp"
 #include "account_journal.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/system/process/child.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/system/rpc_host.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/health.hpp>
@@ -26,6 +28,14 @@ int main(int argc, char** argv)
     CLI11_PARSE(app, argc, argv);
     try {
         const auto installation = asterion::installation_directory();
+        const asterion::FileLock programs(
+            installation,
+            ".program.lock",
+            asterion::FileLock::Access::shared_existing);
+        if (std::filesystem::exists(installation / ".program-incomplete"))
+            throw std::runtime_error(
+                "Trading installation is incomplete; rerun its setup release: "
+                + installation.string());
         asterion::log::init(installation, "asterion_trading-" + account_name);
         const auto settings = asterion::trading::load_settings(installation, account_name);
         namespace wire = asterion::protocol::proto;
@@ -69,6 +79,8 @@ int main(int argc, char** argv)
             }
         };
 
+        asterion::trading::StrategyHost strategies(installation, journal, settings.market);
+
         struct Pending
         {
             wire::Request request;
@@ -77,6 +89,7 @@ int main(int argc, char** argv)
             std::shared_future<void> initialization;
             std::future<void> action;
             std::future<wire::LiveSnapshot> snapshot;
+            std::future<asterion::strategy::proto::State> strategy;
             bool needs_snapshot = false;
 
             void fail(const std::exception& error)
@@ -115,7 +128,9 @@ int main(int argc, char** argv)
                 else if (!request.policy_revision().empty())
                     throw std::invalid_argument(
                         "policy revision is only valid for trading commands");
-                if (request.has_heartbeat()) {
+                if (request.has_strategy()) {
+                    work->strategy = strategies.request(request.strategy(), account);
+                } else if (request.has_heartbeat()) {
                     fill_health(*response.mutable_health());
                 } else if (request.has_shutdown()) {
                     throw std::invalid_argument("the trading service is stopped by systemd");
@@ -172,6 +187,11 @@ int main(int argc, char** argv)
                 auto& response = work->response;
                 asterion::TraceScope trace(request.correlation_id());
                 try {
+                    if (work->strategy.valid()) {
+                        if (work->strategy.wait_for(0ms) != std::future_status::ready)
+                            return {};
+                        *response.mutable_strategy() = work->strategy.get();
+                    }
                     if (work->initialization.valid()) {
                         if (work->initialization.wait_for(0ms) != std::future_status::ready)
                             return {};
@@ -216,13 +236,20 @@ int main(int argc, char** argv)
         using Host = asterion::service::RpcHost;
         Host::Options options;
         options.advance = [&](Host::Stage stage) {
+            if (stage == Host::Stage::running)
+                strategies.poll();
+            if (stage == Host::Stage::stopping_resources)
+                strategies.stop();
             if (!account_owner)
-                return true;
+                return stage == Host::Stage::stopping_resources && strategies.stopped();
             if (stage != Host::Stage::running)
                 account_owner->close_admission();
             if (stage == Host::Stage::stopping_resources) {
+                if (!strategies.stopped())
+                    return false;
                 account_owner->stop();
-                return account_owner->stopped().wait_for(0ms) == std::future_status::ready;
+                return account_owner->stopped().wait_for(0ms) == std::future_status::ready
+                    && strategies.stopped();
             }
             if (initializing.valid() && initializing.wait_for(0ms) == std::future_status::ready) {
                 try {

@@ -2,7 +2,7 @@
 #include "terminal/credential_fixture.hpp"
 #include "application_environment.hpp"
 #include "node_paths.hpp"
-#include "recorder_endpoint.hpp"
+#include "market_endpoint.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
 #include <algorithm>
@@ -253,28 +253,49 @@ TEST(DataCredentials, ForgettingErasesThisDirectorysSecretsAndKeepsTheSettings)
     terminal::DataCredentials(root.path / "missing", keychain).forget_remembered();
 }
 
-TEST(RecorderEndpoint, KeepsOneValidAddressAndNeverRewritesAnUnreadableFile)
+TEST(MarketEndpoint, KeepsOneValidAddressAndNeverRewritesAnUnreadableFile)
 {
     Directory root;
-    const terminal::RecorderEndpoint endpoint(root.path / "terminal/data/recorder.json");
+    const terminal::MarketEndpoint endpoint(root.path / "terminal/data/market.json");
     EXPECT_TRUE(endpoint.get().is_null());
-    endpoint.save("192.168.1.20", 7450);
-    EXPECT_EQ(endpoint.get(), (Json{{"host", "192.168.1.20"}, {"port", 7450}}));
-    EXPECT_THROW(endpoint.save("bad host", 7450), std::invalid_argument);
-    EXPECT_THROW(endpoint.save("", 7450), std::invalid_argument);
-    EXPECT_THROW(endpoint.save("recorder", 0), std::invalid_argument);
-    EXPECT_THROW(endpoint.save("recorder", 65536), std::invalid_argument);
+    endpoint.save("192.168.1.20", 7450, std::string(64, 'a'));
+    EXPECT_EQ(
+        endpoint.get(),
+        (Json{
+            {"host", "192.168.1.20"},
+            {"port", 7450},
+            {"fingerprint", std::string(64, 'a')},
+            {"instruments", Json::array()}
+        }));
+    EXPECT_THROW(endpoint.save("bad host", 7450, std::string(64, 'a')), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("", 7450, std::string(64, 'a')), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("recorder", 0, std::string(64, 'a')), std::invalid_argument);
+    EXPECT_THROW(endpoint.save("recorder", 65536, std::string(64, 'a')), std::invalid_argument);
     EXPECT_EQ(endpoint.get().at("host"), "192.168.1.20");
+    const Json selected = {{{"venue", "SHFE"}, {"symbol", "rb2610"}}};
+    endpoint.select(selected);
+    endpoint.save("research", 7451, std::string(64, 'a'));
+    EXPECT_EQ(endpoint.get().at("instruments"), selected);
+    EXPECT_THROW(endpoint.select(Json{selected[0], selected[0]}), std::invalid_argument);
+    Json full = Json::array();
+    for (int i = 1000; i < 1050; ++i)
+        full.push_back({{"venue", "SHFE"}, {"symbol", "rb" + std::to_string(i)}});
+    endpoint.select(full);
+    // Every accepted watchlist must be readable on the next launch.
+    EXPECT_EQ(endpoint.get().at("instruments"), full);
+    endpoint.save(std::string(253, 'a'), 7450, std::string(64, 'a'));
+    EXPECT_EQ(endpoint.get().at("instruments"), full);
+
     {
-        std::ofstream(root.path / "terminal/data/recorder.json") << "{\"host\":";
+        std::ofstream(root.path / "terminal/data/market.json") << "{\"host\":";
     }
     try {
         (void)endpoint.get();
         ADD_FAILURE() << "an unreadable file was accepted";
     } catch (const std::invalid_argument& error) {
-        EXPECT_NE(std::string(error.what()).find("recorder.json"), std::string::npos);
+        EXPECT_NE(std::string(error.what()).find("market.json"), std::string::npos);
     }
-    std::ifstream kept(root.path / "terminal/data/recorder.json");
+    std::ifstream kept(root.path / "terminal/data/market.json");
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(kept), {}), "{\"host\":");
     endpoint.clear();
     EXPECT_TRUE(endpoint.get().is_null());

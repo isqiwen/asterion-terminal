@@ -1,0 +1,99 @@
+syntax = "proto3";
+package asterion.dataset.proto;
+
+// Stored sources, not a provider capability catalogue. Cursors belong to callers.
+message SourcesQuery {
+  string after_provider = 1;
+  uint32 limit = 2; // 0 = 64, at most 128.
+}
+message Source {
+  string provider = 1;
+  string dataset_version = 2;
+  int64 created_ns = 3;
+}
+message Sources {
+  repeated Source sources = 1;
+  string next_provider = 2;
+}
+// Empty version selects current only on the first page. Retain the returned
+// version for all further reads; a missing version is never replaced by current.
+message VersionQuery {
+  string provider = 1;
+  string dataset_version = 2;
+  string after_key = 3;
+  uint32 limit = 4; // 0 = 128, at most 512 partitions.
+  string table = 5; // Empty selects all tables.
+  string exchange = 6; // Empty selects all exchanges.
+}
+message Partition {
+  string key = 1;
+  string sha256 = 2;
+  uint64 rows = 3;
+  repeated string days = 4; // Recorded acquisition days; not proof of intraday completeness.
+}
+message Version {
+  string provider = 1;
+  string dataset_version = 2;
+  string parent = 3;
+  int64 created_ns = 4;
+  repeated Partition partitions = 5;
+  string next_key = 6;
+}
+// Only a partition named by this version is readable. Paths are never accepted.
+message FileQuery {
+  string provider = 1;
+  string dataset_version = 2;
+  string key = 3;
+  uint64 offset = 4;
+  uint32 limit = 5; // 0 = 1 MiB, at most 1 MiB.
+}
+message File {
+  string provider = 1;
+  string dataset_version = 2;
+  string key = 3;
+  string sha256 = 4;
+  uint64 offset = 5;
+  uint64 size = 6;
+  bytes data = 7; // Original immutable Parquet bytes; amounts are not converted to floats.
+}
+message SummaryQuery {
+  string provider = 1;
+  string dataset_version = 2;
+}
+message TableSummary {
+  string table = 1;
+  uint64 partitions = 2;
+  uint64 rows = 3;
+  string first_day = 4;
+  string last_day = 5;
+}
+message Summary {
+  string provider = 1;
+  string dataset_version = 2;
+  int64 created_ns = 3;
+  repeated TableSummary tables = 4;
+}
+
+// Product/month coverage of one immutable version, paged by product key.
+message CoverageQuery {
+  string provider = 1;
+  string dataset_version = 2; // Required; normally returned by Summary.
+  string after_product = 3; // EXCHANGE/product, exclusive.
+  uint32 limit = 4; // 0 = 64, at most 128 products.
+}
+message MonthCoverage {
+  string month = 1;
+  uint32 days = 2;
+  uint32 open_days = 3; // 0 means the stored calendar cannot establish coverage.
+}
+message ProductCoverage {
+  string exchange = 1;
+  string product = 2;
+  repeated MonthCoverage months = 3;
+}
+message Coverage {
+  string provider = 1;
+  string dataset_version = 2;
+  repeated ProductCoverage products = 3;
+  string next_product = 4;
+}

@@ -61,6 +61,8 @@ public:
     {
         // The remote address of a TCP peer; empty for a local one.
         std::string address;
+        // Verified TLS certificate identity; empty on local or plain transports.
+        std::string fingerprint{};
     };
 
     // Called only on the I/O owner. Return no value while business work is pending.

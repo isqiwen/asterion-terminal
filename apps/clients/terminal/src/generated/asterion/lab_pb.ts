@@ -4,16 +4,18 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Build, Package, ParameterValue } from "./strategy_pb";
+import { file_asterion_strategy } from "./strategy_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file asterion/lab.proto.
  */
 export const file_asterion_lab: GenFile = /*@__PURE__*/
-  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byKnCwoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASPwoQY29uZmlndXJlX3NvdXJjZRgLIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5Db25maWd1cmVTb3VyY2VIABIzCgdhY3F1aXJlGAwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkFjcXVpcmVEYWlseUgAEi8KBXRhc2tzGA0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlRhc2tzUXVlcnlIABIwCgZjYW5jZWwYDiABKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsVGFza0gAEjMKB3N1bW1hcnkYDyABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeVF1ZXJ5SAASNQoIY292ZXJhZ2UYECABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEjUKCGRvbWluYW50GBIgASgLMiEuYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50UXVlcnlIABI1CghzZXNzaW9ucxgTIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uc1F1ZXJ5SAASOgoLY3Jvc3NfY2hlY2sYFCABKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uQ3Jvc3NDaGVja1F1ZXJ5SAASMwoHc291cmNlcxgVIAEoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VzUXVlcnlIABI1Cgtzb3VyY2VfcmVhZBgWIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VSZWFkSAASQgoPc291cmNlX2NvdmVyYWdlGBcgASgLMicuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZUNvdmVyYWdlUXVlcnlIABI5CgpzdHJhdGVnaWVzGBggASgLMiMuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWdpZXNRdWVyeUgAEjMKCGJhY2t0ZXN0GBkgASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkJhY2t0ZXN0UnVuSAASLQoEcnVucxgaIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5SdW5zUXVlcnlIABIzCgpjYW5jZWxfcnVuGBsgASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLkNhbmNlbFJ1bkgAEioKBXN3ZWVwGBwgASgLMhkuYXN0ZXJpb24ubGFiLnByb3RvLlN3ZWVwSAASNAoKc3dlZXBfcnVucxgdIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5Td2VlcFF1ZXJ5SAASNwoMY2FuY2VsX3N3ZWVwGB4gASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkNhbmNlbFN3ZWVwSAASKwoDcnVuGB8gASgLMhwuYXN0ZXJpb24ubGFiLnByb3RvLlJ1blF1ZXJ5SAASLwoGZmFjdG9yGCAgASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvclJ1bkgAEjgKCmNoYXJ0X2JhcnMYISABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2hhcnRCYXJzUXVlcnlIABJEChBzdG9yZWRfY29udHJhY3RzGCIgASgLMiguYXN0ZXJpb24ubGFiLnByb3RvLlN0b3JlZENvbnRyYWN0c1F1ZXJ5SAASOAoKcnVuX3JlcG9ydBgjIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5SdW5SZXBvcnRRdWVyeUgAQgYKBGJvZHkiDQoLSGVhbHRoUXVlcnkicAoPQ29uZmlndXJlU291cmNlEhAKCHByb3ZpZGVyGAEgASgJEhIKCmNyZWRlbnRpYWwYAiABKAkSGwoTcmVxdWVzdHNfcGVyX21pbnV0ZRgDIAEoDRIMCgRob3N0GAQgASgJEgwKBHBvcnQYBSABKA0ilQEKDEFjcXVpcmVEYWlseRIKCgJpZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCRIRCglleGNoYW5nZXMYBCADKAkSDwoHcmVmcmVzaBgFIAEoCBIQCghwcm92aWRlchgGIAEoCRINCgV0YWJsZRgHIAEoCRIQCghjb250cmFjdBgIIAEoCSIMCgpUYXNrc1F1ZXJ5IhgKCkNhbmNlbFRhc2sSCgoCaWQYASABKAkiIAoMU3VtbWFyeVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJIiEKDUNvdmVyYWdlUXVlcnkSEAoIcHJvdmlkZXIYASABKAkiRAoOQ2hhcnRCYXJzUXVlcnkSEAoIY29udHJhY3QYASABKAkSEAoIcHJvdmlkZXIYAiABKAkSDgoGcGVyaW9kGAMgASgJIhwKDlJ1blJlcG9ydFF1ZXJ5EgoKAmlkGAEgASgJIqABCglSdW5SZXBvcnQSCgoCaWQYASABKAkSGgoScXVhbnRzdGF0c192ZXJzaW9uGAIgASgJEjsKB2ZpZ3VyZXMYAyADKAsyKi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuUmVwb3J0LkZpZ3VyZXNFbnRyeRouCgxGaWd1cmVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgBOgI4ASI6ChRTdG9yZWRDb250cmFjdHNRdWVyeRIQCghwcm92aWRlchgBIAEoCRIQCghjb250cmFjdBgCIAEoCSKMAQoNRG9taW5hbnRRdWVyeRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEhEKCWJlZ2luX2RheRgDIAEoCRIPCgdlbmRfZGF5GAQgASgJEg4KBnRyYWRlZBgFIAEoCBISCgphZGp1c3RtZW50GAYgASgJEhAKCHByb3ZpZGVyGAcgASgJImgKDVNlc3Npb25zUXVlcnkSEAoIcHJvdmlkZXIYBSABKAkSEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIRCgliZWdpbl9kYXkYAyABKAkSDwoHZW5kX2RheRgEIAEoCSJDCg9Dcm9zc0NoZWNrUXVlcnkSDAoEa2luZBgBIAEoCRIRCgliZWdpbl9kYXkYAiABKAkSDwoHZW5kX2RheRgDIAEoCSLUCAoIUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoDRISCgpzZXJ2aWNlX2lkGAIgASgJEhYKDmNvcnJlbGF0aW9uX2lkGAMgASgJEiwKBmhlYWx0aBgKIAEoCzIaLmFzdGVyaW9uLmxhYi5wcm90by5IZWFsdGhIABIqCgVlcnJvchgLIAEoCzIZLmFzdGVyaW9uLmxhYi5wcm90by5FcnJvckgAEjAKCGFjY2VwdGVkGAwgASgLMhwuYXN0ZXJpb24ubGFiLnByb3RvLkFjY2VwdGVkSAASKgoFdGFza3MYDSABKAsyGS5hc3Rlcmlvbi5sYWIucHJvdG8uVGFza3NIABIuCgdzdW1tYXJ5GA4gASgLMhsuYXN0ZXJpb24ubGFiLnByb3RvLlN1bW1hcnlIABIwCghjb3ZlcmFnZRgPIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5Db3ZlcmFnZUgAEjYKCGRvbWluYW50GBEgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50U2VyaWVzSAASMAoIc2Vzc2lvbnMYEiABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNIABI1Cgtjcm9zc19jaGVjaxgTIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5Dcm9zc0NoZWNrSAASLgoHc291cmNlcxgVIAEoCzIbLmFzdGVyaW9uLmxhYi5wcm90by5Tb3VyY2VzSAASNwoMc291cmNlX3RhYmxlGBYgASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZVRhYmxlSAASPQoPc291cmNlX2NvdmVyYWdlGBcgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZUNvdmVyYWdlSAASNAoKc3RyYXRlZ2llcxgYIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5TdHJhdGVnaWVzSAASKAoEcnVucxgZIAEoCzIYLmFzdGVyaW9uLmxhYi5wcm90by5SdW5zSAASMwoKc3dlZXBfcnVucxgaIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5Td2VlcFJ1bnNIABIsCgNydW4YGyABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRGV0YWlsSAASMgoGZmFjdG9yGBwgASgLMiAuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvclJlc3VsdEgAEjMKCmNoYXJ0X2JhcnMYHSABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uQ2hhcnRCYXJzSAASPwoQc3RvcmVkX2NvbnRyYWN0cxgeIAEoCzIjLmFzdGVyaW9uLmxhYi5wcm90by5TdG9yZWRDb250cmFjdHNIABIzCgpydW5fcmVwb3J0GB8gASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlJ1blJlcG9ydEgAQgYKBGJvZHkihgEKBkhlYWx0aBITCgtpbnN0YW5jZV9pZBgBIAEoCRISCgpwcm9jZXNzX2lkGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSEQoJdXB0aW1lX21zGAQgASgEEhMKC2luaXRpYWxpemVkGAUgASgIEhoKEmNvbmZpZ3VyZWRfc291cmNlcxgGIAMoCSImCgVFcnJvchIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiCgoIQWNjZXB0ZWQiqgIKBFRhc2sSCgoCaWQYASABKAkSEQoJYmVnaW5fZGF5GAIgASgJEg8KB2VuZF9kYXkYAyABKAkSDQoFc3RhdGUYBCABKAkSEgoKZGF5c190b3RhbBgFIAEoDRIRCglkYXlzX2RvbmUYBiABKA0SEgoKZGF5c19lbXB0eRgHIAEoDRIQCghyZXF1ZXN0cxgIIAEoDRISCgplcnJvcl9jb2RlGAkgASgJEg0KBWVycm9yGAogASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgLIAEoCRISCgpzdGFydGVkX25zGAwgASgDEhMKC2ZpbmlzaGVkX25zGA0gASgDEhAKCHByb3ZpZGVyGA4gASgJEg0KBXRhYmxlGA8gASgJEhAKCGNvbnRyYWN0GBAgASgJIjAKBVRhc2tzEicKBXRhc2tzGAEgAygLMhguYXN0ZXJpb24ubGFiLnByb3RvLlRhc2siZAoMVGFibGVTdW1tYXJ5Eg0KBXRhYmxlGAEgASgJEgwKBHJvd3MYAiABKAQSEgoKcGFydGl0aW9ucxgDIAEoDRIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkiaAoHU3VtbWFyeRIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEgoKY3JlYXRlZF9ucxgCIAEoAxIwCgZ0YWJsZXMYAyADKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uVGFibGVTdW1tYXJ5Ij8KDU1vbnRoQ292ZXJhZ2USDQoFbW9udGgYASABKAkSDAoEZGF5cxgCIAEoDRIRCglvcGVuX2RheXMYAyABKA0iZwoPUHJvZHVjdENvdmVyYWdlEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSMQoGbW9udGhzGAMgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLk1vbnRoQ292ZXJhZ2UiWgoIQ292ZXJhZ2USFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEjUKCHByb2R1Y3RzGAIgAygLMiMuYXN0ZXJpb24ubGFiLnByb3RvLlByb2R1Y3RDb3ZlcmFnZSKJAgoIQ2hhcnRCYXISDwoHdGltZV9tcxgBIAEoAxITCgt0cmFkaW5nX2RheRgCIAEoCRIPCgdwYXJ0aWFsGAMgASgIEgwKBG9wZW4YBCABKAkSDAoEaGlnaBgFIAEoCRILCgNsb3cYBiABKAkSDQoFY2xvc2UYByABKAkSDgoGdm9sdW1lGAggASgJEhYKCW1hY2RfZGlmZhgJIAEoAUgAiAEBEhgKC21hY2Rfc2lnbmFsGAogASgBSAGIAQESGwoObWFjZF9oaXN0b2dyYW0YCyABKAFIAogBAUIMCgpfbWFjZF9kaWZmQg4KDF9tYWNkX3NpZ25hbEIRCg9fbWFjZF9oaXN0b2dyYW0icgoJQ2hhcnRCYXJzEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRIQCghjb250cmFjdBgCIAEoCRIOCgZwZXJpb2QYAyABKAkSKgoEYmFycxgEIAMoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5DaGFydEJhciKtAQoOU3RvcmVkQ29udHJhY3QSEAoIY29udHJhY3QYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkYWlseV9maXJzdBgDIAEoCRISCgpkYWlseV9sYXN0GAQgASgJEhIKCmRhaWx5X2RheXMYBSABKA0SFAoMbWludXRlX2ZpcnN0GAYgASgJEhMKC21pbnV0ZV9sYXN0GAcgASgJEhMKC21pbnV0ZV9kYXlzGAggASgNInMKD1N0b3JlZENvbnRyYWN0cxIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEAoIcHJvdmlkZXIYAiABKAkSNQoJY29udHJhY3RzGAMgAygLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlN0b3JlZENvbnRyYWN0IngKC0RvbWluYW50RGF5EgsKA2RheRgBIAEoCRIQCghjb250cmFjdBgCIAEoCRIMCgRvcGVuGAMgASgJEgwKBGhpZ2gYBCABKAkSCwoDbG93GAUgASgJEg0KBWNsb3NlGAYgASgJEhIKCnNldHRsZW1lbnQYByABKAkiTgoEUm9sbBILCgNkYXkYASABKAkSFQoNZnJvbV9jb250cmFjdBgCIAEoCRITCgt0b19jb250cmFjdBgDIAEoCRINCgVyYXRpbxgEIAEoCSKVAQoORG9taW5hbnRTZXJpZXMSFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEhIKCmFkanVzdG1lbnQYAiABKAkSLQoEZGF5cxgDIAMoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudERheRInCgVyb2xscxgEIAMoCzIYLmFzdGVyaW9uLmxhYi5wcm90by5Sb2xsIiwKDlNlc3Npb25TZWdtZW50Eg0KBWJlZ2luGAEgASgJEgsKA2VuZBgCIAEoCSK+AQoKU2Vzc2lvbkRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIRCglkYXlfa25vd24YAiABKAgSLwoDZGF5GAMgAygLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25TZWdtZW50EhMKC25pZ2h0X3N0YXRlGAQgASgJEjEKBW5pZ2h0GAUgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25TZWdtZW50Eg8KB3NvdXJjZXMYBiADKAkiWAoNU2Vzc2lvblNvdXJjZRIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRILCgN1cmwYAyABKAkSEQoJcHVibGlzaGVkGAQgASgJEgwKBG5vdGUYBSABKAkifgoIU2Vzc2lvbnMSEAoIcmV2aWV3ZWQYASABKAkSLAoEZGF5cxgCIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uRGF5EjIKB3NvdXJjZXMYAyADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvblNvdXJjZSJRCg9DaGVja0RpZmZlcmVuY2USEAoIY29udHJhY3QYASABKAkSDQoFZmllbGQYAiABKAkSDQoFZmlyc3QYAyABKAkSDgoGc2Vjb25kGAQgASgJIuEBCgpDaGVja0dyb3VwEhAKCGV4Y2hhbmdlGAEgASgJEgsKA2RheRgCIAEoCRITCgt1bmF2YWlsYWJsZRgDIAEoCRIVCg1jb21wYXJlZF9yb3dzGAQgASgNEhcKD2NvbXBhcmVkX3ZhbHVlcxgFIAEoDRISCgpvbmx5X2ZpcnN0GAYgAygJEhMKC29ubHlfc2Vjb25kGAcgAygJEjgKC2RpZmZlcmVuY2VzGAggAygLMiMuYXN0ZXJpb24ubGFiLnByb3RvLkNoZWNrRGlmZmVyZW5jZRIMCgRub3RlGAkgASgJIkoKCkNyb3NzQ2hlY2sSDAoEa2luZBgBIAEoCRIuCgZncm91cHMYAiADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uQ2hlY2tHcm91cCIOCgxTb3VyY2VzUXVlcnkijQEKEFNvdXJjZURlc2NyaXB0b3ISCgoCaWQYASABKAkSDgoGdGFibGVzGAIgAygJEhEKCWV4Y2hhbmdlcxgDIAMoCRIbChNyZXF1aXJlc19jcmVkZW50aWFsGAQgASgIEhkKEXJlcXVpcmVzX2VuZHBvaW50GAUgASgIEhIKCmNvbmZpZ3VyZWQYBiABKAgiQAoHU291cmNlcxI1Cgdzb3VyY2VzGAEgAygLMiQuYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZURlc2NyaXB0b3IiXgoKU291cmNlUmVhZBIQCghwcm92aWRlchgBIAEoCRINCgV0YWJsZRgCIAEoCRIQCghleGNoYW5nZRgDIAEoCRILCgNkYXkYBCABKAkSEAoIY29udHJhY3QYBSABKAkiKgoKU291cmNlQ2VsbBISCgV2YWx1ZRgBIAEoCUgAiAEBQggKBl92YWx1ZSI6CglTb3VyY2VSb3cSLQoFY2VsbHMYASADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlQ2VsbCKpAQoLU291cmNlVGFibGUSEAoIcHJvdmlkZXIYASABKAkSDQoFdGFibGUYAiABKAkSDwoHY29sdW1ucxgDIAMoCRIrCgRyb3dzGAQgAygLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlNvdXJjZVJvdxI7CgxvYnNlcnZhdGlvbnMYBSADKAsyJS5hc3Rlcmlvbi5sYWIucHJvdG8uU291cmNlT2JzZXJ2YXRpb24ihgEKEVNvdXJjZU9ic2VydmF0aW9uEhAKCGluc3RhbmNlGAEgASgJEg4KBm51bWJlchgCIAEoBBIZChFmaXJzdF9yZWNlaXZlZF9tcxgDIAEoAxIYChBsYXN0X3JlY2VpdmVkX21zGAQgASgDEg0KBXRpY2tzGAUgASgEEgsKA2VuZBgGIAEoCSInChNTb3VyY2VDb3ZlcmFnZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJIk0KDlNvdXJjZUNvdmVyYWdlEhAKCHByb3ZpZGVyGAEgASgJEg0KBWtub3duGAIgASgIEgwKBGRheXMYAyADKAkSDAoEbm90ZRgEIAEoCSIlCg9TdHJhdGVnaWVzUXVlcnkSEgoKcmVwb3NpdG9yeRgBIAEoCSJeCg5QYXJhbWV0ZXJWYWx1ZRIOCgRmbGFnGAEgASgISAASEQoHaW50ZWdlchgCIAEoA0gAEhAKBm51bWJlchgDIAEoAUgAEg4KBHRleHQYBCABKAlIAEIHCgV2YWx1ZSJkChFTdHJhdGVneVBhcmFtZXRlchIMCgRuYW1lGAEgASgJEgwKBGtpbmQYAiABKAkSMwoHZGVmYXVsdBgDIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZSJrCg1TdHJhdGVneUVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEjkKCnBhcmFtZXRlcnMYAyADKAsyJS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lQYXJhbWV0ZXIiNgoTU3RyYXRlZ3lNb2R1bGVFcnJvchIOCgZtb2R1bGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSLjAQoKU3RyYXRlZ2llcxISCgpyZXBvc2l0b3J5GAEgASgJEg4KBmNvbW1pdBgCIAEoCRIPCgdjaGFuZ2VzGAMgASgJEjUKCnN0cmF0ZWdpZXMYBCADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lFbnRyeRI3CgZlcnJvcnMYBSADKAsyJy5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lNb2R1bGVFcnJvchIwCgdmYWN0b3JzGAYgAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvckVudHJ5InkKC0ZhY3RvckVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEg4KBmlucHV0cxgDIAMoCRI5CgpwYXJhbWV0ZXJzGAQgAygLMiUuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5UGFyYW1ldGVyIqYCCglGYWN0b3JSdW4SEgoKcmVwb3NpdG9yeRgBIAEoCRIOCgZmYWN0b3IYAiABKAkSOQoGcGFyYW1zGAMgAygLMikuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvclJ1bi5QYXJhbXNFbnRyeRIQCghwcm92aWRlchgEIAEoCRIPCgdzeW1ib2xzGAUgAygJEhEKCWJlZ2luX2RheRgGIAEoCRIPCgdlbmRfZGF5GAcgASgJEhAKCGhvcml6b25zGAggAygNEg4KBmdyb3VwcxgJIAEoDRpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIsIBCg1GYWN0b3JIb3Jpem9uEg8KB2hvcml6b24YASABKA0SDAoEZGF5cxgCIAEoDRIRCgRtZWFuGAMgASgBSACIAQESFgoJZGV2aWF0aW9uGAQgASgBSAGIAQESDwoCaXIYBSABKAFIAogBARIOCgF0GAYgASgBSAOIAQESFQoIcG9zaXRpdmUYByABKAFIBIgBAUIHCgVfbWVhbkIMCgpfZGV2aWF0aW9uQgUKA19pckIECgJfdEILCglfcG9zaXRpdmUigQEKCUZhY3RvckRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIPCgdzeW1ib2xzGAIgASgNEg8KAmljGAMgASgBSACIAQESDgoGZ3JvdXBzGAQgAygBEhcKCmxvbmdfc2hvcnQYBSABKAFIAYgBAUIFCgNfaWNCDQoLX2xvbmdfc2hvcnQiagoLRmFjdG9yR3JvdXASDQoFZ3JvdXAYASABKA0SGAoLbWVhbl9yZXR1cm4YAiABKAFIAIgBARIVCgh0dXJub3ZlchgDIAEoAUgBiAEBQg4KDF9tZWFuX3JldHVybkILCglfdHVybm92ZXIiLwoNRmFjdG9yU2tpcHBlZBIOCgZzeW1ib2wYASABKAkSDgoGcmVhc29uGAIgASgJIqACCgxGYWN0b3JSZXN1bHQSDgoGY29tbWl0GAEgASgJEg8KB2NoYW5nZXMYAiABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAMgASgJEg8KB3N5bWJvbHMYBCADKAkSMgoHc2tpcHBlZBgFIAMoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JTa2lwcGVkEjMKCGhvcml6b25zGAYgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckhvcml6b24SKwoEZGF5cxgHIAMoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JEYXkSLwoGZ3JvdXBzGAggAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckdyb3VwIi8KDFByb2R1Y3RDb3N0cxIPCgdwcm9kdWN0GAEgASgJEg4KBnZhbHVlcxgCIAMoCSLdBAoLQmFja3Rlc3RSdW4SCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIQCghzdHJhdGVneRgDIAEoCRI7CgZwYXJhbXMYBCADKAsyKy5hc3Rlcmlvbi5sYWIucHJvdG8uQmFja3Rlc3RSdW4uUGFyYW1zRW50cnkSEAoIcHJvdmlkZXIYBSABKAkSDwoHc3ltYm9scxgGIAMoCRIRCgliZWdpbl9kYXkYByABKAkSDwoHZW5kX2RheRgIIAEoCRIPCgdkZXBvc2l0GAkgASgJEi8KBWNvc3RzGAogAygLMiAuYXN0ZXJpb24ubGFiLnByb3RvLlByb2R1Y3RDb3N0cxIWCg5zbGlwcGFnZV90aWNrcxgLIAEoDRIWCg5tYXhfb3JkZXJfbG90cxgMIAEoCRIWCg5tYXhfZ3Jvc3NfbG90cxgNIAEoCRIaChJtYXhfd29ya2luZ19vcmRlcnMYDiABKA0SGAoQbWF4X2dyb3NzX3dlaWdodBgPIAEoCRIWCg5tYXhfbmV0X3dlaWdodBgQIAEoCRIWCg5hbm51YWxfcGVyaW9kcxgRIAEoARIWCg56ZXJvX3Jpc2tfZnJlZRgSIAEoCBITCgtob2xkb3V0X2RheRgTIAEoCRIPCgdtaW51dGVzGBQgASgNEhcKD21pbnV0ZV9wcm92aWRlchgVIAEoCRpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIgsKCVJ1bnNRdWVyeSIXCglDYW5jZWxSdW4SCgoCaWQYASABKAkitwMKClJ1blN1bW1hcnkSCgoCaWQYASABKAkSEAoIc3RyYXRlZ3kYAiABKAkSDgoGY29tbWl0GAMgASgJEg8KB2NoYW5nZXMYBCABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAUgASgJEg0KBXN0YXRlGAYgASgJEg0KBWVycm9yGAcgASgJEhIKCnN0YXJ0ZWRfbnMYCCABKAMSEwoLZmluaXNoZWRfbnMYCSABKAMSPAoHbWV0cmljcxgKIAMoCzIrLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Lk1ldHJpY3NFbnRyeRI6CgZwYXJhbXMYCyADKAsyKi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuU3VtbWFyeS5QYXJhbXNFbnRyeRINCgVzd2VlcBgMIAEoCRouCgxNZXRyaWNzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgBOgI4ARpRCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSMQoFdmFsdWUYAiABKAsyIi5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIjQKBFJ1bnMSLAoEcnVucxgBIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5IlMKD1BhcmFtZXRlclZhbHVlcxIMCgRuYW1lGAEgASgJEjIKBnZhbHVlcxgCIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5QYXJhbWV0ZXJWYWx1ZSLBAQoFU3dlZXASCgoCaWQYASABKAkSLQoEYmFzZRgCIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIzCgZ2YWx1ZXMYAyADKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWVzEhEKCXByb2Nlc3NlcxgEIAEoDRI1Cgx3YWxrX2ZvcndhcmQYBSABKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uV2Fsa0ZvcndhcmQiPQoLV2Fsa0ZvcndhcmQSFQoNdHJhaW5pbmdfZGF5cxgBIAEoDRIXCg92YWxpZGF0aW9uX2RheXMYAiABKA0ihgEKClJvbGxpbmdSdW4SCgoCaWQYASABKAkSDQoFc3dlZXAYAiABKAkSLQoEYmFzZRgDIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIVCg10cmFpbmluZ19kYXlzGAQgASgNEhcKD3ZhbGlkYXRpb25fZGF5cxgFIAEoDSIYCgpTd2VlcFF1ZXJ5EgoKAmlkGAEgASgJIhkKC0NhbmNlbFN3ZWVwEgoKAmlkGAEgASgJIqkBCglTd2VlcFJ1bnMSCgoCaWQYASABKAkSLAoEcnVucxgCIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg8KB3dhaXRpbmcYAyABKA0SEAoIc2VsZWN0ZWQYBCABKAkSLwoHcm9sbGluZxgFIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBmFjdGl2ZRgGIAEoCCIWCghSdW5RdWVyeRIKCgJpZBgBIAEoCSJACglSdW5FcXVpdHkSDwoHdGltZV9ucxgBIAEoAxIOCgZlcXVpdHkYAiABKAkSEgoKc2V0dGxlbWVudBgDIAEoCCJtCgZSdW5EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSDwoHdGltZV9ucxgCIAEoAxIOCgZlcXVpdHkYAyABKAkSDwoHYmFsYW5jZRgEIAEoCRIMCgRmZWVzGAUgASgJEg4KBm1hcmdpbhgGIAEoCSKVAQoHUnVuRmlsbBIMCgRmaWxsGAEgASgJEg0KBW9yZGVyGAIgASgJEg8KB3RpbWVfbnMYAyABKAMSEAoIY29udHJhY3QYBCABKAkSDAoEc2lkZRgFIAEoCRIOCgZvZmZzZXQYBiABKAkSEAoIcXVhbnRpdHkYByABKAkSDQoFcHJpY2UYCCABKAkSCwoDZmVlGAkgASgJItEBCglSdW5EZXRhaWwSLwoHc3VtbWFyeRgBIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBnJlY29yZBgCIAEoCRItCgZlcXVpdHkYAyADKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRXF1aXR5EigKBGRheXMYBCADKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRGF5EioKBWZpbGxzGAUgAygLMhsuYXN0ZXJpb24ubGFiLnByb3RvLlJ1bkZpbGxiBnByb3RvMw");
+  fileDesc("ChJhc3Rlcmlvbi9sYWIucHJvdG8SEmFzdGVyaW9uLmxhYi5wcm90byLnBwoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSMQoGaGVhbHRoGAogASgLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkhlYWx0aFF1ZXJ5SAASMwoHc3VtbWFyeRgPIAEoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5TdW1tYXJ5UXVlcnlIABI1Cghkb21pbmFudBgSIAEoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5Eb21pbmFudFF1ZXJ5SAASNQoIc2Vzc2lvbnMYEyABKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNRdWVyeUgAEjkKCnN0cmF0ZWdpZXMYGCABKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ2llc1F1ZXJ5SAASMwoIYmFja3Rlc3QYGSABKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uQmFja3Rlc3RSdW5IABItCgRydW5zGBogASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlJ1bnNRdWVyeUgAEjMKCmNhbmNlbF9ydW4YGyABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsUnVuSAASKgoFc3dlZXAYHCABKAsyGS5hc3Rlcmlvbi5sYWIucHJvdG8uU3dlZXBIABI0Cgpzd2VlcF9ydW5zGB0gASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlN3ZWVwUXVlcnlIABI3CgxjYW5jZWxfc3dlZXAYHiABKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uQ2FuY2VsU3dlZXBIABIrCgNydW4YHyABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuUXVlcnlIABIvCgZmYWN0b3IYICABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uRmFjdG9yUnVuSAASOAoKY2hhcnRfYmFycxghIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5DaGFydEJhcnNRdWVyeUgAEkQKEHN0b3JlZF9jb250cmFjdHMYIiABKAsyKC5hc3Rlcmlvbi5sYWIucHJvdG8uU3RvcmVkQ29udHJhY3RzUXVlcnlIABI4CgpydW5fcmVwb3J0GCMgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLlJ1blJlcG9ydFF1ZXJ5SAASOgoQc3RyYXRlZ3lfcGFja2FnZRgkIAEoCzIeLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkJ1aWxkSABCBgoEYm9keSINCgtIZWFsdGhRdWVyeSIgCgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkiXQoOQ2hhcnRCYXJzUXVlcnkSEAoIY29udHJhY3QYASABKAkSEAoIcHJvdmlkZXIYAiABKAkSDgoGcGVyaW9kGAMgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgEIAEoCSIcCg5SdW5SZXBvcnRRdWVyeRIKCgJpZBgBIAEoCSKgAQoJUnVuUmVwb3J0EgoKAmlkGAEgASgJEhoKEnF1YW50c3RhdHNfdmVyc2lvbhgCIAEoCRI7CgdmaWd1cmVzGAMgAygLMiouYXN0ZXJpb24ubGFiLnByb3RvLlJ1blJlcG9ydC5GaWd1cmVzRW50cnkaLgoMRmlndXJlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoAToCOAEiOgoUU3RvcmVkQ29udHJhY3RzUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSEAoIY29udHJhY3QYAiABKAkijAEKDURvbWluYW50UXVlcnkSEAoIZXhjaGFuZ2UYASABKAkSDwoHcHJvZHVjdBgCIAEoCRIRCgliZWdpbl9kYXkYAyABKAkSDwoHZW5kX2RheRgEIAEoCRIOCgZ0cmFkZWQYBSABKAgSEgoKYWRqdXN0bWVudBgGIAEoCRIQCghwcm92aWRlchgHIAEoCSJoCg1TZXNzaW9uc1F1ZXJ5EhAKCHByb3ZpZGVyGAUgASgJEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSEQoJYmVnaW5fZGF5GAMgASgJEg8KB2VuZF9kYXkYBCABKAki1QYKCFJlc3BvbnNlEg8KB3ZlcnNpb24YASABKA0SEgoKc2VydmljZV9pZBgCIAEoCRIWCg5jb3JyZWxhdGlvbl9pZBgDIAEoCRIsCgZoZWFsdGgYCiABKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uSGVhbHRoSAASKgoFZXJyb3IYCyABKAsyGS5hc3Rlcmlvbi5sYWIucHJvdG8uRXJyb3JIABIwCghhY2NlcHRlZBgMIAEoCzIcLmFzdGVyaW9uLmxhYi5wcm90by5BY2NlcHRlZEgAEi4KB3N1bW1hcnkYDiABKAsyGy5hc3Rlcmlvbi5sYWIucHJvdG8uU3VtbWFyeUgAEjYKCGRvbWluYW50GBEgASgLMiIuYXN0ZXJpb24ubGFiLnByb3RvLkRvbWluYW50U2VyaWVzSAASMAoIc2Vzc2lvbnMYEiABKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbnNIABI0CgpzdHJhdGVnaWVzGBggASgLMh4uYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWdpZXNIABIoCgRydW5zGBkgASgLMhguYXN0ZXJpb24ubGFiLnByb3RvLlJ1bnNIABIzCgpzd2VlcF9ydW5zGBogASgLMh0uYXN0ZXJpb24ubGFiLnByb3RvLlN3ZWVwUnVuc0gAEiwKA3J1bhgbIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5SdW5EZXRhaWxIABIyCgZmYWN0b3IYHCABKAsyIC5hc3Rlcmlvbi5sYWIucHJvdG8uRmFjdG9yUmVzdWx0SAASMwoKY2hhcnRfYmFycxgdIAEoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5DaGFydEJhcnNIABI/ChBzdG9yZWRfY29udHJhY3RzGB4gASgLMiMuYXN0ZXJpb24ubGFiLnByb3RvLlN0b3JlZENvbnRyYWN0c0gAEjMKCnJ1bl9yZXBvcnQYHyABKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuUmVwb3J0SAASPAoQc3RyYXRlZ3lfcGFja2FnZRggIAEoCzIgLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLlBhY2thZ2VIAEIGCgRib2R5ImoKBkhlYWx0aBITCgtpbnN0YW5jZV9pZBgBIAEoCRISCgpwcm9jZXNzX2lkGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSEQoJdXB0aW1lX21zGAQgASgEEhMKC2luaXRpYWxpemVkGAUgASgIIiYKBUVycm9yEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSIKCghBY2NlcHRlZCJkCgxUYWJsZVN1bW1hcnkSDQoFdGFibGUYASABKAkSDAoEcm93cxgCIAEoBBISCgpwYXJ0aXRpb25zGAMgASgNEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCSJoCgdTdW1tYXJ5EhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgpjcmVhdGVkX25zGAIgASgDEjAKBnRhYmxlcxgDIAMoCzIgLmFzdGVyaW9uLmxhYi5wcm90by5UYWJsZVN1bW1hcnkiiQIKCENoYXJ0QmFyEg8KB3RpbWVfbXMYASABKAMSEwoLdHJhZGluZ19kYXkYAiABKAkSDwoHcGFydGlhbBgDIAEoCBIMCgRvcGVuGAQgASgJEgwKBGhpZ2gYBSABKAkSCwoDbG93GAYgASgJEg0KBWNsb3NlGAcgASgJEg4KBnZvbHVtZRgIIAEoCRIWCgltYWNkX2RpZmYYCSABKAFIAIgBARIYCgttYWNkX3NpZ25hbBgKIAEoAUgBiAEBEhsKDm1hY2RfaGlzdG9ncmFtGAsgASgBSAKIAQFCDAoKX21hY2RfZGlmZkIOCgxfbWFjZF9zaWduYWxCEQoPX21hY2RfaGlzdG9ncmFtInIKCUNoYXJ0QmFycxIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSEAoIY29udHJhY3QYAiABKAkSDgoGcGVyaW9kGAMgASgJEioKBGJhcnMYBCADKAsyHC5hc3Rlcmlvbi5sYWIucHJvdG8uQ2hhcnRCYXIirQEKDlN0b3JlZENvbnRyYWN0EhAKCGNvbnRyYWN0GAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGFpbHlfZmlyc3QYAyABKAkSEgoKZGFpbHlfbGFzdBgEIAEoCRISCgpkYWlseV9kYXlzGAUgASgNEhQKDG1pbnV0ZV9maXJzdBgGIAEoCRITCgttaW51dGVfbGFzdBgHIAEoCRITCgttaW51dGVfZGF5cxgIIAEoDSJzCg9TdG9yZWRDb250cmFjdHMSFwoPZGF0YXNldF92ZXJzaW9uGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEjUKCWNvbnRyYWN0cxgDIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TdG9yZWRDb250cmFjdCJ4CgtEb21pbmFudERheRILCgNkYXkYASABKAkSEAoIY29udHJhY3QYAiABKAkSDAoEb3BlbhgDIAEoCRIMCgRoaWdoGAQgASgJEgsKA2xvdxgFIAEoCRINCgVjbG9zZRgGIAEoCRISCgpzZXR0bGVtZW50GAcgASgJIk4KBFJvbGwSCwoDZGF5GAEgASgJEhUKDWZyb21fY29udHJhY3QYAiABKAkSEwoLdG9fY29udHJhY3QYAyABKAkSDQoFcmF0aW8YBCABKAkilQEKDkRvbWluYW50U2VyaWVzEhcKD2RhdGFzZXRfdmVyc2lvbhgBIAEoCRISCgphZGp1c3RtZW50GAIgASgJEi0KBGRheXMYAyADKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uRG9taW5hbnREYXkSJwoFcm9sbHMYBCADKAsyGC5hc3Rlcmlvbi5sYWIucHJvdG8uUm9sbCIsCg5TZXNzaW9uU2VnbWVudBINCgViZWdpbhgBIAEoCRILCgNlbmQYAiABKAkivgEKClNlc3Npb25EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSEQoJZGF5X2tub3duGAIgASgIEi8KA2RheRgDIAMoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBITCgtuaWdodF9zdGF0ZRgEIAEoCRIxCgVuaWdodBgFIAEoCzIiLmFzdGVyaW9uLmxhYi5wcm90by5TZXNzaW9uU2VnbWVudBIPCgdzb3VyY2VzGAYgAygJIlgKDVNlc3Npb25Tb3VyY2USCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSCwoDdXJsGAMgASgJEhEKCXB1Ymxpc2hlZBgEIAEoCRIMCgRub3RlGAUgASgJIn4KCFNlc3Npb25zEhAKCHJldmlld2VkGAEgASgJEiwKBGRheXMYAiADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uU2Vzc2lvbkRheRIyCgdzb3VyY2VzGAMgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLlNlc3Npb25Tb3VyY2UiJQoPU3RyYXRlZ2llc1F1ZXJ5EhIKCnJlcG9zaXRvcnkYASABKAkiaQoRU3RyYXRlZ3lQYXJhbWV0ZXISDAoEbmFtZRgBIAEoCRIMCgRraW5kGAIgASgJEjgKB2RlZmF1bHQYAyABKAsyJy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5QYXJhbWV0ZXJWYWx1ZSJrCg1TdHJhdGVneUVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEjkKCnBhcmFtZXRlcnMYAyADKAsyJS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lQYXJhbWV0ZXIiNgoTU3RyYXRlZ3lNb2R1bGVFcnJvchIOCgZtb2R1bGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSLjAQoKU3RyYXRlZ2llcxISCgpyZXBvc2l0b3J5GAEgASgJEg4KBmNvbW1pdBgCIAEoCRIPCgdjaGFuZ2VzGAMgASgJEjUKCnN0cmF0ZWdpZXMYBCADKAsyIS5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lFbnRyeRI3CgZlcnJvcnMYBSADKAsyJy5hc3Rlcmlvbi5sYWIucHJvdG8uU3RyYXRlZ3lNb2R1bGVFcnJvchIwCgdmYWN0b3JzGAYgAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvckVudHJ5InkKC0ZhY3RvckVudHJ5EgoKAmlkGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEg4KBmlucHV0cxgDIAMoCRI5CgpwYXJhbWV0ZXJzGAQgAygLMiUuYXN0ZXJpb24ubGFiLnByb3RvLlN0cmF0ZWd5UGFyYW1ldGVyIsQCCglGYWN0b3JSdW4SEgoKcmVwb3NpdG9yeRgBIAEoCRIOCgZmYWN0b3IYAiABKAkSOQoGcGFyYW1zGAMgAygLMikuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3RvclJ1bi5QYXJhbXNFbnRyeRIQCghwcm92aWRlchgEIAEoCRIPCgdzeW1ib2xzGAUgAygJEhEKCWJlZ2luX2RheRgGIAEoCRIPCgdlbmRfZGF5GAcgASgJEhAKCGhvcml6b25zGAggAygNEg4KBmdyb3VwcxgJIAEoDRIXCg9kYXRhc2V0X3ZlcnNpb24YCiABKAkaVgoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEjYKBXZhbHVlGAIgASgLMicuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIsIBCg1GYWN0b3JIb3Jpem9uEg8KB2hvcml6b24YASABKA0SDAoEZGF5cxgCIAEoDRIRCgRtZWFuGAMgASgBSACIAQESFgoJZGV2aWF0aW9uGAQgASgBSAGIAQESDwoCaXIYBSABKAFIAogBARIOCgF0GAYgASgBSAOIAQESFQoIcG9zaXRpdmUYByABKAFIBIgBAUIHCgVfbWVhbkIMCgpfZGV2aWF0aW9uQgUKA19pckIECgJfdEILCglfcG9zaXRpdmUigQEKCUZhY3RvckRheRITCgt0cmFkaW5nX2RheRgBIAEoCRIPCgdzeW1ib2xzGAIgASgNEg8KAmljGAMgASgBSACIAQESDgoGZ3JvdXBzGAQgAygBEhcKCmxvbmdfc2hvcnQYBSABKAFIAYgBAUIFCgNfaWNCDQoLX2xvbmdfc2hvcnQiagoLRmFjdG9yR3JvdXASDQoFZ3JvdXAYASABKA0SGAoLbWVhbl9yZXR1cm4YAiABKAFIAIgBARIVCgh0dXJub3ZlchgDIAEoAUgBiAEBQg4KDF9tZWFuX3JldHVybkILCglfdHVybm92ZXIiLwoNRmFjdG9yU2tpcHBlZBIOCgZzeW1ib2wYASABKAkSDgoGcmVhc29uGAIgASgJIqACCgxGYWN0b3JSZXN1bHQSDgoGY29tbWl0GAEgASgJEg8KB2NoYW5nZXMYAiABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAMgASgJEg8KB3N5bWJvbHMYBCADKAkSMgoHc2tpcHBlZBgFIAMoCzIhLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JTa2lwcGVkEjMKCGhvcml6b25zGAYgAygLMiEuYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckhvcml6b24SKwoEZGF5cxgHIAMoCzIdLmFzdGVyaW9uLmxhYi5wcm90by5GYWN0b3JEYXkSLwoGZ3JvdXBzGAggAygLMh8uYXN0ZXJpb24ubGFiLnByb3RvLkZhY3Rvckdyb3VwIi8KDFByb2R1Y3RDb3N0cxIPCgdwcm9kdWN0GAEgASgJEg4KBnZhbHVlcxgCIAMoCSKbBQoLQmFja3Rlc3RSdW4SCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIQCghzdHJhdGVneRgDIAEoCRI7CgZwYXJhbXMYBCADKAsyKy5hc3Rlcmlvbi5sYWIucHJvdG8uQmFja3Rlc3RSdW4uUGFyYW1zRW50cnkSEAoIcHJvdmlkZXIYBSABKAkSDwoHc3ltYm9scxgGIAMoCRIRCgliZWdpbl9kYXkYByABKAkSDwoHZW5kX2RheRgIIAEoCRIPCgdkZXBvc2l0GAkgASgJEi8KBWNvc3RzGAogAygLMiAuYXN0ZXJpb24ubGFiLnByb3RvLlByb2R1Y3RDb3N0cxIWCg5zbGlwcGFnZV90aWNrcxgLIAEoDRIWCg5tYXhfb3JkZXJfbG90cxgMIAEoCRIWCg5tYXhfZ3Jvc3NfbG90cxgNIAEoCRIaChJtYXhfd29ya2luZ19vcmRlcnMYDiABKA0SGAoQbWF4X2dyb3NzX3dlaWdodBgPIAEoCRIWCg5tYXhfbmV0X3dlaWdodBgQIAEoCRIWCg5hbm51YWxfcGVyaW9kcxgRIAEoARIWCg56ZXJvX3Jpc2tfZnJlZRgSIAEoCBITCgtob2xkb3V0X2RheRgTIAEoCRIPCgdtaW51dGVzGBQgASgNEhcKD21pbnV0ZV9wcm92aWRlchgVIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YFiABKAkSHgoWbWludXRlX2RhdGFzZXRfdmVyc2lvbhgXIAEoCRpWCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSNgoFdmFsdWUYAiABKAsyJy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5QYXJhbWV0ZXJWYWx1ZToCOAEiCwoJUnVuc1F1ZXJ5IhcKCUNhbmNlbFJ1bhIKCgJpZBgBIAEoCSK8AwoKUnVuU3VtbWFyeRIKCgJpZBgBIAEoCRIQCghzdHJhdGVneRgCIAEoCRIOCgZjb21taXQYAyABKAkSDwoHY2hhbmdlcxgEIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YBSABKAkSDQoFc3RhdGUYBiABKAkSDQoFZXJyb3IYByABKAkSEgoKc3RhcnRlZF9ucxgIIAEoAxITCgtmaW5pc2hlZF9ucxgJIAEoAxI8CgdtZXRyaWNzGAogAygLMisuYXN0ZXJpb24ubGFiLnByb3RvLlJ1blN1bW1hcnkuTWV0cmljc0VudHJ5EjoKBnBhcmFtcxgLIAMoCzIqLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5LlBhcmFtc0VudHJ5Eg0KBXN3ZWVwGAwgASgJGi4KDE1ldHJpY3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAE6AjgBGlYKC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRI2CgV2YWx1ZRgCIAEoCzInLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLlBhcmFtZXRlclZhbHVlOgI4ASI0CgRSdW5zEiwKBHJ1bnMYASADKAsyHi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuU3VtbWFyeSJYCg9QYXJhbWV0ZXJWYWx1ZXMSDAoEbmFtZRgBIAEoCRI3CgZ2YWx1ZXMYAiADKAsyJy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5QYXJhbWV0ZXJWYWx1ZSLBAQoFU3dlZXASCgoCaWQYASABKAkSLQoEYmFzZRgCIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIzCgZ2YWx1ZXMYAyADKAsyIy5hc3Rlcmlvbi5sYWIucHJvdG8uUGFyYW1ldGVyVmFsdWVzEhEKCXByb2Nlc3NlcxgEIAEoDRI1Cgx3YWxrX2ZvcndhcmQYBSABKAsyHy5hc3Rlcmlvbi5sYWIucHJvdG8uV2Fsa0ZvcndhcmQiPQoLV2Fsa0ZvcndhcmQSFQoNdHJhaW5pbmdfZGF5cxgBIAEoDRIXCg92YWxpZGF0aW9uX2RheXMYAiABKA0ihgEKClJvbGxpbmdSdW4SCgoCaWQYASABKAkSDQoFc3dlZXAYAiABKAkSLQoEYmFzZRgDIAEoCzIfLmFzdGVyaW9uLmxhYi5wcm90by5CYWNrdGVzdFJ1bhIVCg10cmFpbmluZ19kYXlzGAQgASgNEhcKD3ZhbGlkYXRpb25fZGF5cxgFIAEoDSIYCgpTd2VlcFF1ZXJ5EgoKAmlkGAEgASgJIhkKC0NhbmNlbFN3ZWVwEgoKAmlkGAEgASgJIqkBCglTd2VlcFJ1bnMSCgoCaWQYASABKAkSLAoEcnVucxgCIAMoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg8KB3dhaXRpbmcYAyABKA0SEAoIc2VsZWN0ZWQYBCABKAkSLwoHcm9sbGluZxgFIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBmFjdGl2ZRgGIAEoCCIWCghSdW5RdWVyeRIKCgJpZBgBIAEoCSJACglSdW5FcXVpdHkSDwoHdGltZV9ucxgBIAEoAxIOCgZlcXVpdHkYAiABKAkSEgoKc2V0dGxlbWVudBgDIAEoCCJtCgZSdW5EYXkSEwoLdHJhZGluZ19kYXkYASABKAkSDwoHdGltZV9ucxgCIAEoAxIOCgZlcXVpdHkYAyABKAkSDwoHYmFsYW5jZRgEIAEoCRIMCgRmZWVzGAUgASgJEg4KBm1hcmdpbhgGIAEoCSKVAQoHUnVuRmlsbBIMCgRmaWxsGAEgASgJEg0KBW9yZGVyGAIgASgJEg8KB3RpbWVfbnMYAyABKAMSEAoIY29udHJhY3QYBCABKAkSDAoEc2lkZRgFIAEoCRIOCgZvZmZzZXQYBiABKAkSEAoIcXVhbnRpdHkYByABKAkSDQoFcHJpY2UYCCABKAkSCwoDZmVlGAkgASgJItEBCglSdW5EZXRhaWwSLwoHc3VtbWFyeRgBIAEoCzIeLmFzdGVyaW9uLmxhYi5wcm90by5SdW5TdW1tYXJ5Eg4KBnJlY29yZBgCIAEoCRItCgZlcXVpdHkYAyADKAsyHS5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRXF1aXR5EigKBGRheXMYBCADKAsyGi5hc3Rlcmlvbi5sYWIucHJvdG8uUnVuRGF5EioKBWZpbGxzGAUgAygLMhsuYXN0ZXJpb24ubGFiLnByb3RvLlJ1bkZpbGxiBnByb3RvMw", [file_asterion_strategy]);
 
 /**
- * The Python research service. One per node, supervised by the Agent.
+ * The Python research service, supervised by Terminal.
  *
  * @generated from message asterion.lab.proto.Request
  */
@@ -44,43 +46,10 @@ export type Request = Message<"asterion.lab.proto.Request"> & {
     case: "health";
   } | {
     /**
-     * Sent by Terminal's native layer only: the credential never passes
-     * through the UI. The service keeps it in memory.
-     *
-     * @generated from field: asterion.lab.proto.ConfigureSource configure_source = 11;
-     */
-    value: ConfigureSource;
-    case: "configureSource";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.AcquireDaily acquire = 12;
-     */
-    value: AcquireDaily;
-    case: "acquire";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.TasksQuery tasks = 13;
-     */
-    value: TasksQuery;
-    case: "tasks";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.CancelTask cancel = 14;
-     */
-    value: CancelTask;
-    case: "cancel";
-  } | {
-    /**
      * @generated from field: asterion.lab.proto.SummaryQuery summary = 15;
      */
     value: SummaryQuery;
     case: "summary";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.CoverageQuery coverage = 16;
-     */
-    value: CoverageQuery;
-    case: "coverage";
   } | {
     /**
      * @generated from field: asterion.lab.proto.DominantQuery dominant = 18;
@@ -93,30 +62,6 @@ export type Request = Message<"asterion.lab.proto.Request"> & {
      */
     value: SessionsQuery;
     case: "sessions";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.CrossCheckQuery cross_check = 20;
-     */
-    value: CrossCheckQuery;
-    case: "crossCheck";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.SourcesQuery sources = 21;
-     */
-    value: SourcesQuery;
-    case: "sources";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.SourceRead source_read = 22;
-     */
-    value: SourceRead;
-    case: "sourceRead";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.SourceCoverageQuery source_coverage = 23;
-     */
-    value: SourceCoverageQuery;
-    case: "sourceCoverage";
   } | {
     /**
      * @generated from field: asterion.lab.proto.StrategiesQuery strategies = 24;
@@ -189,6 +134,12 @@ export type Request = Message<"asterion.lab.proto.Request"> & {
      */
     value: RunReportQuery;
     case: "runReport";
+  } | {
+    /**
+     * @generated from field: asterion.strategy.proto.Build strategy_package = 36;
+     */
+    value: Build;
+    case: "strategyPackage";
   } | { case: undefined; value?: undefined };
 };
 
@@ -213,133 +164,6 @@ export const HealthQuerySchema: GenMessage<HealthQuery> = /*@__PURE__*/
   messageDesc(file_asterion_lab, 1);
 
 /**
- * @generated from message asterion.lab.proto.ConfigureSource
- */
-export type ConfigureSource = Message<"asterion.lab.proto.ConfigureSource"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: string credential = 2;
-   */
-  credential: string;
-
-  /**
-   * @generated from field: uint32 requests_per_minute = 3;
-   */
-  requestsPerMinute: number;
-
-  /**
-   * @generated from field: string host = 4;
-   */
-  host: string;
-
-  /**
-   * @generated from field: uint32 port = 5;
-   */
-  port: number;
-};
-
-/**
- * Describes the message asterion.lab.proto.ConfigureSource.
- * Use `create(ConfigureSourceSchema)` to create a new message.
- */
-export const ConfigureSourceSchema: GenMessage<ConfigureSource> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 2);
-
-/**
- * Calendars, contract lists and daily bars of every exchange, for open days in
- * [begin_day, end_day] (YYYY-MM-DD) not stored yet.
- *
- * @generated from message asterion.lab.proto.AcquireDaily
- */
-export type AcquireDaily = Message<"asterion.lab.proto.AcquireDaily"> & {
-  /**
-   * @generated from field: string id = 1;
-   */
-  id: string;
-
-  /**
-   * @generated from field: string begin_day = 2;
-   */
-  beginDay: string;
-
-  /**
-   * @generated from field: string end_day = 3;
-   */
-  endDay: string;
-
-  /**
-   * Empty for every exchange.
-   *
-   * @generated from field: repeated string exchanges = 4;
-   */
-  exchanges: string[];
-
-  /**
-   * Read stored days again, as after a change of the mapping rules. The new
-   * version replaces their rows; earlier versions keep theirs.
-   *
-   * @generated from field: bool refresh = 5;
-   */
-  refresh: boolean;
-
-  /**
-   * @generated from field: string provider = 6;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: string table = 7;
-   */
-  table: string;
-
-  /**
-   * @generated from field: string contract = 8;
-   */
-  contract: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.AcquireDaily.
- * Use `create(AcquireDailySchema)` to create a new message.
- */
-export const AcquireDailySchema: GenMessage<AcquireDaily> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 3);
-
-/**
- * @generated from message asterion.lab.proto.TasksQuery
- */
-export type TasksQuery = Message<"asterion.lab.proto.TasksQuery"> & {
-};
-
-/**
- * Describes the message asterion.lab.proto.TasksQuery.
- * Use `create(TasksQuerySchema)` to create a new message.
- */
-export const TasksQuerySchema: GenMessage<TasksQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 4);
-
-/**
- * @generated from message asterion.lab.proto.CancelTask
- */
-export type CancelTask = Message<"asterion.lab.proto.CancelTask"> & {
-  /**
-   * @generated from field: string id = 1;
-   */
-  id: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.CancelTask.
- * Use `create(CancelTaskSchema)` to create a new message.
- */
-export const CancelTaskSchema: GenMessage<CancelTask> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 5);
-
-/**
  * @generated from message asterion.lab.proto.SummaryQuery
  */
 export type SummaryQuery = Message<"asterion.lab.proto.SummaryQuery"> & {
@@ -354,24 +178,7 @@ export type SummaryQuery = Message<"asterion.lab.proto.SummaryQuery"> & {
  * Use `create(SummaryQuerySchema)` to create a new message.
  */
 export const SummaryQuerySchema: GenMessage<SummaryQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 6);
-
-/**
- * @generated from message asterion.lab.proto.CoverageQuery
- */
-export type CoverageQuery = Message<"asterion.lab.proto.CoverageQuery"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.CoverageQuery.
- * Use `create(CoverageQuerySchema)` to create a new message.
- */
-export const CoverageQuerySchema: GenMessage<CoverageQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 7);
+  messageDesc(file_asterion_lab, 2);
 
 /**
  * A contract's bars for the market page's chart (asterion_lab/chart.py):
@@ -389,8 +196,6 @@ export type ChartBarsQuery = Message<"asterion.lab.proto.ChartBarsQuery"> & {
   contract: string;
 
   /**
-   * where the minutes are: tushare or recorder; days are Tushare's
-   *
    * @generated from field: string provider = 2;
    */
   provider: string;
@@ -399,6 +204,14 @@ export type ChartBarsQuery = Message<"asterion.lab.proto.ChartBarsQuery"> & {
    * @generated from field: string period = 3;
    */
   period: string;
+
+  /**
+   * A result chart uses the run's recorded version. Empty selects latest only
+   * for browsing historical data independently of a research result.
+   *
+   * @generated from field: string dataset_version = 4;
+   */
+  datasetVersion: string;
 };
 
 /**
@@ -406,7 +219,7 @@ export type ChartBarsQuery = Message<"asterion.lab.proto.ChartBarsQuery"> & {
  * Use `create(ChartBarsQuerySchema)` to create a new message.
  */
 export const ChartBarsQuerySchema: GenMessage<ChartBarsQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 8);
+  messageDesc(file_asterion_lab, 3);
 
 /**
  * The contracts a source has stored, with the days of each table.
@@ -426,7 +239,7 @@ export type RunReportQuery = Message<"asterion.lab.proto.RunReportQuery"> & {
  * Use `create(RunReportQuerySchema)` to create a new message.
  */
 export const RunReportQuerySchema: GenMessage<RunReportQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 9);
+  messageDesc(file_asterion_lab, 4);
 
 /**
  * @generated from message asterion.lab.proto.RunReport
@@ -456,7 +269,7 @@ export type RunReport = Message<"asterion.lab.proto.RunReport"> & {
  * Use `create(RunReportSchema)` to create a new message.
  */
 export const RunReportSchema: GenMessage<RunReport> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 10);
+  messageDesc(file_asterion_lab, 5);
 
 /**
  * @generated from message asterion.lab.proto.StoredContractsQuery
@@ -480,7 +293,7 @@ export type StoredContractsQuery = Message<"asterion.lab.proto.StoredContractsQu
  * Use `create(StoredContractsQuerySchema)` to create a new message.
  */
 export const StoredContractsQuerySchema: GenMessage<StoredContractsQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 11);
+  messageDesc(file_asterion_lab, 6);
 
 /**
  * A product's dominant series in [begin_day, end_day]. The dominant month of a
@@ -537,7 +350,7 @@ export type DominantQuery = Message<"asterion.lab.proto.DominantQuery"> & {
  * Use `create(DominantQuerySchema)` to create a new message.
  */
 export const DominantQuerySchema: GenMessage<DominantQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 12);
+  messageDesc(file_asterion_lab, 7);
 
 /**
  * The trading sessions of a product on the exchange's open days in
@@ -577,39 +390,7 @@ export type SessionsQuery = Message<"asterion.lab.proto.SessionsQuery"> & {
  * Use `create(SessionsQuerySchema)` to create a new message.
  */
 export const SessionsQuerySchema: GenMessage<SessionsQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 13);
-
-/**
- * Compares a second source with the first over open days in [begin_day,
- * end_day], at most 31 days. "settlement": the exchanges' settlement parameter
- * files against Tushare's fut_settle, for the first products of decision D4.
- * "daily": AKShare's daily bars against the warehouse. Nothing is stored.
- *
- * @generated from message asterion.lab.proto.CrossCheckQuery
- */
-export type CrossCheckQuery = Message<"asterion.lab.proto.CrossCheckQuery"> & {
-  /**
-   * @generated from field: string kind = 1;
-   */
-  kind: string;
-
-  /**
-   * @generated from field: string begin_day = 2;
-   */
-  beginDay: string;
-
-  /**
-   * @generated from field: string end_day = 3;
-   */
-  endDay: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.CrossCheckQuery.
- * Use `create(CrossCheckQuerySchema)` to create a new message.
- */
-export const CrossCheckQuerySchema: GenMessage<CrossCheckQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 14);
+  messageDesc(file_asterion_lab, 8);
 
 /**
  * @generated from message asterion.lab.proto.Response
@@ -653,22 +434,10 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
     case: "accepted";
   } | {
     /**
-     * @generated from field: asterion.lab.proto.Tasks tasks = 13;
-     */
-    value: Tasks;
-    case: "tasks";
-  } | {
-    /**
      * @generated from field: asterion.lab.proto.Summary summary = 14;
      */
     value: Summary;
     case: "summary";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.Coverage coverage = 15;
-     */
-    value: Coverage;
-    case: "coverage";
   } | {
     /**
      * @generated from field: asterion.lab.proto.DominantSeries dominant = 17;
@@ -681,30 +450,6 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
      */
     value: Sessions;
     case: "sessions";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.CrossCheck cross_check = 19;
-     */
-    value: CrossCheck;
-    case: "crossCheck";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.Sources sources = 21;
-     */
-    value: Sources;
-    case: "sources";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.SourceTable source_table = 22;
-     */
-    value: SourceTable;
-    case: "sourceTable";
-  } | {
-    /**
-     * @generated from field: asterion.lab.proto.SourceCoverage source_coverage = 23;
-     */
-    value: SourceCoverage;
-    case: "sourceCoverage";
   } | {
     /**
      * @generated from field: asterion.lab.proto.Strategies strategies = 24;
@@ -753,6 +498,12 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
      */
     value: RunReport;
     case: "runReport";
+  } | {
+    /**
+     * @generated from field: asterion.strategy.proto.Package strategy_package = 32;
+     */
+    value: Package;
+    case: "strategyPackage";
   } | { case: undefined; value?: undefined };
 };
 
@@ -761,7 +512,7 @@ export type Response = Message<"asterion.lab.proto.Response"> & {
  * Use `create(ResponseSchema)` to create a new message.
  */
 export const ResponseSchema: GenMessage<Response> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 15);
+  messageDesc(file_asterion_lab, 9);
 
 /**
  * @generated from message asterion.lab.proto.Health
@@ -793,13 +544,6 @@ export type Health = Message<"asterion.lab.proto.Health"> & {
    * @generated from field: bool initialized = 5;
    */
   initialized: boolean;
-
-  /**
-   * Providers with a credential held in memory.
-   *
-   * @generated from field: repeated string configured_sources = 6;
-   */
-  configuredSources: string[];
 };
 
 /**
@@ -807,7 +551,7 @@ export type Health = Message<"asterion.lab.proto.Health"> & {
  * Use `create(HealthSchema)` to create a new message.
  */
 export const HealthSchema: GenMessage<Health> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 16);
+  messageDesc(file_asterion_lab, 10);
 
 /**
  * @generated from message asterion.lab.proto.Error
@@ -829,7 +573,7 @@ export type Error = Message<"asterion.lab.proto.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 17);
+  messageDesc(file_asterion_lab, 11);
 
 /**
  * @generated from message asterion.lab.proto.Accepted
@@ -842,122 +586,7 @@ export type Accepted = Message<"asterion.lab.proto.Accepted"> & {
  * Use `create(AcceptedSchema)` to create a new message.
  */
 export const AcceptedSchema: GenMessage<Accepted> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 18);
-
-/**
- * @generated from message asterion.lab.proto.Task
- */
-export type Task = Message<"asterion.lab.proto.Task"> & {
-  /**
-   * @generated from field: string id = 1;
-   */
-  id: string;
-
-  /**
-   * @generated from field: string begin_day = 2;
-   */
-  beginDay: string;
-
-  /**
-   * @generated from field: string end_day = 3;
-   */
-  endDay: string;
-
-  /**
-   * running, succeeded, failed, cancelled
-   *
-   * @generated from field: string state = 4;
-   */
-  state: string;
-
-  /**
-   * @generated from field: uint32 days_total = 5;
-   */
-  daysTotal: number;
-
-  /**
-   * @generated from field: uint32 days_done = 6;
-   */
-  daysDone: number;
-
-  /**
-   * Open days the vendor had no rows for yet; they are asked again next time.
-   *
-   * @generated from field: uint32 days_empty = 7;
-   */
-  daysEmpty: number;
-
-  /**
-   * @generated from field: uint32 requests = 8;
-   */
-  requests: number;
-
-  /**
-   * @generated from field: string error_code = 9;
-   */
-  errorCode: string;
-
-  /**
-   * @generated from field: string error = 10;
-   */
-  error: string;
-
-  /**
-   * The newest version this task committed.
-   *
-   * @generated from field: string dataset_version = 11;
-   */
-  datasetVersion: string;
-
-  /**
-   * @generated from field: int64 started_ns = 12;
-   */
-  startedNs: bigint;
-
-  /**
-   * @generated from field: int64 finished_ns = 13;
-   */
-  finishedNs: bigint;
-
-  /**
-   * @generated from field: string provider = 14;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: string table = 15;
-   */
-  table: string;
-
-  /**
-   * @generated from field: string contract = 16;
-   */
-  contract: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.Task.
- * Use `create(TaskSchema)` to create a new message.
- */
-export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 19);
-
-/**
- * @generated from message asterion.lab.proto.Tasks
- */
-export type Tasks = Message<"asterion.lab.proto.Tasks"> & {
-  /**
-   * @generated from field: repeated asterion.lab.proto.Task tasks = 1;
-   */
-  tasks: Task[];
-};
-
-/**
- * Describes the message asterion.lab.proto.Tasks.
- * Use `create(TasksSchema)` to create a new message.
- */
-export const TasksSchema: GenMessage<Tasks> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 20);
+  messageDesc(file_asterion_lab, 12);
 
 /**
  * @generated from message asterion.lab.proto.TableSummary
@@ -994,7 +623,7 @@ export type TableSummary = Message<"asterion.lab.proto.TableSummary"> & {
  * Use `create(TableSummarySchema)` to create a new message.
  */
 export const TableSummarySchema: GenMessage<TableSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 21);
+  messageDesc(file_asterion_lab, 13);
 
 /**
  * @generated from message asterion.lab.proto.Summary
@@ -1021,87 +650,7 @@ export type Summary = Message<"asterion.lab.proto.Summary"> & {
  * Use `create(SummarySchema)` to create a new message.
  */
 export const SummarySchema: GenMessage<Summary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 22);
-
-/**
- * Of each product and month: the days with daily bars, and the exchange's open days.
- *
- * @generated from message asterion.lab.proto.MonthCoverage
- */
-export type MonthCoverage = Message<"asterion.lab.proto.MonthCoverage"> & {
-  /**
-   * YYYY-MM
-   *
-   * @generated from field: string month = 1;
-   */
-  month: string;
-
-  /**
-   * @generated from field: uint32 days = 2;
-   */
-  days: number;
-
-  /**
-   * @generated from field: uint32 open_days = 3;
-   */
-  openDays: number;
-};
-
-/**
- * Describes the message asterion.lab.proto.MonthCoverage.
- * Use `create(MonthCoverageSchema)` to create a new message.
- */
-export const MonthCoverageSchema: GenMessage<MonthCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 23);
-
-/**
- * @generated from message asterion.lab.proto.ProductCoverage
- */
-export type ProductCoverage = Message<"asterion.lab.proto.ProductCoverage"> & {
-  /**
-   * @generated from field: string exchange = 1;
-   */
-  exchange: string;
-
-  /**
-   * @generated from field: string product = 2;
-   */
-  product: string;
-
-  /**
-   * @generated from field: repeated asterion.lab.proto.MonthCoverage months = 3;
-   */
-  months: MonthCoverage[];
-};
-
-/**
- * Describes the message asterion.lab.proto.ProductCoverage.
- * Use `create(ProductCoverageSchema)` to create a new message.
- */
-export const ProductCoverageSchema: GenMessage<ProductCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 24);
-
-/**
- * @generated from message asterion.lab.proto.Coverage
- */
-export type Coverage = Message<"asterion.lab.proto.Coverage"> & {
-  /**
-   * @generated from field: string dataset_version = 1;
-   */
-  datasetVersion: string;
-
-  /**
-   * @generated from field: repeated asterion.lab.proto.ProductCoverage products = 2;
-   */
-  products: ProductCoverage[];
-};
-
-/**
- * Describes the message asterion.lab.proto.Coverage.
- * Use `create(CoverageSchema)` to create a new message.
- */
-export const CoverageSchema: GenMessage<Coverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 25);
+  messageDesc(file_asterion_lab, 14);
 
 /**
  * @generated from message asterion.lab.proto.ChartBar
@@ -1178,7 +727,7 @@ export type ChartBar = Message<"asterion.lab.proto.ChartBar"> & {
  * Use `create(ChartBarSchema)` to create a new message.
  */
 export const ChartBarSchema: GenMessage<ChartBar> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 26);
+  messageDesc(file_asterion_lab, 15);
 
 /**
  * @generated from message asterion.lab.proto.ChartBars
@@ -1210,7 +759,7 @@ export type ChartBars = Message<"asterion.lab.proto.ChartBars"> & {
  * Use `create(ChartBarsSchema)` to create a new message.
  */
 export const ChartBarsSchema: GenMessage<ChartBars> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 27);
+  messageDesc(file_asterion_lab, 16);
 
 /**
  * @generated from message asterion.lab.proto.StoredContract
@@ -1264,7 +813,7 @@ export type StoredContract = Message<"asterion.lab.proto.StoredContract"> & {
  * Use `create(StoredContractSchema)` to create a new message.
  */
 export const StoredContractSchema: GenMessage<StoredContract> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 28);
+  messageDesc(file_asterion_lab, 17);
 
 /**
  * @generated from message asterion.lab.proto.StoredContracts
@@ -1291,7 +840,7 @@ export type StoredContracts = Message<"asterion.lab.proto.StoredContracts"> & {
  * Use `create(StoredContractsSchema)` to create a new message.
  */
 export const StoredContractsSchema: GenMessage<StoredContracts> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 29);
+  messageDesc(file_asterion_lab, 18);
 
 /**
  * @generated from message asterion.lab.proto.DominantDay
@@ -1341,7 +890,7 @@ export type DominantDay = Message<"asterion.lab.proto.DominantDay"> & {
  * Use `create(DominantDaySchema)` to create a new message.
  */
 export const DominantDaySchema: GenMessage<DominantDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 30);
+  messageDesc(file_asterion_lab, 19);
 
 /**
  * @generated from message asterion.lab.proto.Roll
@@ -1375,7 +924,7 @@ export type Roll = Message<"asterion.lab.proto.Roll"> & {
  * Use `create(RollSchema)` to create a new message.
  */
 export const RollSchema: GenMessage<Roll> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 31);
+  messageDesc(file_asterion_lab, 20);
 
 /**
  * @generated from message asterion.lab.proto.DominantSeries
@@ -1407,7 +956,7 @@ export type DominantSeries = Message<"asterion.lab.proto.DominantSeries"> & {
  * Use `create(DominantSeriesSchema)` to create a new message.
  */
 export const DominantSeriesSchema: GenMessage<DominantSeries> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 32);
+  messageDesc(file_asterion_lab, 21);
 
 /**
  * Beijing time, "YYYY-MM-DD HH:MM".
@@ -1431,7 +980,7 @@ export type SessionSegment = Message<"asterion.lab.proto.SessionSegment"> & {
  * Use `create(SessionSegmentSchema)` to create a new message.
  */
 export const SessionSegmentSchema: GenMessage<SessionSegment> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 33);
+  messageDesc(file_asterion_lab, 22);
 
 /**
  * @generated from message asterion.lab.proto.SessionDay
@@ -1478,7 +1027,7 @@ export type SessionDay = Message<"asterion.lab.proto.SessionDay"> & {
  * Use `create(SessionDaySchema)` to create a new message.
  */
 export const SessionDaySchema: GenMessage<SessionDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 34);
+  messageDesc(file_asterion_lab, 23);
 
 /**
  * @generated from message asterion.lab.proto.SessionSource
@@ -1515,7 +1064,7 @@ export type SessionSource = Message<"asterion.lab.proto.SessionSource"> & {
  * Use `create(SessionSourceSchema)` to create a new message.
  */
 export const SessionSourceSchema: GenMessage<SessionSource> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 35);
+  messageDesc(file_asterion_lab, 24);
 
 /**
  * @generated from message asterion.lab.proto.Sessions
@@ -1542,403 +1091,7 @@ export type Sessions = Message<"asterion.lab.proto.Sessions"> & {
  * Use `create(SessionsSchema)` to create a new message.
  */
 export const SessionsSchema: GenMessage<Sessions> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 36);
-
-/**
- * @generated from message asterion.lab.proto.CheckDifference
- */
-export type CheckDifference = Message<"asterion.lab.proto.CheckDifference"> & {
-  /**
-   * @generated from field: string contract = 1;
-   */
-  contract: string;
-
-  /**
-   * @generated from field: string field = 2;
-   */
-  field: string;
-
-  /**
-   * Tushare
-   *
-   * @generated from field: string first = 3;
-   */
-  first: string;
-
-  /**
-   * the exchange's file, or AKShare
-   *
-   * @generated from field: string second = 4;
-   */
-  second: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.CheckDifference.
- * Use `create(CheckDifferenceSchema)` to create a new message.
- */
-export const CheckDifferenceSchema: GenMessage<CheckDifference> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 37);
-
-/**
- * @generated from message asterion.lab.proto.CheckGroup
- */
-export type CheckGroup = Message<"asterion.lab.proto.CheckGroup"> & {
-  /**
-   * @generated from field: string exchange = 1;
-   */
-  exchange: string;
-
-  /**
-   * @generated from field: string day = 2;
-   */
-  day: string;
-
-  /**
-   * Why this exchange has no second source; nothing is compared then.
-   *
-   * @generated from field: string unavailable = 3;
-   */
-  unavailable: string;
-
-  /**
-   * @generated from field: uint32 compared_rows = 4;
-   */
-  comparedRows: number;
-
-  /**
-   * @generated from field: uint32 compared_values = 5;
-   */
-  comparedValues: number;
-
-  /**
-   * @generated from field: repeated string only_first = 6;
-   */
-  onlyFirst: string[];
-
-  /**
-   * @generated from field: repeated string only_second = 7;
-   */
-  onlySecond: string[];
-
-  /**
-   * @generated from field: repeated asterion.lab.proto.CheckDifference differences = 8;
-   */
-  differences: CheckDifference[];
-
-  /**
-   * What the check could not compare, and why.
-   *
-   * @generated from field: string note = 9;
-   */
-  note: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.CheckGroup.
- * Use `create(CheckGroupSchema)` to create a new message.
- */
-export const CheckGroupSchema: GenMessage<CheckGroup> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 38);
-
-/**
- * @generated from message asterion.lab.proto.CrossCheck
- */
-export type CrossCheck = Message<"asterion.lab.proto.CrossCheck"> & {
-  /**
-   * @generated from field: string kind = 1;
-   */
-  kind: string;
-
-  /**
-   * @generated from field: repeated asterion.lab.proto.CheckGroup groups = 2;
-   */
-  groups: CheckGroup[];
-};
-
-/**
- * Describes the message asterion.lab.proto.CrossCheck.
- * Use `create(CrossCheckSchema)` to create a new message.
- */
-export const CrossCheckSchema: GenMessage<CrossCheck> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 39);
-
-/**
- * All data sources expose the same catalogue, coverage and partition-read operations.
- *
- * @generated from message asterion.lab.proto.SourcesQuery
- */
-export type SourcesQuery = Message<"asterion.lab.proto.SourcesQuery"> & {
-};
-
-/**
- * Describes the message asterion.lab.proto.SourcesQuery.
- * Use `create(SourcesQuerySchema)` to create a new message.
- */
-export const SourcesQuerySchema: GenMessage<SourcesQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 40);
-
-/**
- * @generated from message asterion.lab.proto.SourceDescriptor
- */
-export type SourceDescriptor = Message<"asterion.lab.proto.SourceDescriptor"> & {
-  /**
-   * @generated from field: string id = 1;
-   */
-  id: string;
-
-  /**
-   * @generated from field: repeated string tables = 2;
-   */
-  tables: string[];
-
-  /**
-   * @generated from field: repeated string exchanges = 3;
-   */
-  exchanges: string[];
-
-  /**
-   * @generated from field: bool requires_credential = 4;
-   */
-  requiresCredential: boolean;
-
-  /**
-   * @generated from field: bool requires_endpoint = 5;
-   */
-  requiresEndpoint: boolean;
-
-  /**
-   * @generated from field: bool configured = 6;
-   */
-  configured: boolean;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceDescriptor.
- * Use `create(SourceDescriptorSchema)` to create a new message.
- */
-export const SourceDescriptorSchema: GenMessage<SourceDescriptor> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 41);
-
-/**
- * @generated from message asterion.lab.proto.Sources
- */
-export type Sources = Message<"asterion.lab.proto.Sources"> & {
-  /**
-   * @generated from field: repeated asterion.lab.proto.SourceDescriptor sources = 1;
-   */
-  sources: SourceDescriptor[];
-};
-
-/**
- * Describes the message asterion.lab.proto.Sources.
- * Use `create(SourcesSchema)` to create a new message.
- */
-export const SourcesSchema: GenMessage<Sources> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 42);
-
-/**
- * @generated from message asterion.lab.proto.SourceRead
- */
-export type SourceRead = Message<"asterion.lab.proto.SourceRead"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: string table = 2;
-   */
-  table: string;
-
-  /**
-   * @generated from field: string exchange = 3;
-   */
-  exchange: string;
-
-  /**
-   * One dated partition; calendars return that year.
-   *
-   * @generated from field: string day = 4;
-   */
-  day: string;
-
-  /**
-   * @generated from field: string contract = 5;
-   */
-  contract: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceRead.
- * Use `create(SourceReadSchema)` to create a new message.
- */
-export const SourceReadSchema: GenMessage<SourceRead> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 43);
-
-/**
- * @generated from message asterion.lab.proto.SourceCell
- */
-export type SourceCell = Message<"asterion.lab.proto.SourceCell"> & {
-  /**
-   * @generated from field: optional string value = 1;
-   */
-  value?: string | undefined;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceCell.
- * Use `create(SourceCellSchema)` to create a new message.
- */
-export const SourceCellSchema: GenMessage<SourceCell> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 44);
-
-/**
- * @generated from message asterion.lab.proto.SourceRow
- */
-export type SourceRow = Message<"asterion.lab.proto.SourceRow"> & {
-  /**
-   * @generated from field: repeated asterion.lab.proto.SourceCell cells = 1;
-   */
-  cells: SourceCell[];
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceRow.
- * Use `create(SourceRowSchema)` to create a new message.
- */
-export const SourceRowSchema: GenMessage<SourceRow> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 45);
-
-/**
- * @generated from message asterion.lab.proto.SourceTable
- */
-export type SourceTable = Message<"asterion.lab.proto.SourceTable"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: string table = 2;
-   */
-  table: string;
-
-  /**
-   * @generated from field: repeated string columns = 3;
-   */
-  columns: string[];
-
-  /**
-   * @generated from field: repeated asterion.lab.proto.SourceRow rows = 4;
-   */
-  rows: SourceRow[];
-
-  /**
-   * Recorder-wide observation intervals, not per-contract completeness.
-   *
-   * @generated from field: repeated asterion.lab.proto.SourceObservation observations = 5;
-   */
-  observations: SourceObservation[];
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceTable.
- * Use `create(SourceTableSchema)` to create a new message.
- */
-export const SourceTableSchema: GenMessage<SourceTable> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 46);
-
-/**
- * @generated from message asterion.lab.proto.SourceObservation
- */
-export type SourceObservation = Message<"asterion.lab.proto.SourceObservation"> & {
-  /**
-   * @generated from field: string instance = 1;
-   */
-  instance: string;
-
-  /**
-   * @generated from field: uint64 number = 2;
-   */
-  number: bigint;
-
-  /**
-   * @generated from field: int64 first_received_ms = 3;
-   */
-  firstReceivedMs: bigint;
-
-  /**
-   * @generated from field: int64 last_received_ms = 4;
-   */
-  lastReceivedMs: bigint;
-
-  /**
-   * @generated from field: uint64 ticks = 5;
-   */
-  ticks: bigint;
-
-  /**
-   * @generated from field: string end = 6;
-   */
-  end: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceObservation.
- * Use `create(SourceObservationSchema)` to create a new message.
- */
-export const SourceObservationSchema: GenMessage<SourceObservation> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 47);
-
-/**
- * @generated from message asterion.lab.proto.SourceCoverageQuery
- */
-export type SourceCoverageQuery = Message<"asterion.lab.proto.SourceCoverageQuery"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceCoverageQuery.
- * Use `create(SourceCoverageQuerySchema)` to create a new message.
- */
-export const SourceCoverageQuerySchema: GenMessage<SourceCoverageQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 48);
-
-/**
- * @generated from message asterion.lab.proto.SourceCoverage
- */
-export type SourceCoverage = Message<"asterion.lab.proto.SourceCoverage"> & {
-  /**
-   * @generated from field: string provider = 1;
-   */
-  provider: string;
-
-  /**
-   * @generated from field: bool known = 2;
-   */
-  known: boolean;
-
-  /**
-   * @generated from field: repeated string days = 3;
-   */
-  days: string[];
-
-  /**
-   * @generated from field: string note = 4;
-   */
-  note: string;
-};
-
-/**
- * Describes the message asterion.lab.proto.SourceCoverage.
- * Use `create(SourceCoverageSchema)` to create a new message.
- */
-export const SourceCoverageSchema: GenMessage<SourceCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 49);
+  messageDesc(file_asterion_lab, 25);
 
 /**
  * The strategies of the user's strategy repository (decision D5): Strategy
@@ -1960,48 +1113,7 @@ export type StrategiesQuery = Message<"asterion.lab.proto.StrategiesQuery"> & {
  * Use `create(StrategiesQuerySchema)` to create a new message.
  */
 export const StrategiesQuerySchema: GenMessage<StrategiesQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 50);
-
-/**
- * @generated from message asterion.lab.proto.ParameterValue
- */
-export type ParameterValue = Message<"asterion.lab.proto.ParameterValue"> & {
-  /**
-   * @generated from oneof asterion.lab.proto.ParameterValue.value
-   */
-  value: {
-    /**
-     * @generated from field: bool flag = 1;
-     */
-    value: boolean;
-    case: "flag";
-  } | {
-    /**
-     * @generated from field: int64 integer = 2;
-     */
-    value: bigint;
-    case: "integer";
-  } | {
-    /**
-     * @generated from field: double number = 3;
-     */
-    value: number;
-    case: "number";
-  } | {
-    /**
-     * @generated from field: string text = 4;
-     */
-    value: string;
-    case: "text";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message asterion.lab.proto.ParameterValue.
- * Use `create(ParameterValueSchema)` to create a new message.
- */
-export const ParameterValueSchema: GenMessage<ParameterValue> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 51);
+  messageDesc(file_asterion_lab, 26);
 
 /**
  * @generated from message asterion.lab.proto.StrategyParameter
@@ -2020,7 +1132,7 @@ export type StrategyParameter = Message<"asterion.lab.proto.StrategyParameter"> 
   kind: string;
 
   /**
-   * @generated from field: asterion.lab.proto.ParameterValue default = 3;
+   * @generated from field: asterion.strategy.proto.ParameterValue default = 3;
    */
   default?: ParameterValue | undefined;
 };
@@ -2030,7 +1142,7 @@ export type StrategyParameter = Message<"asterion.lab.proto.StrategyParameter"> 
  * Use `create(StrategyParameterSchema)` to create a new message.
  */
 export const StrategyParameterSchema: GenMessage<StrategyParameter> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 52);
+  messageDesc(file_asterion_lab, 27);
 
 /**
  * @generated from message asterion.lab.proto.StrategyEntry
@@ -2061,7 +1173,7 @@ export type StrategyEntry = Message<"asterion.lab.proto.StrategyEntry"> & {
  * Use `create(StrategyEntrySchema)` to create a new message.
  */
 export const StrategyEntrySchema: GenMessage<StrategyEntry> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 53);
+  messageDesc(file_asterion_lab, 28);
 
 /**
  * A module that failed to import, with the end of its traceback.
@@ -2085,7 +1197,7 @@ export type StrategyModuleError = Message<"asterion.lab.proto.StrategyModuleErro
  * Use `create(StrategyModuleErrorSchema)` to create a new message.
  */
 export const StrategyModuleErrorSchema: GenMessage<StrategyModuleError> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 54);
+  messageDesc(file_asterion_lab, 29);
 
 /**
  * @generated from message asterion.lab.proto.Strategies
@@ -2129,7 +1241,7 @@ export type Strategies = Message<"asterion.lab.proto.Strategies"> & {
  * Use `create(StrategiesSchema)` to create a new message.
  */
 export const StrategiesSchema: GenMessage<Strategies> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 55);
+  messageDesc(file_asterion_lab, 30);
 
 /**
  * A factor: a public function of a module in the repository's factors/
@@ -2169,7 +1281,7 @@ export type FactorEntry = Message<"asterion.lab.proto.FactorEntry"> & {
  * Use `create(FactorEntrySchema)` to create a new message.
  */
 export const FactorEntrySchema: GenMessage<FactorEntry> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 56);
+  messageDesc(file_asterion_lab, 31);
 
 /**
  * A factor evaluated across symbols: each day its values rank the symbols
@@ -2190,7 +1302,7 @@ export type FactorRun = Message<"asterion.lab.proto.FactorRun"> & {
   factor: string;
 
   /**
-   * @generated from field: map<string, asterion.lab.proto.ParameterValue> params = 3;
+   * @generated from field: map<string, asterion.strategy.proto.ParameterValue> params = 3;
    */
   params: { [key: string]: ParameterValue };
 
@@ -2225,6 +1337,14 @@ export type FactorRun = Message<"asterion.lab.proto.FactorRun"> & {
    * @generated from field: uint32 groups = 9;
    */
   groups: number;
+
+  /**
+   * Empty on a new UI request: Lab resolves it once before starting the child.
+   * An explicit identity reuses that immutable version or fails if unavailable.
+   *
+   * @generated from field: string dataset_version = 10;
+   */
+  datasetVersion: string;
 };
 
 /**
@@ -2232,7 +1352,7 @@ export type FactorRun = Message<"asterion.lab.proto.FactorRun"> & {
  * Use `create(FactorRunSchema)` to create a new message.
  */
 export const FactorRunSchema: GenMessage<FactorRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 57);
+  messageDesc(file_asterion_lab, 32);
 
 /**
  * The rank correlation (IC) of the factor with returns `horizon` bars ahead,
@@ -2288,7 +1408,7 @@ export type FactorHorizon = Message<"asterion.lab.proto.FactorHorizon"> & {
  * Use `create(FactorHorizonSchema)` to create a new message.
  */
 export const FactorHorizonSchema: GenMessage<FactorHorizon> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 58);
+  messageDesc(file_asterion_lab, 33);
 
 /**
  * @generated from message asterion.lab.proto.FactorDay
@@ -2332,7 +1452,7 @@ export type FactorDay = Message<"asterion.lab.proto.FactorDay"> & {
  * Use `create(FactorDaySchema)` to create a new message.
  */
 export const FactorDaySchema: GenMessage<FactorDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 59);
+  messageDesc(file_asterion_lab, 34);
 
 /**
  * @generated from message asterion.lab.proto.FactorGroup
@@ -2365,7 +1485,7 @@ export type FactorGroup = Message<"asterion.lab.proto.FactorGroup"> & {
  * Use `create(FactorGroupSchema)` to create a new message.
  */
 export const FactorGroupSchema: GenMessage<FactorGroup> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 60);
+  messageDesc(file_asterion_lab, 35);
 
 /**
  * A product of an exchange that was left out, and why.
@@ -2389,7 +1509,7 @@ export type FactorSkipped = Message<"asterion.lab.proto.FactorSkipped"> & {
  * Use `create(FactorSkippedSchema)` to create a new message.
  */
 export const FactorSkippedSchema: GenMessage<FactorSkipped> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 61);
+  messageDesc(file_asterion_lab, 36);
 
 /**
  * @generated from message asterion.lab.proto.FactorResult
@@ -2443,7 +1563,7 @@ export type FactorResult = Message<"asterion.lab.proto.FactorResult"> & {
  * Use `create(FactorResultSchema)` to create a new message.
  */
 export const FactorResultSchema: GenMessage<FactorResult> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 62);
+  messageDesc(file_asterion_lab, 37);
 
 /**
  * The costs of one product, as COSTS in asterion_lab/backtest.py names them:
@@ -2471,7 +1591,7 @@ export type ProductCosts = Message<"asterion.lab.proto.ProductCosts"> & {
  * Use `create(ProductCostsSchema)` to create a new message.
  */
 export const ProductCostsSchema: GenMessage<ProductCosts> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 63);
+  messageDesc(file_asterion_lab, 38);
 
 /**
  * A strategy of the repository over the warehouse's daily bars. A symbol is a
@@ -2500,7 +1620,7 @@ export type BacktestRun = Message<"asterion.lab.proto.BacktestRun"> & {
   strategy: string;
 
   /**
-   * @generated from field: map<string, asterion.lab.proto.ParameterValue> params = 4;
+   * @generated from field: map<string, asterion.strategy.proto.ParameterValue> params = 4;
    */
   params: { [key: string]: ParameterValue };
 
@@ -2597,6 +1717,19 @@ export type BacktestRun = Message<"asterion.lab.proto.BacktestRun"> & {
    * @generated from field: string minute_provider = 21;
    */
   minuteProvider: string;
+
+  /**
+   * Resolved once at admission, shared by every candidate and rolling run of
+   * a sweep. Child processes must read these versions, never the latest ones.
+   *
+   * @generated from field: string dataset_version = 22;
+   */
+  datasetVersion: string;
+
+  /**
+   * @generated from field: string minute_dataset_version = 23;
+   */
+  minuteDatasetVersion: string;
 };
 
 /**
@@ -2604,7 +1737,7 @@ export type BacktestRun = Message<"asterion.lab.proto.BacktestRun"> & {
  * Use `create(BacktestRunSchema)` to create a new message.
  */
 export const BacktestRunSchema: GenMessage<BacktestRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 64);
+  messageDesc(file_asterion_lab, 39);
 
 /**
  * @generated from message asterion.lab.proto.RunsQuery
@@ -2617,7 +1750,7 @@ export type RunsQuery = Message<"asterion.lab.proto.RunsQuery"> & {
  * Use `create(RunsQuerySchema)` to create a new message.
  */
 export const RunsQuerySchema: GenMessage<RunsQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 65);
+  messageDesc(file_asterion_lab, 40);
 
 /**
  * @generated from message asterion.lab.proto.CancelRun
@@ -2634,7 +1767,7 @@ export type CancelRun = Message<"asterion.lab.proto.CancelRun"> & {
  * Use `create(CancelRunSchema)` to create a new message.
  */
 export const CancelRunSchema: GenMessage<CancelRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 66);
+  messageDesc(file_asterion_lab, 41);
 
 /**
  * @generated from message asterion.lab.proto.RunSummary
@@ -2697,7 +1830,7 @@ export type RunSummary = Message<"asterion.lab.proto.RunSummary"> & {
   /**
    * In a sweep's runs: the parameter values this run was given.
    *
-   * @generated from field: map<string, asterion.lab.proto.ParameterValue> params = 11;
+   * @generated from field: map<string, asterion.strategy.proto.ParameterValue> params = 11;
    */
   params: { [key: string]: ParameterValue };
 
@@ -2714,7 +1847,7 @@ export type RunSummary = Message<"asterion.lab.proto.RunSummary"> & {
  * Use `create(RunSummarySchema)` to create a new message.
  */
 export const RunSummarySchema: GenMessage<RunSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 67);
+  messageDesc(file_asterion_lab, 42);
 
 /**
  * @generated from message asterion.lab.proto.Runs
@@ -2731,7 +1864,7 @@ export type Runs = Message<"asterion.lab.proto.Runs"> & {
  * Use `create(RunsSchema)` to create a new message.
  */
 export const RunsSchema: GenMessage<Runs> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 68);
+  messageDesc(file_asterion_lab, 43);
 
 /**
  * The values one parameter takes in a sweep.
@@ -2745,7 +1878,7 @@ export type ParameterValues = Message<"asterion.lab.proto.ParameterValues"> & {
   name: string;
 
   /**
-   * @generated from field: repeated asterion.lab.proto.ParameterValue values = 2;
+   * @generated from field: repeated asterion.strategy.proto.ParameterValue values = 2;
    */
   values: ParameterValue[];
 };
@@ -2755,7 +1888,7 @@ export type ParameterValues = Message<"asterion.lab.proto.ParameterValues"> & {
  * Use `create(ParameterValuesSchema)` to create a new message.
  */
 export const ParameterValuesSchema: GenMessage<ParameterValues> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 69);
+  messageDesc(file_asterion_lab, 44);
 
 /**
  * The base run once for every combination of the parameters' values, at most
@@ -2798,7 +1931,7 @@ export type Sweep = Message<"asterion.lab.proto.Sweep"> & {
  * Use `create(SweepSchema)` to create a new message.
  */
 export const SweepSchema: GenMessage<Sweep> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 70);
+  messageDesc(file_asterion_lab, 45);
 
 /**
  * Rounds select by the Sharpe ratio of `training_days` (at least 20) and are
@@ -2824,7 +1957,7 @@ export type WalkForward = Message<"asterion.lab.proto.WalkForward"> & {
  * Use `create(WalkForwardSchema)` to create a new message.
  */
 export const WalkForwardSchema: GenMessage<WalkForward> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 71);
+  messageDesc(file_asterion_lab, 46);
 
 /**
  * What the service gives the child that runs a sweep's rolling validation.
@@ -2863,7 +1996,7 @@ export type RollingRun = Message<"asterion.lab.proto.RollingRun"> & {
  * Use `create(RollingRunSchema)` to create a new message.
  */
 export const RollingRunSchema: GenMessage<RollingRun> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 72);
+  messageDesc(file_asterion_lab, 47);
 
 /**
  * @generated from message asterion.lab.proto.SweepQuery
@@ -2880,7 +2013,7 @@ export type SweepQuery = Message<"asterion.lab.proto.SweepQuery"> & {
  * Use `create(SweepQuerySchema)` to create a new message.
  */
 export const SweepQuerySchema: GenMessage<SweepQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 73);
+  messageDesc(file_asterion_lab, 48);
 
 /**
  * Runs of the sweep not started yet never start; those running end interrupted.
@@ -2899,7 +2032,7 @@ export type CancelSweep = Message<"asterion.lab.proto.CancelSweep"> & {
  * Use `create(CancelSweepSchema)` to create a new message.
  */
 export const CancelSweepSchema: GenMessage<CancelSweep> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 74);
+  messageDesc(file_asterion_lab, 49);
 
 /**
  * A sweep's runs in order. A run that has not started has no state yet, and
@@ -2950,7 +2083,7 @@ export type SweepRuns = Message<"asterion.lab.proto.SweepRuns"> & {
  * Use `create(SweepRunsSchema)` to create a new message.
  */
 export const SweepRunsSchema: GenMessage<SweepRuns> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 75);
+  messageDesc(file_asterion_lab, 50);
 
 /**
  * One run's record for its result page. Amounts are exact decimals as text.
@@ -2969,7 +2102,7 @@ export type RunQuery = Message<"asterion.lab.proto.RunQuery"> & {
  * Use `create(RunQuerySchema)` to create a new message.
  */
 export const RunQuerySchema: GenMessage<RunQuery> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 76);
+  messageDesc(file_asterion_lab, 51);
 
 /**
  * @generated from message asterion.lab.proto.RunEquity
@@ -2998,7 +2131,7 @@ export type RunEquity = Message<"asterion.lab.proto.RunEquity"> & {
  * Use `create(RunEquitySchema)` to create a new message.
  */
 export const RunEquitySchema: GenMessage<RunEquity> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 77);
+  messageDesc(file_asterion_lab, 52);
 
 /**
  * @generated from message asterion.lab.proto.RunDay
@@ -3040,7 +2173,7 @@ export type RunDay = Message<"asterion.lab.proto.RunDay"> & {
  * Use `create(RunDaySchema)` to create a new message.
  */
 export const RunDaySchema: GenMessage<RunDay> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 78);
+  messageDesc(file_asterion_lab, 53);
 
 /**
  * @generated from message asterion.lab.proto.RunFill
@@ -3101,7 +2234,7 @@ export type RunFill = Message<"asterion.lab.proto.RunFill"> & {
  * Use `create(RunFillSchema)` to create a new message.
  */
 export const RunFillSchema: GenMessage<RunFill> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 79);
+  messageDesc(file_asterion_lab, 54);
 
 /**
  * @generated from message asterion.lab.proto.RunDetail
@@ -3140,5 +2273,5 @@ export type RunDetail = Message<"asterion.lab.proto.RunDetail"> & {
  * Use `create(RunDetailSchema)` to create a new message.
  */
 export const RunDetailSchema: GenMessage<RunDetail> = /*@__PURE__*/
-  messageDesc(file_asterion_lab, 80);
+  messageDesc(file_asterion_lab, 55);
 

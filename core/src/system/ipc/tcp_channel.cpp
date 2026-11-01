@@ -143,6 +143,14 @@ std::string create_identity(
 
 namespace detail {
 
+std::string peer_fingerprint(SSL* stream)
+{
+    std::unique_ptr<X509, decltype(&X509_free)> peer(SSL_get1_peer_certificate(stream), X509_free);
+    if (!peer)
+        throw std::runtime_error("TLS peer certificate is missing");
+    return fingerprint(peer.get());
+}
+
 void validate_identity(const TlsIdentity& identity)
 {
     if (identity.certificate_file.empty() || identity.private_key_file.empty()

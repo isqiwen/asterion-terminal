@@ -32,9 +32,8 @@ import numpy as np
 import polars as pl
 
 from asterion_lab import repository
-from asterion_lab.backtest import COSTS, Config, Data, prepare, raw, visible
-from asterion_lab.strategy import FIELDS, KINDS
-from asterion_lab.warehouse import Warehouse
+from asterion_lab.backtest import COSTS, Config, Data, dataset_of, observations, prepare, raw
+from asterion_strategy import FIELDS, KINDS
 
 MINIMUM = 3  # symbols a day's IC needs
 
@@ -87,14 +86,11 @@ def bars(data: Data, symbol: str) -> dict:
     limit = raw(Decimal(1))
     engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1))
     columns = {"day": [], **{field: [] for field in FIELDS}}
-    while not engine.finished:
-        while not engine.day_done:
-            for bar in visible(engine.next(), {0: symbol}, contracts):
-                columns["day"].append(bar.time.date().isoformat())
-                for field in FIELDS:
-                    columns[field].append(getattr(bar, field))
-            engine.decide()
-        engine.settle()
+    for completed in observations(engine, {0: symbol}, contracts):
+        for bar in completed:
+            columns["day"].append(bar.time.date().isoformat())
+            for field in FIELDS:
+                columns[field].append(getattr(bar, field))
     arrays = {field: np.array(columns[field], dtype=float) for field in FIELDS}
     for array in arrays.values():
         array.flags.writeable = False
@@ -232,9 +228,10 @@ def run(directory: Path, request, reply):
     function, inputs, defaults = repository.factor(root, request.factor)
     settings = settings_of(request, defaults)
     provider = request.provider or "tushare"
-    warehouse = Warehouse(directory) if provider == "tushare" else \
-        Warehouse(directory / "sources" / provider, provider)
-    data = Data(warehouse, request.begin_day, request.end_day)
+    if not request.dataset_version:
+        raise ValueError("research inputs must name the admitted dataset version")
+    data = Data(dataset_of(directory, provider), request.begin_day, request.end_day,
+                version=request.dataset_version)
     symbols, skipped = symbols_of(data, list(request.symbols))
     if not symbols:
         raise ValueError("no symbol has daily bars in the range")

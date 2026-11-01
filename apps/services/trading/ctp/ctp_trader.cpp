@@ -915,7 +915,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             true);
     }
 
-    void apply(const RspQryTradingAccountEvent& event, std::chrono::steady_clock::time_point)
+    void apply(const RspQryTradingAccountEvent& event, std::chrono::steady_clock::time_point now)
     {
         const auto& account = event.account;
         const auto& info = event.info;
@@ -937,6 +937,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         if (last) {
             query_done();
             refresh_queued = false;
+            if (state.funds)
+                state.funds_completed_at = now;
             state.synchronized_ms = now_ms();
             if (state.phase == BrokerPhase::synchronizing)
                 state.phase = BrokerPhase::ready;
@@ -1347,6 +1349,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             position_refresh_again = false;
             reports.abandon_positions();
         }
+        if (command.kind == Kind::query_funds)
+            state.funds.reset();
         if (is_rate_query(command.kind))
             rate_instrument = command.instrument;
         if (command.kind == Kind::query_quote)
@@ -1814,6 +1818,17 @@ std::future<BrokerDispatchResult> Trader::cancel(const std::string& order_id)
     }
     impl_->wake.notify_all();
     return result;
+}
+
+void Trader::refresh_account()
+{
+    {
+        std::lock_guard lock(impl_->mutex);
+        if (impl_->closing || impl_->state.phase != BrokerPhase::ready)
+            throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
+        impl_->refresh();
+    }
+    impl_->wake.notify_all();
 }
 
 void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts)

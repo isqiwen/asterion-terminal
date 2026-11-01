@@ -7,8 +7,8 @@ export function commandContractExamples(
   context: TerminalContext,
   account: AccountRun,
 ) {
-  void send("market.local");
-  void send("node.action", { service: "market-data", action: "restart" });
+  void send("market.open");
+  void send("node.action", { service: "lab", action: "restart" });
   void context.query("market.minutes", { venue: "SHFE", symbol: "rb2605" });
   void account("live.open");
   // @ts-expect-error a panel-bound command cannot supply a different account
@@ -24,7 +24,7 @@ export function commandContractExamples(
   // @ts-expect-error a required account cannot disappear through a host callback
   void send("live.open");
   void send("node.action", {
-    service: "market-data",
+    service: "lab",
     // @ts-expect-error parameters belong to their command
     account: "account",
   });

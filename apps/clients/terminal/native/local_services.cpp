@@ -2,7 +2,6 @@
 #include "application_environment.hpp"
 #include "local_service_health.hpp"
 #include "node_paths.hpp"
-#include "service_programs.hpp"
 #include <asterion/base/error.hpp>
 #include <asterion/base/id.hpp>
 #include <asterion/base/serialization.hpp>
@@ -51,9 +50,8 @@ struct Kind
 };
 
 // One service per kind, in the order the destructor stops them.
-constexpr std::array<Kind, 2> kinds{{
+constexpr std::array<Kind, 1> kinds{{
     {wire::LAB, "lab", "lab", "", "lab"},
-    {wire::MARKET, "market-data", "market", "asterion_market", "market"},
 }};
 
 const Kind& kind_of(wire::ServiceKind kind)
@@ -181,22 +179,15 @@ struct LocalServices::Impl
         prepare_program(kind);
         fs::path executable;
         std::vector<std::string> args;
-        if (kind.kind == wire::LAB) {
-            const auto interpreter = python();
-            if (!interpreter || !fs::is_regular_file(*interpreter))
-                throw Error(
-                    ErrorCode::unavailable,
-                    "lab needs the Python runtime; it is installed at the first launch");
-            executable = *interpreter;
-            service.artifact = sha256_file(executable);
-            // Isolated from the user's environment and site; no bytecode written.
-            args = {"-I", "-B", "-m", "asterion_lab"};
-        } else {
-            const auto programs = local_service_programs(kind.kind);
-            executable = program_directory(kind.program) / "bin" / kind.executable;
-            link_node_program(programs.executable, executable);
-            service.artifact = sha256_file(programs.executable);
-        }
+        const auto interpreter = python();
+        if (!interpreter || !fs::is_regular_file(*interpreter))
+            throw Error(
+                ErrorCode::unavailable,
+                "lab needs the Python runtime; it is installed at the first launch");
+        executable = *interpreter;
+        service.artifact = sha256_file(executable);
+        // Isolated from the user's environment and site; no bytecode written.
+        args = {"-I", "-B", "-m", "asterion_lab"};
         const auto endpoint = endpoint_of(kind.service);
         const auto health = utf8(sockets / (std::string(kind.service) + ".health"));
         fs::remove(endpoint);
@@ -211,17 +202,12 @@ struct LocalServices::Impl
                 kind.service,
                 "--directory",
                 utf8(directory),
+                "--terminal-data",
+                utf8(program_directory("terminal") / "data"),
                 "--health-endpoint",
                 health,
                 "--endpoint",
                 endpoint});
-        if (kind.kind == wire::MARKET) {
-            const auto programs = local_service_programs(kind.kind);
-            if (fs::exists(programs.provider))
-                args.insert(args.end(), {"--ctp-library", utf8(programs.provider)});
-            if (fs::exists(programs.catalog))
-                args.insert(args.end(), {"--ctp-catalog-library", utf8(programs.catalog)});
-        }
         return std::make_unique<ChildProcess>(executable, args);
     }
 

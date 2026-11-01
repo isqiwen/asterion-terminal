@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
 import unittest
 
@@ -16,7 +17,8 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import factor, repository  # noqa: E402
-from asterion_lab.service import Service  # noqa: E402
+from service_fixture import Service  # noqa: E402
+from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
@@ -146,6 +148,18 @@ class Repository(unittest.TestCase):
             run.symbols[:] = ["SHFE"]
             exchange = (await service.reply(request)).factor
             self.assertEqual(list(exchange.symbols), ["SHFE/rb"])
+            # Re-reading the returned identity must not use a newly acquired dataset.
+            run.dataset_version = exchange.dataset_version
+            writer = Warehouse(self.directory).writer()
+            writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
+            self.assertNotEqual(writer.commit().identity, exchange.dataset_version)
+            repeated = await service.reply(request)
+            self.assertEqual(repeated.WhichOneof("body"), "factor", repeated)
+            self.assertEqual(repeated.factor, exchange)
+            run.dataset_version = "a" * 64
+            missing = await service.reply(request)
+            self.assertEqual(missing.error.code, "invalid_request")
+            self.assertIn("unreadable dataset version", missing.error.message)
 
         asyncio.run(scenario())
 

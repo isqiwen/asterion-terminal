@@ -19,19 +19,19 @@ afterEach(() => vi.unstubAllGlobals());
 
 test("a request is encoded with the generated types and its reply decoded", async () => {
   serve(request => {
-    expect(request).toMatchObject({ version: 1, serviceId: "lab", body: { case: "tasks" } });
+    expect(request).toMatchObject({ version: 1, serviceId: "lab", body: { case: "runs" } });
     return toBinary(
       ResponseSchema,
       create(ResponseSchema, {
         version: 1,
         serviceId: "lab",
         correlationId: request.correlationId,
-        body: { case: "tasks", value: { tasks: [{ id: "daily-1", state: "running" }] } },
+        body: { case: "runs", value: { runs: [{ id: "research-1", state: "running" }] } },
       }),
     );
   });
-  const tasks = await lab({ case: "tasks", value: {} }, "tasks");
-  expect(tasks.tasks.map(task => task.id)).toEqual(["daily-1"]);
+  const runs = await lab({ case: "runs", value: {} }, "runs");
+  expect(runs.runs.map(run => run.id)).toEqual(["research-1"]);
 });
 
 test("a service error and a reply to another request are errors", async () => {
@@ -42,7 +42,10 @@ test("a service error and a reply to another request are errors", async () => {
         version: 1,
         serviceId: "lab",
         correlationId: request.correlationId,
-        body: { case: "error", value: { code: "invalid_request", message: "credential first" } },
+        body: {
+          case: "error",
+          value: { code: "invalid_request", message: "Market settings missing" },
+        },
       }),
     ),
   );

@@ -9,11 +9,12 @@ import {
 } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { t, phases, type Run } from "./live-shared";
+import { StrategyPackages } from "./StrategyPackages";
 import { CreateLive } from "./CreateLive";
 import { LiveAccount } from "./LiveAccount";
 
 // Live CTP trading. Orders go to a real futures account only after the owner
-// connects with credentials typed here, confirms the account, and the order
+// confirms the account already connected by its host, and the order
 // passes the allowed contracts, exchange units and pre-trade risk.
 export function LivePanel(context: TerminalContext) {
   const { snapshot, busy, trade } = context;
@@ -45,6 +46,8 @@ export function LivePanel(context: TerminalContext) {
     if (session.phase !== "ready") return phases[session.phase];
     return session.authorization ? "已允许发送委托" : "已就绪";
   };
+  const setting = snapshot?.strategy_repository;
+  const repository = setting && "path" in setting ? setting.path : "";
   const entry = account ? snapshot?.live[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
@@ -85,7 +88,13 @@ export function LivePanel(context: TerminalContext) {
             </button>
           </nav>
           {account && (
-            <div className="ctp-account-panel" key={account.id}>
+            <div className="ctp-account-panel" key={`${account.id}:${account.revision}`}>
+              <StrategyPackages
+                account={account.id}
+                repository={repository}
+                live={entry?.session ?? undefined}
+                connected={entry?.connection.state === "connected"}
+              />
               {/* A refused command is reported in the panel of its account. */}
               {error && (
                 <p className="alert" role="alert">

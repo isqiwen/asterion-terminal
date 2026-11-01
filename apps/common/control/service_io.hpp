@@ -46,6 +46,9 @@ public:
     ipc::Reactor& reactor();
     ServiceIo();
     ~ServiceIo();
+    // Close admission and drain operations before their owning state is released.
+    // Called by the owning thread; subsequent calls do nothing.
+    void stop();
     ServiceIo(const ServiceIo&) = delete;
     ServiceIo& operator=(const ServiceIo&) = delete;
 

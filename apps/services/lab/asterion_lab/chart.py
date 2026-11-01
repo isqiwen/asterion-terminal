@@ -1,8 +1,9 @@
 """A contract's bars for the market page's history chart: stored minutes
 gathered into longer periods, or daily bars into calendar periods, with MACD.
 
-Display only: nothing that trades or tests a strategy reads these. Prices and
-volumes stay exact decimals; MACD is floating point.
+Minute aggregation is shared with backtests and strategy history. Calendar
+aggregation and MACD serve the chart. Prices and volumes stay exact decimals;
+MACD is floating point.
 
 - N-minute bars gather a trading day's minutes by their start, N minutes of
   the clock at a time (a break shortens the period it falls in). A bar is

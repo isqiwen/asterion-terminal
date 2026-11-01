@@ -2,6 +2,8 @@
 #include <asterion/system/durable_file.hpp>
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
+#include "support/market_host.hpp"
+#include <fstream>
 #include <asterion/system/environment.hpp>
 #include <asterion/protocol/trading.hpp>
 #include "terminal/blocking_service.hpp"
@@ -511,6 +513,34 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
     EXPECT_GT(current.at("revision"), delayed.at("revision"));
 }
 
+TEST(TerminalApplication, ClosingDrainsAdmittedRequestsBeforeReleasingApplicationState)
+{
+    auto app = std::make_unique<terminal::Application>();
+    app->dispatch(request("runtime.snapshot"));
+    std::promise<void> entered, release;
+    const auto released = release.get_future().share();
+    auto held = terminal::ApplicationTestAccess::slow_settings(*app, entered, released);
+    entered.get_future().wait();
+    std::atomic<unsigned> completions{0};
+    auto pending = app->request(
+        request("research.repository.clear").dump(),
+        [&](Payload, std::exception_ptr) noexcept {
+            ++completions;
+        });
+    std::promise<void> closing;
+    auto stopped = std::async(std::launch::async, [owned = std::move(app), &closing]() mutable {
+        closing.set_value();
+        owned.reset();
+    });
+    closing.get_future().wait();
+    EXPECT_EQ(stopped.wait_for(30ms), std::future_status::timeout);
+    release.set_value();
+    EXPECT_NO_THROW(stopped.get());
+    EXPECT_NO_THROW(held.get());
+    EXPECT_NO_THROW(pending.get());
+    EXPECT_EQ(completions.load(), 1U);
+}
+
 TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
 {
     LiveService service(false);
@@ -632,8 +662,11 @@ TEST(TerminalLive, SlowSettingsWorkDoesNotBlockAccountControlsOrPublication)
     ASSERT_EQ(entered.get_future().wait_for(testing_support::bound(2s)), std::future_status::ready);
     selection = terminal::ApplicationTestAccess::submit(
         app,
-        request("ctp.connections.market", {{"id", "unavailable"}}));
-    auto overlapping = terminal::ApplicationTestAccess::submit(app, request("market.disconnect"));
+        request(
+            "market.endpoint.save",
+            {{"host", "research"}, {"port", 7450U}, {"fingerprint", std::string(64, 'a')}}));
+    auto overlapping =
+        terminal::ApplicationTestAccess::submit(app, request("market.endpoint.clear"));
     EXPECT_THROW((void)overlapping.get(), Error);
     EXPECT_EQ(selection.wait_for(0s), std::future_status::timeout);
     const auto before = app.dispatch(request("runtime.snapshot"));
@@ -922,8 +955,6 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
                     return std::optional<std::string>{};
                 };
             }
-            if (request.has_disconnect())
-                connected = false;
             return [&, response = std::move(response), watch = request.has_watch()]() mutable
                        -> std::optional<service::RpcHost::Message> {
                 LiveMarketSnapshot state;
@@ -994,13 +1025,12 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
         }));
     reads_entered.wait();
     auto control = io.submit<void>([client](std::stop_token) -> PolledTask<void> {
-        co_await PollFuture{client->disconnect()};
         const auto state = co_await PollFuture{client->snapshot()};
-        EXPECT_EQ(state.at("phase"), "disconnected");
+        EXPECT_EQ(state.at("phase"), "connected");
     });
     ASSERT_EQ(control.wait_for(testing_support::bound(500ms)), std::future_status::ready);
     EXPECT_NO_THROW(control.get());
-    EXPECT_EQ(client->snapshot().get().at("phase"), "disconnected");
+    EXPECT_EQ(client->snapshot().get().at("phase"), "connected");
     auto close = io.submit<void>([&](std::stop_token) -> PolledTask<void> {
         client.reset();
         co_return;
@@ -1009,4 +1039,78 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
     close.get();
     ASSERT_EQ(minutes.wait_for(testing_support::bound(500ms)), std::future_status::ready);
     EXPECT_THROW((void)minutes.get(), Error);
+}
+
+TEST(TerminalMarket, DataRequestsUseSavedTlsWithoutSelectingALiveWatchOrStartingLab)
+{
+    const auto root =
+        std::filesystem::temp_directory_path() / ("asterion-data-ui-" + unique_process_id());
+
+    struct Cleanup
+    {
+        std::filesystem::path root;
+
+        ~Cleanup()
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        }
+    } cleanup{root};
+
+    testing_support::MarketHost host(root);
+    terminal::Application app;
+    const auto identity = app.dispatch(request("trading.identity.prepare"));
+    std::ifstream input(root / "config/market.json");
+    auto config = Json::parse(input);
+    config["clients"].push_back(
+        {{"fingerprint", identity.at("trading_fingerprint")}, {"role", "read"}});
+    config["acquisition"]["exchanges"] = {"SHFE", "GFEX"};
+    replace_file_durably(root / "config/market.json", config.dump());
+    host.start();
+    {
+        auto ready = host.open();
+    }
+    app.dispatch(request(
+        "market.endpoint.save",
+        {{"host", "127.0.0.1"},
+            {"port", static_cast<unsigned>(host.port)},
+            {"fingerprint", host.server_pin}}));
+    const auto call = [](std::string id, Json operation) {
+        operation["version"] = 1;
+        operation["serviceId"] = "market-data";
+        operation["correlationId"] = std::move(id);
+        return request("market.data", {{"request", std::move(operation)}});
+    };
+    auto first = terminal::ApplicationTestAccess::submit(
+        app,
+        call("first", {{"acquisitionSources", Json::object()}}));
+    auto second = terminal::ApplicationTestAccess::submit(
+        app,
+        call("second", {{"datasets", Json::object()}}));
+    const auto catalog = first.get();
+    EXPECT_EQ(catalog.at("market_data").at("correlationId"), "first");
+    const auto& sources = catalog.at("market_data").at("acquisitionSources");
+    EXPECT_FALSE(sources.value("canManage", false));
+    ASSERT_EQ(sources.at("sources").size(), 3);
+    EXPECT_EQ(sources.at("sources")[0].at("provider"), "gfex");
+    EXPECT_EQ(sources.at("sources")[0].at("tables"), Json::array({"daily"}));
+    EXPECT_EQ(sources.at("sources")[1].at("provider"), "recorder");
+    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"minutes"}));
+    EXPECT_EQ(sources.at("sources")[2].at("provider"), "shfe");
+    EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"daily", "settlement"}));
+    EXPECT_TRUE(second.get().at("market_data").contains("datasets"));
+    const auto denied = app.dispatch(call(
+        "denied",
+        {{"acquisitionStart",
+            {{"id", "forbidden"},
+                {"provider", "shfe"},
+                {"table", "daily"},
+                {"beginDay", "2026-10-30"},
+                {"endDay", "2026-10-30"}}}}));
+    EXPECT_EQ(denied.at("market_data").at("error").at("code"), "permission_denied");
+    EXPECT_THROW(app.dispatch(call("stream", {{"watch", Json::object()}})), std::invalid_argument);
+    const auto snapshot = app.dispatch(request("runtime.snapshot"));
+    EXPECT_TRUE(snapshot.at("market").is_null());
+    EXPECT_FALSE(std::filesystem::exists(root / "data/acquisition/forbidden.pb"));
+    app.dispatch(request("market.endpoint.clear"));
 }

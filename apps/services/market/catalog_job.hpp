@@ -132,9 +132,8 @@ public:
         operation_->library = library;
         operation_->flow = flow;
         operation_->config = std::move(config);
-        cancelled_ = false;
         schedule();
-        State loading;
+        State loading = cached_;
         loading.set_phase("loading");
         publish(std::move(loading));
     }
@@ -151,26 +150,16 @@ public:
             return;
         }
         auto result = std::move(*operation_->result);
-        const bool apply = operation_->load_cache || !cancelled_;
         operation_.reset(); // Its SDK resource was released before completing the step.
-        if (!apply)
-            return;
         if (result.phase() == "ready" || result.phase() == "cached") {
             cached_ = result;
             cached_.set_phase("cached");
+        } else if (result.phase() == "error") {
+            // A failed refresh reports its error while retaining known contracts.
+            *result.mutable_contracts() = cached_.contracts();
+            result.set_trading_day(cached_.trading_day());
         }
         publish(std::move(result));
-    }
-
-    void cancel()
-    {
-        if (operation_)
-            operation_->stop.request_stop();
-        cancelled_ = true;
-        auto next = cached_;
-        if (!next.contracts_size())
-            next.set_phase("unconfigured");
-        publish(std::move(next));
     }
 
     bool initializing() const
@@ -213,7 +202,6 @@ private:
     std::uint64_t revision_ = 0;
     std::unique_ptr<Operation> operation_;
     std::future<void> pending_;
-    bool cancelled_ = false;
 };
 
 } // namespace asterion::market_data

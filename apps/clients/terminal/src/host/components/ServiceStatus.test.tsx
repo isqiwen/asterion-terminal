@@ -67,7 +67,6 @@ test("old account progress stays uncertain even while transport responds", () =>
     const account = {
       ...localService(snapshot, "lab"),
       id: "live-1",
-      kind: "market" as const,
     };
     account.health = stale ? "degraded" : "ready";
     account.execution = {

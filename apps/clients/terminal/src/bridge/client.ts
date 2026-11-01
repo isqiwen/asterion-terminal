@@ -2,6 +2,7 @@ import { BackendError } from "../i18n/errors";
 import { translate, type MessageValues, getLocale } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { desktop } from "./desktop";
+import type { JsonValue } from "@bufbuild/protobuf";
 
 import { nativeDesktop } from "./desktop";
 export type FuturesContract = {
@@ -161,7 +162,7 @@ export type NodeStatus = {
     version: string;
     uptime_ms: number;
     services: {
-      kind: "market" | "lab";
+      kind: "lab";
       id: string;
       artifact: string;
       state: string;
@@ -362,31 +363,9 @@ export type FactorResult = {
     members: { series_index: number; value: number; forward_return: number }[];
   }[];
 };
-// What was saved for one data provider (a data source plugin): a single
-// credential used by all of its sources. The credential itself never leaves
-// the core.
-export type DataCredential = {
-  provider: string;
-  requests_per_minute: number;
-  remember: boolean;
-  credential_ready: boolean;
-};
-// A stored file the core could not read; kept for inspection.
-export type UnreadableDataCredential = { provider: string; error: "unreadable" };
-export type DataCredentialEntry = DataCredential | UnreadableDataCredential;
 export type UnreadableCtpConnection = { id: string; name: string; error: "unreadable" };
 // One counter account as the broker issues it; passwords are never part of it.
-export type CtpConnection = {
-  id: string;
-  name: string;
-  broker_id: string;
-  user_id: string;
-  app_id: string;
-  trade_front: string;
-  market_front: string;
-  revision: string;
-  // Whether this account has its trading record; its counter details are then fixed.
-};
+
 export type TradingAccount = {
   account_id: string;
   environment: "real" | "simulation";
@@ -401,17 +380,7 @@ export type TradingConnection = {
   fingerprint: string;
   revision: string;
 };
-export type CtpConnectionEntry = CtpConnection | UnreadableCtpConnection;
-export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
-  !("error" in entry);
-// The one account that supplies market data.
-export function marketCtpAccount(snapshot: Snapshot | null): CtpConnection | undefined {
-  return (snapshot?.ctp_connections ?? [])
-    .filter(readableCtpConnection)
-    .find(item => item.id === snapshot?.ctp_market);
-}
-// One exchange and one period of a market-wide table: a trading day
-// (YYYY-MM-DD), a year or "all", as the table is kept.
+
 export type TablePartitionKey = { table: string; exchange: string; period: string };
 // What an update of market-wide tables was asked to read. An empty begin day
 // continues after what each exchange already holds; an empty end day reads
@@ -532,21 +501,29 @@ export type PythonRuntime = {
   }[];
 };
 export type Snapshot = {
-  data_credentials?: DataCredentialEntry[];
-  ctp_connections?: CtpConnectionEntry[];
+  market_data?: JsonValue;
+  strategy?: JsonValue;
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   trading_fingerprint?: string;
-  // The saved recording host, or a mark that its settings file is unreadable.
-  recorder_endpoint?: null | { host: string; port: number } | { error: "unreadable" };
+  // The saved Market host, or a mark that its settings file is unreadable.
+  market_endpoint?:
+    | null
+    | {
+        host: string;
+        port: number;
+        fingerprint: string;
+        instruments: { venue: string; symbol: string }[];
+      }
+    | { error: "unreadable" };
   strategy_repository?: null | { path: string } | { error: "unreadable" };
   python_runtime?: PythonRuntime;
-  // The CTP account that supplies market data; trading accounts are independent.
-  ctp_market?: string | null;
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
   market: LiveMarket | null;
   intraday?: IntradaySeries;
+  // ProtoJSON, decoded with the generated recording.Status schema.
+  recording?: Record<string, string | number | boolean>;
   nodes: NodeStatus[];
   protocol: 1;
   product: string;

@@ -13,8 +13,7 @@
 namespace asterion::terminal {
 
 // The business services on this machine, each a child process of the
-// Terminal: market (market-data) and lab. Trading and the recorder are
-// independent installations elsewhere.
+// Terminal: Lab only. Market and Trading are independent installations elsewhere.
 //
 // Each service is installed in <root>/<program>/ (node_paths.hpp): bin/ holds a
 // symbolic link to the program inside the application, data/<service>/ its

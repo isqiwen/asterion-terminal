@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <asterion/protocol/trading.hpp>
 #include <set>
+#include <regex>
 
 namespace asterion::trading {
 namespace fs = std::filesystem;
@@ -56,7 +57,7 @@ Settings load_settings(const fs::path& root, const std::string& account)
     } catch (const std::exception&) {
         throw invalid("cannot parse trading account configuration: " + where);
     }
-    exact(document, {"bind", "port", "terminals", "broker", "environment"}, where);
+    exact(document, {"bind", "port", "terminals", "broker", "environment", "market_front"}, where);
     Settings result;
     result.account = account;
     result.identity = {
@@ -122,6 +123,21 @@ Settings load_settings(const fs::path& root, const std::string& account)
     };
     result.password = secret("password");
     result.auth_code = secret("auth_code");
+    if (!document.at("market_front").is_string()
+        || !std::regex_match(
+            document.at("market_front").get<std::string>(),
+            std::regex("tcp://[A-Za-z0-9.-]+:[0-9]{1,5}")))
+        throw invalid("invalid market_front in " + where);
+    const auto front = document.at("market_front").get<std::string>();
+    const auto market_port = std::stoi(front.substr(front.rfind(':') + 1));
+    if (market_port < 1 || market_port > 65535)
+        throw invalid("invalid market_front port in " + where);
+    result.market = {
+        front,
+        document.at("broker").at("broker_id").get<std::string>(),
+        document.at("broker").at("user_id").get<std::string>(),
+        result.password
+    };
     return result;
 }
 

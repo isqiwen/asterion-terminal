@@ -5,6 +5,9 @@
 #include "account_journal.hpp"
 #include "account_command.hpp"
 #include "account_records.hpp"
+#include "strategy_execution.hpp"
+#include "strategy_orders.hpp"
+#include <asterion/futures/live_market.hpp>
 #include <asterion/system/progress.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <map>
@@ -47,6 +50,24 @@ public:
         AccountRequest request,
         std::uint64_t admitted_control);
     protocol::proto::LiveSnapshot snapshot() const;
+    StrategyAuthorityPtr register_strategy(
+        std::string instance,
+        std::vector<InstrumentId> contracts,
+        std::optional<StrategyWeightBudget> budget);
+    void release_strategy(const StrategyAuthorityPtr& authority);
+    std::string strategy_failure(const StrategyAuthorityPtr& authority) const;
+    void fail_strategy(std::string reason);
+    bool strategy_cancellation_pending() const;
+    AccountCommand cancel_strategy_order();
+    void require_manual_order() const;
+    AccountCommand
+    execute_strategy(StrategyOrderBasis basis, AccountRequest request, std::uint64_t control);
+    void accept_strategy_target(
+        const StrategyAuthorityPtr& authority,
+        strategy::proto::Decision decision,
+        std::vector<MarketQuote> quotes,
+        std::chrono::steady_clock::time_point expires_at);
+    AccountCommand advance_strategy_target(StrategyAuthorityPtr authority);
 
     bool waiting_for_sdk() const
     {
@@ -144,6 +165,9 @@ private:
         Offset offset = Offset::open;
         Decimal quantity;
         std::optional<BrokerOrder> terminal = std::nullopt;
+        std::optional<StrategyOrderSource> strategy = std::nullopt;
+        bool stop_cancel_pending = false;
+        bool cancel_requested = false;
     };
 
     static void check_terminal(const TerminalOrder& order, const Intent& intent);
@@ -173,8 +197,37 @@ private:
     mutable std::size_t observed_trades_ = 0;
     mutable std::map<std::string, ObservedOrder> observed_orders_;
     const Instrument& allowed(const InstrumentId& id) const;
-    AccountCommand
-    submit(const AccountRequest& request, const SubmitOrder& submission, std::uint64_t control);
+    AccountCommand submit(
+        const AccountRequest& request,
+        const SubmitOrder& submission,
+        std::uint64_t control,
+        std::optional<StrategyOrderBasis> strategy = std::nullopt);
+    void check_strategy(const StrategyOrderBasis& basis) const;
+
+    struct StrategyTargetBatch
+    {
+        strategy::proto::Decision decision;
+        std::vector<MarketQuote> quotes;
+        std::vector<PositionTarget> targets;
+        std::chrono::steady_clock::time_point accepted_at;
+        std::optional<Decimal> equity;
+        std::string last_order;
+        bool sized = false;
+    };
+
+    struct ActiveStrategy
+    {
+        StrategyAuthorityPtr authority;
+        std::uint64_t sequence = 0;
+        std::uint32_t next_leg = 0;
+        std::chrono::steady_clock::time_point deadline;
+        std::string failure;
+        std::uint64_t connection_generation = 0;
+        std::optional<StrategyWeightBudget> budget = std::nullopt;
+        std::optional<StrategyTargetBatch> batch = std::nullopt;
+    };
+
+    std::optional<ActiveStrategy> strategy_;
     AccountCommand cancel(const AccountRequest& request, const std::string& order_id);
 
     void end_authorization();

@@ -8,22 +8,11 @@ namespace wire = node::proto;
 const char* service_kind_name(wire::ServiceKind kind)
 {
     switch (kind) {
-        case wire::MARKET:
-            return "market";
         case wire::LAB:
             return "lab";
         default:
             return "unsupported";
     }
-}
-
-wire::ServiceKind parse_service_kind(const std::string& name)
-{
-    if (name == "market")
-        return wire::MARKET;
-    if (name == "lab")
-        return wire::LAB;
-    throw std::invalid_argument("invalid service kind");
 }
 
 Json node_snapshot_json(const NodeSnapshot& snapshot)

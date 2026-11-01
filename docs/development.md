@@ -1,11 +1,15 @@
 # 开发指南
 
+Market 的目标运行时是单个 C++ 服务进程，历史采集和仓库读写按[M3.0 开发计划](reviews/project-assessment-2026-10-28.md#m30-纯-c-market-开发计划)实现。
+下文 Python 工具用于构建和测试，桌面 Python 运行时只用于 Lab 研究。Market 安装包仅包含 C++ 服务及 CTP 原生库，运行不需要 Python。
+Trading 的独立发布包另含策略专用 Python 运行时；它不依赖桌面运行时。
+
 ## 环境
 
 - macOS（Apple Silicon；不支持 Intel Mac），Xcode 26 及以上的 Command Line Tools（Apple Clang；Xcode 16 的标准库没有 `std::stop_token` 和 `std::jthread`，编译不过）；或 Linux x86_64，GCC 13 及以上
 - Node.js 22+、pnpm 10、Python 3、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja
 - clang-format 23.1.1，即 CI 固定的版本。`pnpm run format` 和格式检查使用 `PATH` 上的 `clang-format`，其它版本的排版结果不同（21.1.8 会判定现有源码未格式化）。
-- 可选：OrbStack 或 Docker（构建交易与录制主机的安装脚本）。它和上面的工具链一样由开发者自己在机器上安装，项目的脚本和任务不安装系统软件；Ubuntu 上是 `sudo apt install docker.io`。Linux 上当前用户还要能不经 `sudo` 运行 `docker`，例如 `sudo usermod -aG docker $USER`；新的组要等该用户的全部会话（包括 SSH）退出后重新登录，或重启后才生效，此前可以用 `sg docker -c '<命令>'` 运行。
+- 可选：OrbStack 或 Docker（构建Market 与 Trading 主机的安装脚本）。它和上面的工具链一样由开发者自己在机器上安装，项目的脚本和任务不安装系统软件；Ubuntu 上是 `sudo apt install docker.io`。Linux 上当前用户还要能不经 `sudo` 运行 `docker`，例如 `sudo usermod -aG docker $USER`；新的组要等该用户的全部会话（包括 SSH）退出后重新登录，或重启后才生效，此前可以用 `sg docker -c '<命令>'` 运行。
 
 Linux 桌面还需要：
 
@@ -31,15 +35,47 @@ pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进�
 
 Terminal 用一份可重定位的 CPython 3.12.12（python-build-standalone，即 uv 安装的版本），锁定的依赖直接装进它自己的 site-packages，不建虚拟环境：虚拟环境记录绝对路径，独立解释器则按自身位置找到前缀。不需要系统 Python。
 
-安装包不携带运行时（M1.11）。它带的是 `resources/runtime/`：`manifest.json`（由 `scripts/desktop/runtime_manifest.py` 从 `uv.lock` 生成：解释器压缩包与本平台每个 wheel 的文件名、PyPI 路径、SHA-256 与大小，按核心、报表、组合优化、AKShare 分组；macOS 上共约 212 MiB 下载量）、PyPI 上没有 wheel 的包在构建时打成的 wheel（jsonpath），以及 Terminal 自己的 Python 代码 `app/`。第一次启动时原生层的 `PythonRuntime` 逐个下载这些文件：依赖先走清华、阿里云 PyPI 镜像，解释器先走 npmmirror 的 python-build-standalone 镜像，失败退回官方源；断点续传，按清单校验 SHA-256，校验过的文件按摘要保存在 `<根>/terminal/runtime/downloads/`，重试和升级只补缺的。全部校验后在一旁解压解释器、用它自带的 pip 离线安装 wheel，记下清单摘要后整体换入 `<根>/terminal/runtime/python/`，`.pth` 文件指向应用的 `app/`（每次启动按应用位置重写）。实测从空目录完成约 145 秒，安装后约 900 MB。启动页只在没有运行时的那一次出现，此后直接进入工作台。程序以 `python3 -I -B -m <模块>` 启动：不读用户环境变量和用户目录的包，也不往安装目录写字节码；导入数值库因此每次多花约 2 秒。
+安装包携带 `resources/runtime/manifest.json` 和 Terminal 自己的 Python 代码 `app/`。清单由 `scripts/desktop/runtime_manifest.py` 从 `uv.lock` 生成，列出解释器压缩包与本平台每个 wheel 的文件名、下载路径、SHA-256 和大小，按核心、报表分组。研究依赖均有平台 wheel，缺失时构建失败；不打包采集模块或源码构建的 wheel。
+
+第一次启动时原生层 `PythonRuntime` 下载这些文件：依赖先走清华、阿里云 PyPI 镜像，解释器先走 npmmirror，失败退回官方源；支持断点续传，在下载边界按清单核验摘要，已验证文件保存在 `<根>/terminal/runtime/downloads/`。全部下载完成后在临时目录解压解释器、离线安装 wheel，再整体换入 `<根>/terminal/runtime/python/`。升级按当前清单重建环境，删除不再需要的下载，不保留旧依赖；失败保留原环境。`.pth` 指向应用的 `app/`，随应用位置更新。启动页显示需要安装或更新的运行时，准备完成后进入工作台。
+
+Lab 以 `python3 -I -B -m asterion_lab` 启动，不读取用户 Python 环境或向应用目录写字节码。
 
 界面的 Protobuf 类型由 `pnpm generate:protocol` 生成（`@bufbuild/buf` 与 `protoc-gen-es`，pnpm 锁定，不需要 protoc），输出 `apps/clients/terminal/src/generated/` 并提交，不经 Prettier 与 ESLint；修改对应 proto 后重新生成。CI 的样式作业重新生成并要求没有差异。
 
-`pnpm prepare:python` 是唯一联网的入口：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把 Python 研究服务装为 `asterion_lab` 包，并以同一解释器的头文件（CMake 变量 `ASTERION_PYTHON_HOME`，此后留在构建目录的缓存中）编出回测扩展 `asterion_engine` 装入运行时，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。依赖只用 wheel 安装，唯一例外是 AKShare 依赖的纯 Python 包 jsonpath（只发布源码包），按锁定哈希从源码构建。Linux 上约 890 MiB，压缩前大小，其中 AKShare 依赖的 V8 运行库约 110 MiB。
+开发环境通过 `pnpm prepare:python` 显式准备依赖：按 `apps/services/lab/uv.lock` 安装 QuantStats 0.0.86、Polars 2.0.0 等依赖，用 Conan 锁定的 protoc 生成 Python IPC 类型，把 Python 研究服务装为 `asterion_lab` 包，并以同一解释器的头文件（CMake 变量 `ASTERION_PYTHON_HOME`，此后留在构建目录的缓存中）编出回测扩展 `asterion_engine` 装入运行时，结果写入 `build/electron-resources/python/`。默认使用 `build/Debug` 的 CMake 配置；可通过 `ASTERION_CPP_BUILD` 指定本 checkout 的其他构建目录。准备时删去用不到的部分（tkinter、标准库测试、头文件、pip 和依赖安装的命令行脚本），并只保留 Polars 的兼容 CPU runtime。依赖只用锁定的 wheel 安装，不包含 AKShare 或其 JavaScript 运行库。
 
 NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，macOS 准备显式指定 arm64/macOS 13 目标；Linux 使用 x86_64/manylinux 2.28 目标。不临时从源码构建 Python 依赖。
 
-`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改 Python 依赖、lab 的 Protobuf、`core` 中回测用到的代码或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。开发时 Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向准备好的同一解释器，原生层不安装运行时；安装版不设这个变量。`pnpm prepare:python` 同时生成 `build/electron-resources/runtime/`，打包检查核对其中的清单平台、随附 wheel 的摘要和应用代码；macOS 安装包继续核验应用完整签名。
+`desktop`、`desktop:check`、`desktop:build` 只检查运行时的平台与解释器，不计算源码哈希或扫描依赖文件摘要。修改 Python 依赖、lab 的 Protobuf、`core` 中回测用到的代码或准备脚本后，显式运行 `pnpm prepare:python` 并运行相关测试；启动检查不替代构建。开发时 Electron 与开发桥接都通过 `ASTERION_PYTHON` 指向准备好的同一解释器，原生层不安装运行时；安装版不设这个变量。`pnpm prepare:python` 同时生成 `build/electron-resources/runtime/`，打包检查核对其中的清单平台和应用代码；macOS 安装包继续核验应用完整签名。
+
+首次安装与升级可在空临时目录独立验证，测试会实际下载锁定依赖、运行研究模块，并检查升级时旧环境与无用下载被替换：
+
+```sh
+ASTERION_TEST_RUNTIME_MANIFEST="$PWD/build/electron-resources/runtime" ctest --preset conan-debug -R '^PythonRuntime\.' --output-on-failure
+```
+
+Linux 上用已准备的 Python 驱动包测试；Python 只在测试主机上运行，Ubuntu 24.04 容器内只有发布的 Market 服务与原生库。测试覆盖录制分钟发布、固定版本读取、任务持久化与重启，使用测试数据和本机不可达柜台地址，不配置真实账户：
+
+```sh
+cmake --build build/Debug --target asterion_market_setup
+build/electron-resources/python/bin/python3 tests/market/package_test.py build/Debug/asterion-market-setup.sh
+```
+
+Market 并发与故障回归使用 CTP 测试替身：停止读取的大块历史客户端与正常历史客户端、实时推送、录制发布同时运行；断开客户端后继续接收，强制结束服务后核对中断任务与固定版本。合并锁等待、取消、停止和扫描失败退避在所属 C++ 测试验证：
+
+```sh
+ctest --preset conan-debug -R 'market_concurrency|RecordedSource|Merge\.' --output-on-failure
+```
+
+Trading 策略包与子进程使用 `strategy_process` 隔离测试：经真实 Terminal 原生接口和双向 TLS 发布，删除本地源仓库后在 Trading 加载，关闭 Terminal 后检查存活，再覆盖子进程故障和 Trading 强制重启。测试使用预装 Python 与测试 SDK，不接真实柜台：
+
+```sh
+ctest --preset conan-debug -R 'StrategyBars|strategy_process|strategy_stream_process|lab_strategy' -j 4 --output-on-failure
+```
+
+`strategy_stream_process` 使用测试 CTP 流和真实时钟，等待两根完整分钟线（最多约三分钟），验证半根 K 线不参与、
+未就绪无目标、记录输入独立回放一致、断线结束实例及重启窗口清空；不连接真实供应商。启动前缓存、日线换日与多合约批次由 `StrategyBars` 测试覆盖。
 
 ## 修改入口与验证边界
 
@@ -49,7 +85,7 @@ NumPy 2.3.5、SciPy 1.17.1 固定为仍提供 macOS 13 可用 wheel 的版本，
 宿主统一位于 `apps/clients/installer/`，其 React 页面暂与 Terminal 共用前端工程。
 完整职责见[架构](architecture.md)。
 
-按[现行架构](architecture.md)选择修改位置：界面功能在 Terminal `features/`，应用编排在 Native，业务状态在所属服务，算法与适配放在所属服务，跨服务复用放在 `apps/services/common/`，数据源在 `apps/services/lab/asterion_lab/sources/`。Core 不导入应用；Terminal 的服务看护不解释业务结果。
+按[现行架构](architecture.md)选择修改位置：界面功能在 Terminal `features/`，应用编排在 Native，业务状态在所属服务，算法与适配放在所属服务，跨服务复用放在 `apps/services/common/`，数据源在 `apps/services/market/acquisition/`，Lab 在 `asterion_lab/market.py` 读取固定版本。Core 不导入应用；Terminal 的服务看护不解释业务结果。
 
 UI 功能与宿主同步修改并编译；在组件测试验证界面，在隔离 E2E 验证真实装配。
 
@@ -79,11 +115,11 @@ CMake 目标和项目自有可执行程序、库文件统一使用下划线，�
 | `pnpm dev` | 仅界面开发：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build build/Debug` | 只重建 C++ |
 
-三个 `desktop` 命令由 `scripts/desktop/desktop.mjs` → `scripts/desktop/desktop.py` 统一编排。`scripts/` 下按用途分组：`desktop/` 是桌面的构建、开发入口和打包校验，`services/` 是交易与录制主机安装脚本的容器构建；`prepare_ctp.py` 和 `format_cpp.py` 留在顶层。
-桌面入口接受 macOS 和 Linux，三个命令在两个系统上都可用；安装包在 macOS 是 DMG，在 Linux 是图形安装器归档，只能在各自的系统上生成。交易与录制主机的安装脚本由下面的独立构建流程提供，在 Linux 开发机上同样通过容器构建，以保持 Ubuntu 24.04 的运行库基线。
+三个 `desktop` 命令由 `scripts/desktop/desktop.mjs` → `scripts/desktop/desktop.py` 统一编排。`scripts/` 下按用途分组：`desktop/` 是桌面的构建、开发入口和打包校验，`services/` 是Market 与 Trading 主机安装脚本的容器构建；`prepare_ctp.py` 和 `format_cpp.py` 留在顶层。
+桌面入口接受 macOS 和 Linux，三个命令在两个系统上都可用；安装包在 macOS 是 DMG，在 Linux 是图形安装器归档，只能在各自的系统上生成。Market 与 Trading 主机的安装脚本由下面的独立构建流程提供，在 Linux 开发机上同样通过容器构建，以保持 Ubuntu 24.04 的运行库基线。
 Conan 与 CTP SDK 只接受 macOS armv8 和 Linux x86_64；CMake 拒绝其它系统及非 x86_64 Linux。SDK 准备入口不提供 Windows 下载清单，显式指定 `--os linux --arch x86_64` 可在 macOS 上准备 Linux 主机程序的依赖；不支持的目标在下载前拒绝。原生资源清单 `scripts/desktop/native-resources.json` 列出程序名和不带后缀的动态库名，macOS 取 `.dylib`，Linux 取 `.so`。仓库不含 Windows 专属的延迟加载、SCM 服务入口、Task Scheduler 验收分支和语法检查脚本。
 
-排查正在运行的桌面时，先核对 Electron 的工作目录、Vite 提供的源码和加载的 `build/electron-resources/native/asterion_terminal.node`。其它 worktree 中的修复不会自动进入当前桌面；单独重编译 C++ 也不会替换已加载的模块。应用原生修复后从对应目录通过 `pnpm desktop` 正常重启。当前构建与验证记录。
+排查正在运行的桌面时，先核对 Electron 的工作目录、Vite 提供的源码和加载的 `build/electron-resources/native/asterion_terminal.node`。其它 worktree 中的修复不会自动进入当前桌面；单独重编译 C++ 也不会替换已加载的模块。应用原生修复后从对应目录通过 `pnpm desktop` 正常重启。
 
 ## 编辑器（VS Code）
 
@@ -133,9 +169,9 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 | 目录 | 内容 |
 | --- | --- |
 | `core/` | `base`、`system`、`futures` 和协议的单元测试 |
-| `market/` | CTP 行情与合约目录、行情服务，行情 SDK 替身 |
-| `trading/` | 实盘会话、CTP 交易、风控限额、交易服务，交易 SDK 替身 |
-| `lab/` | Python 研究服务：数据仓库与采集、策略、因子、回测、扫描、行情页图表；测试用数据仓库夹具 |
+| `market/` | CTP 行情、历史采集、仓库与录制、多客户端及发布包；行情 SDK 替身 |
+| `trading/` | 账户执行、风控、策略包与子进程、现场预热、订单规划及发布包；交易 SDK 替身 |
+| `lab/` | 固定 Market 读取、只读缓存、策略、因子、回测、扫描与图表；研究数据夹具 |
 | `node/` | 各服务共同遵守的约定：命令行、配置缺失、正常停止；TLS 测试证书 |
 | `terminal/` | 终端原生层：命令与凭据 |
 | `desktop/` | Electron 宿主、安装包及其内容校验 |
@@ -161,18 +197,24 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 `ASTERION_UI_VIDEO_DIR` 设置为绝对目录；此变量也适用于 `pnpm test:desktop`，
 录像按测试脚本分目录，在窗口关闭后写完。默认不录制。
 
-## 交易与录制主机程序包
+## Market 与 Trading 主机程序包
 
 交易服务和行情录制程序在各自的 Linux 主机上独立安装，每个是一个自解压安装脚本（见[交易](trading.md)与
-[行情录制](recorder.md#录制主机)）。它们在 Ubuntu 24.04 x86_64 容器里构建（Docker 或 OrbStack，首次需编译全部依赖）：
+[行情录制](recording.md#录制主机)）。它们在 Ubuntu 24.04 x86_64 容器里构建（Docker 或 OrbStack，首次需编译全部依赖）：
 
 ```sh
 scripts/services/build_linux_services.sh
 ```
 
 脚本把当前源码打包进容器，执行 `scripts/services/linux-services-container.sh`，把 `asterion-trading-setup.sh` 与
-`asterion-recorder-setup.sh` 输出到 `build/linux-bundles/`（`ASTERION_LINUX_BUNDLES` 可指定目录）。可用
+`asterion-market-setup.sh` 输出到 `build/linux-bundles/`（`ASTERION_LINUX_BUNDLES` 可指定目录）。可用
 `ASTERION_LINUX_IMAGE` 指定已缓存 Conan 依赖的镜像以加速。桌面构建不需要它们。
+
+`asterion_trading_setup` 目标在构建时准备独立 CPython 3.12.12，按 `apps/services/trading/uv.lock` 的哈希安装
+NumPy 2.3.5 与 Protobuf 5.29.3 的 Linux wheel；不从 Lab 运行时复制依赖。自解压包包含解释器、依赖与策略框架，
+目标主机安装和启动均不联网装包，也不要求系统 Python。更改锁或准备脚本会重新生成运行时。
+`python3 tests/trading/package_test.py <安装包>` 在断网、无系统 Python 的 Ubuntu 24.04 容器中执行真实程序树的安装与升级，
+并以非 root 用户验证包加载、现场输入预热、目标记录与子进程资源限制；这不替代真实柜台或正式 systemd 安装验收。
 
 当前支持的构建/回归基线是 Ubuntu 24.04 x86_64（glibc 2.39、GCC 13.3）。程序动态依赖宿主的 glibc、`libstdc++.so.6`、
 `libgcc_s.so.1` 等运行库，安装包不带这些系统库；其它发行版、旧 Ubuntu 或 musl 环境未通过兼容性验收。
@@ -190,22 +232,22 @@ scripts/services/build_linux_services.sh
 
 ### 单机拓扑
 
-安装包的 `native/` 资源包含本机行情服务。Terminal 工作台按需启动本机行情服务与 lab，它们都是
-Terminal 的子进程（见[本机服务](services.md#本机服务)）。交易服务在交易主机上，
-市场和交易功能另外使用专用测试 SDK 验证，不连接真实柜台。
+安装包的 `native/` 资源只携带 Terminal 原生层与维护程序，不包含 Market 或 CTP 库。Terminal 只启动
+本机 Lab（见[本机服务](services.md#本机服务)），连接独立 Market 和 Trading。端到端夹具由测试宿主
+独立启动 Market，Terminal 的关闭和重启不改变它；专用测试 SDK 不连接真实柜台。
 
 ### 配置与运行状态
 
 每个程序的配置在它自己安装目录的 `config/`，状态在 `data/`；不把多个进程的配置和状态合并成一个多进程共同改写的文件。
-凭据仍使用钥匙串或受保护的 TLS 身份文件，不放入配置。`<根>` 见[安装目录](architecture.md#安装目录)。
+柜台与供应商凭据使用远程主机的 systemd 加密凭据；客户端仅保存受保护的 TLS 身份文件，不保存柜台密码。`<根>` 见[安装目录](architecture.md#安装目录)。
 
 | 文件 / 位置 | 内容与拥有者 |
 | --- | --- |
 | `<根>/<程序>/config/logging.json` | 该程序的日志：控制台与文件各自的开关、级别、格式，文件路径与保留天数，见[运行日志](services.md#运行日志) |
 | `<根>/terminal/data/services/<服务>.json` | Terminal 保存的本机服务运行意图，由界面操作修改；不是人工运行配置 |
 | `<根>/terminal/data/node-id` | 本机数据的稳定标识 |
-| `<根>/<程序>/data/<服务>/` | 业务状态与数据，由对应业务服务管理；lab 的数据仓库与运行记录在 `lab/data/lab/` |
-| `<根>/terminal/data/` | 另有数据源与 CTP 连接、交易连接与证书、策略仓库（`research.json`）、安装记录 |
+| `<根>/<程序>/data/<服务>/` | 业务状态与数据，由对应业务服务管理；Lab 的只读缓存与研究记录在 `lab/data/lab/`，正式仓库只在 Market 主机 |
+| `<根>/terminal/data/` | 另有 Market 与 Trading 连接、客户端证书、策略仓库（`research.json`）、安装记录 |
 | Electron 界面配置目录（上表） | 语言、窗口等界面偏好 |
 
 仓库根目录的 `config/logging.json` 是维护中的默认配置。
@@ -218,11 +260,10 @@ CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/conf
 凭据不能存进普通配置文件。`config/futures-sessions.json` 是前端构建使用的交易时段定义，
 不作为服务运行配置下发。
 
-开发窗口标题及标题栏显示“开发环境”。每次运行的本机服务套接字在私有的 `/tmp/ast-<实例>/` 下。关闭窗口或按 Ctrl+C
-时 Terminal 先停研究、行情与 lab，最后停数据服务，再退出界面和 Vite；数据与服务运行意图保留，下次启动按它恢复进程；
-柜台连接和交易授权不会自动恢复。Electron 被强制结束时，各服务观察到 Terminal 进程消失后自行退出。钥匙串账户按数据源配置目录的摘要区分，两个环境相同连接名称不会读取或覆盖对方凭据。行情密码和授权码可由用户明确选择保存在本机钥匙串，账户身份及前置地址参与隔离；交易登录密码不持久化。
-
-开发入口不复制程序：各服务 `bin/` 下是指向当前构建目录（`build/Debug`）中程序的符号链接，重新构建后重启服务即运行新程序。
+开发窗口标题及标题栏显示“开发环境”。本机 Lab 的套接字在私有的 `/tmp/ast-<实例>/` 下。
+关闭窗口或按 Ctrl+C 时 Terminal 停止 Lab，再退出界面和 Vite；Lab 观察到父进程消失也会退出。
+Market 与 Trading 均独立运行，不因开发桌面退出而断开柜台、停止策略或撤销授权。Trading 进程自身重启不恢复授权。
+开发时 Lab 使用准备好的研究运行时；修改代码后重启相应进程生效，远程程序更新使用各自主机安装包。
 
 同一开发环境同时只能由一个 Terminal 管理，第二个启动失败并报告 `terminal/data/services.lock`。开发中未完成的研究运行在 lab 重启时记为中断，不声称完成；关闭进程不会自动撤销已经发送到柜台的委托。
 
@@ -236,11 +277,11 @@ CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/conf
 
 `pnpm desktop:build` 是正式发行入口。构建前要求本机钥匙串已有唯一匹配的 Developer ID Application 签名身份，以及通过 `xcrun notarytool store-credentials` 在本机保存的公证 profile；证书私钥、密码和 Apple 凭据不进入源码或聊天。通过 `CSC_NAME` 指定证书摘要或不含 `Developer ID Application:` 前缀的名称，通过 `APPLE_KEYCHAIN_PROFILE` 指定 profile；可用 `APPLE_KEYCHAIN` 指定所在钥匙串。缺少身份或 profile 时立即失败。凭据格式对应锁定的 [electron-builder v26 签名配置](https://www.electron.build/v26/docs/features/code-signing/)。
 
-应用、原生服务、Node-API 模块与 CTP SDK 全部签名，安装包自身也签名。应用和 DMG 分别完成公证及票据装订，验证 Gatekeeper、签名团队、Apple Silicon 架构和完整资源集；随后从 DMG 复制到临时目录运行隔离安装验收。只有全部通过，才生成 `build/desktop/distribution-acceptance.json`，其中的 SHA-256 必须与实际 DMG 一致。失败不生成通过记录。当前保留 JIT 和禁用 library validation 权限：前者供 Electron 使用，后者允许用户显式安装的可信原生插件；插件仍是进程内可信代码。
+应用、原生服务、Node-API 模块与 CTP SDK 全部签名，安装包自身也签名。应用和 DMG 分别完成公证及票据装订，验证 Gatekeeper、签名团队、Apple Silicon 架构和完整资源集；随后从 DMG 复制到临时目录运行隔离安装验收。只有全部通过，才生成 `build/desktop/distribution-acceptance.json`，其中的 SHA-256 必须与实际 DMG 一致。失败不生成通过记录。当前签名权限包含 JIT 和禁用 library validation；具体权限清单随桌面包校验。
 
 无发行证书的 CI 用 `python3 scripts/desktop/desktop.py package-test` 生成 ad-hoc 签名的验收包，名称含 `TEST`，保存在 `build/desktop-test/`；对应校验入口是 `python3 scripts/desktop/desktop.py verify-test`。这类包仅用于隔离安装测试，不产生发行通过记录。GitHub 工作流的桌面任务依赖 style、Linux/macOS core、sanitizer 和 linux-hosts 全部成功，macOS 在 Apple Silicon runner 上构建与安装测试，Linux 在 Ubuntu 24.04 runner 上构建与安装测试；[runner 架构对应关系](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)由 GitHub 定义。本机通过不能代替同提交的 CI 结果。
 
-原生发行资源清单唯一来源为 `scripts/desktop/native-resources.json`，只包含当前程序、库与默认配置，两个平台的安装包共用。每次打包先验证来源，再用新目录替换生成的 native 目录；不从重复使用的构建目录搜集未知文件。Linux 资源也拒绝多余架构、文件或目录。上述操作只替换 `build/` 下的生成资源，不涉及账本、任务或用户安装的插件。
+原生发行资源清单唯一来源为 `scripts/desktop/native-resources.json`，只包含当前程序、库与默认配置，两个平台的安装包共用。每次打包先验证来源，再用新目录替换生成的 native 目录；不从重复使用的构建目录搜集未知文件。Linux 资源也拒绝多余架构、文件或目录。上述操作只替换 `build/` 下的生成资源，不涉及账户账本、采集任务或用户策略仓库。
 
 ## Linux 发行与安装验收
 
@@ -254,8 +295,7 @@ CMake 原样复制到构建目录 `config/`，桌面打包携带在 `native/conf
 仅在用户取消保留并确认删除范围后清理本机资料。
 安装验收（`tests/desktop/electron_installer.py`）在一次性的用户目录里用安装器自己的执行程序安装，
 运行装好的 Terminal 做桌面验收，再连同用户资料卸载，检查只剩日志和锁文件；它直接调用执行程序，不操作安装器窗口。
-准备 Python 运行时时删除为其他平台构建的动态库（如 `py_mini_racer` 的 ARM 版本）和不用的 `libpython3.so`，
-否则依赖分析无法通过。
+准备 Python 运行时只安装当前目标平台的 wheel，并删除不用的 `libpython3.so` 嵌入入口。
 
 无需发行验收的 CI 用 `python3 scripts/desktop/desktop.py package-test` 生成名称含 `TEST` 的包到 `build/desktop-test/`，对应校验入口是 `verify-test`。
 
@@ -265,7 +305,7 @@ POSIX 服务启动时显式忽略 `SIGPIPE`，使断管写入返回 `EPIPE`，�
 
 每个程序写入自己安装目录的 `logs/`（见[安装目录](architecture.md#安装目录)和[运行日志](services.md#运行日志)），
 例如开发版 Linux 的 `~/.local/share/asterion-development/market/logs/`；Terminal 和安装器写入 `<根>/terminal/logs/`。
-程序从自己的位置找到日志配置，不经环境变量。隔离测试的日志在 `<ASTERION_ROOT>/<程序>/logs/`。交易与录制主机的日志留在各自机器，不自动下载到桌面。
+程序从自己的位置找到日志配置，不经环境变量。隔离测试的日志在 `<ASTERION_ROOT>/<程序>/logs/`。Market 与 Trading 主机的日志留在各自机器，不自动下载到桌面。
 旧位置的日志保留原处，不自动搬迁或删除。
 
 桌面启动错误区和服务连接详情提供“打开本机日志目录”，打开的是根目录，各程序的 `logs/` 在其下；服务连接详情同时显示完整路径。
@@ -276,15 +316,13 @@ Electron 从 Native 快照的 `diagnostics.log_directory` 获取路径，再调�
 
 - `terminal-<PID>_YYYY-MM-DD.log` 记录命令名称、`trace_id`、耗时和成功状态；常规状态读取仅在 debug 级别记录。每个 Terminal 实例的标识含本次进程生成的随机范围，跨重启不会复用。
 - `rpc started: trace_id=… correlation_id=…` 将 `trace_id` 连接到一次独立的 `correlation_id`。服务的 `rpc completed`／`rpc failed` 行使用相同请求标识，记录操作名、稳定错误码和允许的任务/交易标识；它表示处理完成，不保证回复已经到达客户端。
-- lab 的采集任务与回测运行按任务或运行编号记录开始与结束；进度不逐次写日志，凭据不记录。
+- Market 采集任务与 Lab 研究运行分别按任务或运行编号记录开始与结束；进度不逐次写日志，凭据不记录。
 - 交易 `journal.committed` 只在 SQLite 提交成功后记录 `account_id`、`request_id`、`order_id` 和已分配的 `broker_key`。`broker.order_observed`、`broker.trade_observed` 在服务读取柜台快照时关联委托、柜台及交易所标识。采样可能合并两次读取之间的中间回报，不能替代柜台原始成交历史；SDK 回调不因此写磁盘。
 - 进程日志中 `module=transport` 记录连接处理、握手、接入和健康通道故障。重复故障在累计次数 1、2、4、8 等位置报告，空闲监听超时不报告为故障。记录只含错误码和计数，不写请求体、凭据或对端异常原文。
 
 日志写入、刷新或日志实例创建失败时，会增加进程累计失败计数，并通过独立的 stderr 输出 `logging.failed` 固定诊断，同样按上述次数限制。通知不包含原始日志内容；如果 stderr 本身不可写，仍保留进程计数。Terminal 服务详情显示本次运行发生过的日志丢失；该提示不宣称当前仍在故障。后台状态刷新失败显示最近成功视图和待确认状态，成功刷新后恢复，累计失败次数保留在 `diagnostics`。
 
 原生 C ABI 的 `asterion_terminal_create(char** error)` 在失败时返回空句柄，并通过可选输出返回含 `code` / `message` 的 JSON 错误；成功时清空输出。错误字符串只能由 `asterion_terminal_free` 释放，分配失败时错误指针也可能为空。Node-API 保留错误码，开发桥把同一结构写入 stderr；不存在旧的无参数创建入口。
-
-钥匙串访问由 Terminal 的 `native/keychain_store.cpp` 管理助手进程 `asterion_keychain`：macOS 助手使用登录钥匙串，Linux 助手在运行时加载桌面的 `libsecret-1.so.0`，把凭据存入 Secret Service 的登录密钥环。助手不继承 Terminal 的环境变量，Linux 上只得到会话总线地址。Linux 会话没有可用的 Secret Service 时，Terminal 启动时的一次探测（查询一个从不保存的账户，不弹出解锁提示，最多等待 3 秒）判定凭据存储不可用，此后凭据只能保存在本次运行的内存中，勾选保存会明确失败。Secret Service 不按应用隔离，同一登录会话中的其它程序可以读取这些条目。输入、输出及退出等待共享 30 秒期限，管道使用非阻塞读写；超过 4,096 字节的响应明确拒绝。超时、断管或异常输出会终止并回收本次助手进程，后续显式操作仍可使用该接口。凭据通过匿名管道传递，不放进命令行、环境变量、临时文件或错误消息。设置或删除操作超时可能发生在钥匙串已经提交之后；本机配置不因此自动重写，也不会自动重试，应显式确认当前凭据状态再继续。
 
 ## 类型检查
 
@@ -318,7 +356,7 @@ build/Release/asterion_live_tests --gtest_filter=Live.DISABLED_ObservationScaleM
 `pnpm desktop:build` 先生成完整 Terminal 目录，再将其嵌入 Asterion Installer；Linux 输出
 `.tar.gz`（解压后运行 `asterion_installer`），macOS 输出含安装器应用的 `.dmg`。
 每次发行按平台提供一个安装包，而非一个跨平台通用文件。安装包携带完整 Terminal、原生维护
-执行器、本机行情服务、默认配置与 Python 运行时清单。
+执行器、默认配置与 Python 运行时清单。Market 与 Trading 使用各自独立的 Linux 安装包。
 普通用户不需要另行下载 Terminal 或服务程序。安装、升级、修复和卸载由同一安装程序处理。
 
 从仓库根目录生成，或在 VS Code 的“终端 → 运行任务”选择对应安装包任务：
@@ -348,6 +386,6 @@ macOS 正式分发继续要求 Developer ID 签名和公证。`package-test` 仅
 旧安装包不能降级或修复较新版本。修复重新部署程序与桌面启动器，不回填用户配置或业务资料。Terminal 运行时安装器拒绝修改。
 中断后继续必须使用登记的目标版本安装包；开发构建版本未变化时应选择修复，而非升级。
 卸载默认勾选保留配置与业务数据。明确取消并确认后，删除根目录下各程序目录中的资料，
-保留各程序的诊断日志、锁文件，并先删除本机保存在系统钥匙串里的凭据；交易与录制主机上的资料不受影响。卸载中断后按已登记选择继续；
+保留各程序的诊断日志、锁文件，并先删除本机保存在系统钥匙串里的凭据；Market 与 Trading 主机上的资料不受影响。卸载中断后按已登记选择继续；
 安装、升级及修复没有删除资料的选项。
 程序替换不提供旧格式迁移；配置与原始资料保留，不要删除业务数据来绕过格式错误。

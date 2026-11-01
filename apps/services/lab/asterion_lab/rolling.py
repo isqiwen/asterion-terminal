@@ -21,7 +21,7 @@ from pathlib import Path
 from asterion_lab import backtest, repository
 from asterion_lab.backtest import R, raw
 from asterion_lab.runs import Plan, Runs
-from asterion_lab.strategy import Context, step
+from asterion_strategy import Context, step
 
 MIN_TRAINING = 20
 MAX_ROUNDS = 100
@@ -151,8 +151,12 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
                                 "validation_days": validation, "rounds": chosen}},
         bars=backtest.bars_record(config, data)))
     try:
-        if data.version.identity != runs.record(candidates[0])["data"]["dataset_version"]:
-            raise ValueError("the warehouse changed after the candidates ran")
+        for candidate in candidates:
+            recorded = runs.record(candidate)["data"]
+            if (recorded["provider"] != config.provider
+                    or recorded["dataset_version"] != data.version.identity
+                    or recorded["bars"] != backtest.bars_record(config, data)):
+                raise ValueError(f"candidate {candidate} used different dataset versions or bar inputs")
         strategies = [repository.load(root, config.strategy, {**config.params, **row["params"]})
                       for row in members]
         contracts, series, first = backtest.prepare(data, config)
@@ -167,7 +171,7 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
                        backtest.segment_metrics(config, engine, training).items()})
         runs.succeed(identity, backtest.tables(engine, contracts), result)
     except BaseException as error:
-        runs.fail(identity, "failed", str(error) or type(error).__name__)
+        runs.end(identity, "failed", str(error) or type(error).__name__)
         raise
 
 

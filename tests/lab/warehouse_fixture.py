@@ -9,8 +9,8 @@ from pathlib import Path
 import sys
 
 if __name__ == "__main__":
-    sys.path.insert(0, sys.argv.pop(1))
-from asterion_lab.warehouse import Warehouse  # noqa: E402
+    sys.path[:0] = [sys.argv.pop(1), str(Path(__file__).parent)]
+from warehouse_writer import Warehouse  # noqa: E402
 
 FIRST = datetime.date(2026, 1, 5)
 

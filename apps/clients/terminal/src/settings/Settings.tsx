@@ -9,10 +9,8 @@ import { translate, useLocale, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
-import { DataSources } from "./DataSources";
 import { TradingConnections } from "./TradingConnections";
-import { CtpConnections } from "./CtpConnections";
-import { RecorderSource } from "./RecorderSource";
+import { MarketSource } from "./MarketSource";
 import { StrategyRepository } from "./StrategyRepository";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
@@ -153,9 +151,7 @@ export function Settings({
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "sources" && (
           <>
-            <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />
-            <RecorderSource snapshot={snapshot} busy={busy} trade={trade} />
-            <DataSources snapshot={snapshot} busy={busy} trade={trade} />
+            <MarketSource snapshot={snapshot} busy={busy} trade={trade} />
           </>
         )}
         {page === "research" && (

@@ -2,7 +2,7 @@
 from collections import deque
 import math
 
-from asterion_lab.strategy import Strategy
+from asterion_strategy import Strategy
 
 from strategies._rules import SIDES, units
 
@@ -22,6 +22,9 @@ class MomentumRank(Strategy):
         self.need = max(p["lookback"] + 1, p["volatility"] + 1 if p["volatility"] else 0)
         self.closes = None
         self.shared = 0
+
+    def ready(self, ctx):
+        return self.shared >= self.need
 
     def on_bars(self, ctx, bars):
         p = self.params

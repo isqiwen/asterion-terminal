@@ -16,6 +16,8 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
+from market_installation import market_host
+import market_tls
 if sys.platform != "linux":
     raise SystemExit(77)
 
@@ -88,10 +90,12 @@ def stop(process):
     assert SECRET not in stdout + stderr and AUTH not in stdout + stderr
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder, market_host(build, Path(folder) / "market") as market_port:
     # The application owns the log path; inherited logger settings cannot split
     # Terminal events from its services.
     env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
+    tls = Path(folder) / "market/config/tls"
+    market_tls.install_client(tls, env["ASTERION_ROOT"])
     process = launch()
     host = install(Path(os.environ["ASTERION_ROOT"]) / "independent-trading", Programs(
         str(build / "asterion_trading"), str(build / "asterion_test_certificates"),
@@ -105,16 +109,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
             children[name] = host.start(name)
             call(process, "trading.connections.save", dict(id=name, name=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
-        call(process, "market.local")
-        # The counter details are entered once; commands refer to them by id.
-        call(process, "ctp.connections.save", dict(
-            id="catalog", name="Catalog", revision="", broker_id="test", user_id="catalog",
-            app_id="client_app", trade_front="tcp://127.0.0.1:1", market_front="tcp://127.0.0.1:1"))
-        call(process, "ctp.connections.save", dict(
-            id="account", name="Account", revision="", broker_id="9999", user_id="000001",
-            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
-        call(process, "market.catalog", dict(account="catalog", password="catalog-only",
-                                             auth_code=AUTH))
+        call(process, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
+        call(process, "market.open")
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
         call(process, "live.open", dict(account="account"))
         create = dict(
@@ -166,9 +162,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
 
         # A second account trades at the same time with its own record, service
         # and authorization: an order names its account and cannot use another's.
-        call(process, "ctp.connections.save", dict(
-            id="second", name="Second", revision="", broker_id="9999", user_id="000002",
-            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
         call(process, "live.open", dict(account="second"))
         trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]),
              account="second")
@@ -179,11 +172,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         assert "authorize" in denied["message"], denied
         assert order(call(process, "runtime.snapshot"), "other") is None
         trade(process, "live.act", submit("stray", "1"), error=True, account="missing")
-        # Market registration is independent of the service-owned trading identity.
-        changed = next(c for c in state["ctp_connections"] if c["id"] == "second")
-        call(process, "ctp.connections.save", dict(changed, user_id="000003"))
-        assert session(call(process, "runtime.snapshot"), "second")["broker"]["user_id"] == "000002"
-        call(process, "ctp.connections.remove", dict(id="second", revision=next(c["revision"] for c in call(process, "runtime.snapshot")["ctp_connections"] if c["id"] == "second")))
         trade(process, "live.close", account="second")
 
         # Restart the independently managed host: local login resumes, authorization does not.

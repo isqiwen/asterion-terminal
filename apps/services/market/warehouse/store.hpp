@@ -1,0 +1,103 @@
+#pragma once
+#include <asterion/base/decimal.hpp>
+#include <filesystem>
+#include <map>
+#include <mutex>
+#include <span>
+#include <variant>
+#include <vector>
+
+namespace asterion::market_data::warehouse {
+
+enum class Kind
+{
+    text,
+    date,
+    boolean,
+    integer,
+    number
+};
+
+struct Column
+{
+    std::string_view name;
+    Kind kind;
+};
+
+std::span<const Column> columns(std::string_view table);
+// Storage numbers have the existing DECIMAL(28,6) range. Decimal is accepted
+// for prices; exact decimal text also preserves wider provider quantities.
+using Cell = std::variant<std::monostate, std::string, bool, std::int64_t, Decimal>;
+using Row = std::vector<Cell>;
+
+struct Partition
+{
+    std::string file, sha256;
+    std::uint64_t rows = 0;
+    std::vector<std::string> days;
+    bool operator==(const Partition&) const = default;
+};
+
+struct Version
+{
+    std::string identity, provider, parent;
+    std::int64_t created_ns = 0;
+    std::map<std::string, Partition> partitions;
+};
+
+class Writer;
+
+// The same on-disk contract used by research: immutable partition files,
+// versions/<sha256>.json, and an atomically published current pointer.
+// Construction/reads create nothing. Market owns the installation lock;
+// one Store per source serializes its writers. Reads never take that lock.
+class Store
+{
+public:
+    Store(std::filesystem::path directory, std::string provider);
+    Version current() const;
+    Version version(std::string_view identity) const;
+    std::filesystem::path file(const Version&, std::string_view key) const;
+    std::vector<Row> read(const Version&, std::string_view key) const;
+
+    const std::filesystem::path& root() const
+    {
+        return root_;
+    }
+
+    Writer writer();
+
+private:
+    friend class Writer;
+    std::filesystem::path root_;
+    std::string provider_;
+    std::mutex writes_;
+};
+
+class Writer
+{
+public:
+    explicit Writer(Store&);
+    // Replace a complete partition, publishing none of the transaction until commit.
+    void put(std::string key, std::span<const Row> rows, std::vector<std::string> days = {});
+    void merge_days(
+        const std::string& exchange,
+        const std::string& month,
+        std::vector<Row> rows,
+        std::vector<std::string> days);
+    Version commit();
+
+private:
+    Store& store_;
+    std::unique_lock<std::mutex> lock_;
+    Version base_, pending_;
+};
+
+// Data paths are service-owned; provider/partition/version identities arrive
+// from clients. Validate them before any filesystem access.
+void require_provider(std::string_view provider);
+void require_identity(std::string_view identity);
+void require_key(std::string_view key);
+std::filesystem::path source_directory(const std::filesystem::path&, std::string_view provider);
+
+} // namespace asterion::market_data::warehouse

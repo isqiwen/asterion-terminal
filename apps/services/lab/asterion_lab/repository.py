@@ -24,7 +24,7 @@ import traceback
 
 from asterion.lab_pb2 import Strategies
 
-from asterion_lab.strategy import FIELDS, KINDS, Strategy
+from asterion_strategy import FIELDS, KINDS, Strategy
 
 LISTING_SECONDS = 30
 

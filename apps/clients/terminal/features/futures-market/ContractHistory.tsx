@@ -66,7 +66,12 @@ export function ContractHistory({
     sources: Record<string, LabStoredContract | undefined>;
     error: DisplayError;
   }>();
-  const storedKey = JSON.stringify([contractId, retry]);
+  const endpoint = snapshot?.market_endpoint;
+  const address =
+    endpoint && "host" in endpoint
+      ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
+      : "";
+  const storedKey = JSON.stringify([address, contractId, retry]);
   useEffect(() => {
     if (!contractId) return;
     let active = true;
@@ -117,7 +122,7 @@ export function ContractHistory({
   const available = daily ? hasDays : hasMinutes;
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
-  const barsKey = JSON.stringify([contractId, daily ? "" : source, activePeriod, retry]);
+  const barsKey = JSON.stringify([address, contractId, daily ? "" : source, activePeriod, retry]);
   const [drawn, setDrawn] = useState<{ key: string; bars?: LabChartBars; error: DisplayError }>();
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
@@ -125,7 +130,11 @@ export function ContractHistory({
     void lab(
       {
         case: "chartBars",
-        value: { contract: contractId, provider: source, period: String(activePeriod) },
+        value: {
+          contract: contractId,
+          provider: daily ? "tushare" : source,
+          period: String(activePeriod),
+        },
       },
       "chartBars",
     )
@@ -134,7 +143,7 @@ export function ContractHistory({
     return () => {
       active = false;
     };
-  }, [barsKey, contractId, activePeriod, available, source]);
+  }, [barsKey, contractId, activePeriod, available, daily, source]);
   const current = drawn?.key === barsKey ? drawn : undefined;
   const all = current?.bars?.bars ?? [];
   // The latest page first; paging keeps its place per contract, source and period.

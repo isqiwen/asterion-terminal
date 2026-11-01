@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { ctpConnection, rpc } from "./rpc-fixture";
+import { rpc } from "./rpc-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./trading-fixture";
 import { join } from "node:path";
@@ -20,18 +20,8 @@ test(
       return state;
     };
     try {
-      await ctpConnection(page.request, "live-account", {
-        broker_id: "9999",
-        user_id: "000001",
-        trade_front: "tcp://127.0.0.1:41205",
-      });
-      await ctpConnection(page.request, "other-account", {
-        broker_id: "9999",
-        user_id: "000002",
-        trade_front: "tcp://127.0.0.1:41205",
-      });
       await page.goto("/");
-      await rpc(page.request, "market.local");
+      await rpc(page.request, "market.open");
       await page.reload();
       await openView(page, "trading");
       const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
@@ -40,11 +30,6 @@ test(
       await expect(list.getByRole("button", { name: /^other-account/ })).toHaveCount(0);
       await list.getByRole("button", { name: /^live-account/ }).click();
       await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("live-account");
-      if (await panel.getByLabel("目录查询密码", { exact: true }).isVisible()) {
-        await panel.getByLabel("目录查询密码", { exact: true }).fill("catalog-only");
-        await panel.getByLabel("目录查询授权码", { exact: true }).fill("auth-code");
-        await panel.getByRole("button", { name: "获取合约列表", exact: true }).click();
-      }
       await expect(panel.getByLabel("添加合约", { exact: true })).toBeVisible();
 
       for (const [label, value] of [

@@ -6,7 +6,9 @@ const net = require("node:net");
 
 const MAX_REQUEST = 1024 * 1024;
 const MAX_REPLY = 64 * 1024 * 1024;
-const TIMEOUT_MS = 30000;
+// The longest synchronous Lab operation is a report (60 s including cold
+// native imports). Leave time for its explicit timeout reply to arrive.
+const TIMEOUT_MS = 65000;
 
 function exchange(endpoint, payload) {
   return new Promise((resolve, reject) => {

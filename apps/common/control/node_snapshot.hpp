@@ -17,7 +17,6 @@ struct NodeSnapshot
 };
 
 const char* service_kind_name(node::proto::ServiceKind kind);
-node::proto::ServiceKind parse_service_kind(const std::string& name);
 Json node_snapshot_json(const NodeSnapshot& snapshot);
 
 } // namespace asterion::terminal

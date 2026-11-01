@@ -157,7 +157,7 @@ function IntradayPanel({
         }}
       />
       <p className="intraday-note">
-        {t("本机行情服务观测")} · {series.trading_day} · {t("自")} {since}
+        {t("Market 服务观测")} · {series.trading_day} · {t("自")} {since}
         {series.interrupted && ` · ${t("序列曾中断")}`}
       </p>
     </>

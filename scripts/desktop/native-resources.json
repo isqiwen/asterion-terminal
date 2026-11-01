@@ -1,14 +1,10 @@
 {
   "programs": [
-    "asterion_market",
     "asterion_keychain",
     "asterion_terminal.node",
     "asterion_maintenance"
   ],
-  "libraries": [
-    "ctp-md",
-    "ctp-trader"
-  ],
+  "libraries": [],
   "configuration": [
     "config/logging.json",
     "product.json"

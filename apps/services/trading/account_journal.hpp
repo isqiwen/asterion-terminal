@@ -20,9 +20,10 @@ public:
     using Post = std::function<void(std::function<void()>)>;
     // Physical database/file publication ownership; distinct from account execution binding.
     static constexpr auto ownership_file = "account.lock";
-    // Directories beside the journal files: the CTP flow cache,
-    // sealed segments and owner/, which holds ownership_file alone.
-    static inline const std::set<std::string> sidecars{"ctp-flow", "archives", "owner"};
+    // Directories beside the journal files: CTP flow, sealed segments, the
+    // physical owner lease, and StrategyHost's packages and instance state.
+    static inline const std::set<std::string>
+        sidecars{"ctp-flow", "archives", "owner", "strategies"};
 
     struct Result
     {

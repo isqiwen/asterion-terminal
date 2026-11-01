@@ -40,9 +40,8 @@ export const test = base.extend<{
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
         process.env.ASTERION_ROOT = (await response.json()).root;
-        // Bring the environment up as the app's startup does (the market
-        // service past its first heartbeat), so the first test of a file
-        // meets the same ready state as the later ones.
+        // Attach the new Terminal to the independently supervised Market.
+        // This creates no local Market and changes no provider state.
         const call = async (method: string, params: object = {}) => {
           const reply = await request.post("/__asterion/api", {
             data: { version: 1, method, params },
@@ -51,7 +50,12 @@ export const test = base.extend<{
           if (body.error) throw new Error(`${method} after reset: ${body.error.message}`);
           return body.result;
         };
-        await call("market.local");
+        await call("market.endpoint.save", {
+          host: "127.0.0.1",
+          port: Number(process.env.ASTERION_TEST_MARKET_PORT),
+          fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT!,
+        });
+        await call("market.open");
         for (const deadline = Date.now() + 60000; ;) {
           const services = (await call("runtime.snapshot")).nodes.flatMap(
             (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>

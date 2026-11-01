@@ -1,25 +1,12 @@
 syntax = "proto3";
 package asterion.market.proto;
+import "asterion/recording.proto";
+import "asterion/dataset.proto";
+import "asterion/acquisition.proto";
 message Empty {}
 message Instrument {
   string venue = 1;
   string symbol = 2;
-}
-// Password exists only in an authenticated request and service memory, never a snapshot.
-message Connect {
-  string front = 1;
-  string broker = 2;
-  string user = 3;
-  string password = 4;
-  repeated Instrument instruments = 5;
-}
-message CatalogRequest {
-  string front = 1;
-  string broker = 2;
-  string user = 3;
-  string password = 4;
-  string app_id = 5;
-  string auth_code = 6;
 }
 message CatalogContract {
   Instrument instrument = 1;
@@ -37,10 +24,11 @@ message CatalogState {
   string trading_day = 4;
   repeated CatalogContract contracts = 5;
 }
-message Subscribe {
+// Selection belongs to this stream. Empty selects all collected contracts.
+// Change selection by opening a new watch, which starts with a full baseline.
+message Watch {
   repeated Instrument instruments = 1;
 }
-message Watch {}
 // Initial read: empty stream_id and after_sequence=0. Subsequent reads must
 // retain stream identity; this bounded volatile stream is not a durable archive.
 message ReadEvents {
@@ -53,15 +41,24 @@ message Request {
   string service_id = 2;
   string correlation_id = 3;
   oneof operation {
-    Connect connect = 10;
-    Subscribe subscribe = 11;
-    Empty disconnect = 12;
     Empty snapshot = 13;
     Watch watch = 14;
     Empty heartbeat = 15;
     ReadEvents events = 16;
-    CatalogRequest catalog = 17;
     MinuteRequest minutes = 18;
+    asterion.recording.proto.StatusQuery recording_status = 19;
+    asterion.recording.proto.DaysQuery recorded_days = 20;
+    asterion.recording.proto.MinutesQuery recorded_minutes = 21;
+    asterion.dataset.proto.SourcesQuery datasets = 22;
+    asterion.dataset.proto.VersionQuery dataset = 23;
+    asterion.dataset.proto.FileQuery dataset_file = 24;
+    asterion.dataset.proto.SummaryQuery dataset_summary = 25;
+    asterion.acquisition.proto.TaskQuery acquisition_task = 26;
+    asterion.acquisition.proto.TasksQuery acquisition_tasks = 27;
+    asterion.acquisition.proto.Request acquisition_start = 28;
+    asterion.acquisition.proto.TaskQuery acquisition_cancel = 29;
+    asterion.acquisition.proto.SourcesQuery acquisition_sources = 30;
+    asterion.dataset.proto.CoverageQuery dataset_coverage = 31;
   }
 }
 message DepthLevel {
@@ -168,6 +165,17 @@ message Response {
     Error error = 12;
     EventBatch events = 13;
     MinuteSeries minutes = 14;
+    asterion.recording.proto.Status recording_status = 15;
+    asterion.recording.proto.Days recorded_days = 16;
+    asterion.recording.proto.Minutes recorded_minutes = 17;
+    asterion.dataset.proto.Sources datasets = 18;
+    asterion.dataset.proto.Version dataset = 19;
+    asterion.dataset.proto.File dataset_file = 20;
+    asterion.dataset.proto.Summary dataset_summary = 21;
+    asterion.acquisition.proto.Task acquisition_task = 22;
+    asterion.acquisition.proto.Tasks acquisition_tasks = 23;
+    asterion.acquisition.proto.Sources acquisition_sources = 24;
+    asterion.dataset.proto.Coverage dataset_coverage = 25;
   }
 }
 

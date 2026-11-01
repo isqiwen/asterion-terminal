@@ -8,10 +8,12 @@ const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const library = process.platform === "darwin" ? ".dylib" : ".so";
+const { spawn } = require("node:child_process");
+const { once } = require("node:events");
+const { createInterface } = require("node:readline");
 (async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-depth-"));
-  let application;
+  let application, market;
   try {
     const client = path.join(temp, "apps/clients/terminal");
     await fs.mkdir(client, { recursive: true });
@@ -23,25 +25,40 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     const native = path.join(resources, "native");
     await fs.mkdir(native, { recursive: true });
     for (const item of await fs.readdir(path.resolve("build/electron-resources/native"))) {
-      if (["ctp-md" + library, "ctp-trader" + library].includes(item)) continue;
       await fs.cp(path.resolve("build/electron-resources/native", item), path.join(native, item), {
         recursive: true,
       });
     }
-    await fs.copyFile(
-      path.resolve(
-        process.env.ASTERION_CPP_BUILD || "build/Release",
-        "libasterion_test_ctp" + library,
-      ),
-      path.join(native, "ctp-md" + library),
+    market = spawn(
+      "python3",
+      [
+        "tests/support/market_installation.py",
+        path.resolve(process.env.ASTERION_CPP_BUILD || "build/Release"),
+        path.join(temp, "market"),
+      ],
+      { stdio: ["pipe", "pipe", "inherit"] },
     );
-    await fs.copyFile(
-      path.resolve(
-        process.env.ASTERION_CPP_BUILD || "build/Release",
-        "libasterion_test_ctp_trader" + library,
-      ),
-      path.join(native, "ctp-trader" + library),
-    );
+    const lines = createInterface({ input: market.stdout });
+    const port = await Promise.race([
+      once(lines, "line").then(([line]) => Number(line)),
+      once(market, "exit").then(([code]) => {
+        throw new Error(`Market fixture exited: ${code}`);
+      }),
+    ]);
+    assert.ok(port > 0 && port <= 65535);
+    const tls = path.join(temp, "market/config/tls");
+    const clientTls = path.join(temp, "node/terminal/data/tls");
+    await fs.mkdir(clientTls, { recursive: true });
+    for (const extension of ["crt", "key"])
+      await fs.copyFile(
+        path.join(tls, `reader.${extension}`),
+        path.join(clientTls, `client.${extension}`),
+      );
+    const fingerprint = new (require("node:crypto").X509Certificate)(
+      await fs.readFile(path.join(tls, "server.crt")),
+    ).fingerprint256
+      .replaceAll(":", "")
+      .toLowerCase();
     application = await electron.launch({
       recordVideo: process.env.ASTERION_UI_VIDEO_DIR
         ? {
@@ -107,23 +124,8 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await call("market.local");
-    await call("ctp.connections.save", {
-      id: "fixture",
-      name: "fixture",
-      revision: "",
-      broker_id: "test",
-      user_id: "fixture",
-      app_id: "app",
-      trade_front: "tcp://127.0.0.1:1",
-      market_front: "tcp://127.0.0.1:1",
-    });
-    await call("market.connect", { password: "explicit-depth-fixture", instruments: [] });
-    await call("market.catalog", {
-      account: "fixture",
-      password: "explicit-catalog-fixture",
-      auth_code: "depth-auth",
-    });
+    await call("market.endpoint.save", { host: "127.0.0.1", port, fingerprint });
+    await call("market.open");
     await expect
       .poll(
         async () => {
@@ -150,7 +152,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await page.screenshot({ path: path.resolve("build/native-depth-check/full-market.png") });
     await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
-    await call("market.subscribe", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
+    await call("market.watchlist", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
     const quote = fullMarket.subscriptions[0].quote;
     assert.equal(quote.open, "3490.25");
     assert.equal(quote.open_interest_change, "-25.25");
@@ -193,7 +195,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await expect(depth).not.toContainText("当前报价未提供更多档位");
     await fs.mkdir(path.resolve("build/native-depth-check"), { recursive: true });
     await page.screenshot({ path: path.resolve("build/native-depth-check/native-depth.png") });
-    await call("market.disconnect");
+    await call("market.close");
     console.log(
       "Electron market: production host, isolated SDK, real market service and Node-API, full catalog with empty watchlist, Chinese names, exact depth, session prices and previous close passed",
     );
@@ -201,7 +203,13 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     try {
       if (application) await application.close();
     } finally {
-      // The services exit with the application that started them.
+      if (market) {
+        assert.equal(market.exitCode, null, "Terminal must not stop Market");
+        const closed = once(market, "exit");
+        market.stdin.end();
+        await closed;
+      }
+      // The local Lab exits with the application that started it.
       await new Promise(resolve => setTimeout(resolve, 2000));
       await fs.rm(temp, { recursive: true, force: true });
     }

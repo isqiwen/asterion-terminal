@@ -1308,5 +1308,22 @@
   "trading service account configuration changed; reconnect explicitly": "交易服务账户配置发生变化，请核对后重新连接。",
   "trading service did not provide its account configuration": "交易服务未返回账户配置。",
   "only data-source extensions can be installed": "只允许安装数据源扩展，风控等功能由产品内置。",
-  "risk policy is required": "必须配置风控政策"
+  "risk policy is required": "必须配置风控政策",
+  "invalid Market data request": "Market 数据请求无效",
+  "Market data request identity mismatch": "Market 数据请求身份不匹配",
+  "unsupported Market data operation": "不支持此 Market 数据操作",
+  "cannot encode Market data response": "无法编码 Market 数据回复",
+  "Missing Market data response": "未返回 Market 数据回复",
+  "Market data response identity mismatch": "Market 数据回复身份不匹配",
+  "Market replied with another operation": "Market 返回了其他操作的回复",
+  "invalid coverage product cursor": "数据覆盖分页游标无效",
+  "Market acquisition management permission is required": "此操作需要 Market 采集管理权限",
+  "stopping a strategy requires its instance id": "停止策略必须指定实例 ID",
+  "strategy instance changed; inspect before stopping": "策略实例已变化，请读取当前状态后再停止",
+  "Trading restarted; explicitly start a new strategy instance": "Trading 已重启；须显式启动新策略实例。",
+  "strategy market stream lost observations": "策略行情流丢失观测，实例已结束。",
+  "strategy market connection interrupted": "策略行情连接中断，实例已结束。",
+  "strategy contract subscription rejected": "策略合约订阅被拒绝，实例已结束。",
+  "strategy market observations are unordered": "策略行情时间顺序异常，实例已结束。",
+  "strategy market login timed out": "策略行情登录超时，实例已结束。"
 }

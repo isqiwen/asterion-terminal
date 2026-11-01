@@ -2,9 +2,7 @@ import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
-test("opening connection settings only reads the monitor established by startup", async ({
-  page,
-}) => {
+test("opening connection settings does not start a local service", async ({ page }) => {
   await page.goto("/");
   const settings = await openSettingsWindow(page);
   const commands: string[] = [];
@@ -25,7 +23,9 @@ test("opening connection settings only reads the monitor established by startup"
   });
   for (let visit = 0; visit < 2; visit++) {
     await settings.getByRole("button", { name: "本机服务", exact: true }).click();
-    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText("market-data");
+    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText(
+      "尚无本机服务；使用相应功能时自动启动。",
+    );
     await expect(settings.getByRole("alert")).toHaveCount(0);
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   }

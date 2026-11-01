@@ -19,12 +19,21 @@ const shownAtOnce = 200;
 
 type Stored = { contract: string; name: string; dailyDays: number; minuteDays: number };
 
-// The contracts the lab has stored, Tushare's days and minutes with recorded
+// The contracts Market has stored, Tushare's days and minutes with recorded
 // minutes, and the chosen one's history.
 export function MarketPanel({ context }: { context: TerminalContext }) {
   const [selected, setSelected] = useWorkspaceDraft("history-market-selected", "");
   const [search, setSearch] = useWorkspaceDraft("history-market-search", "");
-  const [stored, setStored] = useState<{ items: Stored[]; error: DisplayError } | null>(null);
+  const endpoint = context.snapshot?.market_endpoint;
+  const address =
+    endpoint && "host" in endpoint
+      ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
+      : "";
+  const [stored, setStored] = useState<{
+    address: string;
+    items: Stored[];
+    error: DisplayError;
+  } | null>(null);
   useEffect(() => {
     let active = true;
     void Promise.all(
@@ -54,14 +63,15 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
           (a, b) =>
             Number(!a.minuteDays) - Number(!b.minuteDays) || a.contract.localeCompare(b.contract),
         );
-        if (active) setStored({ items, error: "" });
+        if (active) setStored({ address, items, error: "" });
       })
-      .catch(reason => active && setStored({ items: [], error: asDisplayError(reason) }));
+      .catch(reason => active && setStored({ address, items: [], error: asDisplayError(reason) }));
     return () => {
       active = false;
     };
-  }, []);
-  const items = stored?.items ?? [];
+  }, [address]);
+  const current = stored?.address === address ? stored : null;
+  const items = current?.items ?? [];
   const nameFor = (item: Stored) => item.name || identityName(item.contract) || item.contract;
   const matched = items.filter(item =>
     `${item.contract} ${nameFor(item)}`.toUpperCase().includes(search.trim().toUpperCase()),
@@ -124,9 +134,9 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
             </button>
           ))}
         </div>
-        {stored?.error && (
+        {current?.error && (
           <p role="alert">
-            <ErrorNotice error={stored.error} />
+            <ErrorNotice error={current.error} />
           </p>
         )}
         {matched.length > visible.length && (
@@ -136,7 +146,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
             })}
           </p>
         )}
-        {stored && !visible.length && (
+        {current && !visible.length && (
           <p role="status">{t(items.length ? "没有匹配的历史合约" : "尚无已采集的历史合约")}</p>
         )}
       </div>
@@ -151,7 +161,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
           />
         ) : (
           <div className="market-chart-empty">
-            <p>{t(stored ? "请在数据页采集历史数据。" : "读取中")}</p>
+            <p>{t(current ? "请在数据页采集历史数据。" : "读取中")}</p>
           </div>
         )}
       </div>

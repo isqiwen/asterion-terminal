@@ -23,6 +23,8 @@ endif()
 # processes, sockets or slow stores. A test program that has any such test is
 # `process`; directly registered script tests below are all `process`.
 set(asterion_process_test_targets
+  asterion_python_runtime_tests asterion_warehouse_tests
+  asterion_acquisition_tests
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
   asterion_data_credential_tests asterion_kernel_tests asterion_live_tests
   asterion_market_snapshot_tests asterion_rpc_host_tests asterion_terminal_application_tests)
@@ -69,11 +71,13 @@ target_include_directories(asterion_transport_tests PRIVATE ${CMAKE_SOURCE_DIR}/
 target_link_libraries(asterion_transport_tests PRIVATE asio::asio)
 asterion_unit_tests(asterion_ipc_tests core/ipc_test.cpp Asterion::System)
 asterion_unit_tests(asterion_domain_tests core/domain_test.cpp Asterion::Futures)
+asterion_unit_tests(asterion_portfolio_targets_tests core/portfolio_targets_test.cpp Asterion::Futures)
 asterion_unit_tests(asterion_replay_tests core/replay_test.cpp Asterion::Futures)
 asterion_unit_tests(asterion_logging_tests core/logger_test.cpp Asterion::System)
 target_link_libraries(asterion_logging_tests PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 
 # market: CTP feed and catalog, the market service, the market SDK double
+asterion_unit_tests(asterion_strategy_bars_tests trading/strategy_bars_test.cpp asterion_trading_session)
 add_library(asterion_test_ctp SHARED market/ctp_fake_sdk.cpp)
 target_include_directories(asterion_test_ctp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(asterion_test_ctp PRIVATE ctp::ctp Threads::Threads)
@@ -84,17 +88,32 @@ target_include_directories(asterion_test_market_remote PRIVATE ${CMAKE_SOURCE_DI
 target_link_libraries(asterion_test_market_remote PRIVATE asterion_terminal_api)
 add_test(NAME remote_market COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/remote_market.py ${CMAKE_BINARY_DIR})
 set_tests_properties(remote_market PROPERTIES TIMEOUT 30)
+add_test(NAME market_recording_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/recording_process.py $<TARGET_FILE:asterion_market> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader>)
+set_tests_properties(market_recording_process PROPERTIES TIMEOUT 90)
 asterion_unit_tests(asterion_ctp_tests market/ctp_test.cpp asterion_ctp)
-asterion_unit_tests(asterion_recorder_tests recorder/recorder_test.cpp asterion_bar_parquet)
-target_sources(asterion_recorder_tests PRIVATE recorder/settings_test.cpp recorder/compaction_test.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/recorder.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/settings.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/compaction.cpp ${CMAKE_SOURCE_DIR}/apps/services/recorder/database.cpp)
-target_include_directories(asterion_recorder_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/recorder)
-target_link_libraries(asterion_recorder_tests PRIVATE asterion_ctp duckdb::duckdb)
-# The recorder installs and runs on Linux hosts only; so do its setup tests.
+asterion_unit_tests(asterion_warehouse_tests market/warehouse_test.cpp asterion_market_warehouse)
+target_link_libraries(asterion_warehouse_tests PRIVATE asterion_bar_parquet duckdb::duckdb)
+target_compile_definitions(asterion_warehouse_tests PRIVATE
+  ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
+  ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
+  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
+add_dependencies(asterion_warehouse_tests asterion_test_ctp asterion_test_ctp_trader asterion_market)
+asterion_unit_tests(asterion_acquisition_tests market/acquisition_test.cpp asterion_market_acquisition)
+target_sources(asterion_acquisition_tests PRIVATE market/exchange_source_test.cpp market/recorded_source_test.cpp)
+target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_EXCHANGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/market/fixtures")
+target_compile_definitions(asterion_acquisition_tests PRIVATE
+  ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
+  ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
+  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
+add_dependencies(asterion_acquisition_tests asterion_test_ctp asterion_test_ctp_trader asterion_market)
+asterion_unit_tests(asterion_market_recording_tests market/recording_test.cpp asterion_market_recording)
+target_sources(asterion_market_recording_tests PRIVATE market/settings_test.cpp market/compaction_test.cpp)
+target_include_directories(asterion_market_recording_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/market/recording ${CMAKE_SOURCE_DIR}/apps/services/market)
+target_link_libraries(asterion_market_recording_tests PRIVATE asterion_market_settings)
+# Market installs and runs on Linux hosts only; so do its setup tests.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  add_test(NAME recorder_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/recorder_process.py $<TARGET_FILE:asterion_recorder> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> ${CMAKE_BINARY_DIR}/generated-python)
-  set_tests_properties(recorder_process PROPERTIES TIMEOUT 90)
-  add_test(NAME recorder_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/recorder/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/recorder/scripts/setup.sh)
-  set_tests_properties(recorder_setup PROPERTIES SKIP_RETURN_CODE 77)
+  add_test(NAME market_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/market/scripts/setup.sh)
+  set_tests_properties(market_setup PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 asterion_unit_tests(asterion_market_snapshot_tests market/market_snapshot_test.cpp asterion_protocol)
 target_sources(asterion_market_snapshot_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native/market_snapshot.cpp)
@@ -104,9 +123,9 @@ target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP=
 target_link_libraries(asterion_ctp_catalog_tests PRIVATE asterion_protocol)
 add_dependencies(asterion_ctp_catalog_tests asterion_test_ctp_trader asterion_test_ctp asterion_market)
 target_link_libraries(asterion_ctp_tests PRIVATE asterion_protocol)
-target_compile_definitions(asterion_ctp_tests PRIVATE ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
-add_dependencies(asterion_ctp_tests asterion_test_ctp asterion_market)
-add_test(NAME market_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/market_process.py ${CMAKE_BINARY_DIR})
+target_compile_definitions(asterion_ctp_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>" ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
+add_dependencies(asterion_ctp_tests asterion_test_ctp asterion_test_ctp_trader asterion_market)
+add_test(NAME market_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/recording_process.py $<TARGET_FILE:asterion_market> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> --terminal ${CMAKE_BINARY_DIR})
 set_tests_properties(market_process PROPERTIES TIMEOUT 60)
 add_test(NAME ctp_sdk_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/ctp_sdk_smoke.py ${CMAKE_BINARY_DIR})
 set_tests_properties(ctp_sdk_smoke PROPERTIES TIMEOUT 30)
@@ -137,6 +156,7 @@ set_tests_properties(live_process PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 add_test(NAME trading_remote_instances COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/remote_instances.py ${CMAKE_BINARY_DIR})
 set_tests_properties(trading_remote_instances PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
 asterion_unit_tests(asterion_order_limits_tests trading/order_limits_test.cpp Asterion::Futures)
+asterion_unit_tests(asterion_strategy_orders_tests trading/strategy_orders_test.cpp asterion_trading_session)
 asterion_unit_tests(asterion_live_tests trading/live_session_test.cpp asterion_trading_session 120)
 target_include_directories(asterion_live_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/common/market/ctp)
 target_link_libraries(asterion_live_tests PRIVATE Asterion::Futures asterion_sqlite)
@@ -144,10 +164,6 @@ target_compile_definitions(asterion_live_tests PRIVATE ASTERION_TEST_CTP_TRADER=
 add_dependencies(asterion_live_tests asterion_test_ctp_trader)
 
 # lab: the Python research service under the Terminal, with the prepared runtime.
-add_test(NAME lab_warehouse COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/warehouse_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
-set_tests_properties(lab_warehouse PROPERTIES TIMEOUT 60)
-add_test(NAME lab_sources COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/sources_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
-set_tests_properties(lab_sources PROPERTIES TIMEOUT 60)
 add_test(NAME lab_strategy COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/strategy_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(lab_strategy PROPERTIES TIMEOUT 60)
 if(ASTERION_PYTHON_HOME)
@@ -157,6 +173,14 @@ if(ASTERION_PYTHON_HOME)
   set_tests_properties(lab_backtest PROPERTIES TIMEOUT 120)
   add_test(NAME lab_factor COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/factor_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python ${CMAKE_BINARY_DIR}/engine-python)
   set_tests_properties(lab_factor PROPERTIES TIMEOUT 120)
+  add_test(NAME lab_market COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/market_test.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+  set_tests_properties(lab_market PROPERTIES TIMEOUT 120)
+  add_test(NAME market_concurrency COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/market/concurrency_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+  set_tests_properties(market_concurrency PROPERTIES TIMEOUT 90)
+  add_test(NAME strategy_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+  set_tests_properties(strategy_process PROPERTIES TIMEOUT 90)
+  add_test(NAME strategy_stream_process COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_stream_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+  set_tests_properties(strategy_stream_process PROPERTIES TIMEOUT 240)
 endif()
 add_test(NAME lab_sessions COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/sessions_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)
 add_test(NAME lab_dominant COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/dominant_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)
@@ -174,7 +198,13 @@ target_compile_features(asterion_test_certificates PRIVATE cxx_std_20)
 target_link_libraries(asterion_test_certificates PRIVATE asterion_system)
 
 # terminal: the Terminal's native layer — commands and credentials
+asterion_unit_tests(asterion_python_runtime_tests terminal/python_runtime_test.cpp asterion_terminal_api 900)
 asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_api)
+target_compile_definitions(asterion_terminal_application_tests PRIVATE
+  ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
+  ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
+  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
+add_dependencies(asterion_terminal_application_tests asterion_market asterion_test_ctp asterion_test_ctp_trader)
 asterion_unit_tests(asterion_data_credential_tests terminal/data_credentials_test.cpp asterion_terminal_api)
 asterion_unit_tests(asterion_ctp_connection_tests terminal/ctp_connections_test.cpp asterion_terminal_api)
 target_include_directories(asterion_data_credential_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)

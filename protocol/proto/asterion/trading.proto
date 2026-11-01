@@ -3,6 +3,7 @@ import "asterion/health.proto";
 package asterion.protocol.proto;
 
 import "asterion/domain.proto";
+import "asterion/strategy.proto";
 
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs {
@@ -149,6 +150,7 @@ message Request {
     Empty live_connect = 17;
     Empty live_disconnect = 18;
     Empty live_costs = 19;
+    asterion.strategy.proto.Request strategy = 20;
   }
 }
 // Broker-reported account state; the broker owns the live ledger.
@@ -275,5 +277,6 @@ message Response {
     Empty uninitialized = 12;
     Health health = 13;
     LiveSnapshot live = 14;
+    asterion.strategy.proto.State strategy = 15;
   }
 }

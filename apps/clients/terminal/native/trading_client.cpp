@@ -1,4 +1,5 @@
 #include "trading_client.hpp"
+#include <google/protobuf/util/json_util.h>
 #include <asterion/system/ipc/rpc_client.hpp>
 #include <asterion/system/trace.hpp>
 #include <asterion/protocol/health.hpp>
@@ -8,6 +9,66 @@ namespace asterion::terminal {
 
 using namespace std::chrono_literals;
 namespace wire = protocol::proto;
+
+std::future<Json> TradingClient::strategy(ServiceIo& io, TradingEndpoint endpoint, Json payload)
+{
+    return io.submit<Json>(
+        [&io, endpoint = std::move(endpoint), payload = std::move(payload)](
+            std::stop_token stop) -> PolledTask<Json> {
+            auto request = co_await io.read<wire::Request>([&] {
+                wire::Request request;
+                if (!google::protobuf::util::JsonStringToMessage(
+                        payload.dump(),
+                        request.mutable_strategy())
+                        .ok())
+                    throw std::invalid_argument("invalid strategy request");
+                protocol::validate_message(request);
+                request.set_version(1);
+                request.set_session_id(endpoint.session);
+                request.set_correlation_id(next_correlation_id());
+                return request;
+            });
+            auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
+                if (endpoint.tls.empty())
+                    throw std::invalid_argument("Trading requires pinned mutual TLS");
+                return std::make_unique<ipc::RpcClient>(
+                    io.reactor(),
+                    endpoint.host,
+                    endpoint.port,
+                    endpoint.tls,
+                    1,
+                    io.payload_budget(ServiceIo::PayloadLane::administration),
+                    4 * 1024 * 1024);
+            });
+            auto reply = transport->request(request.SerializeAsString(), 30s);
+            while (reply.wait_for(0ms) != std::future_status::ready) {
+                if (stop.stop_requested())
+                    transport->cancel();
+                else
+                    transport->poll();
+                co_await std::suspend_always{};
+            }
+            co_return co_await io.read<Json>([raw = reply.get(), &request] {
+                wire::Response response;
+                if (!response.ParseFromString(*raw))
+                    throw Error(ErrorCode::unavailable, "invalid Trading response");
+                protocol::validate_message(response);
+                if (response.version() != request.version()
+                    || response.session_id() != request.session_id()
+                    || response.correlation_id() != request.correlation_id())
+                    throw Error(ErrorCode::unavailable, "Trading response identity mismatch");
+                if (response.has_error())
+                    throw_remote_error(response.error().code(), response.error().message());
+                if (!response.has_strategy())
+                    throw Error(ErrorCode::unavailable, "missing strategy response");
+                std::string encoded;
+                if (!google::protobuf::util::MessageToJsonString(response.strategy(), &encoded)
+                        .ok())
+                    throw Error(ErrorCode::internal_error, "cannot encode strategy response");
+                return Json::parse(encoded);
+            });
+        });
+}
 
 struct TradingClient::Impl
 {

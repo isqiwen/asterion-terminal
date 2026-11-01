@@ -27,7 +27,8 @@ struct PortfolioTargets
 };
 
 // Completed-boundary inputs only. Not an account, margin estimate or trade.
-// Whole-lot targets truncate toward zero; no normalization or implicit rounding.
+// One to twenty contracts. Whole-lot targets truncate toward zero;
+// no normalization or implicit rounding.
 PortfolioTargets fixed_weight_targets(
     Decimal equity,
     std::span<const WeightedContract> members,

@@ -27,6 +27,7 @@ public:
     void remove(const std::string& id, const std::string& revision);
     std::string fingerprint() const;
     void prepare_identity();
+    ipc::TlsIdentity tls(const std::string& server_fingerprint) const;
     TradingEndpoint endpoint(const std::string& id) const;
 
 private:

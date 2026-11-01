@@ -4,6 +4,19 @@
 .data-coverage label {
   margin-right: 0.75rem;
 }
+.recording-status dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem 1.5rem;
+}
+.recording-status dt {
+  color: var(--muted);
+}
+.recording-status dd {
+  margin: 0.25rem 0 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
 .coverage-matrix {
   overflow: auto;
   max-height: 60vh;

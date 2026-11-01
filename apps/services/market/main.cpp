@@ -1,7 +1,9 @@
 #include "session.hpp"
+#include <asterion/system/environment.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/system/log.hpp>
 #include <asterion/system/process/child.hpp>
+#include <asterion/system/process/file_lock.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>
@@ -13,25 +15,22 @@ namespace wire = asterion::market::proto;
 
 int main(int argc, char** argv)
 {
-    CLI::App app{"Asterion read-only live market-data host"};
+    CLI::App app{"Asterion market-data and acquisition host"};
     app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-    std::string service, health_endpoint, directory, sdk, catalog_sdk;
-    std::uint64_t owner_pid = 0;
-    service::Transport transport;
-    app.add_option("--session", service)->required();
-    app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
-    app.add_option("--endpoint", transport.endpoint);
-    app.add_option("--health-endpoint", health_endpoint);
-    app.add_option("--bind", transport.bind);
-    app.add_option("--port", transport.port);
-    app.add_option("--ctp-library", sdk);
-    app.add_option("--ctp-catalog-library", catalog_sdk);
-    app.add_option("--owner-pid", owner_pid);
+    std::string installation;
+    app.add_option("--installation", installation)->required()->check(CLI::ExistingDirectory);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
         asterion::log::init();
-        validate_id(service);
+        const auto settings =
+            market_data::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
+        FileLock owner(settings.directory, "market.lock");
+        const std::string service = "market-data";
+        service::Transport transport;
+        transport.bind = settings.bind;
+        transport.port = settings.port;
+        transport.tls = settings.tls;
         transport.validate();
         const auto instance = unique_process_id();
         service::install_stop_signals();
@@ -40,7 +39,7 @@ int main(int argc, char** argv)
         std::unique_ptr<market_data::Session> state;
         bool draining = false;
         std::size_t watchers = 0;
-        auto serve = [&](std::string frame, bool control) -> Host::Reply {
+        auto serve = [&](const Host::Peer& peer, std::string frame) -> Host::Reply {
             wire::Request request;
             wire::Response failure;
             failure.set_version(1);
@@ -74,8 +73,13 @@ int main(int argc, char** argv)
                 validate_id(request.correlation_id());
                 if (request.version() != 1 || request.service_id() != service)
                     throw std::invalid_argument("market service identity mismatch");
-                if (control && !request.has_heartbeat())
-                    throw std::invalid_argument("invalid service health");
+                const auto client = settings.clients.find(peer.fingerprint);
+                if (client == settings.clients.end()
+                    || ((request.has_acquisition_start() || request.has_acquisition_cancel())
+                        && !client->second))
+                    throw Error(
+                        ErrorCode::permission_denied,
+                        "Market acquisition management permission is required");
                 if (request.has_watch()) {
                     if (watchers == 32)
                         throw Error(ErrorCode::resource_exhausted, "market watch capacity is full");
@@ -84,7 +88,8 @@ int main(int argc, char** argv)
                     pending->watch = request;
                     pending->cursor = std::make_shared<market_data::WatchCursor>();
                 }
-                pending->result = state->request(std::move(request), pending->cursor, control);
+                pending->result =
+                    state->request(std::move(request), pending->cursor, client->second);
             } catch (const std::exception& error) {
                 fail(failure, error);
             }
@@ -114,17 +119,9 @@ int main(int argc, char** argv)
             };
         };
         Host::Options options;
-        options.owner_pid = owner_pid;
         options.connections = 64;
         options.send = 2s;
-        if (!health_endpoint.empty())
-            options.local_endpoints.push_back(
-                {health_endpoint,
-                    [&](const Host::Peer&, std::string frame) {
-                        return serve(std::move(frame), true);
-                    },
-                    4,
-                    false});
+        options.drain = 20s;
         options.advance = [&](Host::Stage stage) {
             draining = stage != Host::Stage::running;
             if (stage == Host::Stage::stopping_resources)
@@ -133,21 +130,23 @@ int main(int argc, char** argv)
             if (stopped.wait_for(0ms) != std::future_status::ready)
                 return false;
             stopped.get();
+            if (stage == Host::Stage::running)
+                service::request_stop();
             return true;
         };
         Host host(
             transport,
-            [&](const Host::Peer&, std::string frame) {
-                return serve(std::move(frame), false);
+            [&](const Host::Peer& peer, std::string frame) {
+                return serve(peer, std::move(frame));
             },
             std::move(options),
             io_progress);
         // Listen before starting resources whose teardown may wait for a provider.
         state = std::make_unique<market_data::Session>(
-            market_data::Session::Configuration{service, instance, directory, sdk, catalog_sdk});
+            market_data::Session::Configuration{service, instance, settings});
         try {
             if (!host.run())
-                std::_Exit(0);
+                std::_Exit(1);
         } catch (const std::exception& error) {
             log::error("market service failed: {}", error_name(classify(error)));
             std::_Exit(1);

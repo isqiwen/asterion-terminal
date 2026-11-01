@@ -1308,5 +1308,22 @@
   "trading service account configuration changed; reconnect explicitly": "trading service account configuration changed; reconnect explicitly",
   "trading service did not provide its account configuration": "trading service did not provide its account configuration",
   "only data-source extensions can be installed": "Only data-source extensions can be installed.",
-  "risk policy is required": "A risk policy is required"
+  "risk policy is required": "A risk policy is required",
+  "invalid Market data request": "invalid Market data request",
+  "Market data request identity mismatch": "Market data request identity mismatch",
+  "unsupported Market data operation": "unsupported Market data operation",
+  "cannot encode Market data response": "cannot encode Market data response",
+  "Missing Market data response": "Missing Market data response",
+  "Market data response identity mismatch": "Market data response identity mismatch",
+  "Market replied with another operation": "Market replied with another operation",
+  "invalid coverage product cursor": "invalid coverage product cursor",
+  "Market acquisition management permission is required": "Market acquisition management permission is required",
+  "stopping a strategy requires its instance id": "stopping a strategy requires its instance id",
+  "strategy instance changed; inspect before stopping": "strategy instance changed; inspect before stopping",
+  "Trading restarted; explicitly start a new strategy instance": "Trading restarted; explicitly start a new strategy instance",
+  "strategy market stream lost observations": "strategy market stream lost observations",
+  "strategy market connection interrupted": "strategy market connection interrupted",
+  "strategy contract subscription rejected": "strategy contract subscription rejected",
+  "strategy market observations are unordered": "strategy market observations are unordered",
+  "strategy market login timed out": "strategy market login timed out"
 }

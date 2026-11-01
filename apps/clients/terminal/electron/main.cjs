@@ -30,14 +30,10 @@ const resources = app.isPackaged
 // local services run from.
 process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
 const variables = {
-  ASTERION_MARKET_EXECUTABLE: "asterion_market",
   ASTERION_KEYCHAIN_EXECUTABLE: "asterion_keychain",
 };
 for (const [key, name] of Object.entries(variables))
   process.env[key] = path.join(resources, "native", name);
-const library = process.platform === "darwin" ? ".dylib" : ".so";
-process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
-process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
 // Development runs on the runtime `pnpm prepare:python` made; an installed
 // application installs its own at the first launch.
 if (!app.isPackaged) process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");

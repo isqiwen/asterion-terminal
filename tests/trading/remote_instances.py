@@ -8,6 +8,8 @@ import tempfile
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
+from market_installation import market_host
+import market_tls
 
 
 if sys.platform != "linux":
@@ -33,7 +35,7 @@ def wait(process, condition):
     raise AssertionError(str(state)[:2000])
 
 
-with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder:
+with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder, market_host(build, Path(folder) / "market") as market_port:
     root = Path(folder)
     host = install(root / "trading-host", Programs(str(build / "asterion_trading"),
         str(build / "asterion_test_certificates"), str(build / "libasterion_test_ctp_trader.so")))
@@ -50,19 +52,17 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, text=True)
 
+        tls = root / "market/config/tls"
+        market_tls.install_client(tls, local)
         terminal = launch()
-        call(terminal, "market.local")
+        call(terminal, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
+        call(terminal, "market.open")
         fingerprint = call(terminal, "trading.identity.prepare")["trading_fingerprint"]
         for name in ("real", "simulation"):
             port = host.account(name, terminals=[fingerprint], environment=name, user="000001" if name == "real" else "000002")
             children[name] = host.start(name)
             call(terminal, "trading.connections.save", dict(id=name, name=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
-        for account in ("real", "simulation"):
-            call(terminal, "ctp.connections.save", dict(id=account, name=account, revision="",
-                broker_id="9999", user_id="000001" if account == "real" else "000002",
-                app_id="test", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
-        call(terminal, "market.catalog", dict(account="real", password="test-only", auth_code="test-only"))
         wait(terminal, lambda s: s["market"]["catalog"]["phase"] == "ready")
         create = dict(max_order_quantity="5", max_gross_quantity="10", max_working_orders="2",
                       max_price_deviation="0.02", contracts=[dict(venue="SHFE", symbol="rb2610")])
@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         call(terminal, "trading.connections.save", dict(saved, fingerprint=host.stranger))
         call(terminal, "live.open", dict(account="real"), error=True)
         inspected = call(terminal, "runtime.snapshot")
-        assert "trading" not in next(a for a in inspected["ctp_connections"] if a["id"] == "real")
+        assert "real" not in inspected["live"]
         revision = next(c["revision"] for c in inspected["trading_connections"] if c["id"] == "real")
         call(terminal, "trading.connections.save", dict(saved, revision=revision))
         call(terminal, "live.open", dict(account="real"))
@@ -92,6 +92,15 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         live = state["live"]["simulation"]["session"]
         state = call(terminal, "live.act", dict(account="simulation", account_id=live["account_id"],
             policy_revision=live["policy_revision"], request_id="allow.simulation", action="live_authorize", user_id="000002"))
+        assert state["live"]["simulation"]["session"]["authorization"]
+        assert state["live"]["real"]["session"]["authorization"] is None
+        # Desktop exit is not a trading control: the independent host retains
+        # authorization and can continue to execute after a fresh client attaches.
+        terminal.communicate(timeout=15)
+        assert all(process.poll() is None for process in children.values())
+        terminal = launch()
+        call(terminal, "live.open", dict(account="real"))
+        state = call(terminal, "live.open", dict(account="simulation"))
         assert state["live"]["simulation"]["session"]["authorization"]
         assert state["live"]["real"]["session"]["authorization"] is None
         order = dict(request_id="submit.remote", action="submit", order_id="remote-order",

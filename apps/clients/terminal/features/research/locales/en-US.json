@@ -152,5 +152,7 @@
   "日线": "Daily",
   "{count} 分钟": "{count} minutes",
   "分钟线来源": "Minute source",
-  "录制": "Recorded"
+  "录制": "Recorded",
+  "运行记录缺少数据版本，无法读取对应 K 线。": "The run record has no dataset version; its bars cannot be read.",
+  "返回的 K 线与运行使用的数据版本不一致。": "The returned bars do not match the dataset version used by the run."
 }

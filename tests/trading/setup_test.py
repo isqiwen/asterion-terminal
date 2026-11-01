@@ -6,10 +6,12 @@ systemd-run, date) that record what they were asked; openssl is real.
     setup_test.py <apps/services/trading/scripts/setup.sh>
 """
 import io
+import fcntl
 import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -27,6 +29,7 @@ name=$(basename "$0")
 { printf '%s' "$name"; printf ' %s' "$@"; printf '\n'; } >> "$CALLS"
 case $name in
     systemctl)
+        if [[ ${FAIL_RELOAD:-} == 1 && $1 == daemon-reload ]]; then exit 1; fi
         case $1 in
             is-active)
                 unit=${@: -1}
@@ -60,7 +63,7 @@ esac
 '''
 TERMINAL = ':'.join(['AB'] * 32)
 OTHER = 'cd' * 32
-IDENTITY = dict(environment='simulation', broker=dict(broker_id='9999', user_id='000001', app_id='client_app', front='tcp://127.0.0.1:41205'))
+IDENTITY = dict(market_front='tcp://127.0.0.1:41213', environment='simulation', broker=dict(broker_id='9999', user_id='000001', app_id='client_app', front='tcp://127.0.0.1:41205'))
 
 
 def release(folder, version):
@@ -71,7 +74,19 @@ def release(folder, version):
     (top / 'bin/asterion_trading').write_text(f'#!/bin/sh\necho "Asterion Trading {version}"\n')
     (top / 'bin/asterion_trading').chmod(0o755)
     shutil.copy2(setup, top / 'bin/setup.sh')
+    # Program stand-in like the native binary above; actual offline interpreter
+    # relocation and package loading are exercised by package_test.py.
+    runtime = top / 'runtime/python/bin/python3'
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text('#!/bin/sh\n[ "$2" != -B ] || exit 0\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
+    runtime.chmod(0o755)
+    (top / 'runtime/release').write_text(version)
     (top / 'lib/ctp-trader.so').write_text(version)
+    (top / 'lib/ctp-md.so').write_text(version)
+    for name in ('strategy_runner.py', 'asterion_strategy.py', 'asterion/strategy_pb2.py'):
+        path = top / 'lib/strategy' / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('# ' + version)
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-trading')
@@ -106,7 +121,7 @@ class Host:
         command = 'source "$4"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$3/credstore; main'
         result = subprocess.run(
             ['unshare', '-r', 'bash', '-c', command, 'setup', str(script), str(self.root),
-             str(self.units), str(setup)], input='\n'.join(answers + (['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'test-only-password', 'test-only-auth'] if tail else [])) + '\n', capture_output=True,
+             str(self.units), str(setup)], input='\n'.join(answers + (['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'test-only-password', 'test-only-auth'] if tail else [])) + '\n', capture_output=True,
             text=True, env=dict(self.env, RUNNING=running if running is not None else ('*' if active else ''), NOW=now), timeout=60)
         assert (result.returncode == 0) == ok, result.stdout + result.stderr
         calls = self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -123,8 +138,9 @@ with tempfile.TemporaryDirectory() as folder:
     # first account (Enter keeps a default, a bad value is asked again).
     calls, result = host.run(release(folder, '1'), ['bad name', 'one', '', '', 'xyz', TERMINAL])
     assert result.stderr.count('Invalid value') == 2, result.stderr
-    assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
+    assert sorted(p.name for p in host.root.iterdir()) == ['.program.lock', 'bin', 'config', 'data', 'lib', 'logs', 'runtime']
     assert (host.root / 'bin/asterion_trading').read_text().endswith('1"\n')
+    assert os.access(host.root / 'bin/setup.sh', os.X_OK)
     assert json.loads((host.root / 'config/logging.json').read_text())['file']['retention_days'] == 30
     assert not (host.root / 'config/trading.json').exists()
     assert host.account('one') == {'bind': '0.0.0.0', 'port': 7460, 'terminals': ['ab' * 32], **IDENTITY}
@@ -150,7 +166,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert calls[-1] == 'systemctl restart asterion-trading@one.service', calls
 
     # The installed copy adds a second account on the next free port.
-    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'two', '127.0.0.1', '', f'{OTHER} {TERMINAL}', 'simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'second-only-password', 'second-only-auth'])
+    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'two', '127.0.0.1', '', f'{OTHER} {TERMINAL}', 'simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'second-only-password', 'second-only-auth'])
     assert (host.units / 'credstore/asterion-trading-two/password').read_text() == 'second-only-password'
     assert (host.units / 'credstore/asterion-trading-one/password').read_text() == 'test-only-password'
     assert 'second-only-password' not in result.stdout + result.stderr + '\n'.join(calls)
@@ -165,29 +181,41 @@ with tempfile.TemporaryDirectory() as folder:
     journal.parent.mkdir(parents=True, exist_ok=True)
     journal.touch()
     previous = host.account('two')
-    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', '', 'simulation', '9999', '000009', 'client_app', 'tcp://127.0.0.1:41205'], ok=False)
+    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', '', 'simulation', '9999', '000009', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213'], ok=False)
     assert host.account('two') == previous
 
-    # Upgrade: new programs, configuration untouched, running instances restarted;
-    # during trading hours the restart waits for the end of the window.
+    # An account's shared lock forbids every program/runtime mutation, regardless
+    # of the trading clock. The installer must never stop it on our behalf.
     second = release(folder, '2')
     before = (host.root / 'config/accounts/one.json').read_bytes()
-    calls, _ = host.run(second, [], active=True)
+    with (host.root / '.program.lock').open() as held:
+        fcntl.flock(held, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        for now in ('4 1700', '4 1000', '4 2200'):
+            calls, result = host.run(second, [], active=True, now=now, ok=False)
+            assert 'Stop all Trading accounts' in result.stderr
+            assert (host.root / 'bin/asterion_trading').read_text().endswith('1"\n')
+            assert (host.root / 'runtime/release').read_text() == '1'
+            assert not any(call.startswith(('systemctl restart', 'systemctl stop', 'systemd-run')) for call in calls)
+    # Offline upgrade replaces the entire program trees, removes obsolete code,
+    # preserves data/configuration and never starts an inactive account.
+    (host.root / 'runtime/obsolete.py').touch()
+    (host.root / '.program-incomplete').touch()
+    calls, _ = host.run(second, [])
     assert (host.root / 'bin/asterion_trading').read_text().endswith('2"\n')
+    assert (host.root / 'runtime/release').read_text() == '2'
+    assert not (host.root / 'runtime/obsolete.py').exists()
+    assert not (host.root / '.program-incomplete').exists()
     assert (host.root / 'config/accounts/one.json').read_bytes() == before
-    assert [call for call in calls if call.startswith('systemctl restart')] == [
-        'systemctl restart asterion-trading@one.service', 'systemctl restart asterion-trading@two.service'], calls
-    for now, at in (('4 1000', '2026-10-29 15:30'), ('4 2200', '2026-10-30 02:45')):
-        calls, result = host.run(second, [], active=True, now=now)
-        assert not any(call.startswith('systemctl restart') for call in calls), (now, calls)
-        assert [call for call in calls if call.startswith('systemd-run')] == [
-            f'systemd-run --quiet --collect --unit=asterion-trading-restart-{name} '
-            f'--on-calendar={at}:00 Asia/Shanghai systemctl restart '
-            f'asterion-trading@{name}.service' for name in ('one', 'two')], (now, calls)
-        assert at in result.stdout
-    # Nothing running: nothing to restart.
-    calls, _ = host.run(second, [], active=False)
-    assert not any(call.startswith('systemctl restart') for call in calls), calls
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
+    # Failure after replacement remains explicitly incomplete. Rerunning the
+    # release repairs the program tree without touching account data.
+    host.env['FAIL_RELOAD'] = '1'
+    host.run(second, [], ok=False)
+    assert (host.root / '.program-incomplete').exists()
+    del host.env['FAIL_RELOAD']
+    host.run(second, [])
+    assert not (host.root / '.program-incomplete').exists()
+    assert (host.root / 'config/accounts/one.json').read_bytes() == before
 
     # Repeated edits of separate running instances must retain both timers.
     host.run(host.root / 'bin/setup.sh', ['1', 'one', '', '', ''], active=True, now='4 1000')
@@ -209,9 +237,6 @@ with tempfile.TemporaryDirectory() as folder:
     assert host.account('two') == previous
     assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls)
     # A running instance does not defer starting a different, stopped instance.
-    calls, _ = host.run(second, [], now='4 1000', running='asterion-trading@one.service')
-    assert len([call for call in calls if call.startswith('systemd-run')]) == 1
-    assert not any(call.startswith('systemctl restart') for call in calls)
     calls, _ = host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', ''],
                        now='4 1000', running='asterion-trading@one.service')
     assert 'systemctl restart asterion-trading@two.service' in calls
@@ -234,29 +259,30 @@ with tempfile.TemporaryDirectory() as folder:
 
     # New accounts use script defaults without any installed default configuration file.
     host.run(host.root / 'bin/setup.sh', ['1', 'three', '', '', TERMINAL,
-        '', '', '000003', '', '', 'third-only-password', 'third-only-auth'])
+        '', '', '000003', '', '', 'tcp://127.0.0.1:41213', 'third-only-password', 'third-only-auth'])
     assert host.account('three') == {'bind': '0.0.0.0', 'port': 7461,
         'terminals': ['ab' * 32], 'environment': 'simulation',
+        'market_front': 'tcp://127.0.0.1:41213',
         'broker': {'broker_id': '9999', 'user_id': '000003',
                    'app_id': 'simnow_client_test', 'front': 'tcp://182.254.243.31:40001'}}
     # Enter on every existing-account field keeps its own values, not the new defaults.
     previous = host.account('one')
-    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 8 +
+    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 9 +
         ['updated-only-password', 'updated-only-auth'])
     assert host.account('one') == previous
 
     # Nothing a run stages is left behind, however it ends.
     def staged_files():
         return sorted(str(path) for folder in (host.root, host.units)
-                      for path in folder.rglob('.*') if path.is_file())
+                      for path in folder.rglob('.*') if path.is_file() and path.name != '.program.lock')
     assert staged_files() == [], staged_files()
     # The password may stay when the counter account does not change.
     saved = (host.units / 'credstore/asterion-trading-one/password').read_text()
-    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 8 + ['y'], tail=False)
+    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 9 + ['y'], tail=False)
     assert (host.units / 'credstore/asterion-trading-one/password').read_text() == saved
     # Input that ends before the credentials writes nothing.
     calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'four', '', '', TERMINAL,
-        '', '', '000004', '', ''], tail=False, ok=False)
+        '', '', '000004', '', '', 'tcp://127.0.0.1:41213'], tail=False, ok=False)
     assert 'Credential input ended' in result.stderr, result.stderr
     assert not (host.root / 'config/accounts/four.json').exists()
     assert not (host.units / 'credstore/asterion-trading-four').exists()

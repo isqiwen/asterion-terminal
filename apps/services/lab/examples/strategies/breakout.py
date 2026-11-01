@@ -1,5 +1,5 @@
 """A channel breakout on one contract or dominant series."""
-from asterion_lab.strategy import Strategy
+from asterion_strategy import Strategy
 
 from strategies._rules import lots
 
@@ -13,6 +13,10 @@ class Breakout(Strategy):
     def __init__(self, **values):
         super().__init__(**values)
         self.side = {}
+
+    def ready(self, ctx):
+        need = self.params["entry"] + 1
+        return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
         entry, leave = self.params["entry"], self.params["exit"]

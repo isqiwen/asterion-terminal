@@ -2,6 +2,7 @@
 // Command names and parameters stay correlated through host and component callbacks.
 
 type InstrumentKey = { venue: string; symbol: string };
+import type { JsonValue } from "@bufbuild/protobuf";
 type RiskParameters = {
   max_order_quantity: string;
   max_gross_quantity: string;
@@ -33,13 +34,6 @@ export type CommandParams = {
   "runtime.snapshot": Record<string, never>;
   "runtime.python.status": Record<string, never>;
   "runtime.python.install": Record<string, never>;
-  "data.credentials.save": {
-    provider: string;
-    credential: string;
-    remember: boolean;
-    requests_per_minute: number;
-  };
-  "data.credentials.clear": { provider: string };
   "trading.identity.prepare": Record<string, never>;
   "trading.connections.save": {
     id: string;
@@ -51,32 +45,18 @@ export type CommandParams = {
     revision: string;
   };
   "trading.connections.remove": { id: string; revision: string };
-  "ctp.connections.save": {
-    id: string;
-    name: string;
-    revision: string;
-    broker_id: string;
-    user_id: string;
-    app_id: string;
-    trade_front: string;
-    market_front: string;
-  };
-  "ctp.connections.remove": { id: string; revision: string };
-  "ctp.connections.market": { id: string };
-  "lab.source.configure": { provider: string };
-  "recorder.endpoint.save": { host: string; port: number };
-  "recorder.endpoint.clear": Record<string, never>;
+  "market.endpoint.save": { host: string; port: number; fingerprint: string };
+  "market.endpoint.clear": Record<string, never>;
   "research.repository.save": { path: string };
   "research.repository.clear": Record<string, never>;
   "lab.endpoint": Record<string, never>;
-  "market.local": Record<string, never>;
-  "market.connect": { password: string; instruments: InstrumentKey[] };
-  "market.credentials.save": { account: string; password: string; auth_code: string };
-  "market.credentials.clear": { account: string };
-  "market.catalog": { account: string; password: string; auth_code: string };
-  "market.subscribe": { instruments: InstrumentKey[] };
-  "market.disconnect": Record<string, never>;
+  "market.open": Record<string, never>;
+  "market.close": Record<string, never>;
+  "market.watchlist": { instruments: InstrumentKey[] };
   "market.minutes": { venue: string; symbol: string };
+  "market.recording": Record<string, never>;
+  "trading.strategy": { account: string; request: JsonValue };
+  "market.data": { request: JsonValue };
   "live.create": RiskParameters & {
     account: string;
     max_price_deviation: string;

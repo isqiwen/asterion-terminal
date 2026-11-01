@@ -74,7 +74,6 @@ LIBRARY_SUFFIX = ".dylib" if MACOS else ".so"
 _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_text())
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
-SERVICE_PROGRAMS = ("asterion_market",)
 
 def verify_native_resources(directory, packaged=False):
     if directory.is_symlink():
@@ -103,17 +102,6 @@ def stage_native_resources(build, destination):
                 stage_native(build / name, prepared / name)
         verify_native_resources(prepared)
         publish_tree(prepared, destination)
-
-
-def exercise_packaged_programs(native):
-    """Both vendor SDK lifecycles, run by the packaged programs."""
-    def packaged(programs):
-        return dict(env, **{variable: str(native / name) for variable, name in programs.items()})
-    isolated = [sys.executable, str(ROOT / "tests/support/isolated_node.py"), sys.executable]
-    run([*isolated, str(ROOT / "tests/market/ctp_sdk_smoke.py"), str(ROOT / "build/Release")],
-        environment=packaged({"ASTERION_MARKET_EXECUTABLE": "asterion_market",
-                              "ASTERION_CTP_LIBRARY": "ctp-md" + LIBRARY_SUFFIX,
-                              "ASTERION_CTP_CATALOG_LIBRARY": "ctp-trader" + LIBRARY_SUFFIX}))
 
 
 def elf_files(directory):
@@ -167,11 +155,7 @@ def verify_linux_package(distribution=True):
         missing = set(debian_dependencies(local, [app])) - set(required)
         if missing:
             raise SystemExit("Installer runtime requirements are incomplete: " + ", ".join(sorted(missing)))
-        for name in SERVICE_PROGRAMS:
-            run([str(native / name), "--version"])
-        exercise_packaged_programs(native)
-    print("Installer resources, documented dependencies, packaged task recovery and "
-          "vendor market/trader lifecycles verified")
+    print("Installer resources, Python runtime manifest and documented dependencies verified")
 
 
 def write_linux_evidence(package, installed_report):
@@ -185,7 +169,6 @@ def write_linux_evidence(package, installed_report):
               "scope": "current user",
               "checks": ["package identity, version and architecture", "exact native resource set",
                          "documented dependencies cover every packaged program",
-                         "packaged task recovery and vendor SDK lifecycles",
                          "unpacked application acceptance"],
               "limits": ["unsigned archive"]}
     (package.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -223,17 +206,10 @@ def verify_macos_bundle(distribution=True):
             for program in (app / "Contents/Resources/native").iterdir():
                 if program.is_file() and program.name not in CONFIG_FILES:
                     verify_macos_target(program, minimum)
-            verify_macos_target(app / "Contents/Resources/native/ctp-md.dylib", minimum)
             run(["codesign", "--verify", "--deep", "--strict", str(app)])
-            market = app / "Contents/Resources/native/asterion_market"
-            run(["codesign", "--verify", "--strict", str(market)])
-            run([str(market), "--version"])
-            library = app / "Contents/Resources/native/ctp-md.dylib"
-            run(["codesign", "--verify", "--strict", str(library)])
-            exercise_packaged_programs(app / "Contents/Resources/native")
         finally:
             run(["hdiutil", "detach", folder])
-    print("DMG checksum, signatures and vendor market/trader lifecycles verified")
+    print("DMG checksum and signatures verified")
 
 
 def main():

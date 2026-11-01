@@ -4,17 +4,23 @@
 C++20 核心与独立服务进程，Electron + React 界面。目标是用 Python 写策略，同一份策略在回测、仿真柜台和实盘上运行，
 见[产品说明](docs/product.md)。
 
+## 目标架构
+
+远程 Market 是一个纯 C++ 服务进程，统一实时行情、录制、历史采集与正式仓库读写，使用有界线程和队列处理并发；
+本机 Lab 用 Python 做研究并按版本读取 Market；Terminal 发布策略代码包；Trading 在交易主机直接连接行情与柜台，
+策略从启动后收到的完整 K 线现场预热。关闭 Terminal 不影响已授权交易。进程与数据归属已落实，策略目标接入账户执行正在开发，见[架构](docs/architecture.md#目标设计)。
+
 ## 当前能力
 
 - **行情**：CTP 实时行情、合约目录、自选、五档、分时与分钟 K 线。
-- **历史数据**：Tushare 分钟线与全市场数据表、SHFE 历史保证金（窄范围），固定快照与数据集。
-- **研究**：内置规则策略回测（均线交叉、通道突破、时序动量、布林回归及截面排序）、因子评价、
-  变量、样本与统计、规则逻辑、策略包与评估报告。
+- **历史数据**：Market C++ 采集 Tushare 日线、分钟线、合约与日历，以及交易所日线和结算参数；录制分钟可发布为固定研究版本。部分在线来源待验收。
+- **研究**：用户仓库里的 Python 策略与因子；日线/分钟线回测、参数扫描、滚动验证、因子评价、图表与研究记录。
+- **策略部署**：Terminal 发布小型源码包；Trading 从主机离线运行时加载、现场预热，目标经账户的唯一执行路径报单；真实柜台验收待完成。
 - **交易**：CTP 账户（柜台仿真或实盘）：授权、合约白名单、限额与价格风控、先记录后发送、断线不重发。
-  目前只在测试替身上验证过，仿真柜台验收是当前阶段的工作。
-- **部署**：行情、数据与研究服务随 Terminal 在本机运行；交易服务与行情录制在各自的 Linux 主机上独立安装。
+  当前实现的真实仿真柜台验收尚未完成，不能沿用被替换实现的验收结论。
+- **部署**：Market（行情与录制）和 Trading 在 Linux 独立部署；Terminal 只看护本机 Lab。历史采集与仓库由 Market C++ 管理，Lab 只读固定版本并缓存；录制分钟可由 Market 发布为固定研究版本。
 
-能力边界与已知限制见[现状](docs/status.md)，路线与当前阶段见[评估与路线](docs/reviews/project-assessment-2026-10-28.md)。
+能力边界与已知限制见[现状](docs/status.md)，路线与当前阶段见[项目路线](docs/reviews/project-assessment-2026-10-28.md)。
 
 ## 快速开始
 
@@ -33,7 +39,7 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | --- | --- |
 | `pnpm desktop` | 构建 Debug 并启动桌面端 |
 | `pnpm desktop:check` | 构建并检查桌面链路，不打开窗口 |
-| `pnpm desktop:build` | 生成发行安装包（macOS `.dmg`，Linux `.deb`） |
+| `pnpm desktop:build` | 生成发行安装包（macOS `.dmg`，Linux `.tar.gz`） |
 | `ctest --preset conan-debug -j 6` | C++ 测试 |
 | `pnpm test:unit` | 界面单元与组件测试 |
 | `pnpm run test:e2e:journeys` | 隔离环境下的关键端到端链路 |
@@ -46,16 +52,17 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | --- | --- |
 | `core/` | 基础（Decimal、时间、错误）、内核（IPC、进程、日志、持久文件）、期货领域模型 |
 | `apps/services/` | 各服务拥有自己的实现；跨服务复用在 `common/`，共享 SQLite 和订单限额在 `core/` |
-| `extensions/` | 对外扩展实现，目前为原生数据源；Python 策略扩展按 M2.1 接入 |
+| `apps/services/market/` | C++ 实时行情、录制、历史采集、正式仓库与固定版本读取 |
+| `apps/services/lab/` | Python 研究服务与 C++ 回测扩展 |
+| `apps/services/trading/` | 独立账户进程、内置风控与交易主机策略运行器 |
 | `protocol/` | Protobuf 契约与边界校验 |
-| `apps/services/` | 业务服务：行情、数据、研究、交易；`common/tasks` 为数据与研究共用的持久任务机制 |
-| `apps/common/control/` | Terminal 与安装器共用的路径、插件目录与状态序列化 |
+| `apps/common/control/` | Terminal 与安装器共用的路径及状态序列化 |
 | `apps/clients/` | Terminal 桌面端与安装器；Terminal 的 `features/` 是内置界面功能 |
-| `bindings/` | C ABI、Node-API 与原生数据源 SDK |
+| `bindings/` | C ABI 与 Node-API |
 | `config/` | 本机服务的默认配置 |
 | `tests/` | C++ 与进程测试 |
 
 ## 文档
 
 [文档导航](docs/README.md) · [产品说明](docs/product.md) · [交易安全契约](docs/safety.md) ·
-[评估与路线](docs/reviews/project-assessment-2026-10-28.md) · [架构](docs/architecture.md) · [贡献约束](AGENTS.md)
+[项目路线](docs/reviews/project-assessment-2026-10-28.md) · [架构](docs/architecture.md) · [贡献约束](AGENTS.md)

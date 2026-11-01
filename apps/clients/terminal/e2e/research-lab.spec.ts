@@ -7,7 +7,7 @@ import { test, expect, type Page } from "./test";
 const source = join(__dirname, "../../../..");
 
 // The example strategies in a git repository, and lab's fixture warehouse in
-// the isolated root's lab directory.
+// the independent fixture Market directory.
 function prepare(root: string) {
   const repository = join(root, "strategies");
   // The tests of this file share one root.
@@ -31,7 +31,7 @@ function prepare(root: string) {
     "-B",
     join(source, "tests/lab/warehouse_fixture.py"),
     join(source, "apps/services/lab"),
-    join(root, "lab/data/lab"),
+    join(process.env.ASTERION_TEST_MARKET_TLS!, "../../data"),
   ]);
   return repository;
 }
@@ -48,6 +48,7 @@ test(
   "a strategy from the repository is configured, run, read and compared",
   { tag: "@journey" },
   async ({ page }) => {
+    test.setTimeout(90000); // Includes the service's 60 s report budget.
     const repository = prepare(process.env.ASTERION_ROOT!);
     await rpc(page.request, "research.repository.save", { path: repository });
     await page.goto("/");
@@ -79,7 +80,7 @@ test(
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();
     await expect(page.getByText("K 线与买卖点")).toBeVisible();
     await page.getByText("QuantStats 指标").click();
-    await expect(page.getByText(/^QuantStats \d/)).toBeVisible({ timeout: 25000 });
+    await expect(page.getByText(/^QuantStats \d/)).toBeVisible({ timeout: 65000 });
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-result.png") });
 
     await backtest(page, "3", "6");

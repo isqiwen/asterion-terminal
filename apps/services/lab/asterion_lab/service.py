@@ -1,5 +1,5 @@
 """Requests of the lab service. One asyncio loop owns the connections; reads of
-the warehouse run on a small thread pool and acquisition on its own thread."""
+fixed Market versions run on a small thread pool."""
 import asyncio
 import collections
 from dataclasses import dataclass
@@ -14,22 +14,17 @@ import time
 
 from asterion.lab_pb2 import Request, Response, RollingRun
 
-from asterion_lab.acquisition import Acquisition
-from asterion_lab import backtest, chart, crosscheck, dominant, repository
+from asterion_lab import backtest, chart, dominant, repository, package
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
-from asterion_lab.tushare import Budget, Tushare
-from asterion_lab.sources.base import SourceError
 from asterion_lab.version import VERSION
-from asterion_lab.warehouse import Warehouse, SCHEMAS, frame
-from asterion_lab.sources.catalog import PLUGINS, plugin
-from asterion_lab.sources.base import Query
-from asterion_lab.sources.akshare import Akshare
+from asterion_lab.market import Client, Dataset, MarketError
 
 MODULE = "lab-service"
-# A factor's evaluation or a run's QuantStats figures end within the 30 s the
-# Terminal waits for a reply, so that the reply says why they did not finish.
+# Keep child deadlines inside Terminal's 65 s reply budget. QuantStats imports
+# native libraries on demand; their first load needs more time than a factor.
 FACTOR_SECONDS = 25
+REPORT_SECONDS = 60
 
 
 def text(value) -> str:
@@ -61,15 +56,13 @@ def summary(item, row):
 
 
 class Service:
-    def __init__(self, name: str, directory: Path, log):
+    def __init__(self, name: str, directory: Path, log, market=None):
         self.name = name
         self.log = log
         self.started = time.monotonic()
         self.initialized = False
         self.directory = directory
-        self.warehouse = Warehouse(directory)
-        self.acquisitions = {"tushare": Acquisition(self.warehouse, log)}
-        self.sources = {}  # provider -> (credential, Budget), in memory only
+        self.market = market
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
         self.sessions = Sessions()
         self.runs = Runs(directory)
@@ -79,6 +72,9 @@ class Service:
         self.waiting = collections.deque()  # (sweep, BacktestRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
         self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
+        # Checks, version selection and child startup form one admission. Reads
+        # stay independent while filesystem/process work awaits.
+        self.admission = asyncio.Lock()
 
     async def reply(self, request: Request) -> Response:
         response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
@@ -89,8 +85,12 @@ class Service:
             if body is None:
                 raise ValueError("request has no operation")
             handler = getattr(self, f"on_{body}")
-            await handler(getattr(request, body), response)
-        except SourceError as error:
+            if body in ("backtest", "sweep", "cancel_run", "cancel_sweep"):
+                async with self.admission:
+                    await handler(getattr(request, body), response)
+            else:
+                await handler(getattr(request, body), response)
+        except MarketError as error:
             response.error.code, response.error.message = error.code, str(error)
         except ValueError as error:
             response.error.code, response.error.message = "invalid_request", str(error)
@@ -103,6 +103,9 @@ class Service:
     async def read(self, function, *arguments):
         return await asyncio.get_running_loop().run_in_executor(self.reads, function, *arguments)
 
+    async def on_strategy_package(self, request, response):
+        response.strategy_package.CopyFrom(await self.read(package.build, request))
+
     async def on_health(self, _, response):
         health = response.health
         health.instance_id = self.name
@@ -110,176 +113,69 @@ class Service:
         health.version = VERSION
         health.uptime_ms = int((time.monotonic() - self.started) * 1000)
         health.initialized = self.initialized
-        health.configured_sources.extend(sorted(self.sources))
 
-    def warehouse_for(self, provider, table=None):
-        implementation = plugin(provider)
-        if table is not None and table not in implementation.tables:
-            raise SourceError("unsupported", f"{provider} does not provide {table}")
-        # Existing Tushare partitions stay at their owned path; never migrate user data.
-        return self.warehouse if provider == "tushare" else Warehouse(
-            self.directory / "sources" / provider, provider)
+    def dataset_for(self, provider, origin=None):
+        return Dataset(self.directory, provider, self.market, origin)
 
-    def source(self, provider, cancelled=lambda: False):
-        implementation = plugin(provider)
-        config = self.sources.get(provider)
-        if implementation.requires_credential:
-            if config is None:
-                raise SourceError("invalid_credential", "enter or save the Tushare credential first")
-            credential, budget = config
-            return implementation(credential, budget, cancelled)
-        if implementation.requires_endpoint:
-            if config is None:
-                raise SourceError("invalid_request", "configure the recorder endpoint first")
-            return implementation(*config, cancelled=cancelled)
-        return implementation(cancelled=cancelled)
+    def data_version(self, provider, identity, table, origin=None):
+        dataset = self.dataset_for(provider, origin)
+        version = dataset.version(identity) if identity else dataset.current()
+        if not version.identity:
+            raise ValueError(f"no dataset version is available for {provider}")
+        if not any(key.startswith(table + "/") for key in version.manifest["partitions"]):
+            raise ValueError(f"{provider} version {version.identity} has no {table} partitions")
+        return version.identity
 
-    async def on_sources(self, _, response):
-        for identity, implementation in PLUGINS.items():
-            response.sources.sources.add(id=identity, tables=implementation.tables,
-                exchanges=implementation.exchanges,
-                requires_credential=implementation.requires_credential,
-                requires_endpoint=implementation.requires_endpoint,
-                configured=identity in self.sources or not (
-                    implementation.requires_credential or implementation.requires_endpoint))
-        response.sources.SetInParent()
+    def pin_daily(self, request, origin=None):
+        fixed = type(request)()
+        fixed.CopyFrom(request)
+        fixed.provider = request.provider or "tushare"
+        fixed.dataset_version = self.data_version(fixed.provider, fixed.dataset_version, "daily", origin)
+        return fixed
 
-    async def on_configure_source(self, request, response):
-        implementation = plugin(request.provider)
-        if implementation.requires_credential:
-            budget = Budget(request.requests_per_minute)
-            implementation(request.credential, budget)
-            self.sources[request.provider] = (request.credential, budget)
-        elif implementation.requires_endpoint:
-            if request.credential:
-                raise ValueError("recorder does not accept a credential")
-            implementation(request.host, request.port)
-            self.sources[request.provider] = (request.host, request.port)
-        else:
-            raise ValueError("this source needs no configuration")
-        self.log.write("info", MODULE, "source.configured", provider=request.provider)
-        response.accepted.SetInParent()
-
-    async def on_source_coverage(self, request, response):
-        source = self.source(request.provider)
-        value = await self.read(source.coverage)
-        response.source_coverage.provider = request.provider
-        response.source_coverage.known = value["known"]
-        response.source_coverage.days.extend(value["days"])
-        response.source_coverage.note = value["note"]
-
-    async def on_source_read(self, request, response):
-        query = Query(request.table, request.exchange, request.day, request.contract)
-        source = self.source(request.provider)
-        source.check(query)
-        result = await self.read(source.read, query)
-        data = frame(request.table, result.rows)  # Same shape and precision as acquisition.
-        reply = response.source_table
-        reply.provider, reply.table = request.provider, request.table
-        reply.columns.extend(data.columns)
-        for row in data.iter_rows():
-            item = reply.rows.add()
-            for value in row:
-                cell = item.cells.add()
-                if value is not None:
-                    cell.value = text(value) if isinstance(value, Decimal) else str(value)
-        for observation in result.observations:
-            reply.observations.add(**{key: observation[key] for key in (
-                "instance", "number", "first_received_ms", "last_received_ms", "ticks", "end")})
-
-    async def on_acquire(self, request, response):
-        if any(request.id in owner.tasks for owner in self.acquisitions.values()):
-            raise ValueError("acquisition id already exists")
-        source = self.source(request.provider)
-        if request.contract and request.table != "minutes":
-            raise ValueError("daily and settlement acquisitions cover the whole exchange")
-        if request.table not in source.tables or request.table not in ("daily", "minutes", "settlement"):
-            raise SourceError("unsupported", "this source does not support the requested acquisition")
-        exchanges = list(request.exchanges) or list(source.exchanges)
-        for exchange in exchanges:
-            source.check(Query(request.table, exchange, request.begin_day, request.contract))
-        if request.table == "minutes" and not request.contract:
-            raise ValueError("recorded minutes require a contract")
-        if request.provider not in self.acquisitions:
-            self.acquisitions[request.provider] = Acquisition(self.warehouse_for(request.provider), self.log)
-        def configured_source(cancelled):
-            source.cancelled = cancelled
-            return source
-        self.acquisitions[request.provider].submit(request.id, request.begin_day, request.end_day,
-            configured_source, exchanges=exchanges,
-            refresh=request.refresh, provider=request.provider, table=request.table,
-            contract=request.contract)
-        response.accepted.SetInParent()
-
-    async def on_cancel(self, request, response):
-        owner = next((acquisition for acquisition in self.acquisitions.values()
-                      if request.id in acquisition.tasks), None)
-        if owner is None:
-            raise ValueError("unknown acquisition")
-        owner.cancel(request.id)
-        response.accepted.SetInParent()
-
-    async def on_tasks(self, _, response):
-        for acquisition in self.acquisitions.values():
-            for task in acquisition.tasks.values():
-                response.tasks.tasks.add(
-                    id=task.identity, begin_day=task.begin, end_day=task.end, state=task.state,
-                    days_total=task.days_total, days_done=task.days_done, days_empty=task.days_empty,
-                    requests=task.requests, error_code=task.error_code, error=task.error,
-                    dataset_version=task.version, started_ns=task.started_ns,
-                    finished_ns=task.finished_ns, provider=task.provider, table=task.table,
-                    contract=task.contract)
-        response.tasks.SetInParent()
-
-    def summary(self, provider):
-        warehouse = self.warehouse_for(provider)
-        version = warehouse.current()
-        tables = []
-        for table in SCHEMAS:
-            day = "list_date" if table == "contracts" else "day"
-            (rows, first, last), = warehouse.query(
-                version, f"select count(*), min({day}), max({day}) from {table}", (table,))
-            partitions = sum(key.split("/")[0] == table for key in version.manifest["partitions"])
-            tables.append((table, rows, partitions, first, last))
-        return version, tables
+    def pin_backtest(self, request):
+        # One provider means one immutable snapshot for both days and minutes.
+        fixed = type(request)()
+        fixed.CopyFrom(request)
+        provider = request.provider or "tushare"
+        same_source = request.minutes and provider == request.minute_provider
+        if same_source and request.minute_dataset_version:
+            if request.dataset_version and request.dataset_version != request.minute_dataset_version:
+                raise ValueError("daily and minute inputs from one source must use the same dataset version")
+            fixed.dataset_version = request.minute_dataset_version
+        # A request selecting days and minutes reads one saved Market selection.
+        # Already fixed, cached inputs can still be read without connection settings.
+        latest = not fixed.dataset_version or (fixed.minutes and not same_source
+                                              and not fixed.minute_dataset_version)
+        origin = self.market.selected() if self.market is not None and latest else None
+        fixed = self.pin_daily(fixed, origin)
+        if fixed.minutes:
+            if fixed.minute_provider not in ("tushare", "recorder"):
+                raise ValueError("minutes come from tushare or recorder")
+            fixed.minute_dataset_version = fixed.dataset_version if same_source else self.data_version(
+                fixed.minute_provider, fixed.minute_dataset_version, "minutes", origin)
+        elif fixed.minute_provider or fixed.minute_dataset_version:
+            raise ValueError("daily research does not take minute inputs")
+        return fixed
 
     async def on_summary(self, request, response):
-        version, tables = await self.read(self.summary, request.provider)
-        summary = response.summary
-        summary.dataset_version = version.identity
-        summary.created_ns = version.manifest["created_ns"]
-        for table, rows, partitions, first, last in tables:
-            summary.tables.add(table=table, rows=rows, partitions=partitions,
-                               first_day=first.isoformat() if first else "",
-                               last_day=last.isoformat() if last else "")
-
-    def coverage(self, provider):
-        warehouse = self.warehouse_for(provider)
-        version = warehouse.current()
-        rows = warehouse.query(version, """
-            with d as (select exchange, product, strftime(day, '%Y-%m') as month,
-                              count(distinct day) as days from daily group by all),
-                 o as (select exchange, strftime(day, '%Y-%m') as month, count(*) as open_days
-                       from calendar where open group by all)
-            select d.exchange, d.product, d.month, d.days, coalesce(o.open_days, 0)
-            from d left join o using (exchange, month) order by 1, 2, 3""", ("daily", "calendar"))
-        return version, rows
-
-    async def on_coverage(self, request, response):
-        version, rows = await self.read(self.coverage, request.provider)
-        coverage = response.coverage
-        coverage.dataset_version = version.identity
-        current = None
-        for exchange, product, month, days, open_days in rows:
-            if current is None or (current.exchange, current.product) != (exchange, product):
-                current = coverage.products.add(exchange=exchange, product=product)
-            current.months.add(month=month, days=days, open_days=open_days)
+        def read_summary():
+            if self.market is None:
+                raise ValueError("configure the remote Market address first")
+            with Client(self.market.selected()) as client:
+                return client.call("dataset_summary", provider=request.provider)
+        value = await self.read(read_summary)
+        response.summary.dataset_version = value.dataset_version
+        response.summary.created_ns = value.created_ns
+        for table in value.tables:
+            response.summary.tables.add(table=table.table, rows=table.rows,
+                partitions=table.partitions, first_day=table.first_day, last_day=table.last_day)
 
     def chart_bars(self, request):
         exchange = request.contract.split("/")[0]
         if request.period in chart.CALENDAR:
-            warehouse = self.warehouse_for("tushare", "daily")
-            version = warehouse.current()
+            warehouse = self.dataset_for(request.provider)
+            version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
             rows = warehouse.query(version, """
                 select day, open, high, low, close, volume from daily
                 where contract = ? order by day""", ("daily",), (request.contract,),
@@ -287,8 +183,8 @@ class Service:
             return version, chart.calendar_bars(rows, request.period)
         if not request.period.isdigit():
             raise ValueError(f"no chart period {request.period!r}")
-        warehouse = self.warehouse_for(request.provider, "minutes")
-        version = warehouse.current()
+        warehouse = self.dataset_for(request.provider)
+        version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
         rows = warehouse.query(version, """
             select day, start_ms, partial, open, high, low, close, volume from minutes
             where contract = ? order by start_ms""", ("minutes",), (request.contract,),
@@ -309,21 +205,16 @@ class Service:
                 item.macd_diff, item.macd_signal, item.macd_histogram = indicator
 
     def stored_contracts(self, provider, only=""):
-        implementation = plugin(provider)
-        warehouse = self.warehouse_for(provider)
+        warehouse = self.dataset_for(provider)
         version = warehouse.current()
         found = {}
         for table in ("daily", "minutes"):
-            if table not in implementation.tables:
-                continue
             for contract, first, last, days in warehouse.query(version, f"""
                     select contract, min(day), max(day), count(distinct day) from {table}
                     where ? = '' or contract = ? group by contract""", (table,), (only, only)):
                 found.setdefault(contract, {})[table] = (first.isoformat(), last.isoformat(), days)
-        names = {}
-        if "contracts" in implementation.tables:
-            names = dict(warehouse.query(version, "select contract, name from contracts",
-                                         ("contracts",)))
+        names = dict(warehouse.query(version, "select contract, name from contracts",
+                                     ("contracts",)))
         return version, found, names
 
     async def on_stored_contracts(self, request, response):
@@ -341,7 +232,7 @@ class Service:
     def dominant(self, request):
         if request.adjustment not in ("none", "ratio"):
             raise ValueError("adjustment is none or ratio")
-        warehouse = self.warehouse_for(request.provider, "daily")
+        warehouse = self.dataset_for(request.provider)
         version = warehouse.current()
         # The first day's dominant month is read from the day before it.
         rows = warehouse.query(version, """
@@ -384,7 +275,7 @@ class Service:
             series.days.add(day=day, contract=contract, **values)
 
     def open_days(self, exchange, begin, end, provider="tushare"):
-        warehouse = self.warehouse_for(provider, "calendar")
+        warehouse = self.dataset_for(provider)
         version = warehouse.current()
         rows = warehouse.query(version, """
             select day from calendar where exchange = ? and open
@@ -426,6 +317,7 @@ class Service:
         root = Path(request.repository)
         if not root.is_absolute() or not root.is_dir():
             raise ValueError(f"strategy repository is not a directory: {root}")
+        request = await self.read(self.pin_daily, request)
         process = await asyncio.create_subprocess_exec(
             *repository.child("asterion_lab.factor"), str(self.directory), cwd=root,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -451,11 +343,11 @@ class Service:
             *repository.child("asterion_lab.report"), str(self.directory), request.id,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
-            output, error = await asyncio.wait_for(process.communicate(), FACTOR_SECONDS)
+            output, error = await asyncio.wait_for(process.communicate(), REPORT_SECONDS)
         except TimeoutError:
             process.kill()
             await process.wait()
-            raise ValueError(f"QuantStats took longer than {FACTOR_SECONDS} s")
+            raise ValueError(f"QuantStats took longer than {REPORT_SECONDS} s")
         if process.returncode != 0:
             lines = error.decode(errors="replace").strip().splitlines()
             raise ValueError(lines[-1] if lines else f"QuantStats exited with {process.returncode}")
@@ -464,11 +356,15 @@ class Service:
         reply.id, reply.quantstats_version = request.id, result["version"]
         reply.figures.update(result["figures"])
 
+    def check_run_id(self, identity):
+        if not IDENTITY.fullmatch(identity) or identity in self.backtests \
+                or self.runs.used(identity) \
+                or any(rolling.request.id == identity for rolling in self.rolling.values()):
+            raise ValueError("run id is invalid or already used")
+
     async def checked_run(self, request):
         """A run that can start: an unused id, valid settings, a Git work tree."""
-        if not IDENTITY.fullmatch(request.id) or request.id in self.backtests \
-                or (self.runs.root / request.id).exists():
-            raise ValueError("run id is invalid or already used")
+        self.check_run_id(request.id)
         backtest.config_of(request)
         root = Path(request.repository)
         if not root.is_absolute() or not root.is_dir():
@@ -489,8 +385,13 @@ class Service:
         return started
 
     async def pump(self):
+        async with self.admission:
+            await self.start_waiting()
+
+    async def start_waiting(self):
         """Starts waiting runs while fewer than the allowed number run, and a
-        sweep's rolling validation once all its candidates have ended."""
+        sweep's rolling validation once all its candidates have ended.
+        Called with the admission lock held."""
         while self.waiting and len(self.backtests) < self.processes:
             _, run = self.waiting.popleft()
             try:
@@ -517,6 +418,7 @@ class Service:
 
     async def on_backtest(self, request, response):
         await self.checked_run(request)
+        request = await self.read(self.pin_backtest, request)
         # Accepted once recorded: whoever asked can read the run at once.
         error = await (await self.launch(request))
         if error:
@@ -532,10 +434,12 @@ class Service:
         combinations = list(itertools.product(*[list(item.values) for item in request.values]))
         if len(combinations) > 10000:
             raise ValueError(f"a sweep runs at most 10000 combinations, not {len(combinations)}")
+        backtest.config_of(request.base)
+        base = await self.read(self.pin_backtest, request.base)
         runs, planned = [], []
         for n, values in enumerate(combinations):
             run = type(request.base)()
-            run.CopyFrom(request.base)
+            run.CopyFrom(base)
             run.id = f"{request.id}-{n}"
             for name, value in zip(names, values):
                 run.params[name].CopyFrom(value)
@@ -544,6 +448,7 @@ class Service:
                                      for name, value in zip(names, values)}))
         await self.checked_run(runs[0])
         for run in runs[1:]:
+            self.check_run_id(run.id)
             backtest.config_of(run)
         rolling = None
         if request.HasField("walk_forward"):
@@ -551,16 +456,17 @@ class Service:
                 raise ValueError("rolling validation compares two or more candidates and takes no holdout")
             if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
                 raise ValueError("rolling validation needs at least 20 training days and one validation day")
-            rolling = RollingRun(id=f"{request.id}-rolling", sweep=request.id, base=request.base,
+            rolling = RollingRun(id=f"{request.id}-rolling", sweep=request.id, base=base,
                                  training_days=request.walk_forward.training_days,
                                  validation_days=request.walk_forward.validation_days)
+            self.check_run_id(rolling.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
         if request.processes:
             self.processes = min(request.processes, os.cpu_count() or 1)
         if rolling:
             self.rolling[request.id] = Rolling(rolling, len(runs))
         self.waiting.extend((request.id, run) for run in runs)
-        await self.pump()
+        await self.start_waiting()
         response.accepted.SetInParent()
 
     async def on_cancel_sweep(self, request, response):
@@ -614,7 +520,7 @@ class Service:
                        message=error.splitlines()[-1] if error else "")
         # A child stopped from outside could not record how it ended.
         if any(row["id"] == identity and row["state"] == "running" for row in self.runs.list()):
-            self.runs.fail(identity, "interrupted", "cancelled" if code < 0 else error)
+            self.runs.end(identity, "interrupted", "cancelled" if code < 0 else error)
 
     async def on_cancel_run(self, request, response):
         process = self.backtests.get(request.id)
@@ -657,66 +563,3 @@ class Service:
         for row in await self.read(self.runs.list):
             summary(response.runs.runs.add(), row)
         response.runs.SetInParent()
-
-    DAILY_FIELDS = ("open", "high", "low", "close", "settlement", "previous_settlement", "volume",
-                    "open_interest")
-
-    def cross_check(self, request, client):
-        begin, end = datetime.date.fromisoformat(request.begin_day), \
-            datetime.date.fromisoformat(request.end_day)
-        if not 0 <= (end - begin).days <= 30:
-            raise ValueError("a cross-check covers 1 to 31 days")
-        if request.kind not in ("settlement", "daily"):
-            raise ValueError("a cross-check is of settlement or daily")
-        version = self.warehouse.current()
-        groups = []
-        for exchange, products in crosscheck.FIRST_BATCH.items():
-            days = [day.isoformat() for day in self.open_days(exchange, request.begin_day,
-                                                               request.end_day)
-                    if begin <= day <= end]
-            for day in days:
-                group = crosscheck.Group(exchange, day)
-                groups.append(group)
-                if request.kind == "settlement":
-                    if exchange in crosscheck.UNAVAILABLE_SETTLEMENT:
-                        group.unavailable = crosscheck.UNAVAILABLE_SETTLEMENT[exchange]
-                        continue
-                    first = crosscheck.normalize_tushare(exchange, client.settlement(exchange, day))
-                    second = crosscheck.official_settlement(exchange, day)
-                    group.note = crosscheck.SETTLEMENT_NOTES[exchange]
-                    crosscheck.compare(group, first, second, crosscheck.SETTLEMENT_FIELDS[exchange],
-                                       set(products))
-                else:
-                    if exchange in crosscheck.UNAVAILABLE_DAILY:
-                        group.unavailable = crosscheck.UNAVAILABLE_DAILY[exchange]
-                        continue
-                    rows = self.warehouse.query(version, f"""
-                        select contract, {", ".join(self.DAILY_FIELDS)} from daily
-                        where exchange = ? and day = ?::date""", ("daily",), (exchange, day),
-                        exchange=exchange)
-                    first = {row[0]: dict(zip(self.DAILY_FIELDS, row[1:])) for row in rows}
-                    second = {row["contract"]: row for row in
-                              Akshare().read(Query("daily", exchange, day)).rows}
-                    held = {contract.split("/")[1] for contract in first}
-                    crosscheck.compare(group, first, second, self.DAILY_FIELDS, held)
-        return groups
-
-    async def on_cross_check(self, request, response):
-        client = None
-        if request.kind == "settlement":
-            if "tushare" not in self.sources:
-                raise ValueError("enter or save the Tushare credential first")
-            credential, budget = self.sources["tushare"]
-            client = Tushare(credential, budget)
-        groups = await self.read(self.cross_check, request, client)
-        reply = response.cross_check
-        reply.kind = request.kind
-        for group in groups:
-            item = reply.groups.add(exchange=group.exchange, day=group.day,
-                                    unavailable=group.unavailable, note=group.note,
-                                    compared_rows=group.compared_rows,
-                                    compared_values=group.compared_values)
-            item.only_first.extend(group.only_first)
-            item.only_second.extend(group.only_second)
-            for contract, name, first, second in group.differences:
-                item.differences.add(contract=contract, field=name, first=first, second=second)

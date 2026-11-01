@@ -5,7 +5,6 @@ package asterion.node.proto;
 // The local services as the Terminal runs them.
 enum ServiceKind {
   UNSPECIFIED_SERVICE = 0;
-  MARKET = 1;
   LAB = 5;
 }
 

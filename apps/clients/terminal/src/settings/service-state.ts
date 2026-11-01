@@ -4,7 +4,6 @@ export const t = (key: string, values?: MessageValues) => translate("host", key,
 export type Service = NonNullable<NodeStatus["health"]>["services"][number];
 export type ServiceKind = Service["kind"];
 export const kindLabels: Record<ServiceKind, string> = {
-  market: "行情服务",
   lab: "Python 研究服务",
 };
 export function serviceStatus(node: NodeStatus, service: Service) {
@@ -17,7 +16,7 @@ export function serviceStatus(node: NodeStatus, service: Service) {
     (
       {
         ready: "业务就绪",
-        awaiting_input: service.kind === "market" ? "未登录行情" : "等待初始化",
+        awaiting_input: "等待初始化",
         degraded: "需要恢复",
         unresponsive: "业务无响应",
         starting: "启动中",

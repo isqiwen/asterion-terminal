@@ -17,10 +17,28 @@ Json account_manifest(const Json& header);
 // Account commands and journal records as types. JSON is only their durable
 // form: it is read and written here. Business operations are decoded directly
 // from Protobuf; the JSON command is retained only for journaling and deduplication.
+struct StrategyOrderSource
+{
+    struct WeightSizing
+    {
+        Decimal equity, weight, price, quantity;
+        bool operator==(const WeightSizing&) const = default;
+    };
+
+    // Twenty contracts, each with long/short and today/yesterday close legs.
+    static constexpr std::uint32_t max_legs = 80;
+    std::string instance;
+    std::uint64_t target_sequence = 0;
+    std::uint32_t leg = 0;
+    std::optional<WeightSizing> weight_sizing = std::nullopt;
+    bool operator==(const StrategyOrderSource&) const = default;
+};
+
 struct SubmitOrder
 {
     LimitOrder order;
     Offset offset;
+    std::optional<StrategyOrderSource> strategy = std::nullopt;
 };
 
 struct CancelOrder
@@ -57,6 +75,7 @@ struct AccountRequest
     Json command;
     static AccountRequest from_wire(const protocol::proto::Command& command);
     static AccountRequest from_record(const Json& command);
+    static AccountRequest strategy_order(SubmitOrder order, StrategyOrderSource source);
 
     template <class T>
     const T* as() const noexcept

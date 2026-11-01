@@ -299,6 +299,13 @@ struct RpcHost::Impl
                             self->close();
                             return;
                         }
+                        try {
+                            self->peer.fingerprint =
+                                ipc::detail::peer_fingerprint(self->stream.native_handle());
+                        } catch (...) {
+                            self->close();
+                            return;
+                        }
                         self->admitted();
                     });
             } else if constexpr (std::is_same_v<Stream, Tcp::socket>) {

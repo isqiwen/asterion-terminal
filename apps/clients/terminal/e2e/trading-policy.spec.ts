@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { ctpConnection, rpc } from "./rpc-fixture";
+import { rpc } from "./rpc-fixture";
 import { checkSnapshot } from "./snapshot-schema";
 import { test, expect } from "./trading-fixture";
 
@@ -9,16 +9,6 @@ test(
   async ({ page, tradingHost }) => {
     test.setTimeout(90000);
     const account = tradingHost.connection;
-    await ctpConnection(page.request, account, {
-      broker_id: "9999",
-      user_id: "000001",
-      trade_front: "tcp://127.0.0.1:41205",
-    });
-    await rpc(page.request, "market.catalog", {
-      account,
-      password: "catalog-only",
-      auth_code: "auth-code",
-    });
     await expect
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).market.catalog.phase)
       .toBe("ready");

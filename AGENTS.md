@@ -17,9 +17,9 @@ What the product is: [docs/product.md](docs/product.md). The route, the active
 phase and its work packages:
 [docs/reviews/project-assessment-2026-10-28.md](docs/reviews/project-assessment-2026-10-28.md).
 
-- C++ owns money and orders: market gateway and recording, account processes,
-  risk, the backtest ledger and matching. Python owns ideas: strategies,
-  research and data acquisition.
+- C++ owns market data and execution: real-time feeds, recording, historical
+  acquisition and warehouse access, account processes, risk, the backtest
+  ledger and matching. Python owns strategies, factors and research.
 - Strategies output target positions or weights and never send orders. The C++
   kernel converts targets into orders and enforces [docs/safety.md](docs/safety.md).
 - Work only on the active phase. Parts the plan replaces (the Node-API layer
@@ -30,34 +30,61 @@ phase and its work packages:
 - A phase is done when it worked for real, on real data or the CTP simulation
   counter. Passing fixture tests is necessary, not sufficient.
 
+## Target architecture (confirmed 2026-11-01)
+
+- Remote Market is one C++ service process owning real-time feeds, recording,
+  historical acquisition and the authoritative warehouse. It uses bounded
+  threads and queues for acquisition, reads and writes; no Python runtime or
+  acquisition subprocess. Market and Trading are independent Linux deployments,
+  never owned by a client. Market serves multiple clients over one authoritative
+  dataset; selections, cursors and disconnects belong to each client and must not
+  change another client or the service collection lifecycle. Market C++ owns
+  acquisition and warehouse writes. Lab owns research and results, with fixed
+  version reads and disposable read-only caches. Provider credentials belong
+  on the Market host.
+- Terminal publishes small, versioned strategy code packages and instance
+  configuration. Trading loads deployed packages on its Linux host, manages
+  Python strategy child processes and connects directly to market and trading
+  fronts. No execution dependency on Terminal, Lab or central Market.
+- Live strategies warm up only on complete bars received after each instance
+  starts. No historical preload, supplied warmup data or reused old window.
+  The strategy reports readiness from its parameters and state; no strategy
+  orders before readiness. Account positions and pending orders remain owned
+  by Trading through strategy restarts.
+- Closing Terminal never stops or pauses authorized trading. Trading restart
+  still does not restore authorization. M3.0/M3.1 and M3.2 execution code and
+  isolated validation are complete; real-provider acceptance remains pending.
+  The active work is M3.3 instance operations and monitoring, then M3.4 client cleanup.
+  Ready targets use direct feed quotes and explicit weight budgets through the
+  account execution path; real-counter acceptance remains pending.
+
 ## Architecture (current code)
 
 - Core layers, lowest first: `asterion_base` → `asterion_system` →
   `asterion_futures`. Dependencies point down. Implementation belongs to its owning application;
   genuinely shared service code lives in `apps/services/common/`. Shared database
-  access and built-in order limits live in `core/`. Data sources live in
-  `apps/services/lab/asterion_lab/sources/`. Strategies are Python classes and
+  access and built-in order limits live in `core/`. Market C++ sources live in
+  `apps/services/market/acquisition/`; Lab only reads fixed Market versions through
+  `apps/services/lab/asterion_lab/market.py` and keeps disposable read-only caches. Strategies are Python classes and
   factors plain Python functions in the user's strategy repository, not a
   separate plugin system.
-- Business services (`apps/services/`): Market, Lab (Python: data warehouse,
-  acquisition, research runs; `lab/engine` is the core replay as a Python
-  extension), Recorder and Trading (one process per account). Each owns its
+- Business services (`apps/services/`): Market (remote feeds, recording, C++ warehouse and versioned reads; Tushare/exchange acquisition and recorded-minute publication through persistent tasks, authenticated acquisition management, host credentials and Terminal data-page access implemented), Lab (Python: fixed Market reads, read-only caches and research runs; `lab/engine` is the core replay
+  as a Python extension) and Trading (one process per account, immutable strategy packages and a resource-limited Python child; its independent offline runtime ships in the Linux release and upgrades require all accounts stopped; direct CTP strategy bars, live-only warmup, fixed target inputs and serial execution through the account path; runner/account lifecycle and fault cancellation are implemented). The shared strategy API is `apps/services/common/python/asterion_strategy.py`. Each owns its
   state. There is no central task service or worker process.
-- Local services: Terminal starts Market and Lab on its own
-  machine as child processes (`LocalServices` in
-  `apps/clients/terminal/native/`), one of each, restarts them on failure and
-  they exit with it. Trading and Recorder are independent Linux installations
-  supervised by systemd. Terminal talks to every service directly.
-- IPC: Protobuf from `protocol/proto/`; Unix sockets locally, plain TCP with the
-  `ASTR` preface on the LAN, and pinned mutual TLS for all Trading connections.
+- Local services: Terminal starts only Lab as its child process (`LocalServices`
+  in `apps/clients/terminal/native/`), restarts it on failure and it exits with
+  Terminal. Market and Trading are independent Linux installations supervised
+  by systemd. Terminal talks to each service directly.
+- IPC: Protobuf from `protocol/proto/`; Unix sockets locally; Market and Trading require pinned mutual TLS
+  on every remote connection. Market assigns read/manage roles to registered client certificates.
 - Terminal: Electron + React UI (`apps/clients/terminal/src`, `features/`), C++
   orchestration in `apps/clients/terminal/native/`. The installer is in
   `apps/clients/installer/`.
 - Configuration: defaults in repository `config/`, copied once at deployment to
-  `<node>/config/`. Independent Trading and Recorder setup scripts own their
+  `<node>/config/`. Independent Trading and Market setup scripts own their
   defaults and generate actual configuration at installation; no default JSON
-  files are shipped. Trading creates `config/accounts/<account>.json`, Recorder
-  creates `config/recorder.json`, and both create `config/logging.json`. Upgrades
+  files are shipped. Trading creates `config/accounts/<account>.json`, Market
+  creates `config/market.json`, and both create `config/logging.json`. Upgrades
   preserve existing configuration. Services only read configuration;
   missing or invalid configuration fails with its path.
 
@@ -75,8 +102,8 @@ The full contract is [docs/safety.md](docs/safety.md). Its core:
 - Never resend a trading command automatically after a disconnect or an unknown
   outcome.
 - Credentials are entered locally and never stored in source, logs, chat,
-  configuration files or UI storage. Saved market-data credentials live in the
-  OS keychain and are never reused for trading. Trading credentials are entered
+  configuration files or UI storage. Market CTP and historical provider credentials are entered on the Market host and stored as systemd
+  encrypted credentials. Trading credentials are entered
   on the trading host and stored per account as systemd encrypted credentials;
   Terminal never receives them.
 - Never silently rewrite, migrate or delete user ledgers, tasks or datasets.

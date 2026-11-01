@@ -65,7 +65,8 @@ struct ServiceIo::Impl
         }
         owner.request_stop();
         reactor.wake();
-        owner.join();
+        if (owner.joinable())
+            owner.join();
     }
 
     void run(std::stop_token stop)
@@ -119,6 +120,11 @@ ServiceIo::ServiceIo()
 // the owner is stopped while impl_ still points at its pools. Destroying
 // impl_ first would clear the pointer before the owner had finished.
 ServiceIo::~ServiceIo()
+{
+    stop();
+}
+
+void ServiceIo::stop()
 {
     impl_->stop();
 }

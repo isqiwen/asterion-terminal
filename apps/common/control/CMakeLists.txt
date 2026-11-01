@@ -1,7 +1,6 @@
 add_library(asterion_node_control STATIC
   service_io.cpp
   node_snapshot.cpp
-  service_programs.cpp
   node_paths.cpp
 )
 target_include_directories(asterion_node_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
