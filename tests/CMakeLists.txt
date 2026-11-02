@@ -26,7 +26,7 @@ set(asterion_process_test_targets
   asterion_python_runtime_tests asterion_warehouse_tests
   asterion_acquisition_tests
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
-  asterion_data_credential_tests asterion_kernel_tests asterion_live_tests
+  asterion_kernel_tests asterion_live_tests
   asterion_market_snapshot_tests asterion_rpc_host_tests asterion_terminal_application_tests)
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.
@@ -205,15 +205,6 @@ target_compile_definitions(asterion_terminal_application_tests PRIVATE
   ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
   ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
 add_dependencies(asterion_terminal_application_tests asterion_market asterion_test_ctp asterion_test_ctp_trader)
-asterion_unit_tests(asterion_data_credential_tests terminal/data_credentials_test.cpp asterion_terminal_api)
-asterion_unit_tests(asterion_ctp_connection_tests terminal/ctp_connections_test.cpp asterion_terminal_api)
-target_include_directories(asterion_data_credential_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-add_executable(asterion_test_keychain_helper terminal/keychain_helper_fixture.cpp)
-target_include_directories(asterion_test_keychain_helper PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_features(asterion_test_keychain_helper PRIVATE cxx_std_20)
-target_compile_definitions(asterion_data_credential_tests PRIVATE ASTERION_TEST_KEYCHAIN_HELPER="$<TARGET_FILE:asterion_test_keychain_helper>")
-add_dependencies(asterion_data_credential_tests asterion_test_keychain_helper)
-target_include_directories(asterion_ctp_connection_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
 target_link_libraries(asterion_terminal_application_tests PRIVATE asio::asio spdlog::spdlog_header_only)
 add_executable(asterion_terminal_tests terminal/terminal_api_test.cpp)
 target_include_directories(asterion_terminal_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

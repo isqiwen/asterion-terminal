@@ -1,6 +1,4 @@
 #include "installation.hpp"
-#include "ctp_connections.hpp"
-#include "data_credentials.hpp"
 #include "node_paths.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/environment.hpp>
@@ -81,23 +79,9 @@ int main(int argc, char** argv)
         create_directories_durably(layout.terminal() / "data");
         log::init(layout.terminal(), "installer");
         log_file = log::file(layout.terminal(), "installer", current_process_id());
-        const auto native = installation::native_directory(layout.destination);
-        const installation::Desktop desktop{
-            [&](bool add) {
-                launcher(layout, add);
-            },
-            [&] {
-                // Keychain entries are named after these directories, as the
-                // Terminal opened them. No helper or keyring means none exist.
-                const auto keychain = keychain_store(native / "asterion_keychain");
-                if (!keychain)
-                    return;
-                DataCredentials(layout.terminal() / "data" / "data-providers", keychain)
-                    .forget_remembered();
-                CtpConnections(layout.terminal() / "data" / "ctp-connections", keychain)
-                    .forget_remembered();
-            }
-        };
+        const installation::Desktop desktop{[&](bool add) {
+            launcher(layout, add);
+        }};
         auto progress = [&](const char* step) {
             log::info("installer step: {}", step);
             std::cout << Json{{"step", step}}.dump() << std::endl;

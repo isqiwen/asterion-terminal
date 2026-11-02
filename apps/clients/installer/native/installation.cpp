@@ -287,8 +287,6 @@ void uninstall(
     replace_file_durably(layout.terminal() / "data" / "installation.json", record.dump(2) + "\n");
     progress("unregistering");
     desktop.launcher(false);
-    if (!preserve_data)
-        desktop.forget_credentials();
     progress("removing");
     fs::remove_all(layout.destination);
     if (!preserve_data) {

@@ -12,8 +12,7 @@ import market_tls
 tls = Path(sys.argv[3])
 market_tls.install_client(tls, os.environ['ASTERION_ROOT'])
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'terminal'))
-from keychain_fixture import install
-env = dict(os.environ, ASTERION_KEYCHAIN_EXECUTABLE=install(Path(os.environ['ASTERION_ROOT']) / 'market-test-keychain'))
+env = dict(os.environ)
 def terminal():
     return subprocess.Popen([str(build/'asterion_terminal_dev_bridge')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(process, method, params=None):

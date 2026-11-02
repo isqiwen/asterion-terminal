@@ -1,17 +1,12 @@
-# Saved data-source and CTP settings with their keychain secrets. The
-# installer links it too, to erase those secrets when it removes user data.
-add_library(asterion_terminal_credentials STATIC
-  native/data_credentials.cpp
-  native/keychain_store.cpp
-  native/ctp_connections.cpp
+# Saved Market and Trading connections and the strategy repository setting.
+add_library(asterion_terminal_settings STATIC
   native/trading_connections.cpp
   native/market_endpoint.cpp
   native/strategy_repository.cpp
 )
-target_include_directories(asterion_terminal_credentials PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_credentials PUBLIC asterion_node_control)
-add_dependencies(asterion_terminal_credentials asterion_keychain)
-asterion_target_defaults(asterion_terminal_credentials)
+target_include_directories(asterion_terminal_settings PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
+target_link_libraries(asterion_terminal_settings PUBLIC asterion_node_control)
+asterion_target_defaults(asterion_terminal_settings)
 
 add_library(asterion_terminal_application STATIC
   native/python_runtime.cpp
@@ -29,18 +24,7 @@ add_library(asterion_terminal_application STATIC
 )
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_credentials asterion_node_control asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
-if(APPLE)
-  # Kept free of project libraries so its code signature, which the keychain
-  # uses to grant access, only changes when this file does.
-  add_executable(asterion_keychain native/keychain/main.cpp)
-  target_link_libraries(asterion_keychain PRIVATE "-framework Security" "-framework CoreFoundation")
-else()
-  # The desktop's libsecret is loaded when the helper runs, not linked.
-  add_executable(asterion_keychain native/keychain/secret_service.cpp)
-  target_compile_features(asterion_keychain PRIVATE cxx_std_20)
-  target_link_libraries(asterion_keychain PRIVATE ${CMAKE_DL_LIBS})
-endif()
+target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_settings asterion_node_control asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
 asterion_target_defaults(asterion_terminal_application)

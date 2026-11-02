@@ -24,9 +24,6 @@ struct Desktop
 {
     // Adds (true) or removes (false) the application launcher.
     std::function<void(bool)> launcher;
-    // Erases the secrets this node remembered in the login keychain. Runs
-    // before the programs and user data are removed: the helper is a program.
-    std::function<void()> forget_credentials;
 };
 
 enum class Deployment

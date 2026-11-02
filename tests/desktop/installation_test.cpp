@@ -21,17 +21,10 @@ class Installation : public testing::Test
 protected:
     fs::path root = fs::temp_directory_path() / ("asterion-installer-test-" + unique_process_id());
     Layout layout{root / "payload", root / "applications/terminal", root / "node"};
-    int added = 0, removed = 0, forgotten = 0;
-    Desktop desktop{
-        [&](bool add) {
-            ++(add ? added : removed);
-        },
-        [&] {
-            // The keychain helper is one of the programs.
-            EXPECT_TRUE(fs::exists(layout.destination));
-            ++forgotten;
-        }
-    };
+    int added = 0, removed = 0;
+    Desktop desktop{[&](bool add) {
+        ++(add ? added : removed);
+    }};
     std::function<void(const char*)> progress = [](const char*) {};
 
     void SetUp() override
@@ -80,7 +73,6 @@ TEST_F(Installation, InstallUpgradeUninstallPreserveUserData)
     EXPECT_FALSE(fs::exists(layout.destination));
     EXPECT_FALSE(inspect(layout).at("installed"));
     EXPECT_EQ(removed, 1);
-    EXPECT_EQ(forgotten, 0) << "kept data keeps its saved credentials";
     EXPECT_EQ(contents(layout.root / "market/data/ledger"), "operator data");
     EXPECT_EQ(contents(settings), R"({"task_concurrency":7})");
 }
@@ -115,7 +107,6 @@ TEST_F(Installation, ExplicitDataRemovalResumesTheSameChoiceAndRetainsDiagnostic
         }
     });
     EXPECT_FALSE(fs::exists(layout.destination));
-    EXPECT_EQ(forgotten, 1);
     EXPECT_FALSE(fs::exists(layout.terminal() / "config"));
     EXPECT_FALSE(fs::exists(layout.root / "market/data/ledger"));
     EXPECT_FALSE(fs::exists(layout.terminal() / "data/installation.json"));

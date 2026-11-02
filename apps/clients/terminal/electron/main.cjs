@@ -29,11 +29,6 @@ const resources = app.isPackaged
 // The native programs, libraries and configuration defaults the Terminal's
 // local services run from.
 process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
-const variables = {
-  ASTERION_KEYCHAIN_EXECUTABLE: "asterion_keychain",
-};
-for (const [key, name] of Object.entries(variables))
-  process.env[key] = path.join(resources, "native", name);
 // Development runs on the runtime `pnpm prepare:python` made; an installed
 // application installs its own at the first launch.
 if (!app.isPackaged) process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");

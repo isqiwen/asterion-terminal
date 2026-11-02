@@ -1,6 +1,5 @@
 {
   "programs": [
-    "asterion_keychain",
     "asterion_terminal.node",
     "asterion_maintenance"
   ],
