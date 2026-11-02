@@ -502,7 +502,7 @@ export type PythonRuntime = {
 };
 export type Snapshot = {
   market_data?: JsonValue;
-  strategy?: JsonValue;
+  trading?: JsonValue;
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   trading_fingerprint?: string;
   // The saved Market host, or a mark that its settings file is unreadable.

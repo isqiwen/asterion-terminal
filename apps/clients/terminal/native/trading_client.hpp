@@ -17,7 +17,9 @@ public:
     // and every subsequent request run asynchronously on ServiceIo.
     [[nodiscard]] static std::future<std::shared_ptr<TradingClient>>
     open(ServiceIo&, TradingEndpoint);
-    [[nodiscard]] static std::future<Json> strategy(ServiceIo&, TradingEndpoint, Json);
+    // One generated trading.proto Request, as ProtoJSON, on its own pinned TLS
+    // connection; returns the Response as ProtoJSON. Errors are thrown.
+    [[nodiscard]] static std::future<Json> call(ServiceIo&, TradingEndpoint, Json);
     [[nodiscard]] std::future<void> create(const Json& policy);
     ~TradingClient();
     TradingClient(const TradingClient&) = delete;

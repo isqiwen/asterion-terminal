@@ -10,18 +10,15 @@ namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = protocol::proto;
 
-std::future<Json> TradingClient::strategy(ServiceIo& io, TradingEndpoint endpoint, Json payload)
+std::future<Json> TradingClient::call(ServiceIo& io, TradingEndpoint endpoint, Json payload)
 {
     return io.submit<Json>(
         [&io, endpoint = std::move(endpoint), payload = std::move(payload)](
             std::stop_token stop) -> PolledTask<Json> {
             auto request = co_await io.read<wire::Request>([&] {
                 wire::Request request;
-                if (!google::protobuf::util::JsonStringToMessage(
-                        payload.dump(),
-                        request.mutable_strategy())
-                        .ok())
-                    throw std::invalid_argument("invalid strategy request");
+                if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
+                    throw std::invalid_argument("invalid trading request");
                 protocol::validate_message(request);
                 request.set_version(1);
                 request.set_session_id(endpoint.session);
@@ -59,12 +56,9 @@ std::future<Json> TradingClient::strategy(ServiceIo& io, TradingEndpoint endpoin
                     throw Error(ErrorCode::unavailable, "Trading response identity mismatch");
                 if (response.has_error())
                     throw_remote_error(response.error().code(), response.error().message());
-                if (!response.has_strategy())
-                    throw Error(ErrorCode::unavailable, "missing strategy response");
                 std::string encoded;
-                if (!google::protobuf::util::MessageToJsonString(response.strategy(), &encoded)
-                        .ok())
-                    throw Error(ErrorCode::internal_error, "cannot encode strategy response");
+                if (!google::protobuf::util::MessageToJsonString(response, &encoded).ok())
+                    throw Error(ErrorCode::internal_error, "cannot encode trading response");
                 return Json::parse(encoded);
             });
         });

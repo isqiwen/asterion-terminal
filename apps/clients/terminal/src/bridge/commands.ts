@@ -55,7 +55,7 @@ export type CommandParams = {
   "market.watchlist": { instruments: InstrumentKey[] };
   "market.minutes": { venue: string; symbol: string };
   "market.recording": Record<string, never>;
-  "trading.strategy": { account: string; request: JsonValue };
+  "trading.call": { account: string; request: JsonValue };
   "market.data": { request: JsonValue };
   "live.create": RiskParameters & {
     account: string;

@@ -175,8 +175,8 @@ class TestStrategy(Strategy):
             package = build_package(strategy.Build(repository=str(repo), manifest='strategy.json'))
             assert [f.path for f in package.files] == manifest['files']
             # Real Terminal native command, generated JSON and pinned mutual TLS.
-            published = terminal_call(terminal, 'trading.strategy', dict(account='remote',
-                request=MessageToDict(strategy.Request(publish=package))))['strategy']
+            published = terminal_call(terminal, 'trading.call', dict(account='remote',
+                request=MessageToDict(trading.Request(strategy=strategy.Request(publish=package)))))['trading']['strategy']
             assert published['packages'][0]['name'] == 'example'
             assert rpc(host, strategy.Request(publish=package), True).code == 'conflict'
             invalid = strategy.Package(); invalid.CopyFrom(package)
@@ -205,8 +205,8 @@ class TestStrategy(Strategy):
             assert rpc(host, strategy.Request(start=incomplete), True).code == 'invalid_request'
             # Explicit zero is a valid budget; absence is not a zero default.
             config.weight_budget.gross_units = config.weight_budget.net_units = 0
-            reply = terminal_call(terminal, 'trading.strategy', dict(account='remote',
-                request=MessageToDict(strategy.Request(start=config))))['strategy']
+            reply = terminal_call(terminal, 'trading.call', dict(account='remote',
+                request=MessageToDict(trading.Request(strategy=strategy.Request(start=config)))))['trading']['strategy']
             loaded = ParseDict(reply, strategy.State()).instance
             assert loaded.state == 'warming' and loaded.process_id and not loaded.completed_steps
             child = loaded.process_id

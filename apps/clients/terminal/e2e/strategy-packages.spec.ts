@@ -38,12 +38,12 @@ test(
       await tradingHost.restart();
       await packages.getByRole("button", { name: "读取主机策略包", exact: true }).click();
       await expect(packages.getByRole("listitem")).toContainText("ma-cross · 1");
-      const state = await rpc(page.request, "trading.strategy", {
+      const state = await rpc(page.request, "trading.call", {
         account: tradingHost.connection,
-        request: { inspect: {} },
+        request: { strategy: { inspect: {} } },
       });
-      expect(state.strategy.packages).toHaveLength(1);
-      expect(state.strategy.instance).toBeUndefined();
+      expect(state.trading.strategy.packages).toHaveLength(1);
+      expect(state.trading.strategy.instance).toBeUndefined();
       const account = tradingHost.connection;
       await rpc(page.request, "live.open", { account });
       await rpc(page.request, "live.create", {
@@ -75,15 +75,19 @@ test(
         fullPage: true,
       });
       expect(
-        (await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } }))
-          .strategy.instance,
+        (
+          await rpc(page.request, "trading.call", {
+            account,
+            request: { strategy: { inspect: {} } },
+          })
+        ).trading.strategy.instance,
       ).toBeUndefined();
       await form.getByRole("button", { name: "确认启动", exact: true }).click();
       const monitor = packages.getByRole("region", { name: "策略运行状态", exact: true });
       await expect(monitor).toContainText("正在现场预热", { timeout: 20000 });
       const started = (
-        await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } })
-      ).strategy.instance;
+        await rpc(page.request, "trading.call", { account, request: { strategy: { inspect: {} } } })
+      ).trading.strategy.instance;
       expect(started.configuration.id).toBe("ui-run-a");
       expect(
         (await rpc(page.request, "runtime.snapshot")).live[account].session.authorization,
@@ -92,8 +96,12 @@ test(
       await openView(page, "trading");
       await expect(monitor).toContainText("ui-run-a");
       expect(
-        (await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } }))
-          .strategy.instance.processId,
+        (
+          await rpc(page.request, "trading.call", {
+            account,
+            request: { strategy: { inspect: {} } },
+          })
+        ).trading.strategy.instance.processId,
       ).toBe(started.processId);
       await page.screenshot({ path: testInfo.outputPath("strategy-instance.png"), fullPage: true });
       await monitor.getByRole("button", { name: "停止策略并撤单", exact: true }).click();
@@ -108,8 +116,8 @@ test(
       // recovered as interrupted (covered by the strategy process test).
       await expect(monitor.getByRole("status")).toHaveText("已停止", { timeout: 20000 });
       const stopped = (
-        await rpc(page.request, "trading.strategy", { account, request: { inspect: {} } })
-      ).strategy.instance;
+        await rpc(page.request, "trading.call", { account, request: { strategy: { inspect: {} } } })
+      ).trading.strategy.instance;
       expect(stopped.configuration.id).toBe("ui-run-b");
       expect(stopped.processId).toBeUndefined();
     } finally {

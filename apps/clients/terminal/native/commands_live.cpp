@@ -63,7 +63,7 @@ std::shared_ptr<Application::Impl::LiveAccount> Application::Impl::live_account(
 // passes that account's authorization, allowlist and risk.
 void Application::Impl::register_live_commands()
 {
-    command("trading.strategy", [this](const json& p) -> PolledTask<Response> {
+    command("trading.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account", "request"});
         const auto id = text(p, "account");
         const auto selected = co_await settings<std::pair<TradingEndpoint, std::string>>([&] {
@@ -73,9 +73,8 @@ void Application::Impl::register_live_commands()
                 trading_connections.get(id).at("revision").get<std::string>()
             };
         });
-        auto reply = co_await PollFuture{
-            TradingClient::strategy(service_io, selected.first, p.at("request"))
-        };
+        auto reply =
+            co_await PollFuture{TradingClient::call(service_io, selected.first, p.at("request"))};
         co_await settings<void>([&] {
             if (trading_connections.get(id).at("revision") != selected.second)
                 throw Error(
@@ -83,7 +82,7 @@ void Application::Impl::register_live_commands()
                     "trading connection changed; inspect the original host before retrying");
         });
         auto result = read_published(json::object());
-        result.values["strategy"] = std::move(reply);
+        result.values["trading"] = std::move(reply);
         co_return result;
     });
     command("live.create", [this](const json& p) -> PolledTask<Response> {
