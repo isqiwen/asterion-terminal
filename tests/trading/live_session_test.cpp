@@ -10,6 +10,7 @@
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <google/protobuf/util/json_util.h>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
@@ -59,9 +60,16 @@ public:
 
     // Exercise the same presentation decoder used by Terminal, after the typed
     // account-thread boundary. JSON exists only in this test's UI assertions.
+    // The generated ProtoJSON with field names as declared and empty fields printed.
     Json snapshot() const
     {
-        return protocol::decode_live_snapshot(wire_snapshot());
+        google::protobuf::util::JsonPrintOptions options;
+        options.preserve_proto_field_names = true;
+        options.always_print_fields_with_no_presence = true;
+        std::string text;
+        if (!google::protobuf::util::MessageToJsonString(wire_snapshot(), &text, options).ok())
+            throw std::runtime_error("cannot print the snapshot");
+        return Json::parse(text);
     }
 
     auto execute(std::string_view record, std::string_view policy, const Json& command)
@@ -255,6 +263,17 @@ Json authorize(std::string id = "authorize", std::string user = "000001")
     return {{"request_id", std::move(id)}, {"action", "live_authorize"}, {"user_id", user}};
 }
 
+// ProtoJSON prints 64-bit integers as strings and a Decimal as its units.
+std::int64_t number(const Json& value)
+{
+    return std::stoll(value.get<std::string>());
+}
+
+std::string decimal(const Json& value)
+{
+    return Decimal::from_raw(number(value.at("units"))).str();
+}
+
 Json find_order(const Json& snapshot, const std::string& id)
 {
     for (const auto& order : snapshot.at("orders"))
@@ -380,7 +399,7 @@ TEST_F(Live, PolicyRevisionsRetainExposureFenceStaleCommandsAndSurviveRecoveryAn
         EXPECT_EQ(state.at("account_id"), record);
         EXPECT_EQ(state.at("contracts").size(), 2U);
         EXPECT_EQ(state.at("phase"), "disconnected");
-        EXPECT_TRUE(state.at("authorization").is_null());
+        EXPECT_FALSE(state.contains("authorization"));
         const auto count = session.snapshot().at("capacity").at("records_used");
         EXPECT_NO_THROW(session.execute(record, initial, change).get());
         EXPECT_EQ(session.snapshot().at("capacity").at("records_used"), count);
@@ -403,7 +422,7 @@ TEST_F(Live, PolicyRevisionsRetainExposureFenceStaleCommandsAndSurviveRecoveryAn
     {
         LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
         EXPECT_EQ(recovered.snapshot().at("policy_revision"), revised);
-        EXPECT_EQ(recovered.snapshot().at("risk").at("max_gross_quantity"), "1");
+        EXPECT_EQ(decimal(recovered.snapshot().at("risk").at("max_gross_quantity")), "1");
         EXPECT_NO_THROW(recovered.execute(record, initial, change).get());
         ASSERT_EQ(ready(recovered).at("phase"), "ready");
         EXPECT_EQ(recovered.snapshot().at("policy_revision"), revised);
@@ -411,7 +430,7 @@ TEST_F(Live, PolicyRevisionsRetainExposureFenceStaleCommandsAndSurviveRecoveryAn
     }
     LiveSession continued(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_EQ(continued.snapshot().at("policy_revision"), revised);
-    EXPECT_EQ(continued.snapshot().at("risk").at("max_gross_quantity"), "1");
+    EXPECT_EQ(decimal(continued.snapshot().at("risk").at("max_gross_quantity")), "1");
 }
 
 TEST_F(Live, PolicyCannotRemoveOrRedefineContractsWithWorkingOrders)
@@ -447,11 +466,11 @@ TEST_F(Live, PolicyJournalFailureKeepsOriginalRevisionAndRequiresRecovery)
         EXPECT_TRUE(session.recovery_required());
         EXPECT_EQ(session.snapshot().at("phase"), "disconnected");
         EXPECT_EQ(session.snapshot().at("policy_revision"), revision);
-        EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+        EXPECT_FALSE(session.snapshot().contains("authorization"));
     }
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_EQ(recovered.snapshot().at("policy_revision"), revision);
-    EXPECT_EQ(recovered.snapshot().at("risk").at("max_gross_quantity"), "10");
+    EXPECT_EQ(decimal(recovered.snapshot().at("risk").at("max_gross_quantity")), "10");
 }
 
 TEST_F(Live, AccountRecordOwnershipSurvivesConnectionChangesAndProcessLifetimes)
@@ -473,7 +492,7 @@ TEST_F(Live, AccountRecordOwnershipSurvivesConnectionChangesAndProcessLifetimes)
         Error);
     EXPECT_TRUE(fs::is_empty(alias.path));
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
-    EXPECT_TRUE(recovered.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(recovered.snapshot().contains("authorization"));
     // Separate account records can connect with the same broker/investor details.
     alternative["account_id"] = "another-account";
     EXPECT_NO_THROW((LiveSession{alias.path, ASTERION_TEST_CTP_TRADER, owners.path, alternative}));
@@ -603,7 +622,7 @@ TEST_F(Live, FilledOrdersDoNotCreateRiskHeadroomBeforePositionsAreReconciled)
     state = wait_for(session, [](const Json& s) {
         return !s.at("positions").empty();
     });
-    ASSERT_EQ(state.at("positions")[0].at("today"), "2");
+    ASSERT_EQ(decimal(state.at("positions")[0].at("today")), "2");
     EXPECT_THROW(act(session, submit("over.limit", "2")), std::invalid_argument);
     EXPECT_TRUE(find_order(session.snapshot(), "over.limit").is_null());
     EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
@@ -656,17 +675,17 @@ TEST_F(Live, SlowDurabilityAllowsSnapshotsAndRevocationWithoutSendingThePrepared
             policy,
             {{"request_id", "cancel.slow"}, {"action", "cancel"}, {"order_id", "slow"}});
         // FIFO read proves these requests have entered account admission before revoke.
-        EXPECT_FALSE(session.snapshot().at("authorization").is_null());
+        EXPECT_TRUE(session.snapshot().contains("authorization"));
         revoked = std::async(std::launch::async, [&] {
             act(session, {{"request_id", "revoke.slow"}, {"action", "live_revoke"}});
         });
         observed = std::async(std::launch::async, [&] {
             return wait_for(session, [](const Json& state) {
-                return state.at("authorization").is_null();
+                return !state.contains("authorization");
             });
         });
         ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-        EXPECT_TRUE(observed.get().at("authorization").is_null());
+        EXPECT_FALSE(observed.get().contains("authorization"));
         EXPECT_EQ(placed.wait_for(0ms), std::future_status::timeout);
         EXPECT_EQ(revoked.wait_for(0ms), std::future_status::timeout);
         held.release();
@@ -680,7 +699,7 @@ TEST_F(Live, SlowDurabilityAllowsSnapshotsAndRevocationWithoutSendingThePrepared
         const auto after = session.snapshot();
         EXPECT_TRUE(after.at("orders").empty());
         EXPECT_TRUE(after.at("unconfirmed").empty());
-        EXPECT_GT(after.at("segment_count"), before.at("segment_count"));
+        EXPECT_GT(number(after.at("segment_count")), number(before.at("segment_count")));
         EXPECT_EQ(after.at("account_id"), before.at("account_id"));
         EXPECT_NO_THROW(act(session, submit("slow", "2"))) << "retry acknowledges, never resends";
     }
@@ -688,7 +707,7 @@ TEST_F(Live, SlowDurabilityAllowsSnapshotsAndRevocationWithoutSendingThePrepared
     const auto state = ready(recovered);
     EXPECT_TRUE(state.at("orders").empty());
     EXPECT_TRUE(state.at("unconfirmed").empty());
-    EXPECT_TRUE(state.at("authorization").is_null());
+    EXPECT_FALSE(state.contains("authorization"));
 }
 
 TEST_F(Live, CommandsQueuedBeforeEntryRevocationCannotBorrowItsNewRevision)
@@ -723,13 +742,13 @@ TEST_F(Live, CommandsQueuedBeforeEntryRevocationCannotBorrowItsNewRevision)
     EXPECT_THROW(queued_grant.get(), Error);
     EXPECT_NO_THROW(revoked.get());
     const auto after = session.snapshot();
-    EXPECT_TRUE(after.at("authorization").is_null());
+    EXPECT_FALSE(after.contains("authorization"));
     EXPECT_TRUE(after.at("orders").empty());
     EXPECT_EQ(
-        after.at("capacity").at("records_used").get<int>(),
-        before.at("capacity").at("records_used").get<int>() + 3);
+        number(after.at("capacity").at("records_used")),
+        number(before.at("capacity").at("records_used")) + 3);
     EXPECT_NO_THROW(act(session, authorize("fresh.after.revoke")));
-    EXPECT_FALSE(session.snapshot().at("authorization").is_null());
+    EXPECT_TRUE(session.snapshot().contains("authorization"));
 }
 
 TEST_F(Live, RevocationDuringDurableAuthorizationCannotRestorePermission)
@@ -749,15 +768,15 @@ TEST_F(Live, RevocationDuringDurableAuthorizationCannotRestorePermission)
     });
     observed = std::async(std::launch::async, [&] {
         return wait_for(session, [](const Json& state) {
-            return state.at("authorization").is_null();
+            return !state.contains("authorization");
         });
     });
     ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    EXPECT_TRUE(observed.get().at("authorization").is_null());
+    EXPECT_FALSE(observed.get().contains("authorization"));
     held.release();
     EXPECT_THROW(granted.get(), Error);
     EXPECT_NO_THROW(revoked.get());
-    EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(session.snapshot().contains("authorization"));
     EXPECT_THROW(act(session, submit("after.revocation", "1")), std::invalid_argument);
 }
 
@@ -798,7 +817,7 @@ TEST_F(Live, SlowSdkReturnsKeepObservationAndRevocationResponsiveAndRetainLateRe
         return session.snapshot();
     });
     ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    EXPECT_TRUE(observed.get().at("authorization").is_null());
+    EXPECT_FALSE(observed.get().contains("authorization"));
     // A response taking longer than the previous five-second wait is still owned.
     EXPECT_EQ(placed.wait_for(5100ms), std::future_status::timeout);
     exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, -7);
@@ -859,7 +878,7 @@ TEST_F(Live, ThrottledQuoteWaitAllowsControlAndDisconnectRetiresItWithoutAnOrder
         return session.snapshot();
     });
     ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
-    EXPECT_TRUE(observed.get().at("authorization").is_null());
+    EXPECT_FALSE(observed.get().contains("authorization"));
     EXPECT_EQ(placed.wait_for(0s), std::future_status::timeout);
     session.disconnect();
     EXPECT_THROW(placed.get(), Error);
@@ -868,8 +887,8 @@ TEST_F(Live, ThrottledQuoteWaitAllowsControlAndDisconnectRetiresItWithoutAnOrder
     EXPECT_TRUE(after.at("orders").empty());
     EXPECT_TRUE(after.at("unconfirmed").empty());
     EXPECT_EQ(
-        after.at("capacity").at("records_used").get<int>(),
-        identity.at("capacity").at("records_used").get<int>() + 1);
+        number(after.at("capacity").at("records_used")),
+        number(identity.at("capacity").at("records_used")) + 1);
 }
 
 // A submission waiting for its broker quote has recorded nothing, so a cancel of
@@ -999,7 +1018,7 @@ TEST_F(Live, ConcurrentRetriesHaveOneDurableIntentAndOneBrokerOrder)
     EXPECT_EQ(after.at("orders").size(), 1U);
     EXPECT_EQ(after.at("trades").size(), 1U);
     ASSERT_EQ(after.at("positions").size(), 1U);
-    EXPECT_EQ(after.at("positions")[0].at("today"), "2");
+    EXPECT_EQ(decimal(after.at("positions")[0].at("today")), "2");
     session.stop();
     session.stopped().get();
     SqliteJournal journal(directory.path, {"plugins", "ctp-flow", "owner"});
@@ -1018,7 +1037,7 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
     EXPECT_THROW(act(session, submit("unauthorized", "1")), std::invalid_argument);
     EXPECT_THROW(act(session, authorize("other", "000002")), std::invalid_argument);
     act(session, authorize());
-    EXPECT_FALSE(session.snapshot().at("authorization").is_null());
+    EXPECT_TRUE(session.snapshot().contains("authorization"));
     EXPECT_THROW(act(session, submit("listed", "1", "3500", "rb2611")), std::invalid_argument);
     EXPECT_THROW(act(session, submit("tick", "1", "3500.5")), std::invalid_argument);
     EXPECT_THROW(act(session, submit("lot", "0.5")), std::invalid_argument);
@@ -1040,7 +1059,7 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
         return s.at("costs").size() == 1 && s.at("costs")[0].at("state") == "ready";
     });
     ASSERT_EQ(rates.at("costs")[0].at("state"), "ready");
-    EXPECT_EQ(rates.at("costs")[0].at("costs").at("margin_rate"), "0.12");
+    EXPECT_EQ(decimal(rates.at("costs")[0].at("costs").at("margin_rate")), "0.12");
 
     act(session, submit("filled", "2"));
     auto state = wait_for(session, [](const Json& s) {
@@ -1049,7 +1068,7 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
     });
     EXPECT_EQ(find_order(state, "filled").at("status"), "filled");
     ASSERT_EQ(state.at("positions").size(), 1U);
-    EXPECT_EQ(state.at("positions")[0].at("today"), "2");
+    EXPECT_EQ(decimal(state.at("positions")[0].at("today")), "2");
     EXPECT_EQ(state.at("trades").size(), 1U);
 
     act(session, submit("resting", "3"));
@@ -1075,12 +1094,12 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
     });
     EXPECT_EQ(find_order(state, "resting").at("status"), "cancelled");
     act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
-    EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(session.snapshot().contains("authorization"));
     EXPECT_THROW(act(session, submit("revoked", "1")), std::invalid_argument);
     EXPECT_THROW(act(session, authorize()), Error) << "authorization IDs are never reused";
     act(session, authorize("authorize.again"));
     session.disconnect();
-    EXPECT_FALSE(session.snapshot().at("authorization").is_null())
+    EXPECT_TRUE(session.snapshot().contains("authorization"))
         << "a disconnect ends the connection, not the owner's permission";
     try {
         act(session, submit("disconnected", "1"));
@@ -1128,7 +1147,7 @@ TEST_F(Live, LimitPricesStayWithinExchangeLimitsAndTheMarketReference)
             .at("orders")
             .size(),
         2U);
-    EXPECT_EQ(session.snapshot().at("max_price_deviation"), "0.1");
+    EXPECT_EQ(decimal(session.snapshot().at("max_price_deviation")), "0.1");
 }
 
 TEST_F(Live, RecoveryAttributesRecordedOrdersAndNeverResendsThem)
@@ -1150,7 +1169,7 @@ TEST_F(Live, RecoveryAttributesRecordedOrdersAndNeverResendsThem)
             "accepted");
     }
     LiveSession restored(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
-    EXPECT_TRUE(restored.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(restored.snapshot().contains("authorization"));
     EXPECT_THROW(act(restored, submit("after", "1")), std::invalid_argument);
     auto state = ready(restored);
     state = wait_for(restored, [](const Json& s) {
@@ -1447,12 +1466,6 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     EXPECT_EQ(snapshot.account_id(), "fixture-account");
     EXPECT_GT(snapshot.broker_sequence(), disconnected.broker_sequence());
     EXPECT_GE(snapshot.connection_generation(), disconnected.connection_generation());
-    const auto observation = protocol::decode_live_snapshot(snapshot);
-    EXPECT_EQ(observation.at("broker_sequence"), std::to_string(snapshot.broker_sequence()));
-    EXPECT_EQ(
-        observation.at("connection_generation"),
-        std::to_string(snapshot.connection_generation()));
-    EXPECT_EQ(observation.at("positions_reconciled"), snapshot.positions_reconciled());
     EXPECT_EQ(snapshot.risk().max_order_quantity().units(), Decimal::parse("5").raw());
     EXPECT_EQ(snapshot.max_price_deviation().units(), Decimal::parse("0.02").raw());
     ASSERT_EQ(snapshot.contracts_size(), 1);
@@ -1468,9 +1481,6 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().units(), Decimal::parse("1.5").raw());
     EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().units(), Decimal::parse("0.0001").raw());
     ASSERT_TRUE(snapshot.has_authorization());
-    protocol::proto::LiveSnapshot received;
-    ASSERT_TRUE(received.ParseFromString(snapshot.SerializeAsString()));
-    EXPECT_EQ(protocol::decode_live_snapshot(received), protocol::decode_live_snapshot(snapshot));
     act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
     EXPECT_FALSE(session.wire_snapshot().has_authorization());
     EXPECT_TRUE(snapshot.has_authorization()) << "a published value cannot follow later mutations";
@@ -1478,27 +1488,6 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
     const auto after_disconnect = session.wire_snapshot();
     EXPECT_GT(after_disconnect.connection_generation(), snapshot.connection_generation());
     EXPECT_FALSE(after_disconnect.positions_reconciled());
-    auto large_sequence = snapshot;
-    large_sequence.set_broker_sequence(9007199254740993ULL);
-    large_sequence.set_connection_generation(9007199254740995ULL);
-    const auto exact = protocol::decode_live_snapshot(large_sequence);
-    EXPECT_EQ(exact.at("broker_sequence"), "9007199254740993");
-    EXPECT_EQ(exact.at("connection_generation"), "9007199254740995");
-    EXPECT_EQ(disconnected.phase(), "disconnected");
-
-    auto invalid = snapshot;
-    invalid.clear_capacity();
-    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
-    invalid = snapshot;
-    invalid.mutable_capacity()->set_records_used(snapshot.capacity().records_limit() + 1);
-    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
-    invalid = snapshot;
-    invalid.mutable_orders(0)->set_status("lost");
-    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument);
-    invalid = snapshot;
-    invalid.mutable_costs(0)->set_state("querying");
-    EXPECT_THROW(protocol::decode_live_snapshot(invalid), std::invalid_argument)
-        << "rates only accompany a ready state";
 }
 
 TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
@@ -1559,7 +1548,7 @@ TEST_F(Live, AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked)
         return s.at("phase") != "ready";
     });
     ASSERT_NE(state.at("phase"), "ready");
-    EXPECT_FALSE(state.at("authorization").is_null());
+    EXPECT_TRUE(state.contains("authorization"));
     try {
         act(session, submit("unsynchronized", "1"));
         FAIL() << "an order was accepted before the new connection synchronized";
@@ -1579,7 +1568,7 @@ TEST_F(Live, AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked)
         "ready");
     EXPECT_NO_THROW(act(session, submit("same.authorization", "1")));
     act(session, Json{{"request_id", "revoke"}, {"action", "live_revoke"}});
-    EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(session.snapshot().contains("authorization"));
     EXPECT_THROW(act(session, submit("revoked", "1")), std::invalid_argument);
 }
 
@@ -1618,7 +1607,7 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
         });
         ASSERT_EQ(state.at("trading_day"), day);
         ASSERT_EQ(state.at("phase"), "ready");
-        EXPECT_FALSE(state.at("authorization").is_null())
+        EXPECT_TRUE(state.contains("authorization"))
             << "a new trading day asks for no new authorization";
         EXPECT_TRUE(state.at("orders").empty());
         EXPECT_TRUE(state.at("trades").empty());
@@ -1628,8 +1617,8 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
             EXPECT_EQ(state.at("unconfirmed")[0].at("trading_day"), "20260928");
         }
         ASSERT_EQ(state.at("positions").size(), 1U);
-        EXPECT_EQ(state.at("positions")[0].at("today"), "0");
-        EXPECT_EQ(state.at("positions")[0].at("yesterday"), std::to_string(index + 1));
+        EXPECT_EQ(decimal(state.at("positions")[0].at("today")), "0");
+        EXPECT_EQ(decimal(state.at("positions")[0].at("yesterday")), std::to_string(index + 1));
         act(session, submit("day0.filled", "1")); // historical request: acknowledge only
         EXPECT_TRUE(session.snapshot().at("orders").empty());
         if (++index == 1) {
@@ -1686,7 +1675,7 @@ TEST_F(Live, TerminalEvidenceSurvivesSegmentsAndRestoresCurrentDayAttribution)
     const auto state = ready(next_day);
     EXPECT_TRUE(state.at("unconfirmed").empty());
     EXPECT_TRUE(state.at("orders").empty());
-    EXPECT_GE(state.at("segment_count").get<std::uint64_t>(), 2U);
+    EXPECT_GE(number(state.at("segment_count")), 2);
 }
 
 TEST_F(Live, FailedTerminalCommitRetainsUnknownRiskAcrossRolloverAndRecovery)
@@ -1707,9 +1696,9 @@ TEST_F(Live, FailedTerminalCommitRetainsUnknownRiskAcrossRolloverAndRecovery)
         sqlite::fail_next_commits_for_testing(1);
         exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 3);
         const auto failed = wait_for(session, [](const Json& state) {
-            return state.at("storage_state") == "recovery_required";
+            return state.at("recovery_required") == true;
         });
-        ASSERT_EQ(failed.at("storage_state"), "recovery_required");
+        ASSERT_EQ(failed.at("recovery_required"), true);
     }
     exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
     LiveSession restored(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
@@ -1738,7 +1727,7 @@ TEST_F(Live, SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation)
     ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect");
     reconnect.symbol<void (*)()>()();
     const auto state = wait_for(session, [](const Json& s) {
-        return s.at("phase") == "ready" && s.at("authorization").is_null();
+        return s.at("phase") == "ready" && !s.contains("authorization");
     });
     ASSERT_EQ(state.at("phase"), "ready");
     EXPECT_TRUE(state.at("orders").empty());
@@ -1786,7 +1775,7 @@ TEST_F(Live, AutomaticSegmentsPreserveAccountAuthorizationAndDeduplicationAcross
         EXPECT_EQ(after.at("policy_revision"), policy);
         EXPECT_EQ(after.at("authorization"), before.at("authorization"));
         EXPECT_EQ(after.at("phase"), "ready");
-        EXPECT_EQ(after.at("segment_count"), 1);
+        EXPECT_EQ(number(after.at("segment_count")), 1);
         const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
         EXPECT_NO_THROW(act(session, submit("resting", "3")));
         EXPECT_THROW(act(session, submit("resting", "2")), Error);
@@ -1796,13 +1785,13 @@ TEST_F(Live, AutomaticSegmentsPreserveAccountAuthorizationAndDeduplicationAcross
     const auto state = ready(restored);
     EXPECT_EQ(state.at("account_id"), account);
     EXPECT_EQ(state.at("policy_revision"), policy);
-    EXPECT_TRUE(state.at("authorization").is_null());
+    EXPECT_FALSE(state.contains("authorization"));
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
     EXPECT_NO_THROW(act(restored, submit("resting", "3")));
     EXPECT_THROW(act(restored, submit("resting", "2")), Error);
     EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
     act(restored, {{"request_id", "cancel"}, {"action", "cancel"}, {"order_id", "resting"}});
-    EXPECT_GT(restored.snapshot().at("segment_count"), 1);
+    EXPECT_GT(number(restored.snapshot().at("segment_count")), 1);
 }
 
 TEST_F(Live, IdleAccountPublishesItsOwnProgressWithoutClientOrBrokerEvents)
@@ -1924,8 +1913,12 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
             const auto encoding = elapsed(encode_begin);
             const auto present_begin = std::chrono::steady_clock::now();
             json_bytes = 0;
-            for (const auto& snapshot : snapshots)
-                json_bytes += protocol::decode_live_snapshot(snapshot).dump().size();
+            for (const auto& snapshot : snapshots) {
+                // What the Terminal relay sends to the page.
+                std::string text;
+                ASSERT_TRUE(google::protobuf::util::MessageToJsonString(snapshot, &text).ok());
+                json_bytes += text.size();
+            }
             const auto presentation = elapsed(present_begin);
             if (sample >= 5) {
                 observation_ms.push_back(observation);
@@ -1953,7 +1946,7 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
                 {"trades_per_account", rows},
                 {"observation", quantiles(observation_ms)},
                 {"protobuf_encoding", quantiles(encoding_ms)},
-                {"ui_projection", quantiles(presentation_ms)},
+                {"relay_json", quantiles(presentation_ms)},
                 {"wire_bytes_total", wire_bytes},
                 {"json_bytes_total", json_bytes},
                 {"process_peak_rss_bytes", peak_rss_bytes}});
@@ -2038,7 +2031,7 @@ TEST_F(StrategyTarget, DirectQuotesDriveSerialCloseThenOpenFromReconciledPositio
             && s.at("positions_reconciled") == true;
     });
     ASSERT_EQ(state.at("orders").size(), 1U);
-    EXPECT_EQ(state.at("orders")[0].at("limit_price"), "3501");
+    EXPECT_EQ(decimal(state.at("orders")[0].at("limit_price")), "3501");
     session.advance_target(owner).get(); // Retire the settled first batch.
     session.accept_target(owner, lots(-1, 2), {quote()});
     state = progress(session, owner, [](const Json& s) {
@@ -2046,11 +2039,11 @@ TEST_F(StrategyTarget, DirectQuotesDriveSerialCloseThenOpenFromReconciledPositio
             && s.at("positions_reconciled") == true;
     });
     ASSERT_EQ(state.at("orders").size(), 3U);
-    EXPECT_EQ(state.at("orders")[1].at("offset"), "close_today");
-    EXPECT_EQ(state.at("orders")[2].at("offset"), "open");
+    EXPECT_EQ(state.at("orders")[1].at("offset"), "CLOSE_TODAY");
+    EXPECT_EQ(state.at("orders")[2].at("offset"), "OPEN");
     for (int i : {1, 2}) {
-        EXPECT_EQ(state.at("orders")[i].at("side"), "sell");
-        EXPECT_EQ(state.at("orders")[i].at("limit_price"), "3499");
+        EXPECT_EQ(state.at("orders")[i].at("side"), "SELL");
+        EXPECT_EQ(decimal(state.at("orders")[i].at("limit_price")), "3499");
         EXPECT_EQ(state.at("orders")[i].at("status"), "filled");
     }
     EXPECT_TRUE(session.strategy_failure(owner).empty());
@@ -2113,7 +2106,7 @@ TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResen
         return s.at("orders")[0].at("status") == "cancelled";
     });
     EXPECT_EQ(state.at("orders").size(), 1U);
-    EXPECT_EQ(state.at("orders")[0].at("filled"), "1");
+    EXPECT_EQ(decimal(state.at("orders")[0].at("filled")), "1");
     // Expiry drops the batch, not the instance; the next target is admitted.
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     EXPECT_NO_THROW(session.accept_target(owner, lots(3, 2), {quote()}));
@@ -2150,7 +2143,7 @@ TEST_F(StrategyTarget, ANewerTargetReplacesAnUnfinishedBatchAndRepeatsAreRefused
         return s.at("orders").size() == 1;
     });
     ASSERT_EQ(state.at("orders").size(), 1U);
-    EXPECT_EQ(state.at("orders")[0].at("quantity"), "2");
+    EXPECT_EQ(decimal(state.at("orders")[0].at("quantity")), "2");
     EXPECT_THROW(session.accept_target(owner, lots(3, 2), {quote()}), Error);
 }
 
@@ -2178,7 +2171,7 @@ TEST_F(StrategyTarget, CancellingASupersededBatchsOrderDoesNotDropTheNewBatch)
     });
     ASSERT_EQ(state.at("orders").size(), 2U);
     EXPECT_EQ(state.at("orders")[0].at("status"), "cancelled");
-    EXPECT_EQ(state.at("orders")[1].at("quantity"), "3");
+    EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "3");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
@@ -2205,8 +2198,8 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
     session.flatten_strategy(owner, {quote()});
     const auto state = progress(session, owner, filled(2));
     ASSERT_EQ(state.at("orders").size(), 2U);
-    EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
-    EXPECT_EQ(state.at("orders")[1].at("quantity"), "2");
+    EXPECT_EQ(state.at("orders")[1].at("side"), "SELL");
+    EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     const auto events = session.strategy_events(owner);
     EXPECT_NE(std::ranges::find(events, "flattening"), events.end());
@@ -2266,7 +2259,7 @@ TEST_F(StrategyTarget, WeightsWaitForNewEquityAndPersistTheFrozenConversionWithT
                 && s.at("positions_reconciled") == true;
         });
         ASSERT_EQ(state.at("orders").size(), 1U);
-        EXPECT_EQ(state.at("orders")[0].at("quantity"), "1");
+        EXPECT_EQ(decimal(state.at("orders")[0].at("quantity")), "1");
         session.advance_target(owner).get();
         EXPECT_TRUE(session.strategy_failure(owner).empty());
     }
@@ -2281,7 +2274,7 @@ TEST_F(StrategyTarget, WeightsWaitForNewEquityAndPersistTheFrozenConversionWithT
     EXPECT_EQ(source->weight_sizing->quantity, Decimal::parse("1"));
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     ASSERT_EQ(ready(recovered).at("phase"), "ready");
-    EXPECT_TRUE(recovered.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(recovered.snapshot().contains("authorization"));
     EXPECT_EQ(recovered.snapshot().at("orders").size(), 1U);
 }
 
@@ -2352,7 +2345,7 @@ TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
     });
     ASSERT_EQ(state.at("orders").size(), 2U);
     EXPECT_EQ(state.at("orders")[1].at("symbol"), "rb2611");
-    EXPECT_EQ(state.at("orders")[1].at("quantity"), "1");
+    EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "1");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
@@ -2447,7 +2440,7 @@ TEST_F(StrategyExecution, PlannedOrderIsDurableAndAttributedWithoutRestoringAuth
     EXPECT_EQ(source.leg, 0U);
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     ASSERT_EQ(ready(recovered).at("phase"), "ready");
-    EXPECT_TRUE(recovered.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(recovered.snapshot().contains("authorization"));
     act(recovered, authorize("after.restart"));
     auto fresh = recovered.register_strategy().get();
     EXPECT_THROW(
@@ -2555,7 +2548,7 @@ TEST_F(StrategyExecution, RevocationDuringDurableSubmissionDoesNotPermitLateDisp
     EXPECT_NO_THROW(revoke.get());
     EXPECT_TRUE(session.snapshot().at("orders").empty());
     EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
-    EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+    EXPECT_FALSE(session.snapshot().contains("authorization"));
 }
 
 TEST_F(StrategyExecution, TargetExpiryDuringDurableSubmissionDoesNotBorrowTheQuoteDeadline)
@@ -2712,7 +2705,7 @@ TEST_F(StrategyExecution, FailureCancelsOnlyThisInstancesOrdersAndPreservesPosit
     EXPECT_TRUE(order_has_status(after, "strategy.second", "cancelled"));
     EXPECT_TRUE(order_has_status(after, "manual.resting", "accepted"));
     ASSERT_EQ(after.at("positions").size(), 1U);
-    EXPECT_EQ(after.at("positions")[0].at("today"), "1");
+    EXPECT_EQ(decimal(after.at("positions")[0].at("today")), "1");
     EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 2);
     EXPECT_FALSE(session.strategy_failure(owner).empty());
     session.release_strategy(owner).get();
@@ -2749,13 +2742,13 @@ TEST_F(StrategyExecution, FailedCancellationIsNotRetriedByStopReconnectOrRecover
         auto owner = session.register_strategy().get();
         session.execute_strategy(basis(owner), submit("resting", "3")).get();
         const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
-        const auto records = session.snapshot().at("capacity").at("records_used").get<int>();
+        const auto records = number(session.snapshot().at("capacity").at("records_used"));
         exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
         session.release_strategy(owner).get();
         const auto after = wait_for(session, [records](const Json& state) {
-            return state.at("capacity").at("records_used").get<int>() >= records + 2;
+            return number(state.at("capacity").at("records_used")) >= records + 2;
         });
-        EXPECT_EQ(after.at("capacity").at("records_used"), records + 2);
+        EXPECT_EQ(number(after.at("capacity").at("records_used")), records + 2);
         EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
         EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects + 1);
         EXPECT_THROW(session.release_strategy(owner).get(), Error);
@@ -2769,7 +2762,7 @@ TEST_F(StrategyExecution, FailedCancellationIsNotRetriedByStopReconnectOrRecover
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
     const auto after = recovered.snapshot();
     EXPECT_TRUE(order_has_status(after, "resting", "accepted"));
-    EXPECT_TRUE(after.at("authorization").is_null());
+    EXPECT_FALSE(after.contains("authorization"));
     EXPECT_THROW((void)recovered.register_strategy().get(), Error);
     auto next = recovered.register_strategy("new-instance").get();
     recovered.release_strategy(next).get();
@@ -2784,15 +2777,15 @@ TEST_F(StrategyExecution, UnknownSubmissionAndFailedCancellationKeepRiskAcrossRe
         ASSERT_EQ(ready(session).at("phase"), "ready");
         act(session, authorize());
         auto owner = session.register_strategy().get();
-        const auto records = session.snapshot().at("capacity").at("records_used").get<int>();
+        const auto records = number(session.snapshot().at("capacity").at("records_used"));
         exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
         EXPECT_THROW(session.execute_strategy(basis(owner), submit("unknown", "3")).get(), Error);
         // Stopping attempts the one cancel, which fails and is never retried.
         session.release_strategy(owner).get();
         const auto after = wait_for(session, [records](const Json& state) {
-            return state.at("capacity").at("records_used").get<int>() >= records + 3;
+            return number(state.at("capacity").at("records_used")) >= records + 3;
         });
-        EXPECT_EQ(after.at("capacity").at("records_used"), records + 3);
+        EXPECT_EQ(number(after.at("capacity").at("records_used")), records + 3);
         ASSERT_EQ(after.at("unconfirmed").size(), 1U);
         EXPECT_EQ(after.at("unconfirmed")[0].at("id"), "unknown");
         EXPECT_TRUE(after.at("orders").empty());
@@ -2900,7 +2893,7 @@ TEST_F(StrategyExecution, DisconnectEndsTheInstanceWithoutRetryingCancellationOn
     EXPECT_FALSE(session.strategy_failure(owner).empty());
     ASSERT_EQ(ready(session).at("phase"), "ready");
     EXPECT_TRUE(order_has_status(session.snapshot(), "resting", "accepted"));
-    EXPECT_FALSE(session.snapshot().at("authorization").is_null());
+    EXPECT_TRUE(session.snapshot().contains("authorization"));
     EXPECT_THROW(session.execute_strategy(basis(owner, 2), submit("old.target", "1")).get(), Error);
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
     session.release_strategy(owner).get();

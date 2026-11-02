@@ -60,8 +60,8 @@ export function TradingAccountsProvider({
   children: ReactNode;
 }) {
   const [views, setViews] = useState<Record<string, TradingView>>({});
-  // A read that began before a command was answered would show the account
-  // as it was before that command.
+  // A read that began before a command was answered may show the account as
+  // it was before that command, so it is dropped.
   const commands = useRef<Record<string, number>>({});
   const accept = useCallback((id: string, responses: Response[]) => {
     setViews(current => ({ ...current, [id]: responses.reduce(merge, current[id] ?? {}) }));
@@ -103,10 +103,15 @@ export function TradingAccountsProvider({
   }, [key, active, accept]);
   const send = useCallback<TradingAccounts["send"]>(
     async (id, operation, fields) => {
-      commands.current[id] = (commands.current[id] ?? 0) + 1;
-      const response = await tradingRequest(id, operation, fields);
-      accept(id, [response]);
-      return response;
+      const next = () => (commands.current[id] = (commands.current[id] ?? 0) + 1);
+      next();
+      try {
+        const response = await tradingRequest(id, operation, fields);
+        accept(id, [response]);
+        return response;
+      } finally {
+        next();
+      }
     },
     [accept],
   );

@@ -26,15 +26,13 @@ proto::Costs encode_costs(const FuturesCosts& costs);
 inline constexpr unsigned max_slippage_ticks = 100;
 proto::Command encode_command(const Json& command);
 Json decode_command(const proto::Command& command);
-// Live manifest ("live_ctp") and the broker-reported session state.
+// Live manifest ("live_ctp").
 proto::LivePolicy encode_live_policy(const Json& policy);
 void validate_live_policy(const proto::LivePolicy& policy);
 Json decode_live_policy(const proto::LivePolicy& policy);
 proto::TradingAccount encode_trading_account(const Json& account);
-Json decode_trading_account(const proto::TradingAccount& account);
 proto::LiveInput encode_live_input(const Json& manifest);
 Json decode_live_input(const proto::LiveInput& input);
-Json decode_live_snapshot(const proto::LiveSnapshot& snapshot);
 void validate_message(const google::protobuf::Message& message);
 
 } // namespace asterion::protocol
