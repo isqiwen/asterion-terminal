@@ -51,7 +51,7 @@ PortfolioTargets fixed_weight_targets(
     result.members.reserve(members.size());
     for (const auto& member : members) {
         cancelled();
-        const auto requested = equity * member.weight;
+        const auto requested = multiply(equity, member.weight, Rounding::toward_zero);
         const auto per_lot = member.price * member.multiplier;
         // Both operands have the same exact scale. Integer division chooses
         // whole lots directly, without first rounding a fractional Decimal lot.
@@ -63,8 +63,8 @@ PortfolioTargets fixed_weight_targets(
         result.allocated_gross_notional = result.allocated_gross_notional + magnitude(allocated);
         result.allocated_net_notional = result.allocated_net_notional + allocated;
     }
-    result.unallocated_nominal_budget =
-        equity * gross_weight_limit - result.requested_gross_notional;
+    result.unallocated_nominal_budget = multiply(equity, gross_weight_limit, Rounding::toward_zero)
+        - result.requested_gross_notional;
     return result;
 }
 

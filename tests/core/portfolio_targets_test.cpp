@@ -48,6 +48,15 @@ TEST(PortfolioTargets, DoesNotRoundAFractionalLotUpAtEitherSign)
     EXPECT_EQ(result.requested_net_notional, Decimal{});
 }
 
+TEST(PortfolioTargets, SizesEightPlaceWeightsOfEquityWithCents)
+{
+    // 999996.75 x 0.33333333 = 333332.2499...: more than eight places.
+    const WeightedContract third = member("0.33333333", "3000");
+    const auto result = fixed_weight_targets(d("999996.75"), {&third, 1}, d("1"), d("1"));
+    EXPECT_EQ(result.members[0].requested_notional, d("333332.24666667"));
+    EXPECT_EQ(result.members[0].quantity, d("11"));
+}
+
 TEST(PortfolioTargets, ExplicitZeroWeightProducesAFlatTarget)
 {
     const auto result = size({member("0"), member("-0.6", "3000", "cu2610")});
@@ -81,13 +90,9 @@ TEST(PortfolioTargets, RequiresExplicitUsableInputs)
         std::invalid_argument);
 }
 
-TEST(PortfolioTargets, RejectsPrecisionLossAndOverflow)
+TEST(PortfolioTargets, RejectsOverflow)
 {
-    auto contract = member("0.00000001");
-    EXPECT_THROW(
-        fixed_weight_targets(d("0.00000001"), {&contract, 1}, d("1"), d("1")),
-        std::domain_error);
-    contract = member("1", "92233720368");
+    auto contract = member("1", "92233720368");
     EXPECT_THROW(
         fixed_weight_targets(d("100000"), {&contract, 1}, d("1"), d("1")),
         std::overflow_error);

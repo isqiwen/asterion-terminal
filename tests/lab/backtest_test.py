@@ -291,6 +291,21 @@ class Backtests(unittest.TestCase):
         self.assertEqual(set(fills["quantity"].to_list()), {Decimal(1)})
         self.assertEqual(set(fills["contract"]), set(symbols))
 
+    def test_volatility_weights_size_after_fees_leave_cents(self):
+        # Fees of 3.25 a lot put cents into equity; inverse-volatility weights
+        # have eight places. Their product needs rounding, not a failed run.
+        symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
+        costs = {"SHFE/rb": [Decimal(0), Decimal("3.25"), Decimal("3.25"), Decimal("3.25"),
+                             Decimal("0.1"), Decimal(0), Decimal(0), Decimal(0)]}
+        config = self.config(symbols, strategy="momentum_rank.MomentumRank", costs=costs,
+                             params={"lookback": 2, "rebalance": 1, "weight": 0.3, "volatility": 3},
+                             max_gross_weight=Decimal(1), max_net_weight=Decimal(1))
+        backtest.run(self.directory, "volatility", config)
+        (row,) = Runs(self.directory).list()
+        self.assertEqual(row["state"], "succeeded", row["error"])
+        fees = Runs(self.directory).table("volatility", "fills")["fee"].to_list()
+        self.assertTrue(any(fee % 1 for fee in fees))
+
     def test_statistics_of_the_run_and_of_its_holdout(self):
         config = self.config(("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4}, annual_periods=252.0,
                              zero_risk_free=True, holdout_day=DAYS[20].isoformat())
