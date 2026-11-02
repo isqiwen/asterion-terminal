@@ -102,6 +102,24 @@ class Backtests(unittest.TestCase):
         self.assertEqual(row["state"], "succeeded", row["error"])
         self.assertEqual((row["commit"], row["changes"]), (config.commit, ""))
 
+    def test_a_days_price_increment_never_reads_later_prices(self):
+        config = self.config(("SHFE/rb/2026-05",))
+        data = backtest.open_data(self.directory, config)
+        months = data.product("SHFE", "rb")
+        before = data.read_increments("SHFE", "rb")
+        # Make every later day's prices odd: a day's increment must not change.
+        last = sorted(before)[-1]
+        for month in months.values():
+            for day, row in month.days.items():
+                if day > sorted(before)[len(before) // 2] and row["auction"]:
+                    for name in ("open", "high", "low", "close"):
+                        row[name] = Decimal(row[name]) + Decimal("0.5")
+        after = data.read_increments("SHFE", "rb")
+        middle = sorted(before)[len(before) // 2]
+        self.assertEqual({day: after[day] for day in after if day <= middle},
+                         {day: before[day] for day in before if day <= middle})
+        self.assertIn(last, after)
+
     def publish_incomplete(self):
         writer = Warehouse(self.directory).writer()
         writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
@@ -512,6 +530,45 @@ class Backtests(unittest.TestCase):
             sharpe = {run.id: run.metrics["development_sharpe"] for run in reply.runs
                       if "development_sharpe" in run.metrics}
             self.assertEqual(reply.selected, max(sharpe, key=sharpe.get) if sharpe else "")
+
+        asyncio.run(scenario())
+
+    def test_cancelling_a_sweep_stops_its_running_rolling_validation(self):
+        (self.repository / "strategies/slow.py").write_text(
+            "import time\nfrom strategies.ma_cross import MaCross\n\n\n"
+            "class Slow(MaCross):\n    def on_bar(self, ctx, bar):\n"
+            "        time.sleep(0.05)\n        super().on_bar(ctx, bar)\n")
+
+        async def scenario():
+            service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+            request = self.sweep_request("slow", [2, 3], [4], 2)
+            request.sweep.base.strategy, request.sweep.base.holdout_day = "slow.Slow", ""
+            request.sweep.walk_forward.training_days, request.sweep.walk_forward.validation_days = 20, 3
+            self.assertEqual((await service.reply(request)).WhichOneof("body"), "accepted")
+            deadline = time.monotonic() + 60
+            while "slow-rolling" not in service.backtests and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            self.assertIn("slow-rolling", service.backtests)
+            cancel = Request(version=1, service_id="lab", cancel_sweep={"id": "slow"})
+            self.assertEqual((await service.reply(cancel)).WhichOneof("body"), "accepted")
+            while service.backtests and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            # Stopped, possibly before it recorded anything; never run to the end.
+            runs = {row["id"]: row["state"] for row in Runs(self.directory).list()}
+            self.assertNotEqual(runs.get("slow-rolling"), "succeeded")
+
+        asyncio.run(scenario())
+
+    def test_a_sweep_too_large_is_refused_before_its_combinations_exist(self):
+        async def scenario():
+            service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+            request = self.sweep_request("huge", list(range(1000)), list(range(1000)), 1)
+            for name in ("lots", "extra"):
+                item = request.sweep.values.add(name=name)
+                for value in range(1000):
+                    item.values.add(integer=value)
+            reply = await asyncio.wait_for(service.reply(request), 5)
+            self.assertIn("at most 10000 combinations", reply.error.message)
 
         asyncio.run(scenario())
 

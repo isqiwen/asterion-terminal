@@ -9,8 +9,7 @@ see the same bars:
 - Its multiplier is the contract table's, times the lot in the unit the
   price is quoted per; most days with turnover must agree with it within 5%.
 - A day's price increment is the greatest common divisor of the product's
-  auction prices over 20 traded days: the larger of the 20 up to the day and
-  the 20 from it, on the stored days around the range.
+  auction prices over the 20 traded days up to and including it.
 - A product's dominant series (symbol EXCHANGE/product) trades its dominant
   months by the rule of dominant.py; a later month joins a day before its
   roll, and a month that hands over stays until its bar on or after the roll
@@ -181,7 +180,7 @@ class Data:
         stored = sorted(day for day in self.version.days(exchange))
         first = next((i for i, day in enumerate(stored) if day >= self.begin), len(stored))
         last = next((i for i in range(len(stored) - 1, -1, -1) if stored[i] <= self.end), -1)
-        read = set(stored[max(0, first - WINDOW):last + 1 + WINDOW])
+        read = set(stored[max(0, first - WINDOW):last + 1])
         divisors = {}
         for month in self.product(exchange, product).values():
             for day, row in month.days.items():
@@ -192,16 +191,14 @@ class Data:
                     divisor = math.gcd(divisor, raw(row[name]))
                 divisors[day] = math.gcd(divisors.get(day, 0), divisor)
         traded = sorted(divisors.items())
-        window = min(WINDOW, len(traded))
 
-        def divisor(start):
+        def divisor(end):
             result = 0
-            for _, value in traded[start:start + window]:
+            for _, value in traded[max(0, end - WINDOW):end]:
                 result = math.gcd(result, value)
             return result
 
-        return {day: max(divisor(i + 1 - window if i + 1 >= window else 0),
-                         divisor(min(i, len(traded) - window)))
+        return {day: divisor(i + 1)
                 for i, (day, _) in enumerate(traded) if self.begin <= day <= self.end}
 
     def multiplier(self, exchange: str, contract: str) -> Decimal:

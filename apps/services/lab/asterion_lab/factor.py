@@ -121,7 +121,7 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int) -> dict:
     each group's mean return and turnover."""
     frame = frame.sort("symbol", "bar").with_columns([
         (pl.col("close").shift(-h).over("symbol") / pl.col("close") - 1).alias(f"ahead{h}")
-        for h in horizons])
+        for h in sorted({1, *horizons})])
     days = sorted(set(frame["day"]))
     summary, first_ic = [], {}
     for n, h in enumerate(horizons):
@@ -135,7 +135,9 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int) -> dict:
         if n == 0:
             first_ic = dict(zip(daily["day"], ic))
         summary.append(statistics(h, ic))
-    returns, members = group_returns(frame, horizons[0], groups)
+    # Groups hold for one bar: compounding a longer horizon daily would count
+    # its overlapping returns again and again.
+    returns, members = group_returns(frame, 1, groups)
     # Cumulative from the first day with groups; a day without them keeps the last.
     total, long_short, state, history = [1.0] * groups, 1.0, None, []
     for day in days:
@@ -183,7 +185,8 @@ def statistics(horizon: int, ic) -> dict:
         result["deviation"] = deviation
         if deviation > 0:
             result["ir"] = result["mean"] / deviation
-            result["t"] = result["ir"] * math.sqrt(count)
+            # Returns over `horizon` bars overlap: about count / horizon are independent.
+            result["t"] = result["ir"] * math.sqrt(count / horizon)
     return result
 
 

@@ -15,6 +15,7 @@ function exchange(endpoint, payload) {
     const socket = net.connect(endpoint);
     const chunks = [];
     let received = 0;
+    let size;
     const fail = error => {
       socket.destroy();
       reject(error);
@@ -29,17 +30,17 @@ function exchange(endpoint, payload) {
     socket.on("data", chunk => {
       chunks.push(chunk);
       received += chunk.length;
-      if (received < 4) return;
-      const all = Buffer.concat(chunks);
-      const size = all.readUInt32BE(0);
-      if (size === 0 || size > MAX_REPLY) return fail(new Error("Invalid lab service reply"));
-      if (all.length < 4 + size) return;
+      if (size === undefined) {
+        if (received < 4) return;
+        size = Buffer.concat(chunks).readUInt32BE(0);
+        if (size === 0 || size > MAX_REPLY) return fail(new Error("Invalid lab service reply"));
+      }
+      if (received < 4 + size) return;
       socket.end();
-      resolve(all.subarray(4, 4 + size));
+      resolve(Buffer.concat(chunks).subarray(4, 4 + size));
     });
-    socket.on("end", () => {
-      if (received < 4) fail(new Error("Lab service closed the connection"));
-    });
+    // After a complete reply this rejects nothing; before it, the reply was cut off.
+    socket.on("close", () => fail(new Error("Lab service closed the connection")));
   });
 }
 

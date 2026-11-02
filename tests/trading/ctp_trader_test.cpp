@@ -1099,6 +1099,42 @@ TEST(ReportReconciliation, RestoredIdentityUsesCurrentDayAndLatestJournalSequenc
     EXPECT_NE(reports.find_order("latest"), nullptr);
 }
 
+TEST(ReportReconciliation, ALateOrderReportAttributesTheTradeThatPrecededIt)
+{
+    BrokerSnapshot state;
+    state.trading_day = "20260928";
+    ctp::ReportReconciler reports(state);
+    reports.reset({{{"20260928", "1:1:1"}, {"local", 1}}});
+    CThostFtdcTradeField trade{};
+    std::strcpy(trade.TradingDay, "20260928");
+    std::strcpy(trade.ExchangeID, "SHFE");
+    std::strcpy(trade.InstrumentID, "rb2610");
+    std::strcpy(trade.TradeID, "7");
+    std::strcpy(trade.OrderSysID, "42");
+    trade.Direction = THOST_FTDC_D_Buy;
+    trade.OffsetFlag = THOST_FTDC_OF_Open;
+    trade.Volume = 1;
+    trade.Price = 3500;
+    EXPECT_TRUE(reports.apply(trade));
+    ASSERT_EQ(state.trades.size(), 1U);
+    EXPECT_TRUE(state.trades.front().order_id.empty());
+    CThostFtdcOrderField order{};
+    order.FrontID = order.SessionID = 1;
+    std::strcpy(order.OrderRef, "1");
+    std::strcpy(order.TradingDay, "20260928");
+    std::strcpy(order.ExchangeID, "SHFE");
+    std::strcpy(order.InstrumentID, "rb2610");
+    std::strcpy(order.OrderSysID, "42");
+    order.Direction = THOST_FTDC_D_Buy;
+    order.CombOffsetFlag[0] = THOST_FTDC_OF_Open;
+    order.LimitPrice = 3500;
+    order.VolumeTotalOriginal = order.VolumeTraded = 1;
+    order.OrderSubmitStatus = THOST_FTDC_OSS_Accepted;
+    order.OrderStatus = THOST_FTDC_OST_AllTraded;
+    reports.apply(order);
+    EXPECT_EQ(state.trades.front().order_id, "local");
+}
+
 TEST_F(CtpTrader, ReusedReferenceRetiresThePreviousCallerBinding)
 {
     ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});

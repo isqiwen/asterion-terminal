@@ -40,6 +40,18 @@ def frame(values, rates, bars=5):
 
 
 class Evaluation(unittest.TestCase):
+    def test_groups_hold_one_bar_and_t_counts_overlapping_horizons_once(self):
+        # Every close grows 1% a bar: ten bars return 10.46% in every group.
+        closes = frame([1, 2, 3], [0.01, 0.01, 0.01], bars=11)
+        for horizons in ([1], [5]):
+            result = factor.evaluate(closes, horizons, 2)
+            last = [day["groups"] for day in result["days"] if day["groups"]][-1]
+            self.assertAlmostEqual(last[0] - 1, 1.01 ** 10 - 1)
+        ic = np.array([0.1, 0.3, -0.2, 0.4, 0.0, 0.2])
+        one, five = factor.statistics(1, ic), factor.statistics(5, ic)
+        self.assertAlmostEqual(one["t"], one["ir"] * 6 ** 0.5)
+        self.assertAlmostEqual(five["t"], five["ir"] * (6 / 5) ** 0.5)
+
     def test_values_that_order_the_returns_have_an_ic_of_one(self):
         result = factor.evaluate(frame([1, 2, 3, 4], [0.01, 0.02, 0.03, 0.04]), [1, 2], 2)
         for horizon, days in ((1, 4), (2, 3)):

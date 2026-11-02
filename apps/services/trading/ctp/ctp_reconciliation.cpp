@@ -114,6 +114,10 @@ bool ReportReconciler::apply(const CThostFtdcOrderField& report)
     if (const auto id = trimmed(report.OrderSysID); !id.empty()) {
         order.exchange_order_id = order.instrument.venue + ":" + id;
         exchange_[order.exchange_order_id] = order.broker_key;
+        // A trade can arrive before its order's first report.
+        for (auto& trade : state_.trades)
+            if (trade.order_id.empty() && trade.exchange_order_id == order.exchange_order_id)
+                trade.order_id = order.order_id;
         auto& raw = raw_order_ids_[order.broker_key];
         std::copy(std::begin(report.OrderSysID), std::end(report.OrderSysID), raw.begin());
     }

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import datetime
 import itertools
 import json
+import math
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
@@ -443,9 +444,10 @@ class Service:
         names = [item.name for item in request.values]
         if not names or len(set(names)) != len(names) or any(not item.values for item in request.values):
             raise ValueError("a sweep gives each of its parameters one or more values")
+        count = math.prod(len(item.values) for item in request.values)
+        if count > 10000:
+            raise ValueError(f"a sweep runs at most 10000 combinations, not {count}")
         combinations = list(itertools.product(*[list(item.values) for item in request.values]))
-        if len(combinations) > 10000:
-            raise ValueError(f"a sweep runs at most 10000 combinations, not {len(combinations)}")
         backtest.config_of(request.base)
         base = await self.read(self.pin_backtest, request.base)
         base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}")
@@ -484,7 +486,9 @@ class Service:
 
     async def on_cancel_sweep(self, request, response):
         members = {row["id"] for row in await self.read(self.runs.sweep, request.id)}
+        members.add(f"{request.id}-rolling")
         self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
+        self.rolling.pop(request.id, None)
         for identity in members & set(self.backtests):
             self.backtests[identity].terminate()
         response.accepted.SetInParent()
@@ -518,8 +522,19 @@ class Service:
         recorded = await process.stdout.readline() == b"started\n"
         if recorded:
             started.set_result("")
-        # What the strategy prints is read and dropped, so the child never blocks on it.
-        _, error = await asyncio.gather(process.stdout.read(), process.stderr.read())
+        # What the strategy prints is read and dropped, so the child never blocks on
+        # it; only the end of standard error is kept, for the failure message.
+        async def drain(stream):
+            while await stream.read(65536):
+                pass
+
+        async def tail(stream):
+            kept = b""
+            while chunk := await stream.read(65536):
+                kept = (kept + chunk)[-65536:]
+            return kept
+
+        _, error = await asyncio.gather(drain(process.stdout), tail(process.stderr))
         error = error.decode(errors="replace").strip()
         code = await process.wait()
         if not recorded:

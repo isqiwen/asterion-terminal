@@ -229,8 +229,9 @@ gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVER
   DISCOVERY_TIMEOUT 30
   PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
 # desktop: the Electron host and what an installer contains
+find_program(ASTERION_TEST_NODE node REQUIRED)
+add_test(NAME lab_channel COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/lab_channel.cjs")
 if(ASTERION_NODE_HEADERS)
-  find_program(ASTERION_TEST_NODE node REQUIRED)
   add_library(asterion_node_bridge_fixture MODULE ${CMAKE_SOURCE_DIR}/bindings/node/terminal.cpp desktop/node_bridge_fixture.cpp ${CMAKE_SOURCE_DIR}/apps/common/control/service_io.cpp)
   target_include_directories(asterion_node_bridge_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_compile_features(asterion_node_bridge_fixture PRIVATE cxx_std_20)
