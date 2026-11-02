@@ -20,7 +20,7 @@ C++20 核心与独立服务进程，Electron + React 界面。目标是用 Pytho
   当前实现的真实仿真柜台验收尚未完成，不能沿用被替换实现的验收结论。
 - **部署**：Market（行情与录制）和 Trading 在 Linux 独立部署；Terminal 只看护本机 Lab。历史采集与仓库由 Market C++ 管理，Lab 只读固定版本并缓存；录制分钟可由 Market 发布为固定研究版本。
 
-能力边界与已知限制见[现状](docs/status.md)，路线与当前阶段见[项目路线](docs/reviews/project-assessment-2026-10-28.md)。
+能力边界与已知限制见[现状](docs/status.md)，先做什么见[开发计划](docs/plan.md)。
 
 ## 快速开始
 
@@ -64,5 +64,5 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 
 ## 文档
 
-[文档导航](docs/README.md) · [产品说明](docs/product.md) · [交易安全契约](docs/safety.md) ·
-[项目路线](docs/reviews/project-assessment-2026-10-28.md) · [架构](docs/architecture.md) · [贡献约束](AGENTS.md)
+[文档导航](docs/README.md) · [产品说明](docs/product.md) · [交易规则](docs/safety.md) ·
+[开发计划](docs/plan.md) · [架构](docs/architecture.md) · [贡献约束](AGENTS.md)

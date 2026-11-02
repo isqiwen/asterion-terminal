@@ -1,6 +1,6 @@
 # 开发指南
 
-Market 的目标运行时是单个 C++ 服务进程，历史采集和仓库读写按[M3.0 开发计划](reviews/project-assessment-2026-10-28.md#m30-纯-c-market-开发计划)实现。
+Market 的目标运行时是单个 C++ 服务进程，历史采集和仓库读写按[开发计划](plan.md)实现。
 下文 Python 工具用于构建和测试，桌面 Python 运行时只用于 Lab 研究。Market 安装包仅包含 C++ 服务及 CTP 原生库，运行不需要 Python。
 Trading 的独立发布包另含策略专用 Python 运行时；它不依赖桌面运行时。
 
