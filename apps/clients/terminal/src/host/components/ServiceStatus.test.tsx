@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { expect, test, vi } from "vitest";
 import type { Snapshot } from "../../bridge/client";
-import { localHealth, localService, readySnapshot } from "../../testing/core";
+import { tradingRequest } from "../../bridge/trading";
+import { ResponseSchema } from "../../generated/asterion/trading_pb";
+import { localHealth, readySnapshot } from "../../testing/core";
+import { TradingAccountsProvider } from "../trading-accounts";
 import { ServiceStatus } from "./ServiceStatus";
 
 const show = (snapshot: Snapshot) => (
@@ -14,6 +18,7 @@ const show = (snapshot: Snapshot) => (
     settings={() => {}}
   />
 );
+vi.mock("../../bridge/trading", () => ({ tradingRequest: vi.fn() }));
 const indicator = () => screen.getByRole("button", { name: "查看服务连接" });
 
 test("a service that has just started reads as starting, not as a fault", () => {
@@ -61,61 +66,51 @@ test("log loss stays visible while a failed background refresh can recover", () 
   expect(indicator().className).toBe("bad");
 });
 
-test("old account progress stays uncertain even while transport responds", () => {
-  const report = (stale: boolean) => {
-    const snapshot = readySnapshot();
-    const account = {
-      ...localService(snapshot, "lab"),
-      id: "live-1",
-    };
-    account.health = stale ? "degraded" : "ready";
-    account.execution = {
-      ...account.execution!,
-      state: { observed: true, pending: stale, age_ms: stale ? 60000 : 0 },
-      persistence: { observed: true, pending: false, age_ms: 60000 },
-    };
-    snapshot.live["account"] = {
-      account: {
-        account_id: "account",
-        environment: "simulation",
-        broker: {
-          front: "tcp://127.0.0.1:1",
-          broker_id: "9999",
-          user_id: "fixture",
-          app_id: "test",
-        },
-      },
-      session: null,
-      connection: {
-        transport: "tcp_tls",
-        state: "connected",
-        session: "live-1",
-        host: "127.0.0.1",
-        port: 7460,
-        reconnects: 0,
-        restarts: 0,
-        latency_ms: 0,
-        last_heartbeat_ms: Date.now(),
-        health: {
-          instance_id: "independent",
-          version: "test",
-          uptime_ms: 0,
-          phase: stale ? "degraded" : "ready",
-          execution: account.execution,
-        },
-      },
-    };
-    return show(snapshot);
+test("a trading account's stalled progress reads as a fault", async () => {
+  const report = async (stale: boolean) => {
+    const settled = { observed: true, pending: false, ageMs: 0n };
+    vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
+      create(ResponseSchema, {
+        account: { accountId: "record" },
+        result:
+          operation?.case === "heartbeat"
+            ? {
+                case: "health",
+                value: {
+                  instanceId: "independent",
+                  initialized: true,
+                  execution: {
+                    io: settled,
+                    state: { observed: true, pending: stale, ageMs: stale ? 60000n : 0n },
+                    persistence: { observed: true, pending: false, ageMs: 60000n },
+                    initialization: settled,
+                    command: settled,
+                    businessReady: true,
+                  },
+                },
+              }
+            : { case: "uninitialized", value: {} },
+      }),
+    );
+    const view = render(
+      <TradingAccountsProvider ids={["account"]} active>
+        {show(readySnapshot())}
+      </TradingAccountsProvider>,
+    );
+    fireEvent.click(indicator());
+    await screen.findByText("independent");
+    return view;
   };
-  const view = render(report(false));
-  fireEvent.click(indicator());
   // The account's own block of the connection details.
   const row = (label: string) =>
-    within(screen.getByText("live-1").parentElement!.parentElement!).getByText(label).parentElement!
-      .textContent;
+    within(screen.getByText("independent").parentElement!.parentElement!).getByText(label)
+      .parentElement!.textContent;
+  const view = await report(false);
   expect(row("业务就绪")).toContain("已就绪");
   expect(row("持久化与准备")).toContain("空闲");
-  view.rerender(report(true));
+  view.unmount();
+  await report(true);
+  expect(indicator().className).toBe("bad");
   expect(row("状态推进")).toContain("进展超时");
   expect(row("业务就绪")).toContain("待确认");
   expect(row("请求处理")).toContain("正常");

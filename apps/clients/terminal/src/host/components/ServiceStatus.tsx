@@ -2,8 +2,48 @@ import { useEffect, useRef, useState } from "react";
 import type { ExecutionHealth, Snapshot } from "../../bridge/client";
 import { translate, useLocale } from "../../i18n";
 import { BackendError, ErrorNotice } from "../../i18n/errors";
+import type { Health } from "../../generated/asterion/trading_pb";
+import type { Progress } from "../../generated/asterion/health_pb";
+import { useTradingAccounts } from "../trading-accounts";
 import { LocalLogsButton } from "./LocalLogsButton";
 const t = (key: string) => translate("host", key);
+const progress = (p: Progress | undefined) => ({
+  observed: !!p?.observed,
+  pending: !!p?.pending,
+  age_ms: Number(p?.ageMs ?? 0n),
+});
+// A Trading service's own health report, phased as the services the node reports.
+function tradingHealth(health: Health) {
+  const e = health.execution;
+  const execution: ExecutionHealth = {
+    io: progress(e?.io),
+    state: progress(e?.state),
+    persistence: progress(e?.persistence),
+    initialization: progress(e?.initialization),
+    command: progress(e?.command),
+    business_ready: !!e?.businessReady,
+  };
+  const stalled = (p: ReturnType<typeof progress>, periodic: boolean) =>
+    p.observed && p.age_ms > 30000 && (periodic || p.pending);
+  const phase =
+    health.recoveryRequired ||
+    stalled(execution.io, true) ||
+    stalled(execution.state, true) ||
+    stalled(execution.persistence, false) ||
+    stalled(execution.initialization, false) ||
+    stalled(execution.command, false)
+      ? "degraded"
+      : execution.initialization.pending
+        ? "starting"
+        : !health.initialized
+          ? "awaiting_input"
+          : !execution.io.observed || !execution.state.observed || !execution.persistence.observed
+            ? "starting"
+            : execution.business_ready
+              ? "ready"
+              : "awaiting_input";
+  return { execution, phase };
+}
 const progressLabels: Record<Exclude<keyof ExecutionHealth, "business_ready">, string> = {
   io: "请求处理",
   state: "状态推进",
@@ -108,12 +148,11 @@ export function ServiceStatus({
   const starting = (s: { state: string; health: string }) =>
     ["running", "starting"].includes(s.state) && s.health === "starting";
   const services = snapshot?.nodes.flatMap(n => n.health?.services ?? []) ?? [];
-  const trading = Object.entries(snapshot?.live ?? {});
+  const trading = Object.entries(useTradingAccounts().views).map(
+    ([id, view]) => [id, view, view.health && tradingHealth(view.health)] as const,
+  );
   const unhealthy =
-    trading.some(
-      ([, account]) =>
-        account.connection.state !== "connected" || account.connection.health?.phase === "degraded",
-    ) ||
+    trading.some(([, view, health]) => !!view.failed || health?.phase === "degraded") ||
     snapshot?.nodes.some(
       n =>
         n.state !== "online" ||
@@ -254,33 +293,27 @@ export function ServiceStatus({
               )}
             </div>
           ))}
-          {trading.map(([id, account]) => (
+          {trading.map(([id, view, report]) => (
             <div key={id}>
               <div className="service-status-row">
                 <span>
                   {t("交易服务")} · {id}
                 </span>
                 <span>
-                  {t(
-                    uncertain || account.connection.state !== "connected"
-                      ? "待确认"
-                      : health[account.connection.health?.phase ?? "unknown"],
-                  )}
+                  {t(uncertain || view.failed ? "待确认" : health[report?.phase ?? "unknown"])}
                 </span>
               </div>
               <details className="service-connection-details">
                 <summary>{t("连接详情")}</summary>
                 <div>
                   <div className="service-status-row">
-                    <span>
-                      {account.connection.host}:{account.connection.port}
-                    </span>
-                    <code>{account.connection.session}</code>
+                    <span>{view.account?.accountId}</span>
+                    <code>{view.health?.instanceId}</code>
                   </div>
                   <ExecutionStatus
-                    execution={account.connection.health?.execution ?? null}
-                    stale={uncertain || account.connection.state !== "connected"}
-                    elapsed={Math.max(0, Date.now() - account.connection.last_heartbeat_ms)}
+                    execution={report?.execution ?? null}
+                    stale={uncertain || !!view.failed}
+                    elapsed={Math.max(0, Date.now() - (view.checkedAtMs ?? 0))}
                   />
                 </div>
               </details>

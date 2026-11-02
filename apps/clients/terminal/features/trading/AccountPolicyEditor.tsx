@@ -1,10 +1,23 @@
-import type { AccountRun } from "../../src/bridge/commands";
 import { useState } from "react";
-import { translate, type TerminalContext } from "../contract";
-import type { LiveSession } from "../../src/bridge/client";
+import { decimal, decimalText } from "../../src/bridge/decimal";
+import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import type { TerminalContext } from "../contract";
+import {
+  command,
+  key as contractKey,
+  policyContract,
+  riskLimits,
+  t,
+  type LimitsDraft,
+  type Run,
+} from "./live-shared";
 
-const t = (key: string) => translate("asterion.terminal.trading", key);
-const contractKey = (item: { venue: string; symbol: string }) => `${item.venue}.${item.symbol}`;
+const currentLimits = (live: LiveSnapshot): LimitsDraft => ({
+  max_order_quantity: decimalText(live.risk?.maxOrderQuantity),
+  max_gross_quantity: decimalText(live.risk?.maxGrossQuantity),
+  max_working_orders: String(live.risk?.maxWorkingOrders ?? 0n),
+  max_price_deviation: decimalText(live.maxPriceDeviation),
+});
 
 export function AccountPolicyEditor({
   live,
@@ -12,16 +25,12 @@ export function AccountPolicyEditor({
   disabled,
   run,
 }: {
-  live: LiveSession;
+  live: LiveSnapshot;
   snapshot: TerminalContext["snapshot"];
   disabled: boolean;
-  run: AccountRun;
+  run: Run;
 }) {
-  const [limits, setLimits] = useState({
-    ...live.risk,
-    max_working_orders: String(live.risk.max_working_orders),
-    max_price_deviation: live.max_price_deviation,
-  });
+  const [limits, setLimits] = useState(() => currentLimits(live));
   const [contracts, setContracts] = useState(live.contracts.map(contractKey));
   const [choice, setChoice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -31,7 +40,7 @@ export function AccountPolicyEditor({
     <section aria-label={t("账户政策")}>
       <h3>{t("账户政策")}</h3>
       <p>
-        {t("政策版本")}：<code>{live.policy_revision}</code>
+        {t("政策版本")}：<code>{live.policyRevision}</code>
       </p>
       <p className="subtle">
         {t(
@@ -41,21 +50,26 @@ export function AccountPolicyEditor({
       <form
         onSubmit={event => {
           event.preventDefault();
-          void run("live.policy.configure", {
-            request_id: crypto.randomUUID(),
-            account_id: live.account_id,
-            policy_revision: live.policy_revision,
-            ...limits,
-            contracts: contracts.map(value => {
-              const [venue, ...symbol] = value.split(".");
-              return { venue, symbol: symbol.join(".") };
-            }),
-          }).then(applied => {
+          // A contract already allowed keeps the terms it was recorded with.
+          void command(run, live, () => ({
+            case: "livePolicy",
+            value: {
+              policy: {
+                risk: riskLimits(limits),
+                maxPriceDeviation: decimal(limits.max_price_deviation),
+                contracts: contracts.map(
+                  value =>
+                    live.contracts.find(item => contractKey(item) === value) ??
+                    policyContract(available.find(item => contractKey(item) === value)!),
+                ),
+              },
+            },
+          })).then(applied => {
             if (applied) setConfirmed(false);
           });
         }}
       >
-        <fieldset disabled={disabled || live.phase !== "ready" || live.storage_state !== "ready"}>
+        <fieldset disabled={disabled || live.phase !== "ready"}>
           <div className="futures-fields">
             {(
               [
@@ -133,11 +147,7 @@ export function AccountPolicyEditor({
           <button
             type="button"
             onClick={() => {
-              setLimits({
-                ...live.risk,
-                max_working_orders: String(live.risk.max_working_orders),
-                max_price_deviation: live.max_price_deviation,
-              });
+              setLimits(currentLimits(live));
               setContracts(live.contracts.map(contractKey));
               setChoice("");
               setConfirmed(false);

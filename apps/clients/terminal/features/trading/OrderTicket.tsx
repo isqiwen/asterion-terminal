@@ -1,8 +1,15 @@
 import { useState } from "react";
-import type { LiveAction } from "../../src/bridge/commands";
-import type { LiveSession } from "../../src/bridge/client";
+import { decimal, decimalText } from "../../src/bridge/decimal";
+import { Offset, Side, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
 import { explicitCloseBuckets, type TerminalContext } from "../contract";
-import { key, t } from "./live-shared";
+import { command, key, t, type Run } from "./live-shared";
+
+const offsetValues = {
+  open: Offset.OPEN,
+  close_today: Offset.CLOSE_TODAY,
+  close_yesterday: Offset.CLOSE_YESTERDAY,
+  close: Offset.CLOSE,
+};
 
 // The owner's limit order on one allowed contract. Buying and selling are
 // separate buttons that name the account, so pressing Enter in a field never
@@ -12,17 +19,17 @@ export function OrderTicket({
   snapshot,
   busy,
   accountName,
-  act,
+  run,
   onSent,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
-  live: LiveSession;
+  live: LiveSnapshot;
   accountName: string;
-  act: (params: LiveAction) => Promise<boolean>;
+  run: Run;
   onSent: () => void;
 }) {
   const [order, setOrder] = useState<{
     contract: string;
-    offset: Extract<LiveAction, { action: "submit" }>["offset"];
+    offset: keyof typeof offsetValues;
     quantity: string;
     price: string;
   }>({
@@ -44,18 +51,20 @@ export function OrderTicket({
   const quote = snapshot?.market?.subscriptions.find(
     row => row.venue === traded?.venue && row.symbol === traded?.symbol,
   )?.quote;
-  const submit = (side: "buy" | "sell", form: HTMLFormElement | null) => {
+  const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;
-    void act({
-      action: "submit",
-      order_id: crypto.randomUUID(),
-      venue: traded.venue,
-      symbol: traded.symbol,
-      side,
-      offset,
-      quantity: order.quantity,
-      price: order.price,
-    }).then(sent => sent && onSent());
+    void command(run, live, () => ({
+      case: "submit",
+      value: {
+        orderId: crypto.randomUUID(),
+        venue: traded.venue,
+        symbol: traded.symbol,
+        side,
+        offset: offsetValues[offset],
+        quantity: decimal(order.quantity),
+        price: decimal(order.price),
+      },
+    })).then(sent => sent && onSent());
   };
   return (
     <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
@@ -111,7 +120,9 @@ export function OrderTicket({
               aria-label={t("限价")}
               inputMode="decimal"
               value={order.price}
-              placeholder={traded ? t("最小变动 {tick}", { tick: traded.price_increment }) : ""}
+              placeholder={
+                traded ? t("最小变动 {tick}", { tick: decimalText(traded.priceIncrement) }) : ""
+              }
               onChange={event => setOrder({ ...order, price: event.target.value })}
               required
             />
@@ -140,14 +151,14 @@ export function OrderTicket({
           </div>
         )}
         <div className="source-actions">
-          {(["buy", "sell"] as const).map(side => (
+          {[Side.BUY, Side.SELL].map(side => (
             <button
               key={side}
               type="button"
               className="primary"
               onClick={event => submit(side, event.currentTarget.form)}
             >
-              {t(side === "buy" ? "买入" : "卖出")} <small>{accountName}</small>
+              {t(side === Side.BUY ? "买入" : "卖出")} <small>{accountName}</small>
             </button>
           ))}
           <span className="subtle">{t("委托先写入本机交易记录再发送；断线后不会自动重发。")}</span>

@@ -17,6 +17,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
 from market_installation import market_host
+from trading_requests import account_policy, submit, units
 import market_tls
 if sys.platform != "linux":
     raise SystemExit(77)
@@ -49,40 +50,36 @@ def call(process, method, params=None, error=False):
     return reply["result"]
 
 
-def wait(process, predicate, seconds=20):
+def trading(process, request, error=False, account="account"):
+    """One trading.proto Request for the named account; the Response as ProtoJSON."""
+    reply = call(process, "trading.call", dict(account=account, request=request), error=error)
+    return reply if error else reply["trading"]
+
+
+def session(process, account="account"):
+    return trading(process, {"attach": {}}, account=account).get("live")
+
+
+def wait(process, predicate, seconds=20, account="account"):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        state = call(process, "runtime.snapshot")
-        if predicate(state):
-            return state
+        live = session(process, account)
+        if live and predicate(live):
+            return live
         time.sleep(0.2)
-    raise AssertionError(json.dumps(state)[:2000])
+    raise AssertionError(json.dumps(live)[:2000])
 
 
-def session(state, account="account"):
-    entry = state["live"].get(account)
-    return entry["session"] if entry else None
+def act(process, command, error=False, account="account"):
+    """A trading command names the account record and the policy it was reviewed under."""
+    live = session(process, account) or {}
+    return trading(process, {"accountId": live.get("accountId", "missing"),
+                             "policyRevision": live.get("policyRevision", "missing"),
+                             "command": command}, error=error, account=account)
 
 
-def trade(process, method, params=None, error=False, account="account"):
-    """Every trading command names the CTP account it is for."""
-    if method == "live.act" and "account_id" not in (params or {}):
-        current = session(call(process, "runtime.snapshot"), account)
-        params = dict(params or {}, account_id=current["account_id"] if current else "missing")
-    if method == "live.act" and "policy_revision" not in (params or {}):
-        current = session(call(process, "runtime.snapshot"), account)
-        params = dict(params or {}, policy_revision=current["policy_revision"] if current else "missing")
-    return call(process, method, dict(params or {}, account=account), error=error)
-
-
-def order(state, order_id):
-    return next((o for o in session(state)["orders"] if o["id"] == order_id), None)
-
-
-def submit(order_id, quantity, price="3500", symbol="rb2610"):
-    return dict(request_id="submit." + order_id, action="submit", order_id=order_id,
-                venue="SHFE", symbol=symbol, side="buy", offset="open",
-                quantity=quantity, price=price)
+def order(live, order_id):
+    return next((o for o in live.get("orders", []) if o.get("id") == order_id), None)
 
 
 def stop(process):
@@ -111,90 +108,70 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         call(process, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
         call(process, "market.open")
-        wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
-        call(process, "live.open", dict(account="account"))
-        create = dict(
-                      max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
-                      max_price_deviation="0.02")
-        refused = trade(process, "live.create",
-                       dict(create, contracts=[dict(venue="SHFE", symbol="rb2611")]), error=True)
-        assert "catalog" in refused["message"], refused
-        state = trade(process, "live.create",
-                     dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
-        live = session(state)
-        assert live["account_id"] == "account"
-        assert live["authorization"] is None
-        assert live["contracts"][0]["price_increment"] == "0.5"
-        assert live["contracts"][0]["multiplier"] == "10"
-        # Opening the same account twice must not create another record.
-        duplicate = trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
-        assert session(duplicate)["account_id"] == "account"
+        deadline = time.monotonic() + 20
+        while call(process, "runtime.snapshot")["market"]["catalog"]["phase"] != "ready":
+            assert time.monotonic() < deadline, "the CTP contract catalog did not load"
+            time.sleep(0.2)
+        create = account_policy(call(process, "runtime.snapshot")["market"]["catalog"],
+                                working_orders="1")
+        live = trading(process, create)["live"]
+        assert live["accountId"] == "account"
+        assert "authorization" not in live
+        assert live["contracts"][0]["priceIncrement"] == units("0.5")
+        # An account has one record: it cannot be created again.
+        duplicate = trading(process, create, error=True)
+        assert "already initialized" in duplicate["message"], duplicate
         # A created account logs in by itself with its host's credentials; each
         # step of that login renews the account's control, so wait for its outcome
         # before the next order.
-        wait(process, lambda s: session(s)["phase"] in ("ready", "error"))
-        denied = trade(process, "live.act", submit("early", "1"), error=True)
+        wait(process, lambda s: s["phase"] in ("ready", "error"))
+        denied = act(process, submit("early", "1"), error=True)
         assert "authorize" in denied["message"], denied
 
-        rejected = trade(process, "live.connect", dict(password="bad", auth_code=AUTH), error=True)
+        rejected = trading(process, {"liveConnect": {"password": "bad", "authCode": AUTH}},
+                           error=True)
         assert rejected, "Terminal must reject credentials on the trading API"
-        state = wait(process, lambda s: s["live"]["account"]["connection"]["health"]["phase"] == "ready")
-        observed = state["live"]["account"]["connection"]["health"]
-        assert observed["execution"]["business_ready"], observed
-        state = wait(process, lambda s: session(s)["phase"] == "ready"
-                     and session(s)["positions_reconciled"])
-        broker_observation = session(state)
-        assert isinstance(broker_observation["broker_sequence"], str) and int(broker_observation["broker_sequence"]) > 0, broker_observation
-        assert isinstance(broker_observation["connection_generation"], str), broker_observation
-        assert int(broker_observation["connection_generation"]) >= 0, broker_observation
-        assert all(observed["execution"][key]["observed"] for key in ("io", "state", "persistence"))
-        trade(process, "live.act", dict(request_id="authorize", action="live_authorize",
-                                       user_id="000001"))
-        trade(process, "live.act", submit("tick", "1", "3500.25"), error=True)
-        far = trade(process, "live.act", submit("far", "1", "3600"), error=True)
+        health = trading(process, {"heartbeat": {}})["health"]
+        assert health["initialized"] and health["execution"]["businessReady"], health
+        assert all(health["execution"][key]["observed"] for key in ("io", "state", "persistence"))
+        broker_observation = wait(process, lambda s: s["phase"] == "ready"
+                                  and s.get("positionsReconciled"))
+        assert int(broker_observation["brokerSequence"]) > 0, broker_observation
+        act(process, {"requestId": "authorize", "liveAuthorize": {"userId": "000001"}})
+        act(process, submit("tick", "1", "3500.25"), error=True)
+        far = act(process, submit("far", "1", "3600"), error=True)
         assert "deviates" in far["message"], far
-        risk = trade(process, "live.act", submit("large", "6"), error=True)
+        risk = act(process, submit("large", "6"), error=True)
         assert "order_quantity" in risk["message"], risk
-        trade(process, "live.act", submit("filled", "2"))
-        state = wait(process, lambda s: order(s, "filled") and order(s, "filled")["status"] ==
-                     "filled" and session(s)["positions"])
-        assert session(state)["positions"][0]["today"] == "2"
+        act(process, submit("filled", "2"))
+        live = wait(process, lambda s: order(s, "filled") and order(s, "filled")["status"] ==
+                    "filled" and s.get("positions"))
+        assert live["positions"][0]["today"] == units(2)
 
         # A second account trades at the same time with its own record, service
         # and authorization: an order names its account and cannot use another's.
-        call(process, "live.open", dict(account="second"))
-        trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]),
-             account="second")
-        state = wait(process, lambda s: session(s, "second")["phase"] == "ready")
-        assert set(state["live"]) == {"account", "second"}, list(state["live"])
-        assert session(state)["authorization"] and session(state, "second")["authorization"] is None
-        denied = trade(process, "live.act", submit("other", "1"), error=True, account="second")
+        trading(process, create, account="second")
+        wait(process, lambda s: s["phase"] == "ready", account="second")
+        assert "authorization" in session(process)
+        assert "authorization" not in session(process, "second")
+        denied = act(process, submit("other", "1"), error=True, account="second")
         assert "authorize" in denied["message"], denied
-        assert order(call(process, "runtime.snapshot"), "other") is None
-        trade(process, "live.act", submit("stray", "1"), error=True, account="missing")
-        trade(process, "live.close", account="second")
+        assert order(session(process), "other") is None
+        trading(process, {"attach": {}}, error=True, account="missing")
 
         # Restart the independently managed host: local login resumes, authorization does not.
         children["account"].kill()
         children["account"].wait(timeout=15)
         children["account"] = host.start("account")
-        trade(process, "live.close")
-        state = trade(process, "live.open")
-        live = session(state)
-        assert live["authorization"] is None, live
-        assert isinstance(live["broker_sequence"], str), live
-        assert isinstance(live["connection_generation"], str), live
-        trade(process, "live.act", submit("after", "1"), error=True)
-        state = wait(process, lambda s: session(s)["phase"] == "ready")
+        assert "authorization" not in session(process)
+        act(process, submit("after", "1"), error=True)
+        live = wait(process, lambda s: s["phase"] == "ready")
         # The restarted SDK double has no exchange state. Durable terminal
         # evidence still retires the filled intent; recovery never resends it.
-        live = session(state)
-        assert live["unconfirmed"] == [], live
-        assert live["orders"] == [], live
-        trade(process, "live.act", submit("filled", "2"))
-        assert session(call(process, "runtime.snapshot"))["orders"] == []
-        trade(process, "live.disconnect")
-        trade(process, "live.close")
+        assert "unconfirmed" not in live and "orders" not in live, live
+        act(process, submit("filled", "2"))
+        assert "orders" not in session(process)
+        trading(process, {"liveDisconnect": {}})
     finally:
         stop(process)
         for child in children.values():
@@ -219,7 +196,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
     rpc = find("rpc completed:", correlation_id=committed["trace_id"])
     assert rpc["request_id"] == "submit.filled", rpc
     link = find("rpc started:", correlation_id=committed["trace_id"])
-    assert any("live.act completed:" in line and fields.get("trace_id") == link["trace_id"]
+    assert any("trading.call completed:" in line and fields.get("trace_id") == link["trace_id"]
                for line, fields in records), "RPC was not joined to its Terminal command"
     assert any("broker order observed:" in line and fields.get("broker_key") == committed["broker_key"]
                and fields.get("order_id") == "filled" for line, fields in records)

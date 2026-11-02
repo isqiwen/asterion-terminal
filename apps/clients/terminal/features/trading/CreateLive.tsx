@@ -1,8 +1,18 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import { useWorkspaceDraft, type TerminalContext } from "../contract";
-import type { TradingConnection, TradingAccount } from "../../src/bridge/client";
-import { t, key, type Run } from "./live-shared";
+import type { TradingConnection } from "../../src/bridge/client";
+import { decimal } from "../../src/bridge/decimal";
+import type { TradingAccount } from "../../src/generated/asterion/trading_pb";
+import {
+  t,
+  key,
+  environmentName,
+  policyContract,
+  riskLimits,
+  type LimitsDraft,
+  type Run,
+} from "./live-shared";
 
 export function CreateLive({
   account,
@@ -11,20 +21,15 @@ export function CreateLive({
   busy,
   run,
   openSettings,
-}: Pick<TerminalContext, "snapshot" | "busy" | "openSettings" | "trade"> & {
+}: Pick<TerminalContext, "snapshot" | "busy" | "openSettings"> & {
   account: TradingConnection;
   configuration: TradingAccount;
   run: Run;
 }) {
-  // The record keeps its own copy of the account's counter details.
-  const connection = {
-    name: account.name,
-    ...configuration.broker,
-    trade_front: configuration.broker.front,
-  };
-  const environment = configuration.environment;
+  const broker = configuration.broker!;
+  const environment = t(environmentName(configuration.environment));
   const [step, setStep] = useWorkspaceDraft(`live-create-step:${account.id}`, 0);
-  const [limits, setLimits] = useWorkspaceDraft(`live-risk:${account.id}`, {
+  const [limits, setLimits] = useWorkspaceDraft<LimitsDraft>(`live-risk:${account.id}`, {
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
@@ -38,9 +43,7 @@ export function CreateLive({
     <>
       <div className="inline-row">
         <p role="status" aria-label={t("CTP 账户")}>
-          {`${connection.name} · ${configuration.account_id} · ${connection.app_id} · ${connection.broker_id} · ${connection.user_id} · ${
-            connection.trade_front
-          }`}
+          {`${account.name} · ${configuration.accountId} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
         </p>
         <button type="button" onClick={() => openSettings("trading")}>
           {t("管理交易连接")}
@@ -56,14 +59,16 @@ export function CreateLive({
             setStep(1);
             return;
           }
-          if (!environment) return;
-          void run("live.create", {
-            ...limits,
-            contracts: contracts.map(item => {
-              const [venue, ...symbol] = item.split(".");
-              return { venue, symbol: symbol.join(".") };
-            }),
-          }).then(created => {
+          void run(() => ({
+            case: "liveCreate",
+            value: {
+              risk: riskLimits(limits),
+              maxPriceDeviation: decimal(limits.max_price_deviation),
+              contracts: contracts.map(value =>
+                policyContract(listed.find(item => key(item) === value)!),
+              ),
+            },
+          })).then(created => {
             if (created) setStep(0);
           });
         }}
@@ -71,7 +76,7 @@ export function CreateLive({
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
             <p>{t("账户与柜台环境由交易服务配置，Terminal 只配置风控。")}</p>
-            <p>{t(environment === "real" ? "真实资金" : "CTP 仿真")}</p>
+            <p>{environment}</p>
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
               {catalog?.phase !== "ready" ? (
@@ -164,16 +169,16 @@ export function CreateLive({
               <dl>
                 <dt>{t("CTP 账户")}</dt>
                 <dd>
-                  <strong>{connection.name}</strong>
+                  <strong>{account.name}</strong>
                   <span>
-                    {connection.broker_id} · {connection.user_id}
+                    {broker.brokerId} · {broker.userId}
                   </span>
-                  <span>{connection.trade_front}</span>
+                  <span>{broker.front}</span>
                 </dd>
                 <dt>{t("交易服务连接")}</dt>
                 <dd>{account.name}</dd>
                 <dt>{t("柜台环境")}</dt>
-                <dd>{t(environment === "real" ? "真实资金" : "CTP 仿真")}</dd>
+                <dd>{environment}</dd>
                 <dt>{t("可交易合约")}</dt>
                 <dd>{contracts.join(" + ")}</dd>
                 <dt>{t("委托与持仓限制")}</dt>

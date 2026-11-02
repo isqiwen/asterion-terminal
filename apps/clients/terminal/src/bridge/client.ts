@@ -15,119 +15,6 @@ export type FuturesContract = {
   quantity_increment: string;
   multiplier: string;
 };
-export type ContractCosts = {
-  margin_per_lot: string;
-  open_fee: string;
-  close_today_fee: string;
-  close_yesterday_fee: string;
-  // Notional rates: price x quantity x multiplier x rate.
-  margin_rate: string;
-  open_fee_rate: string;
-  close_today_fee_rate: string;
-  close_yesterday_fee_rate: string;
-};
-export type RiskLimits = {
-  max_order_quantity: string;
-  max_gross_quantity: string;
-  max_working_orders: number;
-};
-// A live CTP session; the broker reports the account, the session owns the
-// execution chain (authorization, allowed contracts, risk, order records).
-export type LiveSession = {
-  environment: "real" | "simulation";
-  mode: "live";
-  account_id: string;
-  policy_revision: string;
-  segment_count: number;
-  capacity: {
-    records_used: number;
-    records_limit: number;
-    bytes_used: number;
-    bytes_limit: number;
-  };
-  broker: {
-    front: string;
-    broker_id: string;
-    user_id: string;
-    app_id: string;
-  };
-  risk: RiskLimits;
-  // Bound on a limit price's distance from the broker's latest price.
-  max_price_deviation: string;
-  contracts: FuturesContract[];
-  phase:
-    | "disconnected"
-    | "connecting"
-    | "authenticating"
-    | "logging_in"
-    | "confirming"
-    | "synchronizing"
-    | "ready"
-    | "error";
-  error_code: number;
-  trading_day: string;
-  synchronized_ms: number;
-  broker_sequence: string;
-  connection_generation: string;
-  positions_reconciled: boolean;
-  funds: null | {
-    balance: string;
-    available: string;
-    margin: string;
-    commission: string;
-    close_profit: string;
-    position_profit: string;
-  };
-  positions: {
-    venue: string;
-    symbol: string;
-    side: "buy" | "sell";
-    today: string;
-    yesterday: string;
-  }[];
-  orders: {
-    // Empty for orders this session did not place.
-    id: string;
-    broker_key: string;
-    exchange_order_id: string;
-    venue: string;
-    symbol: string;
-    side: "buy" | "sell";
-    offset: string;
-    quantity: string;
-    filled: string;
-    limit_price: string;
-    status: "submitted" | "accepted" | "partially_filled" | "filled" | "cancelled" | "rejected";
-    error_code: number;
-  }[];
-  trades: {
-    id: string;
-    order_id: string;
-    venue: string;
-    symbol: string;
-    side: "buy" | "sell";
-    offset: string;
-    quantity: string;
-    price: string;
-    trading_day: string;
-    trade_time: string;
-  }[];
-  // Lasts until revoked, a policy change or a service restart.
-  authorization: null | { authorized_at_ms: number };
-  // Recorded orders the broker does not report; never resent.
-  unconfirmed: { id: string; broker_key: string; trading_day: string }[];
-  // The account's rates from the broker; costs only when ready.
-  costs: {
-    venue: string;
-    symbol: string;
-    state: "querying" | "ready" | "unavailable";
-    error_code: number;
-    queried_ms: number;
-    costs: ContractCosts | null;
-  }[];
-  storage_state: "ready" | "recovery_required";
-  connection_state?: "disconnected";
-};
 export type { TerminalCommand, CommandParams, CommandCall, CommandHandler } from "./commands";
 import type { TerminalCommand, CommandCall } from "./commands";
 export type ProgressObservation = {
@@ -364,13 +251,6 @@ export type FactorResult = {
   }[];
 };
 export type UnreadableCtpConnection = { id: string; name: string; error: "unreadable" };
-// One counter account as the broker issues it; passwords are never part of it.
-
-export type TradingAccount = {
-  account_id: string;
-  environment: "real" | "simulation";
-  broker: { front: string; broker_id: string; user_id: string; app_id: string };
-};
 export type TradingConnection = {
   id: string;
   name: string;
@@ -502,7 +382,6 @@ export type PythonRuntime = {
 };
 export type Snapshot = {
   market_data?: JsonValue;
-  trading?: JsonValue;
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   trading_fingerprint?: string;
   // The saved Market host, or a mark that its settings file is unreadable.
@@ -541,34 +420,9 @@ export type Snapshot = {
     refresh_failures: number;
     refresh_failed: boolean;
   };
-  // Open CTP trading accounts by account id; several may be open at once.
-  live: Record<
-    string,
-    {
-      session: LiveSession | null;
-      account: TradingAccount;
-      connection: {
-        transport: "tcp_tls";
-        state: "connected" | "disconnected";
-        session: string;
-        port?: number;
-        host?: string;
-        reconnects: number;
-        restarts: number;
-        last_heartbeat_ms: number;
-        latency_ms: number;
-        health: null | {
-          instance_id: string;
-          version: string;
-          uptime_ms: number;
-          phase: "starting" | "degraded" | "ready" | "awaiting_input";
-          execution: ExecutionHealth;
-        };
-      };
-    }
-  >;
 };
-async function call(
+// One native command; its reply as the core sent it.
+export async function call(
   method: "runtime.snapshot" | TerminalCommand,
   params: Record<string, unknown>,
 ): Promise<unknown> {

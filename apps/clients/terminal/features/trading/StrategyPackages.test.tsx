@@ -7,6 +7,7 @@ import {
   StateSchema,
   type State,
 } from "../../src/generated/asterion/strategy_pb";
+import { LiveSnapshotSchema, TradingEnvironment } from "../../src/generated/asterion/trading_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
@@ -41,27 +42,15 @@ const writes = () =>
   vi.mocked(strategyRequest).mock.calls.filter(([, operation]) => operation?.case !== "inspect");
 const click = async (name: string) =>
   act(async () => fireEvent.click(screen.getByRole("button", { name })));
-const live = {
-  environment: "simulation",
-  broker: { broker_id: "9999", user_id: "000001", front: "tcp://test", app_id: "test" },
-  authorization: null,
+// The account the strategy would trade, as Trading reports it.
+const live = create(LiveSnapshotSchema, {
+  environment: TradingEnvironment.BROKER_SIMULATION,
+  broker: { brokerId: "9999", userId: "000001", front: "tcp://test", appId: "test" },
   phase: "ready",
-  positions_reconciled: true,
-  storage_state: "ready",
-  policy_revision: "policy-a",
-  contracts: [
-    {
-      venue: "SHFE",
-      symbol: "rb2610",
-      product: "rb",
-      delivery_month: "2026-10",
-      currency: "CNY",
-      price_increment: "1",
-      quantity_increment: "1",
-      multiplier: "10",
-    },
-  ],
-} as const;
+  positionsReconciled: true,
+  policyRevision: "policy-a",
+  contracts: [{ venue: "SHFE", symbol: "rb2610", product: "rb", deliveryMonth: "2026-10" }],
+});
 
 test("the prepared files are reviewed and published only to the selected account, without starting", async () => {
   vi.mocked(lab).mockResolvedValue(code);
@@ -116,14 +105,7 @@ test("review sends explicit configuration and exact values only on confirmation,
         })
       : installed(),
   );
-  render(
-    <StrategyPackages
-      account="account-a"
-      repository=""
-      live={{ ...live, contracts: [...live.contracts] }}
-      connected
-    />,
-  );
+  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
@@ -155,14 +137,7 @@ test("review sends explicit configuration and exact values only on confirmation,
 
 test("an ended instance resumes from its record under a new id after review", async () => {
   vi.mocked(strategyRequest).mockResolvedValue(runtime("interrupted"));
-  render(
-    <StrategyPackages
-      account="account-a"
-      repository=""
-      live={{ ...live, contracts: [...live.contracts] }}
-      connected
-    />,
-  );
+  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
   await click("从实例 run-a 的记录恢复");
@@ -201,14 +176,7 @@ test("pause and flatten act on the inspected instance; a failure raises a deskto
         })
       : ready,
   );
-  render(
-    <StrategyPackages
-      account="account-a"
-      repository=""
-      live={{ ...live, contracts: [...live.contracts] }}
-      connected
-    />,
-  );
+  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
   await waitFor(() => expect(screen.getByText(/sent SHFE\/rb2610/)).toBeDefined());
   await click("暂停新增");
   expect(writes()[0][1]).toEqual({ case: "pause", value: { instanceId: "run-a", paused: true } });
@@ -243,20 +211,13 @@ test("stop remains available during an inspection and a late reply cannot resurr
 
 test("a changed account policy requires reviewing the configuration again before starting", async () => {
   const props = { account: "account-a", repository: "", connected: true };
-  const view = render(
-    <StrategyPackages {...props} live={{ ...live, contracts: [...live.contracts] }} />,
-  );
+  const view = render(<StrategyPackages {...props} live={live} />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
   fireEvent.click(screen.getByLabelText("SHFE/rb2610"));
   await click("核对启动配置");
-  view.rerender(
-    <StrategyPackages
-      {...props}
-      live={{ ...live, contracts: [...live.contracts], policy_revision: "policy-b" }}
-    />,
-  );
+  view.rerender(<StrategyPackages {...props} live={{ ...live, policyRevision: "policy-b" }} />);
   expect(screen.getByRole("alert").textContent).toContain("账户政策已变化");
   await click("确认启动");
   expect(writes()).toEqual([]);

@@ -106,7 +106,6 @@ export function readySnapshot(): Snapshot {
       refresh_failures: 0,
       refresh_failed: false,
     },
-    live: {},
   };
 }
 

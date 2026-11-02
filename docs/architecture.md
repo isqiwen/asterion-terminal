@@ -55,7 +55,7 @@ flowchart TB
 | `apps/clients/terminal/features/` | 行情、研究、交易、数据页面 |
 
 - 原生层定时汇总服务状态，发布带修订号的快照；界面按修订号读取，没变化时不返回内容。
-- Lab 和 Market 数据页用 `pnpm generate:protocol` 生成的 TS 类型直接组装消息，Electron 主进程只转发字节。行情和交易仍走 Node-API 和手写 JSON 映射，将在 M3.4 改为同样的方式。
+- Lab、Market 数据页和交易页用 `pnpm generate:protocol` 生成的 TS 类型直接组装消息。Lab 由 Electron 主进程转发字节；Trading 由原生层按保存的连接原样转发，TLS 私钥不离开原生层。实时行情仍走 Node-API 和手写 JSON 映射，将在 M3.4.2 改为同样的方式。
 
 ## 进程与安装目录
 

@@ -121,19 +121,6 @@ struct ApplicationTestAccess
         });
     }
 
-    static void
-    attach_live(Application& app, const std::string& id, const TradingEndpoint& endpoint)
-    {
-        auto account = std::make_shared<Application::Impl::LiveAccount>(
-            TradingClient::open(app.impl_->service_io, endpoint).get());
-        app.impl_->service_io
-            .submit<void>([&](std::stop_token) -> PolledTask<void> {
-                app.impl_->live[id] = std::move(account);
-                co_return;
-            })
-            .get();
-    }
-
     static void select_market(Application& app, const ServiceEndpoint& endpoint)
     {
         auto client = MarketClient::open(app.impl_->service_io, endpoint).get();
@@ -229,7 +216,7 @@ struct LiveService
     std::string endpoint = (root / "service").string();
     std::mutex mutex;
     std::condition_variable condition;
-    bool entered = false, released, block_observations = false, revoke_received = false;
+    bool entered = false, released;
     std::unique_ptr<service::RpcHost> host;
     Progress progress;
     terminal::TradingEndpoint target;
@@ -293,16 +280,8 @@ struct LiveService
                         } else {
                             {
                                 std::unique_lock lock(mutex);
-                                // A revoke is admitted when it arrives and answered in its turn,
-                                // as the account service does.
-                                if (message.command().has_live_revoke()) {
-                                    revoke_received = true;
-                                    condition.notify_all();
-                                }
-                                // A cancel is answered at once, as the account service answers
-                                // one while another command waits.
-                                if (!message.command().has_cancel()
-                                    && (!message.has_attach() || block_observations)) {
+                                // Reads are answered at once; anything else may be held.
+                                if (!message.has_attach()) {
                                     entered = true;
                                     condition.notify_all();
                                     if (!condition.wait_for(lock, 10s, [&] {
@@ -379,21 +358,6 @@ struct LiveService
         });
     }
 
-    bool wait_revoke()
-    {
-        std::unique_lock lock(mutex);
-        return condition.wait_for(lock, testing_support::bound(5s), [&] {
-            return revoke_received;
-        });
-    }
-
-    void hold_observations()
-    {
-        std::lock_guard lock(mutex);
-        block_observations = true;
-        released = entered = false;
-    }
-
     void release()
     {
         std::lock_guard lock(mutex);
@@ -415,49 +379,6 @@ struct LiveService
 };
 
 } // namespace
-
-TEST(TerminalLive, DelayedAccountDoesNotBlockOtherAccountControlsOrSnapshots)
-{
-    LiveService slow(true), other(false);
-    terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
-    terminal::ApplicationTestAccess::attach_live(app, "other", other.address());
-    auto pending = std::async(std::launch::async, [&] {
-        return app.dispatch(request("live.costs", {{"account", "slow"}}));
-    });
-    ASSERT_TRUE(slow.wait());
-    const auto started = std::chrono::steady_clock::now();
-    for (const auto& operation : std::vector<Json>{
-             request(
-                 "live.act",
-                 {{"account", "other"},
-                     {"account_id", "fixture-record"},
-                     {"policy_revision", "fixture-policy"},
-                     {"request_id", "revoke"},
-                     {"action", "live_revoke"}}),
-             request(
-                 "live.act",
-                 {{"account", "other"},
-                     {"account_id", "fixture-record"},
-                     {"policy_revision", "fixture-policy"},
-                     {"request_id", "cancel"},
-                     {"action", "cancel"},
-                     {"order_id", "resting"}}),
-             request("live.disconnect", {{"account", "other"}}),
-             request("runtime.snapshot"),
-             request("research.repository.clear")
-         })
-        EXPECT_NO_THROW(app.dispatch(operation));
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
-    EXPECT_EQ(pending.wait_for(0s), std::future_status::timeout);
-    EXPECT_THROW(app.dispatch(request("live.disconnect", {{"account", "slow"}})), Error);
-    EXPECT_THROW(app.dispatch(request("live.close", {{"account", "slow"}})), Error);
-    slow.release();
-    ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
-    EXPECT_NO_THROW((void)pending.get());
-    EXPECT_NO_THROW(app.dispatch(request("live.close", {{"account", "slow"}})));
-    EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).at("live").contains("slow"));
-}
 
 TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerPublication)
 {
@@ -543,9 +464,7 @@ TEST(TerminalApplication, ClosingDrainsAdmittedRequestsBeforeReleasingApplicatio
 
 TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
 {
-    LiveService service(false);
     terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "account", service.address());
     std::latch entered(2);
     std::promise<void> release;
     const auto released = release.get_future().share();
@@ -577,12 +496,10 @@ TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));
-    pending.push_back(
-        app.request(request("live.disconnect", {{"account", "account"}}).dump(), complete));
+    pending.push_back(app.request(request("research.repository.clear").dump(), complete));
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));
-    EXPECT_TRUE(service.wait());
     pending.push_back(app.request("{", complete));
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
@@ -632,156 +549,38 @@ TEST(TerminalApplication, QueuedSnapshotRepliesKeepTheirAllowanceAndLeaveCommand
     EXPECT_TRUE(parse_json(*held).contains("result"));
 }
 
-TEST(TerminalLive, SlowSettingsWorkDoesNotBlockAccountControlsOrPublication)
+TEST(TerminalTrading, ARequestWaitingOnOneAccountDoesNotHoldBackAnother)
 {
-    LiveService service(false);
-    std::promise<void> entered, release;
-    auto released = release.get_future().share();
-    terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "account", service.address());
-    std::future<void> pending;
-    std::future<Json> selection;
-
-    struct Release
-    {
-        std::promise<void>& signal;
-        std::future<void>& pending;
-        std::future<Json>& selection;
-
-        ~Release()
-        {
-            signal.set_value();
-            if (pending.valid())
-                pending.wait();
-            if (selection.valid())
-                selection.wait();
-        }
-    } guard{release, pending, selection};
-
-    pending = terminal::ApplicationTestAccess::slow_settings(app, entered, released);
-    ASSERT_EQ(entered.get_future().wait_for(testing_support::bound(2s)), std::future_status::ready);
-    selection = terminal::ApplicationTestAccess::submit(
-        app,
-        request(
-            "market.endpoint.save",
-            {{"host", "research"}, {"port", 7450U}, {"fingerprint", std::string(64, 'a')}}));
-    auto overlapping =
-        terminal::ApplicationTestAccess::submit(app, request("market.endpoint.clear"));
-    EXPECT_THROW((void)overlapping.get(), Error);
-    EXPECT_EQ(selection.wait_for(0s), std::future_status::timeout);
-    const auto before = app.dispatch(request("runtime.snapshot"));
-    const auto start = std::chrono::steady_clock::now();
-    EXPECT_NO_THROW(app.dispatch(request("live.disconnect", {{"account", "account"}})));
-    const auto after = app.dispatch(request("runtime.snapshot"));
-    EXPECT_GT(after.at("revision"), before.at("revision"));
-    EXPECT_LT(std::chrono::steady_clock::now() - start, testing_support::bound(1s));
+    LiveService slow(true), other(false);
+    terminal::ServiceIo io;
+    auto pending = terminal::call_trading(io, slow.address(), {{"liveCosts", Json::object()}});
+    ASSERT_TRUE(slow.wait());
+    const auto started = std::chrono::steady_clock::now();
+    const auto reply = terminal::call_trading(
+        io,
+        other.address(),
+        {{"accountId", "fixture-record"},
+            {"policyRevision", "fixture-policy"},
+            {"command", {{"requestId", "revoke"}, {"liveRevoke", Json::object()}}}})
+                           .get();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
+    EXPECT_EQ(reply.at("live").at("accountId"), "fixture-record");
     EXPECT_EQ(pending.wait_for(0s), std::future_status::timeout);
-}
-
-TEST(TerminalLive, BackgroundPollDoesNotRejectAnAccountCommandAsConflicting)
-{
-    LiveService slow(false), other(false);
-    terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
-    terminal::ApplicationTestAccess::attach_live(app, "other", other.address());
-    slow.hold_observations();
-    ASSERT_TRUE(slow.wait()) << "background refresh must enter its account poll";
-    auto pending = std::async(std::launch::async, [&] {
-        return app.dispatch(request("live.disconnect", {{"account", "slow"}}));
-    });
-    EXPECT_EQ(pending.wait_for(100ms), std::future_status::timeout);
-    const auto started = std::chrono::steady_clock::now();
-    EXPECT_NO_THROW(app.dispatch(request("live.disconnect", {{"account", "other"}})));
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
     slow.release();
     ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
     EXPECT_NO_THROW((void)pending.get());
 }
 
-TEST(TerminalLive, ACancelAndARevokeAreNotHeldBackByAnAccountCommandInFlight)
-{
-    LiveService slow(false);
-    terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
-    slow.hold_observations();
-    const Json identity{
-        {"account", "slow"},
-        {"account_id", "fixture-record"},
-        {"policy_revision", "fixture-policy"}
-    };
-    auto order = identity;
-    order.update(
-        {{"request_id", "submit.held"},
-            {"action", "submit"},
-            {"order_id", "held"},
-            {"venue", "SHFE"},
-            {"symbol", "rb2610"},
-            {"side", "buy"},
-            {"offset", "open"},
-            {"quantity", "1"},
-            {"price", "3500"}});
-    auto pending = std::async(std::launch::async, [&] {
-        return app.dispatch(request("live.act", std::move(order)));
-    });
-    ASSERT_TRUE(slow.wait());
-    EXPECT_EQ(pending.wait_for(100ms), std::future_status::timeout);
-    auto cancel = identity;
-    cancel.update(
-        {{"request_id", "cancel.resting"}, {"action", "cancel"}, {"order_id", "resting"}});
-    const auto started = std::chrono::steady_clock::now();
-    EXPECT_NO_THROW(app.dispatch(request("live.act", cancel)));
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
-    // Nor is a revoke: it reaches the account's service, which closes the
-    // permission to send on admitting it, while the order is still on its way.
-    // Its reply follows that order's.
-    auto revoke = identity;
-    revoke.update({{"request_id", "revoke.now"}, {"action", "live_revoke"}});
-    auto revoking = std::async(std::launch::async, [&] {
-        return app.dispatch(request("live.act", std::move(revoke)));
-    });
-    EXPECT_TRUE(slow.wait_revoke());
-    EXPECT_EQ(pending.wait_for(0ms), std::future_status::timeout);
-    EXPECT_EQ(revoking.wait_for(0ms), std::future_status::timeout);
-    slow.release();
-    ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
-    EXPECT_NO_THROW((void)pending.get());
-    ASSERT_EQ(revoking.wait_for(3s), std::future_status::ready);
-    EXPECT_NO_THROW((void)revoking.get());
-}
-
-TEST(TerminalLive, ClosingAnAccountCancelsAnUnansweredObservation)
-{
-    LiveService slow(false);
-    terminal::Application app;
-    terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
-    slow.hold_observations();
-    ASSERT_TRUE(slow.wait());
-    const auto started = std::chrono::steady_clock::now();
-    EXPECT_NO_THROW(app.dispatch(request("live.close", {{"account", "slow"}})));
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
-    EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).at("live").contains("slow"));
-}
-
-TEST(TerminalLive, OwnerCanAwaitCommandsAndCloseWhileThePeerIsUnresponsive)
+TEST(TerminalTrading, ClosingCancelsAnUnansweredRequest)
 {
     LiveService slow(true);
     auto io = std::make_unique<terminal::ServiceIo>();
-    auto client = terminal::TradingClient::open(*io, slow.address()).get();
-    auto command = client->query_costs();
+    auto pending = terminal::call_trading(*io, slow.address(), {{"liveCosts", Json::object()}});
     ASSERT_TRUE(slow.wait());
-    EXPECT_EQ(command.wait_for(0ms), std::future_status::timeout);
-    auto closing = io->submit<void>([&](std::stop_token) -> PolledTask<void> {
-        const auto view = co_await PollFuture{client->view()};
-        EXPECT_EQ(view.at("session").at("account_id"), "fixture-record");
-        client.reset();
-    });
-    ASSERT_EQ(closing.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    EXPECT_NO_THROW(closing.get());
-    ASSERT_EQ(command.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    EXPECT_THROW(command.get(), Error);
     const auto started = std::chrono::steady_clock::now();
-    io.reset(); // The lifetime coordinator drains cancellation before releasing transports.
+    io.reset();
     EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
+    EXPECT_THROW(pending.get(), Error);
 }
 
 namespace {

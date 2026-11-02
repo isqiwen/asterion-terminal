@@ -37,9 +37,6 @@ namespace asterion::terminal {
 using nlohmann::json;
 using namespace asterion;
 void fields(const json& object, std::initializer_list<std::string_view> names);
-json risk_parameters(const json& p);
-// fields() for a request that also carries the three risk limits.
-void fields_with_risk(const json& object, std::initializer_list<std::string_view> names);
 std::string text(const json& object, const char* name, bool allow_empty = false);
 unsigned short port_number(const json& p, const char* name);
 
@@ -85,24 +82,6 @@ struct Application::Impl
     json research_settings() const;
     std::shared_ptr<MarketClient> market;
 
-    // Open CTP trading accounts by account id; each has its own service.
-    struct LiveAccount
-    {
-        std::shared_ptr<TradingClient> client;
-        // Commands for the same account conflict; observation uses the I/O owner.
-        bool busy = false;
-        // Controls do not conflict with that command: a cancel, a strategy stop
-        // and a revoke reach the account's service, which orders them.
-        unsigned controls = 0;
-
-        explicit LiveAccount(std::shared_ptr<TradingClient> connection)
-            : client(std::move(connection))
-        {}
-    };
-
-    std::map<std::string, std::shared_ptr<LiveAccount>> live;
-    std::shared_ptr<LiveAccount> live_account(const json& params);
-
     struct ResetFlag
     {
         bool& flag;
@@ -112,38 +91,6 @@ struct Application::Impl
             flag = false;
         }
     };
-
-    template <class F>
-    PolledTask<void> with_live_account(const json& params, F io)
-    {
-        const auto account = live_account(params);
-        if (account->busy)
-            throw Error(
-                ErrorCode::conflict,
-                "another operation for this CTP account is in progress; retry after it completes");
-        account->busy = true;
-        ResetFlag reset{account->busy};
-        co_await io(*account->client);
-    }
-
-    template <class F>
-    PolledTask<void> control_live_account(const json& params, F io)
-    {
-        const auto account = live_account(params);
-        ++account->controls;
-
-        struct Done
-        {
-            unsigned& controls;
-
-            ~Done()
-            {
-                --controls;
-            }
-        } done{account->controls};
-
-        co_await io(*account->client);
-    }
 
     // The Python runtime lab runs on, installed at the first launch.
     PythonRuntime python_runtime{
@@ -241,7 +188,6 @@ struct Application::Impl
         json metadata;
         std::vector<NodeSnapshot> nodes;
         Settings settings;
-        std::map<std::string, TradingClient::Read> live;
         MarketProjection market;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;
@@ -260,7 +206,6 @@ struct Application::Impl
     PolledTask<void> settings_loop(std::stop_token stop);
     PolledTask<Response> dispatch(const json& request);
     // Commands are registered once during construction, before dispatch is possible.
-    void register_live_commands();
     void register_node_commands();
     void register_connection_commands();
     void register_market_commands();

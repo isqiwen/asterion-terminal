@@ -1,5 +1,4 @@
-import { rpc } from "./rpc-fixture";
-import { checkSnapshot } from "./snapshot-schema";
+import { liveAccount, livePolicy, rpc, trading } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 
 test(
@@ -11,55 +10,25 @@ test(
     await expect
       .poll(async () => (await rpc(page.request, "runtime.snapshot")).market.catalog.phase)
       .toBe("ready");
-    await rpc(page.request, "live.open", { account });
-    await rpc(page.request, "live.create", {
-      account,
-      max_order_quantity: "5",
-      max_gross_quantity: "10",
-      max_working_orders: "2",
-      max_price_deviation: "0.02",
-      contracts: [{ venue: "SHFE", symbol: "rb2610" }],
-    });
+    await trading(page.request, account, await livePolicy(page.request));
     await expect
-      .poll(async () => (await rpc(page.request, "runtime.snapshot")).live[account].session.phase, {
-        timeout: 20000,
-      })
+      .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })
       .toBe("ready");
-    const before = await rpc(page.request, "runtime.snapshot");
-    checkSnapshot("before trading restart", before);
-    const oldRecord = before.live[account].session!.account_id;
-    await rpc(page.request, "live.act", {
-      account,
-      account_id: oldRecord,
-      policy_revision: before.live[account].session!.policy_revision,
-      request_id: "authorization-before-restart",
-      action: "live_authorize",
-      user_id: "000001",
-    });
-    await rpc(page.request, "live.close", { account });
+    const before = await liveAccount(page.request, account);
+    const authorize = {
+      accountId: before.accountId,
+      policyRevision: before.policyRevision,
+      command: { requestId: "authorization-before-restart", liveAuthorize: { userId: "000001" } },
+    };
+    await trading(page.request, account, authorize);
     await tradingHost.restart();
-    const restored = await rpc(page.request, "live.open", { account });
-    checkSnapshot("restored trading account", restored);
-    expect(restored.live[account].session!.account_id).toBe(oldRecord);
-    expect(restored.live[account].session!.authorization).toBeNull();
-    expect(restored.live[account].session!.policy_revision).toBe(
-      before.live[account].session!.policy_revision,
-    );
+    const restored = await liveAccount(page.request, account);
+    expect(restored.accountId).toBe(before.accountId);
+    expect(restored.authorization).toBeUndefined();
+    expect(restored.policyRevision).toBe(before.policyRevision);
     const repeated = await page.request.post("/__asterion/api", {
-      data: {
-        version: 1,
-        method: "live.act",
-        params: {
-          account,
-          account_id: oldRecord,
-          policy_revision: before.live[account].session!.policy_revision,
-          request_id: "authorization-before-restart",
-          action: "live_authorize",
-          user_id: "000001",
-        },
-      },
+      data: { version: 1, method: "trading.call", params: { account, request: authorize } },
     });
     expect((await repeated.json()).error.code).toBe("conflict");
-    await rpc(page.request, "live.close", { account });
   },
 );

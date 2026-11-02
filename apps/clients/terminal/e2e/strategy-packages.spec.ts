@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test, expect } from "./trading-fixture";
-import { rpc } from "./rpc-fixture";
+import { liveAccount, livePolicy, rpc, trading } from "./rpc-fixture";
 import { openView } from "./navigation-helper";
 
 test.use({ strategyRuntime: true });
@@ -45,20 +45,9 @@ test(
       expect(state.trading.strategy.packages).toHaveLength(1);
       expect(state.trading.strategy.instance).toBeUndefined();
       const account = tradingHost.connection;
-      await rpc(page.request, "live.open", { account });
-      await rpc(page.request, "live.create", {
-        account,
-        max_order_quantity: "5",
-        max_gross_quantity: "10",
-        max_working_orders: "2",
-        max_price_deviation: "0.02",
-        contracts: [{ venue: "SHFE", symbol: "rb2610" }],
-      });
+      await trading(page.request, account, await livePolicy(page.request));
       await expect
-        .poll(
-          async () => (await rpc(page.request, "runtime.snapshot")).live[account].session.phase,
-          { timeout: 20000 },
-        )
+        .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })
         .toBe("ready");
       const form = packages.getByRole("region", { name: "配置策略实例", exact: true });
       const configure = async (id: string) => {
@@ -89,9 +78,7 @@ test(
         await rpc(page.request, "trading.call", { account, request: { strategy: { inspect: {} } } })
       ).trading.strategy.instance;
       expect(started.configuration.id).toBe("ui-run-a");
-      expect(
-        (await rpc(page.request, "runtime.snapshot")).live[account].session.authorization,
-      ).toBeNull();
+      expect((await liveAccount(page.request, account)).authorization).toBeUndefined();
       await page.reload();
       await openView(page, "trading");
       await expect(monitor).toContainText("ui-run-a");

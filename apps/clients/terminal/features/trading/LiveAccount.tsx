@@ -1,36 +1,51 @@
 import { useState } from "react";
-import type { LiveAction } from "../../src/bridge/commands";
-import type { TradingConnection, LiveSession, Snapshot } from "../../src/bridge/client";
+import type { TradingConnection, Snapshot } from "../../src/bridge/client";
+import { decimalText } from "../../src/bridge/decimal";
+import { TradingEnvironment, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useWorkspaceDraft, type TerminalContext } from "../contract";
+import { useWorkspaceDraft } from "../contract";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket } from "./OrderTicket";
-import { t, phases, type Run } from "./live-shared";
+import {
+  t,
+  phases,
+  command,
+  environmentName,
+  type CommandOperation,
+  type Run,
+} from "./live-shared";
 
 export function LiveAccount({
   account,
   live,
-  connection,
+  stale,
   snapshot,
   busy,
   run,
-}: Pick<TerminalContext, "snapshot" | "busy"> & {
-  account: Pick<TradingConnection, "id" | "name">;
-  live: LiveSession;
-  connection: Snapshot["live"][string]["connection"];
+  control,
+}: {
+  account: TradingConnection;
+  live: LiveSnapshot;
+  // The service is unreachable or its record needs recovery.
+  stale: boolean;
+  snapshot: Snapshot | null;
+  busy: boolean;
   run: Run;
+  control: Run;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
+  const broker = live.broker!;
   const identity = JSON.stringify([
-    connection.session,
-    connection.host,
-    connection.port,
-    live.broker.front,
-    live.broker.broker_id,
-    live.broker.user_id,
+    account.id,
+    account.host,
+    account.port,
+    account.instance,
+    broker.front,
+    broker.brokerId,
+    broker.userId,
   ]);
-  const environment = live.environment;
+  const real = live.environment === TradingEnvironment.REAL;
   const [environmentConfirmed, setEnvironmentConfirmed] = useWorkspaceDraft(
     `ctp-environment-confirmed:${identity}`,
     false,
@@ -38,17 +53,10 @@ export function LiveAccount({
   const environmentReady = environmentConfirmed;
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
-  const confirmed = confirmedPolicy === live.policy_revision;
+  const confirmed = confirmedPolicy === live.policyRevision;
   const ready = live.phase === "ready";
-  const stale = live.storage_state === "recovery_required" || connection.state === "disconnected";
   const authorized = !!live.authorization;
-  const act = (params: LiveAction) =>
-    run("live.act", {
-      request_id: crypto.randomUUID(),
-      account_id: live.account_id,
-      policy_revision: live.policy_revision,
-      ...params,
-    });
+  const act = (operation: () => CommandOperation) => command(run, live, operation);
   // One step is offered at a time: the counter connection, then permission to
   // send, then the order ticket. A window that has not confirmed the
   // environment of an already connected account confirms it first.
@@ -67,7 +75,7 @@ export function LiveAccount({
     <div className="environment-check">
       <label>
         {t("柜台环境")}
-        <span>{t(environment === "real" ? "真实资金" : "CTP 仿真")}</span>
+        <span>{t(environmentName(live.environment))}</span>
       </label>
       <label className="checkbox">
         <input
@@ -91,7 +99,7 @@ export function LiveAccount({
   const cancel = async (id: string) => {
     setCancelling(current => [...current, id]);
     try {
-      await act({ action: "cancel", order_id: id });
+      await command(control, live, () => ({ case: "cancel", value: { orderId: id } }));
     } finally {
       setCancelling(current => current.filter(item => item !== id));
     }
@@ -100,20 +108,22 @@ export function LiveAccount({
     <>
       <div className="ctp-identity">
         <strong>
-          {account.name} · {live.broker.broker_id} · {live.broker.user_id}
+          {account.name} · {broker.brokerId} · {broker.userId}
         </strong>
         <strong>
           {t(
-            environmentReady && environment === "real"
-              ? "真实资金 · 用户确认"
-              : environmentReady && environment === "simulation"
-                ? "CTP 仿真 · 用户确认"
-                : "CTP 环境待确认",
+            !environmentReady
+              ? "CTP 环境待确认"
+              : real
+                ? "真实资金 · 用户确认"
+                : "CTP 仿真 · 用户确认",
           )}
         </strong>
-        <span data-testid="live-phase">{t(stale ? "服务失联" : phases[live.phase])}</span>
+        <span data-testid="live-phase">
+          {t(stale ? "服务失联" : (phases[live.phase] ?? live.phase))}
+        </span>
         <span>{authorized ? t("已授权") : t("尚未允许发送委托")}</span>
-        <span>{live.broker.front}</span>
+        <span>{broker.front}</span>
         {/* The account's actions stay together when the line wraps. */}
         <div className="ctp-identity-actions">
           {authorized && (
@@ -121,7 +131,9 @@ export function LiveAccount({
               disabled={revoking}
               onClick={() => {
                 setRevoking(true);
-                void act({ action: "live_revoke" }).finally(() => setRevoking(false));
+                void command(control, live, () => ({ case: "liveRevoke", value: {} })).finally(() =>
+                  setRevoking(false),
+                );
               }}
             >
               {t("撤销授权")}
@@ -131,18 +143,9 @@ export function LiveAccount({
             <button
               disabled={busy}
               title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
-              onClick={() => void run("live.disconnect")}
+              onClick={() => void run({ case: "liveDisconnect", value: {} })}
             >
               {t("断开账户")}
-            </button>
-          )}
-          {stale && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={() => void run("live.close").then(closed => closed && run("live.open"))}
-            >
-              {t("重新连接交易服务")}
             </button>
           )}
         </div>
@@ -151,20 +154,20 @@ export function LiveAccount({
         <summary>{t("柜台观察范围")}</summary>
         <dl className="definition-list">
           <dt>{t("连接代次")}</dt>
-          <dd>{live.connection_generation}</dd>
+          <dd>{String(live.connectionGeneration)}</dd>
           <dt>{t("观察序号")}</dt>
-          <dd>{live.broker_sequence}</dd>
+          <dd>{String(live.brokerSequence)}</dd>
           <dt>{t("持仓核对状态")}</dt>
-          <dd>{t(live.positions_reconciled ? "已纳入已知成交" : "尚未核对已知成交")}</dd>
+          <dd>{t(live.positionsReconciled ? "已纳入已知成交" : "尚未核对已知成交")}</dd>
         </dl>
         <p className="subtle">
           {t("资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。")}
         </p>
       </details>
       {environmentReady && (
-        <p className={environment === "real" ? "alert" : "subtle"}>
+        <p className={real ? "alert" : "subtle"}>
           {t(
-            environment === "real"
+            real
               ? "真实资金账户：授权后的委托可能产生真实成交与盈亏。"
               : "已标记为 CTP 仿真；委托仍会发送到上方柜台，请确认地址正确。",
           )}
@@ -172,14 +175,16 @@ export function LiveAccount({
       )}
       {stale && (
         <p className="alert" role="alert">
-          {t("交易服务连接或记录状态不确定。请重新连接交易服务；断线命令不会自动重发。")}
+          {t(
+            "交易服务连接或记录状态不确定，界面显示的是最后读到的状态。断线时的命令不会自动重发。",
+          )}
         </p>
       )}
       {live.phase === "error" && (
         <p className="alert" role="alert">
-          {live.error_code === -1008
+          {live.errorCode === -1008
             ? t("柜台回报队列已满，新增报单已停止。请重新连接并核对账户；已有委托不会自动撤销。")
-            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.error_code })}
+            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.errorCode })}
         </p>
       )}
       {live.unconfirmed.length > 0 && (
@@ -196,7 +201,9 @@ export function LiveAccount({
               <button
                 key={item.id}
                 disabled={busy || stale}
-                onClick={() => void act({ action: "live_resolve", order_id: item.id })}
+                onClick={() =>
+                  void act(() => ({ case: "liveResolve", value: { orderId: item.id } }))
+                }
               >
                 {t("已核实券商无此委托：{id}", { id: item.id })}
               </button>
@@ -211,14 +218,14 @@ export function LiveAccount({
               ["balance", "动态权益"],
               ["available", "可用资金"],
               ["margin", "占用保证金"],
-              ["position_profit", "持仓盈亏"],
-              ["close_profit", "平仓盈亏"],
+              ["positionProfit", "持仓盈亏"],
+              ["closeProfit", "平仓盈亏"],
               ["commission", "手续费"],
             ] as const
           ).map(([field, label]) => (
             <div key={field}>
               <dt>{t(label)}</dt>
-              <dd data-testid={`live-${field}`}>{live.funds![field]}</dd>
+              <dd data-testid={`live-${field}`}>{decimalText(live.funds![field])}</dd>
             </div>
           ))}
         </dl>
@@ -235,7 +242,7 @@ export function LiveAccount({
           onSubmit={event => {
             event.preventDefault();
             if (!environmentReady) return;
-            void run("live.connect", {});
+            void run({ case: "liveConnect", value: {} });
           }}
         >
           <fieldset disabled={busy}>
@@ -265,10 +272,10 @@ export function LiveAccount({
               type="checkbox"
               checked={confirmed}
               onChange={event =>
-                setConfirmedPolicy(event.target.checked ? live.policy_revision : null)
+                setConfirmedPolicy(event.target.checked ? live.policyRevision : null)
               }
             />
-            {t("我确认使用账户 {user} 向上方柜台发送委托", { user: live.broker.user_id })}
+            {t("我确认使用账户 {user} 向上方柜台发送委托", { user: broker.userId })}
           </label>
           <div className="source-actions">
             <button
@@ -276,7 +283,7 @@ export function LiveAccount({
               disabled={busy || !confirmed}
               onClick={() => {
                 setConfirmedPolicy(null);
-                void act({ action: "live_authorize", user_id: live.broker.user_id });
+                void act(() => ({ case: "liveAuthorize", value: { userId: broker.userId } }));
               }}
             >
               {t("允许发送委托")}
@@ -295,7 +302,7 @@ export function LiveAccount({
           snapshot={snapshot}
           busy={busy}
           accountName={account.name}
-          act={act}
+          run={run}
           onSent={() => setActivity("orders")}
         />
       )}

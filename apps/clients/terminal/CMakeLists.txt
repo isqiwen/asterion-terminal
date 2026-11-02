@@ -13,7 +13,6 @@ add_library(asterion_terminal_application STATIC
   native/market_snapshot.cpp
   native/market_client.cpp
   native/terminal_application.cpp
-  native/commands_live.cpp
   native/commands_node.cpp
   native/commands_connections.cpp
   native/commands_market.cpp

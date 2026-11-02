@@ -23,14 +23,12 @@ export function TradingConnections({
   const [error, setError] = useState<DisplayError>("");
   const [removing, setRemoving] = useState("");
   const entries = snapshot?.trading_connections ?? [];
-  const bound = (id: string) => !!snapshot?.live[id];
   const edit = (entry: TradingConnection | null) => {
     setEditing(entry);
     setDraft(entry ? { ...entry, port: String(entry.port) } : blank);
     setAdding(true);
     setError("");
   };
-  const live = (id: string) => snapshot?.live[id]?.account;
   return (
     <>
       <SettingsSection
@@ -87,37 +85,17 @@ export function TradingConnections({
                   ) : (
                     <p>
                       {entry.host}:{entry.port} · {entry.instance}
-                      {live(entry.id) &&
-                        ` · ${live(entry.id)!.broker.broker_id} · ${live(entry.id)!.broker.user_id}`}
-                      {" · "}
-                      {t(bound(entry.id) ? "已连接" : "未连接")}
                     </p>
                   )}
                 </div>
                 {!("error" in entry) && (
                   <div className="settings-actions">
-                    <button
-                      className={bound(entry.id) ? undefined : "primary"}
-                      disabled={busy}
-                      onClick={async () => {
-                        try {
-                          await trade(bound(entry.id) ? "live.close" : "live.open", {
-                            account: entry.id,
-                          });
-                          setError("");
-                        } catch (failure) {
-                          setError(asDisplayError(failure));
-                        }
-                      }}
-                    >
-                      {t(bound(entry.id) ? "断开交易服务连接" : "连接交易服务")}
-                    </button>
-                    <button disabled={busy || bound(entry.id)} onClick={() => edit(entry)}>
+                    <button disabled={busy} onClick={() => edit(entry)}>
                       {t("编辑连接")}
                     </button>
                     <button
                       className={removing === entry.id ? "danger" : undefined}
-                      disabled={busy || bound(entry.id)}
+                      disabled={busy}
                       onClick={async () => {
                         if (removing !== entry.id) {
                           setRemoving(entry.id);
@@ -148,12 +126,6 @@ export function TradingConnections({
                     <dd>
                       <code>{entry.fingerprint}</code>
                     </dd>
-                    {live(entry.id) && (
-                      <>
-                        <dt>{t("交易前置")}</dt>
-                        <dd>{live(entry.id)!.broker.front}</dd>
-                      </>
-                    )}
                   </dl>
                 </details>
               )}
@@ -203,7 +175,6 @@ export function TradingConnections({
                   {t(label)}
                   <input
                     required
-                    disabled={key !== "name" && !!editing && bound(editing.id)}
                     type={key === "port" ? "number" : "text"}
                     min={key === "port" ? 1 : undefined}
                     max={key === "port" ? 65535 : undefined}

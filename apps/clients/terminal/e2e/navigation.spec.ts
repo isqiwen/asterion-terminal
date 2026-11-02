@@ -6,10 +6,14 @@ test("four business modules preserve navigation without starting work", async ({
   await page.goto("/");
   await expect(page.locator(".environment-label")).toHaveText("开发环境");
   await expect(page).toHaveTitle(/开发环境/);
-  const methods: string[] = [];
+  const methods: { method: string; params: { request?: Record<string, { inspect?: object }> } }[] =
+    [];
   page.on("request", request => {
-    if (request.url().endsWith("/__asterion/api")) methods.push(request.postDataJSON().method);
+    if (request.url().endsWith("/__asterion/api")) methods.push(request.postDataJSON());
   });
+  // Opening a page only reads accounts: their state, health and strategy packages.
+  const reads = ({ request }: (typeof methods)[number]["params"]) =>
+    !!request && ("attach" in request || "heartbeat" in request || !!request.strategy?.inspect);
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   const names = ["行情", "研究", "交易", "数据"];
   await expect(nav.getByRole("button")).toHaveText(names);
@@ -38,7 +42,10 @@ test("four business modules preserve navigation without starting work", async ({
   await openView(page, "research");
   await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
   expect(
-    methods.filter(method => method.startsWith("live.") || method.endsWith(".submit")),
+    methods.filter(
+      ({ method, params }) =>
+        method.endsWith(".submit") || (method === "trading.call" && !reads(params)),
+    ),
   ).toEqual([]);
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-system.png" });
 });

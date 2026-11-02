@@ -66,33 +66,6 @@ void fields(const json& object, std::initializer_list<std::string_view> names)
             throw std::invalid_argument("request is missing a required field");
 }
 
-json risk_parameters(const json& p)
-{
-    const auto count = p.at("max_working_orders").get<std::string>();
-    std::uint64_t parsed = 0;
-    const auto [end, error] = std::from_chars(count.data(), count.data() + count.size(), parsed);
-    if (error != std::errc{} || end != count.data() + count.size()
-        || std::to_string(parsed) != count || !parsed)
-        throw std::invalid_argument("invalid working order limit");
-    return {
-        {"max_order_quantity", p.at("max_order_quantity")},
-        {"max_gross_quantity", p.at("max_gross_quantity")},
-        {"max_working_orders", parsed}
-    };
-}
-
-void fields_with_risk(const json& object, std::initializer_list<std::string_view> names)
-{
-    if (!object.is_object() || object.size() != names.size() + 3)
-        throw std::invalid_argument("request fields do not match the current contract");
-    for (const auto name : names)
-        if (!object.contains(name))
-            throw std::invalid_argument("request is missing a required field");
-    for (const auto* key : {"max_order_quantity", "max_gross_quantity", "max_working_orders"})
-        if (!object.contains(key))
-            throw std::invalid_argument("request is missing a required field");
-}
-
 std::string text(const json& object, const char* name, bool allow_empty)
 {
     const auto& value = object.at(name);
@@ -173,7 +146,6 @@ Application::Impl::Impl()
     command("runtime.snapshot", [this](const json&) -> PolledTask<Response> {
         co_return snapshot();
     });
-    register_live_commands();
     register_node_commands();
     register_connection_commands();
     register_market_commands();
@@ -209,8 +181,6 @@ Application::Impl::Publication Application::Impl::capture()
 {
     Publication next;
     next.settings = settings_view;
-    for (const auto& [id, account] : live)
-        next.live.emplace(id, account->client->owner_view());
     if (market) {
         next.market = market->owner_read();
         const auto& saved = settings_view->market_endpoint;
@@ -257,9 +227,9 @@ Application::Impl::Publication Application::Impl::capture()
 
 bool Application::Impl::Publication::same_state(const Publication& other) const
 {
-    return metadata == other.metadata && live == other.live && nodes == other.nodes
-        && settings == other.settings && market.header == other.market.header
-        && market.catalog == other.market.catalog && market.rows == other.market.rows;
+    return metadata == other.metadata && nodes == other.nodes && settings == other.settings
+        && market.header == other.market.header && market.catalog == other.market.catalog
+        && market.rows == other.market.rows;
 }
 
 json Application::Impl::Publication::render(std::optional<MarketCursor> held) const
@@ -272,19 +242,6 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
     result["trading_fingerprint"] = settings->trading_fingerprint;
     result["market_endpoint"] = settings->market_endpoint;
     result["strategy_repository"] = settings->repository;
-    auto& accounts = result["live"] = json::object();
-    for (const auto& [id, account] : live) {
-        accounts[id] = account.render();
-        auto& connection = accounts[id].at("connection");
-        for (const auto& node : nodes_view) {
-            if (connection.at("transport") != "local" || node.at("id") != "local"
-                || node.at("health").is_null())
-                continue;
-            for (const auto& service : node.at("health").at("services"))
-                if (service.at("id") == connection.at("session"))
-                    connection["restarts"] = service.at("restarts");
-        }
-    }
     result["market"] = market.render(held);
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;

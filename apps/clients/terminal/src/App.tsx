@@ -8,6 +8,7 @@ import { translate, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useLocale } from "./i18n";
 import { SetupGate } from "./startup/SetupGate";
+import { TradingAccountsProvider, useTradingAccounts } from "./host/trading-accounts";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { WindowFrame } from "@asterion/workbench/components/WindowFrame";
 import { Workbench } from "@asterion/workbench/workspace/Workbench";
@@ -30,17 +31,17 @@ import "./terminal.css";
 import "./host/workspace/workbench.css";
 import "./settings/settings.css";
 import "./ui/workflows.css";
-// One line for every open CTP account: how many may send orders, how many
-// are connected read-only, and how many need attention.
-function liveSummary(snapshot: Snapshot | null) {
-  const entries = Object.values(snapshot?.live ?? {});
+// One line for every CTP account: how many may send orders, how many are
+// connected read-only, and how many need attention.
+function LiveSummary() {
+  const entries = Object.values(useTradingAccounts().views);
   if (!entries.length) return t("尚未打开交易账户");
   let authorized = 0,
     ready = 0,
     other = 0;
-  for (const { session, connection } of entries) {
-    if (connection.state !== "connected" || session?.phase !== "ready") other++;
-    else if (session.authorization) authorized++;
+  for (const { live, failed } of entries) {
+    if (failed || live?.phase !== "ready") other++;
+    else if (live.authorization) authorized++;
     else ready++;
   }
   return t("CTP：{authorized} 个已授权 · {ready} 个只读 · {other} 个未就绪", {
@@ -160,7 +161,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
-  const polling = !!snapshot && (Object.keys(snapshot.live).length > 0 || !!snapshot.nodes?.length);
+  const polling = !!snapshot?.nodes?.length;
   const live = !!snapshot?.market;
   const pollInFlight = useRef(false);
   useEffect(() => {
@@ -266,103 +267,110 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           busy={busy}
         />
       ) : (
-        <Workbench
-          title={t(route.module.title)}
-          showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-          navigation={modules.map((item, index) => ({
-            id: item.id,
-            title: t(item.title),
-            icon: <Icon name={item.icon} />,
-            active: item.id === navigation.module,
-            shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
-            select: () => setNavigation(previous => selectModule(previous, item.id)),
-          }))}
-          rail={
-            <>
-              <button
-                aria-label={t("本机服务")}
-                title={t("本机服务")}
-                onClick={() => showSettings("connections")}
-              >
-                <Icon name="connections" />
-              </button>
-              <button
-                aria-label={t("设置")}
-                title={`${t("设置")} · ⌘, / Ctrl+,`}
-                onClick={() => showSettings()}
-              >
-                <Icon name="settings" />
-              </button>
-            </>
-          }
-          toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
-          notices={
-            error ? (
-              <div className="alert" role="alert">
-                <ErrorNotice error={error} namespace="host" />
-                <span className="panel-spacer" />
-                <button disabled={busy} onClick={() => void refresh()}>
-                  {t("重试连接")}
+        <TradingAccountsProvider
+          ids={(snapshot?.trading_connections ?? []).flatMap(item =>
+            "error" in item ? [] : [item.id],
+          )}
+          active={visible}
+        >
+          <Workbench
+            title={t(route.module.title)}
+            showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
+            navigation={modules.map((item, index) => ({
+              id: item.id,
+              title: t(item.title),
+              icon: <Icon name={item.icon} />,
+              active: item.id === navigation.module,
+              shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
+              select: () => setNavigation(previous => selectModule(previous, item.id)),
+            }))}
+            rail={
+              <>
+                <button
+                  aria-label={t("本机服务")}
+                  title={t("本机服务")}
+                  onClick={() => showSettings("connections")}
+                >
+                  <Icon name="connections" />
                 </button>
+                <button
+                  aria-label={t("设置")}
+                  title={`${t("设置")} · ⌘, / Ctrl+,`}
+                  onClick={() => showSettings()}
+                >
+                  <Icon name="settings" />
+                </button>
+              </>
+            }
+            toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
+            notices={
+              error ? (
+                <div className="alert" role="alert">
+                  <ErrorNotice error={error} namespace="host" />
+                  <span className="panel-spacer" />
+                  <button disabled={busy} onClick={() => void refresh()}>
+                    {t("重试连接")}
+                  </button>
+                </div>
+              ) : !snapshot ? (
+                <div className="notice" role="status">
+                  {t("正在启动本机 C++ 核心…")}
+                </div>
+              ) : null
+            }
+            body={
+              <div className="module-workspace">
+                {route.module.views.length > 1 && (
+                  <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+                    {route.module.views.map(id => (
+                      <button
+                        key={id}
+                        aria-current={view === id ? "page" : undefined}
+                        onClick={() => context.navigate(id)}
+                      >
+                        {workspaces.find(item => item.id === id)!.title}
+                      </button>
+                    ))}
+                  </nav>
+                )}
+                <main className="terminal-business">
+                  <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
+                    {Panel && currentFeature && (
+                      <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                        <Panel {...panelContext} />
+                      </WorkspaceDraftScope>
+                    )}
+                  </Suspense>
+                </main>
               </div>
-            ) : !snapshot ? (
-              <div className="notice" role="status">
-                {t("正在启动本机 C++ 核心…")}
-              </div>
-            ) : null
-          }
-          body={
-            <div className="module-workspace">
-              {route.module.views.length > 1 && (
-                <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
-                  {route.module.views.map(id => (
-                    <button
-                      key={id}
-                      aria-current={view === id ? "page" : undefined}
-                      onClick={() => context.navigate(id)}
-                    >
-                      {workspaces.find(item => item.id === id)!.title}
-                    </button>
-                  ))}
-                </nav>
-              )}
-              <main className="terminal-business">
-                <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                  {Panel && currentFeature && (
-                    <WorkspaceDraftScope store={drafts} namespace={current!.id}>
-                      <Panel {...panelContext} />
-                    </WorkspaceDraftScope>
-                  )}
-                </Suspense>
-              </main>
-            </div>
-          }
+            }
 
-          status={
-            <>
-              <ServiceStatus
-                snapshot={snapshot}
-                failed={!!error}
-                busy={busy}
-                checkedAt={checkedAt}
-                refresh={() => void refresh()}
-                settings={() => showSettings("connections")}
-              />
-              <span className="panel-spacer" />
-              <span className="status-updated">
-                {error
-                  ? t("状态待确认")
-                  : checkedAt
-                    ? t("状态读取于 {p0}", { p0: new Date(checkedAt).toLocaleTimeString(locale) })
-                    : t("正在读取状态…")}
-              </span>
-              <span className="status-divider" />
-              <button onClick={() => context.navigate("workspace.trading")}>
-                {liveSummary(snapshot)}
-              </button>
-            </>
-          }
-        />
+            status={
+              <>
+                <ServiceStatus
+                  snapshot={snapshot}
+                  failed={!!error}
+                  busy={busy}
+                  checkedAt={checkedAt}
+                  refresh={() => void refresh()}
+                  settings={() => showSettings("connections")}
+                />
+                <span className="panel-spacer" />
+                <span className="status-updated">
+                  {error
+                    ? t("状态待确认")
+                    : checkedAt
+                      ? t("状态读取于 {p0}", { p0: new Date(checkedAt).toLocaleTimeString(locale) })
+                      : t("正在读取状态…")}
+                </span>
+                <span className="status-divider" />
+                <button onClick={() => context.navigate("workspace.trading")}>
+                  <LiveSummary />
+                </button>
+              </>
+            }
+          />
+        </TradingAccountsProvider>
       )}
     </WindowFrame>
   );

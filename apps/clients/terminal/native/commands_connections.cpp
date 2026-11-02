@@ -69,6 +69,26 @@ void Application::Impl::register_connection_commands()
         market.reset();
         co_return snapshot();
     });
+    // One trading.proto Request to the account's saved service, relayed unchanged.
+    command("trading.call", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {"account", "request"});
+        const auto id = text(p, "account");
+        const auto selected = co_await settings<std::pair<TradingEndpoint, std::string>>([&] {
+            trading_connections.prepare_identity();
+            return std::pair{
+                trading_connections.endpoint(id),
+                trading_connections.get(id).at("revision").get<std::string>()
+            };
+        });
+        auto reply = co_await PollFuture{call_trading(service_io, selected.first, p.at("request"))};
+        co_await settings<void>([&] {
+            if (trading_connections.get(id).at("revision") != selected.second)
+                throw Error(
+                    ErrorCode::conflict,
+                    "trading connection changed; inspect the original host before retrying");
+        });
+        co_return Response{json{{"trading", std::move(reply)}}};
+    });
     command("trading.identity.prepare", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
         co_await settings<void>([&] {
@@ -78,10 +98,6 @@ void Application::Impl::register_connection_commands()
     });
     command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "name", "host", "port", "instance", "fingerprint", "revision"});
-        if (live.contains(text(p, "id")))
-            throw Error(
-                ErrorCode::conflict,
-                "close the trading connection before editing or removing it");
         co_await settings<void>([&] {
             trading_connections.save(p, text(p, "revision", true));
         });
@@ -89,10 +105,6 @@ void Application::Impl::register_connection_commands()
     });
     command("trading.connections.remove", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "revision"});
-        if (live.contains(text(p, "id")))
-            throw Error(
-                ErrorCode::conflict,
-                "close the trading connection before editing or removing it");
         co_await settings<void>([&] {
             trading_connections.remove(text(p, "id"), text(p, "revision"));
         });

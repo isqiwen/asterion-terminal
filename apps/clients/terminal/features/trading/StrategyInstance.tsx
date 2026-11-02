@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
-import type { LiveSession } from "../../src/bridge/client";
 import {
   InstanceSchema,
   type Instance,
   type State,
 } from "../../src/generated/asterion/strategy_pb";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
-import { t } from "./live-shared";
+import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { environmentName, t } from "./live-shared";
 import {
   activeStrategy,
   parameterText,
@@ -18,11 +18,11 @@ import {
 } from "./strategy-instance";
 
 export type StrategyAccount = Pick<
-  LiveSession,
+  LiveSnapshot,
   | "phase"
-  | "positions_reconciled"
-  | "storage_state"
-  | "policy_revision"
+  | "positionsReconciled"
+  | "recoveryRequired"
+  | "policyRevision"
   | "contracts"
   | "broker"
   | "environment"
@@ -54,10 +54,7 @@ export function StrategyInstance({
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
   const contracts = live?.contracts.map(item => `${item.venue}/${item.symbol}`) ?? [];
   const usable =
-    available &&
-    live?.phase === "ready" &&
-    live.positions_reconciled &&
-    live.storage_state !== "recovery_required";
+    available && live?.phase === "ready" && live.positionsReconciled && !live.recoveryRequired;
   const running = activeStrategy(state.instance?.state);
   const ended = state.instance?.configuration;
   const update = (id: number, change: Partial<ParameterInput>) =>
@@ -69,9 +66,9 @@ export function StrategyInstance({
       <h4>{t("配置策略实例")}</h4>
       {live && (
         <p>
-          {t("CTP 账户")} · {live.broker.broker_id} / {live.broker.user_id} ·{" "}
+          {t("CTP 账户")} · {live.broker?.brokerId} / {live.broker?.userId} ·{" "}
           {t("主机配置的柜台环境：{environment}", {
-            environment: t(live.environment === "real" ? "真实资金" : "CTP 仿真"),
+            environment: t(environmentName(live.environment)),
           })}{" "}
           · {t(live.authorization ? "已授权" : "尚未允许发送委托")}
         </p>
@@ -121,7 +118,7 @@ export function StrategyInstance({
               </>
             )}
           </dl>
-          {review.policy !== live?.policy_revision && (
+          {review.policy !== live?.policyRevision && (
             <p role="alert">{t("账户政策已变化，请返回重新核对配置。")}</p>
           )}
           <button disabled={busy} onClick={() => setReview(undefined)}>
@@ -129,7 +126,7 @@ export function StrategyInstance({
           </button>
           <button
             className="primary"
-            disabled={!usable || busy || review.policy !== live?.policy_revision}
+            disabled={!usable || busy || review.policy !== live?.policyRevision}
             onClick={() =>
               void start(review.configuration).then(started => {
                 if (started) {
@@ -160,7 +157,7 @@ export function StrategyInstance({
               )
                 throw new Error(t("请选择账户政策内的 1–20 个实际合约。"));
               setReview({
-                policy: live!.policy_revision,
+                policy: live!.policyRevision,
                 configuration: create(InstanceSchema, {
                   id: id.trim(),
                   package: { name: installed.name, version: installed.version },
@@ -227,7 +224,7 @@ export function StrategyInstance({
                   const configuration = clone(InstanceSchema, ended);
                   configuration.id = id.trim();
                   configuration.resumeFrom = ended.id;
-                  setReview({ policy: live!.policy_revision, configuration });
+                  setReview({ policy: live!.policyRevision, configuration });
                 }}
               >
                 {t("从实例 {id} 的记录恢复", { id: ended.id })}
