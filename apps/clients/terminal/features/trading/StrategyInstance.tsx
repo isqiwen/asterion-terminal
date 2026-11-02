@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import type { LiveSession } from "../../src/bridge/client";
 import {
   InstanceSchema,
@@ -59,6 +59,7 @@ export function StrategyInstance({
     live.positions_reconciled &&
     live.storage_state !== "recovery_required";
   const running = activeStrategy(state.instance?.state);
+  const ended = state.instance?.configuration;
   const update = (id: number, change: Partial<ParameterInput>) =>
     setRows(current => current.map(row => (row.id === id ? { ...row, ...change } : row)));
 
@@ -78,7 +79,7 @@ export function StrategyInstance({
       {!usable && <p role="status">{t("请先连接并同步账户，再启动实例。")}</p>}
       <p className="subtle">
         {t(
-          "启动从空窗口现场预热。启动不授权；首次目标执行前须在账户中授权，已授权账户就绪后可能发送委托。",
+          "启动从空窗口现场预热，或从已结束实例的记录恢复。启动不授权；账户未授权时，就绪目标只记录、不执行。",
         )}
       </p>
       {error && (
@@ -91,6 +92,12 @@ export function StrategyInstance({
           <dl>
             <dt>{t("实例 ID")}</dt>
             <dd>{review.configuration.id}</dd>
+            {review.configuration.resumeFrom && (
+              <>
+                <dt>{t("恢复自")}</dt>
+                <dd>{t("实例 {id} 的记录", { id: review.configuration.resumeFrom })}</dd>
+              </>
+            )}
             <dt>{t("已发布版本")}</dt>
             <dd>
               {review.configuration.package?.name} · {review.configuration.package?.version}
@@ -211,7 +218,21 @@ export function StrategyInstance({
                 </select>
               </label>
             </div>
-            <p className="subtle">{t("实例 ID 不可复用；重新启动须使用新 ID，并重新预热。")}</p>
+            <p className="subtle">{t("实例 ID 不可复用；重新启动须使用新 ID。")}</p>
+            {ended && (
+              <button
+                type="button"
+                disabled={!id.trim()}
+                onClick={() => {
+                  const configuration = clone(InstanceSchema, ended);
+                  configuration.id = id.trim();
+                  configuration.resumeFrom = ended.id;
+                  setReview({ policy: live!.policy_revision, configuration });
+                }}
+              >
+                {t("从实例 {id} 的记录恢复", { id: ended.id })}
+              </button>
+            )}
             <fieldset className="strategy-contracts">
               <legend>{t("实际合约")}</legend>
               {contracts.map(contract => (

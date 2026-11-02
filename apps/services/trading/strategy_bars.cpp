@@ -7,11 +7,15 @@
 namespace asterion::trading {
 namespace wire = strategy::proto;
 
-StrategyBars::StrategyBars(const wire::Instance& configuration, std::int64_t started_ms)
+StrategyBars::StrategyBars(
+    const wire::Instance& configuration,
+    std::int64_t started_ms,
+    std::uint64_t sequence)
     : daily_(configuration.period() == "1d"),
       interval_(daily_ ? 0 : std::stoll(configuration.period()) * 60000),
       started_ms_(started_ms),
-      contracts_(configuration.contracts().begin(), configuration.contracts().end())
+      contracts_(configuration.contracts().begin(), configuration.contracts().end()),
+      sequence_(sequence)
 {
     for (const auto& contract : contracts_)
         current_.emplace(contract, Current{});
@@ -28,13 +32,11 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
     // instance started. Even a cache spanning a boundary cannot seed warmup.
     if (!current.initialized && quote.source_ms < started_ms_)
         return {};
-    // Closed-session snapshots are not new observations. Once observation has
-    // begun, stale input cannot be silently spliced into an uninterrupted run.
-    if (quote.source_ms <= 0 || quote.received_ms - quote.source_ms > 10000) {
-        if (!current.initialized)
-            return {};
-        throw std::runtime_error("strategy market observation is stale");
-    }
+    // Closed-session snapshots, stale observations and snapshots a reconnect
+    // repeats are not new observations.
+    if (quote.source_ms <= 0 || quote.received_ms - quote.source_ms > 10000
+        || (current.initialized && quote.source_ms < current.source_ms))
+        return {};
     if (quote.source_ms - quote.received_ms > 2000)
         throw std::runtime_error("strategy market timestamp is ahead of the host clock");
     if (!quote.last || !quote.open_interest || quote.volume < 0 || *quote.last <= Decimal{})
@@ -53,8 +55,7 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
         : quote.source_ms / interval_ * interval_;
     const bool new_day = current.initialized && day != current.bar.trading_day();
     if (current.initialized
-        && (quote.source_ms < current.source_ms || key < current.key
-            || day < current.bar.trading_day() || (new_day && key == current.key)
+        && (key < current.key || day < current.bar.trading_day() || (new_day && key == current.key)
             || (!new_day && quote.volume < current.volume)))
         throw std::runtime_error("strategy market observations are unordered or volume reset");
     const auto delta = !current.initialized ? 0

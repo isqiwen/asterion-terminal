@@ -57,6 +57,9 @@ public:
     void release_strategy(const StrategyAuthorityPtr& authority);
     std::string strategy_failure(const StrategyAuthorityPtr& authority) const;
     void fail_strategy(std::string reason);
+    // Drops the current target batch and cancels its orders once; the instance keeps running.
+    void abandon_strategy_batch(std::string_view reason);
+    void request_strategy_cancels();
     bool strategy_cancellation_pending() const;
     AccountCommand cancel_strategy_order();
     void require_manual_order() const;
@@ -67,7 +70,8 @@ public:
         strategy::proto::Decision decision,
         std::vector<MarketQuote> quotes,
         std::chrono::steady_clock::time_point expires_at);
-    AccountCommand advance_strategy_target(StrategyAuthorityPtr authority);
+    AccountCommand
+    advance_strategy_target(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes);
 
     bool waiting_for_sdk() const
     {

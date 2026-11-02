@@ -153,6 +153,28 @@ test("review sends explicit configuration and exact values only on confirmation,
   expect(screen.getByText("正在现场预热")).toBeDefined();
 });
 
+test("an ended instance resumes from its record under a new id after review", async () => {
+  vi.mocked(strategyRequest).mockResolvedValue(runtime("interrupted"));
+  render(
+    <StrategyPackages
+      account="account-a"
+      repository=""
+      live={{ ...live, contracts: [...live.contracts] }}
+      connected
+    />,
+  );
+  await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
+  fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
+  await click("从实例 run-a 的记录恢复");
+  expect(screen.getByText("实例 run-a 的记录")).toBeDefined();
+  expect(writes()).toEqual([]);
+  await click("确认启动");
+  const [, operation] = writes()[0];
+  if (operation?.case !== "start") throw new Error("missing start");
+  expect(operation.value).toMatchObject({ ...configuration, id: "run-b", resumeFrom: "run-a" });
+  expect(configuration.resumeFrom).toBe("");
+});
+
 test("stop remains available during an inspection and a late reply cannot resurrect the stopped instance", async () => {
   vi.mocked(strategyRequest).mockResolvedValue(runtime("warming"));
   render(<StrategyPackages account="account-a" repository="" />);

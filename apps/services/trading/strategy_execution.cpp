@@ -58,10 +58,9 @@ void LiveAccountState::accept_strategy_target(
         throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
     try {
         const auto now = std::chrono::steady_clock::now();
-        if (strategy_->batch || !decision.sequence() || decision.sequence() <= strategy_->sequence)
-            throw Error(
-                ErrorCode::conflict,
-                "strategy target overlaps or repeats an earlier batch");
+        if (!decision.sequence() || decision.sequence() <= strategy_->sequence)
+            throw Error(ErrorCode::conflict, "strategy target repeats an earlier batch");
+        abandon_strategy_batch("superseded by a newer target");
         if (!strategy_->failure.empty())
             throw Error(ErrorCode::conflict, "strategy execution ended: " + strategy_->failure);
         if (decision.targets_size() > 20 || (!decision.ready() && decision.targets_size()))
@@ -137,19 +136,38 @@ void LiveAccountState::accept_strategy_target(
         if (weighted)
             trader_->refresh_account();
         strategy_->batch = std::move(batch);
+    } catch (const Error& error) {
+        if (error.code() == ErrorCode::unavailable && strategy_->failure.empty()) {
+            log::warn(
+                "strategy target skipped: instance={} sequence={} reason={}",
+                authority->instance(),
+                decision.sequence(),
+                error.what());
+            return;
+        }
+        fail_strategy(error.what());
+        throw;
     } catch (const std::exception& error) {
         fail_strategy(error.what());
         throw;
     }
 }
 
-AccountCommand LiveAccountState::advance_strategy_target(StrategyAuthorityPtr authority)
+AccountCommand LiveAccountState::advance_strategy_target(
+    StrategyAuthorityPtr authority,
+    std::vector<MarketQuote> quotes)
 {
     if (!strategy_ || strategy_->authority != authority)
         throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
     try {
         if (!strategy_->batch)
             co_return;
+        // Each leg is priced from the freshest observation of its contract.
+        for (auto& held : strategy_->batch->quotes)
+            for (const auto& fresh : quotes)
+                if (fresh.instrument == held.instrument && fresh.trading_day == held.trading_day
+                    && fresh.source_ms > held.source_ms)
+                    held = fresh;
         const auto control = send_gate_.revision();
         poll_broker();
         StrategyOrderBasis
@@ -252,10 +270,15 @@ AccountCommand LiveAccountState::advance_strategy_target(StrategyAuthorityPtr au
         batch.last_order = id;
         // No references to batch survive this suspension: a stop can release it.
         co_await execute_strategy(basis, request, control);
-    } catch (const std::exception& error) {
+    } catch (const std::invalid_argument& error) {
+        // Invalid targets and risk refusals would repeat on every batch.
         if (strategy_ && strategy_->authority == authority)
             fail_strategy(error.what());
         throw;
+    } catch (const std::exception& error) {
+        if (!strategy_ || strategy_->authority != authority || !strategy_->failure.empty())
+            throw;
+        abandon_strategy_batch(error.what());
     }
 }
 
@@ -265,6 +288,20 @@ void LiveAccountState::release_strategy(const StrategyAuthorityPtr& authority)
         throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
     fail_strategy("strategy stopped");
     strategy_.reset();
+}
+
+void LiveAccountState::abandon_strategy_batch(std::string_view reason)
+{
+    if (!strategy_ || !strategy_->batch)
+        return;
+    log::warn(
+        "strategy batch abandoned: instance={} sequence={} reason={}",
+        strategy_->authority->instance(),
+        strategy_->sequence,
+        reason);
+    strategy_->batch.reset();
+    send_gate_.invalidate();
+    request_strategy_cancels();
 }
 
 std::string LiveAccountState::strategy_failure(const StrategyAuthorityPtr& authority) const
@@ -280,7 +317,11 @@ void LiveAccountState::fail_strategy(std::string reason)
         return;
     strategy_->failure = std::move(reason);
     send_gate_.invalidate();
-    // The account owns these intents after the runner releases its authority.
+    request_strategy_cancels();
+}
+
+void LiveAccountState::request_strategy_cancels()
+{
     // Mark once: reconnect, another failure or a repeated stop cannot retry a cancel.
     for (auto& [id, intent] : intents_)
         if (intent.strategy && intent.strategy->instance == strategy_->authority->instance()
@@ -372,10 +413,9 @@ AccountCommand LiveAccountState::execute_strategy(
             == basis.authority->contracts_.end())
             throw std::invalid_argument("order contract is not selected by this strategy instance");
         co_await submit(request, order, control, basis);
-    } catch (const std::exception& error) {
-        if (strategy_ && strategy_->authority == basis.authority) {
+    } catch (const std::invalid_argument& error) {
+        if (strategy_ && strategy_->authority == basis.authority)
             fail_strategy(error.what());
-        }
         throw;
     }
 }

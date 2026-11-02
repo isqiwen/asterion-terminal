@@ -1,7 +1,8 @@
 """Actual C++ Trading + test CTP stream + Python child, on the real clock.
 
-Waits for two complete minute bars (at most three minutes); does not accelerate
-timestamps past the production freshness check. Only an isolated test account is used.
+Waits for three complete minute bars (at most about four minutes); does not
+accelerate timestamps past the production freshness check. Only an isolated
+test account is used.
 """
 import datetime
 from pathlib import Path
@@ -72,19 +73,25 @@ def main():
             sent = until(lambda: account_snapshot(host), lambda state: len(state.orders) == 1)
             assert sent.orders[0].quantity.units == 3 * 10**8, sent
             order_id = sent.orders[0].id
-            # Loss of the direct provider stream ends this instance, never reconnects it.
+            # The three-lot order rests past the batch's 10 s: the batch is dropped and its
+            # order cancelled once, and the instance keeps running.
+            dropped = until(lambda: account_snapshot(host),
+                lambda state: state.orders[0].status == 'cancelled', seconds=20)
+            assert dropped.orders[0].id == order_id, dropped
+            assert observe().state == 'ready'
+            # A provider disconnect does not end the instance; bars continue after CTP reconnects.
             (root / 'ctp-flow/disconnect').touch()
-            failed = until(lambda: rpc(host, wire.Request(inspect=wire.Empty())).instance,
-                lambda state: state.state == 'failed')
-            assert 'interrupted' in failed.error and not failed.process_id, failed
-            stopped = until(lambda: account_snapshot(host),
-                lambda state: state.orders[0].status == 'cancelled')
-            assert stopped.orders[0].id == order_id and len(stopped.orders) == 1, stopped
+            time.sleep(2)
+            (root / 'ctp-flow/disconnect').unlink()
+            until(observe, lambda state: state.completed_steps >= 3, seconds=130)
+            rpc(host, wire.Request(stop=wire.Stop(instance_id=config.id)))
             with sqlite3.connect(root / 'runs/live-window.sqlite') as db:
                 saved = wire.Instance.FromString(db.execute('SELECT value FROM configuration').fetchone()[0])
                 assert saved == config
                 rows = db.execute('SELECT input,decision FROM steps ORDER BY sequence').fetchall()
-            assert len(rows) == 2
+                events = [row[0] for row in db.execute('SELECT event FROM events ORDER BY rowid')]
+            assert events == ['market disconnected', 'market reconnected'], events
+            assert len(rows) >= 3
             namespace = {}; exec(CODE, namespace)
             strategy, context = namespace['TwoBars'](), Context(config.contracts)
             for index, (raw, result) in enumerate(rows, 1):
@@ -103,14 +110,27 @@ def main():
                 assert context.ready == decision.ready
                 assert wanted == {target.contract: target.lots for target in decision.targets}
             assert rpc(host, wire.Request(start=config), True).code == 'conflict'
-            (root / 'ctp-flow/disconnect').unlink()
+            # A warm restart replays the ended instance's record before live bars.
+            resumed_config = wire.Instance()
+            resumed_config.CopyFrom(config)
+            resumed_config.id, resumed_config.resume_from = 'resumed-window', config.id
+            resumed = rpc(host, wire.Request(start=resumed_config)).instance
+            assert resumed.state == 'ready' and resumed.completed_steps == len(rows), resumed
+            assert resumed.last_decision == wire.Decision.FromString(rows[-1][1]), resumed
+            rpc(host, wire.Request(stop=wire.Stop(instance_id=resumed_config.id)))
+            other = wire.Instance()
+            other.CopyFrom(resumed_config)
+            other.id, other.period = 'other-window', '5m'
+            assert rpc(host, wire.Request(start=other), True).code == 'invalid_request'
+            orders = len(account_snapshot(host).orders)
             config.id = 'fresh-window'
             fresh = rpc(host, wire.Request(start=config)).instance
             assert fresh.state == 'warming' and not fresh.completed_steps and not fresh.HasField('last_decision')
             rpc(host, wire.Request(stop=wire.Stop(instance_id=config.id)))
-            assert len(account_snapshot(host).orders) == 1
+            assert len(account_snapshot(host).orders) == orders
             assert account_snapshot(host).HasField('authorization')
-            print('Direct Trading feed, complete live minutes, readiness, target execution, disconnect cancellation, exact input replay and empty restart passed')
+            print('Direct Trading feed, complete live minutes, readiness, batch expiry, surviving a '
+                  'disconnect, exact input replay, warm restart and empty restart passed')
         finally:
             terminate(process)
 

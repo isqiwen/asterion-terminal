@@ -2041,7 +2041,7 @@ TEST_F(StrategyTarget, DirectQuotesDriveSerialCloseThenOpenFromReconciledPositio
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
-TEST_F(StrategyTarget, WarmingCannotSendAndAuthorizationIsRequiredForAReadyTarget)
+TEST_F(StrategyTarget, WarmingCannotSendAndUnauthorizedTargetsAreSkipped)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     ASSERT_EQ(ready(session).at("phase"), "ready");
@@ -2051,10 +2051,16 @@ TEST_F(StrategyTarget, WarmingCannotSendAndAuthorizationIsRequiredForAReadyTarge
     warming.clear_targets();
     session.accept_target(owner, warming, {});
     session.advance_target(owner).get();
-    EXPECT_THROW(session.accept_target(owner, lots(1, 2), {quote()}), Error);
-    act(session, authorize());
-    EXPECT_THROW(session.accept_target(owner, lots(1, 3), {quote()}), Error);
+    session.accept_target(owner, lots(1, 2), {quote()});
+    session.advance_target(owner).get();
     EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+    act(session, authorize());
+    session.accept_target(owner, lots(1, 3), {quote()});
+    const auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 1;
+    });
+    EXPECT_EQ(state.at("orders").size(), 1U);
 }
 
 TEST_F(StrategyTarget, StaleQuotesAndMissingOppositeBookCannotProduceOrders)
@@ -2065,14 +2071,13 @@ TEST_F(StrategyTarget, StaleQuotesAndMissingOppositeBookCannotProduceOrders)
     auto owner = session.register_strategy("stale").get();
     auto stale = quote();
     stale.source_ms -= 10000;
-    EXPECT_THROW(session.accept_target(owner, lots(1), {stale}), Error);
-    session.release_strategy(owner).get();
-    owner = session.register_strategy("missing-book").get();
+    session.accept_target(owner, lots(1), {stale});
     auto missing = quote();
     missing.ask.reset();
-    session.accept_target(owner, lots(1), {missing});
-    EXPECT_THROW(session.advance_target(owner).get(), Error);
+    session.accept_target(owner, lots(1, 2), {missing});
+    session.advance_target(owner).get();
     EXPECT_TRUE(session.snapshot().at("orders").empty());
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
 TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResending)
@@ -2089,18 +2094,17 @@ TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResen
     });
     ASSERT_EQ(state.at("orders").size(), 1U);
     session.advance_target(owner).get();
-    state = wait_for(session, [&](const Json&) {
-        return !session.strategy_failure(owner).empty();
-    });
     state = wait_for(session, [](const Json& s) {
         return s.at("orders")[0].at("status") == "cancelled";
     });
     EXPECT_EQ(state.at("orders").size(), 1U);
     EXPECT_EQ(state.at("orders")[0].at("filled"), "1");
-    EXPECT_THROW(session.accept_target(owner, lots(3, 2), {quote()}), Error);
+    // Expiry drops the batch, not the instance; the next target is admitted.
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+    EXPECT_NO_THROW(session.accept_target(owner, lots(3, 2), {quote()}));
 }
 
-TEST_F(StrategyTarget, ManualCancellationEndsTheBatchWithoutReplacingItsOrder)
+TEST_F(StrategyTarget, ManualCancellationDropsTheBatchWithoutReplacingItsOrder)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     ASSERT_EQ(ready(session).at("phase"), "ready");
@@ -2110,23 +2114,49 @@ TEST_F(StrategyTarget, ManualCancellationEndsTheBatchWithoutReplacingItsOrder)
     session.advance_target(owner).get();
     const auto id = session.snapshot().at("orders")[0].at("id");
     act(session, {{"request_id", "cancel.target"}, {"action", "cancel"}, {"order_id", id}});
-    wait_for(session, [&](const Json&) {
-        return !session.strategy_failure(owner).empty();
+    wait_for(session, [](const Json& s) {
+        return s.at("orders")[0].at("status") == "cancelled";
     });
-    EXPECT_THROW(session.advance_target(owner).get(), Error);
+    session.advance_target(owner).get();
+    session.advance_target(owner).get();
     EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
-TEST_F(StrategyTarget, TargetAdmissionCannotExtendOrReplaceAnUnfinishedBatch)
+TEST_F(StrategyTarget, ANewerTargetReplacesAnUnfinishedBatchAndRepeatsAreRefused)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
     auto owner = session.register_strategy().get();
     session.accept_target(owner, lots(1), {quote()});
-    EXPECT_THROW(session.accept_target(owner, lots(2, 2), {quote()}), Error);
-    EXPECT_THROW(session.advance_target(owner).get(), Error);
-    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    session.accept_target(owner, lots(2, 2), {quote()});
+    const auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 1;
+    });
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    EXPECT_EQ(state.at("orders")[0].at("quantity"), "2");
+    EXPECT_THROW(session.accept_target(owner, lots(3, 2), {quote()}), Error);
+}
+
+TEST_F(StrategyTarget, CancellingASupersededBatchsOrderDoesNotDropTheNewBatch)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(3), {quote()});
+    session.advance_target(owner).get();
+    ASSERT_EQ(session.snapshot().at("orders").size(), 1U);
+    // The newer target cancels the resting order once, then opens from the result.
+    session.accept_target(owner, lots(3, 2), {quote()});
+    const auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 2;
+    });
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[0].at("status"), "cancelled");
+    EXPECT_EQ(state.at("orders")[1].at("quantity"), "3");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
 TEST_F(StrategyTarget, RevocationDuringDirectQuoteSubmissionStillFencesDurableDispatch)
@@ -2405,15 +2435,9 @@ TEST_F(StrategyExecution, RefusesStaleSequencesSkippedLegsAndChangedTargetDeadli
     EXPECT_THROW(
         session.execute_strategy(basis(owner, 8), submit("cannot.refresh", "1")).get(),
         Error);
-    // Expiry ends this instance and cancels its earlier resting leg.
-    EXPECT_TRUE(order_has_status(
-        wait_for(
-            session,
-            [](const Json& state) {
-                return order_has_status(state, "first.leg", "cancelled");
-            }),
-        "first.leg",
-        "cancelled"));
+    // Refused sequencing sends nothing more; expiry alone does not end the instance.
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
 TEST_F(StrategyExecution, ReleasedAuthorityCannotSubmitEvenWhenTheInstanceNameIsReused)
@@ -2703,6 +2727,8 @@ TEST_F(StrategyExecution, UnknownSubmissionAndFailedCancellationKeepRiskAcrossRe
         const auto records = session.snapshot().at("capacity").at("records_used").get<int>();
         exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
         EXPECT_THROW(session.execute_strategy(basis(owner), submit("unknown", "3")).get(), Error);
+        // Stopping attempts the one cancel, which fails and is never retried.
+        session.release_strategy(owner).get();
         const auto after = wait_for(session, [records](const Json& state) {
             return state.at("capacity").at("records_used").get<int>() >= records + 3;
         });
@@ -2710,7 +2736,6 @@ TEST_F(StrategyExecution, UnknownSubmissionAndFailedCancellationKeepRiskAcrossRe
         ASSERT_EQ(after.at("unconfirmed").size(), 1U);
         EXPECT_EQ(after.at("unconfirmed")[0].at("id"), "unknown");
         EXPECT_TRUE(after.at("orders").empty());
-        session.release_strategy(owner).get();
     }
     exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", 0);
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);

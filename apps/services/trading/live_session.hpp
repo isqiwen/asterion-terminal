@@ -55,7 +55,9 @@ public:
         strategy::proto::Decision decision,
         std::vector<MarketQuote> quotes,
         std::chrono::steady_clock::time_point expires_at);
-    std::future<void> advance_strategy_target(StrategyAuthorityPtr authority);
+    // `quotes`: the freshest direct observations; each leg is priced from them.
+    std::future<void>
+    advance_strategy_target(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes = {});
     // Detached transport value constructed on the account owner; JSON belongs to Terminal.
     std::future<protocol::proto::LiveSnapshot> snapshot() const;
 

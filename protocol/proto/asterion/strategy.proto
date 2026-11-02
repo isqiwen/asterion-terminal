@@ -48,6 +48,9 @@ message Instance {
   string period = 4; // 1d, or 1m through 60m
   map<string, ParameterValue> params = 5;
   WeightBudget weight_budget = 6; // required when the strategy outputs weights
+  // An ended instance with the same configuration: its recorded bars are
+  // replayed into the new strategy before live bars, without executing targets.
+  string resume_from = 7;
 }
 message InstanceStatus {
   Instance configuration = 1;

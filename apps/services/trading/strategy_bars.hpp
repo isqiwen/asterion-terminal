@@ -10,7 +10,11 @@ namespace asterion::trading {
 class StrategyBars
 {
 public:
-    StrategyBars(const strategy::proto::Instance&, std::int64_t started_ms);
+    // `sequence`: the last input already delivered, when resuming from a record.
+    StrategyBars(
+        const strategy::proto::Instance&,
+        std::int64_t started_ms,
+        std::uint64_t sequence = 0);
     std::vector<strategy::proto::Bars> observe(const MarketQuote&);
 
 private:

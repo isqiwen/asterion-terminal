@@ -240,7 +240,6 @@
   "小数参数必须是有限数值。": "Decimal parameters must be finite numbers.",
   "配置策略实例": "Configure strategy instance",
   "请先连接并同步账户，再启动实例。": "Connect and synchronize the account before starting an instance.",
-  "启动从空窗口现场预热。启动不授权；首次目标执行前须在账户中授权，已授权账户就绪后可能发送委托。": "Each start warms up from an empty window. Starting does not authorize trading; authorize the account before the first target executes. An authorized account may send orders once ready.",
   "启动配置确认": "Review instance configuration",
   "实例 ID": "Instance ID",
   "已发布版本": "Published version",
@@ -256,7 +255,6 @@
   "请选择主机上已发布的版本。": "Select a version published on this host.",
   "请选择账户政策内的 1–20 个实际合约。": "Select 1–20 native contracts allowed by the account policy.",
   "选择策略版本": "Select a strategy version",
-  "实例 ID 不可复用；重新启动须使用新 ID，并重新预热。": "Instance IDs cannot be reused. Restart with a new ID and a fresh warmup window.",
   "按策略参数名填写；未覆盖项采用包内默认值。": "Use the parameter names from the strategy. Other parameters retain their package defaults.",
   "参数名 {n}": "Parameter {n} name",
   "参数类型 {n}": "Parameter {n} type",
@@ -293,5 +291,10 @@
   "停止策略并撤单": "Stop strategy and cancel orders",
   "已停止": "Stopped",
   "策略状态不可用，请重新读取。": "Strategy status is unavailable. Read the host again.",
-  "主机配置的柜台环境：{environment}": "Host-configured broker environment: {environment}"
+  "主机配置的柜台环境：{environment}": "Host-configured broker environment: {environment}",
+  "启动从空窗口现场预热，或从已结束实例的记录恢复。启动不授权；账户未授权时，就绪目标只记录、不执行。": "Each start warms up from an empty window, or resumes from the record of an ended instance. Starting does not authorize trading; while the account is not authorized, ready targets are recorded but not executed.",
+  "实例 ID 不可复用；重新启动须使用新 ID。": "Instance IDs cannot be reused; a restart needs a new ID.",
+  "恢复自": "Resumes from",
+  "实例 {id} 的记录": "Record of instance {id}",
+  "从实例 {id} 的记录恢复": "Resume from the record of instance {id}"
 }

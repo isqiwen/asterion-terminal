@@ -713,11 +713,14 @@ void LiveAccountState::poll_broker()
     trader_->observe([&](const BrokerSnapshot& state) {
         if (strategy_
             && (state.phase != BrokerPhase::ready
-                || state.connection_generation != strategy_->connection_generation))
-            fail_strategy("account connection changed");
+                || state.connection_generation != strategy_->connection_generation)) {
+            abandon_strategy_batch("account connection changed");
+            if (state.phase == BrokerPhase::ready)
+                strategy_->connection_generation = state.connection_generation;
+        }
         if (strategy_ && strategy_->batch
             && std::chrono::steady_clock::now() >= strategy_->deadline)
-            fail_strategy("strategy target expired before completion");
+            abandon_strategy_batch("strategy target expired before completion");
         if (attribution_.generation != state.connection_generation
             || attribution_.day != state.trading_day)
             attribution_ = state.phase == BrokerPhase::ready
@@ -734,13 +737,13 @@ void LiveAccountState::poll_broker()
                 && intent->second.broker_key == order.broker_key) {
                 intent->second.terminal = order;
                 if (strategy_ && intent->second.strategy
-                    && intent->second.strategy->instance == strategy_->authority->instance()
-                    && (order.status == BrokerOrderStatus::rejected
-                        || (order.status == BrokerOrderStatus::cancelled && strategy_->batch)))
-                    fail_strategy(
-                        order.status == BrokerOrderStatus::rejected
-                            ? "broker rejected a strategy order"
-                            : "strategy order was cancelled before target completion");
+                    && intent->second.strategy->instance == strategy_->authority->instance()) {
+                    if (order.status == BrokerOrderStatus::rejected)
+                        fail_strategy("broker rejected a strategy order");
+                    else if (order.status == BrokerOrderStatus::cancelled && strategy_->batch
+                        && strategy_->batch->last_order == order.order_id)
+                        abandon_strategy_batch("strategy order was cancelled before completion");
+                }
             }
         }
     });

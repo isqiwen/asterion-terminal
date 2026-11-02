@@ -81,7 +81,7 @@ TEST(StrategyBars, DailyWindowStartsAtObservedTradingDayTransition)
     EXPECT_TRUE(restarted.observe(tick(start + 172800000, 1, "102", "20260930")).empty());
 }
 
-TEST(StrategyBars, BatchesContractsOnceAndRejectsBrokenObservationContinuity)
+TEST(StrategyBars, BatchesContractsOnceSkipsRepeatedOrStaleQuotesAndRejectsResets)
 {
     StrategyBars bars(configuration("1m", true), start);
     for (const auto* symbol : {"rb2610", "cu2610"})
@@ -94,12 +94,23 @@ TEST(StrategyBars, BatchesContractsOnceAndRejectsBrokenObservationContinuity)
     ASSERT_EQ(closed[0].bars_size(), 2);
     EXPECT_EQ(closed[0].bars(0).contract(), "SHFE/rb2610");
     EXPECT_EQ(closed[0].bars(1).contract(), "SHFE/cu2610");
-    EXPECT_THROW(bars.observe(tick(start + 119000, 13)), std::runtime_error);
-    EXPECT_THROW(bars.observe(tick(start + 121000, 1)), std::runtime_error);
-    EXPECT_THROW(bars.observe(tick(start + 121000, 1, "100", "20260929")), std::runtime_error);
+    // A reconnect may repeat an older snapshot; it is skipped, not an error.
+    EXPECT_TRUE(bars.observe(tick(start + 119000, 13)).empty());
     auto stale = tick(start + 121000, 13);
     stale.received_ms += 10001;
-    EXPECT_THROW(bars.observe(stale), std::runtime_error);
+    EXPECT_TRUE(bars.observe(stale).empty());
+    EXPECT_THROW(bars.observe(tick(start + 121000, 1)), std::runtime_error);
+    EXPECT_THROW(bars.observe(tick(start + 121000, 1, "100", "20260929")), std::runtime_error);
+}
+
+TEST(StrategyBars, AResumedWindowContinuesTheRecordedSequence)
+{
+    StrategyBars bars(configuration("1m", false), start, 41);
+    EXPECT_TRUE(bars.observe(tick(start + 1000, 10)).empty());
+    EXPECT_TRUE(bars.observe(tick(start + 60000, 11)).empty());
+    const auto closed = bars.observe(tick(start + 120000, 12));
+    ASSERT_EQ(closed.size(), 1);
+    EXPECT_EQ(closed[0].sequence(), 42U);
 }
 
 TEST(StrategyBars, ASubscriptionCacheCannotTurnAPreStartMinuteIntoACompleteBar)

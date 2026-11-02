@@ -575,11 +575,14 @@ std::future<void> LiveSession::accept_strategy_target(
     });
 }
 
-std::future<void> LiveSession::advance_strategy_target(StrategyAuthorityPtr authority)
+std::future<void> LiveSession::advance_strategy_target(
+    StrategyAuthorityPtr authority,
+    std::vector<MarketQuote> quotes)
 {
     return loop_->mutate(
-        [authority = std::move(authority)](LiveAccountState& account, std::uint64_t) {
-            return account.advance_strategy_target(authority);
+        [authority = std::move(authority),
+            quotes = std::move(quotes)](LiveAccountState& account, std::uint64_t) mutable {
+            return account.advance_strategy_target(authority, std::move(quotes));
         });
 }
 

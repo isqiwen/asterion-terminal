@@ -39,7 +39,7 @@ class Fake final : public CThostFtdcMdApi
 
     bool reconnect = true;
     bool publication = false, flood = false;
-    bool strategy_stream = false;
+    bool strategy_stream = false, offline = false;
     std::optional<CThostFtdcDepthMarketDataField> publication_tick;
 
 public:
@@ -89,7 +89,16 @@ public:
                     spi->OnRtnDepthMarketData(&tick);
                     gate("hold-publication");
                 }
-                if (strategy_stream && publication_tick) {
+                // A `disconnect` file in the flow directory takes the front down until it is removed.
+                if (strategy_stream && publication_tick
+                    && std::filesystem::exists(flow / "disconnect") != offline) {
+                    offline = !offline;
+                    if (offline)
+                        spi->OnFrontDisconnected(4097);
+                    else
+                        spi->OnFrontConnected();
+                }
+                if (strategy_stream && publication_tick && !offline) {
                     auto& tick = *publication_tick;
                     const auto now = std::chrono::system_clock::now();
                     auto epoch = std::chrono::system_clock::to_time_t(now) + 8 * 3600;
@@ -107,10 +116,6 @@ public:
                     tick.AskPrice1 = tick.LastPrice + 1;
                     ++tick.Volume;
                     spi->OnRtnDepthMarketData(&tick);
-                    if (std::filesystem::exists(flow / "disconnect")) {
-                        spi->OnFrontDisconnected(4097);
-                        strategy_stream = false;
-                    }
                 }
                 ++n;
             }
@@ -199,7 +204,9 @@ public:
             tick.PreSettlementPrice = std::numeric_limits<double>::max();
             tick.UpdateMillisec = 500;
             if (strategy_stream) {
-                publication_tick = tick;
+                // A resubscription after a reconnect keeps the day's cumulative volume.
+                if (!publication_tick)
+                    publication_tick = tick;
                 continue; // The worker emits only fresh, ordered observations.
             }
             if (publication) {

@@ -12,6 +12,7 @@
 #include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/system/log.hpp>
 #include <google/protobuf/util/json_util.h>
+#include <google/protobuf/util/message_differencer.h>
 #include <fstream>
 #include <regex>
 #include <map>
@@ -101,6 +102,40 @@ void validate(const wire::Instance& instance)
             "strategy weight budget requires explicit gross and net limits");
     if (instance.ByteSizeLong() > 16384)
         throw std::invalid_argument("strategy instance configuration exceeds 16 KiB");
+    if (!instance.resume_from().empty()) {
+        package_identity(instance.resume_from(), "instance");
+        if (instance.resume_from() == instance.id())
+            throw std::invalid_argument("a strategy instance cannot resume from itself");
+    }
+}
+
+// The bars an ended instance received, in order. Its configuration must match
+// apart from the instance identities.
+std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instance& configuration)
+{
+    if (!fs::is_regular_file(run))
+        throw std::invalid_argument("no recorded strategy instance: " + run.stem().string());
+    sqlite::Database previous(run, sqlite::Database::Access::read_only);
+    sqlite::Database::Statement stored(previous, "SELECT value FROM configuration");
+    wire::Instance recorded;
+    if (!stored.step() || !recorded.ParseFromString(stored.blob(0)))
+        throw std::invalid_argument("invalid strategy record: " + run.string());
+    auto wanted = configuration;
+    for (auto* item : {&recorded, &wanted}) {
+        item->clear_id();
+        item->clear_resume_from();
+    }
+    if (!google::protobuf::util::MessageDifferencer::Equals(recorded, wanted))
+        throw std::invalid_argument(
+            "a resumed instance needs the same package, contracts, period, parameters and budget");
+    std::vector<wire::Bars> inputs;
+    sqlite::Database::Statement steps(previous, "SELECT input FROM steps ORDER BY sequence");
+    while (steps.step()) {
+        auto& input = inputs.emplace_back();
+        if (!input.ParseFromString(steps.blob(0)))
+            throw std::invalid_argument("invalid strategy record: " + run.string());
+    }
+    return inputs;
 }
 
 } // namespace
@@ -123,7 +158,7 @@ struct StrategyHost::State
     std::future<void> execution;
     std::string stream;
     std::uint64_t cursor = 0;
-    bool connected = false;
+    bool connected = false, online = false;
     std::chrono::steady_clock::time_point connect_deadline;
 
     State(fs::path installed, fs::path account, ctp::Configuration configuration)
@@ -193,7 +228,29 @@ struct StrategyHost::State
             std::rethrow_exception(failure);
     }
 
-    void decide(const wire::Bars& input)
+    void record_event(const std::string& event)
+    {
+        sqlite::Database::Statement insert(*records, "INSERT INTO events VALUES(?,?)");
+        insert
+            .bind(
+                1,
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count())
+            .bind(2, event)
+            .step();
+    }
+
+    std::vector<MarketQuote> latest_quotes() const
+    {
+        std::vector<MarketQuote> result;
+        for (const auto& [_, quote] : quotes)
+            result.push_back(quote);
+        return result;
+    }
+
+    // `execute` false replays a recorded input: state only, no targets reach the account.
+    void decide(const wire::Bars& input, bool execute = true)
     {
         const auto expires_at = std::chrono::steady_clock::now() + 10s;
         // Commit the exact input before delivering it. A missing reply remains
@@ -243,6 +300,8 @@ struct StrategyHost::State
         instance.set_completed_steps(input.sequence());
         *instance.mutable_last_decision() = decision;
         instance.set_state(decision.ready() ? "ready" : "warming");
+        if (!execute)
+            return;
         save();
         std::vector<MarketQuote> selected;
         for (const auto& target : decision.targets()) {
@@ -273,20 +332,30 @@ struct StrategyHost::State
             for (const auto& event : batch.events) {
                 cursor = event.sequence;
                 if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-                    if (status->phase == MarketPhase::connected)
-                        connected = true;
-                    else if (connected || status->phase == MarketPhase::error
-                        || status->phase == MarketPhase::reconnecting)
-                        throw std::runtime_error("strategy market connection interrupted");
+                    // CTP reconnects by itself; the window continues across the gap.
+                    if (status->phase == MarketPhase::error)
+                        throw std::runtime_error("strategy market connection failed");
+                    if (status->phase == MarketPhase::connected && !online) {
+                        if (connected)
+                            record_event("market reconnected");
+                        connected = online = true;
+                    } else if (status->phase != MarketPhase::connected && online) {
+                        online = false;
+                        record_event("market disconnected");
+                    }
                 } else if (const auto* subscription =
                                std::get_if<MarketSubscription>(&event.value)) {
                     if (subscription->state == SubscriptionState::error)
                         throw std::runtime_error("strategy contract subscription rejected");
                 } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
                     if (quote->out_of_order)
-                        throw std::runtime_error("strategy market observations are unordered");
-                    quotes.insert_or_assign(quote->quote.instrument, quote->quote);
-                    for (const auto& input : bars->observe(quote->quote))
+                        continue;
+                    const auto& observed = quote->quote;
+                    const auto held = quotes.find(observed.instrument);
+                    if (observed.received_ms - observed.source_ms <= 10000
+                        && (held == quotes.end() || observed.source_ms >= held->second.source_ms))
+                        quotes.insert_or_assign(observed.instrument, observed);
+                    for (const auto& input : bars->observe(observed))
                         decide(input);
                 }
             }
@@ -300,7 +369,7 @@ struct StrategyHost::State
                     return;
                 execution.get();
             }
-            execution = account->advance_strategy_target(authority);
+            execution = account->advance_strategy_target(authority, latest_quotes());
         } catch (const std::exception& error) {
             instance.set_state("failed");
             instance.set_error(error.what());
@@ -390,6 +459,11 @@ struct StrategyHost::State
         const auto run = root / "runs" / (configuration.id() + ".sqlite");
         if (fs::exists(run))
             throw Error(ErrorCode::conflict, "strategy instance id already has a recorded run");
+        const auto replay = configuration.resume_from().empty()
+            ? std::vector<wire::Bars>{}
+            : recorded_inputs(
+                  root / "runs" / (configuration.resume_from() + ".sqlite"),
+                  configuration);
         const auto python = installation / "runtime/python/bin/python3";
         const auto code = installation / "lib/strategy";
         if (!fs::is_regular_file(python) || !fs::is_regular_file(code / "strategy_runner.py"))
@@ -420,6 +494,7 @@ struct StrategyHost::State
             records->execute("CREATE TABLE configuration (value BLOB NOT NULL)");
             records->execute(
                 "CREATE TABLE steps (sequence INTEGER PRIMARY KEY, input BLOB NOT NULL, decision BLOB)");
+            records->execute("CREATE TABLE events (time_ms INTEGER NOT NULL, event TEXT NOT NULL)");
             {
                 sqlite::Database::Transaction transaction(*records);
                 sqlite::Database::Statement insert(*records, "INSERT INTO configuration VALUES(?)");
@@ -463,21 +538,28 @@ struct StrategyHost::State
             if (!reply.ParseFromString(channel.receive(10s)) || !reply.loaded())
                 throw std::invalid_argument(
                     reply.error().empty() ? "strategy did not load" : reply.error());
+            std::uint64_t sequence = 0;
+            for (auto input : replay) {
+                input.set_sequence(++sequence);
+                decide(input, false);
+            }
             bars = std::make_unique<StrategyBars>(
                 configuration,
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
-                    .count());
+                    .count(),
+                sequence);
             feed = std::make_unique<ctp::Feed>(
                 sdk_owner,
                 installation / "lib/ctp-md.so",
                 root / "ctp-flow");
             cursor = 0;
             stream.clear();
-            connected = false;
+            connected = online = false;
             connect_deadline = std::chrono::steady_clock::now() + 30s;
             feed->connect(market, contracts);
-            instance.set_state("warming");
+            if (replay.empty())
+                instance.set_state("warming");
             instance.set_process_id(child->id());
             save();
         } catch (const std::exception& error) {
