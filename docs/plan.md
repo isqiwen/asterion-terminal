@@ -165,9 +165,19 @@
 
 ### M3.4 客户端收敛
 
-行情和交易改用生成的 TS 客户端，方式与 Lab 和 Market 数据页相同；删除 Node-API 原生编排和手写 JSON 映射。
+现状：Market 数据页和策略操作已经用“原生层持有 TLS 连接、转发生成的 Protobuf JSON”的方式。还有两条路径是手写映射：账户（`live.*` 命令、`TradingClient` 的视图、`protocol/src/trading.cpp` 的界面 JSON）和实时行情（`market_client`、`market_snapshot` 的投影、`protocol/src/market.cpp`，并入 `runtime.snapshot`）。
 
-完成标准：`apps/clients/terminal/native/` 中行情、交易客户端的编排代码已删除；`pnpm run test:e2e:journeys` 通过。
+设计：
+- **TLS 连接和私钥留在原生层**，不进入页面或 Electron 主进程的 JS；原生层只按保存的地址建立连接并原样转发，不再解析业务字段。理由：私钥已在原生层管理，改动最小。
+- **M3.4.1 账户**：新增 `trading.call {account, request}`，把 `trading.proto` 的 `Request` 原样转发、返回 `Response`，取代 `trading.strategy` 和全部 `live.*` 命令。交易页用生成的 `LiveSnapshot` 类型，打开的账户每秒读一次快照（同时最多一个在途）；状态栏和连接详情读同一份。删除 `commands_live.cpp`、`TradingClient` 的视图和渲染、`protocol/src/trading.cpp` 的界面映射、`client.ts` 里 `LiveSession` 等手写类型，`runtime.snapshot` 不再含账户。
+- **M3.4.2 行情**：新增 `market.call`（取代 `market.data`、`market.minutes`、`market.recording`）和 `market.watch`：为页面打开一条 Market `watch` 流，原生层按顺序转发服务端的帧（首帧完整，之后只有变化的行），页面用生成的类型自己维护报价表。删除 `market_client`、`market_snapshot`、`market_history` 的投影、`protocol/src/market.cpp`、`runtime.snapshot` 中的行情和 `client.ts` 的 `LiveMarket` 等类型。
+- 不变：连接设置文件、证书生成、Lab 通道、本机服务看护、Python 运行时安装。
+
+完成标准：
+- `git grep` 找不到 `live.` 命令和 `protocol/src` 中的界面 JSON 映射。
+- 交易页、行情页的组件测试使用生成的类型。
+- `pnpm run test:e2e:journeys`、`pnpm test:desktop` 和 `ctest` 通过。
+- 全市场行情页在开发桌面上流畅更新（记录一次每帧 JSON 大小和界面耗时）。
 
 ### M3.6 两周仿真浸泡（使用者）
 
