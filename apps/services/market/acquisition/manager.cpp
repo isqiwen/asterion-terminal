@@ -335,35 +335,56 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
             }
         task.set_days_total(plan.size());
         publish(task, active);
-        for (const auto& [exchange, day] : plan) {
-            check_stop(stop);
-            auto key = request.table() + "/" + exchange + "/" + day;
-            if (!request.contract().empty())
-                key += "/" + request.contract().substr(exchange.size() + 1);
-            if (request.refresh() || !version.partitions.contains(key)) {
-                MinuteBatch batch;
-                if (request.table() == "minutes")
-                    batch = source.minutes(request.contract(), day);
-                else
-                    batch.rows = request.table() == "settlement" ? source.settlement(exchange, day)
-                                                                 : source.daily(exchange, day);
+        // Every version lists all partitions: publish in batches, and on
+        // cancellation or failure keep what was fetched.
+        std::size_t unpublished = 0;
+        auto published_at = std::chrono::steady_clock::now();
+        const auto publish_batch = [&] {
+            if (!unpublished)
+                return;
+            commit();
+            unpublished = 0;
+            published_at = std::chrono::steady_clock::now();
+        };
+        try {
+            for (const auto& [exchange, day] : plan) {
                 check_stop(stop);
-                if (batch.rows.empty())
-                    task.set_days_empty(task.days_empty() + 1);
-                else {
-                    writer.put(key, batch.rows, {day});
-                    if (!batch.observations.empty())
-                        writer.put(
-                            "observations/" + key.substr(key.find('/') + 1),
-                            batch.observations,
-                            {day});
-                    commit();
+                auto key = request.table() + "/" + exchange + "/" + day;
+                if (!request.contract().empty())
+                    key += "/" + request.contract().substr(exchange.size() + 1);
+                if (request.refresh() || !version.partitions.contains(key)) {
+                    MinuteBatch batch;
+                    if (request.table() == "minutes")
+                        batch = source.minutes(request.contract(), day);
+                    else
+                        batch.rows = request.table() == "settlement"
+                            ? source.settlement(exchange, day)
+                            : source.daily(exchange, day);
+                    check_stop(stop);
+                    if (batch.rows.empty())
+                        task.set_days_empty(task.days_empty() + 1);
+                    else {
+                        writer.put(key, batch.rows, {day});
+                        if (!batch.observations.empty())
+                            writer.put(
+                                "observations/" + key.substr(key.find('/') + 1),
+                                batch.observations,
+                                {day});
+                        ++unpublished;
+                    }
                 }
+                if (unpublished >= 200
+                    || std::chrono::steady_clock::now() - published_at >= std::chrono::minutes(5))
+                    publish_batch();
+                task.set_days_done(task.days_done() + 1);
+                task.set_requests(source.requests());
+                publish(task, active);
             }
-            task.set_days_done(task.days_done() + 1);
-            task.set_requests(source.requests());
-            publish(task, active);
+        } catch (...) {
+            publish_batch();
+            throw;
         }
+        publish_batch();
         return;
     }
     for (const auto& exchange : request.exchanges()) {

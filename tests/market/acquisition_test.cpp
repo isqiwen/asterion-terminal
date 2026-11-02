@@ -549,6 +549,36 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     EXPECT_THROW(manager.submit(task), std::invalid_argument);
 }
 
+TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
+{
+    // Each version lists every partition, so one version per day grows the
+    // store quadratically.
+    auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
+    std::size_t weekdays = 0;
+    for (auto day = ac::day_of("2025-05-19"); day <= ac::day_of("2026-05-15");
+        day += std::chrono::days(1))
+        if (std::chrono::weekday(day).iso_encoding() < 6) {
+            vendor->minutes.push_back(minute_row(ac::day_text(day) + " 09:01:00"));
+            ++weekdays;
+        }
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto task = request("year");
+    task.set_table("minutes");
+    task.set_contract("SHFE/rb/2026-05");
+    task.set_begin_day("2025-05-19");
+    task.set_end_day("2026-05-15");
+    manager.submit(task);
+    const auto done = finished(manager, "year");
+    ASSERT_EQ(done.state(), "succeeded") << done.error();
+    wh::Store store(root, "tushare");
+    EXPECT_EQ(store.current().partitions.size(), weekdays);
+    std::size_t versions = 0;
+    for (const auto& entry : fs::recursive_directory_iterator(root))
+        versions += entry.path().parent_path().filename() == "versions";
+    EXPECT_LE(versions, 3U);
+}
+
 TEST_F(Acquisition, FullMinutePagesAdvanceAndRepeatedPagesFail)
 {
     auto vendor = std::make_shared<Vendor>();
