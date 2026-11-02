@@ -312,6 +312,11 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
             restarted.wait(timeout=30)
         assert restarted.returncode == 0, restarted.stderr.read()
 
+    # A provider burst that overflows the ingress queue ends the process for systemd to restart.
+    flooded = start(root, free_port(), user="flood")
+    flooded.communicate(timeout=60)
+    assert flooded.returncode != 0, flooded.returncode
+
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
     assert " info asterion_market " in logs, logs  # one text line per record
     assert not logs.lstrip().startswith("{"), logs

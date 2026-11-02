@@ -2,10 +2,13 @@
 #include "parquet_engine.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/log.hpp>
+#include <atomic>
 #include <cstdio>
 
 namespace asterion::recording {
 namespace {
+
+std::atomic<bool> held_writes{false};
 
 namespace fs = std::filesystem;
 constexpr std::int64_t flush_interval_ms = 30'000;
@@ -132,6 +135,12 @@ void write_segments(
 
 } // namespace
 
+void hold_writes_for_testing(bool hold)
+{
+    held_writes = hold;
+    held_writes.notify_all();
+}
+
 Recorder::Recorder(fs::path root, std::string instance)
     : root_(std::move(root)),
       instance_(std::move(instance))
@@ -199,6 +208,9 @@ void Recorder::close(std::string_view reason, std::int64_t now_ms, const Intrada
 {
     interrupt(reason);
     take_minutes(minutes, true);
+    // Closing may wait: the last interval is written, never dropped.
+    while (!pending_.empty())
+        collect();
     flush(now_ms);
     while (!pending_.empty())
         collect();
@@ -250,6 +262,15 @@ void Recorder::flush(std::int64_t now_ms)
     due_ = false;
     if (rows_.empty() && changed_.empty() && minutes_.empty())
         return;
+    if (pending_.size() >= writes_behind) {
+        status_.lost += rows_.size();
+        status_.error = "recording writes fell behind; an interval was dropped";
+        log::error("recording writes fell behind: dropped rows={}", rows_.size());
+        rows_.clear();
+        minutes_.clear();
+        interrupt("write_backlog");
+        return;
+    }
     std::map<std::string, std::vector<Row>> days;
     for (auto& row : rows_) {
         auto day = row.quote.trading_day;
@@ -263,8 +284,6 @@ void Recorder::flush(std::int64_t now_ms)
         days[day];
     for (auto& [day, rows] : days) {
         auto bars = std::move(minutes_[day]);
-        while (pending_.size() >= writes_behind)
-            collect();
         char part[24];
         std::snprintf(part, sizeof(part), "%06llu", static_cast<unsigned long long>(++part_));
         const auto partition = "trading_day=" + day;
@@ -286,6 +305,7 @@ void Recorder::flush(std::int64_t now_ms)
                            segments = std::move(segments),
                            listed = segments_[day],
                            rows = std::move(rows)](std::stop_token) {
+            held_writes.wait(true);
             Written written{day, {}, rows.size(), 0, 0};
             try {
                 if (!ticks.empty()) {

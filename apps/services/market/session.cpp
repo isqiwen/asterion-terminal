@@ -177,8 +177,10 @@ struct State
             }
         }
         stream = batch.stream_id;
+        // A feed that lost provider events never recovers in place: exit, and
+        // systemd starts a complete stream again.
         if (batch.failed)
-            event_cursor = batch.latest_sequence;
+            throw std::runtime_error("market feed lost provider events");
         if (recorder) {
             recorder->poll(now_ms(), intraday);
             const auto now = Clock::now();

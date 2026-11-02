@@ -40,6 +40,36 @@ std::string query(const std::string& sql)
 
 } // namespace
 
+TEST(Recorder, AStalledDiskDropsAnIntervalInsteadOfBlockingTheMarketThread)
+{
+    using namespace std::chrono_literals;
+    const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
+    {
+        recording::Recorder recorder(root, "instance");
+        IntradayBars minutes;
+        recorder.poll(base, minutes);
+        recording::hold_writes_for_testing(true);
+        for (int interval = 1; interval <= 6; ++interval) {
+            const auto at = base + interval * 30000;
+            recorder.observe(quote(at - 1000, "3100", "20261029"), false, minutes);
+            const auto started = std::chrono::steady_clock::now();
+            recorder.poll(at, minutes);
+            EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
+        }
+        // Four writes wait on the disk; the fifth and sixth intervals are dropped.
+        EXPECT_EQ(recorder.status().lost, 2u);
+        EXPECT_FALSE(recorder.status().error.empty());
+        recording::hold_writes_for_testing(false);
+        recorder.close("stopped", base + 200000, minutes);
+    }
+    EXPECT_EQ(
+        query(
+            "SELECT \"end\" FROM read_parquet('" + (root / "segments/*/*.parquet").string()
+            + "') ORDER BY segment"),
+        "write_backlog\nwrite_backlog\n");
+    fs::remove_all(root);
+}
+
 TEST(Recorder, WritesTicksMinutesAndSegmentsWithTheReasonEachSegmentEnded)
 {
     const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());

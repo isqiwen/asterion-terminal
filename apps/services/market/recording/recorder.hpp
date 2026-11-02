@@ -27,7 +27,11 @@ namespace asterion::recording {
 // to a process that stopped before it could say why. The time between two
 // segments is a gap: nothing is filled in. A segment counts the quotes it
 // observed, so fewer rows in its files means a write failed. Files are
-// written on a worker; the recording loop waits only when four writes are behind.
+// written on a worker. When four writes are behind, an interval is dropped and
+// its segment ends with `write_backlog`: the market thread never waits for the disk.
+// Test hook: writes wait while held, as on a stalled disk.
+void hold_writes_for_testing(bool hold);
+
 class Recorder
 {
 public:
