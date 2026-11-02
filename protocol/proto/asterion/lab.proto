@@ -363,6 +363,11 @@ message BacktestRun {
   // a sweep. Child processes must read these versions, never the latest ones.
   string dataset_version = 22;
   string minute_dataset_version = 23;
+  // Fixed at admission like the versions above: the strategy is imported from
+  // this copy of the repository's Python files, taken at this commit and changes.
+  string source = 24;
+  string commit = 25;
+  string changes = 26;
 }
 message RunsQuery {}
 message CancelRun {

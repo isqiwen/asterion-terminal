@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
 from pathlib import Path
+import tempfile
 import time
 
 from asterion.lab_pb2 import Request, Response, RollingRun
@@ -371,9 +372,19 @@ class Service:
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
 
-    async def launch(self, request, module="asterion_lab.backtest", repository_path=None):
+    def with_source(self, request, name):
+        """The request with the repository's code copied for it alone."""
+        fixed = type(request)()
+        fixed.CopyFrom(request)
+        (self.directory / "sources").mkdir(exist_ok=True)
+        destination = Path(tempfile.mkdtemp(prefix=f"{name}-", dir=self.directory / "sources"))
+        taken = repository.snapshot(Path(request.repository), destination)
+        fixed.source, fixed.commit, fixed.changes = str(destination), taken.commit, taken.changes
+        return fixed
+
+    async def launch(self, request, module="asterion_lab.backtest", source=None):
         process = await asyncio.create_subprocess_exec(
-            *repository.child(module), str(self.directory), cwd=repository_path or request.repository,
+            *repository.child(module), str(self.directory), cwd=source or request.source,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         process.stdin.write(request.SerializeToString())
@@ -412,13 +423,14 @@ class Service:
                                    message="not every candidate succeeded")
                 else:
                     await self.launch(rolling.request, "asterion_lab.rolling",
-                                      rolling.request.base.repository)
+                                      rolling.request.base.source)
             finally:
                 del self.rolling[sweep]
 
     async def on_backtest(self, request, response):
         await self.checked_run(request)
         request = await self.read(self.pin_backtest, request)
+        request = await asyncio.to_thread(self.with_source, request, f"run-{request.id}")
         # Accepted once recorded: whoever asked can read the run at once.
         error = await (await self.launch(request))
         if error:
@@ -436,6 +448,7 @@ class Service:
             raise ValueError(f"a sweep runs at most 10000 combinations, not {len(combinations)}")
         backtest.config_of(request.base)
         base = await self.read(self.pin_backtest, request.base)
+        base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}")
         runs, planned = [], []
         for n, values in enumerate(combinations):
             run = type(request.base)()

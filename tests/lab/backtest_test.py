@@ -84,10 +84,23 @@ class Backtests(unittest.TestCase):
                       max_order_lots=Decimal(10), max_gross_lots=Decimal(10), max_working_orders=10)
         values.update(changes)
         values.setdefault("dataset_version", Dataset(self.directory).current().identity)
+        if "source" not in values:
+            # As the service does at admission: runs import this copy, never the repository.
+            source = Path(tempfile.mkdtemp(dir=self.directory))
+            taken = repository.snapshot(self.repository, source)
+            values.update(source=str(source), commit=taken.commit, changes=taken.changes)
         if values.get("minutes"):
             values.setdefault("minute_dataset_version", dataset_of(
                 self.directory, values["minute_provider"]).current().identity)
         return backtest.Config(**values)
+
+    def test_a_run_imports_the_code_copied_at_admission(self):
+        config = self.config(("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4})
+        (self.repository / "strategies/ma_cross.py").write_text("raise RuntimeError('edited')\n")
+        backtest.run(self.directory, "pinned", config)
+        (row,) = Runs(self.directory).list()
+        self.assertEqual(row["state"], "succeeded", row["error"])
+        self.assertEqual((row["commit"], row["changes"]), (config.commit, ""))
 
     def publish_incomplete(self):
         writer = Warehouse(self.directory).writer()

@@ -137,8 +137,8 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         raise ValueError("rolling validation needs two or more candidates that all succeeded")
     candidates = [row["id"] for row in members]
     chosen, followed = select(runs, candidates, config, training, validation)
-    root = Path(config.repository)
-    revision = repository.revision(repository.checked(root))
+    # Candidates and this run share the sweep's source, copied at admission.
+    revision = repository.Revision(config.commit, config.changes)
     data = backtest.open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
@@ -157,8 +157,8 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
                     or recorded["dataset_version"] != data.version.identity
                     or recorded["bars"] != backtest.bars_record(config, data)):
                 raise ValueError(f"candidate {candidate} used different dataset versions or bar inputs")
-        strategies = [repository.load(root, config.strategy, {**config.params, **row["params"]})
-                      for row in members]
+        strategies = [repository.load(Path(config.source), config.strategy,
+                                      {**config.params, **row["params"]}) for row in members]
         contracts, series, first = backtest.prepare(data, config)
         engine = asterion_engine.Replay(
             raw(config.deposit), contracts, series,

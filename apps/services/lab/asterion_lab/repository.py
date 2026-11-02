@@ -18,6 +18,7 @@ import importlib
 import inspect
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import traceback
@@ -27,6 +28,7 @@ from asterion.lab_pb2 import Strategies
 from asterion_strategy import FIELDS, KINDS, Strategy
 
 LISTING_SECONDS = 30
+SNAPSHOT_BYTES = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,23 @@ def revision(root: Path) -> Revision:
     return Revision(commit, digest.hexdigest())
 
 
+def snapshot(root: Path, destination: Path) -> Revision:
+    """Copies the repository's Python files to `destination` for an admitted
+    run, which then never reads the repository itself."""
+    root = checked(root)
+    taken = revision(root)
+    names = [os.fsdecode(name) for name in git(
+        root, "ls-files", "-co", "--exclude-standard", "-z", "--", "*.py").split(b"\0") if name]
+    files = [name for name in names if (root / name).is_file()]
+    if sum((root / name).stat().st_size for name in files) > SNAPSHOT_BYTES:
+        raise ValueError(f"the repository's Python files exceed {SNAPSHOT_BYTES >> 20} MiB")
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        (destination / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / name, destination / name)
+    return taken
+
+
 def import_modules(root: Path, directory="strategies"):
     """Each module of a directory by name, or the error importing it raised."""
     if str(root) not in sys.path:
@@ -95,9 +114,8 @@ def defined(module) -> list:
 
 
 def load(root: Path, identity: str, values: dict) -> Strategy:
-    """The repository's strategy `<module>.<class>` with its parameters set,
-    in the process that runs it."""
-    root = checked(root)
+    """The strategy `<module>.<class>` of a repository or its snapshot, with
+    its parameters set, in the process that runs it."""
     name, _, class_name = identity.partition(".")
     for module_name, module, error in import_modules(root):
         if module_name != name:

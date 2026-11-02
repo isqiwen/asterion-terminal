@@ -93,6 +93,10 @@ class Config:
     minute_provider: str = ""
     dataset_version: str = ""
     minute_dataset_version: str = ""
+    # The copy of the repository's code taken at admission, and its revision.
+    source: str = ""
+    commit: str = ""
+    changes: str = ""
 
 
 @dataclass
@@ -554,8 +558,9 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     import asterion_engine
 
     runs = Runs(directory)
-    root = Path(config.repository)
-    revision = repository.revision(repository.checked(root))
+    if not config.source:
+        raise ValueError("research runs read the source copied at admission")
+    revision = repository.Revision(config.commit, config.changes)
     data = open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
@@ -565,7 +570,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
         bars=bars_record(config, data)))
     started()
     try:
-        strategy = repository.load(root, config.strategy, config.params)
+        strategy = repository.load(Path(config.source), config.strategy, config.params)
         contracts, series, first = prepare(data, config)
         engine = asterion_engine.Replay(
             raw(config.deposit), contracts, series,
@@ -618,7 +623,8 @@ def config_of(request) -> Config:
         annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
         holdout_day=request.holdout_day, minutes=minutes_of(request.minutes),
         minute_provider=request.minute_provider, dataset_version=request.dataset_version,
-        minute_dataset_version=request.minute_dataset_version)
+        minute_dataset_version=request.minute_dataset_version, source=request.source,
+        commit=request.commit, changes=request.changes)
 
 
 def watch_parent():
