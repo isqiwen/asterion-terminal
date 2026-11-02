@@ -1,8 +1,7 @@
 """Backtests: a strategy of the user's repository over the warehouse's daily
 bars, through asterion_engine (core's Replay).
 
-The data are read as the old Data service reads them, so that both engines
-see the same bars:
+The data are read this way:
 
 - A contract has a bar on a trading day where it traded in the auction (open,
   high and low present) and settled; the bar is labelled 15:00 Shanghai.

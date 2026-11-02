@@ -1,7 +1,6 @@
 """Dominant series of a product, from the warehouse's daily bars.
 
-The rule is that of apps/services/data/dominant_plan.cpp; keep the two in step
-until the C++ Data service is deleted. Its three parts are declared separately:
+Its three parts are declared separately:
 
 - roll basis: the largest open interest on the previous trading day, among the
   current month and later ones that settle on the day; never back to an earlier

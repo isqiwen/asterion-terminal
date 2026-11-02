@@ -1,4 +1,4 @@
-"""The dominant series rule, as the C++ Data service's tests state it.
+"""The dominant series rule.
 
 Run with the bundled interpreter: python3 -I -B dominant_test.py <source>
 """
