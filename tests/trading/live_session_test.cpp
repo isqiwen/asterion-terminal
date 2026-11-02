@@ -2146,8 +2146,16 @@ TEST_F(StrategyTarget, CancellingASupersededBatchsOrderDoesNotDropTheNewBatch)
     act(session, authorize());
     auto owner = session.register_strategy().get();
     session.accept_target(owner, lots(3), {quote()});
-    session.advance_target(owner).get();
-    ASSERT_EQ(session.snapshot().at("orders").size(), 1U);
+    ASSERT_EQ(
+        progress(
+            session,
+            owner,
+            [](const Json& s) {
+                return s.at("orders").size() == 1;
+            })
+            .at("orders")
+            .size(),
+        1U);
     // The newer target cancels the resting order once, then opens from the result.
     session.accept_target(owner, lots(3, 2), {quote()});
     const auto state = progress(session, owner, [](const Json& s) {
