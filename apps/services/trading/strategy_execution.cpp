@@ -4,6 +4,7 @@
 #include <asterion/system/process/child.hpp>
 #include <asterion/futures/portfolio_targets.hpp>
 #include <algorithm>
+#include <format>
 #include <set>
 
 namespace asterion::trading {
@@ -222,7 +223,8 @@ AccountCommand LiveAccountState::advance_strategy_target(
             policy_->definition.contracts,
             state,
             !unconfirmed(state).empty());
-        if (plan.state == StrategyPlanState::settled) {
+        if (plan.state == StrategyPlanState::settled
+            || (strategy_->paused && plan.state == StrategyPlanState::opening)) {
             strategy_->batch.reset();
             co_return;
         }
@@ -232,6 +234,8 @@ AccountCommand LiveAccountState::advance_strategy_target(
         const auto quote = std::ranges::find_if(batch.quotes, [&](const auto& q) {
             return q.instrument == leg.instrument;
         });
+        if (quote == batch.quotes.end())
+            throw Error(ErrorCode::unavailable, "no direct quote of " + leg.instrument.symbol);
         const auto price = leg.side == Side::buy ? quote->ask : quote->bid;
         const auto liquidity = leg.side == Side::buy ? quote->ask_quantity : quote->bid_quantity;
         if (!price || *price <= Decimal{} || liquidity <= 0)
@@ -268,6 +272,15 @@ AccountCommand LiveAccountState::advance_strategy_target(
             {{id, leg.instrument, leg.side, leg.quantity, *price}, leg.offset},
             origin);
         batch.last_order = id;
+        strategy_->events.push_back(
+            std::format(
+                "sent {}/{} {} {} {} @ {}",
+                leg.instrument.venue,
+                leg.instrument.symbol,
+                leg.side == Side::buy ? "buy" : "sell",
+                leg.offset == Offset::open ? "open" : "close",
+                leg.quantity.str(),
+                price->str()));
         // No references to batch survive this suspension: a stop can release it.
         co_await execute_strategy(basis, request, control);
     } catch (const std::invalid_argument& error) {
@@ -300,8 +313,45 @@ void LiveAccountState::abandon_strategy_batch(std::string_view reason)
         strategy_->sequence,
         reason);
     strategy_->batch.reset();
+    strategy_->events.push_back("batch abandoned: " + std::string(reason));
     send_gate_.invalidate();
     request_strategy_cancels();
+}
+
+void LiveAccountState::pause_strategy(const StrategyAuthorityPtr& authority, bool paused)
+{
+    if (!strategy_ || strategy_->authority != authority)
+        throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
+    strategy_->paused = paused;
+}
+
+void LiveAccountState::flatten_strategy(
+    const StrategyAuthorityPtr& authority,
+    std::vector<MarketQuote> quotes)
+{
+    if (!strategy_ || strategy_->authority != authority)
+        throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
+    abandon_strategy_batch("superseded by flattening");
+    strategy_->paused = true;
+    const auto now = std::chrono::steady_clock::now();
+    StrategyTargetBatch batch;
+    batch.accepted_at = now;
+    batch.quotes = std::move(quotes);
+    batch.sized = true;
+    for (const auto& contract : authority->contracts_)
+        batch.targets.push_back({contract, Decimal{}});
+    strategy_->next_leg = 0;
+    strategy_->deadline = now + std::chrono::seconds(10);
+    strategy_->batch = std::move(batch);
+    strategy_->events.push_back("flattening");
+}
+
+std::vector<std::string> LiveAccountState::take_strategy_events(
+    const StrategyAuthorityPtr& authority)
+{
+    if (!strategy_ || strategy_->authority != authority)
+        throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
+    return std::exchange(strategy_->events, {});
 }
 
 std::string LiveAccountState::strategy_failure(const StrategyAuthorityPtr& authority) const

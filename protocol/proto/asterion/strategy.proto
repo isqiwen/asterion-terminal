@@ -60,6 +60,12 @@ message InstanceStatus {
   uint64 process_id = 4;
   uint64 completed_steps = 5;
   Decision last_decision = 6;
+  bool paused = 7; // targets only reduce positions
+  repeated InstanceEvent events = 8; // the latest, oldest first
+}
+message InstanceEvent {
+  int64 time_ms = 1;
+  string text = 2;
 }
 message State {
   repeated Manifest packages = 1;
@@ -68,12 +74,18 @@ message State {
 message Stop {
   string instance_id = 1; // stop only the instance the caller inspected
 }
+message Pause {
+  string instance_id = 1;
+  bool paused = 2;
+}
 message Request {
   oneof operation {
     Package publish = 1;
     Empty inspect = 2;
     Instance start = 3;
     Stop stop = 4;
+    Pause pause = 5;
+    Stop flatten = 6; // pauses the instance and closes its contracts
   }
 }
 // Private Trading-to-child IPC. No order or authorization operation.

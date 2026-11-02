@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/strategy.proto.
  */
 export const file_asterion_strategy: GenFile = /*@__PURE__*/
-  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIXYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8iBwoFRW1wdHkiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiWAoITWFuaWZlc3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBWVudHJ5GAMgASgJEg8KB3J1bnRpbWUYBCABKAkSDQoFZmlsZXMYBSADKAkiJQoERmlsZRIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAwibAoHUGFja2FnZRIzCghtYW5pZmVzdBgBIAEoCzIhLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLk1hbmlmZXN0EiwKBWZpbGVzGAIgAygLMh0uYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uRmlsZSItCgVCdWlsZBISCgpyZXBvc2l0b3J5GAEgASgJEhAKCG1hbmlmZXN0GAIgASgJIisKClBhY2thZ2VSZWYSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJIl4KDFdlaWdodEJ1ZGdldBIYCgtncm9zc191bml0cxgBIAEoEkgAiAEBEhYKCW5ldF91bml0cxgCIAEoEkgBiAEBQg4KDF9ncm9zc191bml0c0IMCgpfbmV0X3VuaXRzItkCCghJbnN0YW5jZRIKCgJpZBgBIAEoCRI0CgdwYWNrYWdlGAIgASgLMiMuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFja2FnZVJlZhIRCgljb250cmFjdHMYAyADKAkSDgoGcGVyaW9kGAQgASgJEj0KBnBhcmFtcxgFIAMoCzItLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkluc3RhbmNlLlBhcmFtc0VudHJ5EjwKDXdlaWdodF9idWRnZXQYBiABKAsyJS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5XZWlnaHRCdWRnZXQSEwoLcmVzdW1lX2Zyb20YByABKAkaVgoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEjYKBXZhbHVlGAIgASgLMicuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIs8BCg5JbnN0YW5jZVN0YXR1cxI4Cg1jb25maWd1cmF0aW9uGAEgASgLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uSW5zdGFuY2USDQoFc3RhdGUYAiABKAkSDQoFZXJyb3IYAyABKAkSEgoKcHJvY2Vzc19pZBgEIAEoBBIXCg9jb21wbGV0ZWRfc3RlcHMYBSABKAQSOAoNbGFzdF9kZWNpc2lvbhgGIAEoCzIhLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkRlY2lzaW9uIncKBVN0YXRlEjMKCHBhY2thZ2VzGAEgAygLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uTWFuaWZlc3QSOQoIaW5zdGFuY2UYAiABKAsyJy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5JbnN0YW5jZVN0YXR1cyIbCgRTdG9wEhMKC2luc3RhbmNlX2lkGAEgASgJIuEBCgdSZXF1ZXN0EjMKB3B1Ymxpc2gYASABKAsyIC5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5QYWNrYWdlSAASMQoHaW5zcGVjdBgCIAEoCzIeLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkVtcHR5SAASMgoFc3RhcnQYAyABKAsyIS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5JbnN0YW5jZUgAEi0KBHN0b3AYBCABKAsyHS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5TdG9wSABCCwoJb3BlcmF0aW9uIq0BCgxDaGlsZFJlcXVlc3QSMQoEbG9hZBgBIAEoCzIhLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkluc3RhbmNlSAASLgoEc3RvcBgCIAEoCzIeLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkVtcHR5SAASLQoEYmFycxgDIAEoCzIdLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkJhcnNIAEILCglvcGVyYXRpb24iYAoKQ2hpbGRSZXBseRINCgVlcnJvchgBIAEoCRIOCgZsb2FkZWQYAiABKAgSMwoIZGVjaXNpb24YAyABKAsyIS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5EZWNpc2lvbiLWAQoDQmFyEhAKCGNvbnRyYWN0GAEgASgJEhMKC3RyYWRpbmdfZGF5GAIgASgJEg4KBmVuZF9tcxgDIAEoAxISCgpvcGVuX3VuaXRzGAQgASgSEhIKCmhpZ2hfdW5pdHMYBSABKBISEQoJbG93X3VuaXRzGAYgASgSEhMKC2Nsb3NlX3VuaXRzGAcgASgSEg4KBnZvbHVtZRgIIAEoAxIgChNvcGVuX2ludGVyZXN0X3VuaXRzGAkgASgSSACIAQFCFgoUX29wZW5faW50ZXJlc3RfdW5pdHMiRAoEQmFycxIQCghzZXF1ZW5jZRgBIAEoBBIqCgRiYXJzGAIgAygLMhwuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uQmFyIksKBlRhcmdldBIQCghjb250cmFjdBgBIAEoCRIOCgRsb3RzGAIgASgSSAASFgoMd2VpZ2h0X3VuaXRzGAMgASgSSABCBwoFdmFsdWUiXQoIRGVjaXNpb24SEAoIc2VxdWVuY2UYASABKAQSDQoFcmVhZHkYAiABKAgSMAoHdGFyZ2V0cxgDIAMoCzIfLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLlRhcmdldGIGcHJvdG8z");
+  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIXYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8iBwoFRW1wdHkiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiWAoITWFuaWZlc3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBWVudHJ5GAMgASgJEg8KB3J1bnRpbWUYBCABKAkSDQoFZmlsZXMYBSADKAkiJQoERmlsZRIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAwibAoHUGFja2FnZRIzCghtYW5pZmVzdBgBIAEoCzIhLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLk1hbmlmZXN0EiwKBWZpbGVzGAIgAygLMh0uYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uRmlsZSItCgVCdWlsZBISCgpyZXBvc2l0b3J5GAEgASgJEhAKCG1hbmlmZXN0GAIgASgJIisKClBhY2thZ2VSZWYSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJIl4KDFdlaWdodEJ1ZGdldBIYCgtncm9zc191bml0cxgBIAEoEkgAiAEBEhYKCW5ldF91bml0cxgCIAEoEkgBiAEBQg4KDF9ncm9zc191bml0c0IMCgpfbmV0X3VuaXRzItkCCghJbnN0YW5jZRIKCgJpZBgBIAEoCRI0CgdwYWNrYWdlGAIgASgLMiMuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFja2FnZVJlZhIRCgljb250cmFjdHMYAyADKAkSDgoGcGVyaW9kGAQgASgJEj0KBnBhcmFtcxgFIAMoCzItLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkluc3RhbmNlLlBhcmFtc0VudHJ5EjwKDXdlaWdodF9idWRnZXQYBiABKAsyJS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5XZWlnaHRCdWRnZXQSEwoLcmVzdW1lX2Zyb20YByABKAkaVgoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEjYKBXZhbHVlGAIgASgLMicuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFyYW1ldGVyVmFsdWU6AjgBIpcCCg5JbnN0YW5jZVN0YXR1cxI4Cg1jb25maWd1cmF0aW9uGAEgASgLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uSW5zdGFuY2USDQoFc3RhdGUYAiABKAkSDQoFZXJyb3IYAyABKAkSEgoKcHJvY2Vzc19pZBgEIAEoBBIXCg9jb21wbGV0ZWRfc3RlcHMYBSABKAQSOAoNbGFzdF9kZWNpc2lvbhgGIAEoCzIhLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkRlY2lzaW9uEg4KBnBhdXNlZBgHIAEoCBI2CgZldmVudHMYCCADKAsyJi5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5JbnN0YW5jZUV2ZW50Ii4KDUluc3RhbmNlRXZlbnQSDwoHdGltZV9tcxgBIAEoAxIMCgR0ZXh0GAIgASgJIncKBVN0YXRlEjMKCHBhY2thZ2VzGAEgAygLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uTWFuaWZlc3QSOQoIaW5zdGFuY2UYAiABKAsyJy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5JbnN0YW5jZVN0YXR1cyIbCgRTdG9wEhMKC2luc3RhbmNlX2lkGAEgASgJIiwKBVBhdXNlEhMKC2luc3RhbmNlX2lkGAEgASgJEg4KBnBhdXNlZBgCIAEoCCLEAgoHUmVxdWVzdBIzCgdwdWJsaXNoGAEgASgLMiAuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGFja2FnZUgAEjEKB2luc3BlY3QYAiABKAsyHi5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5FbXB0eUgAEjIKBXN0YXJ0GAMgASgLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uSW5zdGFuY2VIABItCgRzdG9wGAQgASgLMh0uYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uU3RvcEgAEi8KBXBhdXNlGAUgASgLMh4uYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uUGF1c2VIABIwCgdmbGF0dGVuGAYgASgLMh0uYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uU3RvcEgAQgsKCW9wZXJhdGlvbiKtAQoMQ2hpbGRSZXF1ZXN0EjEKBGxvYWQYASABKAsyIS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5JbnN0YW5jZUgAEi4KBHN0b3AYAiABKAsyHi5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5FbXB0eUgAEi0KBGJhcnMYAyABKAsyHS5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5CYXJzSABCCwoJb3BlcmF0aW9uImAKCkNoaWxkUmVwbHkSDQoFZXJyb3IYASABKAkSDgoGbG9hZGVkGAIgASgIEjMKCGRlY2lzaW9uGAMgASgLMiEuYXN0ZXJpb24uc3RyYXRlZ3kucHJvdG8uRGVjaXNpb24i1gEKA0JhchIQCghjb250cmFjdBgBIAEoCRITCgt0cmFkaW5nX2RheRgCIAEoCRIOCgZlbmRfbXMYAyABKAMSEgoKb3Blbl91bml0cxgEIAEoEhISCgpoaWdoX3VuaXRzGAUgASgSEhEKCWxvd191bml0cxgGIAEoEhITCgtjbG9zZV91bml0cxgHIAEoEhIOCgZ2b2x1bWUYCCABKAMSIAoTb3Blbl9pbnRlcmVzdF91bml0cxgJIAEoEkgAiAEBQhYKFF9vcGVuX2ludGVyZXN0X3VuaXRzIkQKBEJhcnMSEAoIc2VxdWVuY2UYASABKAQSKgoEYmFycxgCIAMoCzIcLmFzdGVyaW9uLnN0cmF0ZWd5LnByb3RvLkJhciJLCgZUYXJnZXQSEAoIY29udHJhY3QYASABKAkSDgoEbG90cxgCIAEoEkgAEhYKDHdlaWdodF91bml0cxgDIAEoEkgAQgcKBXZhbHVlIl0KCERlY2lzaW9uEhAKCHNlcXVlbmNlGAEgASgEEg0KBXJlYWR5GAIgASgIEjAKB3RhcmdldHMYAyADKAsyHy5hc3Rlcmlvbi5zdHJhdGVneS5wcm90by5UYXJnZXRiBnByb3RvMw");
 
 /**
  * @generated from message asterion.strategy.proto.Empty
@@ -318,6 +318,20 @@ export type InstanceStatus = Message<"asterion.strategy.proto.InstanceStatus"> &
    * @generated from field: asterion.strategy.proto.Decision last_decision = 6;
    */
   lastDecision?: Decision | undefined;
+
+  /**
+   * targets only reduce positions
+   *
+   * @generated from field: bool paused = 7;
+   */
+  paused: boolean;
+
+  /**
+   * the latest, oldest first
+   *
+   * @generated from field: repeated asterion.strategy.proto.InstanceEvent events = 8;
+   */
+  events: InstanceEvent[];
 };
 
 /**
@@ -326,6 +340,28 @@ export type InstanceStatus = Message<"asterion.strategy.proto.InstanceStatus"> &
  */
 export const InstanceStatusSchema: GenMessage<InstanceStatus> = /*@__PURE__*/
   messageDesc(file_asterion_strategy, 9);
+
+/**
+ * @generated from message asterion.strategy.proto.InstanceEvent
+ */
+export type InstanceEvent = Message<"asterion.strategy.proto.InstanceEvent"> & {
+  /**
+   * @generated from field: int64 time_ms = 1;
+   */
+  timeMs: bigint;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message asterion.strategy.proto.InstanceEvent.
+ * Use `create(InstanceEventSchema)` to create a new message.
+ */
+export const InstanceEventSchema: GenMessage<InstanceEvent> = /*@__PURE__*/
+  messageDesc(file_asterion_strategy, 10);
 
 /**
  * @generated from message asterion.strategy.proto.State
@@ -347,7 +383,7 @@ export type State = Message<"asterion.strategy.proto.State"> & {
  * Use `create(StateSchema)` to create a new message.
  */
 export const StateSchema: GenMessage<State> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 10);
+  messageDesc(file_asterion_strategy, 11);
 
 /**
  * @generated from message asterion.strategy.proto.Stop
@@ -366,7 +402,29 @@ export type Stop = Message<"asterion.strategy.proto.Stop"> & {
  * Use `create(StopSchema)` to create a new message.
  */
 export const StopSchema: GenMessage<Stop> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 11);
+  messageDesc(file_asterion_strategy, 12);
+
+/**
+ * @generated from message asterion.strategy.proto.Pause
+ */
+export type Pause = Message<"asterion.strategy.proto.Pause"> & {
+  /**
+   * @generated from field: string instance_id = 1;
+   */
+  instanceId: string;
+
+  /**
+   * @generated from field: bool paused = 2;
+   */
+  paused: boolean;
+};
+
+/**
+ * Describes the message asterion.strategy.proto.Pause.
+ * Use `create(PauseSchema)` to create a new message.
+ */
+export const PauseSchema: GenMessage<Pause> = /*@__PURE__*/
+  messageDesc(file_asterion_strategy, 13);
 
 /**
  * @generated from message asterion.strategy.proto.Request
@@ -399,6 +457,20 @@ export type Request = Message<"asterion.strategy.proto.Request"> & {
      */
     value: Stop;
     case: "stop";
+  } | {
+    /**
+     * @generated from field: asterion.strategy.proto.Pause pause = 5;
+     */
+    value: Pause;
+    case: "pause";
+  } | {
+    /**
+     * pauses the instance and closes its contracts
+     *
+     * @generated from field: asterion.strategy.proto.Stop flatten = 6;
+     */
+    value: Stop;
+    case: "flatten";
   } | { case: undefined; value?: undefined };
 };
 
@@ -407,7 +479,7 @@ export type Request = Message<"asterion.strategy.proto.Request"> & {
  * Use `create(RequestSchema)` to create a new message.
  */
 export const RequestSchema: GenMessage<Request> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 12);
+  messageDesc(file_asterion_strategy, 14);
 
 /**
  * Private Trading-to-child IPC. No order or authorization operation.
@@ -444,7 +516,7 @@ export type ChildRequest = Message<"asterion.strategy.proto.ChildRequest"> & {
  * Use `create(ChildRequestSchema)` to create a new message.
  */
 export const ChildRequestSchema: GenMessage<ChildRequest> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 13);
+  messageDesc(file_asterion_strategy, 15);
 
 /**
  * @generated from message asterion.strategy.proto.ChildReply
@@ -471,7 +543,7 @@ export type ChildReply = Message<"asterion.strategy.proto.ChildReply"> & {
  * Use `create(ChildReplySchema)` to create a new message.
  */
 export const ChildReplySchema: GenMessage<ChildReply> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 14);
+  messageDesc(file_asterion_strategy, 16);
 
 /**
  * Exact received-input record. Prices and weights use eight-place Decimal units.
@@ -532,7 +604,7 @@ export type Bar = Message<"asterion.strategy.proto.Bar"> & {
  * Use `create(BarSchema)` to create a new message.
  */
 export const BarSchema: GenMessage<Bar> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 15);
+  messageDesc(file_asterion_strategy, 17);
 
 /**
  * @generated from message asterion.strategy.proto.Bars
@@ -556,7 +628,7 @@ export type Bars = Message<"asterion.strategy.proto.Bars"> & {
  * Use `create(BarsSchema)` to create a new message.
  */
 export const BarsSchema: GenMessage<Bars> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 16);
+  messageDesc(file_asterion_strategy, 18);
 
 /**
  * @generated from message asterion.strategy.proto.Target
@@ -590,7 +662,7 @@ export type Target = Message<"asterion.strategy.proto.Target"> & {
  * Use `create(TargetSchema)` to create a new message.
  */
 export const TargetSchema: GenMessage<Target> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 17);
+  messageDesc(file_asterion_strategy, 19);
 
 /**
  * @generated from message asterion.strategy.proto.Decision
@@ -619,5 +691,5 @@ export type Decision = Message<"asterion.strategy.proto.Decision"> & {
  * Use `create(DecisionSchema)` to create a new message.
  */
 export const DecisionSchema: GenMessage<Decision> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 18);
+  messageDesc(file_asterion_strategy, 20);
 

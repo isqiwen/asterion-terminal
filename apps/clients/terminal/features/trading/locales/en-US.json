@@ -32,7 +32,7 @@
   "总持仓量上限": "Max Gross Quantity",
   "在途委托数上限": "Max Working Orders",
   "风险限制": "Risk Limits",
-  "平仓": "Close",
+  "平仓": "Close positions",
   "委托与持仓限制": "Order & position limits",
   "委托合约": "Order Contract",
   "撤销授权": "Revoke Authorization",
@@ -296,5 +296,12 @@
   "实例 ID 不可复用；重新启动须使用新 ID。": "Instance IDs cannot be reused; a restart needs a new ID.",
   "恢复自": "Resumes from",
   "实例 {id} 的记录": "Record of instance {id}",
-  "从实例 {id} 的记录恢复": "Resume from the record of instance {id}"
+  "从实例 {id} 的记录恢复": "Resume from the record of instance {id}",
+  "已暂停新增：目标只减仓。": "New positions paused: targets only reduce.",
+  "最近事件": "Recent events",
+  "确认对实例 {id} 的合约平仓？实例会暂停新增并继续运行。": "Close the positions of instance {id}? The instance pauses new positions and keeps running.",
+  "确认平仓": "Confirm closing",
+  "恢复新增": "Resume new positions",
+  "暂停新增": "Pause new positions",
+  "策略实例 {id}": "Strategy instance {id}"
 }

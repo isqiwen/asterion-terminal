@@ -18,15 +18,21 @@ export function StrategyMonitor({
   observedAt,
   fresh,
   stopping,
+  busy,
   stop,
+  pause,
+  flatten,
 }: {
   instance?: InstanceStatus;
   observedAt?: Date;
   fresh: boolean;
   stopping: boolean;
+  busy: boolean;
   stop: (id: string) => Promise<boolean>;
+  pause: (id: string, paused: boolean) => Promise<boolean>;
+  flatten: (id: string) => Promise<boolean>;
 }) {
-  const [confirm, setConfirm] = useState<string>();
+  const [confirm, setConfirm] = useState<{ id: string; action: "stop" | "flatten" }>();
   const configuration = instance?.configuration;
   if (!instance || !configuration) return null;
   return (
@@ -38,6 +44,7 @@ export function StrategyMonitor({
         {t(states[instance.state] ?? "未知策略状态")}
         {!fresh && ` · ${t("上次已知状态")}`}
       </p>
+      {instance.paused && <p role="status">{t("已暂停新增：目标只减仓。")}</p>}
       {instance.error && (
         <p className="alert" role="alert">
           <ErrorNotice error={new BackendError("operation_failed", instance.error)} />
@@ -110,31 +117,67 @@ export function StrategyMonitor({
           <p className="subtle">{t("目标不代表成交；实际持仓和委托请查看下方账户记录。")}</p>
         </div>
       )}
+      {instance.events.length > 0 && (
+        <div>
+          <h4>{t("最近事件")}</h4>
+          <ul className="strategy-events">
+            {[...instance.events].reverse().map(event => (
+              <li key={`${event.timeMs}-${event.text}`}>
+                {new Date(Number(event.timeMs)).toLocaleTimeString(getLocale(), { hour12: false })}{" "}
+                · {event.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="subtle">
         {t("关闭 Terminal 不影响已授权交易。停止策略会尝试撤销其未终结委托，保留持仓与账户授权。")}
       </p>
       {confirm ? (
         <div className="creation-review">
-          <p>{t("确认停止实例 {id} 并尝试撤单？此操作不会平仓。", { id: confirm })}</p>
-          <button disabled={stopping} onClick={() => setConfirm(undefined)}>
+          <p>
+            {confirm.action === "stop"
+              ? t("确认停止实例 {id} 并尝试撤单？此操作不会平仓。", { id: confirm.id })
+              : t("确认对实例 {id} 的合约平仓？实例会暂停新增并继续运行。", { id: confirm.id })}
+          </p>
+          <button disabled={stopping || busy} onClick={() => setConfirm(undefined)}>
             {t("取消")}
           </button>
           <button
-            disabled={stopping}
+            disabled={stopping || busy}
             onClick={() =>
-              void stop(confirm).then(stopped => {
-                if (stopped) setConfirm(undefined);
-              })
+              void (confirm.action === "stop" ? stop(confirm.id) : flatten(confirm.id)).then(
+                done => {
+                  if (done) setConfirm(undefined);
+                },
+              )
             }
           >
-            {t("确认停止并撤单")}
+            {t(confirm.action === "stop" ? "确认停止并撤单" : "确认平仓")}
           </button>
         </div>
       ) : (
         activeStrategy(instance.state) && (
-          <button disabled={stopping} onClick={() => setConfirm(configuration.id)}>
-            {t("停止策略并撤单")}
-          </button>
+          <div className="strategy-actions">
+            <button
+              disabled={busy || stopping}
+              onClick={() => void pause(configuration.id, !instance.paused)}
+            >
+              {t(instance.paused ? "恢复新增" : "暂停新增")}
+            </button>
+            <button
+              disabled={busy || stopping}
+              onClick={() => setConfirm({ id: configuration.id, action: "flatten" })}
+            >
+              {t("平仓")}
+            </button>
+            <button
+              disabled={stopping}
+              onClick={() => setConfirm({ id: configuration.id, action: "stop" })}
+            >
+              {t("停止策略并撤单")}
+            </button>
+          </div>
         )
       )}
     </section>

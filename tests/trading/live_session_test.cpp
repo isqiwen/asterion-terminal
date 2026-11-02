@@ -135,6 +135,21 @@ public:
         return session_.strategy_failure(std::move(authority)).get();
     }
 
+    void pause_strategy(trading::StrategyAuthorityPtr authority, bool paused)
+    {
+        session_.pause_strategy(std::move(authority), paused).get();
+    }
+
+    void flatten_strategy(trading::StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes)
+    {
+        session_.flatten_strategy(std::move(authority), std::move(quotes)).get();
+    }
+
+    auto strategy_events(trading::StrategyAuthorityPtr authority)
+    {
+        return session_.take_strategy_events(std::move(authority)).get();
+    }
+
     auto execute_strategy(trading::StrategyOrderBasis basis, const Json& command)
     {
         auto request = trading::AccountRequest::from_wire(protocol::encode_command(command));
@@ -2165,6 +2180,43 @@ TEST_F(StrategyTarget, CancellingASupersededBatchsOrderDoesNotDropTheNewBatch)
     EXPECT_EQ(state.at("orders")[0].at("status"), "cancelled");
     EXPECT_EQ(state.at("orders")[1].at("quantity"), "3");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    const auto filled = [](std::size_t count) {
+        return [count](const Json& s) {
+            return s.at("orders").size() == count && s.at("orders").back().at("status") == "filled"
+                && s.at("positions_reconciled") == true;
+        };
+    };
+    session.accept_target(owner, lots(2), {quote()});
+    ASSERT_EQ(progress(session, owner, filled(1)).at("orders").size(), 1U);
+    session.advance_target(owner).get(); // Retire the settled batch.
+    session.pause_strategy(owner, true);
+    session.accept_target(owner, lots(4, 2), {quote()});
+    for (int i = 0; i < 5; ++i)
+        session.advance_target(owner).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U) << "paused: no opening order";
+    session.flatten_strategy(owner, {quote()});
+    const auto state = progress(session, owner, filled(2));
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
+    EXPECT_EQ(state.at("orders")[1].at("quantity"), "2");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+    const auto events = session.strategy_events(owner);
+    EXPECT_NE(std::ranges::find(events, "flattening"), events.end());
+    EXPECT_EQ(
+        std::ranges::count_if(
+            events,
+            [](const auto& e) {
+                return e.starts_with("sent ");
+            }),
+        2);
 }
 
 TEST_F(StrategyTarget, RevocationDuringDirectQuoteSubmissionStillFencesDurableDispatch)

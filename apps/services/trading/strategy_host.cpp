@@ -230,15 +230,40 @@ struct StrategyHost::State
 
     void record_event(const std::string& event)
     {
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+                             .count();
         sqlite::Database::Statement insert(*records, "INSERT INTO events VALUES(?,?)");
-        insert
-            .bind(
-                1,
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch())
-                    .count())
-            .bind(2, event)
-            .step();
+        insert.bind(1, now).bind(2, event).step();
+        log::info("strategy {}: {}", instance.configuration().id(), event);
+        auto* added = instance.add_events();
+        added->set_time_ms(now);
+        added->set_text(event);
+        if (instance.events_size() > 20)
+            instance.mutable_events()->DeleteSubrange(0, 1);
+        save();
+    }
+
+    void require_running(const std::string& id) const
+    {
+        if (!authority || instance.configuration().id() != id)
+            throw Error(ErrorCode::conflict, "strategy instance changed; inspect before acting");
+    }
+
+    void pause(const wire::Pause& request)
+    {
+        require_running(request.instance_id());
+        account->pause_strategy(authority, request.paused()).get();
+        instance.set_paused(request.paused());
+        record_event(request.paused() ? "paused" : "resumed");
+    }
+
+    void flatten(const wire::Stop& request)
+    {
+        require_running(request.instance_id());
+        account->flatten_strategy(authority, latest_quotes()).get();
+        instance.set_paused(true);
+        record_event("flatten requested");
     }
 
     std::vector<MarketQuote> latest_quotes() const
@@ -324,6 +349,8 @@ struct StrategyHost::State
                 const auto failure = account->strategy_failure(authority).get();
                 if (!failure.empty())
                     throw std::runtime_error(failure);
+                for (const auto& event : account->take_strategy_events(authority).get())
+                    record_event(event);
             }
             feed->poll();
             const auto batch = feed->events_after(stream, cursor, 1024);
@@ -612,6 +639,10 @@ std::future<wire::State> StrategyHost::request(wire::Request request, LiveSessio
                 state_->publish(request.publish());
             else if (request.has_start())
                 state_->start(request.start(), account);
+            else if (request.has_pause())
+                state_->pause(request.pause());
+            else if (request.has_flatten())
+                state_->flatten(request.flatten());
             else if (request.has_stop()) {
                 if (request.stop().instance_id().empty())
                     throw std::invalid_argument("stopping a strategy requires its instance id");

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Package, State } from "../../src/generated/asterion/strategy_pb";
+import type { InstanceStatus, Package, State } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
@@ -10,6 +10,18 @@ import "./strategy.css";
 
 type Props = { account: string; repository: string; live?: StrategyAccount; connected?: boolean };
 type Operation = NonNullable<Parameters<typeof strategyRequest>[1]>;
+
+// A desktop notification when an instance fails or drops a batch while Terminal is open.
+function notify(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
+  const id = next?.configuration?.id;
+  if (!id || previous?.configuration?.id !== id || typeof Notification === "undefined") return;
+  const seen = previous.events.at(-1)?.timeMs ?? 0n;
+  const alerts = next.events
+    .filter(event => event.timeMs > seen && event.text.startsWith("batch abandoned"))
+    .map(event => event.text);
+  if (next.state === "failed" && previous.state !== "failed") alerts.push(next.error);
+  for (const body of alerts) new Notification(t("策略实例 {id}", { id }), { body });
+}
 
 export function StrategyPackages(props: Props) {
   return <AccountStrategies key={props.account} {...props} />;
@@ -33,7 +45,10 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   const commandPending = useRef(false);
   const stopPending = useRef(false);
   const preparing = useRef(false);
+  const seen = useRef<InstanceStatus | undefined>(undefined);
   const accept = (next: State) => {
+    notify(seen.current, next.instance);
+    seen.current = next.instance;
     setState(next);
     setFresh(true);
     setReadError("");
@@ -206,7 +221,10 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
             observedAt={observedAt}
             fresh={fresh}
             stopping={stopping}
+            busy={busy}
             stop={instanceId => mutate({ case: "stop", value: { instanceId } })}
+            pause={(instanceId, paused) => mutate({ case: "pause", value: { instanceId, paused } })}
+            flatten={instanceId => mutate({ case: "flatten", value: { instanceId } })}
           />
           <StrategyInstance
             state={state}

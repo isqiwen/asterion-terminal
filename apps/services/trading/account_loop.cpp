@@ -539,6 +539,32 @@ std::future<std::string> LiveSession::strategy_failure(StrategyAuthorityPtr auth
         Loop::Admission::strategy_observation);
 }
 
+std::future<void> LiveSession::pause_strategy(StrategyAuthorityPtr authority, bool paused)
+{
+    return loop_->call([authority = std::move(authority), paused](LiveAccountState& account) {
+        account.pause_strategy(authority, paused);
+    });
+}
+
+std::future<void>
+LiveSession::flatten_strategy(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes)
+{
+    return loop_->call([authority = std::move(authority), quotes = std::move(quotes)](
+                           LiveAccountState& account) mutable {
+        account.flatten_strategy(authority, std::move(quotes));
+    });
+}
+
+std::future<std::vector<std::string>> LiveSession::take_strategy_events(
+    StrategyAuthorityPtr authority)
+{
+    return loop_->call(
+        [authority = std::move(authority)](LiveAccountState& account) {
+            return account.take_strategy_events(authority);
+        },
+        Loop::Admission::strategy_observation);
+}
+
 std::future<void> LiveSession::execute_strategy(StrategyOrderBasis basis, SubmitOrder order)
 {
     if (!basis.authority

@@ -90,7 +90,9 @@ def main():
                 assert saved == config
                 rows = db.execute('SELECT input,decision FROM steps ORDER BY sequence').fetchall()
                 events = [row[0] for row in db.execute('SELECT event FROM events ORDER BY rowid')]
-            assert events == ['market disconnected', 'market reconnected'], events
+            assert [e for e in events if e.startswith('market')] == ['market disconnected', 'market reconnected'], events
+            assert events[0].startswith('sent SHFE/rb2610 buy open 3'), events
+            assert 'batch abandoned: strategy target expired before completion' in events, events
             assert len(rows) >= 3
             namespace = {}; exec(CODE, namespace)
             strategy, context = namespace['TwoBars'](), Context(config.contracts)
@@ -117,6 +119,10 @@ def main():
             resumed = rpc(host, wire.Request(start=resumed_config)).instance
             assert resumed.state == 'ready' and resumed.completed_steps == len(rows), resumed
             assert resumed.last_decision == wire.Decision.FromString(rows[-1][1]), resumed
+            paused = rpc(host, wire.Request(pause=wire.Pause(instance_id=resumed_config.id, paused=True))).instance
+            assert paused.paused and paused.events[-1].text == 'paused', paused
+            flattened = rpc(host, wire.Request(flatten=wire.Stop(instance_id=resumed_config.id))).instance
+            assert flattened.paused and flattened.events[-1].text == 'flatten requested', flattened
             rpc(host, wire.Request(stop=wire.Stop(instance_id=resumed_config.id)))
             other = wire.Instance()
             other.CopyFrom(resumed_config)

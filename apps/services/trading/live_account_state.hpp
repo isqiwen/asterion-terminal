@@ -56,6 +56,12 @@ public:
         std::optional<StrategyWeightBudget> budget);
     void release_strategy(const StrategyAuthorityPtr& authority);
     std::string strategy_failure(const StrategyAuthorityPtr& authority) const;
+    // While paused, targets only reduce positions.
+    void pause_strategy(const StrategyAuthorityPtr& authority, bool paused);
+    // Pauses the instance and closes its contracts through the same execution path.
+    void flatten_strategy(const StrategyAuthorityPtr& authority, std::vector<MarketQuote> quotes);
+    // Execution events since the last call: orders sent and batches abandoned.
+    std::vector<std::string> take_strategy_events(const StrategyAuthorityPtr& authority);
     void fail_strategy(std::string reason);
     // Drops the current target batch and cancels its orders once; the instance keeps running.
     void abandon_strategy_batch(std::string_view reason);
@@ -229,6 +235,8 @@ private:
         std::uint64_t connection_generation = 0;
         std::optional<StrategyWeightBudget> budget = std::nullopt;
         std::optional<StrategyTargetBatch> batch = std::nullopt;
+        bool paused = false;
+        std::vector<std::string> events = {};
     };
 
     std::optional<ActiveStrategy> strategy_;
