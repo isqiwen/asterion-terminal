@@ -3,7 +3,7 @@ add_library(asterion_market_recording STATIC
   recording/database.cpp recording/compactor.cpp)
 target_link_libraries(asterion_market_recording PUBLIC asterion_ctp asterion_protocol asterion_bar_parquet duckdb::duckdb)
 asterion_target_defaults(asterion_market_recording)
-add_library(asterion_market_warehouse STATIC warehouse/store.cpp warehouse/reader.cpp)
+add_library(asterion_market_warehouse STATIC warehouse/store.cpp warehouse/reader.cpp warehouse/research.cpp)
 target_include_directories(asterion_market_warehouse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_market_warehouse PUBLIC asterion_protocol PRIVATE asterion_bar_parquet duckdb::duckdb)
 asterion_target_defaults(asterion_market_warehouse)

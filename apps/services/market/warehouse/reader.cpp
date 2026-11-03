@@ -92,6 +92,7 @@ wire::Version Reader::version(const wire::VersionQuery& query) const
         item->set_rows(part.rows);
         for (const auto& day : part.days)
             item->add_days(day);
+        item->set_source(part.source);
     }
     if (result.ByteSizeLong() > 1024 * 1024)
         throw Error(

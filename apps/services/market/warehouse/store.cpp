@@ -214,6 +214,8 @@ Json manifest(const Version& version)
         item = {{"file", part.file}, {"sha256", part.sha256}, {"rows", part.rows}};
         if (!part.days.empty())
             item["days"] = part.days;
+        if (!part.source.empty())
+            item["source"] = part.source;
     }
     return {
         {"format", 1},
@@ -313,7 +315,8 @@ Version Store::version(std::string_view identity) const
                 item.at("file").get<std::string>(),
                 item.at("sha256").get<std::string>(),
                 item.at("rows").get<std::uint64_t>(),
-                item.value("days", std::vector<std::string>{})
+                item.value("days", std::vector<std::string>{}),
+                item.value("source", std::string{})
             });
     }
     return result;
@@ -450,6 +453,24 @@ void Writer::merge_days(
         return std::tie(left[3], left[2]) < std::tie(right[3], right[2]);
     });
     put(key, rows, std::move(days));
+}
+
+void Writer::adopt(const std::string& key, const Store& from, const Version& version)
+{
+    const auto& part = version.partitions.at(key);
+    // Files are named by their digest, so an existing name holds the same bytes.
+    const auto target = store_.root_ / part.file;
+    if (!fs::exists(target)) {
+        create_directories_durably(target.parent_path());
+        fs::create_hard_link(from.file(version, key), target);
+        sync_directory(target.parent_path());
+    }
+    pending_.partitions[key] = {part.file, part.sha256, part.rows, part.days, from.provider()};
+}
+
+void Writer::clear()
+{
+    pending_.partitions.clear();
 }
 
 Version Writer::commit()

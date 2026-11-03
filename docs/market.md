@@ -14,6 +14,7 @@
 
 `apps/services/market/warehouse/` 保存六种表：日线、交易日历、合约、分钟线、结算参数和观测段。价格和数量为 `DECIMAL(28,6)`，写入拒绝需要舍入的数值。Tushare 仓库在数据目录（见[配置](recording.md#配置)）的 `warehouse/`，其他来源在 `sources/<来源>/warehouse/`，来源之间不混用。
 
+- **研究数据集**（来源 `research`）：研究只读这一份。每当有来源提交新版本以及启动时，Market 按规则重新合成：合约表、交易日历、日线来自 Tushare；结算参数来自交易所；每个合约每个交易日的分钟线（连同观测段）Tushare 有就用 Tushare，没有才用自录。每个分区整块来自一个来源，清单记录来源（`source`）；文件以硬链接引用来源的文件，不另占空间。来源没有变化时不产生新版本。理由：Tushare 历史完整、各交易所口径一致，自录只补 Tushare 没有的日子。
 - 写入先完成分区文件，再发布不可变的版本清单，最后切换 `current`。旧版本的文件不改不删，所以读取一个固定版本不受之后的采集影响。
 - 只读请求（`protocol/proto/asterion/dataset.proto`）：
 

@@ -1,4 +1,5 @@
 #include "warehouse/reader.hpp"
+#include "warehouse/research.hpp"
 #include "support/market_host.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/base/error.hpp>
@@ -166,6 +167,53 @@ TEST_F(Warehouse, RefusesLossyInputAndDoesNotPublishIt)
         + parquet::literal(store.file(version, "daily/SHFE/202610")) + ")");
     EXPECT_EQ(values->GetValue(0, 0).ToString(), "-12.125000");
     EXPECT_EQ(values->GetValue(1, 0).ToString(), "1.000000");
+}
+
+TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHasNone)
+{
+    const auto store = [&](const char* provider) {
+        return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
+    };
+    const std::string mine = "minutes/SHFE/2026-10-29/rb/2027-01";
+    const std::string recorded_only = "minutes/SHFE/2026-10-30/rb/2027-01";
+    auto tushare = store("tushare"), shfe = store("shfe"), recorder = store("recorder");
+    publish(*tushare, "daily/SHFE/2026-10");
+    publish(*tushare, "contracts/SHFE");
+    publish(*tushare, mine, 2);
+    publish(*shfe, "settlement/SHFE/2026-10-30");
+    publish(*shfe, "daily/SHFE/2026-10-30");
+    publish(*recorder, mine, 3);
+    publish(*recorder, recorded_only, 3);
+    publish(*recorder, "observations/SHFE/2026-10-30/rb/2027-01");
+    const auto research = wh::compose_research(root);
+    std::map<std::string, std::string> sources;
+    for (const auto& [key, part] : research.partitions)
+        sources[key] = part.source;
+    EXPECT_EQ(
+        sources,
+        (std::map<std::string, std::string>{
+            {"contracts/SHFE", "tushare"},
+            {"daily/SHFE/2026-10", "tushare"},
+            {mine, "tushare"},
+            {recorded_only, "recorder"},
+            {"observations/SHFE/2026-10-30/rb/2027-01", "recorder"},
+            {"settlement/SHFE/2026-10-30", "shfe"}
+        }));
+    // Files are linked, not copied.
+    const wh::Store reader(wh::source_directory(root, "research"), "research");
+    EXPECT_TRUE(
+        fs::equivalent(
+            reader.file(research, recorded_only),
+            recorder->file(recorder->current(), recorded_only)));
+    EXPECT_EQ(reader.read(research, mine).size(), 2U);
+    EXPECT_EQ(wh::compose_research(root).identity, research.identity);
+    // Once Tushare has the recorded day, research takes it from Tushare alone.
+    publish(*tushare, recorded_only, 4);
+    const auto later = wh::compose_research(root);
+    EXPECT_EQ(later.partitions.at(recorded_only).source, "tushare");
+    EXPECT_EQ(reader.read(later, recorded_only).size(), 4U);
+    EXPECT_FALSE(later.partitions.contains("observations/SHFE/2026-10-30/rb/2027-01"));
+    EXPECT_EQ(reader.read(research, recorded_only).size(), 3U) << "earlier versions are unchanged";
 }
 
 TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)

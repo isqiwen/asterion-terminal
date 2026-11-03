@@ -573,10 +573,9 @@ TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
     ASSERT_EQ(done.state(), "succeeded") << done.error();
     wh::Store store(root, "tushare");
     EXPECT_EQ(store.current().partitions.size(), weekdays);
-    std::size_t versions = 0;
-    for (const auto& entry : fs::recursive_directory_iterator(root))
-        versions += entry.path().parent_path().filename() == "versions";
-    EXPECT_LE(versions, 3U);
+    const auto versions =
+        std::distance(fs::directory_iterator(store.root() / "versions"), fs::directory_iterator{});
+    EXPECT_LE(versions, 3);
 }
 
 TEST_F(Acquisition, FullMinutePagesAdvanceAndRepeatedPagesFail)

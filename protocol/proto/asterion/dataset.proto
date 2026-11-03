@@ -30,6 +30,7 @@ message Partition {
   string sha256 = 2;
   uint64 rows = 3;
   repeated string days = 4; // Recorded acquisition days; not proof of intraday completeness.
+  string source = 5; // In the research dataset: the provider this partition is taken from.
 }
 message Version {
   string provider = 1;

@@ -1,4 +1,6 @@
 #include "manager.hpp"
+#include "warehouse/research.hpp"
+#include <asterion/system/log.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <fstream>
 #include <regex>
@@ -94,6 +96,13 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
         stores_[provider] = std::make_unique<warehouse::Store>(
             warehouse::source_directory(directory_.parent_path(), provider),
             provider);
+    }
+    // Research reads what the sources hold now, whatever stopped composing
+    // before. Recording must start even if it cannot; the next commit retries.
+    try {
+        warehouse::compose_research(directory_.parent_path());
+    } catch (const std::exception& error) {
+        log::error("market research dataset not composed: {}", error.what());
     }
     // An accepted task never silently resumes network requests after a restart.
     for (const auto& entry : fs::directory_iterator(directory_)) {
@@ -320,6 +329,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
     task.set_dataset_version(version.identity);
     const auto commit = [&] {
         version = writer.commit();
+        warehouse::compose_research(directory_.parent_path());
         task.set_dataset_version(version.identity);
         task.set_requests(source.requests());
         publish(task, active);

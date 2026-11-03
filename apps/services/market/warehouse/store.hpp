@@ -35,6 +35,8 @@ struct Partition
     std::string file, sha256;
     std::uint64_t rows = 0;
     std::vector<std::string> days;
+    // The provider whose partition this is, when taken from another store.
+    std::string source = {};
     bool operator==(const Partition&) const = default;
 };
 
@@ -65,6 +67,11 @@ public:
         return root_;
     }
 
+    const std::string& provider() const
+    {
+        return provider_;
+    }
+
     Writer writer();
 
 private:
@@ -85,6 +92,11 @@ public:
         const std::string& month,
         std::vector<Row> rows,
         std::vector<std::string> days);
+    // Takes the partition `key` of another store's version whole, linking its
+    // file instead of copying it.
+    void adopt(const std::string& key, const Store& from, const Version& version);
+    // Starts the next version empty; commit() still publishes only a change.
+    void clear();
     Version commit();
 
 private:
