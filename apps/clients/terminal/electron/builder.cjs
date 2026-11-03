@@ -25,7 +25,7 @@ module.exports = {
   executableName: "asterion_terminal",
   directories: {
     app: "apps/clients/terminal/electron",
-    output: "build/terminal-package",
+    output: distribution ? "build/desktop" : "build/desktop-test",
     buildResources: "apps/clients/terminal/electron/assets",
   },
   files: [
@@ -42,14 +42,12 @@ module.exports = {
     {
       from: "build/electron-resources/native",
       to: "native",
-      filter: [
-        ...nativeFiles,
-        ...native.configuration,
-        ...(!mac ? ["runtime-requirements.json"] : []),
-      ],
+      filter: [...nativeFiles, ...native.configuration],
     },
   ],
   asar: true,
+  // Updates come from a new package; no update feed.
+  publish: null,
   electronDist,
   npmRebuild: false,
   nodeGypRebuild: false,
@@ -58,7 +56,7 @@ module.exports = {
     : "Asterion-Terminal-TEST-${version}-${os}-${arch}.${ext}",
   forceCodeSigning: mac && distribution,
   mac: {
-    target: ["dir"],
+    target: ["dmg"],
     category: "public.app-category.finance",
     minimumSystemVersion: "13.0",
     type: "distribution",
@@ -71,10 +69,26 @@ module.exports = {
   },
   dmg: { sign: distribution },
   linux: {
-    target: ["dir"],
+    target: ["deb"],
     category: "Finance",
     synopsis: "Futures trading terminal",
     maintainer: "Asterion <build@example.invalid>",
     syncDesktopName: true,
+  },
+  deb: {
+    // Electron's defaults name what it loads at run time, which no linker
+    // record shows; desktop.py adds what the packaged programs link against.
+    depends: [
+      "libgtk-3-0",
+      "libnotify4",
+      "libnss3",
+      "libxss1",
+      "libxtst6",
+      "xdg-utils",
+      "libatspi2.0-0",
+      "libuuid1",
+      "libsecret-1-0",
+      ...JSON.parse(process.env.ASTERION_DEB_DEPENDS || "[]"),
+    ],
   },
 };

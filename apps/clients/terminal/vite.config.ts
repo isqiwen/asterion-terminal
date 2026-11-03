@@ -239,14 +239,6 @@ function localCore(): Plugin {
 export default defineConfig({
   root: resolve(root, "apps/clients/terminal"),
   base: "./",
-  build: {
-    rollupOptions: {
-      input: {
-        terminal: resolve(root, "apps/clients/terminal/index.html"),
-        installer: resolve(root, "apps/clients/terminal/installer.html"),
-      },
-    },
-  },
   plugins: [react(), ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()])],
   resolve: {
     alias: {

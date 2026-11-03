@@ -28,7 +28,7 @@ Lab 是 Terminal 的子进程（`apps/clients/terminal/native/local_services.*`�
 
 ## 桌面安装与升级
 
-桌面安装包带有 Terminal 和 Lab 的程序，安装器负责安装、同版本修复、升级和卸载，不向操作系统注册服务。升级前先等研究运行结束并关闭 Terminal；Terminal 运行时安装器拒绝修改。卸载默认保留用户资料。
+Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应用程序”，Linux 的 `.deb` 用 apt 安装，见[发行](development.md#发行)。升级前先等研究运行结束并关闭 Terminal。卸载只删除程序，用户资料保留。
 
 本机数据目录：macOS `~/Library/Application Support/Asterion`，Linux `~/.local/share/asterion`。
 

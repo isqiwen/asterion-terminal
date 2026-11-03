@@ -1,5 +1,5 @@
 {
-  // Development and installer packaging on macOS and Linux: docs/development.md.
+  // Development and packaging on macOS and Linux: docs/development.md.
   "version": "2.0.0",
   "tasks": [
     {
@@ -26,8 +26,8 @@
       "group": { "kind": "build", "isDefault": true }
     },
     {
-      "label": "Installer: build release",
-      "detail": "Build and verify the release installer in build/desktop; reuses matching Linux services or builds them with Docker/OrbStack; requires the prepared Python runtime and macOS signing credentials on macOS",
+      "label": "Terminal: build release package",
+      "detail": "Build and verify the release Terminal package in build/desktop (macOS .dmg, Linux .deb); requires the prepared Python runtime and macOS signing credentials on macOS",
       "type": "process",
       "command": "pnpm",
       "args": ["desktop:build"],

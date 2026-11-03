@@ -217,7 +217,7 @@ endif()
 gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
   DISCOVERY_TIMEOUT 30
   PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
-# desktop: the Electron host and what an installer contains
+# desktop: the Electron host
 find_program(ASTERION_TEST_NODE node REQUIRED)
 add_test(NAME lab_channel COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/lab_channel.cjs")
 if(ASTERION_NODE_HEADERS)
@@ -248,7 +248,6 @@ if(ASTERION_SANITIZERS)
   endforeach()
 endif()
 
-asterion_unit_tests(asterion_installation_tests desktop/installation_test.cpp asterion_installation)
 
 
 # Applied last so every directly registered test receives them.

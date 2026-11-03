@@ -51,7 +51,7 @@ enum class Level
 // standard error. Call before starting threads that log.
 void init();
 // For a program that does not run from an installation's bin/ (the Terminal
-// inside its application, the installer): its installation and its name.
+// inside its application): its installation and its name.
 void init(const std::filesystem::path& installation, std::string_view program);
 
 // Today's log file of a process of `program` in `installation`, by that

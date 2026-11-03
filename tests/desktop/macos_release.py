@@ -32,7 +32,7 @@ with patch.object(release, "output", return_value='1) AA "Developer ID Applicati
     assert "APPLE_ID" not in environment
 with patch.object(release, "output", return_value=json.dumps({"status": "Invalid"})), patch.object(release.subprocess, "run") as run:
     try:
-        release.notarize_installer(Path("fixture.dmg"), {"APPLE_KEYCHAIN_PROFILE": "fixture"})
+        release.notarize_dmg(Path("fixture.dmg"), {"APPLE_KEYCHAIN_PROFILE": "fixture"})
     except ValueError:
         pass
     else:
@@ -40,16 +40,16 @@ with patch.object(release, "output", return_value=json.dumps({"status": "Invalid
     run.assert_not_called()
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
-    installer = root / "fixture.dmg"
-    installer.write_bytes(b"artifact under test")
+    dmg = root / "fixture.dmg"
+    dmg.write_bytes(b"artifact under test")
     report = root / "installed.json"
     report.write_text(json.dumps({"status": "passed", "sha256": "0" * 64}))
     try:
-        release.write_evidence(installer, report)
+        release.write_evidence(dmg, report)
     except ValueError:
         pass
     else:
-        raise AssertionError("acceptance for another installer accepted")
+        raise AssertionError("acceptance for another DMG accepted")
     assert not (root / "distribution-acceptance.json").exists()
 print("Distribution refuses absent/ambiguous signing identity, rejected notarization and unrelated installed evidence")
 
@@ -142,7 +142,7 @@ class SignatureGuards(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Application is not built for Apple Silicon"):
             self.verify(signature(), archs="x86_64")
 
-    def test_installer_rejects_decoy_authority_and_ad_hoc_signature(self):
+    def test_dmg_rejects_decoy_authority_and_ad_hoc_signature(self):
         descriptions = (signature().replace("Authority=Developer ID Application:",
                                              "Executable=/tmp/Authority=Developer ID Application:"),
                         signature(team=""), signature(team="not set"),
@@ -151,15 +151,15 @@ class SignatureGuards(unittest.TestCase):
             with self.subTest(description=description), \
                     patch.object(release, "output", return_value=description), \
                     patch.object(release.subprocess, "run") as run:
-                with self.assertRaisesRegex(ValueError, "installer lacks a Developer ID"):
-                    release.verify_installer(Path("fixture.dmg"))
+                with self.assertRaisesRegex(ValueError, "DMG lacks a Developer ID"):
+                    release.verify_dmg(Path("fixture.dmg"))
                 self.assertEqual(run.call_count, 1)
 
-    def test_installer_does_not_require_an_executable_runtime_flag(self):
+    def test_dmg_does_not_require_an_executable_runtime_flag(self):
         description = "Authority=Developer ID Application: Fixture\nTeamIdentifier=FIXTURETEAM\n"
         with patch.object(release, "output", return_value=description), \
                 patch.object(release.subprocess, "run") as run:
-            release.verify_installer(Path("fixture.dmg"))
+            release.verify_dmg(Path("fixture.dmg"))
             run.assert_any_call(["xcrun", "stapler", "validate", "fixture.dmg"], check=True)
             run.assert_any_call(["spctl", "--assess", "--type", "open", "--context",
                                  "context:primary-signature", "fixture.dmg"], check=True)

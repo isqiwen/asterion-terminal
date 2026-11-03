@@ -1,11 +1,5 @@
 {
-  "programs": [
-    "asterion_terminal.node",
-    "asterion_maintenance"
-  ],
+  "programs": ["asterion_terminal.node"],
   "libraries": [],
-  "configuration": [
-    "config/logging.json",
-    "product.json"
-  ]
+  "configuration": ["config/logging.json"]
 }

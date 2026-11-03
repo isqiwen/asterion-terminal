@@ -133,7 +133,8 @@ async function closeDesktop(application) {
     );
     assert.equal(reply.result.protocol, 1);
     // Startup runs by itself and opens the workbench once every step passes.
-    await enterWorkbench(page);
+    // A package's first launch downloads the Python runtime (about 200 MB).
+    await enterWorkbench(page, process.env.ASTERION_TEST_ELECTRON ? 600000 : undefined);
     await capture(page, "native-startup");
     const call = async (method, params = {}) => {
       const reply = JSON.parse(

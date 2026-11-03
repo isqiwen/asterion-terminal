@@ -54,26 +54,26 @@ def signing_preflight(environment):
         environment.pop(name, None)
 
 
-def notarize_installer(installer, environment):
-    command = ["xcrun", "notarytool", "submit", str(installer), "--wait", "--output-format", "json",
+def notarize_dmg(dmg, environment):
+    command = ["xcrun", "notarytool", "submit", str(dmg), "--wait", "--output-format", "json",
                "--keychain-profile", environment["APPLE_KEYCHAIN_PROFILE"]]
     if environment.get("APPLE_KEYCHAIN"):
         command += ["--keychain", environment["APPLE_KEYCHAIN"]]
     result = json.loads(output(command))
     if result.get("status") != "Accepted":
-        raise ValueError("Installer notarization was not accepted")
-    subprocess.run(["xcrun", "stapler", "staple", str(installer)], check=True)
-    verify_installer(installer)
+        raise ValueError("DMG notarization was not accepted")
+    subprocess.run(["xcrun", "stapler", "staple", str(dmg)], check=True)
+    verify_dmg(dmg)
 
 
-def verify_installer(installer):
-    subprocess.run(["codesign", "--verify", "--strict", str(installer)], check=True)
-    description = output(["codesign", "--display", "--verbose=4", str(installer)])
+def verify_dmg(dmg):
+    subprocess.run(["codesign", "--verify", "--strict", str(dmg)], check=True)
+    description = output(["codesign", "--display", "--verbose=4", str(dmg)])
     if developer_id_team(description) is None:
-        raise ValueError("Distribution installer lacks a Developer ID signature")
-    subprocess.run(["xcrun", "stapler", "validate", str(installer)], check=True)
+        raise ValueError("Distribution DMG lacks a Developer ID signature")
+    subprocess.run(["xcrun", "stapler", "validate", str(dmg)], check=True)
     subprocess.run(["spctl", "--assess", "--type", "open", "--context",
-                    "context:primary-signature", str(installer)], check=True)
+                    "context:primary-signature", str(dmg)], check=True)
 
 
 def verify_application(app, native_files):
@@ -98,14 +98,14 @@ def verify_application(app, native_files):
     subprocess.run(["spctl", "--assess", "--type", "execute", str(app)], check=True)
 
 
-def write_evidence(installer, installed_report):
+def write_evidence(dmg, installed_report):
     acceptance = json.loads(installed_report.read_text())
-    digest = hashlib.sha256(installer.read_bytes()).hexdigest()
+    digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
     if acceptance.get("status") != "passed" or acceptance.get("sha256") != digest:
-        raise ValueError("Installed acceptance does not prove this exact notarized installer")
+        raise ValueError("Installed acceptance does not prove this exact notarized DMG")
     report = {"status": "passed", "architecture": platform.machine(), "sha256": digest,
-              "installer": installer.name, "installed_acceptance": str(installed_report),
+              "package": dmg.name, "installed_acceptance": str(installed_report),
               "checks": ["Developer ID application and DMG", "matching native signing team",
                          "native architecture", "app and DMG notarization tickets", "Gatekeeper",
                          "isolated installed application acceptance"]}
-    (installer.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
+    (dmg.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")

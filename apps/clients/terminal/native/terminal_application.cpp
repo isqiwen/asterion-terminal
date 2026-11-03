@@ -398,15 +398,11 @@ Application::Application()
     if (!root.is_absolute())
         throw std::invalid_argument("invalid Asterion root directory");
     const auto terminal = root / "terminal";
-    // The installer creates an installed root; a development or isolated one
-    // is created here, as the local Manager bootstrap would, before it is locked.
-    if (development_environment() || environment_variable("ASTERION_ROOT")) {
-        if (std::filesystem::is_symlink(root))
-            throw std::invalid_argument("invalid Asterion root directory");
-        create_directories_durably(terminal / "data");
-        // Its logging configuration before its first record; never overwritten.
-        install_node_configuration(root, node_configuration_templates());
-    }
+    if (std::filesystem::is_symlink(root))
+        throw std::invalid_argument("invalid Asterion root directory");
+    create_directories_durably(terminal / "data");
+    // Its logging configuration before its first record; never overwritten.
+    install_node_configuration(root, node_configuration_templates());
     log::init(terminal, "terminal");
     installation_use_ =
         std::make_unique<FileLock>(terminal / "data", "terminal.lock", FileLock::Access::shared);

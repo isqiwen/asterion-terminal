@@ -11,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import signal
-import tarfile
 from generated_resources import publish_tree
 import macos_release
 import python_runtime
@@ -75,13 +74,12 @@ _resources = json.loads((ROOT / "scripts/desktop/native-resources.json").read_te
 CONFIG_FILES = set(_resources["configuration"])
 NATIVE_FILES = CONFIG_FILES | set(_resources["programs"]) | {name + LIBRARY_SUFFIX for name in _resources["libraries"]}
 
-def verify_native_resources(directory, packaged=False):
+def verify_native_resources(directory):
     if directory.is_symlink():
         raise ValueError("Native resource directory cannot be a symlink")
     entries = list(directory.rglob("*"))
     actual = {path.relative_to(directory).as_posix() for path in entries if path.is_file()}
-    expected = NATIVE_FILES | ({"runtime-requirements.json"} if packaged and not MACOS else set())
-    if actual != expected or any(path.is_symlink() or
+    if actual != NATIVE_FILES or any(path.is_symlink() or
             (path.is_dir() and path.relative_to(directory).as_posix() != "config") for path in entries):
         raise ValueError("Native resources differ from the current distribution manifest")
 
@@ -135,27 +133,24 @@ def debian_dependencies(files, libraries):
 
 def verify_linux_package(distribution=True):
     if sys.platform != "linux":
-        raise SystemExit("Installer verification requires Linux")
+        raise SystemExit("Package verification requires Linux")
     output = ROOT / "build" / ("desktop" if distribution else "desktop-test")
-    packages = list(output.glob("*.tar.gz"))
+    packages = list(output.glob("*.deb"))
     if len(packages) != 1:
-        raise SystemExit("Expected exactly one current installer archive; inspect build outputs")
+        raise SystemExit("Expected exactly one current package; inspect build outputs")
     with tempfile.TemporaryDirectory(prefix="asterion-verify-") as folder:
-        with tarfile.open(packages[0]) as archive:
-            archive.extractall(folder, filter="data")
-        helpers = list(Path(folder).rglob("asterion_installer"))
-        if len(helpers) != 1:
-            raise SystemExit("Expected exactly one graphical installer")
-        app = helpers[0].parent / "resources/terminal"
-        native = app / "resources/native"
-        verify_native_resources(native, packaged=True)
+        run(["dpkg-deb", "-x", str(packages[0]), folder])
+        apps = list(Path(folder).rglob("asterion_terminal"))
+        if len(apps) != 1:
+            raise SystemExit("Expected exactly one Terminal program in the package")
+        app = apps[0].parent
+        verify_native_resources(app / "resources/native")
         runtime_manifest.verify(app / "resources/runtime")
-        local = elf_files(app)
-        required = json.loads((app / "resources/native/runtime-requirements.json").read_text())
-        missing = set(debian_dependencies(local, [app])) - set(required)
+        declared = subprocess.check_output(["dpkg-deb", "-f", str(packages[0]), "Depends"], text=True)
+        missing = set(debian_dependencies(elf_files(app), [app])) - set(declared.strip().split(", "))
         if missing:
-            raise SystemExit("Installer runtime requirements are incomplete: " + ", ".join(sorted(missing)))
-    print("Installer resources, Python runtime manifest and documented dependencies verified")
+            raise SystemExit("Package dependencies are incomplete: " + ", ".join(sorted(missing)))
+    print("Package resources, Python runtime manifest and dependencies verified")
 
 
 def write_linux_evidence(package, installed_report):
@@ -165,12 +160,11 @@ def write_linux_evidence(package, installed_report):
     if acceptance.get("status") != "passed" or acceptance.get("sha256") != digest:
         raise ValueError("Installed acceptance does not prove this exact package")
     report = {"status": "passed", "architecture": platform.machine(), "sha256": digest,
-              "installer": package.name, "installed_acceptance": str(installed_report),
-              "scope": "current user",
-              "checks": ["package identity, version and architecture", "exact native resource set",
-                         "documented dependencies cover every packaged program",
+              "package": package.name, "installed_acceptance": str(installed_report),
+              "checks": ["exact native resource set",
+                         "declared dependencies cover every packaged program",
                          "unpacked application acceptance"],
-              "limits": ["unsigned archive"]}
+              "limits": ["unsigned package"]}
     (package.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
@@ -182,7 +176,7 @@ def verify_macos_bundle(distribution=True):
     if len(bundles) != 1:
         raise SystemExit("Expected exactly one current DMG; inspect build outputs")
     if distribution:
-        macos_release.verify_installer(bundles[0])
+        macos_release.verify_dmg(bundles[0])
     run(["hdiutil", "verify", str(bundles[0])])
     with tempfile.TemporaryDirectory(prefix="asterion-verify-") as folder:
         run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", folder, str(bundles[0])])
@@ -190,8 +184,7 @@ def verify_macos_bundle(distribution=True):
             apps = list(Path(folder).glob("*.app"))
             if len(apps) != 1:
                 raise SystemExit("Expected exactly one application in DMG")
-            run(["codesign", "--verify", "--deep", "--strict", str(apps[0])])
-            app = apps[0] / "Contents/Resources/terminal.app"
+            app = apps[0]
             verify_native_resources(app / "Contents/Resources/native")
             runtime_manifest.verify(app / "Contents/Resources/runtime")
             if distribution:
@@ -220,9 +213,9 @@ def main():
     mode = arguments.mode
     if sys.platform not in {"darwin", "linux"}:
         raise SystemExit("Terminal desktop development and packaging require macOS or Linux")
-    verify_installer = verify_macos_bundle if MACOS else verify_linux_package
+    verify_package = verify_macos_bundle if MACOS else verify_linux_package
     if mode in {"verify", "verify-test"}:
-        verify_installer(mode == "verify")
+        verify_package(mode == "verify")
         return
     if mode == "build" and MACOS:
         macos_release.signing_preflight(env)
@@ -298,7 +291,7 @@ def main():
     # Packages are built for acceptance and handed over by hand. On CI the
     # builder would otherwise try to publish them and fail without a token.
     builder = ["pnpm", "exec", "electron-builder", "--publish", "never",
-               "--mac" if MACOS else "--linux",
+               "--mac" if MACOS else "--linux", "--arm64" if MACOS else "--x64",
                "--config", "apps/clients/terminal/electron/builder.cjs"]
     env["ASTERION_PACKAGE_MODE"] = "release" if mode == "build" else "test"
     # Acceptance packages exercise the same files without release-level compression cost.
@@ -309,32 +302,28 @@ def main():
         runtime = Path(json.loads(subprocess.check_output(
             ["node", "-p", "JSON.stringify(require('./scripts/desktop/electron-path.cjs')())"],
             cwd=ROOT, env=env, text=True))).parent
-        requirements = json.dumps(
+        env["ASTERION_DEB_DEPENDS"] = json.dumps(
             debian_dependencies(elf_files(runtime) + elf_files(native) + elf_files(runtime_manifest.DESTINATION),
                                 [runtime]))
-        (native / "runtime-requirements.json").write_text(requirements + "\n")
     output = ROOT / "build" / ("desktop" if mode == "build" else "desktop-test")
     if output.exists():
         if output.is_symlink() or not output.is_dir():
             raise ValueError("Desktop output must be a generated directory")
         shutil.rmtree(output)
-    run(builder + ["--dir"])
-    run(["pnpm", "exec", "electron-builder", "--publish", "never",
-         "--mac" if MACOS else "--linux", "--arm64" if MACOS else "--x64",
-         "--config", "apps/clients/installer/electron/builder.cjs"])
-    installers = list(output.glob("*.dmg" if MACOS else "*.tar.gz"))
-    if len(installers) != 1:
-        raise ValueError("Expected exactly one current installer")
+    run(builder)
+    packages = list(output.glob("*.dmg" if MACOS else "*.deb"))
+    if len(packages) != 1:
+        raise ValueError("Expected exactly one current package")
     if mode == "build" and MACOS:
-        macos_release.notarize_installer(installers[0], env)
-    verify_installer(mode == "build")
+        macos_release.notarize_dmg(packages[0], env)
+    verify_package(mode == "build")
     if mode == "build":
         evidence = output / "installed"
-        run([sys.executable, str(ROOT / "tests/desktop/electron_installer.py"), str(installers[0]),
+        run([sys.executable, str(ROOT / "tests/desktop/electron_package.py"), str(packages[0]),
              "--output", str(evidence)])
         write_evidence = macos_release.write_evidence if MACOS else write_linux_evidence
-        write_evidence(installers[0], evidence / "acceptance.json")
-    print(f"Desktop installer: {installers[0]}")
+        write_evidence(packages[0], evidence / "acceptance.json")
+    print(f"Terminal package: {packages[0]}")
 
 
 if __name__ == "__main__":

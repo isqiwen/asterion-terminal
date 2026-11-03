@@ -27,3 +27,6 @@ add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
 asterion_target_defaults(asterion_terminal_application)
 asterion_target_defaults(asterion_terminal_dev_bridge)
+# The Lab's version (scripts/desktop/python_runtime.py).
+file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/product.json
+  CONTENT [[{"product":"asterion-terminal","version":"@PROJECT_VERSION@"}]] @ONLY)

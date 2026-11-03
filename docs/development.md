@@ -34,8 +34,8 @@ pnpm desktop --prepare-python      # 准备 Python 运行时、构建并启动�
 | --- | --- |
 | `pnpm desktop` | Conan → CMake Debug → Node-API → Vite，启动 Electron（Vite 端口 1422） |
 | `pnpm desktop:check` | 构建并检查桌面链路，不打开窗口 |
-| `pnpm desktop:build` | Release 构建并验证发行安装包：macOS `.dmg`（签名、公证），Linux `.tar.gz` |
-| `pnpm desktop:package-test` | 本机测试安装包（名称含 `TEST`），不作发行用 |
+| `pnpm desktop:build` | Release 构建并验证 Terminal 发布包：macOS `.dmg`（签名、公证），Linux `.deb` |
+| `pnpm desktop:package-test` | 本机测试包（名称含 `TEST`），不作发行用 |
 | `pnpm dev` | 只开发界面：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build --preset conan-debug` | 只重建 C++ |
 | `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `asterion-trading-setup.sh` 和 `asterion-market-setup.sh`，输出到 `build/linux-bundles/` |
@@ -86,10 +86,18 @@ pnpm desktop --prepare-python      # 准备 Python 运行时、构建并启动�
 
 ## 发行
 
+发布包一共三个：
+
+| 发布包 | 构建 | 安装 |
+| --- | --- | --- |
+| Market：`asterion-market-setup.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash asterion-market-setup.sh`，见[录制与部署](recording.md) |
+| Trading：`asterion-trading-setup.sh` | 同上 | Trading 主机上 `sudo bash asterion-trading-setup.sh`，见[交易](trading.md#账户与部署) |
+| Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
+
+- Terminal 升级就是装新版本，卸载就是删除应用（Linux 用 `sudo apt remove asterion-terminal`）。用户资料在程序根目录，第一次启动时由 Terminal 创建，卸载时保留。
 - **macOS**：`pnpm desktop:build` 要求本机钥匙串里有唯一的 Developer ID Application 签名身份和 `notarytool` 保存的公证 profile（`CSC_NAME`、`APPLE_KEYCHAIN_PROFILE`）。应用和 DMG 都签名、公证；验收通过后生成 `build/desktop/distribution-acceptance.json`。
-- **Linux**：生成 `build/desktop/Asterion-Installer-<版本>-linux-x64.tar.gz`；解压后运行 `asterion_installer`，安装到 `~/.local/opt/asterion-terminal`。依赖的系统库记录在包内的 `runtime-requirements.json`，安装器不自动安装系统软件。
+- **Linux**：`.deb` 的依赖由打包时 `dpkg-shlibdeps` 从包内程序算出，apt 会一起安装；构建机的系统版本决定包能装在哪些系统上。
 - 原生资源清单只有一个：`scripts/desktop/native-resources.json`。
-- 安装器负责安装、修复、升级和卸载：同版本提供修复或卸载，新版本提供升级；不能降级。卸载默认保留用户资料。`pnpm installer` 打开开发用的安装维护窗口（需要用 `ASTERION_INSTALL_SOURCE` 指定已打包的应用目录）。
 
 ## 运行诊断
 
