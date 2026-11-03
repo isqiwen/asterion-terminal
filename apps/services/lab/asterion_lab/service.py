@@ -106,7 +106,7 @@ class Service:
         return await asyncio.get_running_loop().run_in_executor(self.reads, function, *arguments)
 
     async def on_strategy_package(self, request, response):
-        response.strategy_package.CopyFrom(await self.read(package.build, request))
+        response.strategy_package.CopyFrom(await self.read(package.build, request, self.runs))
 
     async def on_health(self, _, response):
         health = response.health

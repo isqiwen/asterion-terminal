@@ -23,12 +23,18 @@ function notify(previous: InstanceStatus | undefined, next: InstanceStatus | und
   for (const body of alerts) new Notification(t("策略实例 {id}", { id }), { body });
 }
 
+// Where a package's code comes from: a research run's copy, or the working tree.
+function Origin({ run }: { run: string }) {
+  return <>{run ? t("来自研究运行 {run}", { run }) : t("来自仓库当前代码")}</>;
+}
+
 export function StrategyPackages(props: Props) {
   return <AccountStrategies key={props.account} {...props} />;
 }
 
 function AccountStrategies({ account, repository, live, connected = false }: Props) {
   const [manifest, setManifest] = useState("strategy.json");
+  const [run, setRun] = useState("");
   const [preparation, setPreparation] = useState<{ repository: string; value: Package }>();
   const prepared = preparation?.repository === repository ? preparation.value : undefined;
   const [state, setState] = useState<State>();
@@ -168,13 +174,25 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
               }}
             />
           </label>
+          <label>
+            {t("研究运行（可选）")}
+            <input
+              value={run}
+              disabled={busy}
+              placeholder={t("留空则用仓库当前代码")}
+              onChange={event => {
+                setRun(event.target.value.trim());
+                setPreparation(undefined);
+              }}
+            />
+          </label>
           <button
             disabled={busy || !manifest}
             onClick={() =>
               void perform(async () => {
                 setPreparation(undefined);
                 const value = await lab(
-                  { case: "strategyPackage", value: { repository, manifest } },
+                  { case: "strategyPackage", value: { repository, manifest, run } },
                   "strategyPackage",
                 );
                 setPreparation({ repository, value });
@@ -191,7 +209,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
             <strong>
               {prepared.manifest.name} · {prepared.manifest.version}
             </strong>{" "}
-            · {prepared.manifest.entry}
+            · {prepared.manifest.entry} · <Origin run={prepared.manifest.researchRun} />
           </p>
           <p>{prepared.manifest.files.join(", ")}</p>
           <button
@@ -211,7 +229,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
           <ul>
             {state.packages.map(item => (
               <li key={`${item.name}/${item.version}`}>
-                {item.name} · {item.version} · {item.entry}
+                {item.name} · {item.version} · {item.entry} · <Origin run={item.researchRun} />
               </li>
             ))}
           </ul>

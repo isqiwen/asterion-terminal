@@ -18,6 +18,9 @@ message Manifest {
   string entry = 3; // module:Class
   string runtime = 4; // python3.12-numpy2.3.5
   repeated string files = 5;
+  // The research run whose copy of the code these files are; empty when they
+  // come from the repository's working tree. Set by Lab, never authored.
+  string research_run = 6;
 }
 message File {
   string path = 1;
@@ -30,6 +33,7 @@ message Package {
 message Build {
   string repository = 1;
   string manifest = 2; // relative path of the descriptor within that repository
+  string run = 3; // a succeeded research run to take the files from, or empty
 }
 message PackageRef {
   string name = 1;
