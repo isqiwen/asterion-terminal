@@ -25,6 +25,14 @@ async function closeDesktop(application) {
 }
 (async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-electron-"));
+  // The test Market tests/support/e2e.py runs: this Terminal reads it with its reader identity.
+  const identity = path.join(temp, "node/terminal/data/tls");
+  await fs.mkdir(identity, { recursive: true });
+  for (const extension of ["crt", "key"])
+    await fs.copyFile(
+      path.join(process.env.ASTERION_TEST_MARKET_TLS, `reader.${extension}`),
+      path.join(identity, `client.${extension}`),
+    );
   let application;
   const capture = async (page, name) => {
     if (!process.env.ASTERION_UI_SCREENSHOTS) return;
@@ -127,6 +135,22 @@ async function closeDesktop(application) {
     // Startup runs by itself and opens the workbench once every step passes.
     await enterWorkbench(page);
     await capture(page, "native-startup");
+    const call = async (method, params = {}) => {
+      const reply = JSON.parse(
+        await page.evaluate(
+          body => window.asterionDesktop.request(body),
+          JSON.stringify({ version: 1, method, params }),
+        ),
+      );
+      assert.equal(reply.error, undefined, JSON.stringify(reply.error));
+      return reply.result;
+    };
+    await call("market.endpoint.save", {
+      host: "127.0.0.1",
+      port: Number(process.env.ASTERION_TEST_MARKET_PORT),
+      fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT,
+    });
+    await call("market.open");
     for (const [name, selector] of [
       ["watchlist", ".watchlist-workspace"],
       ["contract", ".contract-workspace"],
@@ -163,7 +187,7 @@ async function closeDesktop(application) {
     await columnDialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
     await columnDialog.getByRole("button", { name: "应用列设置", exact: true }).click();
     await expect(columnButton).toBeFocused();
-    await openView(page, "backtest");
+    await openView(page, "research");
     await openView(page, "market");
     if (!(await page.getByRole("dialog", { name: "行情设置", exact: true }).count()))
       await page.getByRole("button", { name: "行情设置", exact: true }).click();
@@ -180,6 +204,9 @@ async function closeDesktop(application) {
     await openView(page, "research");
     await expect(page.getByRole("heading", { name: "研究", exact: true })).toBeVisible();
     await capture(page, "native-research");
+    // A draft of the market page, which must survive the settings window and a restart.
+    await openView(page, "market");
+    await page.getByRole("searchbox", { name: "搜索市场合约", exact: true }).fill("cu");
 
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.press(`${modifier}+b`);
@@ -240,7 +267,10 @@ async function closeDesktop(application) {
     assert.equal(application.windows().length, 2);
     assert.equal(await settings.evaluate(() => window.retainedDraft), "retained");
     await expect.poll(bounds).toEqual(placed);
-    assert.equal(await page.getByLabel("品种", { exact: true }).inputValue(), "cu");
+    assert.equal(
+      await page.getByRole("searchbox", { name: "搜索市场合约", exact: true }).inputValue(),
+      "cu",
+    );
     // Real Chromium zoom exercises the installed host's layout, not a CSS transform.
     for (const window of [page, settings]) {
       const contents = await application.browserWindow(window);
@@ -279,9 +309,13 @@ async function closeDesktop(application) {
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
     await capture(settings, "native-settings");
     await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
-    await expect(page.getByLabel("Product", { exact: true })).toHaveValue("cu");
+    await expect(
+      page.getByRole("searchbox", { name: "Search market contracts", exact: true }),
+    ).toHaveValue("cu");
     await settings.getByLabel("Language", { exact: true }).selectOption("zh-CN");
-    await expect(page.getByLabel("品种", { exact: true })).toHaveValue("cu");
+    await expect(page.getByRole("searchbox", { name: "搜索市场合约", exact: true })).toHaveValue(
+      "cu",
+    );
     // Exercise renderer -> preload -> validated IPC -> native dialog adapter.
     await application.evaluate(({ dialog }) => {
       dialog.showOpenDialog = async (_owner, opts) => ({
@@ -306,7 +340,7 @@ async function closeDesktop(application) {
 
     await page.reload();
     await enterWorkbench(page);
-    await openView(page, "backtest");
+    await openView(page, "research");
     await closeDesktop(application);
     application = undefined;
     application = await launch();
@@ -314,9 +348,9 @@ async function closeDesktop(application) {
     await enterWorkbench(restored);
     await expect(
       restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
-    ).toHaveCount(7);
+    ).toHaveCount(4);
     await expect(
-      restored.locator(".workspace-tabs").getByRole("button", { name: "回测", exact: true }),
+      restored.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }),
     ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
     await openView(restored, "watchlist");
     await expect(restored.locator(".watchlist-workspace")).toBeVisible();

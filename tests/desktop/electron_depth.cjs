@@ -126,23 +126,25 @@ const { createInterface } = require("node:readline");
     };
     await call("market.endpoint.save", { host: "127.0.0.1", port, fingerprint });
     await call("market.open");
+    const snapshot = async () =>
+      (await call("market.call", { request: { snapshot: {} } })).market.snapshot;
     await expect
       .poll(
         async () => {
-          const market = (await call("runtime.snapshot")).market;
+          const state = await snapshot();
           // Shown when the wait fails: where the market service stopped.
           return (
-            market?.subscriptions[0]?.quote?.bid_levels[0]?.price ??
-            `phase=${market?.phase} catalog=${market?.catalog?.phase} ${market?.catalog?.diagnostic ?? ""}`
+            state.subscriptions?.[0]?.quote?.bidLevels?.[0]?.price ??
+            `phase=${state.phase} catalog=${state.catalog?.phase} ${state.catalog?.diagnostic ?? ""}`
           );
         },
         { timeout: 15000 },
       )
       .toBe("3508.25");
-    const fullMarket = (await call("runtime.snapshot")).market;
-    assert.equal(fullMarket.catalog.phase, "ready");
-    assert.equal(fullMarket.catalog.contracts[0].name, "螺纹钢");
-    assert.equal(fullMarket.watchlist.length, 0);
+    const full = await snapshot();
+    assert.equal(full.catalog.phase, "ready");
+    assert.equal(full.catalog.contracts[0].name, "螺纹钢");
+    assert.equal((await call("runtime.snapshot")).market_endpoint.instruments.length, 0);
     await openView(page, "market");
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     await expect(page.getByRole("button", { name: "期货全景", exact: true })).toBeVisible();
@@ -153,17 +155,17 @@ const { createInterface } = require("node:readline");
     await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
     await call("market.watchlist", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
-    const quote = fullMarket.subscriptions[0].quote;
+    const quote = full.subscriptions[0].quote;
     assert.equal(quote.open, "3490.25");
-    assert.equal(quote.open_interest_change, "-25.25");
-    assert.equal(quote.previous_close, "3480.125");
-    assert.equal(quote.upper_limit, "3800.5");
-    assert.equal(quote.lower_limit, null);
-    assert.equal(quote.ask_levels[1].quantity, 0);
-    assert.equal(quote.bid_levels[1].price, null);
-    assert.equal(quote.bid_levels[1].quantity, null);
-    assert.equal(quote.bid_levels[2].quantity, null);
-    assert.equal(quote.ask_levels[3].price, "3515");
+    assert.equal(quote.openInterestChange, "-25.25");
+    assert.equal(quote.previousClose, "3480.125");
+    assert.equal(quote.upperLimit, "3800.5");
+    assert.equal(quote.lowerLimit, undefined);
+    assert.equal(quote.askLevels[1].quantity, "0");
+    assert.equal(quote.bidLevels[1].price, undefined);
+    assert.equal(quote.bidLevels[1].quantity, undefined);
+    assert.equal(quote.bidLevels[2].quantity, undefined);
+    assert.equal(quote.askLevels[3].price, "3515");
     await openView(page, "watchlist");
     const previousClose = page
       .locator(".watchlist-table tbody tr")
