@@ -662,5 +662,16 @@
   "重新发布已有分区，保留旧数据集版本": "Republish existing partitions, keeping old dataset versions",
   "将 Market 已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。": "Publish minutes already recorded by Market as a research version, preserving partial bars and observation gaps. Republish after more data arrives; old versions remain readable.",
   "各来源分别采集和保存。研究只读「研究数据」：Market 按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。": "Each source is collected and stored on its own. Research reads only the research dataset, which Market composes by rule: Tushare's daily bars and minutes, and recorded minutes for contract days Tushare does not have.",
-  "研究数据": "Research dataset"
+  "研究数据": "Research dataset",
+  "Tushare 与自录分钟线对比": "Tushare and recorded minutes compared",
+  "两个来源都有的合约交易日 {days} 个，其中 {differing} 个不一致。": "{days} contract days are held by both sources; {differing} of them disagree.",
+  "还没有两个来源都有分钟线的合约交易日。": "No contract day has minutes from both sources yet.",
+  "分钟线不一致的合约交易日": "Contract days whose minutes disagree",
+  "对比分钟": "Minutes compared",
+  "不一致": "Differing",
+  "仅 Tushare": "Tushare only",
+  "仅自录": "Recorded only",
+  "自录不完整": "Recorded partial",
+  "逐分钟比较开高低收和成交量；自录中标为不完整的分钟只计数，不比较。": "Open, high, low, close and volume are compared minute by minute; recorded minutes marked partial are counted, not compared.",
+  "重新对比": "Compare again"
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MinuteComparison } from "./MinuteComparison";
 import { RecordingStatus } from "./RecordingStatus";
 import {
   ErrorNotice,
@@ -101,6 +102,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   return (
     <div>
       <RecordingStatus context={context} />
+      <MinuteComparison />
       <ErrorNotice error={error} />
       <button onClick={() => setRetry(value => value + 1)}>{t("刷新来源")}</button>
       <label>

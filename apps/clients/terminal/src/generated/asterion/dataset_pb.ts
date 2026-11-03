@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/dataset.proto.
  */
 export const file_asterion_dataset: GenFile = /*@__PURE__*/
-  fileDesc("ChZhc3Rlcmlvbi9kYXRhc2V0LnByb3RvEhZhc3Rlcmlvbi5kYXRhc2V0LnByb3RvIjUKDFNvdXJjZXNRdWVyeRIWCg5hZnRlcl9wcm92aWRlchgBIAEoCRINCgVsaW1pdBgCIAEoDSJHCgZTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMiUQoHU291cmNlcxIvCgdzb3VyY2VzGAEgAygLMh4uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2USFQoNbmV4dF9wcm92aWRlchgCIAEoCSJ8CgxWZXJzaW9uUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhEKCWFmdGVyX2tleRgDIAEoCRINCgVsaW1pdBgEIAEoDRINCgV0YWJsZRgFIAEoCRIQCghleGNoYW5nZRgGIAEoCSJUCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRyb3dzGAMgASgEEgwKBGRheXMYBCADKAkSDgoGc291cmNlGAUgASgJIqEBCgdWZXJzaW9uEhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRIOCgZwYXJlbnQYAyABKAkSEgoKY3JlYXRlZF9ucxgEIAEoAxI1CgpwYXJ0aXRpb25zGAUgAygLMiEuYXN0ZXJpb24uZGF0YXNldC5wcm90by5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBiABKAkiYgoJRmlsZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRILCgNrZXkYAyABKAkSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgNInoKBEZpbGUSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEgsKA2tleRgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDgoGb2Zmc2V0GAUgASgEEgwKBHNpemUYBiABKAQSDAoEZGF0YRgHIAEoDCI5CgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIn4KB1N1bW1hcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMSNAoGdGFibGVzGAQgAygLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5UYWJsZVN1bW1hcnkiYAoNQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YAiABKAkSFQoNYWZ0ZXJfcHJvZHVjdBgDIAEoCRINCgVsaW1pdBgEIAEoDSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImsKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjUKBm1vbnRocxgDIAMoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTW9udGhDb3ZlcmFnZSKGAQoIQ292ZXJhZ2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEjkKCHByb2R1Y3RzGAMgAygLMicuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Qcm9kdWN0Q292ZXJhZ2USFAoMbmV4dF9wcm9kdWN0GAQgASgJYgZwcm90bzM");
+  fileDesc("ChZhc3Rlcmlvbi9kYXRhc2V0LnByb3RvEhZhc3Rlcmlvbi5kYXRhc2V0LnByb3RvIjUKDFNvdXJjZXNRdWVyeRIWCg5hZnRlcl9wcm92aWRlchgBIAEoCRINCgVsaW1pdBgCIAEoDSJHCgZTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMiUQoHU291cmNlcxIvCgdzb3VyY2VzGAEgAygLMh4uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2USFQoNbmV4dF9wcm92aWRlchgCIAEoCSJ8CgxWZXJzaW9uUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhEKCWFmdGVyX2tleRgDIAEoCRINCgVsaW1pdBgEIAEoDRINCgV0YWJsZRgFIAEoCRIQCghleGNoYW5nZRgGIAEoCSJUCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRyb3dzGAMgASgEEgwKBGRheXMYBCADKAkSDgoGc291cmNlGAUgASgJIqEBCgdWZXJzaW9uEhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRIOCgZwYXJlbnQYAyABKAkSEgoKY3JlYXRlZF9ucxgEIAEoAxI1CgpwYXJ0aXRpb25zGAUgAygLMiEuYXN0ZXJpb24uZGF0YXNldC5wcm90by5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBiABKAkiYgoJRmlsZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRILCgNrZXkYAyABKAkSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgNInoKBEZpbGUSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEgsKA2tleRgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDgoGb2Zmc2V0GAUgASgEEgwKBHNpemUYBiABKAQSDAoEZGF0YRgHIAEoDCI5CgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIn4KB1N1bW1hcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMSNAoGdGFibGVzGAQgAygLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5UYWJsZVN1bW1hcnkiYAoNQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YAiABKAkSFQoNYWZ0ZXJfcHJvZHVjdBgDIAEoCRINCgVsaW1pdBgEIAEoDSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImsKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjUKBm1vbnRocxgDIAMoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTW9udGhDb3ZlcmFnZSKGAQoIQ292ZXJhZ2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEjkKCHByb2R1Y3RzGAMgAygLMicuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Qcm9kdWN0Q292ZXJhZ2USFAoMbmV4dF9wcm9kdWN0GAQgASgJIhEKD0NvbXBhcmlzb25RdWVyeSKPAQoLQ29tcGFyZWREYXkSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEhAKCGNvbXBhcmVkGAMgASgNEhEKCWRpZmZlcmluZxgEIAEoDRIUCgx0dXNoYXJlX29ubHkYBSABKA0SFQoNcmVjb3JkZXJfb25seRgGIAEoDRIPCgdwYXJ0aWFsGAcgASgNIp0BCgpDb21wYXJpc29uEhcKD3R1c2hhcmVfdmVyc2lvbhgBIAEoCRIYChByZWNvcmRlcl92ZXJzaW9uGAIgASgJEgwKBGRheXMYAyABKA0SFgoOZGlmZmVyaW5nX2RheXMYBCABKA0SNgoJZGlmZmVyaW5nGAUgAygLMiMuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Db21wYXJlZERheWIGcHJvdG8z");
 
 /**
  * Stored sources, not a provider capability catalogue. Cursors belong to callers.
@@ -529,4 +529,109 @@ export type Coverage = Message<"asterion.dataset.proto.Coverage"> & {
  */
 export const CoverageSchema: GenMessage<Coverage> = /*@__PURE__*/
   messageDesc(file_asterion_dataset, 14);
+
+/**
+ * The minutes Tushare and the recorder both hold (their current versions),
+ * compared minute by minute on open, high, low, close and volume. A recorded
+ * minute marked partial is counted, not compared.
+ *
+ * @generated from message asterion.dataset.proto.ComparisonQuery
+ */
+export type ComparisonQuery = Message<"asterion.dataset.proto.ComparisonQuery"> & {
+};
+
+/**
+ * Describes the message asterion.dataset.proto.ComparisonQuery.
+ * Use `create(ComparisonQuerySchema)` to create a new message.
+ */
+export const ComparisonQuerySchema: GenMessage<ComparisonQuery> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 15);
+
+/**
+ * @generated from message asterion.dataset.proto.ComparedDay
+ */
+export type ComparedDay = Message<"asterion.dataset.proto.ComparedDay"> & {
+  /**
+   * @generated from field: string contract = 1;
+   */
+  contract: string;
+
+  /**
+   * @generated from field: string day = 2;
+   */
+  day: string;
+
+  /**
+   * @generated from field: uint32 compared = 3;
+   */
+  compared: number;
+
+  /**
+   * @generated from field: uint32 differing = 4;
+   */
+  differing: number;
+
+  /**
+   * @generated from field: uint32 tushare_only = 5;
+   */
+  tushareOnly: number;
+
+  /**
+   * @generated from field: uint32 recorder_only = 6;
+   */
+  recorderOnly: number;
+
+  /**
+   * @generated from field: uint32 partial = 7;
+   */
+  partial: number;
+};
+
+/**
+ * Describes the message asterion.dataset.proto.ComparedDay.
+ * Use `create(ComparedDaySchema)` to create a new message.
+ */
+export const ComparedDaySchema: GenMessage<ComparedDay> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 16);
+
+/**
+ * @generated from message asterion.dataset.proto.Comparison
+ */
+export type Comparison = Message<"asterion.dataset.proto.Comparison"> & {
+  /**
+   * @generated from field: string tushare_version = 1;
+   */
+  tushareVersion: string;
+
+  /**
+   * @generated from field: string recorder_version = 2;
+   */
+  recorderVersion: string;
+
+  /**
+   * contract-days both sources hold
+   *
+   * @generated from field: uint32 days = 3;
+   */
+  days: number;
+
+  /**
+   * @generated from field: uint32 differing_days = 4;
+   */
+  differingDays: number;
+
+  /**
+   * The latest 500 contract-days with any difference or missing minute.
+   *
+   * @generated from field: repeated asterion.dataset.proto.ComparedDay differing = 5;
+   */
+  differing: ComparedDay[];
+};
+
+/**
+ * Describes the message asterion.dataset.proto.Comparison.
+ * Use `create(ComparisonSchema)` to create a new message.
+ */
+export const ComparisonSchema: GenMessage<Comparison> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 17);
 

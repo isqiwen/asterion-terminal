@@ -98,3 +98,25 @@ message Coverage {
   repeated ProductCoverage products = 3;
   string next_product = 4;
 }
+
+// The minutes Tushare and the recorder both hold (their current versions),
+// compared minute by minute on open, high, low, close and volume. A recorded
+// minute marked partial is counted, not compared.
+message ComparisonQuery {}
+message ComparedDay {
+  string contract = 1;
+  string day = 2;
+  uint32 compared = 3;
+  uint32 differing = 4;
+  uint32 tushare_only = 5;
+  uint32 recorder_only = 6;
+  uint32 partial = 7;
+}
+message Comparison {
+  string tushare_version = 1;
+  string recorder_version = 2;
+  uint32 days = 3; // contract-days both sources hold
+  uint32 differing_days = 4;
+  // The latest 500 contract-days with any difference or missing minute.
+  repeated ComparedDay differing = 5;
+}

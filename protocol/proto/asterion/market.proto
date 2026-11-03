@@ -59,6 +59,7 @@ message Request {
     asterion.acquisition.proto.TaskQuery acquisition_cancel = 29;
     asterion.acquisition.proto.SourcesQuery acquisition_sources = 30;
     asterion.dataset.proto.CoverageQuery dataset_coverage = 31;
+    asterion.dataset.proto.ComparisonQuery minute_comparison = 32;
   }
 }
 message DepthLevel {
@@ -176,6 +177,7 @@ message Response {
     asterion.acquisition.proto.Tasks acquisition_tasks = 23;
     asterion.acquisition.proto.Sources acquisition_sources = 24;
     asterion.dataset.proto.Coverage dataset_coverage = 25;
+    asterion.dataset.proto.Comparison minute_comparison = 26;
   }
 }
 

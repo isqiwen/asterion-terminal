@@ -11,6 +11,8 @@ vi.mock("../contract", async importOriginal => ({
   marketData: request,
   translate: (_namespace: string, key: string) => key,
 }));
+// The comparison has its own test.
+vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
 afterEach(() => vi.restoreAllMocks());
 const context = () => ({ trade: vi.fn(), query: vi.fn() }) as unknown as TerminalContext;
 const source = (provider: string, tables = ["daily"]) => ({

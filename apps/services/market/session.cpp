@@ -6,6 +6,7 @@
 #include "recording/compaction.hpp"
 #include "recording/compactor.hpp"
 #include "warehouse/reader.hpp"
+#include "warehouse/research.hpp"
 #include "acquisition/manager.hpp"
 #include "acquisition/tushare.hpp"
 #include "acquisition/exchanges.hpp"
@@ -466,7 +467,8 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
         || request.has_dataset() || request.has_dataset_file() || request.has_dataset_summary()
         || request.has_acquisition_task() || request.has_acquisition_tasks()
         || request.has_acquisition_start() || request.has_acquisition_cancel()
-        || request.has_acquisition_sources() || request.has_dataset_coverage()) {
+        || request.has_acquisition_sources() || request.has_dataset_coverage()
+        || request.has_minute_comparison()) {
         auto promise = std::make_shared<std::promise<service::RpcHost::Message>>();
         auto future = promise->get_future();
         loop_->reads.submit([loop = loop_.get(), request = std::move(request), promise, can_manage](
@@ -480,7 +482,10 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
                 if (request.has_acquisition_sources()) {
                     *response.mutable_acquisition_sources() = loop->acquisitions.sources();
                     response.mutable_acquisition_sources()->set_can_manage(can_manage);
-                } else if (request.has_dataset_coverage())
+                } else if (request.has_minute_comparison())
+                    *response.mutable_minute_comparison() =
+                        warehouse::compare_minutes(loop->config.settings.directory);
+                else if (request.has_dataset_coverage())
                     *response.mutable_dataset_coverage() =
                         datasets.coverage(request.dataset_coverage());
                 else if (request.has_acquisition_start())

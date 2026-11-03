@@ -38,7 +38,7 @@ def history(root):
     rows = [daily(f'SHFE/x{i // 28}/2027-01', date(2026, 10, i % 28 + 1),
                   Decimal(rng.randrange(1000000000, 1000000000000)).scaleb(-6), 2000)
             for i in range(60000)]
-    writer = Warehouse(root / 'data').writer()
+    writer = Warehouse(root / 'data', 'tushare').writer()
     writer.put_rows('daily/SHFE/2026-10', 'daily', rows,
                     days=[f'2026-10-{day:02}' for day in range(1, 29)])
     version = writer.commit()

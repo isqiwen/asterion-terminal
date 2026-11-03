@@ -216,6 +216,56 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHas
     EXPECT_EQ(reader.read(research, recorded_only).size(), 3U) << "earlier versions are unchanged";
 }
 
+TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
+{
+    const auto minute = [](std::int64_t start, const char* close, bool partial) {
+        return wh::Row{
+            std::string("SHFE"),
+            std::string("rb"),
+            std::string("SHFE/rb/2027-01"),
+            std::string("2026-10-30"),
+            start,
+            partial,
+            std::string("3100"),
+            std::string("3110"),
+            std::string("3090"),
+            std::string(close),
+            std::string("12"),
+            wh::Cell{},
+            std::string("2000")
+        };
+    };
+    const std::string key = "minutes/SHFE/2026-10-30/rb/2027-01";
+    const auto put = [&](const char* provider, std::vector<wh::Row> rows) {
+        wh::Store store(wh::source_directory(root, provider), provider);
+        auto writer = store.writer();
+        writer.put(key, rows, {"2026-10-30"});
+        writer.commit();
+    };
+    constexpr std::int64_t open = 1793322000000;
+    put("tushare",
+        {minute(open, "3100", false),
+            minute(open + 60000, "3105", false),
+            minute(open + 120000, "3101", false),
+            minute(open + 180000, "3102", false)});
+    put("recorder",
+        {minute(open, "3100", false),
+            minute(open + 60000, "3106", false),
+            minute(open + 120000, "3101", true)});
+    const auto comparison = wh::compare_minutes(root);
+    EXPECT_EQ(comparison.days(), 1U);
+    EXPECT_EQ(comparison.differing_days(), 1U);
+    ASSERT_EQ(comparison.differing_size(), 1);
+    const auto& day = comparison.differing(0);
+    EXPECT_EQ(day.contract(), "SHFE/rb/2027-01");
+    EXPECT_EQ(day.day(), "2026-10-30");
+    EXPECT_EQ(day.compared(), 2U);
+    EXPECT_EQ(day.differing(), 1U);
+    EXPECT_EQ(day.tushare_only(), 1U);
+    EXPECT_EQ(day.recorder_only(), 0U);
+    EXPECT_EQ(day.partial(), 1U);
+}
+
 TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)
 {
     wh::Store store(root, "tushare");
