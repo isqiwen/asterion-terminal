@@ -265,14 +265,18 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
     if costs is None:
         raise ValueError(f"the run gives no costs of {exchange}/{product}")
     interest = lambda value: math.nan if value is None else float(value)
+    excluded = []
     if config.minutes:
         # Minutes of the days that settle; a period is labelled when it ends.
+        # One with an incomplete minute is left out, as Trading never delivers one.
         settled = set(days)
+        minutes = [bar for bar in data.minute_bars(contract, begin, end, config.minutes)
+                   if bar["trading_day"] in settled]
+        excluded = [bar["trading_day"] for bar in minutes if bar["partial"]]
         bars = [(bar["trading_day"], bar["time_ms"] * 10 ** 6,
                  *(raw(bar[name]) for name in ("open", "high", "low", "close", "volume")),
                  interest(bar["open_interest"]))
-                for bar in data.minute_bars(contract, begin, end, config.minutes)
-                if bar["trading_day"] in settled]
+                for bar in minutes if not bar["partial"]]
         if not bars:
             raise ValueError(f"no stored minutes of {contract} fall inside the requested trading days")
     else:
@@ -289,8 +293,9 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         bars=[bar[:7] for bar in bars],
         settlements=[(day, raw(row["settlement"])) for day, row in sorted(month.days.items())
                      if begin <= day <= end and row["settlement"] is not None],
-        # Not the engine's: what a strategy reads besides prices, by bar time.
-        open_interest={bar[1]: bar[7] for bar in bars})
+        # Not the engine's: what a strategy reads besides prices, by bar time,
+        # and the trading day of each bar left out.
+        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded)
 
 
 def series_input(data: Data, config: Config, exchange: str, product: str):
@@ -532,6 +537,12 @@ def open_data(directory: Path, config: Config) -> Data:
     return Data(Dataset(directory), config.begin_day, config.end_day, version=config.dataset_version)
 
 
+def excluded_record(contracts: list) -> dict:
+    """The bars left out for an incomplete minute, and their trading days."""
+    days = [day for item in contracts for day in item["excluded"]]
+    return {"bars": len(days), "days": sorted(set(days))}
+
+
 def bars_record(config: Config) -> dict:
     return {"period": f"{config.minutes}m" if config.minutes else "day"}
 
@@ -561,7 +572,8 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
-        runs.succeed(identity, tables(engine, contracts), metrics(config, engine))
+        runs.succeed(identity, tables(engine, contracts), metrics(config, engine),
+                     {"excluded": excluded_record(contracts)} if config.minutes else {})
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise

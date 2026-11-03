@@ -70,7 +70,8 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
         current.bar.Clear();
         current.bar.set_contract(contract);
         current.bar.set_trading_day(day);
-        current.bar.set_end_ms(daily_ ? key : key + interval_);
+        // A day completes at its 15:00 Beijing close, as research labels it.
+        current.bar.set_end_ms(daily_ ? key + 15 * 3600000LL : key + interval_);
         current.bar.set_open_units(quote.last->raw());
         current.bar.set_high_units(quote.last->raw());
         current.bar.set_low_units(quote.last->raw());

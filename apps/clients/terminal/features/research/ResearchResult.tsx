@@ -181,8 +181,17 @@ export function RunResult({ id, state }: { id: string; state: string }) {
   const months = monthlyReturns(record.costs.deposit, detail.days);
   const holdout = record.statistics?.holdout_day as string | undefined;
   const rolling = record.statistics?.rolling;
+  const excluded = record.data.excluded as { bars: number; days: string[] } | undefined;
   return (
     <div className="lab-result">
+      {excluded && excluded.bars > 0 && (
+        <p className="subtle">
+          {t("{bars} 根 K 线含不完整的分钟，未参与回测：{days}", {
+            bars: excluded.bars,
+            days: excluded.days.join("、"),
+          })}
+        </p>
+      )}
       <Figures summary={summary} />
       {holdout && (
         <>

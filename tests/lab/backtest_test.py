@@ -217,6 +217,28 @@ class Backtests(unittest.TestCase):
                 self.assertIsNotNone(row["metrics"]["total_return"])
         self.assertIn("SHFE/rb/2026-10", set(Runs(self.directory).table("series", "fills")["contract"]))
 
+    def test_a_bar_with_an_incomplete_minute_is_left_out_and_recorded(self):
+        writer = Warehouse(self.directory).writer()
+        bj = datetime.timezone(datetime.timedelta(hours=8))
+        for n, day in enumerate(DAYS[:2]):
+            start = int(datetime.datetime.combine(day, datetime.time(9), bj).timestamp()) * 1000
+            rows = [dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05", day=day.isoformat(),
+                         start_ms=start + minute * 60000, partial=n == 1 and minute == 3,
+                         open=Decimal(3000), high=Decimal(3005), low=Decimal(2995), close=Decimal(3000),
+                         volume=Decimal(100), average_price=None, open_interest=Decimal(900))
+                    for minute in range(10)]
+            writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", rows,
+                            days=[day.isoformat()])
+        writer.commit()
+        backtest.run(self.directory, "partial", self.config(
+            ("SHFE/rb/2026-05",), end_day=DAYS[1].isoformat(), minutes=1))
+        runs = Runs(self.directory)
+        (row,) = [row for row in runs.list() if row["id"] == "partial"]
+        self.assertEqual(row["state"], "succeeded", row["error"])
+        self.assertEqual(runs.record("partial")["data"]["excluded"], {"bars": 1, "days": [DAYS[1].isoformat()]})
+        equity = runs.table("partial", "equity")
+        self.assertEqual((equity["event"] == "mark").sum(), 19)
+
     def test_minute_bars_are_read_gathered_and_traded(self):
         # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up
         # then down, on top of the days' settlements.

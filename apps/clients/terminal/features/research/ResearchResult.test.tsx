@@ -83,3 +83,31 @@ test.each([
   );
   expect(await screen.findByText("返回的 K 线与运行使用的数据版本不一致。")).toBeDefined();
 });
+
+test("a minute run says which bars it left out for an incomplete minute", async () => {
+  const request = vi.mocked(lab);
+  request.mockReset();
+  request.mockImplementation(async operation => {
+    if (operation?.case === "chartBars")
+      return create(ChartBarsSchema, { datasetVersion: "a".repeat(64) }) as never;
+    if (operation?.case !== "run") throw new Error("expected run read");
+    return create(RunDetailSchema, {
+      summary: { id: "partial", state: "succeeded" },
+      record: JSON.stringify({
+        strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
+        costs: { deposit: "1000000" },
+        engine: { version: "test", requirements: "locked" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/rb/2026-05"],
+          begin_day: "2026-01-05",
+          end_day: "2026-01-06",
+          bars: { period: "1m" },
+          excluded: { bars: 1, days: ["2026-01-06"] },
+        },
+      }),
+    }) as never;
+  });
+  render(<RunResult id="partial" state="succeeded" />);
+  expect(await screen.findByText("{bars} 根 K 线含不完整的分钟，未参与回测：{days}")).toBeDefined();
+});

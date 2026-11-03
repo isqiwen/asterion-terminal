@@ -74,6 +74,13 @@ TEST(StrategyBars, DailyWindowStartsAtObservedTradingDayTransition)
     ASSERT_EQ(closed.size(), 1);
     const auto& bar = closed[0].bars(0);
     EXPECT_EQ(bar.trading_day(), "2026-09-29");
+    // 15:00 Beijing, as a backtest labels the day.
+    EXPECT_EQ(
+        bar.end_ms(),
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            (std::chrono::sys_days(std::chrono::year(2026) / 9 / 29) + std::chrono::hours(7))
+                .time_since_epoch())
+            .count());
     EXPECT_EQ(bar.open_units(), Decimal::parse("101").raw());
     EXPECT_EQ(bar.close_units(), Decimal::parse("103").raw());
     EXPECT_EQ(bar.volume(), 7);

@@ -5,8 +5,9 @@
     runs.sqlite                  every run's state and metrics, for lists and rankings,
                                  and the runs of each parameter sweep with their values
 
-run.json is written when the run starts and never changed. The tables are
-written when it succeeds, before the index says so; a run that stops before
+run.json is written when the run starts; on success its data gain what the
+bars turned out to lack. The tables are written when it succeeds, before the
+index says so; a run that stops before
 then keeps only what it started with. Amounts have the ledger's eight decimal
 places, held exactly.
 """
@@ -125,22 +126,28 @@ class Runs:
             (identity, plan.strategy, plan.revision.commit, plan.revision.changes,
              plan.dataset_version, started))
 
-    def succeed(self, identity: str, tables: dict, metrics: dict):
+    def succeed(self, identity: str, tables: dict, metrics: dict, data: dict = {}):
         """Write the run's tables, each a polars frame of exactly its schema, then
-        its metrics; a metric without a value (a ratio of nothing) is None."""
+        its metrics; a metric without a value (a ratio of nothing) is None.
+        `data` joins the record's data."""
         if set(tables) != set(TABLES):
             raise ValueError(f"a run writes exactly the tables {', '.join(TABLES)}")
-        for name, data in tables.items():
-            if dict(data.schema) != TABLES[name]:
-                raise ValueError(f"{name} does not have the run schema: {dict(data.schema)}")
+        for name, frame in tables.items():
+            if dict(frame.schema) != TABLES[name]:
+                raise ValueError(f"{name} does not have the run schema: {dict(frame.schema)}")
         for name, value in metrics.items():
             if value is not None and not math.isfinite(value):
                 raise ValueError(f"metric {name} is not finite")
         directory = self.root / identity
-        for name, data in tables.items():
+        for name, frame in tables.items():
             stream = io.BytesIO()
-            data.write_parquet(stream, compression="zstd", statistics=True)
+            frame.write_parquet(stream, compression="zstd", statistics=True)
             write_durably(directory / f"{name}.parquet", stream.getvalue())
+        if data:
+            record = self.record(identity)
+            record["data"].update(data)
+            write_durably(directory / "run.json",
+                          json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")
         with self.index:
             self.index.execute("begin")
             self.index.executemany("insert into metrics (run, name, value) values (?, ?, ?)",
