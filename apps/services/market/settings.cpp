@@ -72,9 +72,16 @@ Settings load_settings(const fs::path& root, const std::optional<fs::path>& cred
     } catch (const std::exception&) {
         throw Error(ErrorCode::invalid_request, "invalid market configuration: " + where);
     }
-    exact(document, {"bind", "port", "counter", "clients", "acquisition"}, where);
+    exact(
+        document,
+        {"bind", "port", "data", "recording", "counter", "clients", "acquisition"},
+        where);
     Settings result;
-    result.directory = root / "data";
+    result.directory = text(document, "data", where);
+    if (!result.directory.is_absolute())
+        throw Error(
+            ErrorCode::invalid_request,
+            "market configuration " + where + " needs an absolute data directory");
     result.ctp_library = root / "lib" / "ctp-md.so";
     result.ctp_catalog_library = root / "lib" / "ctp-trader.so";
     if (!fs::is_directory(result.directory))
@@ -143,6 +150,15 @@ Settings load_settings(const fs::path& root, const std::optional<fs::path>& cred
             throw Error(ErrorCode::invalid_request, "Market needs TLS identity " + path.string());
     result.tls.certificate_file = certificate.string();
     result.tls.private_key_file = key.string();
+    const auto& recording = document.at("recording");
+    exact(recording, {"tick_days"}, where);
+    const auto& tick_days = recording.at("tick_days");
+    if (!tick_days.is_number_unsigned() || tick_days.get<std::uint64_t>() < 1
+        || tick_days.get<std::uint64_t>() > 100000)
+        throw Error(
+            ErrorCode::invalid_request,
+            "market configuration " + where + " needs recording.tick_days in 1-100000");
+    result.tick_days = tick_days.get<unsigned>();
     const auto& acquisition = document.at("acquisition");
     exact(acquisition, {"exchanges", "tushare"}, where);
     const auto& exchanges = acquisition.at("exchanges");

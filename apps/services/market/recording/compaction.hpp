@@ -42,6 +42,10 @@ Compacted compact_day(
     const std::string& trading_day,
     std::stop_token stop = {});
 
+// Deletes the tick partitions of every recorded trading day but the latest
+// `keep`, and returns those days. Minutes and segments are never deleted.
+std::vector<std::string> prune_ticks(const std::filesystem::path& recordings, unsigned keep);
+
 // Completes merges whose journal was written before a stop.
 void finish_compactions(const std::filesystem::path& recordings);
 

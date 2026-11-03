@@ -68,7 +68,7 @@ struct State
           catalog_sdk(config.settings.ctp_catalog_library),
           catalog(sdk_owner),
           settings(config.settings),
-          compactor(directory / "recordings", std::move(archive))
+          compactor(directory / "recordings", std::move(archive), config.settings.tick_days)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
         {

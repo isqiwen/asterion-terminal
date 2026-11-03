@@ -19,7 +19,11 @@ public:
         std::string day, error;
     };
 
-    Compactor(std::filesystem::path root, std::shared_ptr<std::shared_mutex> archive);
+    // Keeps the ticks of the latest `tick_days` recorded trading days.
+    Compactor(
+        std::filesystem::path root,
+        std::shared_ptr<std::shared_mutex> archive,
+        unsigned tick_days);
     void poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall);
     Status status() const;
 
@@ -31,6 +35,7 @@ public:
 private:
     const std::filesystem::path root_;
     const std::shared_ptr<std::shared_mutex> archive_;
+    const unsigned tick_days_;
     mutable std::mutex mutex_;
     Status status_;
     Clock::time_point next_{};

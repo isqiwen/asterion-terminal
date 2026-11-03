@@ -192,6 +192,23 @@ compact_day(const fs::path& recordings, const std::string& trading_day, std::sto
     return result;
 }
 
+std::vector<std::string> prune_ticks(const fs::path& recordings, unsigned keep)
+{
+    const auto folder = recordings / "ticks";
+    std::vector<std::string> days;
+    if (fs::is_directory(folder))
+        for (const auto& partition : fs::directory_iterator(folder))
+            if (const auto day = day_of(partition.path()); !day.empty())
+                days.push_back(day);
+    if (days.size() <= keep)
+        return {};
+    std::sort(days.begin(), days.end());
+    days.resize(days.size() - keep);
+    for (const auto& day : days)
+        fs::remove_all(folder / ("trading_day=" + day));
+    return days;
+}
+
 void finish_compactions(const fs::path& recordings)
 {
     for (const auto* table : {"ticks", "minutes"}) {

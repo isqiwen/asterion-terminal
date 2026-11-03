@@ -101,13 +101,14 @@ with tempfile.TemporaryDirectory() as folder:
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', '', '', '273005', '', client_pin + '=manage', '', '100', 'fixture-token', 'fixture-password', 'fixture-auth'])
+                             ['', 'abc', '7451', '', '', '', '', '', '273005', '', client_pin + '=manage', '', '100', 'fixture-token', 'fixture-password', 'fixture-auth'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_market').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
     assert json.loads((host.root / 'config/logging.json').read_text())['file']['retention_days'] == 30
-    assert host.settings() == {**shipped, 'port': 7451,
+    assert host.settings() == {**shipped, 'port': 7451, 'data': str(host.root / 'data'),
+                               'recording': {'tick_days': 30},
                                'counter': {**shipped['counter'], 'user': '273005'}}
     text = (host.root / 'config/market.json').read_text()
     assert 'fixture-password' not in text and 'fixture-auth' not in text and 'fixture-token' not in text
@@ -169,10 +170,19 @@ with tempfile.TemporaryDirectory() as folder:
         calls, _ = host.run(second, ['n'], active=True, now=now)
         assert calls[-1] == 'systemctl restart asterion-market.service', (now, calls)
 
-    # The installed copy only changes the settings.
+    # The installed copy only changes the settings. Another data directory is
+    # made for the market and becomes writable; the old data is not moved.
+    disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', '', '', '', '', '-', '', '', '0', 'fixture-password'])
+                             ['', '', str(disk), '7', '', '', '', '', '-', '', '', '0', 'fixture-password'])
     assert host.settings()['port'] == 7999 and host.settings()['counter']['app_id'] == ''
+    assert host.settings()['data'] == str(disk) and host.settings()['recording'] == {'tick_days': 7}
+    assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
+                                 for call in calls), calls
+    unit = (host.units / 'asterion-market.service').read_text()
+    assert f'ReadWritePaths={host.root}/logs {disk}\n' in unit, unit
+    assert f'The existing data stays in {host.root}/data' in result.stdout, result.stdout
+    assert (host.root / 'data/acquisition/published.pb').read_bytes() == b'fixture-task'
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-market.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-market.service', calls

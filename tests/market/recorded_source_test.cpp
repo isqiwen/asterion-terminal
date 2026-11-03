@@ -155,7 +155,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
     const auto original = store.current();
     const std::string key = "minutes/SHFE/2026-10-28/rb/2027-01";
     const auto baseline = store.read(original, key);
-    recording::Compactor compactor(root / "recordings", archive);
+    recording::Compactor compactor(root / "recordings", archive, 30);
     const auto now = recording::Compactor::Clock::now();
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     std::unique_lock held(*archive);
@@ -184,7 +184,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
 TEST_F(RecordedSource, MaintenanceShutdownDoesNotWaitForAnArchiveReader)
 {
     record("first");
-    auto compactor = std::make_unique<recording::Compactor>(root / "recordings", archive);
+    auto compactor = std::make_unique<recording::Compactor>(root / "recordings", archive, 30);
     const auto now = recording::Compactor::Clock::now();
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     std::shared_lock held(*archive);
@@ -209,7 +209,7 @@ TEST_F(RecordedSource, AScanFailureIsReportedAndRetriedAfterBackoff)
     const auto damaged = root / "recordings/ticks/trading_day=20261028";
     fs::create_directories(damaged.parent_path());
     std::ofstream(damaged) << "not a directory";
-    recording::Compactor compactor(root / "recordings", archive);
+    recording::Compactor compactor(root / "recordings", archive, 30);
     const auto now = recording::Compactor::Clock::now();
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     const auto finish = [&](auto when) {

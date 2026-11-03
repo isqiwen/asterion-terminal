@@ -18,6 +18,14 @@ struct Installation
     fs::path root = fs::temp_directory_path() / ("ast-market-" + unique_process_id());
     fs::path file = root / "config/market.json";
     fs::path credentials = root / "credentials";
+    // The settings file the installer writes for this installation.
+    std::string configuration;
+    static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
+    "recording":{"tick_days":30},
+    "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"read"}],
+    "acquisition":{"exchanges":[],"tushare":null},
+    "counter":{"market_front":"tcp://md:1","trade_front":"tcp://td:2",
+        "broker":"9999","user":"000001","app_id":"client_app"}})";
 
     Installation()
     {
@@ -27,6 +35,9 @@ struct Installation
         write_file_durably(root / "lib/ctp-trader.so", "td");
         write_file_durably(root / "config/tls/server.crt", "test");
         write_file_durably(root / "config/tls/server.key", "test");
+        auto value = nlohmann::json::parse(template_text);
+        value["data"] = (root / "data").string();
+        configuration = value.dump();
     }
 
     ~Installation()
@@ -45,12 +56,6 @@ struct Installation
     }
 };
 
-const char* configuration = R"({"bind":"0.0.0.0","port":7450,
-    "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"read"}],
-    "acquisition":{"exchanges":[],"tushare":null},
-    "counter":{"market_front":"tcp://md:1","trade_front":"tcp://td:2",
-        "broker":"9999","user":"000001","app_id":"client_app"}})";
-
 bool names(const std::string& text, const std::string& part)
 {
     return text.find(part) != std::string::npos;
@@ -58,10 +63,10 @@ bool names(const std::string& text, const std::string& part)
 
 } // namespace
 
-TEST(MarketSettings, PathsComeFromTheInstallationAndTheRestFromItsFile)
+TEST(MarketSettings, ProgramsComeFromTheInstallationAndDataAndTheRestFromItsFile)
 {
     Installation installation;
-    write_file_durably(installation.file, configuration);
+    write_file_durably(installation.file, installation.configuration);
     write_file_durably(installation.credentials / "asterion.ctp.password", "fixture-password\n");
     write_file_durably(installation.credentials / "asterion.ctp.auth_code", "fixture-auth");
     const auto settings = load_settings(installation.root, installation.credentials);
@@ -75,6 +80,20 @@ TEST(MarketSettings, PathsComeFromTheInstallationAndTheRestFromItsFile)
     EXPECT_EQ(settings.catalog.front, "tcp://td:2");
     EXPECT_EQ(settings.catalog.auth_code, "fixture-auth");
     EXPECT_EQ(settings.catalog.user, "000001");
+    EXPECT_EQ(settings.tick_days, 30U);
+    // Data may live on another disk; the path must be absolute and exist.
+    auto moved = nlohmann::json::parse(installation.configuration);
+    moved["data"] = (installation.root / "elsewhere").string();
+    moved["recording"]["tick_days"] = 5;
+    replace_file_durably(installation.file, moved.dump());
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "elsewhere"));
+    fs::create_directories(installation.root / "elsewhere");
+    const auto elsewhere = load_settings(installation.root, installation.credentials);
+    EXPECT_EQ(elsewhere.directory, installation.root / "elsewhere");
+    EXPECT_EQ(elsewhere.tick_days, 5U);
+    moved["data"] = "relative/data";
+    replace_file_durably(installation.file, moved.dump());
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "absolute data directory"));
 }
 
 TEST(MarketSettings, ARefusalNamesTheFileTheKeyOrTheCredentialItLacks)
@@ -86,7 +105,7 @@ TEST(MarketSettings, ARefusalNamesTheFileTheKeyOrTheCredentialItLacks)
     const auto malformed = installation.refusal(installation.credentials);
     EXPECT_TRUE(names(malformed, file.string()));
     EXPECT_FALSE(names(malformed, "private-config-marker"));
-    replace_file_durably(file, configuration);
+    replace_file_durably(file, installation.configuration);
     EXPECT_TRUE(names(installation.refusal(std::nullopt), file.string()));
     const auto password = installation.credentials / "asterion.ctp.password";
     EXPECT_TRUE(names(installation.refusal(installation.credentials), password.string()));
@@ -95,17 +114,17 @@ TEST(MarketSettings, ARefusalNamesTheFileTheKeyOrTheCredentialItLacks)
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "asterion.ctp.auth_code"));
     write_file_durably(installation.credentials / "asterion.ctp.auth_code", "fixture-auth");
     // Paths are not settings.
-    std::string extra = configuration;
+    std::string extra = installation.configuration;
     extra.insert(1, R"("directory":"/elsewhere",)");
     write_file_durably(file, extra);
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "unknown key directory"));
     // The default file before `recording-host.py login` fills in the counter.
-    std::string blank = configuration;
+    std::string blank = installation.configuration;
     blank.replace(blank.find("tcp://md:1"), 10, "");
     write_file_durably(file, blank);
     EXPECT_TRUE(
         names(installation.refusal(installation.credentials), "needs counter.market_front"));
-    write_file_durably(file, configuration);
+    write_file_durably(file, installation.configuration);
     fs::remove(installation.root / "lib/ctp-trader.so");
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "lib/ctp-trader.so"));
 }
@@ -113,7 +132,7 @@ TEST(MarketSettings, ARefusalNamesTheFileTheKeyOrTheCredentialItLacks)
 TEST(MarketSettings, ClientRolesAndHostOnlyProviderCredentialsAreExplicit)
 {
     Installation installation;
-    auto config = nlohmann::json::parse(configuration);
+    auto config = nlohmann::json::parse(installation.configuration);
     const auto save = [&] {
         replace_file_durably(installation.file, config.dump());
     };

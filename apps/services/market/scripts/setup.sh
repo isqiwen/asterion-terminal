@@ -10,7 +10,8 @@
 # directory. The installed copy, bin/setup.sh, carries nothing and only
 # changes the settings.
 #
-# The installation is /opt/asterion/market: bin/ lib/ config/ logs/ data/.
+# The installation is /opt/asterion/market: bin/ lib/ config/ logs/, and
+# data/ unless the settings name another data directory.
 # A first install asks for the settings; an upgrade replaces only bin/ and
 # lib/ and leaves config/ (market.json, logging.json) as it is
 # (it offers to change the settings).
@@ -30,7 +31,7 @@ CREDENTIALS=/etc/credstore.encrypted
 UNIT=asterion-market.service
 RESTART=asterion-market-restart
 # The account the market runs as: the sudo user at install, the owner of
-# data/ afterwards.
+# config/ afterwards.
 ACCOUNT=
 PROGRAMS=(bin/asterion_market bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
 # This script: the release with its archive, or the installed bin/setup.sh.
@@ -40,6 +41,7 @@ SELF=$(readlink -f "${BASH_SOURCE[0]}")
 declare -Ar DEFAULTS=(
     [bind]='0.0.0.0'
     [port]='7450'
+    [recording.tick_days]='30'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
     [acquisition.tushare]='0'
@@ -138,16 +140,25 @@ restart() {
     fi
 }
 
-# The current value of a key ("port", "counter.broker") in the settings.
+# The default of a key; the data directory is beside the programs.
+default() {
+    if [[ $1 == data ]]; then printf '%s' "$ROOT/data"; else printf '%s' "${DEFAULTS[$1]}"; fi
+}
+
+# The current value of a key ("port", "counter.broker") in the settings, or
+# its default where the settings have none.
 current() {
     if [[ ! -f $ROOT/config/market.json ]]; then
-        printf '%s' "${DEFAULTS[$1]}"
+        default "$1"
         return
     fi
     python3 -I -c '
 import json, sys
 value = json.load(open(sys.argv[1]))
 for key in sys.argv[2].split("."):
+    if key not in value:
+        print(sys.argv[3])
+        raise SystemExit
     value = value[key]
 if sys.argv[2] == "clients":
     value = " ".join(item["fingerprint"] + "=" + item["role"] for item in value)
@@ -155,7 +166,7 @@ elif sys.argv[2] == "acquisition.exchanges":
     value = " ".join(value) or "-"
 elif sys.argv[2] == "acquisition.tushare":
     value = value["requests_per_minute"] if value else 0
-print(value)' "$ROOT/config/market.json" "$1"
+print(value)' "$ROOT/config/market.json" "$1" "$(default "$1")"
 }
 
 # ask KEY PROMPT PATTERN: reads a value, offering the current one.
@@ -186,12 +197,17 @@ secret() {
 }
 
 configure() {
-    local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port market_front trade_front broker user app_id
+    local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port data previous tick_days
+    local market_front trade_front broker user app_id
     local password auth_code='' settings encrypted_password encrypted_auth_code=''
     local clients exchanges budget token='' encrypted_token=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
+    previous=$(current data)
+    data=$(ask data "Data directory (warehouse and recordings)" '^/[^[:space:]]*$')
+    tick_days=$(ask recording.tick_days "Trading days of recorded ticks kept" '^[0-9]{1,5}$')
+    ((tick_days >= 1)) || fail "Keep the ticks of at least one trading day"
     market_front=$(ask counter.market_front "Market data front" "$front")
     trade_front=$(ask counter.trade_front "Trading front" "$front")
     broker=$(ask counter.broker "Broker ID" '^[A-Za-z0-9]+$')
@@ -214,7 +230,7 @@ configure() {
     stage settings "$ROOT/config/market.json"
     python3 -I -c '
 import json, sys
-bind, port, market, trade, broker, user, app_id, clients, exchanges, budget = sys.argv[2:]
+bind, port, data, tick_days, market, trade, broker, user, app_id, clients, exchanges, budget = sys.argv[2:]
 import re
 peers = []
 for item in clients.split():
@@ -228,12 +244,13 @@ if not 1 <= len(peers) <= 64:
 exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("Invalid or duplicate acquisition exchanges")
-settings = {"bind": bind, "port": int(port), "clients": peers,
+settings = {"bind": bind, "port": int(port), "data": data,
+    "recording": {"tick_days": int(tick_days)}, "clients": peers,
     "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}, "counter": {
     "market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$market_front" "$trade_front" \
+    output.write("\n")' "$settings" "$bind" "$port" "$data" "$tick_days" "$market_front" "$trade_front" \
         "$broker" "$user" "$app_id" "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
@@ -253,8 +270,16 @@ with open(sys.argv[1], "w") as output:
     [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.market.tushare.token"
     mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
     [[ -z $encrypted_auth_code ]] || mv -f "$encrypted_auth_code" "$CREDENTIALS/asterion.ctp.auth_code"
+    mkdir -p "$data"
+    chmod 0700 "$data"
+    chown "$ACCOUNT:" "$data"
     mv -f "$settings" "$ROOT/config/market.json"
     echo "Saved $ROOT/config/market.json"
+    # The service may write only its logs and its data directory.
+    write_unit
+    if [[ $data != "$previous" && -d $previous && -n $(ls -A "$previous") ]]; then
+        echo "The existing data stays in $previous; it is not moved. To keep using it, stop the market and move its contents to $data."
+    fi
 }
 
 unit_text() {
@@ -269,9 +294,9 @@ StartLimitIntervalSec=0
 [Service]
 User=$ACCOUNT
 UMask=0077
-# It finds config/, lib/, logs/ and data/ beside its bin/.
+# It finds config/, lib/ and logs/ beside its bin/; config/market.json names its data.
 ExecStart=$ROOT/bin/asterion_market --installation $ROOT
-ReadWritePaths=$ROOT/logs $ROOT/data
+ReadWritePaths=$ROOT/logs $(current data)
 # The counter password and authentication code, decrypted at start.
 ImportCredential=asterion.ctp.*
 ImportCredential=asterion.market.*
@@ -308,9 +333,9 @@ prepare_identity() {
 }
 
 install_once() {
-    mkdir -p "$ROOT"/{bin,lib,config/tls,logs,data} "$CREDENTIALS"
-    chmod 0700 "$ROOT/config" "$ROOT/logs" "$ROOT/data" "$CREDENTIALS"
-    chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs" "$ROOT/data"
+    mkdir -p "$ROOT"/{bin,lib,config/tls,logs} "$CREDENTIALS"
+    chmod 0700 "$ROOT/config" "$ROOT/logs" "$CREDENTIALS"
+    chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs"
     if [[ ! -f $ROOT/config/logging.json ]]; then
         local logging
         stage logging "$ROOT/config/logging.json"
@@ -359,8 +384,8 @@ main() {
     else
         fail "This copy carries no programs: install or upgrade with the released asterion-market-setup.sh"
     fi
-    if [[ -d $ROOT/data ]]; then
-        ACCOUNT=$(stat -c %U "$ROOT/data")
+    if [[ -d $ROOT/config ]]; then
+        ACCOUNT=$(stat -c %U "$ROOT/config")
     else
         ACCOUNT=${SUDO_USER:-}
         [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: the market will run as that account"

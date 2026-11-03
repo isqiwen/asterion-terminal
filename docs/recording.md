@@ -11,8 +11,8 @@ sudo bash asterion-market-setup.sh         # 第一次：安装并配置；以�
 sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 ```
 
-- 安装时写入并启用 `asterion-market.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和 `data/`，`Restart=always`。
-- 配置时依次询问监听地址、端口、行情和交易前置、经纪公司代码、投资者代码、AppID（回车保留当前值），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 CTP 密码、授权码和 Tushare token。秘密用 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，不写入任何明文文件。
+- 安装时写入并启用 `asterion-market.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
+- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/market/data`，可以放到单独的磁盘）、Tick 保留的交易日数（默认 30）、行情和交易前置、经纪公司代码、投资者代码、AppID（回车保留当前值），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 CTP 密码、授权码和 Tushare token。秘密用 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，不写入任何明文文件。
 - 升级只替换程序和库，保留配置、TLS 身份、仓库、采集任务和录制文件。交易时段内（北京时间工作日 08:45–15:30、20:45–次日 02:45）不重启正在运行的服务，改为收盘后由定时器重启。
 - 安装时生成服务端证书，脚本显示它的指纹，供 Terminal 登记。权限修改在重启后生效。
 
@@ -24,15 +24,18 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 {
   "bind": "0.0.0.0",
   "port": 7450,
+  "data": "/opt/asterion/market/data",
+  "recording": {"tick_days": 30},
   "clients": [{"fingerprint": "<客户端证书的 SHA-256 指纹>", "role": "manage"}],
   "acquisition": {"exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"], "tushare": null},
   "counter": {"market_front": "tcp://…", "trade_front": "tcp://…", "broker": "…", "user": "…", "app_id": "…"}
 }
 ```
 
+- `data` 是仓库、录制、采集任务和合约目录缓存所在的目录，必须是绝对路径。改目录请用 `setup.sh`：它创建新目录并允许服务写入；旧目录里的数据不搬动，要继续使用就先停服务再自己移过去。
 - `tushare` 为 `null` 时不采集 Tushare，否则为 `{"requests_per_minute": 100}`，token 来自主机凭据 `asterion.market.tushare.token`。
 - 缺少配置、TLS 文件或已启用来源的凭据时拒绝启动，并报告路径；多出不认识的键同样拒绝。
-- `data/market.lock` 保证一个安装目录只有一个 Market 进程。
+- 数据目录下的 `market.lock` 保证同一份数据只有一个 Market 进程。
 - 日志在 `logs/asterion_market_YYYY-MM-DD.log`，可用 `journalctl -u asterion-market -f` 查看。
 
 ## 运行
@@ -42,7 +45,7 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 
 ## 录制文件
 
-文件在 `data/recordings/` 下，按柜台给的交易日分区，可以直接用 DuckDB 读取：
+文件在数据目录的 `recordings/` 下，按柜台给的交易日分区，可以直接用 DuckDB 读取：
 
 ```
 recordings/ticks/trading_day=<YYYYMMDD>/<实例>-<序号>.parquet
@@ -54,6 +57,8 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 - **minutes**：与实时分钟线是同一份聚合。`partial` 表示这一分钟的观测可能不完整（从分钟中间开始观测、期间丢过观测、累计量回退、停止时还在形成）。
 - **segments**：一段是一次不间断的观测，记首末时间、报价数和结束原因：断线（如 `reconnecting`）、`events_lost`、`feed_failed`、`write_backlog`（磁盘跟不上，这一段时间的数据被丢弃）、`stopped`。两段之间就是缺口，不补造。
 - 写文件在单独的线程上进行。磁盘落后四个文件时，丢弃这一段时间的数据并计入丢失行数，行情线程不等待磁盘。重启后以新的实例名续写，不改已有文件。
+
+**保留**：Tick 只保留最近 `recording.tick_days` 个已录制的交易日。每天合并完成后，更早交易日的 Tick 目录被删除并记入日志；分钟线和观测段永久保留，已发布的 `recorder` 研究版本不受影响。
 
 **收盘后合并**：一个交易日的交易结束、并且 30 分钟没有新报价后，当天的 Tick 和分钟文件合并为每个交易所一个文件。合并先写新文件并核对行数，再记日志、删原文件；中途中断时下次启动完成或放弃这次合并，原数据不丢。合并失败一小时后重试，不影响实时接收。
 

@@ -92,8 +92,9 @@ def main():
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
+        # The container mounts the installation at /market.
         (root / 'config/market.json').write_text(json.dumps(dict(bind='127.0.0.1', port=port,
-            clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
+            data='/market/data', recording=dict(tick_days=30), clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
             counter=dict(market_front='tcp://127.0.0.1:1', trade_front='tcp://127.0.0.1:1',
                          broker='fixture', user='fixture', app_id='fixture'))))
         shutil.copy2(Path(__file__).parents[2] / 'config/logging.json', root / 'config/logging.json')

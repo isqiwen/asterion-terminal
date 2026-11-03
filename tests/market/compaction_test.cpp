@@ -152,3 +152,20 @@ TEST(Merge, AMergeStoppedAfterItsJournalIsCompletedAndOneStoppedBeforeLeavesTheO
     EXPECT_EQ(names(folder2), std::vector<std::string>{"SHFE.parquet"});
     EXPECT_EQ(rows(folder2), 3);
 }
+
+TEST(Merge, OnlyTheLatestTickDaysAreKeptAndMinutesAndSegmentsStay)
+{
+    Folder folder;
+    for (const auto* day : {"20261026", "20261027", "20261028"})
+        for (const auto* table : {"ticks", "minutes", "segments"}) {
+            const auto partition = folder.path / table / (std::string("trading_day=") + day);
+            fs::create_directories(partition);
+            write_file_durably(partition / "SHFE.parquet", "rows");
+        }
+    EXPECT_TRUE(recording::prune_ticks(folder.path, 3).empty());
+    EXPECT_EQ(recording::prune_ticks(folder.path, 2), std::vector<std::string>{"20261026"});
+    EXPECT_FALSE(fs::exists(folder.path / "ticks/trading_day=20261026"));
+    EXPECT_TRUE(fs::exists(folder.path / "ticks/trading_day=20261027/SHFE.parquet"));
+    for (const auto* table : {"minutes", "segments"})
+        EXPECT_TRUE(fs::exists(folder.path / table / "trading_day=20261026/SHFE.parquet"));
+}

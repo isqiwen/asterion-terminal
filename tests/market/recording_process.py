@@ -186,7 +186,8 @@ def install(root):
 def start(root, port, user="fixture"):
     """Everything comes from the installation directory and its configuration file."""
     (root / "config" / "market.json").write_text(json.dumps({
-        "bind": "127.0.0.1", "port": port, "clients": market_tls.clients(tls),
+        "bind": "127.0.0.1", "port": port, "data": str(root / "data"),
+        "recording": {"tick_days": 30}, "clients": market_tls.clients(tls),
         "acquisition": {"exchanges": [], "tushare": None},
         "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
                     "broker": "test", "user": user, "app_id": "app"}}))

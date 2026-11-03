@@ -6,9 +6,13 @@ namespace asterion::recording {
 
 using namespace std::chrono_literals;
 
-Compactor::Compactor(std::filesystem::path root, std::shared_ptr<std::shared_mutex> archive)
+Compactor::Compactor(
+    std::filesystem::path root,
+    std::shared_ptr<std::shared_mutex> archive,
+    unsigned tick_days)
     : root_(std::move(root)),
-      archive_(std::move(archive))
+      archive_(std::move(archive)),
+      tick_days_(tick_days)
 {}
 
 Compactor::Status Compactor::status() const
@@ -39,9 +43,9 @@ void Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_cloc
     next_ = now + 1min;
     finished_ = worker_.submit([this, wall](std::stop_token stop) {
         const auto days = compactable_days(root_, wall, stop);
-        if (days.empty() || stop.stop_requested())
+        if (stop.stop_requested())
             return;
-        {
+        if (!days.empty()) {
             std::lock_guard lock(mutex_);
             status_.day = days.front();
         }
@@ -51,8 +55,14 @@ void Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_cloc
                 return;
             std::this_thread::sleep_for(10ms);
         }
-        if (!stop.stop_requested())
+        if (stop.stop_requested())
+            return;
+        // Old ticks go once every finished day is merged.
+        if (!days.empty())
             compact_day(root_, days.front(), stop);
+        else
+            for (const auto& day : prune_ticks(root_, tick_days_))
+                log::info("market recording ticks removed: trading_day={}", day);
     });
 }
 
