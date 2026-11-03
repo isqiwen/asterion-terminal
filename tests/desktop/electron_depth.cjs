@@ -218,5 +218,6 @@ const { createInterface } = require("node:readline");
   }
 })().catch(error => {
   console.error(error);
-  process.exitCode = 1;
+  // A child left running by the failure would otherwise keep Node waiting forever.
+  process.exit(1);
 });
