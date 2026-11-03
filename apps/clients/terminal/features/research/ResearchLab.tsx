@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   notify,
+  ErrorNotice,
+  asDisplayError,
+  type DisplayError,
   lab,
   translate,
   type LabFactorResult,
@@ -77,6 +80,7 @@ export function ResearchLab(context: TerminalContext) {
   // The folder a new module is being named for.
   const [creating, setCreating] = useState<"strategies" | "factors" | null>(null);
   const [moduleName, setModuleName] = useState("");
+  const [refused, setRefused] = useState<DisplayError>("");
 
   const readStrategies = useCallback(async () => {
     if (!repository) return;
@@ -345,10 +349,11 @@ export function ResearchLab(context: TerminalContext) {
                 () => {
                   setCreating(null);
                   setModuleName("");
+                  setRefused("");
                   setShown({ kind: "source", path });
                   void readStrategies();
                 },
-                reason => notify(reason),
+                reason => setRefused(asDisplayError(reason)),
               );
             }}
           >
@@ -367,6 +372,11 @@ export function ResearchLab(context: TerminalContext) {
             <button type="button" onClick={() => setCreating(null)}>
               {t("取消")}
             </button>
+            {refused && (
+              <p className="lab-new-module-error" role="alert">
+                <ErrorNotice error={refused} />
+              </p>
+            )}
           </form>
         ) : (
           <p>

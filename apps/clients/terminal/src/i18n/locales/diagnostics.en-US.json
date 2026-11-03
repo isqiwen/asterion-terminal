@@ -251,5 +251,12 @@
   "strategy market stream lost observations": "strategy market stream lost observations",
   "strategy contract subscription rejected": "strategy contract subscription rejected",
   "strategy market observations are unordered": "strategy market observations are unordered",
-  "strategy market login timed out": "strategy market login timed out"
+  "strategy market login timed out": "strategy market login timed out",
+  "a certificate fingerprint is 64 hex digits": "A certificate fingerprint is 64 hexadecimal digits, optionally separated by colons.",
+  "invalid market host": "The host address is invalid.",
+  "invalid market port": "The port must be between 1 and 65535.",
+  "a module of this name already exists": "A module of this name exists; choose another name.",
+  "a built-in module cannot be changed": "A built-in module cannot be changed.",
+  "a built-in module cannot be deleted": "A built-in module cannot be deleted.",
+  "invalid module name": "A module name uses letters, digits and underscores, and does not start with a digit."
 }

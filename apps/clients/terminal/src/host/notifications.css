@@ -5,7 +5,7 @@
   z-index: 50;
   display: grid;
   gap: 8px;
-  width: min(420px, calc(100vw - 32px));
+  width: min(360px, calc(100vw - 32px));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -13,15 +13,15 @@
 .notification {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 7px 8px 7px 12px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--danger);
+  border-left: 2px solid var(--danger);
   border-radius: var(--panel-radius);
   background: var(--panel);
   color: var(--text);
-  font-size: 13px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
 }
 .notification > span {
   flex: 1;
@@ -30,9 +30,17 @@
 .notification.sticky {
   background: var(--danger-surface);
 }
-.notification button {
-  flex-shrink: 0;
-}
+.notification button,
 .copy-diagnostic {
+  flex-shrink: 0;
+  min-height: 0;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
   font-size: 12px;
+}
+.notification button:hover,
+.copy-diagnostic:hover {
+  color: var(--text);
 }

@@ -491,3 +491,13 @@
   padding: 0;
   margin-bottom: 8px;
 }
+.settings-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+.settings-error .copy-diagnostic {
+  border: 0;
+  background: none;
+  color: var(--muted);
+}

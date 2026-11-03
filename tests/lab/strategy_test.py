@@ -236,9 +236,9 @@ class Repository(unittest.TestCase):
         self.assertTrue(listed["strategies/ma_cross.py"])
         self.assertFalse(listed["factors/price.py"])
         self.assertIn("MaCross", repository.read_source(self.root, "strategies/ma_cross.py").content)
-        with self.assertRaisesRegex(ValueError, "built in"):
+        with self.assertRaisesRegex(ValueError, "built-in module cannot be changed"):
             repository.write_source(self.root, "strategies/ma_cross.py", "x = 1\n", False)
-        with self.assertRaisesRegex(ValueError, "built in"):
+        with self.assertRaisesRegex(ValueError, "built-in module cannot be deleted"):
             repository.delete_source(self.root, "strategies/ma_cross.py")
         with self.assertRaisesRegex(ValueError, "already exists"):
             repository.write_source(self.root, "strategies/ma_cross.py", "x = 1\n", True)

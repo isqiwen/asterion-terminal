@@ -25,6 +25,10 @@ const errors: Record<string, string> = {
 // These messages carry operation-specific evidence after a stable prefix.
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
 const prefixedDiagnostics = [
+  ["a module of this name already exists: ", "a module of this name already exists"],
+  ["a built-in module cannot be changed: ", "a built-in module cannot be changed"],
+  ["a built-in module cannot be deleted: ", "a built-in module cannot be deleted"],
+  ["a module is strategies/<name>.py or factors/<name>.py: ", "invalid module name"],
   ["feature expression at byte ", "feature expression validation failed"],
   ["cannot read node configuration template: ", "cannot read node configuration template"],
   [

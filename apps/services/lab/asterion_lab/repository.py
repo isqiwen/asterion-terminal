@@ -254,7 +254,8 @@ def write_source(root: Path, path: str, content: str, create: bool) -> Source:
     from asterion_lab.warehouse import write_durably
     file = module(root, path)
     if file.exists() and (create or not os.access(file, os.W_OK)):
-        raise ValueError(f"{path} already exists" if create else f"{path} is built in and cannot be changed")
+        raise ValueError(f"a module of this name already exists: {path}" if create
+                         else f"a built-in module cannot be changed: {path}")
     write_durably(file, content.encode())
     return read_source(root, path)
 
@@ -264,7 +265,7 @@ def delete_source(root: Path, path: str):
     if not file.is_file():
         raise ValueError(f"no module {path}")
     if not os.access(file, os.W_OK):
-        raise ValueError(f"{path} is built in and cannot be deleted")
+        raise ValueError(f"a built-in module cannot be deleted: {path}")
     file.unlink()
 
 

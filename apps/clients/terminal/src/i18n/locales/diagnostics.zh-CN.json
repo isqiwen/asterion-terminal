@@ -251,5 +251,12 @@
   "strategy market stream lost observations": "策略行情流丢失观测，实例已结束。",
   "strategy contract subscription rejected": "策略合约订阅被拒绝，实例已结束。",
   "strategy market observations are unordered": "策略行情时间顺序异常，实例已结束。",
-  "strategy market login timed out": "策略行情登录超时，实例已结束。"
+  "strategy market login timed out": "策略行情登录超时，实例已结束。",
+  "a certificate fingerprint is 64 hex digits": "证书指纹应为 64 位十六进制数字，可以用冒号分隔。",
+  "invalid market host": "主机地址无效。",
+  "invalid market port": "端口应在 1 到 65535 之间。",
+  "a module of this name already exists": "已经有同名的模块，换一个名字。",
+  "a built-in module cannot be changed": "内置模块不能修改。",
+  "a built-in module cannot be deleted": "内置模块不能删除。",
+  "invalid module name": "模块名只能用字母、数字和下划线，并且不能以数字开头。"
 }

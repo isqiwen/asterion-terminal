@@ -4,6 +4,7 @@ import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
 import { notify } from "../host/notifications";
+import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 export function MarketSource({
   snapshot,
@@ -21,6 +22,8 @@ export function MarketSource({
   const [fingerprint, setFingerprint] = useState("");
   const [port, setPort] = useState("7450");
   const [clearing, setClearing] = useState(false);
+  // What the form's input was refused for, shown above its buttons.
+  const [refused, setRefused] = useState<DisplayError>("");
   const run = async (...args: CommandCall) => {
     try {
       await trade(...args);
@@ -35,6 +38,7 @@ export function MarketSource({
     setPort(String(endpoint?.port ?? 7450));
     setFingerprint(endpoint?.fingerprint ?? "");
     setClearing(false);
+    setRefused("");
     setEditing(true);
   };
   return (
@@ -95,14 +99,16 @@ export function MarketSource({
         <form
           onSubmit={async event => {
             event.preventDefault();
-            if (
-              await run("market.endpoint.save", {
+            try {
+              await trade("market.endpoint.save", {
                 host: host.trim(),
                 port: Number(port),
                 fingerprint: fingerprint.trim(),
-              })
-            )
+              });
               setEditing(false);
+            } catch (reason) {
+              setRefused(asDisplayError(reason));
+            }
           }}
         >
           <fieldset disabled={busy}>
@@ -141,6 +147,11 @@ export function MarketSource({
                 />
               </label>
             </div>
+            {refused && (
+              <p className="settings-error" role="alert">
+                <ErrorNotice error={refused} />
+              </p>
+            )}
             <div className="settings-actions">
               <button type="button" onClick={() => setEditing(false)}>
                 {t("取消")}
