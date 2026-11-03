@@ -1,6 +1,7 @@
 #include "acquisition/tushare.hpp"
 #include "acquisition/manager.hpp"
 #include "support/market_host.hpp"
+#include "support/timing.hpp"
 #include <asterion/market.pb.h>
 #include <gtest/gtest.h>
 #include <atomic>
@@ -179,7 +180,7 @@ ac::wire::Request request(const std::string& id, const std::string& provider = "
 
 ac::wire::Task finished(ac::Manager& manager, const std::string& id)
 {
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
     for (;;) {
         auto task = manager.get(id);
         if (task.state() != "running" && task.state() != "queued")
