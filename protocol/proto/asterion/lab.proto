@@ -265,7 +265,6 @@ message Strategies {
   repeated StrategyEntry strategies = 4;
   repeated StrategyModuleError errors = 5;
   repeated FactorEntry factors = 6;
-  repeated Source modules = 7; // every module, without its content
 }
 
 // A factor: a public function of a module in the repository's factors/

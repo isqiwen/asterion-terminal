@@ -161,5 +161,8 @@
   "内置，只读": "Built in, read only",
   "保存": "Save",
   "删除": "Delete",
-  "删除这个模块？删除后不能恢复。": "Delete this module? It cannot be restored."
+  "删除这个模块？删除后不能恢复。": "Delete this module? It cannot be restored.",
+  "代码与结果": "Code and result",
+  "结果": "Result",
+  "打开代码": "Open code"
 }

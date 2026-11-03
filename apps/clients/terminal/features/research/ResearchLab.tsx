@@ -47,7 +47,6 @@ type Shown =
   | { kind: "sweep"; id: string }
   | { kind: "compare" }
   | { kind: "factor"; result: LabFactorResult }
-  | { kind: "source"; path: string }
   | null;
 
 // The research page: the user's strategies and factors, a run's or an
@@ -75,6 +74,17 @@ export function ResearchLab(context: TerminalContext) {
     active: boolean;
   } | null>(null);
   const [shown, setShown] = useState<Shown>(null);
+  // The module of the chosen strategy or factor, and whether the centre shows
+  // its code or the latest result.
+  const [source, setSource] = useState("");
+  const [tab, setTab] = useState<"code" | "result">("code");
+  useEffect(() => {
+    if (shown) setTab("result");
+  }, [shown]);
+  const openSource = (path: string) => {
+    setSource(path);
+    setTab("code");
+  };
   const [compared, setCompared] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // The folder a new module is being named for.
@@ -232,6 +242,66 @@ export function ResearchLab(context: TerminalContext) {
       />
     </label>
   );
+  // A new module of strategies/ or factors/, named in place and opened at once.
+  const newModule = (folder: "strategies" | "factors") => (
+    <>
+      {creating === folder ? (
+        <form
+          className="lab-new-module"
+          onSubmit={event => {
+            event.preventDefault();
+            const path = `${creating}/${moduleName}.py`;
+            void lab(
+              {
+                case: "saveSource",
+                value: {
+                  repository,
+                  path,
+                  content: moduleTemplate(creating, moduleName),
+                  create: true,
+                },
+              },
+              "source",
+            ).then(
+              () => {
+                setCreating(null);
+                setModuleName("");
+                setRefused("");
+                openSource(path);
+                void readStrategies();
+              },
+              reason => setRefused(asDisplayError(reason)),
+            );
+          }}
+        >
+          <input
+            aria-label={t("模块名")}
+            placeholder={folder === "strategies" ? "my_strategy" : "my_factor"}
+            pattern="[A-Za-z_][A-Za-z0-9_]*"
+            required
+            autoFocus
+            value={moduleName}
+            onChange={event => setModuleName(event.target.value)}
+          />
+          <button className="primary" type="submit">
+            {t("创建")}
+          </button>
+          <button type="button" onClick={() => setCreating(null)}>
+            {t("取消")}
+          </button>
+          {refused && (
+            <p className="lab-new-module-error" role="alert">
+              <ErrorNotice error={refused} />
+            </p>
+          )}
+        </form>
+      ) : (
+        <button className="lab-link" onClick={() => setCreating(folder)}>
+          {t(folder === "strategies" ? "新建策略" : "新建因子")}
+        </button>
+      )}
+    </>
+  );
   const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   return (
     <section className="lab-research">
@@ -256,6 +326,7 @@ export function ResearchLab(context: TerminalContext) {
                   onClick={() => {
                     setChosen(item.id);
                     setChosenFactor("");
+                    openSource(`strategies/${module}.py`);
                     change({
                       params: Object.fromEntries(
                         item.parameters.map(p => [p.name, defaultText(p)]),
@@ -273,6 +344,7 @@ export function ResearchLab(context: TerminalContext) {
             );
           })}
         </ul>
+        {newModule("strategies")}
         <h4>{t("因子")}</h4>
         <ul>
           {strategies?.factors.map(item => {
@@ -284,6 +356,7 @@ export function ResearchLab(context: TerminalContext) {
                   onClick={() => {
                     setChosenFactor(item.id);
                     setChosen("");
+                    openSource(`factors/${module}.py`);
                     changeFactor({
                       params: Object.fromEntries(
                         item.parameters.map(p => [p.name, defaultText(p)]),
@@ -306,88 +379,25 @@ export function ResearchLab(context: TerminalContext) {
         {strategies && !strategies.factors.length && (
           <p className="subtle">{t("factors/ 里还没有因子函数。")}</p>
         )}
+        {newModule("factors")}
         {strategies?.errors.map(item => (
           <details key={item.module} className="lab-module-error">
             <summary>
               {item.module}.py · {t("导入失败")}
             </summary>
             <pre>{item.message}</pre>
+            <button
+              className="lab-link"
+              onClick={() =>
+                openSource(
+                  item.module.includes("/") ? `${item.module}.py` : `strategies/${item.module}.py`,
+                )
+              }
+            >
+              {t("打开代码")}
+            </button>
           </details>
         ))}
-        <h4>{t("代码")}</h4>
-        <ul>
-          {strategies?.modules.map(item => (
-            <li key={item.path}>
-              <button
-                aria-pressed={shown?.kind === "source" && shown.path === item.path}
-                onClick={() => setShown({ kind: "source", path: item.path })}
-              >
-                <code>{item.path}</code>
-                {item.readOnly && <small>{t("内置")}</small>}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {creating ? (
-          <form
-            className="lab-new-module"
-            onSubmit={event => {
-              event.preventDefault();
-              const path = `${creating}/${moduleName}.py`;
-              void lab(
-                {
-                  case: "saveSource",
-                  value: {
-                    repository,
-                    path,
-                    content: moduleTemplate(creating, moduleName),
-                    create: true,
-                  },
-                },
-                "source",
-              ).then(
-                () => {
-                  setCreating(null);
-                  setModuleName("");
-                  setRefused("");
-                  setShown({ kind: "source", path });
-                  void readStrategies();
-                },
-                reason => setRefused(asDisplayError(reason)),
-              );
-            }}
-          >
-            <input
-              aria-label={t("模块名")}
-              placeholder="my_strategy"
-              pattern="[A-Za-z_][A-Za-z0-9_]*"
-              required
-              autoFocus
-              value={moduleName}
-              onChange={event => setModuleName(event.target.value)}
-            />
-            <button className="primary" type="submit">
-              {t("创建")}
-            </button>
-            <button type="button" onClick={() => setCreating(null)}>
-              {t("取消")}
-            </button>
-            {refused && (
-              <p className="lab-new-module-error" role="alert">
-                <ErrorNotice error={refused} />
-              </p>
-            )}
-          </form>
-        ) : (
-          <p>
-            <button className="lab-link" onClick={() => setCreating("strategies")}>
-              {t("新建策略")}
-            </button>{" "}
-            <button className="lab-link" onClick={() => setCreating("factors")}>
-              {t("新建因子")}
-            </button>
-          </p>
-        )}
         <h4>{t("数据")}</h4>
         <p className="subtle">
           Tushare · <code>{summary?.datasetVersion.slice(0, 8) || t("无数据")}</code>
@@ -397,45 +407,60 @@ export function ResearchLab(context: TerminalContext) {
         </button>
       </aside>
       <main className="lab-center">
-        {shown?.kind === "run" && (
-          <RunResult
-            key={shown.id}
-            id={shown.id}
-            state={runs.find(run => run.id === shown.id)?.state ?? ""}
-          />
+        {source && shown && (
+          <nav className="lab-tabs" aria-label={t("代码与结果")}>
+            <button aria-pressed={tab === "code"} onClick={() => setTab("code")}>
+              {t("代码")}
+            </button>
+            <button aria-pressed={tab === "result"} onClick={() => setTab("result")}>
+              {t("结果")}
+            </button>
+          </nav>
         )}
-        {shown?.kind === "sweep" && sweep?.id === shown.id && (
-          <SweepResult
-            runs={sweep.runs}
-            selected={sweep.selected}
-            open={id => setShown({ kind: "run", id })}
-            rolling={
-              runs.some(run => run.id === `${shown.id}-rolling`)
-                ? () => setShown({ kind: "run", id: `${shown.id}-rolling` })
-                : undefined
-            }
-          />
-        )}
-        {shown?.kind === "factor" && <FactorResult result={shown.result} />}
-        {shown?.kind === "source" && (
+        {source && tab === "code" ? (
           <SourceEditor
-            key={shown.path}
+            key={source}
             repository={repository}
-            path={shown.path}
+            path={source}
             changed={() => void readStrategies()}
             deleted={() => {
-              setShown(null);
+              setSource("");
+              setChosen("");
+              setChosenFactor("");
               void readStrategies();
             }}
           />
-        )}
-        {shown?.kind === "compare" && compared.length === 2 && (
-          <RunComparison ids={[compared[0], compared[1]]} />
-        )}
-        {!shown && (
-          <p className="lab-placeholder">
-            {t("选择左侧的策略或因子、填写右侧的配置后运行；结果显示在这里。")}
-          </p>
+        ) : (
+          <>
+            {shown?.kind === "run" && (
+              <RunResult
+                key={shown.id}
+                id={shown.id}
+                state={runs.find(run => run.id === shown.id)?.state ?? ""}
+              />
+            )}
+            {shown?.kind === "sweep" && sweep?.id === shown.id && (
+              <SweepResult
+                runs={sweep.runs}
+                selected={sweep.selected}
+                open={id => setShown({ kind: "run", id })}
+                rolling={
+                  runs.some(run => run.id === `${shown.id}-rolling`)
+                    ? () => setShown({ kind: "run", id: `${shown.id}-rolling` })
+                    : undefined
+                }
+              />
+            )}
+            {shown?.kind === "factor" && <FactorResult result={shown.result} />}
+            {shown?.kind === "compare" && compared.length === 2 && (
+              <RunComparison ids={[compared[0], compared[1]]} />
+            )}
+            {!shown && (
+              <p className="lab-placeholder">
+                {t("选择左侧的策略或因子、填写右侧的配置后运行；结果显示在这里。")}
+              </p>
+            )}
+          </>
         )}
       </main>
       {factor ? (

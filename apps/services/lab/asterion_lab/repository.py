@@ -235,13 +235,6 @@ def module(root: Path, path: str) -> Path:
     return checked(root) / path
 
 
-def modules(root: Path) -> list:
-    """Every module of strategies/ and factors/; a built-in one is read only."""
-    return [Source(path=f"{folder}/{path.name}", read_only=not os.access(path, os.W_OK))
-            for folder in ("strategies", "factors")
-            for path in sorted((root / folder).glob("*.py"))]
-
-
 def read_source(root: Path, path: str) -> Source:
     file = module(root, path)
     if not file.is_file():
@@ -283,7 +276,6 @@ def list_strategies(root: str) -> Strategies:
         raise ValueError(lines[-1] if lines else f"strategy listing exited with {result.returncode}")
     reply = Strategies()
     reply.ParseFromString(result.stdout)
-    reply.modules.extend(modules(Path(root)))
     return reply
 
 

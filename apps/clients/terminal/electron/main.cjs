@@ -158,6 +158,9 @@ async function openSettings(category) {
     ...chrome(false),
     parent: main,
     modal: false,
+    // A dialog-sized window over the main one, even when that is full screen.
+    fullscreenable: false,
+    maximizable: false,
     width: 760,
     height: 540,
     minWidth: 640,

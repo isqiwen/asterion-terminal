@@ -232,10 +232,10 @@ class Repository(unittest.TestCase):
     def test_modules_are_created_changed_and_deleted_but_built_ins_only_read(self):
         builtin = self.root / "strategies/ma_cross.py"
         builtin.chmod(0o444)
-        listed = {item.path: item.read_only for item in repository.list_strategies(str(self.root)).modules}
-        self.assertTrue(listed["strategies/ma_cross.py"])
-        self.assertFalse(listed["factors/price.py"])
-        self.assertIn("MaCross", repository.read_source(self.root, "strategies/ma_cross.py").content)
+        built_in = repository.read_source(self.root, "strategies/ma_cross.py")
+        self.assertTrue(built_in.read_only)
+        self.assertIn("MaCross", built_in.content)
+        self.assertFalse(repository.read_source(self.root, "factors/price.py").read_only)
         with self.assertRaisesRegex(ValueError, "built-in module cannot be changed"):
             repository.write_source(self.root, "strategies/ma_cross.py", "x = 1\n", False)
         with self.assertRaisesRegex(ValueError, "built-in module cannot be deleted"):

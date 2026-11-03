@@ -758,9 +758,10 @@ label.lab-inline {
 
 .lab-source {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto 1fr;
   gap: 8px;
-  height: 100%;
+  height: calc(100% - 36px);
+  min-height: 320px;
 }
 .lab-source > header {
   display: flex;
@@ -791,4 +792,20 @@ label.lab-inline {
 .lab-new-module input {
   min-width: 0;
   flex: 1;
+}
+.lab-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.lab-tabs button {
+  padding: 2px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+.lab-tabs button[aria-pressed="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-strong);
 }
