@@ -137,8 +137,6 @@ jobs:
       - name: Build isolated acceptance DMG
         run: python scripts/desktop/desktop.py package-test
       - run: ctest --preset conan-release --output-on-failure
-      - name: Validate complete recovery gate
-        run: python tests/support/recovery_gate.py --build build/Release
       - name: Exercise packaged macOS desktop
         timeout-minutes: 8
         run: python tests/desktop/electron_package.py build/desktop-test/*.dmg
@@ -195,6 +193,8 @@ jobs:
       - name: Build isolated acceptance package
         run: python scripts/desktop/desktop.py package-test
       - run: ctest --preset conan-release --output-on-failure
+      - name: Validate complete recovery gate
+        run: python tests/support/recovery_gate.py --build build/Release
       - name: Exercise packaged Linux desktop
         timeout-minutes: 8
         run: xvfb-run -a python tests/desktop/electron_package.py build/desktop-test/*.deb

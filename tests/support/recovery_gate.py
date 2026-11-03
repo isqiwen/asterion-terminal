@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 TESTS = (
     "Live.TradingDayRolloverRebuildsReportsAndRatesWithoutResending",
     "Live.SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation",
-    "Live.AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay",
+    "Live.AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked",
     "CtpTrader.LateQueryRepliesCannotReplaceReconnectedAccountState",
     "live_process",
     "RpcHost.PendingRepliesLeaveReadAndControlConnectionsAvailable",
