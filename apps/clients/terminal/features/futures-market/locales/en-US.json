@@ -200,7 +200,6 @@
   "历史K线": "History candles",
   "此处只展示行情；委托在交易页的 CTP 账户中发送。": "Quotes only. Orders are sent from a CTP account on the Trading page.",
   "前往 CTP 交易": "Go to CTP Trading",
-  "更换": "Change",
   "实时行情未连接，自选合约没有报价。": "Live quotes are not connected, so watchlist contracts have no quotes.",
   "去市场添加自选": "Add from Market",
   "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。": "The watchlist is empty. Select a contract on the Market page and use “Add to watchlist” next to the chart title.",

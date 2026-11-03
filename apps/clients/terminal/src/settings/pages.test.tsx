@@ -37,9 +37,6 @@ test("every settings page has its title, and trading connections have their own 
     busy: false,
     trade: vi.fn().mockResolvedValue(undefined),
   };
-  const { unmount } = render(<Settings {...props} initialPage="research" />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("研究");
-  unmount();
   render(<Settings {...props} initialPage="trading" />);
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("交易连接");
   expect(screen.getByRole("button", { name: "添加交易连接" })).toBeTruthy();

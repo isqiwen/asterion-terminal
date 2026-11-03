@@ -21,7 +21,7 @@ from service_fixture import Service  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
-EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
+EXAMPLES = Path(__file__).parent / "strategies"
 
 
 def git(root, *arguments):

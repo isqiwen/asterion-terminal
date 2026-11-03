@@ -51,8 +51,7 @@ export function LivePanel(context: TerminalContext) {
     if (view.live.phase !== "ready") return phases[view.live.phase] ?? view.live.phase;
     return view.live.authorization ? "已允许发送委托" : "已就绪";
   };
-  const setting = snapshot?.strategy_repository;
-  const repository = setting && "path" in setting ? setting.path : "";
+  const repository = snapshot?.research_directory ?? "";
   const view = account ? views[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>

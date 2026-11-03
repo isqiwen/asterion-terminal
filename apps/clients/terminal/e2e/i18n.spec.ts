@@ -11,7 +11,6 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByLabel("显示密度", { exact: true }).selectOption("comfortable");
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
-  await expect(page.locator(".environment-label")).toHaveText("Development");
   await expect(page.getByRole("heading", { name: "Preferences", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");

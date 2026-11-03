@@ -39,6 +39,8 @@ module.exports = {
     // The Python runtime is installed at the first launch from this manifest;
     // the application ships only its own Python code beside it.
     { from: "build/electron-resources/runtime", to: "runtime", filter: ["**/*"] },
+    // The strategy directory itself; the installed Terminal researches with it.
+    { from: "research", to: "research", filter: ["**/*.py"] },
     {
       from: "build/electron-resources/native",
       to: "native",

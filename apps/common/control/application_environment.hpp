@@ -7,17 +7,6 @@
 
 namespace asterion::terminal {
 
-// Selected by the application entry point, never by a page or connection form.
-inline bool development_environment()
-{
-    const auto value = environment_variable("ASTERION_ENVIRONMENT");
-    if (!value || *value == "production")
-        return false;
-    if (*value == "development")
-        return true;
-    throw std::invalid_argument("invalid Terminal environment");
-}
-
 // The application's native program directory: the bundled programs, plugins
 // and configuration defaults the local services run from. Electron and the
 // development entry name it (ASTERION_APPLICATION_DIRECTORY); otherwise it is

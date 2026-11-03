@@ -21,8 +21,6 @@ export type CommandParams = {
   "trading.connections.remove": { id: string; revision: string };
   "market.endpoint.save": { host: string; port: number; fingerprint: string };
   "market.endpoint.clear": Record<string, never>;
-  "research.repository.save": { path: string };
-  "research.repository.clear": Record<string, never>;
   "lab.endpoint": Record<string, never>;
   "market.open": Record<string, never>;
   "market.close": Record<string, never>;

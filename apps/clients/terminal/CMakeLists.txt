@@ -2,7 +2,6 @@
 add_library(asterion_terminal_settings STATIC
   native/trading_connections.cpp
   native/market_endpoint.cpp
-  native/strategy_repository.cpp
 )
 target_include_directories(asterion_terminal_settings PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_settings PUBLIC asterion_node_control)

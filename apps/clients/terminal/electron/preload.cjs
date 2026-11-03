@@ -3,9 +3,6 @@ contextBridge.exposeInMainWorld(
   "asterionDesktop",
   Object.freeze({
     platform: process.platform,
-    environment: process.argv.includes("--asterion-environment=development")
-      ? "development"
-      : "production",
     request: request => ipcRenderer.invoke("asterion:request", request),
     lab: payload => ipcRenderer.invoke("asterion:lab", payload),
     openSettings: category => ipcRenderer.invoke("asterion:settings", category),

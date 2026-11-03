@@ -7,7 +7,6 @@ export type DialogOptions = {
 };
 export interface DesktopBridge {
   readonly platform: string;
-  readonly environment: "development" | "production";
   request(body: string): Promise<string>;
   lab(payload: Uint8Array): Promise<Uint8Array>;
   openSettings(category: string): Promise<void>;
@@ -29,7 +28,3 @@ export function desktop(): DesktopBridge {
 }
 export const open = (options: DialogOptions) => desktop().open(options);
 export const save = (options: DialogOptions) => desktop().save(options);
-
-export const developmentEnvironment = nativeDesktop
-  ? desktop().environment === "development"
-  : import.meta.env.DEV;

@@ -14,8 +14,6 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { labChannel } = require("./lab-channel.cjs");
 const root = path.resolve(__dirname, "../../../..");
-const environment = app.isPackaged ? "production" : "development";
-process.env.ASTERION_ENVIRONMENT = environment;
 const devUrl = !app.isPackaged ? process.env.ASTERION_DEV_URL : undefined;
 if (devUrl && !/^http:\/\/127\.0\.0\.1:\d+$/.test(devUrl))
   throw new Error("Invalid desktop development URL");
@@ -29,22 +27,20 @@ const resources = app.isPackaged
 // The native programs, libraries and configuration defaults the Terminal's
 // local services run from.
 process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
+// The strategy directory: research/ of the project, or the copy the package ships.
+process.env.ASTERION_RESEARCH_DIRECTORY = app.isPackaged
+  ? path.join(process.resourcesPath, "research")
+  : path.join(root, "research");
 // Development runs on the runtime `pnpm prepare:python` made; an installed
 // application installs its own at the first launch.
 if (!app.isPackaged) process.env.ASTERION_PYTHON = path.join(resources, "python", "bin", "python3");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
-app.setName(app.isPackaged ? "Asterion Terminal" : "Asterion Terminal Development");
-// Existing application identity and OS-managed service data remain unchanged.
+app.setName("Asterion Terminal");
+// Run from source or installed, the Terminal keeps one set of settings.
 if (!app.commandLine.hasSwitch("user-data-dir"))
-  app.setPath(
-    "userData",
-    path.join(
-      app.getPath("appData"),
-      app.isPackaged ? "me.asterion.terminal" : "me.asterion.terminal.dev",
-    ),
-  );
+  app.setPath("userData", path.join(app.getPath("appData"), "me.asterion.terminal"));
 let main, settings, native;
 let quitting = false;
 let pending = 0;
@@ -106,7 +102,6 @@ function chrome(primary) {
 function preferences() {
   return {
     preload: path.join(__dirname, "preload.cjs"),
-    additionalArguments: [`--asterion-environment=${environment}`],
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: true,
@@ -149,7 +144,7 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (!["preferences", "connections", "trading", "sources", "research", "about"].includes(category))
+  if (!["preferences", "connections", "trading", "sources", "about"].includes(category))
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();

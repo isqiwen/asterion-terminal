@@ -4,8 +4,6 @@ import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
 test("four business modules preserve navigation without starting work", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".environment-label")).toHaveText("开发环境");
-  await expect(page).toHaveTitle(/开发环境/);
   const methods: { method: string; params: { request?: Record<string, { inspect?: object }> } }[] =
     [];
   page.on("request", request => {

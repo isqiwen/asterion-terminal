@@ -81,14 +81,6 @@ async function closeDesktop(application) {
     assert.equal(await page.evaluate(() => typeof require), "undefined");
     assert.equal(await page.evaluate(() => typeof window.asterionDesktop.auth), "undefined");
     assert.equal(await page.evaluate(() => window.asterionDesktop.platform), process.platform);
-    const environment = await application.evaluate(({ app }) =>
-      app.isPackaged ? "production" : "development",
-    );
-    assert.equal(await page.evaluate(() => window.asterionDesktop.environment), environment);
-    assert.equal(await application.evaluate(() => process.env.ASTERION_ENVIRONMENT), environment);
-    await expect(page.locator(".environment-label")).toHaveCount(
-      environment === "development" ? 1 : 0,
-    );
 
     // The page's title bar is the window's on both platforms.
     await expect(page.locator("html")).toHaveAttribute(

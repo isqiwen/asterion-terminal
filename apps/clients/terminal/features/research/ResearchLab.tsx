@@ -55,8 +55,7 @@ export function ResearchLab(context: TerminalContext) {
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
       : "";
-  const setting = context.snapshot?.strategy_repository;
-  const repository = setting && "path" in setting ? setting.path : "";
+  const repository = context.snapshot?.research_directory ?? "";
   const [strategies, setStrategies] = useState<LabStrategies | null>(null);
   const [summary, setSummary] = useState<LabSummary | null>(null);
   const [chosen, setChosen] = useState("");
@@ -209,20 +208,6 @@ export function ResearchLab(context: TerminalContext) {
     });
   }, [runs]);
 
-  if (!repository)
-    return (
-      <section className="lab-research lab-empty">
-        <h3>{t("研究")}</h3>
-        <p className="subtle">
-          {t(
-            "先在 设置 → 研究 里选择你的策略仓库：一个自己的 Git 仓库，策略放在其中的 strategies/ 目录下。",
-          )}
-        </p>
-        <button className="primary" onClick={() => context.openSettings("research")}>
-          {t("选择策略仓库")}
-        </button>
-      </section>
-    );
   const field = (label: string, key: keyof RunForm, props: Record<string, string> = {}) => (
     <label>
       <span>{t(label)}</span>
@@ -256,9 +241,6 @@ export function ResearchLab(context: TerminalContext) {
         <span className="lab-spacer" />
         <button className="lab-link" onClick={() => void readStrategies()}>
           {t("刷新")}
-        </button>
-        <button className="lab-link" onClick={() => context.openSettings("research")}>
-          {t("更换")}
         </button>
       </header>
       <ErrorNotice error={error} />

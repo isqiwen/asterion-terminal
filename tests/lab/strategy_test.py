@@ -21,7 +21,7 @@ from asterion_lab.runs import TABLES, Plan, Runs  # noqa: E402
 from asterion_lab.service import Service  # noqa: E402
 from asterion_strategy import Bar, Context, Strategy, step  # noqa: E402
 
-EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
+EXAMPLES = Path(__file__).parent / "strategies"
 
 
 def bar(symbol, minute, close):

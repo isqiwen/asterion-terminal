@@ -159,11 +159,10 @@ TEST(TerminalCommands, TracesContainOnlyMetadata)
     log::init(installation, "terminal");
     const std::string outer = "fixture.outer";
     TraceScope trace(outer);
-    EXPECT_TRUE(
-        app.dispatch(request("research.repository.clear")).at("strategy_repository").is_null());
+    EXPECT_TRUE(app.dispatch(request("market.endpoint.clear")).at("market_endpoint").is_null());
     EXPECT_THROW(app.dispatch(request("missing", {{"password", "fixture-secret"}})), Error);
     EXPECT_THROW(
-        app.dispatch(request("research.repository.clear", {{"token", "fixture-secret"}})),
+        app.dispatch(request("market.endpoint.clear", {{"token", "fixture-secret"}})),
         std::invalid_argument);
     EXPECT_EQ(current_trace_id(), outer);
     std::vector<std::string> lines;
@@ -185,8 +184,7 @@ TEST(TerminalCommands, TracesContainOnlyMetadata)
     }
     EXPECT_NE(lines[0].find(" completed: "), std::string::npos);
     EXPECT_TRUE(lines[1].starts_with("terminal.unknown failed: ")) << lines[1];
-    EXPECT_TRUE(
-        app.dispatch(request("research.repository.clear")).at("strategy_repository").is_null());
+    EXPECT_TRUE(app.dispatch(request("market.endpoint.clear")).at("market_endpoint").is_null());
     const auto diagnostics = app.dispatch(request("runtime.snapshot")).at("diagnostics");
     EXPECT_EQ(diagnostics.at("succeeded"), 2);
     EXPECT_EQ(diagnostics.at("failed"), 2);
@@ -433,7 +431,7 @@ TEST(TerminalApplication, ClosingDrainsAdmittedRequestsBeforeReleasingApplicatio
     entered.get_future().wait();
     std::atomic<unsigned> completions{0};
     auto pending = app->request(
-        request("research.repository.clear").dump(),
+        request("market.endpoint.clear").dump(),
         [&](Payload, std::exception_ptr) noexcept {
             ++completions;
         });
@@ -485,7 +483,7 @@ TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));
-    pending.push_back(app.request(request("research.repository.clear").dump(), complete));
+    pending.push_back(app.request(request("market.endpoint.clear").dump(), complete));
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));

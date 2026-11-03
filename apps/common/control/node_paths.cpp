@@ -45,17 +45,15 @@ void install_node_configuration(const fs::path& root, const fs::path& source)
 
 fs::path asterion_root()
 {
-    const bool development = development_environment();
     auto root = environment("ASTERION_ROOT");
     if (root.empty()) {
 #if defined(__APPLE__)
-        root = environment("HOME") / "Library" / "Application Support"
-            / (development ? "Asterion Development" : "Asterion");
+        root = environment("HOME") / "Library" / "Application Support" / "Asterion";
 #else
         root = environment("XDG_DATA_HOME");
         if (root.empty())
             root = environment("HOME") / ".local" / "share";
-        root /= development ? "asterion-development" : "asterion";
+        root /= "asterion";
 #endif
     }
     return root;

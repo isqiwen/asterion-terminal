@@ -99,7 +99,8 @@ export type Snapshot = {
         instruments: { venue: string; symbol: string }[];
       }
     | { error: "unreadable" };
-  strategy_repository?: null | { path: string } | { error: "unreadable" };
+  // The fixed strategy directory, when the entry point names one.
+  research_directory?: string | null;
   python_runtime?: PythonRuntime;
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;

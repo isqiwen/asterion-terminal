@@ -26,7 +26,7 @@ Lab 用保存在本机的 Market 地址和客户端证书直连 Market；没有�
 
 ## 策略
 
-策略和因子写在策略目录里，默认是项目的 `research/`（设置里选一次），随项目一起提交；也可以选任何其他目录，不在 Git 里也能用。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
+策略和因子写在项目的 `research/` 里，随项目一起提交；这个目录固定，不能更换，安装包原样带上它。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
 
 ```python
 from asterion_strategy import Strategy
@@ -47,7 +47,7 @@ class MaCross(Strategy):
         ctx.target(bar.symbol, self.params["lots"] if up else -self.params["lots"])
 ```
 
-- `strategies/` 下每个模块的 `Strategy` 子类是一个策略，标识为 `<模块>.<类>`。模块可以导入仓库里的其他代码。示例在 `apps/services/lab/examples/`。
+- `strategies/` 下每个模块的 `Strategy` 子类是一个策略，标识为 `<模块>.<类>`。模块可以导入 `research/` 里的其他代码。
 - `params` 的类型只能是 bool、int、float、str；运行时只能改成同类型的值。
 - `on_bar` 每根完整 K 线调用一次；多品种策略改写 `on_bars`，同一时刻完成的 K 线一起给出，没有 K 线的品种不出现。
 - `ready(ctx)` 每次决策后报告是否就绪；未就绪时目标被丢弃。实盘要求策略显式实现它。

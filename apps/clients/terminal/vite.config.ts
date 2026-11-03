@@ -43,7 +43,8 @@ function localCore(): Plugin {
           env: {
             ...process.env,
             ASTERION_PYTHON: resolve(root, "build/electron-resources/python/bin/python3"),
-            ASTERION_ENVIRONMENT: "development",
+            ASTERION_RESEARCH_DIRECTORY:
+              process.env.ASTERION_RESEARCH_DIRECTORY ?? resolve(root, "research"),
           },
           stdio: ["pipe", "pipe", "pipe"],
           detached: true,

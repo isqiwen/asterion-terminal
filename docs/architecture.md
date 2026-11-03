@@ -75,7 +75,7 @@ flowchart TB
 
 | 根目录 | 位置 |
 | --- | --- |
-| 本机 | Linux `~/.local/share/asterion/`，macOS `~/Library/Application Support/Asterion/`；开发环境为 `asterion-development/` 与 `Asterion Development/`；隔离测试为 `ASTERION_ROOT` |
+| 本机 | Linux `~/.local/share/asterion/`，macOS `~/Library/Application Support/Asterion/`，从项目启动和安装后相同；隔离测试为 `ASTERION_ROOT` |
 | 服务主机 | `/opt/asterion/market/`、`/opt/asterion/trading/` |
 
 - 程序从自己的路径（`bin/` 的上一级）找到安装目录，开发和测试可以用符号链接把构建产物放进 `bin/`。

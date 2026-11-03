@@ -166,7 +166,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
         </p>
       )}
       {!repository ? (
-        <p>{t("请先在研究设置中选择策略仓库。")}</p>
+        <p>{t("Terminal 没有策略目录：从项目启动时是项目里的 research/。")}</p>
       ) : (
         <>
           <label>

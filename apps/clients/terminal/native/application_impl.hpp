@@ -12,7 +12,6 @@
 #include "python_runtime.hpp"
 #include "application_environment.hpp"
 #include <asterion/system/environment.hpp>
-#include "strategy_repository.hpp"
 #include "trading_client.hpp"
 #include "service_io.hpp"
 #include <asterion/futures/futures.hpp>
@@ -72,12 +71,8 @@ struct Application::Impl
     void record_refresh_failure(ErrorCode code) noexcept;
     TradingConnections trading_connections{program_directory("terminal") / "data"};
     MarketEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
-    StrategyRepository strategy_repository{
-        program_directory("terminal") / "data" / "research.json"
-    };
     // The saved recorder address for display, or a mark that it is unreadable.
     json market_settings() const;
-    json research_settings() const;
     // The open Market watch the market pages read.
     std::shared_ptr<MarketWatch> market;
     PolledTask<ServiceEndpoint> market_address();
@@ -147,7 +142,6 @@ struct Application::Impl
         json trading = json::array();
         std::string trading_fingerprint;
         json market_endpoint = nullptr;
-        json repository = nullptr;
         bool operator==(const SettingsView&) const = default;
     };
 

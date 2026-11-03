@@ -70,17 +70,17 @@ pnpm desktop --prepare-python      # 准备 Python 运行时、构建并启动�
 
 ## 本机数据目录
 
-`pnpm desktop` 和 `pnpm dev` 使用开发环境，安装的应用使用日常环境，两者的数据完全分开：
+从项目启动（`pnpm desktop`、`pnpm dev`）和安装的应用只有一套环境，用同一份数据：
 
-| | 安装版 | 开发版 |
+| | macOS | Linux |
 | --- | --- | --- |
-| 程序根目录（macOS） | `~/Library/Application Support/Asterion` | `~/Library/Application Support/Asterion Development` |
-| 程序根目录（Linux） | `~/.local/share/asterion` | `~/.local/share/asterion-development` |
-| 界面配置（macOS） | `~/Library/Application Support/me.asterion.terminal` | `…/me.asterion.terminal.dev` |
-| 界面配置（Linux） | `~/.config/me.asterion.terminal` | `~/.config/me.asterion.terminal.dev` |
+| 程序根目录 | `~/Library/Application Support/Asterion` | `~/.local/share/asterion` |
+| 界面配置 | `~/Library/Application Support/me.asterion.terminal` | `~/.config/me.asterion.terminal` |
+| 策略目录（从项目启动） | 项目的 `research/` | 同左 |
+| 策略目录（安装的应用） | `Asterion Terminal.app/Contents/Resources/research/` | `/opt/Asterion Terminal/resources/research/` |
 
-- 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 Market 和 Trading 连接、客户端证书和策略仓库设置。
-- 两个环境连接同一交易主机时操作的是同一个账户。
+- 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 Market 和 Trading 连接与客户端证书。
+- 策略目录不能更换：从项目启动用项目的 `research/`，安装包把打包时的 `research/` 原样带上。
 - `ASTERION_ROOT` 只用于临时测试目录，同时要用独立的 `--user-data-dir`。
 - 关闭开发窗口或按 Ctrl+C 会停止本机 Lab；Market 和 Trading 不受影响。
 

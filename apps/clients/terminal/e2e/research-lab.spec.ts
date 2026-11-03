@@ -1,31 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { rpc } from "./rpc-fixture";
 import { test, expect, type Page } from "./test";
 
 const source = join(__dirname, "../../../..");
 
-// The example strategies in a git repository, and lab's fixture warehouse in
-// the independent fixture Market directory.
-function prepare(root: string) {
-  const repository = join(root, "strategies");
-  // The tests of this file share one root.
-  if (existsSync(repository)) return repository;
-  cpSync(join(source, "apps/services/lab/examples"), repository, { recursive: true });
-  const git = (...args: string[]) =>
-    execFileSync("git", [
-      "-C",
-      repository,
-      "-c",
-      "user.name=test",
-      "-c",
-      "user.email=test@invalid",
-      ...args,
-    ]);
-  git("init", "-q");
-  git("add", ".");
-  git("commit", "-qm", "examples");
+// Lab's fixture warehouse in the independent fixture Market directory, once
+// for the tests of this file.
+let prepared = false;
+function prepare() {
+  if (prepared) return;
+  prepared = true;
   execFileSync(join(source, "build/electron-resources/python/bin/python3"), [
     "-I",
     "-B",
@@ -33,7 +17,6 @@ function prepare(root: string) {
     join(source, "apps/services/lab"),
     join(process.env.ASTERION_TEST_MARKET_TLS!, "../../data"),
   ]);
-  return repository;
 }
 
 async function backtest(page: Page, fast: string, slow: string) {
@@ -49,8 +32,7 @@ test(
   { tag: "@journey" },
   async ({ page }) => {
     test.setTimeout(90000); // Includes the service's 60 s report budget.
-    const repository = prepare(process.env.ASTERION_ROOT!);
-    await rpc(page.request, "research.repository.save", { path: repository });
+    prepare();
     await page.goto("/");
     await page
       .locator(".workspace-tabs")
@@ -100,8 +82,7 @@ test(
   "a factor from the repository is evaluated across symbols",
   { tag: "@journey" },
   async ({ page }) => {
-    const repository = prepare(process.env.ASTERION_ROOT!);
-    await rpc(page.request, "research.repository.save", { path: repository });
+    prepare();
     await page.goto("/");
     await page
       .locator(".workspace-tabs")

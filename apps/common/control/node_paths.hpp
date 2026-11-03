@@ -14,8 +14,7 @@ std::filesystem::path node_configuration_templates();
 // runs; terminal/ has the Terminal's configuration, logs and data, its program
 // staying inside the application. The root is
 // ASTERION_ROOT when set (isolated tests), else the user's data directory:
-// asterion/ (Linux) or Asterion/ (macOS), asterion-development/ or
-// "Asterion Development/" for development.
+// asterion/ (Linux) or Asterion/ (macOS), whether run from source or installed.
 std::filesystem::path asterion_root();
 std::filesystem::path program_directory(std::string_view program);
 // Copies the Terminal's logging defaults into <root>/terminal/config once;
