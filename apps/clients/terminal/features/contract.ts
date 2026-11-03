@@ -12,6 +12,8 @@ export type {
   Summary as MarketSummary,
   Coverage as MarketCoverage,
   Comparison as MinuteComparisonResult,
+  Differences as MinuteDifferences,
+  MinuteValues,
 } from "../src/generated/asterion/dataset_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export type {

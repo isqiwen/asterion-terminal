@@ -673,5 +673,8 @@
   "仅自录": "Recorded only",
   "自录不完整": "Recorded partial",
   "逐分钟比较开高低收和成交量；自录中标为不完整的分钟只计数，不比较。": "Open, high, low, close and volume are compared minute by minute; recorded minutes marked partial are counted, not compared.",
-  "重新对比": "Compare again"
+  "重新对比": "Compare again",
+  "{contract} {day} 不一致的分钟": "Differing minutes of {contract} on {day}",
+  "时间": "Time",
+  "自录": "Recorded"
 }

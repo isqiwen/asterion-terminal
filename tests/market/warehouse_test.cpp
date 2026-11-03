@@ -264,6 +264,20 @@ TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
     EXPECT_EQ(day.tushare_only(), 1U);
     EXPECT_EQ(day.recorder_only(), 0U);
     EXPECT_EQ(day.partial(), 1U);
+    dataset::proto::DifferencesQuery query;
+    query.set_contract("SHFE/rb/2027-01");
+    query.set_day("2026-10-30");
+    const auto differences = wh::minute_differences(root, query);
+    ASSERT_EQ(differences.minutes_size(), 2);
+    EXPECT_EQ(differences.minutes(0).start_ms(), open + 60000);
+    EXPECT_EQ(differences.minutes(0).tushare().close(), "3105");
+    EXPECT_EQ(differences.minutes(0).recorder().close(), "3106");
+    EXPECT_EQ(differences.minutes(0).recorder().volume(), "12");
+    EXPECT_EQ(differences.minutes(1).start_ms(), open + 180000);
+    EXPECT_TRUE(differences.minutes(1).has_tushare());
+    EXPECT_FALSE(differences.minutes(1).has_recorder());
+    query.set_day("../../etc");
+    EXPECT_THROW(wh::minute_differences(root, query), std::exception);
 }
 
 TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)

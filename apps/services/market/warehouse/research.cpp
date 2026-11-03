@@ -87,4 +87,57 @@ dataset::proto::Comparison compare_minutes(const std::filesystem::path& data)
     return result;
 }
 
+dataset::proto::Differences
+minute_differences(const std::filesystem::path& data, const dataset::proto::DifferencesQuery& query)
+{
+    const auto slash = query.contract().find('/');
+    if (slash == std::string::npos)
+        throw std::invalid_argument("contract must be EXCHANGE/product/YYYY-MM");
+    const auto key = "minutes/" + query.contract().substr(0, slash) + "/" + query.day() + "/"
+        + query.contract().substr(slash + 1);
+    require_key(key);
+    const Store tushare(source_directory(data, "tushare"), "tushare");
+    const Store recorder(source_directory(data, "recorder"), "recorder");
+    const auto primary = tushare.current();
+    const auto recorded = recorder.current();
+    dataset::proto::Differences result;
+    result.set_contract(query.contract());
+    result.set_day(query.day());
+    if (!primary.partitions.contains(key) || !recorded.partitions.contains(key))
+        return result;
+    const auto values = [](const char* side) {
+        std::string columns;
+        for (const auto* name : {"open", "high", "low", "close", "volume"})
+            columns += std::string(", ") + side + "." + name + "::VARCHAR";
+        return columns;
+    };
+    parquet::Engine engine;
+    const auto rows = engine.run(
+        "WITH t AS (SELECT * FROM read_parquet(" + parquet::literal(tushare.file(primary, key))
+        + ")), r AS (SELECT * FROM read_parquet(" + parquet::literal(recorder.file(recorded, key))
+        + ")) SELECT coalesce(t.start_ms, r.start_ms), t.start_ms IS NOT NULL," " r.start_ms IS NOT NULL"
+        + values("t") + values("r")
+        + " FROM t FULL JOIN r ON t.start_ms = r.start_ms WHERE r.partial IS NOT TRUE" " AND (t.start_ms IS NULL OR r.start_ms IS NULL OR t.open IS DISTINCT FROM r.open" " OR t.high IS DISTINCT FROM r.high OR t.low IS DISTINCT FROM r.low" " OR t.close IS DISTINCT FROM r.close OR t.volume IS DISTINCT FROM r.volume)" " ORDER BY 1");
+    for (std::size_t row = 0; row < rows->RowCount(); ++row) {
+        auto* minute = result.add_minutes();
+        minute->set_start_ms(rows->GetValue(0, row).GetValue<std::int64_t>());
+        const auto fill = [&](dataset::proto::MinuteValues* side, std::size_t first) {
+            const auto text = [&](std::size_t column) {
+                const auto cell = rows->GetValue(first + column, row);
+                return cell.IsNull() ? std::string{} : Decimal::parse(cell.ToString()).str();
+            };
+            side->set_open(text(0));
+            side->set_high(text(1));
+            side->set_low(text(2));
+            side->set_close(text(3));
+            side->set_volume(text(4));
+        };
+        if (rows->GetValue(1, row).GetValue<bool>())
+            fill(minute->mutable_tushare(), 3);
+        if (rows->GetValue(2, row).GetValue<bool>())
+            fill(minute->mutable_recorder(), 8);
+    }
+    return result;
+}
+
 } // namespace asterion::market_data::warehouse

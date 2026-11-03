@@ -31,3 +31,9 @@
 .coverage-matrix td[data-share="partial"] {
   background: color-mix(in srgb, var(--warning, #b26a00) 30%, transparent);
 }
+
+/* A value the other minute source does not share. */
+[data-differs] {
+  color: var(--warning);
+  font-weight: 600;
+}

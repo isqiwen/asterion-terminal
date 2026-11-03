@@ -60,6 +60,7 @@ message Request {
     asterion.acquisition.proto.SourcesQuery acquisition_sources = 30;
     asterion.dataset.proto.CoverageQuery dataset_coverage = 31;
     asterion.dataset.proto.ComparisonQuery minute_comparison = 32;
+    asterion.dataset.proto.DifferencesQuery minute_differences = 33;
   }
 }
 message DepthLevel {
@@ -178,6 +179,7 @@ message Response {
     asterion.acquisition.proto.Sources acquisition_sources = 24;
     asterion.dataset.proto.Coverage dataset_coverage = 25;
     asterion.dataset.proto.Comparison minute_comparison = 26;
+    asterion.dataset.proto.Differences minute_differences = 27;
   }
 }
 

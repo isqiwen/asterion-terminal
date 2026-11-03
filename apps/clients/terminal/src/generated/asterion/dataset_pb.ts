@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/dataset.proto.
  */
 export const file_asterion_dataset: GenFile = /*@__PURE__*/
-  fileDesc("ChZhc3Rlcmlvbi9kYXRhc2V0LnByb3RvEhZhc3Rlcmlvbi5kYXRhc2V0LnByb3RvIjUKDFNvdXJjZXNRdWVyeRIWCg5hZnRlcl9wcm92aWRlchgBIAEoCRINCgVsaW1pdBgCIAEoDSJHCgZTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMiUQoHU291cmNlcxIvCgdzb3VyY2VzGAEgAygLMh4uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2USFQoNbmV4dF9wcm92aWRlchgCIAEoCSJ8CgxWZXJzaW9uUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhEKCWFmdGVyX2tleRgDIAEoCRINCgVsaW1pdBgEIAEoDRINCgV0YWJsZRgFIAEoCRIQCghleGNoYW5nZRgGIAEoCSJUCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRyb3dzGAMgASgEEgwKBGRheXMYBCADKAkSDgoGc291cmNlGAUgASgJIqEBCgdWZXJzaW9uEhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRIOCgZwYXJlbnQYAyABKAkSEgoKY3JlYXRlZF9ucxgEIAEoAxI1CgpwYXJ0aXRpb25zGAUgAygLMiEuYXN0ZXJpb24uZGF0YXNldC5wcm90by5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBiABKAkiYgoJRmlsZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRILCgNrZXkYAyABKAkSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgNInoKBEZpbGUSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEgsKA2tleRgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDgoGb2Zmc2V0GAUgASgEEgwKBHNpemUYBiABKAQSDAoEZGF0YRgHIAEoDCI5CgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIn4KB1N1bW1hcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMSNAoGdGFibGVzGAQgAygLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5UYWJsZVN1bW1hcnkiYAoNQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YAiABKAkSFQoNYWZ0ZXJfcHJvZHVjdBgDIAEoCRINCgVsaW1pdBgEIAEoDSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImsKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjUKBm1vbnRocxgDIAMoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTW9udGhDb3ZlcmFnZSKGAQoIQ292ZXJhZ2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEjkKCHByb2R1Y3RzGAMgAygLMicuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Qcm9kdWN0Q292ZXJhZ2USFAoMbmV4dF9wcm9kdWN0GAQgASgJIhEKD0NvbXBhcmlzb25RdWVyeSKPAQoLQ29tcGFyZWREYXkSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEhAKCGNvbXBhcmVkGAMgASgNEhEKCWRpZmZlcmluZxgEIAEoDRIUCgx0dXNoYXJlX29ubHkYBSABKA0SFQoNcmVjb3JkZXJfb25seRgGIAEoDRIPCgdwYXJ0aWFsGAcgASgNIp0BCgpDb21wYXJpc29uEhcKD3R1c2hhcmVfdmVyc2lvbhgBIAEoCRIYChByZWNvcmRlcl92ZXJzaW9uGAIgASgJEgwKBGRheXMYAyABKA0SFgoOZGlmZmVyaW5nX2RheXMYBCABKA0SNgoJZGlmZmVyaW5nGAUgAygLMiMuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Db21wYXJlZERheWIGcHJvdG8z");
+  fileDesc("ChZhc3Rlcmlvbi9kYXRhc2V0LnByb3RvEhZhc3Rlcmlvbi5kYXRhc2V0LnByb3RvIjUKDFNvdXJjZXNRdWVyeRIWCg5hZnRlcl9wcm92aWRlchgBIAEoCRINCgVsaW1pdBgCIAEoDSJHCgZTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMiUQoHU291cmNlcxIvCgdzb3VyY2VzGAEgAygLMh4uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2USFQoNbmV4dF9wcm92aWRlchgCIAEoCSJ8CgxWZXJzaW9uUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhEKCWFmdGVyX2tleRgDIAEoCRINCgVsaW1pdBgEIAEoDRINCgV0YWJsZRgFIAEoCRIQCghleGNoYW5nZRgGIAEoCSJUCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRyb3dzGAMgASgEEgwKBGRheXMYBCADKAkSDgoGc291cmNlGAUgASgJIqEBCgdWZXJzaW9uEhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRIOCgZwYXJlbnQYAyABKAkSEgoKY3JlYXRlZF9ucxgEIAEoAxI1CgpwYXJ0aXRpb25zGAUgAygLMiEuYXN0ZXJpb24uZGF0YXNldC5wcm90by5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBiABKAkiYgoJRmlsZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRILCgNrZXkYAyABKAkSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgNInoKBEZpbGUSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEgsKA2tleRgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDgoGb2Zmc2V0GAUgASgEEgwKBHNpemUYBiABKAQSDAoEZGF0YRgHIAEoDCI5CgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIn4KB1N1bW1hcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMSNAoGdGFibGVzGAQgAygLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5UYWJsZVN1bW1hcnkiYAoNQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YAiABKAkSFQoNYWZ0ZXJfcHJvZHVjdBgDIAEoCRINCgVsaW1pdBgEIAEoDSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImsKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjUKBm1vbnRocxgDIAMoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTW9udGhDb3ZlcmFnZSKGAQoIQ292ZXJhZ2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEjkKCHByb2R1Y3RzGAMgAygLMicuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Qcm9kdWN0Q292ZXJhZ2USFAoMbmV4dF9wcm9kdWN0GAQgASgJIhEKD0NvbXBhcmlzb25RdWVyeSKPAQoLQ29tcGFyZWREYXkSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEhAKCGNvbXBhcmVkGAMgASgNEhEKCWRpZmZlcmluZxgEIAEoDRIUCgx0dXNoYXJlX29ubHkYBSABKA0SFQoNcmVjb3JkZXJfb25seRgGIAEoDRIPCgdwYXJ0aWFsGAcgASgNIp0BCgpDb21wYXJpc29uEhcKD3R1c2hhcmVfdmVyc2lvbhgBIAEoCRIYChByZWNvcmRlcl92ZXJzaW9uGAIgASgJEgwKBGRheXMYAyABKA0SFgoOZGlmZmVyaW5nX2RheXMYBCABKA0SNgoJZGlmZmVyaW5nGAUgAygLMiMuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Db21wYXJlZERheSIxChBEaWZmZXJlbmNlc1F1ZXJ5EhAKCGNvbnRyYWN0GAEgASgJEgsKA2RheRgCIAEoCSJWCgxNaW51dGVWYWx1ZXMSDAoEb3BlbhgBIAEoCRIMCgRoaWdoGAIgASgJEgsKA2xvdxgDIAEoCRINCgVjbG9zZRgEIAEoCRIOCgZ2b2x1bWUYBSABKAkikwEKEE1pbnV0ZURpZmZlcmVuY2USEAoIc3RhcnRfbXMYASABKAMSNQoHdHVzaGFyZRgCIAEoCzIkLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTWludXRlVmFsdWVzEjYKCHJlY29yZGVyGAMgASgLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5NaW51dGVWYWx1ZXMiZwoLRGlmZmVyZW5jZXMSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEjkKB21pbnV0ZXMYAyADKAsyKC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLk1pbnV0ZURpZmZlcmVuY2ViBnByb3RvMw");
 
 /**
  * Stored sources, not a provider capability catalogue. Cursors belong to callers.
@@ -634,4 +634,129 @@ export type Comparison = Message<"asterion.dataset.proto.Comparison"> & {
  */
 export const ComparisonSchema: GenMessage<Comparison> = /*@__PURE__*/
   messageDesc(file_asterion_dataset, 17);
+
+/**
+ * One contract-day's minutes that differ between Tushare and the recorder:
+ * minutes only one source has, and minutes whose values disagree. Recorded
+ * minutes marked partial are left out.
+ *
+ * @generated from message asterion.dataset.proto.DifferencesQuery
+ */
+export type DifferencesQuery = Message<"asterion.dataset.proto.DifferencesQuery"> & {
+  /**
+   * EXCHANGE/product/YYYY-MM
+   *
+   * @generated from field: string contract = 1;
+   */
+  contract: string;
+
+  /**
+   * YYYY-MM-DD
+   *
+   * @generated from field: string day = 2;
+   */
+  day: string;
+};
+
+/**
+ * Describes the message asterion.dataset.proto.DifferencesQuery.
+ * Use `create(DifferencesQuerySchema)` to create a new message.
+ */
+export const DifferencesQuerySchema: GenMessage<DifferencesQuery> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 18);
+
+/**
+ * @generated from message asterion.dataset.proto.MinuteValues
+ */
+export type MinuteValues = Message<"asterion.dataset.proto.MinuteValues"> & {
+  /**
+   * @generated from field: string open = 1;
+   */
+  open: string;
+
+  /**
+   * @generated from field: string high = 2;
+   */
+  high: string;
+
+  /**
+   * @generated from field: string low = 3;
+   */
+  low: string;
+
+  /**
+   * @generated from field: string close = 4;
+   */
+  close: string;
+
+  /**
+   * @generated from field: string volume = 5;
+   */
+  volume: string;
+};
+
+/**
+ * Describes the message asterion.dataset.proto.MinuteValues.
+ * Use `create(MinuteValuesSchema)` to create a new message.
+ */
+export const MinuteValuesSchema: GenMessage<MinuteValues> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 19);
+
+/**
+ * @generated from message asterion.dataset.proto.MinuteDifference
+ */
+export type MinuteDifference = Message<"asterion.dataset.proto.MinuteDifference"> & {
+  /**
+   * @generated from field: int64 start_ms = 1;
+   */
+  startMs: bigint;
+
+  /**
+   * absent when only the recorder has the minute
+   *
+   * @generated from field: asterion.dataset.proto.MinuteValues tushare = 2;
+   */
+  tushare?: MinuteValues | undefined;
+
+  /**
+   * absent when only Tushare has it
+   *
+   * @generated from field: asterion.dataset.proto.MinuteValues recorder = 3;
+   */
+  recorder?: MinuteValues | undefined;
+};
+
+/**
+ * Describes the message asterion.dataset.proto.MinuteDifference.
+ * Use `create(MinuteDifferenceSchema)` to create a new message.
+ */
+export const MinuteDifferenceSchema: GenMessage<MinuteDifference> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 20);
+
+/**
+ * @generated from message asterion.dataset.proto.Differences
+ */
+export type Differences = Message<"asterion.dataset.proto.Differences"> & {
+  /**
+   * @generated from field: string contract = 1;
+   */
+  contract: string;
+
+  /**
+   * @generated from field: string day = 2;
+   */
+  day: string;
+
+  /**
+   * @generated from field: repeated asterion.dataset.proto.MinuteDifference minutes = 3;
+   */
+  minutes: MinuteDifference[];
+};
+
+/**
+ * Describes the message asterion.dataset.proto.Differences.
+ * Use `create(DifferencesSchema)` to create a new message.
+ */
+export const DifferencesSchema: GenMessage<Differences> = /*@__PURE__*/
+  messageDesc(file_asterion_dataset, 21);
 

@@ -120,3 +120,28 @@ message Comparison {
   // The latest 500 contract-days with any difference or missing minute.
   repeated ComparedDay differing = 5;
 }
+
+// One contract-day's minutes that differ between Tushare and the recorder:
+// minutes only one source has, and minutes whose values disagree. Recorded
+// minutes marked partial are left out.
+message DifferencesQuery {
+  string contract = 1; // EXCHANGE/product/YYYY-MM
+  string day = 2; // YYYY-MM-DD
+}
+message MinuteValues {
+  string open = 1;
+  string high = 2;
+  string low = 3;
+  string close = 4;
+  string volume = 5;
+}
+message MinuteDifference {
+  int64 start_ms = 1;
+  MinuteValues tushare = 2; // absent when only the recorder has the minute
+  MinuteValues recorder = 3; // absent when only Tushare has it
+}
+message Differences {
+  string contract = 1;
+  string day = 2;
+  repeated MinuteDifference minutes = 3;
+}

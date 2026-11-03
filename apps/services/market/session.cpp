@@ -468,7 +468,7 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
         || request.has_acquisition_task() || request.has_acquisition_tasks()
         || request.has_acquisition_start() || request.has_acquisition_cancel()
         || request.has_acquisition_sources() || request.has_dataset_coverage()
-        || request.has_minute_comparison()) {
+        || request.has_minute_comparison() || request.has_minute_differences()) {
         auto promise = std::make_shared<std::promise<service::RpcHost::Message>>();
         auto future = promise->get_future();
         loop_->reads.submit([loop = loop_.get(), request = std::move(request), promise, can_manage](
@@ -482,7 +482,11 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
                 if (request.has_acquisition_sources()) {
                     *response.mutable_acquisition_sources() = loop->acquisitions.sources();
                     response.mutable_acquisition_sources()->set_can_manage(can_manage);
-                } else if (request.has_minute_comparison())
+                } else if (request.has_minute_differences())
+                    *response.mutable_minute_differences() = warehouse::minute_differences(
+                        loop->config.settings.directory,
+                        request.minute_differences());
+                else if (request.has_minute_comparison())
                     *response.mutable_minute_comparison() =
                         warehouse::compare_minutes(loop->config.settings.directory);
                 else if (request.has_dataset_coverage())

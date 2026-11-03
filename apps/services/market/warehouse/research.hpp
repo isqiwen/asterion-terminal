@@ -15,5 +15,7 @@ Version compose_research(const std::filesystem::path& data);
 // The contract-days whose minutes Tushare and the recorder both hold,
 // compared minute by minute (see dataset.proto's Comparison).
 dataset::proto::Comparison compare_minutes(const std::filesystem::path& data);
+dataset::proto::Differences
+minute_differences(const std::filesystem::path& data, const dataset::proto::DifferencesQuery&);
 
 } // namespace asterion::market_data::warehouse
