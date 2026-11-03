@@ -12,6 +12,7 @@ export class BackendError extends Error {
 const errors: Record<string, string> = {
   invalid_request: "请求无效，请检查输入",
   unavailable: "服务暂不可用",
+  market_unconfigured: "还没有设置 Market：在 设置 → 数据源 里填写它的地址和证书指纹。",
   conflict: "操作与当前状态冲突",
   permission_denied: "权限不足",
   resource_exhausted: "资源不足",

@@ -239,9 +239,6 @@ export function ResearchLab(context: TerminalContext) {
     <section className="lab-research">
       <header className="lab-header">
         <h3>{t("研究")}</h3>
-        <span className="lab-repository" title={repository}>
-          {repository.split("/").filter(Boolean).pop()}
-        </span>
         {strategies?.commit && <code className="lab-chip">{strategies.commit.slice(0, 8)}</code>}
         {strategies?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
         <span className="lab-spacer" />
@@ -249,7 +246,11 @@ export function ResearchLab(context: TerminalContext) {
           {t("刷新")}
         </button>
       </header>
-      <ErrorNotice error={error} />
+      {error && (
+        <p role="alert">
+          <ErrorNotice error={error} />
+        </p>
+      )}
       <aside className="lab-strategies">
         <h4>{t("策略")}</h4>
         <ul>

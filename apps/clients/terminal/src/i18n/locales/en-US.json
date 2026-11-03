@@ -240,5 +240,6 @@
   "Market 独立接入与录制行情，向所有客户端提供实时流和历史数据。通过证书验证服务与客户端身份，柜台和历史供应商凭据在 Market 主机配置。": "Market independently collects and records data for all clients. Certificates verify both parties; broker and historical provider credentials stay on the Market host.",
   "在 Market 主机登记本机证书指纹，并授予只读或采集管理权限。": "Register this Terminal certificate fingerprint on the Market host with read or acquisition management permission.",
   "生成本机证书": "Create Terminal certificate",
-  "Market 服务证书指纹": "Market server certificate fingerprint"
+  "Market 服务证书指纹": "Market server certificate fingerprint",
+  "还没有设置 Market：在 设置 → 数据源 里填写它的地址和证书指纹。": "No Market is set: enter its address and certificate fingerprint in Settings → Data Source."
 }

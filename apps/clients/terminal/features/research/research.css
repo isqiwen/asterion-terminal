@@ -345,9 +345,6 @@
   color: var(--text-strong);
   margin-right: 6px;
 }
-.lab-repository {
-  color: var(--text);
-}
 .lab-chip {
   padding: 1px 6px;
   border: 1px solid var(--line-strong);

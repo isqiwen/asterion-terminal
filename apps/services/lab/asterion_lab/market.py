@@ -101,6 +101,8 @@ class Market:
 
     def selected(self):
         path = self.directory / "market.json"
+        if not path.exists():
+            raise MarketError("market_unconfigured", "no Market is configured")
         try:
             value = json.loads(path.read_text())
             host, port, fingerprint = value["host"], value["port"], value["fingerprint"]
