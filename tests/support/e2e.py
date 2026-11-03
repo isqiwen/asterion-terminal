@@ -1,5 +1,6 @@
 """Browser integration against an isolated root and the test CTP SDKs."""
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -8,6 +9,8 @@ TESTS = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(TESTS / "terminal")]
 from market_installation import market_host
 from market_tls import fingerprint
+# timeout and kill send SIGTERM; exiting through the with blocks stops the Market.
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 BUILD = Path(os.environ.get("ASTERION_CPP_BUILD", str(TESTS.parent / "build/Debug")))
 with tempfile.TemporaryDirectory(prefix="asterion-e2e-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
