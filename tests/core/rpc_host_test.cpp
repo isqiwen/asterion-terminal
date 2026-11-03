@@ -746,8 +746,7 @@ TEST(RpcClient, PlainTcpNeedsTheConnectionMagic)
     asio::io_context io;
     asio::ip::tcp::socket stranger(io);
     stranger.connect({asio::ip::make_address("127.0.0.1"), echo.transport.port});
-    const std::string frame("\0\0\0\x05hello", 9);
-    asio::write(stranger, asio::buffer("HTTP"));
+    const std::string frame("HTTP\0\0\0\x05hello", 13);
     asio::write(stranger, asio::buffer(frame));
     char byte;
     asio::error_code closed;
