@@ -50,7 +50,6 @@ export type NodeStatus = {
     services: {
       kind: "lab";
       id: string;
-      artifact: string;
       state: string;
       desired_running: boolean;
       pid: number;
@@ -64,87 +63,6 @@ export type NodeStatus = {
     }[];
   };
 };
-export type FactorMembershipReason =
-  | "MEMBERSHIP_ELIGIBLE"
-  | "MEMBERSHIP_UNOBSERVED"
-  | "MEMBERSHIP_INSUFFICIENT_HISTORY"
-  | "MEMBERSHIP_UNKNOWN_VOLUME"
-  | "MEMBERSHIP_UNKNOWN_OPEN_INTEREST"
-  | "MEMBERSHIP_BELOW_VOLUME"
-  | "MEMBERSHIP_BELOW_OPEN_INTEREST";
-export type FactorObservation = {
-  feature_state?:
-    "FEATURE_VALUE" | "FEATURE_WARMUP" | "FEATURE_ZERO_DENOMINATOR" | "FEATURE_NON_FINITE";
-  role: "full_sample" | "development" | "holdout";
-  label_crosses_boundary: boolean;
-  event_index: number;
-  observed: string;
-  value: number | null;
-  forward_return: number | null;
-  label_end_index: number | null;
-  label: string | null;
-  evaluation_warmup: boolean;
-  included: boolean;
-};
-export type FactorResult = {
-  observations?: FactorObservation[]; // Present only when explicitly retained in this run.
-  memberships: { series_index: number; trading_day: string; reason: FactorMembershipReason }[];
-  dataset_revision: string;
-  lookback: number;
-  horizon: number;
-  input_count: number;
-  purged_count: number;
-  evaluation_warmup: number;
-  selection_rule:
-    "fixed" | "development_abs_spearman" | "rolling_fixed" | "rolling_development_abs_spearman";
-  folds: {
-    training_begin: number;
-    training_end: number;
-    validation_end: number;
-    lookback: number;
-    candidates: FactorResult["candidates"];
-    observations?: FactorObservation[];
-    development: FactorResult["partitions"][number];
-    holdout: FactorResult["partitions"][number];
-  }[];
-  candidates: { lookback: number; sample_count: number; development_spearman: number | null }[];
-  partitions: {
-    name: "full_sample" | "development" | "holdout";
-    begin_index: number;
-    end_index: number;
-    sample_count: number;
-    // One series: its correlation over time. Several: the mean of their
-    // cross-sections, and that mean over the cross-sections' deviation.
-    pearson: number | null;
-    spearman: number | null;
-    pearson_ratio: number | null;
-    spearman_ratio: number | null;
-    // Several series: entry k - 1 is the mean label of the k highest
-    // features and of the k lowest, over the `observations` that had 2k series.
-    spreads: { highest: number; lowest: number; observations: number }[];
-  }[];
-  // One row per evaluated observation: samples for one series, cross-sections
-  // for several; the other list is empty. `observed` and `label` are a
-  // nanosecond timestamp for bars, the provider's trading date for daily closes.
-  samples: {
-    event_index: number;
-    observed: string;
-    label: string;
-    value: number;
-    forward_return: number;
-  }[];
-  cross_sections: {
-    event_index: number;
-    observed: string;
-    label: string;
-    // Null where fewer than three series had the observation.
-    pearson: number | null;
-    spearman: number | null;
-    series: number;
-    // Grouping order: descending feature, input order for ties (not IC ranks).
-    members: { series_index: number; value: number; forward_return: number }[];
-  }[];
-};
 export type UnreadableCtpConnection = { id: string; name: string; error: "unreadable" };
 export type TradingConnection = {
   id: string;
@@ -156,113 +74,6 @@ export type TradingConnection = {
   revision: string;
 };
 
-export type TablePartitionKey = { table: string; exchange: string; period: string };
-// What an update of market-wide tables was asked to read. An empty begin day
-// continues after what each exchange already holds; an empty end day reads
-// through the last day that has ended.
-export type TableRevision = TablePage["revision"];
-// What one update did, partition by partition. Stored partitions stay whatever
-// became of the rest.
-export type TableRefreshObservation = {
-  kind: "explicit_refresh_response_observation";
-  id: string;
-  operation: string;
-  data_instance: string;
-  task_instance: string;
-  task_id: string;
-  attempt: number;
-  provider: string;
-  provider_artifact: string;
-  selected_snapshot: string;
-  selected_content: string;
-  revision: TableRevision;
-  normalized_object: string;
-  format: string;
-  body: string;
-  response_sha256: string;
-  response_bytes: number;
-  received_at_ns: string;
-  recorded_at_ns: string;
-  unchanged: boolean;
-  content_changed_from_selected: boolean;
-};
-// One page of a stored partition. Cells are text as stored; null is a missing value.
-export type TablePage = {
-  latest_refresh_observation?: TableRefreshObservation | null;
-  response_review?: null | {
-    status: "consistent" | "differences" | "unknown";
-    reason: string;
-    response_fields: number;
-    response_rows: number;
-    normalized_rows: number;
-    dated_rows: number;
-    matched_rows: number;
-    compared_cells: number;
-    skipped_keys: string[];
-    unknown_keys: string[];
-    differences: {
-      kind: string;
-      key: string;
-      field: string;
-      raw: string | null;
-      expected: string | null;
-      actual: string | null;
-    }[];
-  };
-  response_evidence?: null | {
-    kind: "raw_response_body";
-    format: string;
-    received_at_ns: string;
-    sha256: string;
-    bytes: number;
-    revision_snapshot: string;
-    normalized_content: string;
-    normalized_object: string;
-    provider_artifact: string;
-    body: string;
-  };
-  revision: TablePartitionKey & {
-    sequence: number;
-    schema: number;
-    source: string;
-    content: string;
-    rows: number;
-    bytes: number;
-    acquired_at_ns: string;
-    provider_artifact: string;
-    snapshot: string;
-  };
-  columns: string[];
-  rows: (string | null)[][];
-  offset: number;
-};
-export type HistoryBar = {
-  macd?: { diff: number; signal: number; histogram: number };
-  timestamp_ns: string;
-  open: string;
-  high: string;
-  low: string;
-  close: string;
-  volume: string;
-  amount: string;
-  open_interest: string;
-};
-export type HistoryPage = {
-  id: string;
-  source: string;
-  contract_id: string;
-  interval_minutes: number;
-  manifest_sha256: string;
-  total_rows: number;
-  matched_rows: number;
-  offset: number;
-  limit: number;
-  first_ns: string;
-  last_ns: string;
-  begin_ns: string;
-  end_ns: string;
-  bars: HistoryBar[];
-};
 // The Python runtime the first launch installs: each module's bytes so far.
 export type PythonRuntime = {
   state: "missing" | "installing" | "ready" | "failed";

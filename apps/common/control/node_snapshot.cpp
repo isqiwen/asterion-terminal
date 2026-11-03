@@ -39,7 +39,6 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
             services.push_back(
                 {{"id", s.id()},
                     {"kind", service_kind_name(s.kind())},
-                    {"artifact", s.artifact()},
                     {"state", s.state()},
                     {"desired_running", s.desired_running()},
                     {"pid", s.pid()},

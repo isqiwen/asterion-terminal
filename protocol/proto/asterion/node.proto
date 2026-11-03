@@ -10,7 +10,6 @@ enum ServiceKind {
 
 message Service {
   string id = 1;
-  string artifact = 2;
   string state = 4;
   bool desired_running = 5;
   uint64 pid = 6;

@@ -2,7 +2,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useLayoutEffect,
   useState,
   useSyncExternalStore,
   type Dispatch,
@@ -14,21 +13,7 @@ import {
 export function createWorkspaceDrafts() {
   const values = new Map<string, unknown>();
   const listeners = new Set<() => void>();
-  const unsaved = new Set<string>();
-  const beforeUnload = (event: BeforeUnloadEvent) => {
-    event.preventDefault();
-    event.returnValue = "";
-  };
   return {
-    setUnsaved(key: string, dirty: boolean) {
-      if (dirty) unsaved.add(key);
-      else unsaved.delete(key);
-      if (unsaved.size) window.addEventListener("beforeunload", beforeUnload);
-      else window.removeEventListener("beforeunload", beforeUnload);
-    },
-    dispose() {
-      window.removeEventListener("beforeunload", beforeUnload);
-    },
     read: (key: string, fallback: unknown) => (values.has(key) ? values.get(key) : fallback),
     write(key: string, value: unknown) {
       values.set(key, value);
@@ -78,24 +63,4 @@ export function useWorkspaceDraft<T>(
     [store, key, read],
   );
   return [value, setValue];
-}
-
-/** An uncertain request retains its ID only while its input and destination match. */
-export function useWorkspaceRequestId(slot: string, input: string) {
-  const [pending, setPending] = useWorkspaceDraft<{ input: string; id: string } | null>(slot, null);
-  return [
-    pending?.input === input ? pending.id : null,
-    (id: string | null) => setPending(id === null ? null : { input, id }),
-  ] as const;
-}
-
-/** Navigation retains the draft and its close warning until it is saved or discarded. */
-export function useWorkspaceUnsaved(slot: string, dirty: boolean) {
-  const context = useContext(DraftContext);
-  if (!context) throw new Error("Workspace drafts require a workspace scope");
-  const { store, namespace } = context;
-  const key = JSON.stringify([namespace, slot]);
-  useLayoutEffect(() => {
-    store.setUnsaved(key, dirty);
-  }, [store, key, dirty]);
 }

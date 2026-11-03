@@ -60,7 +60,7 @@ test.each([
       record: JSON.stringify({
         strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
         costs: { deposit: "1000000" },
-        engine: { version: "test", requirements: "locked" },
+        engine: { version: "test" },
         data: {
           dataset_version: "a".repeat(64),
           symbols: ["SHFE/rb/2026-05"],
@@ -96,7 +96,7 @@ test("a minute run says which bars it left out for an incomplete minute", async 
       record: JSON.stringify({
         strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
         costs: { deposit: "1000000" },
-        engine: { version: "test", requirements: "locked" },
+        engine: { version: "test" },
         data: {
           dataset_version: "a".repeat(64),
           symbols: ["SHFE/rb/2026-05"],

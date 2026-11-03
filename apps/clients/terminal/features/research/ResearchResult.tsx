@@ -371,9 +371,7 @@ function RunDetails({ record }: { record: string }) {
           {value.data.symbols.join(", ")} · {value.data.begin_day} → {value.data.end_day}
         </dd>
         <dt>{t("引擎")}</dt>
-        <dd>
-          {value.engine.version} · <code>{value.engine.requirements.slice(0, 12)}</code>
-        </dd>
+        <dd>{value.engine.version}</dd>
       </dl>
       <pre>
         {JSON.stringify({ params: value.params, costs: value.costs, risk: value.risk }, null, 2)}

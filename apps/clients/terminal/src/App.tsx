@@ -65,7 +65,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   usePreferences();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [drafts] = useState(createWorkspaceDrafts);
-  useEffect(() => () => drafts.dispose(), [drafts]);
   const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setHeaderTarget(document.getElementById("terminal-header-tools")), []);
   const [navigation, setNavigation] = useState(() => {

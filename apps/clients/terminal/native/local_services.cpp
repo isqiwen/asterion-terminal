@@ -94,7 +94,7 @@ struct Service
     Clock::time_point execution_observed{}, started{}, probe{}, retry{};
     std::int64_t last_heartbeat = 0;
     unsigned failures = 0, restarts = 0;
-    std::string error, artifact;
+    std::string error;
     // Callers of start() waiting for the process to answer its first heartbeat.
     std::vector<std::promise<ServiceEndpoint>> waiting;
 };
@@ -174,7 +174,7 @@ struct LocalServices::Impl
         seed(folder / "config" / "logging.json", "logging.json");
     }
 
-    std::unique_ptr<ChildProcess> launch(const Kind& kind, Service& service)
+    std::unique_ptr<ChildProcess> launch(const Kind& kind)
     {
         prepare_program(kind);
         fs::path executable;
@@ -185,7 +185,6 @@ struct LocalServices::Impl
                 ErrorCode::unavailable,
                 "lab needs the Python runtime; it is installed at the first launch");
         executable = *interpreter;
-        service.artifact = sha256_file(executable);
         // Isolated from the user's environment and site; no bytecode written.
         args = {"-I", "-B", "-m", "asterion_lab"};
         const auto endpoint = endpoint_of(kind.service);
@@ -218,7 +217,7 @@ struct LocalServices::Impl
             ++service.restarts;
         service.process.reset();
         try {
-            service.process = launch(kind, service);
+            service.process = launch(kind);
             log::info("service {} started: pid={}", name, service.process->id());
             service.health = protocol::ServiceHealth::starting;
             service.last_heartbeat = 0;
@@ -345,7 +344,6 @@ struct LocalServices::Impl
             auto* item = status->add_services();
             item->set_id(name);
             item->set_kind(service.record.kind);
-            item->set_artifact(service.artifact);
             item->set_desired_running(service.record.desired);
             item->set_restarts(service.restarts);
             item->set_error(service.error);

@@ -282,7 +282,6 @@ class Records(unittest.TestCase):
         record = runs.record("run-1")
         self.assertEqual(record["strategy"]["commit"], "c" * 40)
         self.assertEqual(record["data"]["symbols"], ["SHFE/rb"])
-        self.assertEqual(len(record["engine"]["requirements"]), 64)
         self.assertEqual(runs.list()[0]["state"], "running")
         tables = empty_tables()
         tables["equity"] = pl.DataFrame(

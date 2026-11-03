@@ -25,31 +25,6 @@ HostPlatform current_platform()
     return result;
 }
 
-HostPlatform artifact_platform(const std::filesystem::path& path)
-{
-    std::ifstream input(path, std::ios::binary);
-    std::array<unsigned char, 64> h{};
-    if (!input.read(reinterpret_cast<char*>(h.data()), h.size()))
-        throw std::invalid_argument("artifact is not a native executable");
-    auto u32 = [&](std::size_t offset) {
-        return std::uint32_t(h[offset]) | (std::uint32_t(h[offset + 1]) << 8)
-            | (std::uint32_t(h[offset + 2]) << 16) | (std::uint32_t(h[offset + 3]) << 24);
-    };
-    if (h[0] == 0x7f && h[1] == 'E' && h[2] == 'L' && h[3] == 'F' && h[4] == 2 && h[5] == 1) {
-        const auto machine = unsigned(h[18]) | (unsigned(h[19]) << 8);
-        if (machine == 62)
-            return {"linux", "x86_64"};
-        if (machine == 183)
-            return {"linux", "arm64"};
-    } else if (u32(0) == 0xfeedfacf) {
-        if (u32(4) == 0x01000007)
-            return {"macos", "x86_64"};
-        if (u32(4) == 0x0100000c)
-            return {"macos", "arm64"};
-    }
-    throw std::invalid_argument("unsupported native executable platform");
-}
-
 std::string sha256_bytes(std::string_view bytes)
 {
     std::array<unsigned char, 32> digest{};

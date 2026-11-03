@@ -33,7 +33,6 @@ type Service = NonNullable<NodeStatus["health"]>["services"][number];
 const service = (id: string, kind: Service["kind"]): Service => ({
   kind,
   id,
-  artifact: "a".repeat(64),
   state: "running",
   desired_running: true,
   pid: 1,

@@ -12,8 +12,6 @@ then keeps only what it started with. Amounts have the ledger's eight decimal
 places, held exactly.
 """
 from dataclasses import dataclass, field
-import hashlib
-import importlib.metadata
 import io
 import json
 import math
@@ -45,14 +43,6 @@ TABLES = {
                     "available": AMOUNT},
 }
 IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-
-
-def requirements() -> str:
-    """The digest of the packages this interpreter imports from: the bundled
-    runtime's locked set."""
-    installed = sorted(f"{item.metadata['Name']}=={item.version}"
-                       for item in importlib.metadata.distributions())
-    return hashlib.sha256("\n".join(installed).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -116,7 +106,7 @@ class Runs:
                   "data": {"dataset_version": plan.dataset_version,
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,
                            "end_day": plan.end_day, "bars": plan.bars},
-                  "engine": {"version": VERSION, "requirements": requirements()},
+                  "engine": {"version": VERSION},
                   "costs": plan.costs, "risk": plan.risk, "statistics": plan.statistics}
         write_durably(directory / "run.json",
                       json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")
