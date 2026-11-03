@@ -250,3 +250,6 @@ html[lang="en-US"] .activity-rail.expanded {
   color: var(--text-strong);
   border-bottom-color: var(--accent);
 }
+.status-bar .status-warning {
+  color: var(--warning);
+}

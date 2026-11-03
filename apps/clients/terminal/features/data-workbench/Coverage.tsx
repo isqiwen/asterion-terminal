@@ -13,6 +13,7 @@ import {
   type MarketSource,
   type MessageValues,
   type TerminalContext,
+  notify,
 } from "../contract";
 
 const t = (key: string, values?: MessageValues) =>
@@ -152,7 +153,6 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   const [coverage, setCoverage] = useState<MarketCoverage["products"]>([]);
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
-  const [actionError, setActionError] = useState<DisplayError>("");
   const [begin, setBegin] = useState(() => day(-30));
   const [end, setEnd] = useState(() => day(-1));
   const [submitting, setSubmitting] = useState(false);
@@ -227,7 +227,6 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   const running = tasks.some(activeTask);
   const acquire = async () => {
     setSubmitting(true);
-    setActionError("");
     const id = `${provider}-${crypto.randomUUID()}`;
     setSubmitted(id);
     try {
@@ -249,18 +248,17 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       );
       await refresh();
     } catch (failure) {
-      if (mounted.current) setActionError(asDisplayError(failure));
+      notify(failure);
     } finally {
       if (mounted.current) setSubmitting(false);
     }
   };
   const cancel = async (id: string) => {
-    setActionError("");
     try {
       await marketData({ case: "acquisitionCancel", value: { id } }, "acquisitionTask");
       await refresh();
     } catch (failure) {
-      if (mounted.current) setActionError(asDisplayError(failure));
+      notify(failure);
     }
   };
   const months = useMemo(
@@ -270,7 +268,6 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   return (
     <div className="data-workbench data-coverage">
       <ErrorNotice error={error} />
-      <ErrorNotice error={actionError} />
       <button onClick={() => void refresh()}>{t("刷新数据与任务")}</button>
       <section aria-label={t("数据集版本")}>
         <h3>{t("数据集版本")}</h3>

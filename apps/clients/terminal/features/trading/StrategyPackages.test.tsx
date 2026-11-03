@@ -13,6 +13,7 @@ import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
 import { StrategyPackages } from "./StrategyPackages";
+import { Notifications } from "../../src/host/notifications";
 import { feature } from "./feature";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
@@ -100,10 +101,20 @@ test("a repository change discards a late preparation; publishing an uncertain o
         finish = resolve;
       }),
   );
-  const view = render(<StrategyPackages account="account-a" repository="/old" />);
+  const view = render(
+    <>
+      <StrategyPackages account="account-a" repository="/old" />
+      <Notifications />
+    </>,
+  );
   await choose();
   fireEvent.click(screen.getByText("准备策略包"));
-  view.rerender(<StrategyPackages account="account-a" repository="/new" />);
+  view.rerender(
+    <>
+      <StrategyPackages account="account-a" repository="/new" />
+      <Notifications />
+    </>,
+  );
   await act(async () => finish(code));
   expect(screen.queryByText("发布到此交易主机")).toBeNull();
   labAnswers(async () => code);

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
 import { ServiceStatus } from "./host/components/ServiceStatus";
+import { Notifications } from "./host/notifications";
 import { ErrorNotice, asDisplayError, type DisplayError } from "./i18n/errors";
 import { translate, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -237,6 +238,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
     >
+      <Notifications />
       {!settingsWindow &&
         headerTarget &&
         HeaderTools &&
@@ -345,6 +347,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     refresh={() => void refresh()}
                     settings={() => showSettings("connections")}
                   />
+                  {snapshot &&
+                    !(snapshot.market_endpoint && "host" in snapshot.market_endpoint) && (
+                      <button className="status-warning" onClick={() => showSettings("sources")}>
+                        {t("Market 未设置")}
+                      </button>
+                    )}
                   <span className="panel-spacer" />
                   <span className="status-updated">
                     {error

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { SettingsSection } from "./Section";
 import { kindLabels, serviceStatus, t } from "./service-state";
+import { notify } from "../host/notifications";
 type Action = "stop" | "restart";
 type Pending = { service: string; action: Action };
 const actionLabels: Record<Action, string> = { stop: "停止服务", restart: "重启服务" };
@@ -19,18 +19,14 @@ export function Connections({
   busy: boolean;
   trade: CommandHandler;
 }) {
-  const [error, setError] = useState<DisplayError>("");
   const [pending, setPending] = useState<Pending | null>(null);
   const node = snapshot?.nodes.find(n => n.id === "local");
   const services = node?.health?.services ?? [];
   async function run(...args: CommandCall) {
-    setError("");
     try {
       await trade(...args);
-      return true;
     } catch (reason) {
-      setError(asDisplayError(reason));
-      return false;
+      notify(reason);
     }
   }
   const changed = !services.some(s => s.id === pending?.service);
@@ -43,11 +39,6 @@ export function Connections({
           "本机服务由 Terminal 启动，随 Terminal 退出。停止的服务保持停止，直到在此启动。",
         )}
       >
-        {error && (
-          <p className="alert" role="alert">
-            <ErrorNotice error={error} namespace="host" />
-          </p>
-        )}
         <div className="settings-list" role="list" aria-label={t("服务列表")}>
           {services.map(service => (
             <section
@@ -131,15 +122,13 @@ export function Connections({
           disabled={busy || changed}
           onCancel={() => {
             setPending(null);
-            setError("");
           }}
           onConfirm={() =>
             void (async () => {
-              if (
-                !changed &&
-                (await run("node.action", { service: pending.service, action: pending.action }))
-              )
-                setPending(null);
+              if (changed) return;
+              // A failure is reported in the notification area, which the dialog would cover.
+              await run("node.action", { service: pending.service, action: pending.action });
+              setPending(null);
             })()
           }
         >
@@ -150,11 +139,6 @@ export function Connections({
             <p role="alert">{t("目标状态已变化，请取消后重新检查。")}</p>
           ) : (
             <p>{t("此服务的连接会中断，运行中的任务可能中断。")}</p>
-          )}
-          {error && (
-            <p role="alert">
-              <ErrorNotice error={error} namespace="host" />
-            </p>
           )}
         </ServiceActionDialog>
       )}

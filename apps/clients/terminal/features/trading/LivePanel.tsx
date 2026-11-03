@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  ErrorNotice,
-  asDisplayError,
-  useWorkspaceDraft,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import { ErrorNotice, useWorkspaceDraft, type TerminalContext, notify } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
@@ -25,20 +19,18 @@ export function LivePanel(context: TerminalContext) {
   );
   const [chosen, setChosen] = useWorkspaceDraft("live-account", "");
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
-  const [error, setError] = useState<DisplayError>("");
   const [busy, setBusy] = useState(false);
   // Requests always carry the account they were issued for. A cancel and a
   // revoke take something back, so they do not wait for another request.
   const runFor =
     (id: string, hold: boolean): Run =>
     async (operation, fields) => {
-      setError("");
       if (hold) setBusy(true);
       try {
         await send(id, typeof operation === "function" ? operation() : operation, fields);
         return true;
       } catch (reason) {
-        setError(asDisplayError(reason));
+        notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
         return false;
       } finally {
         if (hold) setBusy(false);
@@ -73,7 +65,6 @@ export function LivePanel(context: TerminalContext) {
                 key={item.id}
                 aria-current={item.id === account?.id ? "true" : undefined}
                 onClick={() => {
-                  setError("");
                   setChosen(item.id);
                 }}
               >
@@ -93,12 +84,6 @@ export function LivePanel(context: TerminalContext) {
                 live={view?.live}
                 connected={!!view && !view.failed}
               />
-              {/* A refused request is reported in the panel of its account. */}
-              {error && (
-                <p className="alert" role="alert">
-                  <ErrorNotice error={error} namespace="asterion.terminal.trading" />
-                </p>
-              )}
               {view?.live ? (
                 <LiveAccount
                   account={account}

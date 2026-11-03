@@ -28,6 +28,7 @@ export type {
 } from "../src/generated/asterion/lab_pb";
 import type { DisplayError } from "../src/i18n/errors";
 export { BackendError, ErrorNotice, asDisplayError } from "../src/i18n/errors";
+export { notify } from "../src/host/notifications";
 export type { DisplayError } from "../src/i18n/errors";
 import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";

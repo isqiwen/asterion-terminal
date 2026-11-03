@@ -13,6 +13,7 @@ import { TradingConnections } from "./TradingConnections";
 import { MarketSource } from "./MarketSource";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
+import { notify } from "../host/notifications";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
@@ -54,7 +55,6 @@ export function Settings({
     localStorage.setItem(selectedPageKey, page);
   }, [page]);
   const preferences = usePreferences();
-  const [languageError, setLanguageError] = useState<DisplayError>("");
   const { locale, setLocale } = useLocale();
   return (
     <section className="settings-window" aria-label={t("终端设置")}>
@@ -79,11 +79,6 @@ export function Settings({
       </aside>
       <main className="settings-content">
         <h1>{t(pages.find(([item]) => item === page)?.[1] ?? "偏好设置")}</h1>
-        {languageError && (
-          <p className="alert" role="alert">
-            <ErrorNotice error={languageError} />
-          </p>
-        )}
         {error && (
           <p className="alert" role="alert">
             <ErrorNotice error={error} namespace="host" />
@@ -101,9 +96,8 @@ export function Settings({
                   onChange={e => {
                     try {
                       setLocale(e.target.value as "zh-CN" | "en-US");
-                      setLanguageError("");
                     } catch {
-                      setLanguageError(t("保存失败，请检查本机存储权限。"));
+                      notify(t("保存失败，请检查本机存储权限。"));
                     }
                   }}
                 >

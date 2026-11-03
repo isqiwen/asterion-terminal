@@ -85,6 +85,9 @@
   margin-top: 6px;
   font-size: 12px;
 }
+.error-notice {
+  overflow-wrap: anywhere;
+}
 .market-workspace,
 .live-market {
   display: flex;

@@ -5,7 +5,7 @@ import {
   type Instance,
   type State,
 } from "../../src/generated/asterion/strategy_pb";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
+import { notify } from "../contract";
 import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
 import { environmentName, t } from "./live-shared";
 import {
@@ -50,7 +50,6 @@ export function StrategyInstance({
   const [budget, setBudget] = useState(false);
   const [gross, setGross] = useState("");
   const [net, setNet] = useState("");
-  const [error, setError] = useState<DisplayError>("");
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
   const contracts = live?.contracts.map(item => `${item.venue}/${item.symbol}`) ?? [];
   const usable =
@@ -79,11 +78,6 @@ export function StrategyInstance({
           "启动从空窗口现场预热，或从已结束实例的记录恢复。启动不授权；账户未授权时，就绪目标只记录、不执行。",
         )}
       </p>
-      {error && (
-        <p className="alert" role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.trading" />
-        </p>
-      )}
       {review ? (
         <div className="creation-review" aria-label={t("启动配置确认")}>
           <dl>
@@ -144,7 +138,6 @@ export function StrategyInstance({
           onSubmit={event => {
             event.preventDefault();
             if (!usable) return;
-            setError("");
             try {
               const installed = state.packages.find(
                 item => `${item.name}/${item.version}` === packageKey,
@@ -170,7 +163,7 @@ export function StrategyInstance({
                 }),
               });
             } catch (reason) {
-              setError(asDisplayError(reason));
+              notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
             }
           }}
         >

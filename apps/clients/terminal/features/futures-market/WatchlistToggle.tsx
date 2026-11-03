@@ -1,12 +1,5 @@
-import { useState } from "react";
 import type { MarketView } from "../../src/host/market";
-import {
-  ErrorNotice,
-  asDisplayError,
-  translate,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import { translate, type TerminalContext, notify } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 // Adds the contract to the watchlist or removes it, wherever the contract is
@@ -20,7 +13,6 @@ export function WatchlistToggle({
   market: MarketView;
   row: { venue: string; symbol: string };
 }) {
-  const [error, setError] = useState<DisplayError>("");
   const saved = context.snapshot?.market_endpoint;
   const ids = saved && "instruments" in saved ? saved.instruments : [];
   const same = (id: { venue: string; symbol: string }) =>
@@ -34,23 +26,19 @@ export function WatchlistToggle({
         title={row.symbol}
         disabled={context.busy || !market.online || market.snapshot.phase !== "connected"}
         onClick={() => {
-          setError("");
           context
             .trade("market.watchlist", {
               instruments: present
                 ? ids.filter(id => !same(id))
                 : [...ids, { venue: row.venue, symbol: row.symbol }],
             })
-            .catch((reason: unknown) => setError(asDisplayError(reason)));
+            .catch((reason: unknown) =>
+              notify(reason, { namespace: "asterion.terminal.futures-market" }),
+            );
         }}
       >
         {t(present ? "移出自选" : "加入自选")}
       </button>
-      {error && (
-        <span role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
-        </span>
-      )}
     </>
   );
 }

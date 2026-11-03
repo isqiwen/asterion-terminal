@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ErrorNotice,
-  asDisplayError,
+  notify,
   lab,
   translate,
-  type DisplayError,
   type LabFactorResult,
   type LabRunSummary,
   type LabStrategies,
@@ -75,7 +73,6 @@ export function ResearchLab(context: TerminalContext) {
   } | null>(null);
   const [shown, setShown] = useState<Shown>(null);
   const [compared, setCompared] = useState<string[]>([]);
-  const [error, setError] = useState<DisplayError>("");
   const [busy, setBusy] = useState(false);
   // The folder a new module is being named for.
   const [creating, setCreating] = useState<"strategies" | "factors" | null>(null);
@@ -83,18 +80,17 @@ export function ResearchLab(context: TerminalContext) {
 
   const readStrategies = useCallback(async () => {
     if (!repository) return;
-    setError("");
     try {
       setStrategies(await lab({ case: "strategies", value: { repository } }, "strategies"));
     } catch (failure) {
-      setError(asDisplayError(failure));
+      notify(failure);
     }
   }, [repository]);
   const readRuns = useCallback(async () => {
     try {
       setRuns((await lab({ case: "runs", value: {} }, "runs")).runs);
     } catch (failure) {
-      setError(asDisplayError(failure));
+      notify(failure);
     }
   }, []);
   useEffect(() => {
@@ -106,7 +102,7 @@ export function ResearchLab(context: TerminalContext) {
     setSummary(null);
     void lab({ case: "summary", value: {} }, "summary")
       .then(value => active && setSummary(value))
-      .catch(failure => active && setError(asDisplayError(failure)));
+      .catch(failure => active && notify(failure));
     return () => {
       active = false;
     };
@@ -133,7 +129,7 @@ export function ResearchLab(context: TerminalContext) {
           active: reply.active,
         });
       })
-      .catch(failure => active && setError(asDisplayError(failure)));
+      .catch(failure => active && notify(failure));
     return () => {
       active = false;
     };
@@ -146,7 +142,6 @@ export function ResearchLab(context: TerminalContext) {
   const evaluate = async () => {
     if (!factor) return;
     setBusy(true);
-    setError("");
     try {
       const result = await lab(
         { case: "factor", value: factorRequest(factorForm, repository, factor) },
@@ -154,7 +149,7 @@ export function ResearchLab(context: TerminalContext) {
       );
       setShown({ kind: "factor", result });
     } catch (failure) {
-      setError(asDisplayError(failure));
+      notify(failure);
     } finally {
       setBusy(false);
     }
@@ -164,7 +159,6 @@ export function ResearchLab(context: TerminalContext) {
   const submit = async () => {
     if (!strategy) return;
     setBusy(true);
-    setError("");
     try {
       const id = identity(strategy.id);
       const { run, swept } = runRequest(form, repository, strategy.id, strategy.parameters, id);
@@ -197,7 +191,7 @@ export function ResearchLab(context: TerminalContext) {
       }
       await readRuns();
     } catch (failure) {
-      setError(asDisplayError(failure));
+      notify(failure);
     } finally {
       setBusy(false);
     }
@@ -246,11 +240,6 @@ export function ResearchLab(context: TerminalContext) {
           {t("刷新")}
         </button>
       </header>
-      {error && (
-        <p role="alert">
-          <ErrorNotice error={error} />
-        </p>
-      )}
       <aside className="lab-strategies">
         <h4>{t("策略")}</h4>
         <ul>
@@ -341,7 +330,6 @@ export function ResearchLab(context: TerminalContext) {
             onSubmit={event => {
               event.preventDefault();
               const path = `${creating}/${moduleName}.py`;
-              setError("");
               void lab(
                 {
                   case: "saveSource",
@@ -360,7 +348,7 @@ export function ResearchLab(context: TerminalContext) {
                   setShown({ kind: "source", path });
                   void readStrategies();
                 },
-                reason => setError(asDisplayError(reason)),
+                reason => notify(reason),
               );
             }}
           >
@@ -707,7 +695,7 @@ export function ResearchLab(context: TerminalContext) {
                               : lab({ case: "cancelRun", value: { id: run.id } }, "accepted")
                           )
                             .then(readRuns)
-                            .catch(failure => setError(asDisplayError(failure)))
+                            .catch(failure => notify(failure))
                         }
                       >
                         {t("取消")}

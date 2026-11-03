@@ -2,8 +2,8 @@ import { useState } from "react";
 import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsSection } from "./Section";
+import { notify } from "../host/notifications";
 const t = (key: string) => translate("host", key);
 export function MarketSource({
   snapshot,
@@ -21,14 +21,12 @@ export function MarketSource({
   const [fingerprint, setFingerprint] = useState("");
   const [port, setPort] = useState("7450");
   const [clearing, setClearing] = useState(false);
-  const [error, setError] = useState<DisplayError>("");
   const run = async (...args: CommandCall) => {
-    setError("");
     try {
       await trade(...args);
       return true;
     } catch (reason) {
-      setError(asDisplayError(reason));
+      notify(reason);
       return false;
     }
   };
@@ -151,11 +149,6 @@ export function MarketSource({
             </div>
           </fieldset>
         </form>
-      )}
-      {error && (
-        <p className="alert" role="alert">
-          <ErrorNotice error={error} />
-        </p>
       )}
     </SettingsSection>
   );

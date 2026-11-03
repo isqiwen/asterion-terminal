@@ -144,6 +144,45 @@ export function diagnosticSummary(message: string) {
 export function asDisplayError(value: unknown): DisplayError {
   return value instanceof Error ? value : String(value);
 }
+// What a person reads of an error: a known message in the current language.
+export function errorSummary(error: DisplayError, namespace = "host") {
+  const text = error instanceof Error ? error.message : error;
+  if (error instanceof BackendError)
+    return (
+      diagnosticSummary(error.diagnostic) ??
+      translate("host", errors[error.code] ?? errors.operation_failed)
+    );
+  const known = localizeText(namespace, text) ?? localizeText("host", text);
+  if (known) return known;
+  return getLocale() === "en-US" && /\p{Script=Han}/u.test(text)
+    ? translate("host", errors.operation_failed)
+    : text;
+}
+
+// What a report of the error needs beyond its summary, or nothing.
+export function errorDiagnostic(error: DisplayError, namespace = "host") {
+  if (error instanceof BackendError) return `${error.code}: ${error.diagnostic}`;
+  const text = error instanceof Error ? error.message : error;
+  return errorSummary(error, namespace) === text ? "" : text;
+}
+
+// Copies an error's diagnostic for a report; it is never shown on a page.
+export function CopyDiagnostic({ diagnostic }: { diagnostic: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!diagnostic) return null;
+  return (
+    <button
+      type="button"
+      className="copy-diagnostic"
+      onClick={() => void navigator.clipboard.writeText(diagnostic).then(() => setCopied(true))}
+    >
+      {translate("host", copied ? "已复制" : "复制诊断")}
+    </button>
+  );
+}
+
+// An error kept beside what it concerns: an input, or a trading state that
+// must stay in view. Other failures go to the notification area (notify).
 export function ErrorNotice({
   error,
   namespace = "host",
@@ -152,45 +191,13 @@ export function ErrorNotice({
   namespace?: string;
 }) {
   useLocale();
-  const [details, setDetails] = useState(false);
-  const text = error instanceof Error ? error.message : error;
-  const known = localizeText(namespace, text) ?? localizeText("host", text);
-  const summary =
-    error instanceof BackendError
-      ? (diagnosticSummary(error.diagnostic) ??
-        translate("host", errors[error.code] ?? errors.operation_failed))
-      : (known ??
-        (getLocale() === "en-US" && /\p{Script=Han}/u.test(text)
-          ? translate("host", errors.operation_failed)
-          : text));
-  const diagnostic =
-    error instanceof BackendError
-      ? `${error.code}: ${error.diagnostic}`
-      : known
-        ? ""
-        : summary === text
-          ? ""
-          : text;
-  const immediateDiagnostic =
-    error instanceof BackendError &&
-    (error.diagnostic.startsWith("service program synchronization failed: ") ||
-      error.diagnostic.startsWith("node manager startup failed: "));
+  if (!error) return null;
+  const diagnostic = errorDiagnostic(error, namespace);
   return (
-    <span>
-      {summary}
-      {diagnostic && (
-        <>
-          {" "}
-          {!immediateDiagnostic && (
-            <button type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
-              {translate("host", "详情")}
-            </button>
-          )}
-          {(details || immediateDiagnostic) && (
-            <span className="error-diagnostic">{diagnostic}</span>
-          )}
-        </>
-      )}
+    <span className="error-notice">
+      {errorSummary(error, namespace)}
+      {diagnostic && " "}
+      <CopyDiagnostic diagnostic={diagnostic} />
     </span>
   );
 }

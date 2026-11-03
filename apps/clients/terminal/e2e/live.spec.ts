@@ -89,15 +89,15 @@ test(
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");
     await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
-    await expect(panel.getByRole("alert")).toBeVisible();
+    // A refused order is reported in the notification area until it is closed.
+    const notifications = page.getByRole("list", { name: "通知", exact: true });
+    await expect(notifications).toBeVisible();
     await expect(
       panel.getByRole("table", { includeHidden: true, name: "CTP 委托记录" }).locator("tbody tr"),
     ).toHaveCount(0);
     await order.getByLabel("限价", { exact: true }).fill("3600");
     await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
-    await expect(panel.getByRole("alert")).toContainText(
-      "限价偏离最新价超过本会话的上限，委托未发送。",
-    );
+    await expect(notifications).toContainText("限价偏离最新价超过本会话的上限，委托未发送。");
     await order.getByLabel("限价", { exact: true }).fill("3500.5");
     await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
     await expect(

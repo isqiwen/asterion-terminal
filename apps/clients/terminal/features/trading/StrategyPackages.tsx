@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { InstanceStatus, Package, State } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
+import { ErrorNotice, asDisplayError, type DisplayError, notify } from "../contract";
 import { t } from "./live-shared";
 import { StrategyInstance, type StrategyAccount } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -12,7 +12,7 @@ type Props = { account: string; repository: string; live?: StrategyAccount; conn
 type Operation = NonNullable<Parameters<typeof strategyRequest>[1]>;
 
 // A desktop notification when an instance fails or drops a batch while Terminal is open.
-function notify(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
+function notifyDesktop(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
   const id = next?.configuration?.id;
   if (!id || previous?.configuration?.id !== id || typeof Notification === "undefined") return;
   const seen = previous.events.at(-1)?.timeMs ?? 0n;
@@ -39,7 +39,6 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   const [fresh, setFresh] = useState(false);
   const [observedAt, setObservedAt] = useState<Date>();
   const [readError, setReadError] = useState<DisplayError>("");
-  const [error, setError] = useState<DisplayError>("");
   const sequence = useRef(0);
   const active = useRef(true);
   const readPending = useRef(false);
@@ -48,7 +47,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   const preparing = useRef(false);
   const seen = useRef<InstanceStatus | undefined>(undefined);
   const accept = (next: State) => {
-    notify(seen.current, next.instance);
+    notifyDesktop(seen.current, next.instance);
     seen.current = next.instance;
     setState(next);
     setFresh(true);
@@ -78,7 +77,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     let current = true;
     void lab({ case: "strategies", value: { repository } }, "strategies").then(
       listed => current && setStrategies(listed.strategies.map(item => item.id)),
-      reason => current && setError(asDisplayError(reason)),
+      reason => current && notify(reason),
     );
     return () => {
       current = false;
@@ -104,7 +103,6 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       return false;
     pending.current = true;
     (stop ? setStopping : setBusy)(true);
-    setError("");
     const current = ++sequence.current;
     try {
       const next = await strategyRequest(account, operation);
@@ -112,7 +110,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       return true;
     } catch (reason) {
       if (active.current && current === sequence.current) {
-        setError(asDisplayError(reason));
+        notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
         setFresh(false);
       }
       return false;
@@ -125,11 +123,10 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     if (preparing.current || commandPending.current) return;
     preparing.current = true;
     setBusy(true);
-    setError("");
     try {
       await action();
     } catch (reason) {
-      setError(asDisplayError(reason));
+      notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
     } finally {
       preparing.current = false;
       setBusy(false);
@@ -158,11 +155,6 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       {readError && (
         <p className="alert" role="alert">
           <ErrorNotice error={readError} namespace="asterion.terminal.trading" />
-        </p>
-      )}
-      {error && (
-        <p className="alert" role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.trading" />
         </p>
       )}
       {!repository ? (

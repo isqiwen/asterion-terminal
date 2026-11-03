@@ -75,8 +75,10 @@ test.describe("startup language", () => {
     await page.screenshot({ path: "apps/clients/terminal/test-results/english-setup.png" });
     await expect(page.getByRole("alert")).toContainText("Permission denied");
     await expect(page.getByRole("alert")).not.toContainText("原始诊断信息");
-    await page.getByRole("alert").getByRole("button", { name: "Details", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("permission_denied: 原始诊断信息");
+    // The diagnostic is copied for a report, never shown.
+    await expect(
+      page.getByRole("alert").getByRole("button", { name: "Copy diagnostic", exact: true }),
+    ).toBeVisible();
     await page.unroute("**/__asterion/api");
     // With every step passed and nothing to point out, the workbench opens.
     await page.getByRole("button", { name: "Retry", exact: true }).click();

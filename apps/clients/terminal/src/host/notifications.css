@@ -1,0 +1,38 @@
+.notifications {
+  position: fixed;
+  right: 16px;
+  bottom: 36px;
+  z-index: 50;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notification {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
+}
+.notification > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.notification.sticky {
+  background: var(--danger-surface);
+}
+.notification button {
+  flex-shrink: 0;
+}
+.copy-diagnostic {
+  font-size: 12px;
+}

@@ -4,11 +4,10 @@ import { useState } from "react";
 import {
   ErrorNotice,
   BackendError,
-  asDisplayError,
   translate,
-  type DisplayError,
   type MessageValues,
   type TerminalContext,
+  notify,
 } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
@@ -16,7 +15,6 @@ const t = (key: string, values?: MessageValues) =>
 export function LivePanel({ context }: { context: TerminalContext }) {
   const [venue, setVenue] = useState("SHFE"),
     [symbol, setSymbol] = useState("");
-  const [error, setError] = useState<DisplayError>("");
   const market = useMarket();
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
@@ -34,11 +32,10 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     unreachable: t("行情服务失联"),
   };
   async function run(action: () => Promise<void>) {
-    setError("");
     try {
       await action();
     } catch (reason) {
-      setError(asDisplayError(reason));
+      notify(reason, { namespace: "asterion.terminal.futures-market" });
     }
   }
   async function select(instruments: { venue: string; symbol: string }[]) {
@@ -70,11 +67,6 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <button onClick={() => context.openSettings("sources")}>{t("配置行情服务")}</button>
         </p>
         <p className="subtle">{t("关闭此连接不影响服务录制或其他客户端。")}</p>
-        {error && (
-          <div role="alert" className="alert">
-            <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
-          </div>
-        )}
         {!!market?.snapshot.errorCode && (
           <p role="alert">
             {t("行情连接异常，请检查配置或服务时段。")} CTP {market.snapshot.errorCode}

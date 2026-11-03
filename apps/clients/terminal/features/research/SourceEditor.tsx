@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { python } from "@codemirror/lang-python";
-import { ErrorNotice, asDisplayError, lab, translate, type DisplayError } from "../contract";
+import { lab, notify, translate } from "../contract";
 
 const t = (key: string) => translate("asterion.terminal.research", key);
 
@@ -31,10 +31,8 @@ export function SourceEditor({
   const view = useRef<EditorView | null>(null);
   const [readOnly, setReadOnly] = useState(true);
   const [dirty, setDirty] = useState(false);
-  const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    setError("");
     void lab({ case: "source", value: { repository, path } }, "source").then(
       source => {
         if (!active || !host.current) return;
@@ -54,7 +52,7 @@ export function SourceEditor({
           }),
         });
       },
-      reason => active && setError(asDisplayError(reason)),
+      reason => active && notify(reason),
     );
     return () => {
       active = false;
@@ -63,24 +61,22 @@ export function SourceEditor({
     };
   }, [repository, path]);
   const save = async () => {
-    setError("");
     try {
       const content = view.current!.state.doc.toString();
       await lab({ case: "saveSource", value: { repository, path, content } }, "source");
       setDirty(false);
       changed();
     } catch (reason) {
-      setError(asDisplayError(reason));
+      notify(reason);
     }
   };
   const remove = async () => {
     if (!window.confirm(t("删除这个模块？删除后不能恢复。"))) return;
-    setError("");
     try {
       await lab({ case: "deleteSource", value: { repository, path } }, "source");
       deleted();
     } catch (reason) {
-      setError(asDisplayError(reason));
+      notify(reason);
     }
   };
   return (
@@ -98,7 +94,6 @@ export function SourceEditor({
           </>
         )}
       </header>
-      <ErrorNotice error={error} />
       <div className="lab-source-editor" ref={host} />
     </section>
   );
