@@ -9,8 +9,9 @@
 namespace asterion {
 
 // One-minute bar aggregated from received quote observations. Volume is the
-// difference of cumulative provider volume inside the minute, so the first
-// observation of a trading day contributes no volume.
+// difference of cumulative provider volume; a trading day's first quote
+// counts its whole volume when the day before was observed without a gap,
+// and none when observation begins in mid-day or after a gap. Trading's one-minute strategy bars agree.
 struct MinuteBar
 {
     std::int64_t start_ms = 0;

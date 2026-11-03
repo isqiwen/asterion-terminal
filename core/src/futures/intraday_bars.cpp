@@ -19,11 +19,15 @@ void IntradayBars::observe(const MarketQuote& quote)
     auto& series = state.series;
     if (series.trading_day != quote.trading_day) {
         // A new trading day starts a new series; the old one is not joined to it.
+        // The provider's counter restarts each day, so after a day observed
+        // to its end its first quote's volume (the opening auction's) was
+        // traded today; after a gap or in mid-day it may carry unobserved minutes.
+        const bool continued = !series.trading_day.empty() && !state.lost;
         state = {};
         series.instrument = quote.instrument;
         series.trading_day = quote.trading_day;
         series.first_observation_ms = quote.source_ms;
-        state.cumulative_volume = quote.volume;
+        state.cumulative_volume = continued ? 0 : quote.volume;
     }
     if (!series.bars.empty() && quote.source_ms < series.bars.back().start_ms)
         return;

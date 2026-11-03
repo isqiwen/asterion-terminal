@@ -1,4 +1,5 @@
 #include "strategy_bars.hpp"
+#include <asterion/futures/intraday_bars.hpp>
 #include <gtest/gtest.h>
 
 using namespace asterion;
@@ -130,4 +131,48 @@ TEST(StrategyBars, ASubscriptionCacheCannotTurnAPreStartMinuteIntoACompleteBar)
     ASSERT_EQ(closed.size(), 1);
     EXPECT_EQ(closed[0].bars(0).end_ms(), start + 120000);
     EXPECT_EQ(closed[0].bars(0).volume(), 1);
+}
+
+// Research compares Tushare's minutes with Market's recorded ones; that says
+// something about live trading only if a strategy's one-minute bars are the
+// recorded minutes. The same quotes, across a new trading day whose first
+// quote carries the opening auction's volume, give the same bars.
+TEST(StrategyBars, OneMinuteBarsAreTheMinutesMarketRecords)
+{
+    const std::vector<MarketQuote> quotes{
+        tick(start + 30000, 10, "100"),
+        tick(start + 60000, 12, "101"),
+        tick(start + 90000, 15, "99"),
+        tick(start + 120000, 20, "102"),
+        tick(start + 150000, 21, "103"),
+        // The next trading day opens: its counter restarts with the auction's volume.
+        tick(start + 3600000, 7, "104", "20260929"),
+        tick(start + 3630000, 9, "105", "20260929"),
+        tick(start + 3660000, 13, "103", "20260929"),
+        tick(start + 3720000, 14, "106", "20260929"),
+    };
+    StrategyBars live(configuration("1m"), start);
+    IntradayBars recorded;
+    std::map<std::int64_t, MinuteBar> minutes;
+    std::vector<wire::Bar> delivered;
+    for (const auto& quote : quotes) {
+        for (const auto& batch : live.observe(quote))
+            for (const auto& bar : batch.bars())
+                delivered.push_back(bar);
+        recorded.observe(quote);
+        const auto series = recorded.series(quote.instrument);
+        for (const auto& bar : series->bars)
+            minutes[bar.start_ms] = bar;
+    }
+    ASSERT_EQ(delivered.size(), 4U);
+    for (const auto& bar : delivered) {
+        SCOPED_TRACE(bar.end_ms());
+        const auto& minute = minutes.at(bar.end_ms() - 60000);
+        EXPECT_FALSE(minute.partial);
+        EXPECT_EQ(bar.open_units(), minute.open.raw());
+        EXPECT_EQ(bar.high_units(), minute.high.raw());
+        EXPECT_EQ(bar.low_units(), minute.low.raw());
+        EXPECT_EQ(bar.close_units(), minute.close.raw());
+        EXPECT_EQ(bar.volume(), minute.volume);
+    }
 }
