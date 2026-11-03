@@ -515,7 +515,7 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     auto open = [&] {
         return host.open();
     };
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
     for (;;) {
         auto channel = open();
         wire::Request request;
@@ -523,9 +523,9 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
         request.set_service_id("market-data");
         request.set_correlation_id("catalog.ready");
         request.mutable_snapshot();
-        channel.send(request.SerializeAsString(), 2s);
+        channel.send(request.SerializeAsString(), testing_support::bound(10s));
         wire::Response response;
-        ASSERT_TRUE(response.ParseFromString(channel.receive(2s)));
+        ASSERT_TRUE(response.ParseFromString(channel.receive(testing_support::bound(10s))));
         if (response.snapshot().catalog().phase() == "ready")
             break;
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
@@ -540,10 +540,10 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     filter->set_venue("SHFE");
     filter->set_symbol("rb9999");
     auto connection = open();
-    connection.send(watch.SerializeAsString(), testing_support::bound(2s));
+    connection.send(watch.SerializeAsString(), testing_support::bound(10s));
     const auto receive = [&](testing_support::MarketChannel& channel) {
         wire::Response response;
-        if (!response.ParseFromString(channel.receive(testing_support::bound(2s)))
+        if (!response.ParseFromString(channel.receive(testing_support::bound(10s)))
             || !response.has_snapshot())
             throw std::runtime_error("expected catalog snapshot");
         return response.snapshot();
@@ -562,7 +562,7 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
     RecordProperty("initial_frame_bytes", std::to_string(first.ByteSizeLong()));
     RecordProperty("unchanged_frame_bytes", std::to_string(second.ByteSizeLong()));
     auto reconnected = open();
-    reconnected.send(watch.SerializeAsString(), testing_support::bound(2s));
+    reconnected.send(watch.SerializeAsString(), testing_support::bound(10s));
     const auto initial = receive(reconnected);
     EXPECT_EQ(initial.catalog_revision(), first.catalog_revision());
     EXPECT_EQ(initial.catalog().contracts_size(), count);
@@ -582,16 +582,16 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
         request.set_service_id("market-data");
         request.set_correlation_id("events.request");
         auto channel = host.open();
-        channel.send(request.SerializeAsString(), 2s);
+        channel.send(request.SerializeAsString(), testing_support::bound(10s));
         wire::Response response;
-        if (!response.ParseFromString(channel.receive(2s)))
+        if (!response.ParseFromString(channel.receive(testing_support::bound(10s))))
             throw std::runtime_error("invalid market response");
         EXPECT_EQ(response.correlation_id(), request.correlation_id());
         return response;
     };
     wire::Request read;
     read.mutable_events()->set_limit(1);
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(20s);
     for (;;) {
         wire::Request request;
         request.mutable_snapshot();

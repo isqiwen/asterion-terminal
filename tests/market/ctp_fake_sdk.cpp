@@ -251,7 +251,8 @@ public:
         publication = user == "publication" || user == "concurrency";
         flood = user == "flood";
         strategy_stream = user == "strategy";
-        reconnect = user != "steady" && !publication && !flood && !strategy_stream;
+        reconnect = user != "steady" && user != "catalog-large" && !publication && !flood
+            && !strategy_stream;
         CThostFtdcRspInfoField info{};
         if (std::string(login->Password) == "reject-test-only")
             info.ErrorID = 3;

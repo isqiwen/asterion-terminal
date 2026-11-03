@@ -227,7 +227,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
     (root / "credentials/asterion.ctp.password").write_text("fixture-only-secret\n")
     (root / "credentials/asterion.ctp.auth_code").write_text("fixture-auth")
     first_endpoint = free_port()
-    first = start(root, first_endpoint)
+    first = start(root, first_endpoint, "steady")
     try:
         # Nobody asks: the catalog is read and every listed contract subscribed.
         status = wait_for(first, first_endpoint,

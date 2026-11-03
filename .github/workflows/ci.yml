@@ -54,6 +54,11 @@ jobs:
       - run: ctest --preset conan-debug --output-on-failure
         env:
           ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
+      - name: Repeat Market process tests on one CPU
+        if: runner.os == 'Linux'
+        run: |
+          cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
+          taskset -c "$cpu" ctest --preset conan-debug --output-on-failure -j 1 --repeat until-fail:5 -R 'CtpPublication.CatalogRevision|CtpEvents.ProcessExposes|^market_recording_process$|^market_process$'
       - name: Market release without a Python runtime
         if: runner.os == 'Linux'
         run: |
@@ -229,11 +234,9 @@ jobs:
       - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
-      # The full-budget and large-dataset tests measure capacity, not thread
-      # safety; instrumented, they exceed the services' own request timeouts and
-      # starve the rest of the run. The uninstrumented jobs run them.
-      - run: python scripts/desktop/python_runtime.py
-      - run: ctest --preset conan-debug --output-on-failure -E "^(Backtest\.FullBarBudgetRunsThroughFinalSettlement|TerminalApi\.LargeNamedDatasetsBacktest|TaskProcess\.MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable)$"
+      # Python loads an uninstrumented interpreter; Lab and runtime installation
+      # are covered by the ordinary core and desktop jobs.
+      - run: ctest --preset conan-debug --output-on-failure -E '^(lab_(strategy|sessions|dominant|service)$|PythonRuntime[.])'
         env:
           ASTERION_TIMING_SCALE: "20"
           # Uninstrumented protobuf poisons its own arena memory and annotates
