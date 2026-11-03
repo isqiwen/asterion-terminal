@@ -600,7 +600,6 @@
   "每格为该品种当月有日线的天数 / 交易所开市天数。": "Each cell is the product's days with daily bars that month / the exchange's open days.",
   "无数据": "No data",
   "仓库里还没有日线。": "The warehouse holds no daily bars yet.",
-  "多个来源可同时采集，数据分别保存，不自动切换或混合。": "Sources can acquire concurrently. Data stays separate, without automatic switching or mixing.",
   "合约（查询可选，分钟线必填）": "Contract (optional for queries; required for minutes)",
   "端口": "Port",
   "采集按交易所保存，分钟线按合约保存；已入库分区跳过。": "Acquisition stores exchange partitions, or contract partitions for minutes; stored partitions are skipped.",
@@ -661,5 +660,7 @@
   "Market 录制": "Market recordings",
   "发布录制分钟": "Publish recorded minutes",
   "重新发布已有分区，保留旧数据集版本": "Republish existing partitions, keeping old dataset versions",
-  "将 Market 已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。": "Publish minutes already recorded by Market as a research version, preserving partial bars and observation gaps. Republish after more data arrives; old versions remain readable."
+  "将 Market 已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。": "Publish minutes already recorded by Market as a research version, preserving partial bars and observation gaps. Republish after more data arrives; old versions remain readable.",
+  "各来源分别采集和保存。研究只读「研究数据」：Market 按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。": "Each source is collected and stored on its own. Research reads only the research dataset, which Market composes by rule: Tushare's daily bars and minutes, and recorded minutes for contract days Tushare does not have.",
+  "研究数据": "Research dataset"
 }

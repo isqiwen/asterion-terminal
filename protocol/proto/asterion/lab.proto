@@ -29,16 +29,14 @@ message Request {
 }
 message HealthQuery {}
 
-message SummaryQuery {
-  string provider = 1;
-}
+// What the research dataset holds now.
+message SummaryQuery {}
 
 // A contract's bars for the market page's chart (asterion_lab/chart.py):
 // stored minutes gathered by `period` minutes (1, 5, 10, 15, 30 or 60), or
 // daily bars by day, week, month, quarter or year, each with MACD.
 message ChartBarsQuery {
   string contract = 1; // EXCHANGE/product/YYYY-MM
-  string provider = 2;
   string period = 3;
   // A result chart uses the run's recorded version. Empty selects latest only
   // for browsing historical data independently of a research result.
@@ -57,7 +55,6 @@ message RunReport {
   map<string, double> figures = 3;
 }
 message StoredContractsQuery {
-  string provider = 1;
   string contract = 2; // only this one, when given
 }
 // A product's dominant series in [begin_day, end_day]. The dominant month of a
@@ -74,12 +71,10 @@ message DominantQuery {
   bool traded = 5;
   // "none", or "ratio": earlier months scaled to the level of the last one.
   string adjustment = 6;
-  string provider = 7;
 }
 // The trading sessions of a product on the exchange's open days in
 // [begin_day, end_day], from reviewed exchange documents.
 message SessionsQuery {
-  string provider = 5;
   string exchange = 1;
   string product = 2;
   string begin_day = 3;
@@ -166,7 +161,6 @@ message StoredContract {
 }
 message StoredContracts {
   string dataset_version = 1;
-  string provider = 2;
   repeated StoredContract contracts = 3;
 }
 message DominantDay {
@@ -269,7 +263,6 @@ message FactorRun {
   string repository = 1;
   string factor = 2;
   map<string, asterion.strategy.proto.ParameterValue> params = 3;
-  string provider = 4;
   repeated string symbols = 5;
   string begin_day = 6;
   string end_day = 7;
@@ -327,7 +320,7 @@ message ProductCosts {
   string product = 1; // EXCHANGE/product
   repeated string values = 2;
 }
-// A strategy of the repository over the warehouse's daily bars. A symbol is a
+// A strategy of the repository over the research dataset's bars. A symbol is a
 // contract (EXCHANGE/product/YYYY-MM) or a product's traded dominant series
 // (EXCHANGE/product). Amounts are exact decimals. Accepted when the run has
 // started; its record says how it ends.
@@ -336,7 +329,6 @@ message BacktestRun {
   string repository = 2;
   string strategy = 3; // <module>.<class>
   map<string, asterion.strategy.proto.ParameterValue> params = 4;
-  string provider = 5;
   repeated string symbols = 6;
   string begin_day = 7;
   string end_day = 8;
@@ -355,14 +347,13 @@ message BacktestRun {
   double annual_periods = 17;
   bool zero_risk_free = 18;
   string holdout_day = 19;
-  // Bars of this many minutes (1, 5, 10, 15, 30 or 60) from minute_provider's
-  // stored minutes (tushare or recorder); daily bars when 0.
+  // Bars of this many minutes (1, 5, 10, 15, 30 or 60) from the stored
+  // minutes; daily bars when 0.
   uint32 minutes = 20;
-  string minute_provider = 21;
-  // Resolved once at admission, shared by every candidate and rolling run of
-  // a sweep. Child processes must read these versions, never the latest ones.
+  // The research dataset's version, resolved once at admission and shared by
+  // every candidate and rolling run of a sweep. Child processes read it,
+  // never the latest one.
   string dataset_version = 22;
-  string minute_dataset_version = 23;
   // Fixed at admission like the versions above: the strategy is imported from
   // this copy of the repository's Python files, taken at this commit and changes.
   string source = 24;

@@ -62,7 +62,6 @@ class Plan:
     strategy: str  # <module>.<class>
     revision: Revision
     params: dict
-    provider: str
     dataset_version: str
     symbols: tuple
     begin_day: str
@@ -113,7 +112,7 @@ class Runs:
                   "strategy": {"repository": plan.repository, "id": plan.strategy,
                                "commit": plan.revision.commit, "changes": plan.revision.changes},
                   "params": plan.params,
-                  "data": {"provider": plan.provider, "dataset_version": plan.dataset_version,
+                  "data": {"dataset_version": plan.dataset_version,
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,
                            "end_day": plan.end_day, "bars": plan.bars},
                   "engine": {"version": VERSION, "requirements": requirements()},

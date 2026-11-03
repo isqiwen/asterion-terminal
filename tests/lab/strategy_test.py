@@ -250,7 +250,7 @@ class Records(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.plan = Plan(repository="/strategies", strategy="ma_cross.MaCross",
                          revision=repository.Revision("c" * 40, ""), params={"fast": 5},
-                         provider="tushare", dataset_version="d" * 64, symbols=("SHFE/rb",),
+                         dataset_version="d" * 64, symbols=("SHFE/rb",),
                          begin_day="2025-01-02", end_day="2025-12-31",
                          costs={"fee_per_lot": "3"}, risk={"max_lots": 10}, statistics={})
 

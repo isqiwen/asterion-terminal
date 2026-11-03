@@ -65,7 +65,8 @@ class RemoteResearch(unittest.TestCase):
             fingerprint=market_tls.fingerprint(self.tls), instruments=[])))
         self.market = Market(self.settings.parent)
         self.dataset = Dataset(self.lab, market=self.market)
-        (self.data / 'warehouse/current').write_text(self.original.identity)
+        self.research = self.data / 'sources/research/warehouse/current'
+        self.research.write_text(self.original.identity)
 
     def tearDown(self):
         self.client.cleanup()
@@ -134,9 +135,11 @@ class RemoteResearch(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
         record('first', base, '3100.123456')
-        identity = publish('recorded-first')
-        left = Dataset(self.lab, 'recorder', market=self.market)
-        right = Dataset(self.node / 'second-lab', 'recorder', market=self.market)
+        publish('recorded-first')
+        # Market composes research from the publication.
+        left = Dataset(self.lab, market=self.market)
+        right = Dataset(self.node / 'second-lab', market=self.market)
+        identity = left.current().identity
         sql = 'select day, start_ms, close, volume, average_price, partial from minutes order by start_ms'
         expected = [(date(2026, 10, 28), base, Decimal('3100.123456'),
                      Decimal('9007199254740993'), None, True)]
@@ -146,28 +149,22 @@ class RemoteResearch(unittest.TestCase):
             self.assertEqual(dataset.query(version, 'select instance, "end" from observations',
                                             ('observations',)), [('first', 'stopped')])
         record('later', base + 300000, '3101')
-        self.assertEqual(publish('recorded-skip'), identity)
-        updated = publish('recorded-refresh', True)
+        publish('recorded-skip')
+        self.assertEqual(left.current().identity, identity)
+        publish('recorded-refresh', True)
+        updated = left.current().identity
         self.assertNotEqual(updated, identity)
-        self.assertEqual(left.current().identity, updated)
         self.assertEqual(len(left.query(left.version(updated), sql, ('minutes',))), 2)
         self.assertEqual(right.query(right.version(identity), sql, ('minutes',)), expected)
         # A new cache also downloads the old publication after a new one becomes current.
-        cold = Dataset(self.node / 'cold-lab', 'recorder', market=self.market)
+        cold = Dataset(self.node / 'cold-lab', market=self.market)
         self.assertEqual(cold.query(cold.version(identity), sql, ('minutes',)), expected)
 
-    def test_an_unpublished_source_is_empty_and_never_falls_back_to_a_local_warehouse(self):
+    def test_research_never_falls_back_to_a_local_warehouse(self):
         warehouse(self.lab)
-        self.assertEqual(self.dataset.current().identity, self.original.identity)
-        self.assertNotEqual(Warehouse(self.lab).current().identity, self.original.identity)
         # A local fixture exists but belongs to no remote version selection.
-        dataset = Dataset(self.lab, provider='recorder', market=self.market)
-        version = dataset.current()
-        self.assertEqual(version.identity, '')
-        self.assertEqual(dataset.query(version, 'select count(*) from minutes', ('minutes',)), [(0,)])
-        self.assertFalse(dataset.root.exists())
-        with self.assertRaises(MarketError):
-            dataset.version(self.original.identity)
+        self.assertNotEqual(Warehouse(self.lab).current().identity, self.original.identity)
+        self.assertEqual(self.dataset.current().identity, self.original.identity)
 
     def test_two_clients_keep_their_fixed_version_and_refetch_after_selection_changes(self):
         other = Dataset(self.node / 'other-lab', market=self.market)
@@ -212,32 +209,29 @@ class RemoteResearch(unittest.TestCase):
         self.assertEqual(self.count(self.dataset, version), 60)
 
     def test_daily_and_minute_admission_uses_one_market_selection(self):
-        writer = Warehouse(self.data / 'sources/recorder', 'recorder').writer()
+        writer = Warehouse(self.data).writer()
         writer.put_rows('minutes/SHFE/2026-01-05/rb/2026-05', 'minutes', [], days=['2026-01-05'])
-        minute_version = writer.commit().identity
+        version = writer.commit().identity
         service = Service('lab', self.lab, Log(), self.market)
         run = self.base().backtest
-        run.minutes, run.minute_provider = 1, 'recorder'
+        run.minutes = 1
         origin = self.market.selected()
         try:
             with patch.object(self.market, 'selected', side_effect=[origin, AssertionError('selection read twice')]):
                 pinned = service.pin_backtest(run)
-            self.assertEqual(pinned.dataset_version, self.original.identity)
-            self.assertEqual(pinned.minute_dataset_version, minute_version)
+            self.assertEqual(pinned.dataset_version, version)
             self.settings.unlink()
             self.assertEqual(service.pin_backtest(pinned), pinned)
         finally:
             service.reads.shutdown(wait=True)
 
     def test_a_contract_s_minutes_download_only_its_days_and_coverage_downloads_nothing(self):
-        published = self.data / 'sources/recorder'
-        self.addCleanup(shutil.rmtree, published)
-        writer = Warehouse(published, 'recorder').writer()
+        writer = Warehouse(self.data).writer()
         for month in ('2026-05', '2026-06'):
             for day in ('2026-01-05', '2026-01-06', '2026-01-07'):
                 writer.put_rows(f'minutes/SHFE/{day}/rb/{month}', 'minutes', [], days=[day])
         writer.commit()
-        dataset = Dataset(self.lab, 'recorder', market=self.market)
+        dataset = Dataset(self.lab, market=self.market)
         version = dataset.current()
         fetched, ensure = [], Dataset.ensure
         def record(cache, version, key):
@@ -293,13 +287,12 @@ class RemoteResearch(unittest.TestCase):
         wrong = self.market.selected()
         wrong['fingerprint'] = '0' * 64
         with Client(wrong) as client, self.assertRaisesRegex(MarketError, 'fingerprint'):
-            client.call('dataset', provider='tushare')
+            client.call('dataset', provider='research')
 
     def base(self):
         request = Request(version=1, service_id='lab')
         run = request.backtest
         run.repository, run.strategy = str(self.repository), 'ma_cross.MaCross'
-        run.provider = 'tushare'
         run.symbols.append('SHFE/rb/2026-05')
         run.params['fast'].integer, run.params['slow'].integer = 2, 4
         run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
@@ -327,7 +320,7 @@ class RemoteResearch(unittest.TestCase):
                 record = Runs(self.lab).record('single')
                 self.assertEqual(record['data']['dataset_version'], self.original.identity)
                 self.assertEqual(Runs(self.lab).list()[0]['state'], 'succeeded')
-                (self.data / 'warehouse/current').write_text(self.original.identity)
+                self.research.write_text(self.original.identity)
                 sweep = Request(version=1, service_id='lab')
                 sweep.sweep.id, sweep.sweep.processes = 'scan', 1
                 sweep.sweep.base.CopyFrom(self.base().backtest)
@@ -344,7 +337,7 @@ class RemoteResearch(unittest.TestCase):
                 self.assertEqual({row['dataset_version'] for row in rows}, {self.original.identity})
                 factor = Request(version=1, service_id='lab')
                 run = factor.factor
-                run.repository, run.factor, run.provider = str(self.repository), 'price.momentum', 'tushare'
+                run.repository, run.factor = str(self.repository), 'price.momentum'
                 run.dataset_version = self.original.identity
                 run.params['lookback'].integer = 2
                 run.symbols.extend(['SHFE/rb/2026-05', 'SHFE/rb/2026-10', 'SHFE/rb'])
@@ -354,7 +347,7 @@ class RemoteResearch(unittest.TestCase):
                 answer = await service.reply(factor)
                 self.assertEqual(answer.WhichOneof('body'), 'factor', answer)
                 self.assertEqual(answer.factor.dataset_version, self.original.identity)
-                query = Request(version=1, service_id='lab', chart_bars=dict(provider='tushare',
+                query = Request(version=1, service_id='lab', chart_bars=dict(
                     dataset_version=self.original.identity, contract='SHFE/rb/2026-05', period='day'))
                 answer = await service.reply(query)
                 self.assertEqual(answer.WhichOneof('body'), 'chart_bars', answer)

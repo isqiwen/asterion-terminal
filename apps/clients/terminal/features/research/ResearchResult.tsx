@@ -114,10 +114,10 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     let active = true;
     setBars([]);
     if (!contract || !record) return;
-    // The bars the run read: days, or minutes of its period from its minute source.
+    // The bars the run read: days, or minutes of its period.
     const bars = record.data.bars;
     const minutes = bars.period === "day" ? "" : String(bars.period).replace("m", "");
-    const datasetVersion = minutes ? bars.dataset_version : record.data.dataset_version;
+    const datasetVersion = record.data.dataset_version;
     if (!datasetVersion) {
       setError(asDisplayError(new Error(t("运行记录缺少数据版本，无法读取对应 K 线。"))));
       return;
@@ -125,12 +125,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     void lab(
       {
         case: "chartBars",
-        value: {
-          contract,
-          provider: minutes ? bars.provider : record.data.provider,
-          period: minutes || "day",
-          datasetVersion,
-        },
+        value: { contract, period: minutes || "day", datasetVersion },
       },
       "chartBars",
     )
@@ -363,7 +358,7 @@ function RunDetails({ record }: { record: string }) {
         </dd>
         <dt>{t("数据")}</dt>
         <dd>
-          {value.data.provider} · <code>{value.data.dataset_version.slice(0, 12)}</code> ·{" "}
+          {t("研究数据")} · <code>{value.data.dataset_version.slice(0, 12)}</code> ·{" "}
           {value.data.symbols.join(", ")} · {value.data.begin_day} → {value.data.end_day}
         </dd>
         <dt>{t("引擎")}</dt>

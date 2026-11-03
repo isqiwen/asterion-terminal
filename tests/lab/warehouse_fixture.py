@@ -1,7 +1,8 @@
 """A small warehouse for lab's tests: SHFE/rb with two months over 30 weekdays.
 
-The end-to-end tests write it into an isolated Terminal's lab directory:
-python3 -I -B warehouse_fixture.py <lab-source> <lab-directory>
+The end-to-end tests write it into the test Market's data directory as its
+research dataset:
+python3 -I -B warehouse_fixture.py <lab-source> <market-data-directory>
 """
 import datetime
 from decimal import Decimal

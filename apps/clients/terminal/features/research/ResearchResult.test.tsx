@@ -45,9 +45,9 @@ test("status refreshes preserve a pending comparison of the same two runs", asyn
 });
 
 test.each([
-  { period: "day", provider: "akshare", datasetVersion: "a".repeat(64) },
-  { period: "5", provider: "recorder", datasetVersion: "b".repeat(64) },
-])("the result chart reads the recorded $provider version for $period bars", async expected => {
+  { period: "day", datasetVersion: "a".repeat(64) },
+  { period: "5", datasetVersion: "a".repeat(64) },
+])("the result chart reads the run's research version for $period bars", async expected => {
   const request = vi.mocked(lab);
   request.mockReset();
   request.mockImplementation(async operation => {
@@ -62,19 +62,11 @@ test.each([
         costs: { deposit: "1000000" },
         engine: { version: "test", requirements: "locked" },
         data: {
-          provider: "akshare",
           dataset_version: "a".repeat(64),
           symbols: ["SHFE/rb/2026-05"],
           begin_day: "2026-01-05",
           end_day: "2026-02-13",
-          bars:
-            expected.period === "day"
-              ? { period: "day" }
-              : {
-                  period: "5m",
-                  provider: "recorder",
-                  dataset_version: "b".repeat(64),
-                },
+          bars: { period: expected.period === "day" ? "day" : "5m" },
         },
       }),
     }) as never;

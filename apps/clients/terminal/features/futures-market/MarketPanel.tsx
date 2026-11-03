@@ -19,8 +19,7 @@ const shownAtOnce = 200;
 
 type Stored = { contract: string; name: string; dailyDays: number; minuteDays: number };
 
-// The contracts Market has stored, Tushare's days and minutes with recorded
-// minutes, and the chosen one's history.
+// The contracts the research dataset holds, and the chosen one's history.
 export function MarketPanel({ context }: { context: TerminalContext }) {
   const [selected, setSelected] = useWorkspaceDraft("history-market-selected", "");
   const [search, setSearch] = useWorkspaceDraft("history-market-search", "");
@@ -36,33 +35,20 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   } | null>(null);
   useEffect(() => {
     let active = true;
-    void Promise.all(
-      ["tushare", "recorder"].map(provider =>
-        lab({ case: "storedContracts", value: { provider } }, "storedContracts"),
-      ),
-    )
-      .then(replies => {
-        const merged = new Map<string, Stored>();
-        for (const reply of replies)
-          for (const item of reply.contracts) {
-            const known = merged.get(item.contract) ?? {
-              contract: item.contract,
-              name: "",
-              dailyDays: 0,
-              minuteDays: 0,
-            };
-            merged.set(item.contract, {
-              contract: item.contract,
-              name: known.name || item.name,
-              dailyDays: known.dailyDays + item.dailyDays,
-              minuteDays: known.minuteDays + item.minuteDays,
-            });
-          }
+    void lab({ case: "storedContracts", value: {} }, "storedContracts")
+      .then(reply => {
         // Contracts with minutes first, then by identity.
-        const items = [...merged.values()].sort(
-          (a, b) =>
-            Number(!a.minuteDays) - Number(!b.minuteDays) || a.contract.localeCompare(b.contract),
-        );
+        const items = reply.contracts
+          .map(({ contract, name, dailyDays, minuteDays }) => ({
+            contract,
+            name,
+            dailyDays,
+            minuteDays,
+          }))
+          .sort(
+            (a, b) =>
+              Number(!a.minuteDays) - Number(!b.minuteDays) || a.contract.localeCompare(b.contract),
+          );
         if (active) setStored({ address, items, error: "" });
       })
       .catch(reason => active && setStored({ address, items: [], error: asDisplayError(reason) }));

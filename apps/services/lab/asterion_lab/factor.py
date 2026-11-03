@@ -32,7 +32,8 @@ import numpy as np
 import polars as pl
 
 from asterion_lab import repository
-from asterion_lab.backtest import COSTS, Config, Data, dataset_of, observations, prepare, raw
+from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw
+from asterion_lab.market import Dataset
 from asterion_strategy import FIELDS, KINDS
 
 MINIMUM = 3  # symbols a day's IC needs
@@ -69,7 +70,7 @@ def config(data: Data, symbols) -> Config:
     account accepts only valid ones."""
     products = {"/".join(symbol.split("/")[:2]) for symbol in symbols}
     costs = [Decimal(1) if name == "margin_per_lot" else Decimal(0) for name in COSTS]
-    return Config(repository="", strategy="", params={}, provider="", symbols=tuple(symbols),
+    return Config(repository="", strategy="", params={}, symbols=tuple(symbols),
                   begin_day=data.begin, end_day=data.end, deposit=Decimal(1),
                   costs=dict.fromkeys(products, costs),
                   slippage_ticks=0, max_order_lots=Decimal(0), max_gross_lots=Decimal(0),
@@ -230,10 +231,9 @@ def run(directory: Path, request, reply):
     revision = repository.revision(root)
     function, inputs, defaults = repository.factor(root, request.factor)
     settings = settings_of(request, defaults)
-    provider = request.provider or "tushare"
     if not request.dataset_version:
         raise ValueError("research inputs must name the admitted dataset version")
-    data = Data(dataset_of(directory, provider), request.begin_day, request.end_day,
+    data = Data(Dataset(directory), request.begin_day, request.end_day,
                 version=request.dataset_version)
     symbols, skipped = symbols_of(data, list(request.symbols))
     if not symbols:

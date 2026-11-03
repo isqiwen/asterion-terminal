@@ -22,7 +22,6 @@ from asterion.market_pb2 import Request, Response
 from asterion_lab.warehouse import ParquetTables, Version, canonical, write_durably
 
 IDENTITY = re.compile(r"[0-9a-f]{64}")
-PROVIDER = re.compile(r"[a-z][a-z0-9_]{0,31}")
 CHUNK = 1024 * 1024
 
 
@@ -126,11 +125,12 @@ def locked(path):
 
 
 class Dataset(ParquetTables):
-    def __init__(self, directory: Path, provider="tushare", market=None, origin=None):
-        if not PROVIDER.fullmatch(provider):
-            raise ValueError("invalid dataset provider")
-        self.root = directory / "market-cache" / provider
-        self.provider, self.market, self.origin = provider, market, origin
+    """The research dataset Market composes from its sources: the only one Lab reads."""
+    provider = "research"
+
+    def __init__(self, directory: Path, market=None, origin=None):
+        self.root = directory / "market-cache" / self.provider
+        self.market, self.origin = market, origin
 
     def current(self):
         if self.origin is None and self.market is None:
@@ -168,7 +168,8 @@ class Dataset(ParquetTables):
                         raise MarketError("invalid_data", "invalid Market partition page")
                     after = part.key
                     partitions[part.key] = dict(file=f"files/{part.sha256}.parquet",
-                                               sha256=part.sha256, rows=part.rows, days=list(part.days))
+                                               sha256=part.sha256, rows=part.rows, days=list(part.days),
+                                               source=part.source)
                 if not page.next_key:
                     break
                 if not page.partitions or page.next_key != after:

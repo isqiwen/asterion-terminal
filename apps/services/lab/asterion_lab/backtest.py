@@ -65,7 +65,6 @@ class Config:
     repository: str
     strategy: str
     params: dict
-    provider: str
     symbols: tuple
     begin_day: str
     end_day: str
@@ -85,12 +84,10 @@ class Config:
     # Days from this one on are the holdout: statistics are also kept for the
     # days before it and for it alone.
     holdout_day: str = ""
-    # Bars of this many minutes from `minute_provider`'s minutes, or daily
-    # bars when 0. Settlements, units and the dominant month are the days'.
+    # Bars of this many minutes, or daily bars when 0. Settlements, units and
+    # the dominant month are the days'.
     minutes: int = 0
-    minute_provider: str = ""
     dataset_version: str = ""
-    minute_dataset_version: str = ""
     # The copy of the repository's code taken at admission, and its revision.
     source: str = ""
     commit: str = ""
@@ -110,17 +107,12 @@ class Daily:
 
 
 class Data:
-    """The warehouse's daily table of a version, read per product."""
+    """One version of the research dataset, read per product."""
 
-    def __init__(self, warehouse: Dataset, begin: str, end: str, minutes: Dataset = None,
-                 *, version: str = "", minute_version: str = ""):
+    def __init__(self, warehouse: Dataset, begin: str, end: str, *, version: str = ""):
         self.warehouse = warehouse
         self.version = warehouse.version(version) if version else warehouse.current()
         self.begin, self.end = begin, end
-        # Where minutes are read, when a run reads them.
-        self.minute_warehouse = minutes
-        self.minute_version = (minutes.version(minute_version) if minute_version else minutes.current()) \
-            if minutes else None
         # Read once per run: each product's months, increments and contract units.
         self.products, self.increment_days, self.units, self.multipliers = {}, {}, {}, {}
 
@@ -160,7 +152,7 @@ class Data:
     def minute_bars(self, contract: str, begin: str, end: str, minutes: int) -> list:
         """A contract's bars of `minutes` from its stored minutes of the
         trading days in [begin, end] (asterion_lab/chart.py)."""
-        rows = self.minute_warehouse.query(self.minute_version, """
+        rows = self.warehouse.query(self.version, """
             select day, start_ms, partial, open, high, low, close, volume, open_interest
             from minutes where contract = ? and day between ?::date and ?::date
             order by start_ms""", ("minutes",), (contract, begin, end),
@@ -526,26 +518,15 @@ def statistics_record(config: Config) -> dict:
             "holdout_day": config.holdout_day}
 
 
-def dataset_of(directory: Path, provider: str) -> Dataset:
-    return Dataset(directory, provider)
-
-
 def open_data(directory: Path, config: Config) -> Data:
-    """The days of the run's source and, for a minute run, the minutes of its minute source."""
-    if config.minutes and config.minute_provider not in ("tushare", "recorder"):
-        raise ValueError("minutes come from tushare or recorder")
-    if not config.dataset_version or (config.minutes and not config.minute_dataset_version):
-        raise ValueError("research inputs must name the admitted dataset versions")
-    return Data(dataset_of(directory, config.provider), config.begin_day, config.end_day,
-                dataset_of(directory, config.minute_provider) if config.minutes else None,
-                version=config.dataset_version, minute_version=config.minute_dataset_version)
+    """The admitted version of the research dataset."""
+    if not config.dataset_version:
+        raise ValueError("research inputs must name the admitted dataset version")
+    return Data(Dataset(directory), config.begin_day, config.end_day, version=config.dataset_version)
 
 
-def bars_record(config: Config, data: Data) -> dict:
-    if not config.minutes:
-        return {"period": "day"}
-    return {"period": f"{config.minutes}m", "provider": config.minute_provider,
-            "dataset_version": data.minute_version.identity}
+def bars_record(config: Config) -> dict:
+    return {"period": f"{config.minutes}m" if config.minutes else "day"}
 
 
 def run(directory: Path, identity: str, config: Config, started=lambda: None):
@@ -560,10 +541,10 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     data = open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
-        params=config.params, provider=config.provider, dataset_version=data.version.identity,
+        params=config.params, dataset_version=data.version.identity,
         symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
         costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config),
-        bars=bars_record(config, data)))
+        bars=bars_record(config)))
     started()
     try:
         strategy = repository.load(Path(config.source), config.strategy, config.params)
@@ -608,7 +589,7 @@ def config_of(request) -> Config:
                                for name, value in zip(COSTS, item.values)]
     return Config(
         repository=request.repository, strategy=request.strategy, params=params,
-        provider=request.provider or "tushare", symbols=tuple(request.symbols),
+        symbols=tuple(request.symbols),
         begin_day=request.begin_day, end_day=request.end_day, deposit=number("deposit", request.deposit),
         costs=costs, slippage_ticks=request.slippage_ticks,
         max_order_lots=number("max_order_lots", request.max_order_lots),
@@ -618,8 +599,7 @@ def config_of(request) -> Config:
         max_net_weight=number("max_net_weight", request.max_net_weight or "0"),
         annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
         holdout_day=request.holdout_day, minutes=minutes_of(request.minutes),
-        minute_provider=request.minute_provider, dataset_version=request.dataset_version,
-        minute_dataset_version=request.minute_dataset_version, source=request.source,
+        dataset_version=request.dataset_version, source=request.source,
         commit=request.commit, changes=request.changes)
 
 

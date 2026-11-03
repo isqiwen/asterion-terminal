@@ -99,7 +99,7 @@ export function ResearchLab(context: TerminalContext) {
   useEffect(() => {
     let active = true;
     setSummary(null);
-    void lab({ case: "summary", value: { provider: "tushare" } }, "summary")
+    void lab({ case: "summary", value: {} }, "summary")
       .then(value => active && setSummary(value))
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
@@ -446,20 +446,6 @@ export function ResearchLab(context: TerminalContext) {
                     ))}
                   </select>
                 </label>
-                {form.minutes !== "0" && (
-                  <label>
-                    <span>{t("分钟线来源")}</span>
-                    <select
-                      value={form.minuteProvider}
-                      onChange={event =>
-                        change({ minuteProvider: event.target.value as RunForm["minuteProvider"] })
-                      }
-                    >
-                      <option value="tushare">Tushare</option>
-                      <option value="recorder">{t("录制")}</option>
-                    </select>
-                  </label>
-                )}
                 <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
                 {strategy.parameters.map(parameter => (
                   <label key={parameter.name}>

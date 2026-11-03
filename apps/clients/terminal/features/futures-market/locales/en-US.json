@@ -1,5 +1,4 @@
 {
-  "历史数据 · 非实时": "Historical Data · Not Live",
   "价格": "Price",
   "市场": "Market",
   "行情配置无法读取，请检查本机存储。": "Cannot read market preferences. Check local storage.",
@@ -288,16 +287,13 @@
   "高": "High",
   "外盘": "Overseas",
   "分钟线 {days} 天": "Minutes on {days} days",
-  "分钟线来源": "Minute source",
   "另有 {count} 个合约，请用搜索缩小范围": "{count} more contracts; narrow them with the search",
-  "录制": "Recorded",
   "日线 {days} 天": "Daily bars on {days} days",
   "采集历史数据": "Acquire historical data",
   "当前目录没有这个合约的月份": "The catalogue does not name this contract's month",
   "该月份合约尚无已采集历史数据": "No historical data has been acquired for this contract",
   "尚无已采集的历史合约": "No historical contract has been acquired yet",
   "请在数据页采集历史数据。": "Acquire historical data on the Data page.",
-  "Tushare": "Tushare",
   "远程行情服务": "Remote Market service",
   "Market 独立接入与录制行情，向所有客户端提供实时流和历史数据。这里只保存服务地址，柜台凭据在 Market 主机配置。": "Market independently collects and records quotes and serves live streams and history to all clients. Save only its address here; configure broker credentials on the Market host.",
   "行情服务设置文件无法读取，已保留原文件供检查。": "The Market settings file cannot be read. The original file has been preserved.",
@@ -313,5 +309,6 @@
   "连接远程行情服务以查看市场。": "Connect to the remote Market service to view quotes.",
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",
   "Market 服务观测": "Observed by Market",
-  "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。": "Up to 512 recent quotes across contracts, taken from the market frames sent every 0.25 s; not a full intraday series, individual trades, or minute candles."
+  "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。": "Up to 512 recent quotes across contracts, taken from the market frames sent every 0.25 s; not a full intraday series, individual trades, or minute candles.",
+  "研究数据 · 历史数据 · 非实时": "Research dataset · historical · not live"
 }

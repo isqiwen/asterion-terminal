@@ -142,20 +142,19 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
     data = backtest.open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
-        params={"candidates": [row["params"] for row in members]}, provider=config.provider,
+        params={"candidates": [row["params"] for row in members]},
         dataset_version=data.version.identity, symbols=tuple(config.symbols),
         begin_day=config.begin_day, end_day=config.end_day, costs=backtest.costs_record(config),
         risk=backtest.risk_record(config),
         statistics={**backtest.statistics_record(config),
                     "rolling": {"sweep": sweep, "candidates": candidates, "training_days": training,
                                 "validation_days": validation, "rounds": chosen}},
-        bars=backtest.bars_record(config, data)))
+        bars=backtest.bars_record(config)))
     try:
         for candidate in candidates:
             recorded = runs.record(candidate)["data"]
-            if (recorded["provider"] != config.provider
-                    or recorded["dataset_version"] != data.version.identity
-                    or recorded["bars"] != backtest.bars_record(config, data)):
+            if (recorded["dataset_version"] != data.version.identity
+                    or recorded["bars"] != backtest.bars_record(config)):
                 raise ValueError(f"candidate {candidate} used different dataset versions or bar inputs")
         strategies = [repository.load(Path(config.source), config.strategy,
                                       {**config.params, **row["params"]}) for row in members]

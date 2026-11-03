@@ -36,9 +36,8 @@ export type RunForm = {
   symbols: string;
   begin: string;
   end: string;
-  // Daily bars ("0") or bars of this many minutes from minuteProvider.
+  // Daily bars ("0") or bars of this many minutes.
   minutes: string;
-  minuteProvider: "tushare" | "recorder";
   params: Record<string, string>;
   deposit: string;
   costs: Record<string, string[]>;
@@ -63,7 +62,6 @@ export function defaultForm(): RunForm {
     begin: "",
     end: "",
     minutes: "0",
-    minuteProvider: "tushare",
     params: {},
     deposit: "1000000",
     costs: {},
@@ -161,7 +159,6 @@ export function runRequest(
     repository,
     strategy,
     params,
-    provider: "tushare",
     symbols,
     beginDay: form.begin,
     endDay: form.end,
@@ -180,7 +177,6 @@ export function runRequest(
     zeroRiskFree: form.zeroRiskFree,
     holdoutDay: form.validation === "holdout" ? form.holdoutDay : "",
     minutes: Number(form.minutes),
-    minuteProvider: form.minutes === "0" ? "" : form.minuteProvider,
   };
   return { run, swept };
 }
@@ -269,7 +265,6 @@ export function factorRequest(form: FactorForm, repository: string, factor: Fact
     repository,
     factor: factor.id,
     params,
-    provider: "tushare",
     symbols,
     beginDay: form.begin,
     endDay: form.end,

@@ -36,9 +36,12 @@ def frame(table: str, rows: list) -> pl.DataFrame:
 
 
 class Dataset(ParquetTables):
-    """Read the test writer's local publication, not a production fallback."""
-    def __init__(self, directory, provider="tushare"):
-        self.root, self.provider = directory / "warehouse", provider
+    """Read the test writer's local publication, not a production fallback.
+    `directory` is Market's data directory; research reads provider "research"."""
+    def __init__(self, directory, provider="research"):
+        self.directory, self.provider = Path(directory), provider
+        source = self.directory if provider == "tushare" else self.directory / "sources" / provider
+        self.root = source / "warehouse"
 
     def current(self):
         pointer = self.root / "current"
@@ -55,7 +58,7 @@ class Dataset(ParquetTables):
 class Warehouse(Dataset):
     """The acquisition owner's writable store; research only opens Dataset."""
 
-    def __init__(self, directory: Path, provider="tushare"):
+    def __init__(self, directory: Path, provider="research"):
         super().__init__(directory, provider)
         (self.root / "versions").mkdir(parents=True, exist_ok=True)
         (self.root / "files").mkdir(exist_ok=True)
@@ -112,12 +115,12 @@ class Writer:
         write_durably(self.warehouse.root / "current", identity.encode())
         self.base = Version(identity, manifest)
         self.partitions = dict(self.partitions)
-        cache_version(self.warehouse.root.parent, self.warehouse.provider, self.base)
+        cache_version(self.warehouse.directory, self.warehouse.root, self.warehouse.provider, self.base)
         return self.base
 
 
-def cache_version(directory, provider, version):
-    lab = directory if provider == "tushare" else directory.parent.parent
+def cache_version(lab, store, provider, version):
+    """The version as Lab in `lab` would have cached it from Market."""
     target = lab / "market-cache" / provider
     parts = {}
     for key, part in version.manifest["partitions"].items():
@@ -125,13 +128,9 @@ def cache_version(directory, provider, version):
         path = target / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            shutil.copyfile(directory / "warehouse" / part["file"], path)
+            shutil.copyfile(store / part["file"], path)
         parts[key] = {**part, "file": relative}
     manifest = {**version.manifest, "partitions": parts,
                 "origin": {"host": "127.0.0.1", "port": 1, "fingerprint": "0" * 64,
                            "certificate_file": "/missing-test-certificate", "private_key_file": "/missing-test-key"}}
     write_durably(target / "versions" / f"{version.identity}.json", canonical(manifest))
-
-
-def dataset_of(directory, provider):
-    return Dataset(directory if provider == "tushare" else directory / "sources" / provider, provider)

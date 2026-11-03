@@ -76,7 +76,12 @@ function DataPage({ context }: { context: TerminalContext }) {
           afterProvider = page.nextProvider;
         } while (afterProvider && active);
         if (!active) return;
-        const next = [...listed.values()].sort((a, b) => a.provider.localeCompare(b.provider));
+        // What research reads comes first.
+        const next = [...listed.values()].sort(
+          (a, b) =>
+            Number(b.provider === "research") - Number(a.provider === "research") ||
+            a.provider.localeCompare(b.provider),
+        );
         setSources(next);
         setProvider(current =>
           next.some(item => item.provider === current) ? current : (next[0]?.provider ?? ""),
@@ -103,12 +108,20 @@ function DataPage({ context }: { context: TerminalContext }) {
         <select value={provider} onChange={event => setProvider(event.target.value)}>
           {sources.map(item => (
             <option key={item.provider} value={item.provider}>
-              {item.provider === "recorder" ? t("Market 录制") : item.provider}
+              {item.provider === "recorder"
+                ? t("Market 录制")
+                : item.provider === "research"
+                  ? t("研究数据")
+                  : item.provider}
             </option>
           ))}
         </select>
       </label>
-      <p>{t("多个来源可同时采集，数据分别保存，不自动切换或混合。")}</p>
+      <p>
+        {t(
+          "各来源分别采集和保存。研究只读「研究数据」：Market 按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。",
+        )}
+      </p>
       <p>{t("来源配置和凭据由 Market 主机管理；关闭此页面不会停止采集。")}</p>
       {canManage === false && (
         <p role="status">{t("当前连接只有读取权限，不能启动或取消采集。")}</p>

@@ -23,7 +23,7 @@ test(
       data,
     ]);
     try {
-      const version = readFileSync(join(data, "warehouse/current"), "utf8").trim();
+      const version = readFileSync(join(data, "sources/research/warehouse/current"), "utf8").trim();
       await page.goto("/");
       await openView(page, "coverage");
       await rpc(page.request, "market.close");
@@ -35,7 +35,7 @@ test(
       await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("recorder");
       await expect(page.getByRole("button", { name: "发布录制分钟", exact: true })).toBeDisabled();
       await expect(page.getByRole("heading", { name: "发布录制分钟", exact: true })).toBeVisible();
-      await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("tushare");
+      await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("research");
       await expect(page.locator(`code[title="${version}"]`)).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
@@ -48,7 +48,7 @@ test(
           .some(service => service.kind === "lab" && service.desired_running),
       ).toBe(false);
     } finally {
-      rmSync(join(data, "warehouse"), { recursive: true, force: true });
+      rmSync(join(data, "sources/research"), { recursive: true, force: true });
     }
   },
 );

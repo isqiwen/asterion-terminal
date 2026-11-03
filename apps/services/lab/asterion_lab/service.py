@@ -116,48 +116,31 @@ class Service:
         health.uptime_ms = int((time.monotonic() - self.started) * 1000)
         health.initialized = self.initialized
 
-    def dataset_for(self, provider, origin=None):
-        return Dataset(self.directory, provider, self.market, origin)
+    def dataset(self):
+        return Dataset(self.directory, self.market)
 
-    def data_version(self, provider, identity, table, origin=None):
-        dataset = self.dataset_for(provider, origin)
+    def data_version(self, identity, tables):
+        """The research dataset's version, which must hold each of `tables`."""
+        dataset = self.dataset()
         version = dataset.version(identity) if identity else dataset.current()
         if not version.identity:
-            raise ValueError(f"no dataset version is available for {provider}")
-        if not any(key.startswith(table + "/") for key in version.manifest["partitions"]):
-            raise ValueError(f"{provider} version {version.identity} has no {table} partitions")
+            raise ValueError("Market has no research dataset yet")
+        for table in tables:
+            if not any(key.startswith(table + "/") for key in version.manifest["partitions"]):
+                raise ValueError(f"research version {version.identity} has no {table} partitions")
         return version.identity
 
-    def pin_daily(self, request, origin=None):
+    def pin_daily(self, request):
         fixed = type(request)()
         fixed.CopyFrom(request)
-        fixed.provider = request.provider or "tushare"
-        fixed.dataset_version = self.data_version(fixed.provider, fixed.dataset_version, "daily", origin)
+        fixed.dataset_version = self.data_version(fixed.dataset_version, ("daily",))
         return fixed
 
     def pin_backtest(self, request):
-        # One provider means one immutable snapshot for both days and minutes.
         fixed = type(request)()
         fixed.CopyFrom(request)
-        provider = request.provider or "tushare"
-        same_source = request.minutes and provider == request.minute_provider
-        if same_source and request.minute_dataset_version:
-            if request.dataset_version and request.dataset_version != request.minute_dataset_version:
-                raise ValueError("daily and minute inputs from one source must use the same dataset version")
-            fixed.dataset_version = request.minute_dataset_version
-        # A request selecting days and minutes reads one saved Market selection.
-        # Already fixed, cached inputs can still be read without connection settings.
-        latest = not fixed.dataset_version or (fixed.minutes and not same_source
-                                              and not fixed.minute_dataset_version)
-        origin = self.market.selected() if self.market is not None and latest else None
-        fixed = self.pin_daily(fixed, origin)
-        if fixed.minutes:
-            if fixed.minute_provider not in ("tushare", "recorder"):
-                raise ValueError("minutes come from tushare or recorder")
-            fixed.minute_dataset_version = fixed.dataset_version if same_source else self.data_version(
-                fixed.minute_provider, fixed.minute_dataset_version, "minutes", origin)
-        elif fixed.minute_provider or fixed.minute_dataset_version:
-            raise ValueError("daily research does not take minute inputs")
+        tables = ("daily", "minutes") if request.minutes else ("daily",)
+        fixed.dataset_version = self.data_version(fixed.dataset_version, tables)
         return fixed
 
     async def on_summary(self, request, response):
@@ -165,7 +148,7 @@ class Service:
             if self.market is None:
                 raise ValueError("configure the remote Market address first")
             with Client(self.market.selected()) as client:
-                return client.call("dataset_summary", provider=request.provider)
+                return client.call("dataset_summary", provider=Dataset.provider)
         value = await self.read(read_summary)
         response.summary.dataset_version = value.dataset_version
         response.summary.created_ns = value.created_ns
@@ -176,7 +159,7 @@ class Service:
     def chart_bars(self, request):
         exchange = request.contract.split("/")[0]
         if request.period in chart.CALENDAR:
-            warehouse = self.dataset_for(request.provider)
+            warehouse = self.dataset()
             version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
             rows = warehouse.query(version, """
                 select day, open, high, low, close, volume from daily
@@ -185,7 +168,7 @@ class Service:
             return version, chart.calendar_bars(rows, request.period)
         if not request.period.isdigit():
             raise ValueError(f"no chart period {request.period!r}")
-        warehouse = self.dataset_for(request.provider)
+        warehouse = self.dataset()
         version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
         rows = warehouse.query(version, """
             select day, start_ms, partial, open, high, low, close, volume from minutes
@@ -206,8 +189,8 @@ class Service:
             if indicator:
                 item.macd_diff, item.macd_signal, item.macd_histogram = indicator
 
-    def stored_contracts(self, provider, only=""):
-        warehouse = self.dataset_for(provider)
+    def stored_contracts(self, only=""):
+        warehouse = self.dataset()
         version = warehouse.current()
         found = {}
         for contract, first, last, days in warehouse.query(version, """
@@ -222,10 +205,9 @@ class Service:
         return version, found, names
 
     async def on_stored_contracts(self, request, response):
-        version, found, names = await self.read(self.stored_contracts, request.provider,
-                                                request.contract)
+        version, found, names = await self.read(self.stored_contracts, request.contract)
         reply = response.stored_contracts
-        reply.dataset_version, reply.provider = version.identity, request.provider
+        reply.dataset_version = version.identity
         for contract in sorted(found):
             item = reply.contracts.add(contract=contract, name=names.get(contract) or "")
             if "daily" in found[contract]:
@@ -236,7 +218,7 @@ class Service:
     def dominant(self, request):
         if request.adjustment not in ("none", "ratio"):
             raise ValueError("adjustment is none or ratio")
-        warehouse = self.dataset_for(request.provider)
+        warehouse = self.dataset()
         version = warehouse.current()
         # The first day's dominant month is read from the day before it.
         rows = warehouse.query(version, """
@@ -278,8 +260,8 @@ class Service:
                     values[name] = text(None if value is None else dominant.rounded(Decimal(value) * factor))
             series.days.add(day=day, contract=contract, **values)
 
-    def open_days(self, exchange, begin, end, provider="tushare"):
-        warehouse = self.dataset_for(provider)
+    def open_days(self, exchange, begin, end):
+        warehouse = self.dataset()
         version = warehouse.current()
         rows = warehouse.query(version, """
             select day from calendar where exchange = ? and open
@@ -288,7 +270,7 @@ class Service:
         return [row[0] for row in rows]
 
     async def on_sessions(self, request, response):
-        days = await self.read(self.open_days, request.exchange, request.begin_day, request.end_day, request.provider)
+        days = await self.read(self.open_days, request.exchange, request.begin_day, request.end_day)
         reply = response.sessions
         reply.reviewed = self.sessions.reviewed
         named = set()

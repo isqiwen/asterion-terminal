@@ -21,7 +21,7 @@ from asterion_lab import backtest, chart, repository  # noqa: E402
 from asterion_strategy import Bar, FIELDS, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
-from warehouse_writer import Dataset, Warehouse, dataset_of  # noqa: E402
+from warehouse_writer import Dataset, Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[2] / "apps/services/lab/examples"
@@ -78,7 +78,7 @@ class Backtests(unittest.TestCase):
 
     def config(self, symbols, **changes):
         values = dict(repository=str(self.repository), strategy="ma_cross.MaCross",
-                      params={"fast": 2, "slow": 4}, provider="tushare", symbols=symbols,
+                      params={"fast": 2, "slow": 4}, symbols=symbols,
                       begin_day=DAYS[0].isoformat(), end_day=DAYS[-1].isoformat(),
                       deposit=Decimal(1_000_000), costs=COSTS, slippage_ticks=0,
                       max_order_lots=Decimal(10), max_gross_lots=Decimal(10), max_working_orders=10)
@@ -89,9 +89,6 @@ class Backtests(unittest.TestCase):
             source = Path(tempfile.mkdtemp(dir=self.directory))
             taken = repository.snapshot(self.repository, source)
             values.update(source=str(source), commit=taken.commit, changes=taken.changes)
-        if values.get("minutes"):
-            values.setdefault("minute_dataset_version", dataset_of(
-                self.directory, values["minute_provider"]).current().identity)
         return backtest.Config(**values)
 
     def test_a_run_imports_the_code_copied_at_admission(self):
@@ -139,36 +136,28 @@ class Backtests(unittest.TestCase):
                 ("SHFE/rb/2026-05",), dataset_version="a" * 64))
         self.assertFalse((Runs(self.directory).root / "unavailable").exists())
 
-    def test_admission_pins_both_sources_and_rejects_conflicting_same_source_versions(self):
+    def test_admission_pins_one_research_version_for_days_and_minutes(self):
         service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
-        minute_store = Warehouse(self.directory / "sources/recorder", "recorder")
-        writer = minute_store.writer()
+        request = self.sweep_request("sources", [2], [4], 1).sweep.base
+        request.minutes = 1
+        with self.assertRaisesRegex(ValueError, "has no minutes partitions"):
+            service.pin_backtest(request)
+        writer = Warehouse(self.directory).writer()
         bar = dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05",
                    day=DAYS[0].isoformat(), start_ms=1767574800000, partial=False,
                    open=Decimal(3000), high=Decimal(3005), low=Decimal(2995), close=Decimal(3000),
                    volume=Decimal(100), average_price=None, open_interest=Decimal(100))
         key = f"minutes/SHFE/{DAYS[0].isoformat()}/rb/2026-05"
         writer.put_rows(key, "minutes", [bar], days=[bar["day"]])
-        minute_version = writer.commit().identity
-        request = self.sweep_request("sources", [2], [4], 1).sweep.base
-        request.minutes, request.minute_provider = 1, "recorder"
+        version = writer.commit().identity
         pinned = service.pin_backtest(request)
-        self.assertEqual(pinned.minute_dataset_version, minute_version)
-        self.publish_incomplete()
+        self.assertEqual(pinned.dataset_version, version)
         writer.put_rows(key, "minutes", [{**bar, "close": Decimal(3010)}], days=[bar["day"]])
-        self.assertNotEqual(writer.commit().identity, minute_version)
+        self.assertNotEqual(writer.commit().identity, version)
         data = backtest.open_data(self.directory, backtest.config_of(pinned))
-        self.assertEqual(data.version.identity, pinned.dataset_version)
-        self.assertEqual(data.minute_version.identity, minute_version)
+        self.assertEqual(data.version.identity, version)
         self.assertEqual(data.minute_bars(bar["contract"], bar["day"], bar["day"], 1)[0]["close"],
                          Decimal(3000))
-        request.minute_provider = "tushare"
-        request.dataset_version = pinned.dataset_version
-        same = service.pin_backtest(request)
-        self.assertEqual(same.dataset_version, same.minute_dataset_version)
-        request.minute_dataset_version = Dataset(self.directory).current().identity
-        with self.assertRaisesRegex(ValueError, "same dataset version"):
-            service.pin_backtest(request)
 
     def test_the_data_are_read_as_the_old_data_service_reads_them(self):
         data = backtest.Data(Warehouse(self.directory), DAYS[0].isoformat(), DAYS[-1].isoformat())
@@ -224,8 +213,7 @@ class Backtests(unittest.TestCase):
             with self.subTest(minutes=minutes):
                 identity = f"minutes-{minutes}"
                 backtest.run(self.directory, identity, self.config(
-                    ("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(), minutes=minutes,
-                    minute_provider="tushare"))
+                    ("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(), minutes=minutes))
                 runs = Runs(self.directory)
                 (row,) = [row for row in runs.list() if row["id"] == identity]
                 self.assertEqual(row["state"], "succeeded", row["error"])
@@ -241,7 +229,7 @@ class Backtests(unittest.TestCase):
                                      for t in fills["time_ns"] for d in DAYS[:10]))
                 import asterion_engine
                 config = self.config(("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(),
-                                     minutes=minutes, minute_provider="tushare")
+                                     minutes=minutes)
                 contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
                 engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
                                                (10 * backtest.R, 10 * backtest.R, 10))
@@ -394,7 +382,7 @@ class Backtests(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             listed = (await service.reply(Request(version=1, service_id="lab",
-                                                  stored_contracts={"provider": "tushare"}))).stored_contracts
+                                                  stored_contracts={}))).stored_contracts
             stored = {item.contract: item for item in listed.contracts}
             self.assertEqual(sorted(stored), ["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
             may = stored["SHFE/rb/2026-05"]
@@ -402,7 +390,7 @@ class Backtests(unittest.TestCase):
             self.assertEqual((may.minute_first, may.minute_days), (DAYS[1].isoformat(), 1))
             self.assertEqual(stored["SHFE/rb/2026-10"].minute_days, 0)
             query = Request(version=1, service_id="lab", chart_bars={
-                "contract": "SHFE/rb/2026-05", "provider": "tushare", "period": "5"})
+                "contract": "SHFE/rb/2026-05", "period": "5"})
             five = (await service.reply(query)).chart_bars.bars
             # Both minutes began within 21:00-21:05; the bar ends then.
             self.assertEqual([(item.time_ms, item.open, item.close, item.volume) for item in five],

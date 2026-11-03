@@ -27,14 +27,9 @@ const calendarPeriods = [
   ["quarter", "季线"],
   ["year", "年线"],
 ] as const;
-// Where minutes may come from; days are always Tushare's.
-const minuteSources = [
-  ["tushare", "Tushare"],
-  ["recorder", "录制"],
-] as const;
 const page = 100;
 
-// A contract's stored bars from the lab: minutes of one source gathered into
+// A contract's stored bars from the research dataset: minutes gathered into
 // longer periods, or days into calendar periods, a hundred at a time.
 export function ContractHistory({
   venue,
@@ -64,10 +59,10 @@ export function ContractHistory({
         item.instrument.symbol.toUpperCase() === symbol.toUpperCase(),
     )?.contractId;
   const [retry, setRetry] = useState(0);
-  // What each source holds of this contract.
+  // What the research dataset holds of this contract.
   const [stored, setStored] = useState<{
     key: string;
-    sources: Record<string, LabStoredContract | undefined>;
+    contract?: LabStoredContract;
     error: DisplayError;
   }>();
   const endpoint = snapshot?.market_endpoint;
@@ -79,34 +74,18 @@ export function ContractHistory({
   useEffect(() => {
     if (!contractId) return;
     let active = true;
-    void Promise.all(
-      minuteSources.map(([provider]) =>
-        lab(
-          { case: "storedContracts", value: { provider, contract: contractId } },
-          "storedContracts",
-        ).then(reply => [provider, reply.contracts[0]] as const),
-      ),
-    )
+    void lab({ case: "storedContracts", value: { contract: contractId } }, "storedContracts")
       .then(
-        found =>
-          active && setStored({ key: storedKey, sources: Object.fromEntries(found), error: "" }),
+        reply => active && setStored({ key: storedKey, contract: reply.contracts[0], error: "" }),
       )
-      .catch(
-        reason =>
-          active && setStored({ key: storedKey, sources: {}, error: asDisplayError(reason) }),
-      );
+      .catch(reason => active && setStored({ key: storedKey, error: asDisplayError(reason) }));
     return () => {
       active = false;
     };
   }, [contractId, storedKey]);
   const known = stored?.key === storedKey ? stored : undefined;
-  const hasDays = !!known?.sources.tushare?.dailyDays;
-  const withMinutes = minuteSources.filter(([provider]) => known?.sources[provider]?.minuteDays);
-  const [chosenSource, setSource] = useWorkspaceDraft(`${preferenceKey}.source`, "");
-  const source = withMinutes.some(([provider]) => provider === chosenSource)
-    ? chosenSource
-    : (withMinutes[0]?.[0] ?? "tushare");
-  const hasMinutes = withMinutes.length > 0;
+  const hasDays = !!known?.contract?.dailyDays;
+  const hasMinutes = !!known?.contract?.minuteDays;
   const [period, setPeriod] = useWorkspaceDraft<Period | null>(`${preferenceKey}.period`, null);
   const initialPeriod = !known
     ? undefined
@@ -126,7 +105,7 @@ export function ContractHistory({
   const available = daily ? hasDays : hasMinutes;
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
-  const barsKey = JSON.stringify([address, contractId, daily ? "" : source, activePeriod, retry]);
+  const barsKey = JSON.stringify([address, contractId, activePeriod, retry]);
   const [drawn, setDrawn] = useState<{ key: string; bars?: LabChartBars; error: DisplayError }>();
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
@@ -134,11 +113,7 @@ export function ContractHistory({
     void lab(
       {
         case: "chartBars",
-        value: {
-          contract: contractId,
-          provider: daily ? "tushare" : source,
-          period: String(activePeriod),
-        },
+        value: { contract: contractId, period: String(activePeriod) },
       },
       "chartBars",
     )
@@ -147,10 +122,10 @@ export function ContractHistory({
     return () => {
       active = false;
     };
-  }, [barsKey, contractId, activePeriod, available, daily, source]);
+  }, [barsKey, contractId, activePeriod, available]);
   const current = drawn?.key === barsKey ? drawn : undefined;
   const all = current?.bars?.bars ?? [];
-  // The latest page first; paging keeps its place per contract, source and period.
+  // The latest page first; paging keeps its place per contract and period.
   const [paging, setPaging] = useWorkspaceDraft(`${preferenceKey}.paging`, { key: "", end: 0 });
   const end = paging.key === barsKey ? Math.min(paging.end, all.length) : all.length;
   const begin = Math.max(0, end - page);
@@ -177,9 +152,6 @@ export function ContractHistory({
   const error = known?.error || current?.error;
   const loading = !!contractId && (!known || (available && !current));
   const disabled = busy || loading;
-  const sourceName = daily
-    ? "Tushare"
-    : t(minuteSources.find(([provider]) => provider === source)![1]);
   return (
     <section className="market-history-chart" aria-label={t("合约历史 K 线")} aria-busy={loading}>
       {fixedPeriod === undefined && (
@@ -229,19 +201,6 @@ export function ContractHistory({
             </button>
           ))}
         </div>
-        {!daily && withMinutes.length > 1 && (
-          <select
-            aria-label={t("分钟线来源")}
-            value={source}
-            onChange={event => setSource(event.target.value)}
-          >
-            {withMinutes.map(([provider, label]) => (
-              <option key={provider} value={provider}>
-                {t(label)}
-              </option>
-            ))}
-          </select>
-        )}
         <button
           aria-label={t("显示均线")}
           aria-pressed={showAverages}
@@ -335,9 +294,7 @@ export function ContractHistory({
               {t("最新数据")}
             </button>
           </div>
-          <div className="market-chart-source">
-            {sourceName} · {t("历史数据 · 非实时")}
-          </div>
+          <div className="market-chart-source">{t("研究数据 · 历史数据 · 非实时")}</div>
         </>
       ) : (
         <div className="market-chart-empty" role="status">
