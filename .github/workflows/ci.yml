@@ -108,7 +108,6 @@ jobs:
           path: build/Release/asterion-market-setup.sh
 
   terminal:
-    needs: [style, core, core-sanitizers, linux-hosts]
     runs-on: macos-latest
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
@@ -159,7 +158,6 @@ jobs:
   # The whole browser suite runs on the macOS job. Only the @trading tests run
   # here, because the trading service runs on Linux only and they skip elsewhere.
   terminal-linux:
-    needs: [style, core, core-sanitizers, linux-hosts]
     runs-on: ubuntu-24.04
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug

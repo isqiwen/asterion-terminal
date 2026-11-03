@@ -575,7 +575,7 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
     using namespace std::chrono_literals;
     namespace wire = asterion::market::proto;
     CtpDirectory directory;
-    testing_support::MarketHost host(directory.path);
+    testing_support::MarketHost host(directory.path, "steady");
     host.start();
     auto call = [&](wire::Request request) {
         request.set_version(1);
