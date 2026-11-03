@@ -1,8 +1,9 @@
-"""Prepare and verify the Python runtime bundled with Terminal.
+"""Prepare and verify the Python runtime Terminal runs from the project.
 
 A relocatable CPython (python-build-standalone, as uv installs it) with the
-locked dependencies and Terminal's Python code installed into its own
-site-packages. No virtual environment: a venv records absolute paths, the
+locked dependencies in its own site-packages, and a .pth that imports
+Terminal's Python code from the project's sources and build: a change to
+them needs only a Lab restart, never this script again. No virtual environment: a venv records absolute paths, the
 standalone interpreter finds its prefix from where it is. Programs run as
 `python3 -I -B -m <module>`: no user site, no environment, no bytecode written
 into a signed or shared installation.
@@ -117,7 +118,9 @@ def prepare(build=None):
         # Polars needs one CPU runtime: the compatible one, not the default AVX2 build.
         run(["uv", "pip", "uninstall", "--python", python, "polars-runtime-32"])
         site = prepared / SITE
-        application_code(build, site)
+        sources = [PROJECT, ROOT / "apps/services/common/python",
+                   build / "generated-python", build / "engine-python"]
+        (site / "asterion-source.pth").write_text("".join(f"{path}\n" for path in sources))
         # Installed command scripts name the staging interpreter, and nothing
         # installs packages into a prepared runtime: keep the interpreter only.
         for path in (prepared / "bin").iterdir():
