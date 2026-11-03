@@ -151,7 +151,9 @@ wire::Task Manager::load(const fs::path& path) const
 void Manager::reap()
 {
     for (auto it = active_.begin(); it != active_.end();) {
-        if (it->second->finished.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        if (pending(it->second->task)
+            && it->second->finished.wait_for(std::chrono::seconds(0))
+                != std::future_status::ready) {
             ++it;
             continue;
         }
