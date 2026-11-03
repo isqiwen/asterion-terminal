@@ -229,6 +229,29 @@ class RemoteResearch(unittest.TestCase):
         finally:
             service.reads.shutdown(wait=True)
 
+    def test_a_contract_s_minutes_download_only_its_days_and_coverage_downloads_nothing(self):
+        published = self.data / 'sources/recorder'
+        self.addCleanup(shutil.rmtree, published)
+        writer = Warehouse(published, 'recorder').writer()
+        for month in ('2026-05', '2026-06'):
+            for day in ('2026-01-05', '2026-01-06', '2026-01-07'):
+                writer.put_rows(f'minutes/SHFE/{day}/rb/{month}', 'minutes', [], days=[day])
+        writer.commit()
+        dataset = Dataset(self.lab, 'recorder', market=self.market)
+        version = dataset.current()
+        fetched, ensure = [], Dataset.ensure
+        def record(cache, version, key):
+            fetched.append(key)
+            return ensure(cache, version, key)
+        with patch.object(Dataset, 'ensure', record):
+            self.assertEqual(version.minute_coverage('SHFE/rb/2026-05'),
+                             {'SHFE/rb/2026-05': ('2026-01-05', '2026-01-07', 3)})
+            self.assertEqual(fetched, [])
+            dataset.query(version, 'select count(*) from minutes', ('minutes',),
+                          contract='SHFE/rb/2026-05', begin='2026-01-06', end='2026-01-07')
+        self.assertEqual(fetched, ['minutes/SHFE/2026-01-06/rb/2026-05',
+                                   'minutes/SHFE/2026-01-07/rb/2026-05'])
+
     def test_concurrent_chunk_downloads_publish_once_and_missing_versions_never_use_latest(self):
         version = self.dataset.current()
         key = 'daily/SHFE/2026-01'

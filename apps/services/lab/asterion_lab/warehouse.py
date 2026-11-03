@@ -68,9 +68,30 @@ class Version:
     identity: str
     manifest: dict
 
-    def files(self, root: Path, table: str, exchange: str = "") -> list:
-        return [str(root / entry["file"]) for key, entry in sorted(self.manifest["partitions"].items())
-                if key.split("/")[0] == table and (not exchange or key.split("/")[1] == exchange)]
+    def keys(self, table: str, exchange: str = "", contract: str = "", begin: str = "", end: str = ""):
+        """The partitions of `table`, of one exchange when named. A minute
+        partition is one contract's trading day (minutes/<exchange>/<day>/<product>/<month>),
+        so minutes also narrow to `contract` and to days in [begin, end]."""
+        for key in sorted(self.manifest["partitions"]):
+            parts = key.split("/")
+            if parts[0] != table or (exchange and parts[1] != exchange):
+                continue
+            if table == "minutes" and ((contract and "/".join([parts[1], *parts[3:]]) != contract)
+                                       or (begin and parts[2] < begin) or (end and parts[2] > end)):
+                continue
+            yield key
+
+    def files(self, root: Path, table: str, **scope) -> list:
+        return [str(root / self.manifest["partitions"][key]["file"]) for key in self.keys(table, **scope)]
+
+    def minute_coverage(self, contract: str = "") -> dict:
+        """Each contract's stored minute days, (first, last, count), from the
+        manifest alone: nothing is downloaded."""
+        days = {}
+        for key in self.keys("minutes", contract=contract):
+            parts = key.split("/")
+            days.setdefault("/".join([parts[1], *parts[3:]]), []).append(parts[2])
+        return {name: (min(found), max(found), len(set(found))) for name, found in days.items()}
 
     def days(self, exchange: str) -> set:
         days = set()
@@ -86,13 +107,13 @@ class Version:
 class ParquetTables:
     """Queries against immutable files selected by the read-only cache."""
 
-    def query(self, version: Version, sql: str, tables: tuple, parameters=(), exchange=""):
-        """Run `sql` with each of `tables` bound to the version's files, of one
-        exchange when it is named."""
+    def query(self, version: Version, sql: str, tables: tuple, parameters=(), **scope):
+        """Run `sql` with each of `tables` bound to the version's files, of the
+        exchange, contract and days `scope` names (see Version.keys)."""
         connection = duckdb.connect()
         try:
             for table in tables:
-                files = version.files(self.root, table, exchange)
+                files = version.files(self.root, table, **scope)
                 if files:
                     # Views take no parameters; the paths are the warehouse's own.
                     listed = ", ".join("'" + path.replace("'", "''") + "'" for path in files)

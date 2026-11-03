@@ -164,7 +164,7 @@ class Data:
             select day, start_ms, partial, open, high, low, close, volume, open_interest
             from minutes where contract = ? and day between ?::date and ?::date
             order by start_ms""", ("minutes",), (contract, begin, end),
-            exchange=contract.split("/")[0])
+            contract=contract, begin=begin, end=end)
         return chart.minute_bars(
             [(day.isoformat(), *values) for day, *values in rows], minutes)
 

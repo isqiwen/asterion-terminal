@@ -190,7 +190,7 @@ class Service:
         rows = warehouse.query(version, """
             select day, start_ms, partial, open, high, low, close, volume from minutes
             where contract = ? order by start_ms""", ("minutes",), (request.contract,),
-            exchange=exchange)
+            contract=request.contract)
         return version, chart.minute_bars(rows, int(request.period))
 
     async def on_chart_bars(self, request, response):
@@ -210,11 +210,13 @@ class Service:
         warehouse = self.dataset_for(provider)
         version = warehouse.current()
         found = {}
-        for table in ("daily", "minutes"):
-            for contract, first, last, days in warehouse.query(version, f"""
-                    select contract, min(day), max(day), count(distinct day) from {table}
-                    where ? = '' or contract = ? group by contract""", (table,), (only, only)):
-                found.setdefault(contract, {})[table] = (first.isoformat(), last.isoformat(), days)
+        for contract, first, last, days in warehouse.query(version, """
+                select contract, min(day), max(day), count(distinct day) from daily
+                where ? = '' or contract = ? group by contract""", ("daily",), (only, only),
+                exchange=only.split("/")[0]):
+            found.setdefault(contract, {})["daily"] = (first.isoformat(), last.isoformat(), days)
+        for contract, coverage in version.minute_coverage(only).items():
+            found.setdefault(contract, {})["minutes"] = coverage
         names = dict(warehouse.query(version, "select contract, name from contracts",
                                      ("contracts",)))
         return version, found, names

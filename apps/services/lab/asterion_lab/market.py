@@ -223,12 +223,12 @@ class Dataset(ParquetTables):
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
 
-    def query(self, version, sql, tables, parameters=(), exchange=""):
-        for key in version.manifest["partitions"]:
-            parts = key.split("/")
-            if parts[0] in tables and (not exchange or parts[1] == exchange):
+    def query(self, version, sql, tables, parameters=(), **scope):
+        # Only the partitions this query reads are downloaded.
+        for table in tables:
+            for key in version.keys(table, **scope):
                 self.ensure(version, key)
-        return super().query(version, sql, tables, parameters, exchange)
+        return super().query(version, sql, tables, parameters, **scope)
 
     def read(self, version, key):
         self.ensure(version, key)
