@@ -2212,6 +2212,36 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
         2);
 }
 
+TEST_F(StrategyTarget, FlatteningBeforeTheFirstDecisionClosesOnlyFromAFreshQuote)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto previous = session.register_strategy("previous").get();
+    session.accept_target(previous, lots(2), {quote()});
+    const auto opened = progress(session, previous, [](const Json& s) {
+        return s.at("orders").size() == 1 && s.at("orders")[0].at("status") == "filled"
+            && s.at("positions_reconciled") == true;
+    });
+    ASSERT_EQ(opened.at("orders")[0].at("status"), "filled");
+    session.release_strategy(previous).get();
+    // A restarted instance holds the position but has not decided anything yet.
+    auto owner = session.register_strategy("restarted").get();
+    auto stale = quote();
+    stale.source_ms = stale.received_ms -= 10000;
+    session.flatten_strategy(owner, {stale});
+    session.advance_target(owner).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U) << "a stale quote sends nothing";
+    session.flatten_strategy(owner, {quote()});
+    const auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 2 && s.at("orders")[1].at("status") == "filled";
+    });
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("side"), "SELL");
+    EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
 TEST_F(StrategyTarget, RevocationDuringDirectQuoteSubmissionStillFencesDurableDispatch)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());

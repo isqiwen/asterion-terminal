@@ -304,7 +304,6 @@ JournalRecord parse_record(const Json& record)
             else
                 require_fields(source, {"instance", "target_sequence", "leg"});
             if (!source.at("target_sequence").is_number_unsigned()
-                || source.at("target_sequence").get<std::uint64_t>() == 0
                 || !source.at("leg").is_number_unsigned()
                 || source.at("leg").get<std::uint64_t>() >= StrategyOrderSource::max_legs)
                 throw std::invalid_argument("invalid strategy order attribution");

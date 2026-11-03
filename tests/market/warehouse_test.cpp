@@ -185,7 +185,8 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHas
     publish(*recorder, mine, 3);
     publish(*recorder, recorded_only, 3);
     publish(*recorder, "observations/SHFE/2026-10-30/rb/2027-01");
-    const auto research = wh::compose_research(root);
+    wh::Store composed(wh::source_directory(root, "research"), "research");
+    const auto research = wh::compose_research(root, composed);
     std::map<std::string, std::string> sources;
     for (const auto& [key, part] : research.partitions)
         sources[key] = part.source;
@@ -206,10 +207,10 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHas
             reader.file(research, recorded_only),
             recorder->file(recorder->current(), recorded_only)));
     EXPECT_EQ(reader.read(research, mine).size(), 2U);
-    EXPECT_EQ(wh::compose_research(root).identity, research.identity);
+    EXPECT_EQ(wh::compose_research(root, composed).identity, research.identity);
     // Once Tushare has the recorded day, research takes it from Tushare alone.
     publish(*tushare, recorded_only, 4);
-    const auto later = wh::compose_research(root);
+    const auto later = wh::compose_research(root, composed);
     EXPECT_EQ(later.partitions.at(recorded_only).source, "tushare");
     EXPECT_EQ(reader.read(later, recorded_only).size(), 4U);
     EXPECT_FALSE(later.partitions.contains("observations/SHFE/2026-10-30/rb/2027-01"));

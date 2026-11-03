@@ -37,6 +37,7 @@ private:
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;
+    warehouse::Store research_;
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;

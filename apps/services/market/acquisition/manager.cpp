@@ -91,7 +91,8 @@ wire::Sources Manager::sources() const
 
 Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
     : directory_(std::move(directory) / "acquisition"),
-      sources_(std::move(sources))
+      sources_(std::move(sources)),
+      research_(warehouse::source_directory(directory_.parent_path(), "research"), "research")
 {
     create_directories_durably(directory_);
     for (const auto& [provider, factory] : sources_) {
@@ -104,7 +105,7 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
     // Research reads what the sources hold now, whatever stopped composing
     // before. Recording must start even if it cannot; the next commit retries.
     try {
-        warehouse::compose_research(directory_.parent_path());
+        warehouse::compose_research(directory_.parent_path(), research_);
     } catch (const std::exception& error) {
         log::error("market research dataset not composed: {}", error.what());
     }
@@ -333,7 +334,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
     task.set_dataset_version(version.identity);
     const auto commit = [&] {
         version = writer.commit();
-        warehouse::compose_research(directory_.parent_path());
+        warehouse::compose_research(directory_.parent_path(), research_);
         task.set_dataset_version(version.identity);
         task.set_requests(source.requests());
         publish(task, active);

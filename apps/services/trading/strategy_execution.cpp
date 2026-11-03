@@ -4,10 +4,24 @@
 #include <asterion/system/process/child.hpp>
 #include <asterion/futures/portfolio_targets.hpp>
 #include <algorithm>
-#include <format>
 #include <set>
 
 namespace asterion::trading {
+namespace {
+
+std::int64_t wall_ms()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+std::int64_t quote_age_ms(const MarketQuote& quote, std::int64_t wall)
+{
+    return std::max({std::int64_t{0}, wall - quote.source_ms, wall - quote.received_ms});
+}
+
+} // namespace
 
 StrategyAuthorityPtr LiveAccountState::register_strategy(
     std::string instance,
@@ -89,9 +103,7 @@ void LiveAccountState::accept_strategy_target(
             throw std::invalid_argument("each strategy target requires its direct execution quote");
         StrategyTargetBatch batch;
         batch.accepted_at = now;
-        const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-                              .count();
+        const auto wall = wall_ms();
         const bool weighted = decision.targets(0).has_weight_units();
         if (weighted
             && (!strategy_->budget
@@ -118,8 +130,7 @@ void LiveAccountState::accept_strategy_target(
                 throw Error(
                     ErrorCode::unavailable,
                     "strategy execution quote has invalid identity, date or timestamps");
-            const auto age =
-                std::max({std::int64_t{0}, wall - quote->source_ms, wall - quote->received_ms});
+            const auto age = quote_age_ms(*quote, wall);
             if (age >= 10000)
                 throw Error(ErrorCode::unavailable, "strategy execution quote is stale");
             strategy_->deadline =
@@ -251,7 +262,9 @@ AccountCommand LiveAccountState::advance_strategy_target(
             quote->trading_day,
             quote->update_time,
             strategy_->connection_generation,
-            basis.expires_at - std::chrono::seconds(10)
+            // A flattening batch carries whatever quotes were cached: age each leg by its own.
+            std::chrono::steady_clock::now()
+                - std::chrono::milliseconds(quote_age_ms(*quote, wall_ms()))
         };
         // Before admission this is only a plan. A newly received broker event
         // causes a fresh plan on the next turn, never a resend of an order.
@@ -272,15 +285,12 @@ AccountCommand LiveAccountState::advance_strategy_target(
             {{id, leg.instrument, leg.side, leg.quantity, *price}, leg.offset},
             origin);
         batch.last_order = id;
+        // Not std::format: macOS 13.0 libc++ lacks the to_chars it instantiates.
         strategy_->events.push_back(
-            std::format(
-                "sent {}/{} {} {} {} @ {}",
-                leg.instrument.venue,
-                leg.instrument.symbol,
-                leg.side == Side::buy ? "buy" : "sell",
-                leg.offset == Offset::open ? "open" : "close",
-                leg.quantity.str(),
-                price->str()));
+            "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
+            + (leg.side == Side::buy ? " buy " : " sell ")
+            + (leg.offset == Offset::open ? "open " : "close ") + leg.quantity.str() + " @ "
+            + price->str());
         // No references to batch survive this suspension: a stop can release it.
         co_await execute_strategy(basis, request, control);
     } catch (const std::invalid_argument& error) {
@@ -439,8 +449,8 @@ AccountCommand LiveAccountState::execute_strategy(
     if (!strategy_ || !basis.authority || strategy_->authority != basis.authority
         || basis.authority->policy_ != policy_->revision)
         throw Error(ErrorCode::conflict, "strategy execution identity or policy changed");
-    if (!basis.target_sequence || basis.leg >= StrategyOrderSource::max_legs
-        || basis.target_sequence < strategy_->sequence
+    // Sequence 0 is a flattening before the instance's first decision.
+    if (basis.leg >= StrategyOrderSource::max_legs || basis.target_sequence < strategy_->sequence
         || (basis.target_sequence == strategy_->sequence
             && (basis.leg != strategy_->next_leg || basis.expires_at != strategy_->deadline))
         || (basis.target_sequence > strategy_->sequence && basis.leg != 0))

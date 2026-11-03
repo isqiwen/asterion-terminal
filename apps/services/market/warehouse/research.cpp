@@ -3,16 +3,17 @@
 
 namespace asterion::market_data::warehouse {
 
-Version compose_research(const std::filesystem::path& data)
+Version compose_research(const std::filesystem::path& data, Store& research)
 {
     const auto table = [](const std::string& key) {
         return key.substr(0, key.find('/'));
     };
+    // Sources are read under the writer's lock, so a later composition never
+    // publishes older source versions than an earlier one.
+    auto writer = research.writer();
     Store tushare(source_directory(data, "tushare"), "tushare");
     Store recorder(source_directory(data, "recorder"), "recorder");
-    Store research(source_directory(data, "research"), "research");
     const auto primary = tushare.current();
-    auto writer = research.writer();
     writer.clear();
     for (const auto& [key, part] : primary.partitions)
         writer.adopt(key, tushare, primary);
