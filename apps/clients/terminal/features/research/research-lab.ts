@@ -279,3 +279,32 @@ export function cumulativeIc(days: readonly FactorDay[]) {
   let total = 0;
   return days.map(day => (total += day.ic ?? 0));
 }
+
+// The first content of a new module of strategies/ or factors/, which runs as it is.
+export function moduleTemplate(folder: "strategies" | "factors", name: string) {
+  if (folder === "factors")
+    return `import numpy as np
+
+
+def ${name}(close, window: int = 20):
+    """Return over the last \`window\` bars."""
+    result = np.full(len(close), np.nan)
+    result[window:] = close[window:] / close[:-window] - 1
+    return result
+`;
+  const cls = name.replace(/(^|_)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase());
+  return `from asterion_strategy import Strategy
+
+
+class ${cls}(Strategy):
+    """Holds \`lots\` long once \`window\` bars are known."""
+    params = {"window": 20, "lots": 1}
+
+    def ready(self, ctx):
+        window = self.params["window"]
+        return all(len(ctx.history(s, "close", window)) == window for s in ctx.symbols)
+
+    def on_bar(self, ctx, bar):
+        ctx.target(bar.symbol, self.params["lots"])
+`;
+}

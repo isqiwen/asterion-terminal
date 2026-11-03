@@ -18,12 +18,14 @@ import {
   defaultForm,
   defaultText,
   factorRequest,
+  moduleTemplate,
   productsOf,
   runRequest,
   type FactorForm,
   type RunForm,
 } from "./research-lab";
 import { FactorResult } from "./FactorResult";
+import { SourceEditor } from "./SourceEditor";
 import { RunComparison, RunResult, SweepResult, metric, signed, states } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
@@ -44,6 +46,7 @@ type Shown =
   | { kind: "sweep"; id: string }
   | { kind: "compare" }
   | { kind: "factor"; result: LabFactorResult }
+  | { kind: "source"; path: string }
   | null;
 
 // The research page: the user's strategies and factors, a run's or an
@@ -74,6 +77,9 @@ export function ResearchLab(context: TerminalContext) {
   const [compared, setCompared] = useState<string[]>([]);
   const [error, setError] = useState<DisplayError>("");
   const [busy, setBusy] = useState(false);
+  // The folder a new module is being named for.
+  const [creating, setCreating] = useState<"strategies" | "factors" | null>(null);
+  const [moduleName, setModuleName] = useState("");
 
   const readStrategies = useCallback(async () => {
     if (!repository) return;
@@ -236,7 +242,7 @@ export function ResearchLab(context: TerminalContext) {
         <span className="lab-repository" title={repository}>
           {repository.split("/").filter(Boolean).pop()}
         </span>
-        {strategies && <code className="lab-chip">{strategies.commit.slice(0, 8)}</code>}
+        {strategies?.commit && <code className="lab-chip">{strategies.commit.slice(0, 8)}</code>}
         {strategies?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
         <span className="lab-spacer" />
         <button className="lab-link" onClick={() => void readStrategies()}>
@@ -304,7 +310,7 @@ export function ResearchLab(context: TerminalContext) {
           })}
         </ul>
         {strategies && !strategies.factors.length && (
-          <p className="subtle">{t("策略仓库的 factors/ 目录里还没有因子函数。")}</p>
+          <p className="subtle">{t("factors/ 里还没有因子函数。")}</p>
         )}
         {strategies?.errors.map(item => (
           <details key={item.module} className="lab-module-error">
@@ -314,6 +320,75 @@ export function ResearchLab(context: TerminalContext) {
             <pre>{item.message}</pre>
           </details>
         ))}
+        <h4>{t("代码")}</h4>
+        <ul>
+          {strategies?.modules.map(item => (
+            <li key={item.path}>
+              <button
+                aria-pressed={shown?.kind === "source" && shown.path === item.path}
+                onClick={() => setShown({ kind: "source", path: item.path })}
+              >
+                <code>{item.path}</code>
+                {item.readOnly && <small>{t("内置")}</small>}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {creating ? (
+          <form
+            className="lab-new-module"
+            onSubmit={event => {
+              event.preventDefault();
+              const path = `${creating}/${moduleName}.py`;
+              setError("");
+              void lab(
+                {
+                  case: "saveSource",
+                  value: {
+                    repository,
+                    path,
+                    content: moduleTemplate(creating, moduleName),
+                    create: true,
+                  },
+                },
+                "source",
+              ).then(
+                () => {
+                  setCreating(null);
+                  setModuleName("");
+                  setShown({ kind: "source", path });
+                  void readStrategies();
+                },
+                reason => setError(asDisplayError(reason)),
+              );
+            }}
+          >
+            <input
+              aria-label={t("模块名")}
+              placeholder="my_strategy"
+              pattern="[A-Za-z_][A-Za-z0-9_]*"
+              required
+              autoFocus
+              value={moduleName}
+              onChange={event => setModuleName(event.target.value)}
+            />
+            <button className="primary" type="submit">
+              {t("创建")}
+            </button>
+            <button type="button" onClick={() => setCreating(null)}>
+              {t("取消")}
+            </button>
+          </form>
+        ) : (
+          <p>
+            <button className="lab-link" onClick={() => setCreating("strategies")}>
+              {t("新建策略")}
+            </button>{" "}
+            <button className="lab-link" onClick={() => setCreating("factors")}>
+              {t("新建因子")}
+            </button>
+          </p>
+        )}
         <h4>{t("数据")}</h4>
         <p className="subtle">
           Tushare · <code>{summary?.datasetVersion.slice(0, 8) || t("无数据")}</code>
@@ -343,6 +418,18 @@ export function ResearchLab(context: TerminalContext) {
           />
         )}
         {shown?.kind === "factor" && <FactorResult result={shown.result} />}
+        {shown?.kind === "source" && (
+          <SourceEditor
+            key={shown.path}
+            repository={repository}
+            path={shown.path}
+            changed={() => void readStrategies()}
+            deleted={() => {
+              setShown(null);
+              void readStrategies();
+            }}
+          />
+        )}
         {shown?.kind === "compare" && compared.length === 2 && (
           <RunComparison ids={[compared[0], compared[1]]} />
         )}

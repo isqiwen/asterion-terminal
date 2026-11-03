@@ -24,6 +24,12 @@ void install_node_configuration(
     const std::filesystem::path& source);
 // A service runs the program inside the application through a symbolic link at
 // `installed` (<installation>/bin/<program>), so it finds that installation.
+// Copies the built-in strategies and factors of `builtin` read only into the
+// strategy directory: a new version replaces them and a module no longer
+// shipped goes. A module of the user's with the same name stays.
+void sync_builtin_research(
+    const std::filesystem::path& builtin,
+    const std::filesystem::path& research);
 void link_node_program(const std::filesystem::path& source, const std::filesystem::path& installed);
 
 } // namespace asterion::terminal

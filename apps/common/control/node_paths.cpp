@@ -4,6 +4,7 @@
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <fstream>
+#include <set>
 
 namespace asterion::terminal {
 namespace fs = std::filesystem;
@@ -62,6 +63,43 @@ fs::path asterion_root()
 fs::path program_directory(std::string_view program)
 {
     return asterion_root() / program;
+}
+
+namespace {
+
+// A module the user can change; a built-in copy is read only.
+bool writable(const fs::path& path)
+{
+    return fs::exists(path)
+        && (fs::status(path).permissions() & fs::perms::owner_write) != fs::perms::none;
+}
+
+} // namespace
+
+void sync_builtin_research(const fs::path& builtin, const fs::path& research)
+{
+    for (const auto* folder : {"strategies", "factors"}) {
+        create_directories_durably(research / folder);
+        std::set<fs::path> shipped;
+        if (fs::is_directory(builtin / folder))
+            for (const auto& entry : fs::directory_iterator(builtin / folder)) {
+                const auto target = research / folder / entry.path().filename();
+                if (entry.path().extension() != ".py" || writable(target))
+                    continue;
+                shipped.insert(target);
+                std::ifstream input(entry.path(), std::ios::binary);
+                replace_file_durably(
+                    target,
+                    std::string{std::istreambuf_iterator<char>(input), {}});
+                fs::permissions(
+                    target,
+                    fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read);
+            }
+        for (const auto& entry : fs::directory_iterator(research / folder))
+            if (entry.path().extension() == ".py" && !shipped.contains(entry.path())
+                && !writable(entry.path()))
+                fs::remove(entry.path());
+    }
 }
 
 void link_node_program(const fs::path& source, const fs::path& installed)

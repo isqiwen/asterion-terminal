@@ -27,8 +27,9 @@ const resources = app.isPackaged
 // The native programs, libraries and configuration defaults the Terminal's
 // local services run from.
 process.env.ASTERION_APPLICATION_DIRECTORY = path.join(resources, "native");
-// The strategy directory: research/ of the project, or the copy the package ships.
-process.env.ASTERION_RESEARCH_DIRECTORY = app.isPackaged
+// The built-in strategies and factors: research/ of the project, or the copy
+// the package ships. They are copied read only into the strategy directory.
+process.env.ASTERION_BUILTIN_RESEARCH = app.isPackaged
   ? path.join(process.resourcesPath, "research")
   : path.join(root, "research");
 // Development runs on the runtime `pnpm prepare:python` made; an installed

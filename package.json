@@ -21,6 +21,9 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",
+    "@codemirror/lang-python": "6.2.1",
+    "@codemirror/state": "6.7.6",
+    "codemirror": "6.0.1",
     "lightweight-charts": "5.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

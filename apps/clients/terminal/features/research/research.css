@@ -758,3 +758,33 @@ label.lab-inline {
   margin-right: 8px;
   color: var(--text);
 }
+
+.lab-source {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 8px;
+  height: 100%;
+}
+.lab-source > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lab-source > header code {
+  margin-right: auto;
+  color: var(--text-strong);
+}
+.lab-source-editor {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+}
+.lab-new-module {
+  display: flex;
+  gap: 6px;
+}
+.lab-new-module input {
+  min-width: 0;
+  flex: 1;
+}

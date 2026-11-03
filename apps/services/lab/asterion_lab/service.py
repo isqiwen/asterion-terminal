@@ -297,6 +297,17 @@ class Service:
         response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
                                                              request.repository))
 
+    async def on_source(self, request, response):
+        response.source.CopyFrom(repository.read_source(Path(request.repository), request.path))
+
+    async def on_save_source(self, request, response):
+        response.source.CopyFrom(repository.write_source(
+            Path(request.repository), request.path, request.content, request.create))
+
+    async def on_delete_source(self, request, response):
+        repository.delete_source(Path(request.repository), request.path)
+        response.source.path = request.path
+
     async def on_factor(self, request, response):
         """Evaluates a factor in a child process and replies with its result,
         within the time the Terminal waits for a reply."""

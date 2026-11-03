@@ -19,12 +19,13 @@ import importlib
 import inspect
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import traceback
 
-from asterion.lab_pb2 import Strategies
+from asterion.lab_pb2 import Source, Strategies
 
 from asterion_strategy import FIELDS, KINDS, Strategy
 
@@ -225,6 +226,48 @@ def child(module: str) -> list:
     return [sys.executable, "-I", "-B", "-c", start]
 
 
+MODULE = re.compile(r"(strategies|factors)/[A-Za-z_][A-Za-z0-9_]*\.py")
+
+
+def module(root: Path, path: str) -> Path:
+    if not MODULE.fullmatch(path):
+        raise ValueError(f"a module is strategies/<name>.py or factors/<name>.py: {path}")
+    return checked(root) / path
+
+
+def modules(root: Path) -> list:
+    """Every module of strategies/ and factors/; a built-in one is read only."""
+    return [Source(path=f"{folder}/{path.name}", read_only=not os.access(path, os.W_OK))
+            for folder in ("strategies", "factors")
+            for path in sorted((root / folder).glob("*.py"))]
+
+
+def read_source(root: Path, path: str) -> Source:
+    file = module(root, path)
+    if not file.is_file():
+        raise ValueError(f"no module {path}")
+    return Source(path=path, content=file.read_text(), read_only=not os.access(file, os.W_OK))
+
+
+def write_source(root: Path, path: str, content: str, create: bool) -> Source:
+    # Not at the top: the listing child imports this module and need not load DuckDB.
+    from asterion_lab.warehouse import write_durably
+    file = module(root, path)
+    if file.exists() and (create or not os.access(file, os.W_OK)):
+        raise ValueError(f"{path} already exists" if create else f"{path} is built in and cannot be changed")
+    write_durably(file, content.encode())
+    return read_source(root, path)
+
+
+def delete_source(root: Path, path: str):
+    file = module(root, path)
+    if not file.is_file():
+        raise ValueError(f"no module {path}")
+    if not os.access(file, os.W_OK):
+        raise ValueError(f"{path} is built in and cannot be deleted")
+    file.unlink()
+
+
 def list_strategies(root: str) -> Strategies:
     """The repository's strategies, imported in a child process."""
     if not Path(root).is_absolute() or not Path(root).is_dir():
@@ -239,6 +282,7 @@ def list_strategies(root: str) -> Strategies:
         raise ValueError(lines[-1] if lines else f"strategy listing exited with {result.returncode}")
     reply = Strategies()
     reply.ParseFromString(result.stdout)
+    reply.modules.extend(modules(Path(root)))
     return reply
 
 

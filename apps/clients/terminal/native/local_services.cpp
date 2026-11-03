@@ -158,6 +158,8 @@ struct LocalServices::Impl
     // application's defaults.
     void prepare_program(const Kind& kind) const
     {
+        if (const auto builtin = environment_path("ASTERION_BUILTIN_RESEARCH"))
+            sync_builtin_research(*builtin, asterion_root() / "research");
         const auto folder = program_directory(kind.program);
         for (const auto* part : {"bin", "lib", "config", "logs", "data"})
             create_directories_durably(folder / part);

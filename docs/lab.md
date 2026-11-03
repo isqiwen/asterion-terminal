@@ -26,7 +26,7 @@ Lab 用保存在本机的 Market 地址和客户端证书直连 Market；没有�
 
 ## 策略
 
-策略和因子写在项目的 `research/` 里，随项目一起提交；这个目录固定，不能更换，安装包原样带上它。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
+策略和因子都在固定的策略目录里（位置见[开发](development.md#本机数据目录)）。研究页左侧“代码”列出全部模块，可以新建策略或因子（带一个能直接运行的模板）、在内置编辑器里修改、删除。内置的策略和因子来自项目的 `research/`，安装包原样带上；Lab 每次启动时把它们复制进策略目录，只读，升级时自动更新。新建的模块不能和内置的同名。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
 
 ```python
 from asterion_strategy import Strategy
@@ -47,12 +47,12 @@ class MaCross(Strategy):
         ctx.target(bar.symbol, self.params["lots"] if up else -self.params["lots"])
 ```
 
-- `strategies/` 下每个模块的 `Strategy` 子类是一个策略，标识为 `<模块>.<类>`。模块可以导入 `research/` 里的其他代码。
+- `strategies/` 下每个模块的 `Strategy` 子类是一个策略，标识为 `<模块>.<类>`。模块可以导入策略目录里的其他代码。
 - `params` 的类型只能是 bool、int、float、str；运行时只能改成同类型的值。
 - `on_bar` 每根完整 K 线调用一次；多品种策略改写 `on_bars`，同一时刻完成的 K 线一起给出，没有 K 线的品种不出现。
 - `ready(ctx)` 每次决策后报告是否就绪；未就绪时目标被丢弃。实盘要求策略显式实现它。
 - `ctx.history(symbol, field, count)` 返回最近 `count` 个值（只读 NumPy 数组）。`ctx.target(symbol, lots)` 给整数手数，`ctx.weights({symbol: weight})` 给权益占比，一个策略只用一种。目标从下一根 K 线起执行；手数换算、风控和金额都由 C++ 计算。
-- 策略目录在 Git 里时，记录的策略版本是提交号，目录里有未提交改动时另记改动摘要。回测或扫描被接纳时，策略目录里的 Python 文件（Git 忽略的除外，最多 16 MiB）复制到 `sources/`，这次回测、扫描的全部候选和滚动验证都从这份副本导入，之后修改仓库不影响它们。
+- 策略目录不在 Git 里，每次运行复制的代码就是记录；如果在 Git 里，记录的策略版本是提交号，目录里有未提交改动时另记改动摘要。回测或扫描被接纳时，策略目录里的 Python 文件（Git 忽略的除外，最多 16 MiB）复制到 `sources/`，这次回测、扫描的全部候选和滚动验证都从这份副本导入，之后修改仓库不影响它们。
 
 ## 因子
 

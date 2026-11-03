@@ -1,6 +1,5 @@
 """Browser integration against an isolated root and the test CTP SDKs."""
 import os
-import shutil
 import signal
 from pathlib import Path
 import subprocess
@@ -18,13 +17,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-e2e-", ignore_cleanup_errors=T
     env = dict(os.environ, ASTERION_TABLE_FIXTURE_CONTROL=str(root / "table-source-control"))
     # Editors such as VS Code export this; Electron would then start as plain Node.
     env.pop("ELECTRON_RUN_AS_NODE", None)
-    # The fixture strategies in a work tree of their own, never the project's research/.
-    research = root / "research"
-    shutil.copytree(TESTS / "lab/strategies", research)
-    for arguments in (["init", "-q"], ["add", "."], ["commit", "-qm", "fixture"]):
-        subprocess.run(["git", "-C", str(research), "-c", "user.name=test",
-                        "-c", "user.email=test@invalid", *arguments], check=True)
-    env["ASTERION_RESEARCH_DIRECTORY"] = str(research)
+    # The fixture strategies are the built-in ones, never the project's research/.
+    env["ASTERION_BUILTIN_RESEARCH"] = str(TESTS / "lab/strategies")
     with market_host(BUILD, root / "market", exchanges=("SHFE", "GFEX")) as port:
         env["ASTERION_TEST_MARKET_PORT"] = str(port)
         env["ASTERION_TEST_MARKET_TLS"] = str(root / "market/config/tls")

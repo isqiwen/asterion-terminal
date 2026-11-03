@@ -659,3 +659,39 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_FALSE(std::filesystem::exists(root / "data/acquisition/forbidden.pb"));
     app.dispatch(request("market.endpoint.clear"));
 }
+
+TEST(StrategyDirectory, BuiltInModulesAreReadOnlyCopiesThatFollowTheShippedVersion)
+{
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / ("ast-research-" + unique_process_id());
+    const auto builtin = root / "builtin", research = root / "research";
+    const auto write = [](const fs::path& path, std::string_view text) {
+        fs::create_directories(path.parent_path());
+        std::ofstream(path) << text;
+    };
+    const auto read = [](const fs::path& path) {
+        std::ifstream input(path);
+        return std::string{std::istreambuf_iterator<char>(input), {}};
+    };
+    write(builtin / "strategies/ma.py", "v1");
+    write(builtin / "factors/old.py", "old");
+    write(research / "strategies/mine.py", "mine");
+    write(research / "strategies/clash.py", "my clash");
+    write(builtin / "strategies/clash.py", "built-in clash");
+    terminal::sync_builtin_research(builtin, research);
+    EXPECT_EQ(read(research / "strategies/ma.py"), "v1");
+    EXPECT_EQ(
+        fs::status(research / "strategies/ma.py").permissions() & fs::perms::owner_write,
+        fs::perms::none);
+    // A new version replaces the copy and drops what it no longer ships.
+    write(builtin / "strategies/ma.py", "v2");
+    fs::remove(builtin / "factors/old.py");
+    terminal::sync_builtin_research(builtin, research);
+    EXPECT_EQ(read(research / "strategies/ma.py"), "v2");
+    EXPECT_FALSE(fs::exists(research / "factors/old.py"));
+    // The user's own modules stay, even one named like a built-in.
+    EXPECT_EQ(read(research / "strategies/mine.py"), "mine");
+    EXPECT_EQ(read(research / "strategies/clash.py"), "my clash");
+    fs::permissions(research / "strategies/ma.py", fs::perms::owner_write, fs::perm_options::add);
+    fs::remove_all(root);
+}

@@ -25,6 +25,9 @@ message Request {
     StoredContractsQuery stored_contracts = 34;
     RunReportQuery run_report = 35;
     asterion.strategy.proto.Build strategy_package = 36;
+    SourceQuery source = 37;
+    SourceWrite save_source = 38;
+    SourceQuery delete_source = 39;
   }
 }
 message HealthQuery {}
@@ -100,6 +103,7 @@ message Response {
     StoredContracts stored_contracts = 30;
     RunReport run_report = 31;
     asterion.strategy.proto.Package strategy_package = 32;
+    Source source = 33;
   }
 }
 message Health {
@@ -216,10 +220,27 @@ message Sessions {
   repeated SessionSource sources = 3;
 }
 
-// The strategies of the user's strategy repository (decision D5): Strategy
-// subclasses in the modules of its strategies/ directory, as the files are now.
+// The strategies of the strategy directory: Strategy subclasses in the
+// modules of its strategies/ directory, as the files are now.
 message StrategiesQuery {
-  string repository = 1; // absolute path of the top of its Git work tree
+  string repository = 1; // the strategy directory
+}
+// One module of the strategy directory: strategies/<name>.py or
+// factors/<name>.py. Built-in modules are read only.
+message SourceQuery {
+  string repository = 1;
+  string path = 2;
+}
+message SourceWrite {
+  string repository = 1;
+  string path = 2;
+  string content = 3;
+  bool create = 4; // refused when the module exists
+}
+message Source {
+  string path = 1;
+  string content = 2;
+  bool read_only = 3;
 }
 message StrategyParameter {
   string name = 1;
@@ -244,6 +265,7 @@ message Strategies {
   repeated StrategyEntry strategies = 4;
   repeated StrategyModuleError errors = 5;
   repeated FactorEntry factors = 6;
+  repeated Source modules = 7; // every module, without its content
 }
 
 // A factor: a public function of a module in the repository's factors/

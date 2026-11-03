@@ -229,6 +229,29 @@ class Repository(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "failed to import"):
             repository.load(self.root, "broken.Any", {})
 
+    def test_modules_are_created_changed_and_deleted_but_built_ins_only_read(self):
+        builtin = self.root / "strategies/ma_cross.py"
+        builtin.chmod(0o444)
+        listed = {item.path: item.read_only for item in repository.list_strategies(str(self.root)).modules}
+        self.assertTrue(listed["strategies/ma_cross.py"])
+        self.assertFalse(listed["factors/price.py"])
+        self.assertIn("MaCross", repository.read_source(self.root, "strategies/ma_cross.py").content)
+        with self.assertRaisesRegex(ValueError, "built in"):
+            repository.write_source(self.root, "strategies/ma_cross.py", "x = 1\n", False)
+        with self.assertRaisesRegex(ValueError, "built in"):
+            repository.delete_source(self.root, "strategies/ma_cross.py")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            repository.write_source(self.root, "strategies/ma_cross.py", "x = 1\n", True)
+        with self.assertRaisesRegex(ValueError, "strategies/<name>.py"):
+            repository.write_source(self.root, "../escape.py", "x = 1\n", True)
+        created = repository.write_source(self.root, "strategies/mine.py", "x = 1\n", True)
+        self.assertFalse(created.read_only)
+        repository.write_source(self.root, "strategies/mine.py", "x = 2\n", False)
+        self.assertEqual(repository.read_source(self.root, "strategies/mine.py").content, "x = 2\n")
+        repository.delete_source(self.root, "strategies/mine.py")
+        self.assertFalse((self.root / "strategies/mine.py").exists())
+        builtin.chmod(0o644)
+
     def test_a_directory_outside_git_is_a_strategy_directory_too(self):
         plain = Path(self.temporary.name) / "plain"
         shutil.copytree(EXAMPLES, plain)

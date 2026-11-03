@@ -76,11 +76,12 @@ pnpm desktop --prepare-python      # 准备 Python 运行时、构建并启动�
 | --- | --- | --- |
 | 程序根目录 | `~/Library/Application Support/Asterion` | `~/.local/share/asterion` |
 | 界面配置 | `~/Library/Application Support/me.asterion.terminal` | `~/.config/me.asterion.terminal` |
-| 策略目录（从项目启动） | 项目的 `research/` | 同左 |
-| 策略目录（安装的应用） | `Asterion Terminal.app/Contents/Resources/research/` | `/opt/Asterion Terminal/resources/research/` |
+| 策略目录 | `~/Library/Application Support/Asterion/research` | `~/.local/share/asterion/research` |
+| 内置策略的来源（从项目启动） | 项目的 `research/` | 同左 |
+| 内置策略的来源（安装的应用） | `Asterion Terminal.app/Contents/Resources/research/` | `/opt/Asterion Terminal/resources/research/` |
 
 - 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 Market 和 Trading 连接与客户端证书。
-- 策略目录不能更换：从项目启动用项目的 `research/`，安装包把打包时的 `research/` 原样带上。
+- 策略目录固定，不能更换。每次 Lab 启动时，内置的策略和因子复制进去并设为只读：新版本替换它们，不再自带的删掉；同名的用户模块不动。
 - `ASTERION_ROOT` 只用于临时测试目录，同时要用独立的 `--user-data-dir`。
 - 关闭开发窗口或按 Ctrl+C 会停止本机 Lab；Market 和 Trading 不受影响。
 

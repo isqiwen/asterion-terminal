@@ -187,13 +187,8 @@ Application::Impl::Publication Application::Impl::capture()
         {"core", "C++20"},
         {"phase", "ready"},
         {"asset", "futures"},
-        // The fixed strategy directory: research/ of the project, or the one
-        // the application ships. The entry point names it.
-        {"research_directory",
-            [] {
-                const auto path = environment_path("ASTERION_RESEARCH_DIRECTORY");
-                return path ? json(path->string()) : json(nullptr);
-            }()},
+        // The strategy directory: the user's modules and the built-in ones.
+        {"research_directory", (asterion_root() / "research").string()},
         // How each exchange assigns closes to today's and yesterday's
         // positions; the order forms follow the core's rule.
         {"close_policies",
