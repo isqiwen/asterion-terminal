@@ -172,7 +172,7 @@ class TestStrategy(Strategy):
             manifest = dict(name='example', version='1', entry='strategy:TestStrategy',
                             runtime='python3.12-numpy2.3.5', files=['strategy.py', 'helper.py'])
             (repo / 'strategy.json').write_text(json.dumps(manifest))
-            package = build_package(strategy.Build(repository=str(repo), manifest='strategy.json'), None)
+            package = build_package(strategy.Build(repository=str(repo), manifest='strategy.json'))
             assert [f.path for f in package.files] == manifest['files']
             # Real Terminal native command, generated JSON and pinned mutual TLS.
             published = terminal_call(terminal, 'trading.call', dict(account='remote',

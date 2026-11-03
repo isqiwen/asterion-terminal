@@ -175,43 +175,20 @@ class Repository(unittest.TestCase):
         from asterion_lab.package import build
         from asterion.strategy_pb2 import Build
         request = Build(repository=str(self.root), manifest="strategy.json")
-        runs = Runs(Path(self.temporary.name) / "lab")
-        package = build(request, runs)
+        package = build(request)
         self.assertEqual([file.path for file in package.files],
                          ["strategies/ma_cross.py", "strategies/_rules.py"])
         self.assertEqual(package.files[0].content, (self.root / "strategies/ma_cross.py").read_bytes())
         # Preparing source does not require that it can be imported.
         (self.root / "strategies/ma_cross.py").write_text("raise RuntimeError('do not import')\n")
-        self.assertIn(b"do not import", build(request, runs).files[0].content)
+        self.assertIn(b"do not import", build(request).files[0].content)
         with self.assertRaises(ValueError):
-            build(Build(repository=str(self.root), manifest="../strategy.json"), runs)
+            build(Build(repository=str(self.root), manifest="../strategy.json"))
         helper = self.root / "strategies/_rules.py"
         helper.unlink()
         helper.symlink_to(self.root / "helpers.py")
         with self.assertRaisesRegex(ValueError, "symbolic links"):
-            build(request, runs)
-
-    def test_a_package_from_a_run_is_the_code_that_run_tested(self):
-        from asterion_lab.package import build
-        from asterion.strategy_pb2 import Build
-        runs = Runs(Path(self.temporary.name) / "lab")
-        copy = Path(self.temporary.name) / "copy"
-        taken = repository.snapshot(self.root, copy)
-        for identity, strategy in (("tested", "ma_cross.MaCross"), ("other", "momentum.Momentum")):
-            runs.start(identity, Plan(
-                repository=str(self.root), strategy=strategy, revision=taken, source=str(copy),
-                params={}, dataset_version="d" * 64, symbols=("SHFE/rb",), begin_day="2025-01-02",
-                end_day="2025-12-31", costs={}, risk={}, statistics={}))
-            runs.succeed(identity, empty_tables(), {})
-        tested = (self.root / "strategies/ma_cross.py").read_bytes()
-        (self.root / "strategies/ma_cross.py").write_text("VALUE = 2\n")
-        package = build(Build(repository=str(self.root), manifest="strategy.json", run="tested"), runs)
-        self.assertEqual(package.files[0].content, tested)
-        self.assertEqual(package.manifest.research_run, "tested")
-        with self.assertRaisesRegex(ValueError, "tested momentum.Momentum"):
-            build(Build(repository=str(self.root), manifest="strategy.json", run="other"), runs)
-        with self.assertRaisesRegex(ValueError, "no succeeded research run"):
-            build(Build(repository=str(self.root), manifest="strategy.json", run="missing"), runs)
+            build(request)
 
     def test_listing(self):
         listed = repository.list_strategies(str(self.root))
@@ -291,8 +268,7 @@ class Records(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
         self.plan = Plan(repository="/strategies", strategy="ma_cross.MaCross",
-                         revision=repository.Revision("c" * 40, ""), source="/sources/run",
-                         params={"fast": 5},
+                         revision=repository.Revision("c" * 40, ""), params={"fast": 5},
                          dataset_version="d" * 64, symbols=("SHFE/rb",),
                          begin_day="2025-01-02", end_day="2025-12-31",
                          costs={"fee_per_lot": "3"}, risk={"max_lots": 10}, statistics={})

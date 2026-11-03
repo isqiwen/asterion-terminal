@@ -301,9 +301,5 @@
   "策略实例 {id}": "Strategy instance {id}",
   "读取中": "Reading",
   "正在读取交易服务…": "Reading the trading service…",
-  "交易服务连接或记录状态不确定，界面显示的是最后读到的状态。断线时的命令不会自动重发。": "The trading service connection or record state is uncertain; the page shows the last state read. Commands are never resent after a disconnect.",
-  "研究运行（可选）": "Research run (optional)",
-  "留空则用仓库当前代码": "Empty uses the repository's current code",
-  "来自研究运行 {run}": "from research run {run}",
-  "来自仓库当前代码": "from the repository's current code"
+  "交易服务连接或记录状态不确定，界面显示的是最后读到的状态。断线时的命令不会自动重发。": "The trading service connection or record state is uncertain; the page shows the last state read. Commands are never resent after a disconnect."
 }

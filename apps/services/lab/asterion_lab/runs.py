@@ -62,7 +62,6 @@ class Plan:
     repository: str
     strategy: str  # <module>.<class>
     revision: Revision
-    source: str  # the copy of the repository's code the run imports
     params: dict
     dataset_version: str
     symbols: tuple
@@ -112,8 +111,7 @@ class Runs:
         started = time.time_ns()
         record = {"id": identity, "started_ns": started,
                   "strategy": {"repository": plan.repository, "id": plan.strategy,
-                               "commit": plan.revision.commit, "changes": plan.revision.changes,
-                               "source": plan.source},
+                               "commit": plan.revision.commit, "changes": plan.revision.changes},
                   "params": plan.params,
                   "data": {"dataset_version": plan.dataset_version,
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,

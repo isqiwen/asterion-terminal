@@ -54,8 +54,6 @@ void validate(const wire::Package& package)
 {
     const auto& m = package.manifest();
     package_identity(m.name(), m.version());
-    if (!m.research_run().empty())
-        package_identity(m.research_run(), "run");
     if (m.runtime() != "python3.12-numpy2.3.5")
         throw std::invalid_argument("unsupported strategy runtime: " + m.runtime());
     const std::regex entry(

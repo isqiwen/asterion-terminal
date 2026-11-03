@@ -58,10 +58,7 @@ test("the prepared files are reviewed and published only to the selected account
   render(<StrategyPackages account="account-a" repository="/strategies" />);
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
   expect(lab).toHaveBeenCalledWith(
-    {
-      case: "strategyPackage",
-      value: { repository: "/strategies", manifest: "strategy.json", run: "" },
-    },
+    { case: "strategyPackage", value: { repository: "/strategies", manifest: "strategy.json" } },
     "strategyPackage",
   );
   expect(screen.getByText("rule.py")).toBeDefined();
@@ -264,25 +261,4 @@ test("switching accounts discards a previous host's late response", async () => 
   await act(async () => reply(runtime("ready")));
   expect(screen.queryByText("策略已就绪")).toBeNull();
   expect(strategyRequest).toHaveBeenLastCalledWith("account-b", { case: "inspect", value: {} });
-});
-
-test("a package prepared from a research run takes that run's code and says so", async () => {
-  const tested = create(PackageSchema, {
-    ...code,
-    manifest: { ...code.manifest!, researchRun: "run-7" },
-  });
-  vi.mocked(lab).mockResolvedValue(tested);
-  render(<StrategyPackages account="account-a" repository="/strategies" />);
-  await act(async () =>
-    fireEvent.change(screen.getByLabelText("研究运行（可选）"), { target: { value: "run-7" } }),
-  );
-  await act(async () => fireEvent.click(screen.getByText("准备策略包")));
-  expect(lab).toHaveBeenCalledWith(
-    {
-      case: "strategyPackage",
-      value: { repository: "/strategies", manifest: "strategy.json", run: "run-7" },
-    },
-    "strategyPackage",
-  );
-  expect(screen.getByText(/来自研究运行 run-7/)).toBeDefined();
 });

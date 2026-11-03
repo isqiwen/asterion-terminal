@@ -559,7 +559,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     data = open_data(directory, config)
     runs.start(identity, Plan(
         repository=config.repository, strategy=config.strategy, revision=revision,
-        source=config.source, params=config.params, dataset_version=data.version.identity,
+        params=config.params, dataset_version=data.version.identity,
         symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
         costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config),
         bars=bars_record(config)))
