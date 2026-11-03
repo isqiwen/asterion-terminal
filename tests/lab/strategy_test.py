@@ -40,6 +40,25 @@ class Follow(Strategy):
 
 
 class Interface(unittest.TestCase):
+    def test_a_roll_scales_the_series_history_and_never_what_was_seen(self):
+        class Watch(Strategy):
+            seen = []
+
+            def on_bar(self, ctx, bar):
+                self.seen.append(ctx.history(bar.symbol, "close", 10))
+
+        def month(contract, minute, close):
+            return Bar("SHFE/rb", contract, bar("SHFE/rb", minute, close).time,
+                       close, close, close, close, 10.0, 100.0)
+
+        context, strategy = Context(["SHFE/rb"], {"SHFE/rb/2026-10": 1.2}), Watch()
+        for minute, (contract, close) in enumerate([("SHFE/rb/2026-05", 100.0), ("SHFE/rb/2026-05", 110.0),
+                                                    ("SHFE/rb/2026-10", 130.0)]):
+            step(strategy, context, [month(contract, minute, close)])
+        self.assertEqual([list(seen) for seen in strategy.seen],
+                         [[100.0], [100.0, 110.0], [120.0, 132.0, 130.0]])
+        self.assertEqual(list(context.history("SHFE/rb", "volume", 3)), [10.0] * 3)
+
     def test_readiness_discards_early_targets_and_restarts_empty(self):
         class Warm(Follow):
             def ready(self, ctx):

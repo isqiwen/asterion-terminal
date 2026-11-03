@@ -12,7 +12,8 @@ The data are read this way:
 - A product's dominant series (symbol EXCHANGE/product) trades its dominant
   months by the rule of dominant.py; a later month joins a day before its
   roll, and a month that hands over stays until its bar on or after the roll
-  day and the next one.
+  day and the next one. A strategy reads it adjusted as of each bar (see
+  asterion_strategy.py).
 
 Costs, slippage, order limits and the weight budgets are the run's, as the
 user gives them. Lots a strategy targets stand and are placed again at every
@@ -325,7 +326,8 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
         else:
             end = plan.days[-1]
         contracts.append(contract_input(data, config, month.contract, begin, end))
-        rolls.append((segment.begin, i, raw(segment.factor)))
+        contracts[-1]["roll_ratio"] = float(plan.ratios[i])
+        rolls.append((segment.begin, i))
     return contracts, rolls
 
 
@@ -342,7 +344,7 @@ def prepare(data: Data, config: Config):
             months, rolls = series_input(data, config, *parts)
             offset = len(contracts)
             contracts.extend(months)
-            series.append([(day, offset + index, factor) for day, index, factor in rolls])
+            series.append([(day, offset + index) for day, index in rolls])
         else:
             raise ValueError(f"a symbol is EXCHANGE/product/YYYY-MM or EXCHANGE/product: {symbol}")
         for item in contracts[start:]:
@@ -350,11 +352,16 @@ def prepare(data: Data, config: Config):
     return contracts, series, first
 
 
+def rolls(contracts: list) -> dict:
+    """Each month a series rolls into, with its roll's ratio, for a Context."""
+    return {item["symbol"]: item["roll_ratio"] for item in contracts if "roll_ratio" in item}
+
+
 def visible(replayed, symbols: dict, contracts: list) -> list:
     """What a strategy reads of one timestamp's bars: those of the months its
     symbols trade now."""
     bars = []
-    for _, contract, unit, leading, day, time_ns, *prices, _ in replayed:
+    for _, contract, unit, leading, day, time_ns, *prices in replayed:
         if leading:
             open_, high, low, close, volume = (value / R for value in prices)
             item = contracts[contract]
@@ -376,7 +383,7 @@ def observations(engine, symbols: dict, contracts: list):
 def warmup(engine, strategy, symbols: dict, contracts: list) -> Context:
     """Rebuild strategy state from history. No target reaches the engine;
     the returned context continues with the next completed live bar."""
-    context = Context([symbols[unit] for unit in sorted(symbols)])
+    context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
     for bars in observations(engine, symbols, contracts):
         if bars:
             step(strategy, context, bars)
@@ -389,7 +396,7 @@ def replay(engine, strategy, symbols: dict, contracts: list, config: Config,
            decided=lambda bars, wanted: None) -> Context:
     """Drives the strategy through the engine. `symbols` maps each unit to its
     symbol; `decided` sees each time's bars and what the strategy asked for."""
-    context = Context([symbols[unit] for unit in sorted(symbols)])
+    context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
     units = {symbol: unit for unit, symbol in symbols.items()}
     for bars in observations(engine, symbols, contracts):
         wanted = step(strategy, context, bars) if bars else {}

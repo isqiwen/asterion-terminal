@@ -95,7 +95,7 @@ def follow(engine, strategies: list, symbols: dict, contracts: list, followed: l
     """One account over the days, every candidate reading every bar and the
     account taking the targets of whom it follows that day."""
     order = [symbols[unit] for unit in sorted(symbols)]
-    contexts = [Context(order) for _ in strategies]
+    contexts = [Context(order, backtest.rolls(contracts)) for _ in strategies]
     units = {symbol: unit for unit, symbol in symbols.items()}
     standing = [{} for _ in strategies]  # unit -> lots each candidate wants
 

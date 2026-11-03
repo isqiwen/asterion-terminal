@@ -22,6 +22,12 @@ risk rules and keeps every amount in fixed point.
 
 A rule over several symbols overrides on_bars instead, which sees every bar
 of one time together, and may hold weights rather than lots.
+
+A product's dominant series is adjusted as of each bar: when it rolls into a
+new month, the prices already in its history are scaled by new over old
+settlement on the day before, and the new month keeps its own prices. Later
+bars never change what an earlier bar saw. State a strategy keeps outside
+ctx.history is not scaled; a change of bar.contract marks the roll.
 """
 from dataclasses import dataclass
 import datetime
@@ -31,6 +37,7 @@ import numbers
 import numpy as np
 
 FIELDS = ("open", "high", "low", "close", "volume", "open_interest")
+PRICES = ("open", "high", "low", "close")
 KINDS = {bool: "bool", int: "int", float: "float", str: "str"}
 
 
@@ -114,6 +121,10 @@ class Column:
         self.values[self.size] = value
         self.size += 1
 
+    def scale(self, ratio: float):
+        # A new array: views handed out before keep what they showed.
+        self.values = self.values * ratio
+
     def last(self, count: int) -> np.ndarray:
         view = self.values[max(0, self.size - count):self.size]
         view.flags.writeable = False
@@ -124,12 +135,16 @@ class Context:
     """A run's view for its strategy: the bars so far and what it wants to hold.
     It offers no way to send an order."""
 
-    def __init__(self, symbols):
+    def __init__(self, symbols, rolls=None):
+        """`rolls`: for each month a dominant series rolls into, new over old
+        settlement on the day before the roll."""
         self.symbols = tuple(symbols)
         if not self.symbols or len(set(self.symbols)) != len(self.symbols):
             raise ValueError("a run trades one or more distinct symbols")
         self.time = None
         self.columns = {symbol: {field: Column() for field in FIELDS} for symbol in self.symbols}
+        self.rolls = dict(rolls or {})
+        self.contracts = {}
         self.mode = None  # "target" or "weights", whichever the strategy used first
         self.wanted = {}
         self.ready = False
@@ -176,9 +191,9 @@ class Context:
         self.mode = mode
 
 
-def step(strategy: Strategy, context: Context, bars: list) -> dict:
-    """Give the strategy one time's completed bars. Returns what it asked for:
-    lots or weights by symbol, empty when it asked for nothing new."""
+def observe(context: Context, bars: list) -> dict:
+    """Add one time's completed bars to the context, adjusting a series that
+    rolled. Returns them by symbol."""
     if not bars:
         raise ValueError("a step has at least one bar")
     time = bars[0].time
@@ -193,8 +208,20 @@ def step(strategy: Strategy, context: Context, bars: list) -> dict:
         raise ValueError(f"bars at {time} do not follow {context.time}")
     context.time = time
     for symbol, bar in by_symbol.items():
+        columns = context.columns[symbol]
+        if context.contracts.get(symbol, bar.contract) != bar.contract:
+            for field in PRICES:
+                columns[field].scale(context.rolls[bar.contract])
+        context.contracts[symbol] = bar.contract
         for field in FIELDS:
-            context.columns[symbol][field].append(getattr(bar, field))
+            columns[field].append(getattr(bar, field))
+    return by_symbol
+
+
+def step(strategy: Strategy, context: Context, bars: list) -> dict:
+    """Give the strategy one time's completed bars. Returns what it asked for:
+    lots or weights by symbol, empty when it asked for nothing new."""
+    by_symbol = observe(context, bars)
     context.wanted = {}
     strategy.on_bars(context, by_symbol)
     context.ready = strategy.ready(context)

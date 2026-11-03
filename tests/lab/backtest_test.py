@@ -18,7 +18,7 @@ import unittest
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import backtest, chart, repository  # noqa: E402
-from asterion_strategy import Bar, FIELDS, step  # noqa: E402
+from asterion_strategy import Bar, FIELDS, Strategy, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_writer import Dataset, Warehouse  # noqa: E402
@@ -167,10 +167,36 @@ class Backtests(unittest.TestCase):
         # 2605 until day 15 rolls into 2610, which joins a day before the roll.
         self.assertEqual([item["symbol"] for item in contracts], ["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
         (rolls,) = series
-        self.assertEqual([(day, index) for day, index, _ in rolls],
+        self.assertEqual(rolls,
                          [(DAYS[1].isoformat(), 0), (DAYS[16].isoformat(), 1)])
         self.assertEqual(contracts[1]["bars"][0][0], DAYS[15].isoformat())
         self.assertEqual(contracts[0]["bars"][-1][0], DAYS[17].isoformat())
+
+    def test_later_days_never_change_what_a_series_showed_before(self):
+        import asterion_engine
+
+        class Watch(Strategy):
+            def __init__(self):
+                super().__init__()
+                self.seen = []
+
+            def on_bar(self, ctx, bar):
+                self.seen.append(list(ctx.history(bar.symbol, "close", 100)))
+
+        def seen(end_day):
+            config = self.config(("SHFE/rb",), end_day=end_day)
+            contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+            engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                            (10 * backtest.R, 10 * backtest.R, 10))
+            strategy = Watch()
+            backtest.replay(engine, strategy, {engine.unit(index): symbol for symbol, index in first.items()},
+                            contracts, config)
+            return strategy.seen
+
+        # The series rolls into 2610 on day 16.
+        before, after = seen(DAYS[15].isoformat()), seen(DAYS[-1].isoformat())
+        self.assertEqual(after[:len(before)], before)
+        self.assertNotEqual(after[-1][:len(before[-1])], before[-1])
 
     def test_a_contract_and_a_series_from_start_to_record(self):
         for identity, symbols in (("contract", ("SHFE/rb/2026-05",)), ("series", ("SHFE/rb",))):

@@ -194,13 +194,13 @@ TEST(Replay, ADayWithoutBarsIsSettledAtItsClose)
     EXPECT_EQ(seen.settled_at[2], trading_day_close_ns(days[2]));
 }
 
-TEST(Replay, ADominantSeriesRollsAtTheOpenAndSeesAdjustedPrices)
+TEST(Replay, ADominantSeriesRollsAtTheOpenAndShowsEachMonthsOwnPrices)
 {
     // 2605 is dominant on the first two days, 2610 from the third; 2610 joins a
     // day early and 2605 stays for its bar on the roll day.
     const auto left = contract("rb2605", {100, 110, 120});
     const auto right = contract("rb2610", {125, 136, 148}, 1);
-    DominantSeries series{{{days[0], 0, d("1.1")}, {days[2], 1, d("1")}}};
+    DominantSeries series{{{days[0], 0}, {days[2], 1}}};
     Replay replay(d("1000000"), {left, right}, {settled(left), settled(right)}, {series}, limits());
     ASSERT_EQ(replay.units(), 1U);
     EXPECT_EQ(replay.unit(0), 0U);
@@ -212,14 +212,14 @@ TEST(Replay, ADominantSeriesRollsAtTheOpenAndSeesAdjustedPrices)
         while (!replay.day_done()) {
             for (const auto& bar : replay.next(seen))
                 if (bar.leading)
-                    leading.emplace_back(bar.seen.trading_day, bar.seen.close);
+                    leading.emplace_back(bar.bar.trading_day, bar.bar.close);
             replay.want(0, d("1"));
             replay.decide();
         }
         replay.settle(seen);
     }
-    // The left month's closes at the right month's level, rounded to the grid.
-    EXPECT_EQ(leading.front(), std::make_pair(days[0], d("110")));
+    // Adjusting earlier months is the strategy context's, not the replay's.
+    EXPECT_EQ(leading.front(), std::make_pair(days[0], d("100")));
     EXPECT_EQ(leading.back(), std::make_pair(days[3], d("148")));
     const auto& account = replay.execution().account();
     std::vector<std::string> fills;

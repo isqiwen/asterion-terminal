@@ -9,13 +9,11 @@
 
 namespace asterion {
 
-// From `trading_day` on, a product's dominant series trades `contract`; its
-// prices times `factor` are at the level of the series' latest month.
+// From `trading_day` on, a product's dominant series trades `contract`.
 struct DominantRoll
 {
     std::string trading_day;
     std::size_t contract;
-    Decimal factor;
 };
 
 // A product's dominant series: later months of it, each from a later trading
@@ -26,10 +24,6 @@ struct DominantSeries
 
     const DominantRoll& on(const std::string& trading_day) const;
 };
-
-// A month's raw price at the level of the series' latest month, back on the
-// price grid. Signals and factors read it; orders and fills never do.
-Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
 
 // A portfolio's bars replayed one timestamp at a time through a paper account,
 // with a strategy's targets between them. Every engine, whatever decides the
@@ -77,16 +71,13 @@ public:
         {}
     };
 
-    // One bar of the last timestamp. `seen` is what a strategy reads: for a
-    // dominant series its month's bar at the series' latest level, on the
-    // price increment of the bar's day. A month that is not dominant is
-    // `leading` false: it only closes what it holds.
+    // One bar of the last timestamp, at its month's own prices. A month that
+    // is not dominant is `leading` false: it only closes what it holds.
     struct Bar
     {
         std::size_t index, contract, unit;
         bool leading;
-        MarketBar seen;
-        Decimal close;
+        MarketBar bar;
     };
 
     // `days`: each contract's settlements. `margins`: a percentage margin to

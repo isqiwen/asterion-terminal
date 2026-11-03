@@ -226,9 +226,7 @@ public:
             auto& current = rolls.emplace_back();
             for (const auto& roll : item.cast<py::list>())
                 current.rolls.push_back(
-                    {roll[py::int_(0)].cast<std::string>(),
-                        roll[py::int_(1)].cast<std::size_t>(),
-                        raw(roll[py::int_(2)])});
+                    {roll[py::int_(0)].cast<std::string>(), roll[py::int_(1)].cast<std::size_t>()});
         }
         if (limits.size() != 3)
             throw std::invalid_argument("limits are order lots, gross lots and working orders");
@@ -250,27 +248,26 @@ public:
     }
 
     // The bars of the next timestamp: (event, contract, unit, leading,
-    // trading_day, timestamp_ns, open, high, low, close, volume, raw close),
-    // prices as a strategy sees them.
+    // trading_day, timestamp_ns, open, high, low, close, volume), each at its
+    // month's own prices.
     py::list next()
     {
         py::list result;
         for (const auto& bar : replay_->next(record_)) {
-            const auto& seen = bar.seen;
+            const auto& prices = bar.bar;
             result.append(
                 py::make_tuple(
                     bar.index,
                     bar.contract,
                     bar.unit,
                     bar.leading,
-                    seen.trading_day,
-                    seen.timestamp_ns,
-                    seen.open.raw(),
-                    seen.high.raw(),
-                    seen.low.raw(),
-                    seen.close.raw(),
-                    seen.volume.raw(),
-                    bar.close.raw()));
+                    prices.trading_day,
+                    prices.timestamp_ns,
+                    prices.open.raw(),
+                    prices.high.raw(),
+                    prices.low.raw(),
+                    prices.close.raw(),
+                    prices.volume.raw()));
         }
         return result;
     }
@@ -305,7 +302,7 @@ public:
                 throw std::invalid_argument("a weighted symbol has had no bar yet");
             const auto& terms = execution.contract(latest->contract).terms.instrument;
             members.push_back(
-                {terms.id, Decimal::from_raw(weight), latest->close, terms.multiplier});
+                {terms.id, Decimal::from_raw(weight), latest->bar.close, terms.multiplier});
             units.push_back(unit);
         }
         const auto targets = fixed_weight_targets(

@@ -9,8 +9,8 @@ A factor is a plain function of the strategy repository (see repository.py):
         return result
 
 It is called once per symbol with read-only arrays of that symbol's bars, in
-order: exactly what a strategy's ctx.history returns, a dominant series at the
-level of its latest month. It returns one value per bar, NaN where it has
+order: exactly what a strategy's ctx.history returns at the last bar, a
+dominant series at the level of its latest month. It returns one value per bar, NaN where it has
 none; the value of a bar may use that bar and those before it, never later
 ones, which is also when a strategy could act on it.
 
@@ -32,9 +32,9 @@ import numpy as np
 import polars as pl
 
 from asterion_lab import repository
-from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw
+from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw, rolls
 from asterion_lab.market import Dataset
-from asterion_strategy import FIELDS, KINDS
+from asterion_strategy import FIELDS, KINDS, Context, observe
 
 MINIMUM = 3  # symbols a day's IC needs
 
@@ -86,16 +86,12 @@ def bars(data: Data, symbol: str) -> dict:
     contracts, series, _ = prepare(data, config(data, (symbol,)))
     limit = raw(Decimal(1))
     engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1))
-    columns = {"day": [], **{field: [] for field in FIELDS}}
+    context, days = Context([symbol], rolls(contracts)), []
     for completed in observations(engine, {0: symbol}, contracts):
-        for bar in completed:
-            columns["day"].append(bar.time.date().isoformat())
-            for field in FIELDS:
-                columns[field].append(getattr(bar, field))
-    arrays = {field: np.array(columns[field], dtype=float) for field in FIELDS}
-    for array in arrays.values():
-        array.flags.writeable = False
-    return {"day": columns["day"], **arrays}
+        if completed:
+            observe(context, completed)
+            days.extend(bar.time.date().isoformat() for bar in completed)
+    return {"day": days, **{field: context.history(symbol, field, len(days)) for field in FIELDS}}
 
 
 def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:

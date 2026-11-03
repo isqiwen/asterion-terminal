@@ -54,11 +54,6 @@ const DominantRoll& DominantSeries::on(const std::string& trading_day) const
     return *current;
 }
 
-Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment)
-{
-    return quantize(multiply(raw, factor, Rounding::half_up), increment, Rounding::half_up);
-}
-
 Replay::Replay(
     Decimal deposit,
     std::vector<ContractBars> contracts,
@@ -167,16 +162,7 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
         // Daily orders expire after their original bar. A target remains
         // evidence of intent; expiration does not turn it into a GTC order.
         execution_.cancel_open_orders(instrument.id);
-        auto seen = bar;
-        if (roll)
-            // On the price increment of the bar's day, which the account trades at.
-            for (auto* price : {&seen.open, &seen.high, &seen.low, &seen.close})
-                *price = dominant_price(
-                    *price,
-                    roll->factor,
-                    account.contracts()[current.contract].instrument.price_increment);
-        bars_.push_back(
-            {index_, current.contract, unit_[current.contract], leading, seen, bar.close});
+        bars_.push_back({index_, current.contract, unit_[current.contract], leading, bar});
         last_[current.contract] = bars_.back();
         settled_at_ = bar.timestamp_ns;
         observer.marked(index_);
@@ -195,8 +181,11 @@ void Replay::issue(const Bar& bar)
     if (!bar.leading)
         return;
     if (const auto quantity = target(bar.contract))
-        pending_[bar.contract] =
-            PaperExecution::Target{"strategy." + std::to_string(bar.index), *quantity, bar.close};
+        pending_[bar.contract] = PaperExecution::Target{
+            "strategy." + std::to_string(bar.index),
+            *quantity,
+            bar.bar.close
+        };
 }
 
 void Replay::decide()
