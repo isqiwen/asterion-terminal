@@ -133,7 +133,9 @@ test("a revoke is sent while another request of the account is in flight", async
 test("a buy order names the account, the reviewed policy and exact decimals", async () => {
   show("order");
   fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), { target: { value: "2" } });
+  fireEvent.change(await screen.findByRole("textbox", { name: "委托手数" }), {
+    target: { value: "2" },
+  });
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3561.5" },
   });
