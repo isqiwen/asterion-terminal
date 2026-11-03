@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
-import type { TerminalContext } from "../contract";
 import {
   command,
   key as contractKey,
+  listedKey,
   policyContract,
   riskLimits,
   t,
@@ -21,12 +22,10 @@ const currentLimits = (live: LiveSnapshot): LimitsDraft => ({
 
 export function AccountPolicyEditor({
   live,
-  snapshot,
   disabled,
   run,
 }: {
   live: LiveSnapshot;
-  snapshot: TerminalContext["snapshot"];
   disabled: boolean;
   run: Run;
 }) {
@@ -34,7 +33,7 @@ export function AccountPolicyEditor({
   const [contracts, setContracts] = useState(live.contracts.map(contractKey));
   const [choice, setChoice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
-  const catalog = snapshot?.market?.catalog;
+  const catalog = useMarket()?.snapshot.catalog;
   const available = catalog?.phase === "ready" ? catalog.contracts : [];
   return (
     <section aria-label={t("账户政策")}>
@@ -60,7 +59,7 @@ export function AccountPolicyEditor({
                 contracts: contracts.map(
                   value =>
                     live.contracts.find(item => contractKey(item) === value) ??
-                    policyContract(available.find(item => contractKey(item) === value)!),
+                    policyContract(available.find(item => listedKey(item) === value)!),
                 ),
               },
             },
@@ -113,10 +112,10 @@ export function AccountPolicyEditor({
             >
               <option value="">{t("请选择合约")}</option>
               {available
-                .filter(item => !contracts.includes(contractKey(item)))
+                .filter(item => !contracts.includes(listedKey(item)))
                 .map(item => (
-                  <option key={contractKey(item)} value={contractKey(item)}>
-                    {contractKey(item)} · {item.name}
+                  <option key={listedKey(item)} value={listedKey(item)}>
+                    {listedKey(item)} · {item.name}
                   </option>
                 ))}
             </select>

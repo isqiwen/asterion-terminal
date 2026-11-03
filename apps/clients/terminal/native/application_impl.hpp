@@ -49,16 +49,14 @@ struct Application::Impl
     struct Response
     {
         std::shared_ptr<const Publication> publication;
-        std::optional<MarketCursor> cursor;
         json values;
 
         Response(json value)
             : values(std::move(value))
         {}
 
-        Response(std::shared_ptr<const Publication> state, std::optional<MarketCursor> cursor)
+        explicit Response(std::shared_ptr<const Publication> state)
             : publication(std::move(state)),
-              cursor(cursor),
               values(json::object())
         {}
 
@@ -80,7 +78,9 @@ struct Application::Impl
     // The saved recorder address for display, or a mark that it is unreadable.
     json market_settings() const;
     json research_settings() const;
-    std::shared_ptr<MarketClient> market;
+    // The open Market watch the market pages read.
+    std::shared_ptr<MarketWatch> market;
+    PolledTask<ServiceEndpoint> market_address();
 
     struct ResetFlag
     {
@@ -188,11 +188,10 @@ struct Application::Impl
         json metadata;
         std::vector<NodeSnapshot> nodes;
         Settings settings;
-        MarketProjection market;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;
         bool same_state(const Publication&) const;
-        json render(std::optional<MarketCursor>) const;
+        json render() const;
     };
 
     std::shared_ptr<const Publication> cache;

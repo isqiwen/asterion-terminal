@@ -1,8 +1,8 @@
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import type { LiveMarket } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
 import type { TradingFields, TradingOperation } from "../../src/bridge/trading";
 import type { ContractSchema } from "../../src/generated/asterion/domain_pb";
+import type { CatalogContract } from "../../src/generated/asterion/market_pb";
 import {
   Offset,
   TradingEnvironment,
@@ -44,6 +44,7 @@ export const offsets: Record<Offset, string> = {
 export const environmentName = (environment: TradingEnvironment | undefined) =>
   environment === TradingEnvironment.REAL ? "真实资金" : "CTP 仿真";
 export const key = (item: { venue: string; symbol: string }) => `${item.venue}.${item.symbol}`;
+export const listedKey = (row: CatalogContract) => key(row.instrument!);
 
 // One account request, built from the owner's input when sent; resolves false
 // when the input or the request was refused and the panel shows why.
@@ -61,15 +62,13 @@ export const command = (run: Run, live: LiveSnapshot, operation: () => CommandOp
 
 // Exchange terms of an allowed contract from the CTP contract catalog the
 // market service loaded; domestic CTP futures trade whole lots in CNY.
-export function policyContract(
-  row: LiveMarket["catalog"]["contracts"][number],
-): MessageInitShape<typeof ContractSchema> {
-  const [, product, deliveryMonth] = row.contract_id!.split("/");
+export function policyContract(row: CatalogContract): MessageInitShape<typeof ContractSchema> {
+  const [, product, deliveryMonth] = row.contractId.split("/");
   return {
-    venue: row.venue,
-    symbol: row.symbol,
+    venue: row.instrument!.venue,
+    symbol: row.instrument!.symbol,
     currency: "CNY",
-    priceIncrement: decimal(row.price_tick),
+    priceIncrement: decimal(row.priceTick),
     quantityIncrement: decimal("1"),
     multiplier: decimal(String(row.multiplier)),
     product,

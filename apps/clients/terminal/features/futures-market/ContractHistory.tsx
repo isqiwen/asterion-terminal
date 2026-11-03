@@ -1,4 +1,5 @@
 import { dailyChartDate } from "../../src/ui/charts/daily-chart";
+import { useMarket } from "../../src/host/market";
 import { chartTime } from "./chart-time";
 import { averagePeriods, movingAverage } from "./indicators";
 import { useEffect, useState } from "react";
@@ -54,11 +55,14 @@ export function ContractHistory({
   fixedPeriod?: Period;
 }) {
   const { snapshot, busy, navigate } = context;
+  const market = useMarket();
   const contractId =
     historyContractId ??
-    snapshot?.market?.catalog.contracts.find(
-      item => item.venue === venue && item.symbol.toUpperCase() === symbol.toUpperCase(),
-    )?.contract_id;
+    market?.snapshot.catalog?.contracts.find(
+      item =>
+        item.instrument?.venue === venue &&
+        item.instrument.symbol.toUpperCase() === symbol.toUpperCase(),
+    )?.contractId;
   const [retry, setRetry] = useState(0);
   // What each source holds of this contract.
   const [stored, setStored] = useState<{

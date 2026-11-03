@@ -1,61 +1,53 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import type { Snapshot, LiveMarket } from "../src/bridge/client";
+import { serveWatch, watchRow } from "./market-fixture";
 
 test("market board groups exchanges and links contract selection without inventing candles", async ({
   page,
 }) => {
+  // The board without a contract catalog: rb2610 never quotes, i2701 sends
+  // the test's quoteCount quotes. A new stream starts when the page asks for
+  // one or the test sets interrupted.
   let quoteCount = 0;
   let interrupted = false;
   let available = true;
-  await page.route("**/__asterion/api", async route => {
-    const request = route.request().postDataJSON();
-    const response = await route.fetch(
-      request.method === "runtime.snapshot"
-        ? {
-            postData: { version: 1, method: "runtime.snapshot", params: {} },
-          }
-        : {},
-    );
-    const body = (await response.json()) as { result?: Snapshot };
-    if (body.result?.market) {
-      body.result.market = {
-        ...body.result.market,
-        // These views are specified without a contract catalog; a catalog
-        // cached by an earlier session must not leak into them.
-        catalog: {
-          ...body.result.market.catalog,
-          phase: "unconfigured",
-          trading_day: "",
-          contracts: [],
-        },
-        transport_online: true,
-        phase: "connected",
-        error_code: 0,
-        history: {
-          stream_id: "quote-fixture",
-          generation: interrupted ? "2" : "1",
-          available,
-          interrupted,
-          points: Array.from({ length: quoteCount }, (_, index) => ({
-            venue: "DCE",
-            symbol: "i2701",
-            timestamp_ns: String(1790582400000000000n + BigInt(index) * 1000000000n),
-            price: index % 2 ? "100.00000001" : "102",
-          })),
-        },
-        watchlist: [
-          { venue: "SHFE", symbol: "rb2610" },
-          { venue: "DCE", symbol: "i2701" },
-        ],
-        subscriptions: [
-          { venue: "SHFE", symbol: "rb2610", state: "subscribed", error_code: 0, quote: null },
-          { venue: "DCE", symbol: "i2701", state: "subscribed", error_code: 0, quote: null },
-        ],
-      } as LiveMarket;
-    }
-    await route.fulfill({ response, json: body });
-  });
+  let sequence = 0;
+  let sent = 0;
+  const rb = { venue: "SHFE", symbol: "rb2610" };
+  const iron = { venue: "DCE", symbol: "i2701" };
+  const quote = (index: number) =>
+    watchRow(iron, {
+      last: index % 2 ? "100.00000001" : "102",
+      sourceMs: String(1790582400000 + index * 1000),
+    });
+  await serveWatch(
+    page,
+    restart => {
+      const frames: object[] = [];
+      const base = { instanceId: "fixture", phase: "connected" };
+      if (restart || !sequence || (interrupted && sequence < 1000)) {
+        if (interrupted) sequence = 1000;
+        sent = quoteCount ? 1 : 0;
+        frames.push({
+          ...base,
+          sequence: String(++sequence),
+          catalog: { phase: "unconfigured" },
+          subscriptions: [watchRow(rb), sent ? quote(0) : watchRow(iron)],
+        });
+      }
+      for (; sent < quoteCount; ++sent)
+        frames.push({
+          ...base,
+          sequence: String(sequence + 1),
+          baseSequence: String(sequence++),
+          subscriptionsDelta: true,
+          catalogOmitted: true,
+          subscriptions: [quote(sent)],
+        });
+      return { frames, online: available };
+    },
+    [rb, iron],
+  );
   await page.goto("/");
   await openView(page, "market");
   const board = page.locator(".futures-market-board");

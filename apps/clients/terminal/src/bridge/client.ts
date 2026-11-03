@@ -2,7 +2,6 @@ import { BackendError } from "../i18n/errors";
 import { translate, type MessageValues, getLocale } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { desktop } from "./desktop";
-import type { JsonValue } from "@bufbuild/protobuf";
 
 import { nativeDesktop } from "./desktop";
 export type FuturesContract = {
@@ -64,110 +63,6 @@ export type NodeStatus = {
       directory: string;
     }[];
   };
-};
-export type LiveMarket = {
-  watchlist: { venue: string; symbol: string }[];
-  // Incremental poll bookkeeping (see pollSnapshot); absent in fixtures.
-  subscription_set?: number;
-  delta?: boolean;
-  catalog: {
-    revision?: number;
-    omitted?: boolean;
-    phase: string;
-    error_code: string;
-    diagnostic: string;
-    trading_day: string;
-    contracts: {
-      venue: string;
-      symbol: string;
-      product: string;
-      expiry: string;
-      contract_id?: string;
-      multiplier: number;
-      price_tick: string;
-      name: string;
-    }[];
-  };
-  history: {
-    stream_id: string;
-    generation: string;
-    available: boolean;
-    interrupted: boolean;
-    points: {
-      venue: string;
-      symbol: string;
-      timestamp_ns: string;
-      price: string;
-      volume?: string;
-    }[];
-  };
-  service: string;
-  remote: boolean;
-  host: string;
-  port: number;
-  instance_id: string;
-  phase: string;
-  error_code: number;
-  transport_online: boolean;
-  sequence: number;
-  out_of_order: number;
-  subscriptions: {
-    venue: string;
-    symbol: string;
-    state: string;
-    error_code: number;
-    // Revision of this row's last change, for incremental polls.
-    revision?: number;
-    // Percent vs the latest observation >= 60 s earlier; null until available.
-    change_1m_percent?: string | null;
-    quote: null | {
-      last: string | null;
-      bid: string | null;
-      ask: string | null;
-      previous_settlement: string | null;
-      open: string | null;
-      average_price?: string | null;
-      previous_close: string | null;
-      open_interest_change: string | null;
-      upper_limit: string | null;
-      lower_limit: string | null;
-      high: string | null;
-      low: string | null;
-      open_interest: string | null;
-      bid_levels: { price: string | null; quantity: number | null }[];
-      ask_levels: { price: string | null; quantity: number | null }[];
-      bid_quantity: number;
-      ask_quantity: number;
-      volume: number;
-      source_ms: number;
-      received_ms: number;
-      trading_day: string;
-      action_day: string;
-      update_time: string;
-    };
-  }[];
-};
-// Current trading-day minute bars observed by the market service.
-export type IntradaySeries = {
-  // The market service that observed them, as the snapshot names it.
-  service: string;
-  instance_id: string;
-  venue: string;
-  symbol: string;
-  trading_day: string;
-  first_observation_ms: number;
-  interrupted: boolean;
-  previous_settlement: string | null;
-  bars: {
-    start_ms: number;
-    open: string;
-    high: string;
-    low: string;
-    close: string;
-    volume: number;
-    average_price: string | null;
-    open_interest: string | null;
-  }[];
 };
 export type FactorMembershipReason =
   | "MEMBERSHIP_ELIGIBLE"
@@ -381,7 +276,6 @@ export type PythonRuntime = {
   }[];
 };
 export type Snapshot = {
-  market_data?: JsonValue;
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   trading_fingerprint?: string;
   // The saved Market host, or a mark that its settings file is unreadable.
@@ -399,10 +293,6 @@ export type Snapshot = {
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
-  market: LiveMarket | null;
-  intraday?: IntradaySeries;
-  // ProtoJSON, decoded with the generated recording.Status schema.
-  recording?: Record<string, string | number | boolean>;
   nodes: NodeStatus[];
   protocol: 1;
   product: string;
@@ -462,47 +352,12 @@ export function timestamp(ns: string | null): string {
 }
 // Polls send the last revision they saw; an unchanged core returns no state.
 export type SnapshotUnchanged = { unchanged: true; revision: number; refreshed_at_ms: number };
-// With a held snapshot, the core returns only quote rows changed after the
-// held revisions and omits an unchanged catalog; merge restores full state.
-export async function pollSnapshot(
-  since: number,
-  held: Snapshot | null = null,
-): Promise<Snapshot | SnapshotUnchanged> {
-  const market = held?.market;
-  const cursor =
-    market?.subscription_set !== undefined && market.catalog.revision !== undefined
-      ? {
-          market_rows: market.subscriptions.reduce(
-            (top, row) => Math.max(top, row.revision ?? 0),
-            0,
-          ),
-          market_set: market.subscription_set,
-          catalog: market.catalog.revision,
-        }
-      : {};
-  const result = (await call("runtime.snapshot", {
-    since,
-    ...cursor,
-  })) as Partial<SnapshotUnchanged>;
+export async function pollSnapshot(since: number): Promise<Snapshot | SnapshotUnchanged> {
+  const result = (await call("runtime.snapshot", { since })) as Partial<SnapshotUnchanged>;
   if (result?.unchanged === true) {
     if (typeof result.revision !== "number" || typeof result.refreshed_at_ms !== "number")
       throw new Error(t("本机核心返回了不支持的状态契约"));
     return result as SnapshotUnchanged;
   }
-  return mergeMarket(snapshotContract(result), market ?? null);
-}
-function mergeMarket(next: Snapshot, held: LiveMarket | null): Snapshot {
-  const market = next.market;
-  if (!market || (!market.delta && !market.catalog.omitted)) return next;
-  if (!held) throw new Error(t("本机核心返回了不支持的状态契约"));
-  const catalog = market.catalog.omitted
-    ? { ...market.catalog, contracts: held.catalog.contracts, omitted: undefined }
-    : market.catalog;
-  let subscriptions = market.subscriptions;
-  if (market.delta) {
-    // The subscription set is unchanged, so held order is authoritative.
-    const changed = new Map(market.subscriptions.map(row => [`${row.venue}.${row.symbol}`, row]));
-    subscriptions = held.subscriptions.map(row => changed.get(`${row.venue}.${row.symbol}`) ?? row);
-  }
-  return { ...next, market: { ...market, catalog, subscriptions, delta: undefined } };
+  return snapshotContract(result);
 }

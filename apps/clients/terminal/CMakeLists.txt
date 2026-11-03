@@ -10,7 +10,6 @@ asterion_target_defaults(asterion_terminal_settings)
 
 add_library(asterion_terminal_application STATIC
   native/python_runtime.cpp
-  native/market_snapshot.cpp
   native/market_client.cpp
   native/terminal_application.cpp
   native/commands_node.cpp

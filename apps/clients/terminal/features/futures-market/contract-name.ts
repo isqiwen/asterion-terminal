@@ -1,4 +1,10 @@
-import type { LiveMarket } from "../../src/bridge/client";
+import type { CatalogState } from "../../src/generated/asterion/market_pb";
+
+type Id = { venue: string; symbol: string };
+const listed = (row: Id, catalog?: CatalogState) =>
+  catalog?.contracts.find(
+    item => item.instrument?.venue === row.venue && item.instrument.symbol === row.symbol,
+  );
 
 // Display labels verified against the supplied reference market screenshot.
 // These never change instrument identifiers or synthesize continuous contracts.
@@ -93,10 +99,8 @@ const productLabels: Record<string, string> = {
 };
 
 // Product display label for a catalog contract, e.g. "合成橡胶" for SHFE.br.
-export function productLabel(row: { venue: string; symbol: string }, live?: LiveMarket["catalog"]) {
-  const contract = live?.contracts.find(
-    item => item.venue === row.venue && item.symbol === row.symbol,
-  );
+export function productLabel(row: Id, catalog?: CatalogState) {
+  const contract = listed(row, catalog);
   return contract
     ? (productLabels[`${row.venue}.${contract.product}`] ?? contract.product)
     : undefined;
@@ -104,10 +108,8 @@ export function productLabel(row: { venue: string; symbol: string }, live?: Live
 
 // Prefer provider names; known display labels supplement code-only live names.
 // Quote identity remains venue + symbol; names never become request identifiers.
-export function contractName(row: { venue: string; symbol: string }, live?: LiveMarket["catalog"]) {
-  const contract = live?.contracts.find(
-    item => item.venue === row.venue && item.symbol === row.symbol,
-  );
+export function contractName(row: Id, catalog?: CatalogState) {
+  const contract = listed(row, catalog);
   const liveName = contract?.name.trim();
   if (liveName && liveName !== row.symbol) return liveName;
   const label = contract && productLabels[`${row.venue}.${contract.product}`];

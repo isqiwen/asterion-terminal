@@ -6,7 +6,8 @@ import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { LiveMarket } from "../../src/bridge/client";
+import type { Subscription } from "../../src/generated/asterion/market_pb";
+import { rowKey, type MarketView } from "../../src/host/market";
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { QuoteTable, quoteChange } from "./QuoteTable";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -18,13 +19,12 @@ const venueNames: Record<string, string> = {
   INE: "上海国际能源交易中心",
   GFEX: "广州期货交易所",
 };
-const identity = (row: LiveMarket["subscriptions"][number]) => `${row.venue}.${row.symbol}`;
 export function MarketBoard({
   market,
   context,
   toolbar,
 }: {
-  market: LiveMarket;
+  market: MarketView;
   context: TerminalContext;
   toolbar?: ReactNode;
 }) {
@@ -44,8 +44,10 @@ export function MarketBoard({
     direction: "descending",
   });
   const board = useRef<HTMLDivElement>(null);
+  const { subscriptions, catalog, phase } = market.snapshot;
+  const venueOf = (row: Subscription) => row.instrument!.venue;
   const venueOrder = ["SHFE", "CFFEX", "CZCE", "INE", "DCE", "GFEX"];
-  const venues = [...new Set(market.subscriptions.map(row => row.venue))].sort((a, b) => {
+  const venues = [...new Set(subscriptions.map(venueOf))].sort((a, b) => {
     const rank = (value: string) =>
       venueOrder.includes(value) ? venueOrder.indexOf(value) : venueOrder.length;
     return rank(a) - rank(b) || a.localeCompare(b);
@@ -53,27 +55,27 @@ export function MarketBoard({
   const filter = venue;
   const query = search.trim().toUpperCase();
   // Without a catalog there is no product identity; list subscribed months.
-  const overview = scope === "products" && !query && market.catalog.contracts.length > 0;
-  const candidates = overview ? productOverview(market) : market.subscriptions;
+  const overview = scope === "products" && !query && !!catalog?.contracts.length;
+  const candidates = overview ? productOverview(market) : subscriptions;
   const rows = candidates.filter(
     row =>
-      (!filter || row.venue === filter) &&
-      `${identity(row)} ${contractName(row, market?.catalog) ?? ""} ${productLabel(row, market.catalog) ?? ""}`
+      (!filter || venueOf(row) === filter) &&
+      `${rowKey(row)} ${contractName(row.instrument!, catalog) ?? ""} ${productLabel(row.instrument!, catalog) ?? ""}`
         .toUpperCase()
         .includes(query),
   );
-  const value = (row: LiveMarket["subscriptions"][number]) => {
-    if (sort.column === "合约") return row.symbol;
+  const value = (row: Subscription) => {
+    if (sort.column === "合约") return row.instrument!.symbol;
     if (sort.column === "涨跌幅") return quoteChange(row)?.percent ?? null;
     if (sort.column === "涨跌") return quoteChange(row)?.amount ?? null;
     if (sort.column === "1分钟涨速")
-      return row.change_1m_percent == null ? null : Number(row.change_1m_percent);
+      return row.change1mPercent == null ? null : Number(row.change1mPercent);
     const field =
       sort.column === "最新价"
         ? row.quote?.last
         : sort.column === "成交量"
           ? row.quote?.volume
-          : row.quote?.open_interest;
+          : row.quote?.openInterest;
     return field == null ? null : Number(field);
   };
   rows.sort((a, b) => {
@@ -102,19 +104,19 @@ export function MarketBoard({
             .filter(value => !venueOrder.includes(value))
             .map(value => ({ title: value, venues: [value], column: 1, row: 2 })),
         ]
-  ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(row.venue)) }));
+  ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(venueOf(row))) }));
   const orderedRows = groups.flatMap(group => group.rows);
   const active =
-    rows.find(row => identity(row) === selected) ??
+    rows.find(row => rowKey(row) === selected) ??
     orderedRows[0] ??
-    market.subscriptions.find(row => rows.includes(row));
-  const displayName = (row: LiveMarket["subscriptions"][number]) => {
-    const label = overview ? productLabel(row, market.catalog) : undefined;
-    return label ? `${label}${t("主连")}` : contractName(row, market.catalog);
+    subscriptions.find(row => rows.includes(row));
+  const displayName = (row: Subscription) => {
+    const label = overview ? productLabel(row.instrument!, catalog) : undefined;
+    return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
   };
   const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setMenuSlot(document.getElementById("market-menu-slot")), [menuOpen]);
-  const inlineToolbar = market.phase !== "connected" || !market.subscriptions.length;
+  const inlineToolbar = phase !== "connected" || !subscriptions.length;
   const controls = (
     <div className="market-board-tools">
       <nav className="market-exchanges" aria-label={t("合约范围")}>
@@ -131,17 +133,18 @@ export function MarketBoard({
       </p>
       <button onClick={() => setEditingColumns(true)}>{t("行情表头设置")}</button>
       <span className="subtle">
-        {rows.length} / {market.subscriptions.length} {t("合约")}
+        {rows.length} / {subscriptions.length} {t("合约")}
       </span>
     </div>
   );
-  const table = (groupRows: LiveMarket["subscriptions"]) => (
+  const table = (groupRows: Subscription[]) => (
     <QuoteTable
       overviewStyle
       columns={visibleColumns}
       nameFor={displayName}
-      market={{ ...market, subscriptions: groupRows }}
-      selected={active ? identity(active) : undefined}
+      market={market}
+      rows={groupRows}
+      selected={active ? rowKey(active) : undefined}
       onSelect={id => recordQuoteVisit(id)}
       onOpen={id => {
         recordQuoteVisit(id);
@@ -158,10 +161,10 @@ export function MarketBoard({
         }))
       }
       onNavigate={(current, direction) => {
-        const index = orderedRows.findIndex(row => identity(row) === current);
+        const index = orderedRows.findIndex(row => rowKey(row) === current);
         const next = orderedRows[Math.max(0, Math.min(orderedRows.length - 1, index + direction))];
         if (next) {
-          const id = identity(next);
+          const id = rowKey(next);
           if (id !== selected) recordQuoteVisit(id);
           Array.from(board.current?.querySelectorAll<HTMLButtonElement>(".quote-select") ?? [])
             .find(button => button.dataset.quoteId === id)
@@ -200,7 +203,7 @@ export function MarketBoard({
         {inlineToolbar && toolbar}
         {!rows.length && (
           <p className="market-search-empty" role="status">
-            {t(market.subscriptions.length ? "没有匹配的市场合约" : "尚无订阅行情")}
+            {t(subscriptions.length ? "没有匹配的市场合约" : "尚无订阅行情")}
           </p>
         )}
         <div
@@ -238,16 +241,16 @@ export function MarketBoard({
             context={context}
             market={market}
             row={active}
-            name={displayName(active) ?? active.symbol}
+            name={displayName(active) ?? active.instrument!.symbol}
             pane="market-pane-upper"
             initial="分时"
-            actions={<WatchlistToggle context={context} market={market} row={active} />}
+            actions={<WatchlistToggle context={context} market={market} row={active.instrument!} />}
           />
           <QuotePane
             context={context}
             market={market}
             row={active}
-            name={displayName(active) ?? active.symbol}
+            name={displayName(active) ?? active.instrument!.symbol}
             pane="market-pane-lower"
             initial="日K"
           />

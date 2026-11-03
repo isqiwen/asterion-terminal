@@ -197,9 +197,7 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
     EXPECT_EQ(ready.watchlist_size(), 0);
     EXPECT_EQ(ready.subscriptions(0).instrument().symbol(), "rb2610");
     EXPECT_EQ(ready.subscriptions(0).quote().last(), "3510");
-    const auto json = protocol::decode_market(ready);
-    EXPECT_EQ(json.at("catalog").at("contracts").size(), 1U);
-    EXPECT_TRUE(json.at("watchlist").empty());
+    EXPECT_EQ(ready.catalog().contracts_size(), 1);
     wire::Request watch;
     auto* selected = watch.mutable_watch()->add_instruments();
     selected->set_venue("SHFE");

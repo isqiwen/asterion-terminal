@@ -1,5 +1,5 @@
 import type { IntradaySlot } from "@asterion/client-ui/IntradayChart";
-import type { IntradaySeries } from "../../src/bridge/client";
+import type { MinuteBar, MinuteSeries } from "../../src/generated/asterion/market_pb";
 import sessionFile from "../../../../../config/futures-sessions.json";
 
 // Display layout only: the reviewed session reference places observed minutes
@@ -16,7 +16,7 @@ const label = (minute: number) => {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 };
 // Bars carry UTC epoch starts; exchange sessions are defined in UTC+8.
-const shanghaiMinute = (ms: number) => (Math.floor(ms / 60000) + 480) % 1440;
+const shanghaiMinute = (ms: bigint) => (Math.floor(Number(ms) / 60000) + 480) % 1440;
 
 export function sessionRanges(venue: string, product: string): Range[] | null {
   const entry = sessions.products[venue]?.[product];
@@ -29,12 +29,12 @@ export function sessionRanges(venue: string, product: string): Range[] | null {
 }
 
 type Merged = { price: string; average: string | null; volume: number };
-function merge(target: Map<number, Merged>, index: number, bar: IntradaySeries["bars"][number]) {
+function merge(target: Map<number, Merged>, index: number, bar: MinuteBar) {
   const previous = target.get(index);
   target.set(index, {
     price: bar.close,
-    average: bar.average_price ?? previous?.average ?? null,
-    volume: (previous?.volume ?? 0) + bar.volume,
+    average: bar.averagePrice ?? previous?.average ?? null,
+    volume: (previous?.volume ?? 0) + Number(bar.volume),
   });
 }
 function fill(count: number, values: Map<number, Merged>, labels: (index: number) => string) {
@@ -59,7 +59,7 @@ function fill(count: number, values: Map<number, Merged>, labels: (index: number
   return slots;
 }
 
-export function intradaySlots(series: IntradaySeries, ranges: Range[] | null) {
+export function intradaySlots(series: MinuteSeries, ranges: Range[] | null) {
   if (ranges) {
     const minutes: number[] = [];
     const ticks: { index: number; label: string }[] = [];
@@ -79,7 +79,7 @@ export function intradaySlots(series: IntradaySeries, ranges: Range[] | null) {
     const values = new Map<number, Merged>();
     let placed = true;
     for (const bar of series.bars) {
-      const minute = shanghaiMinute(bar.start_ms);
+      const minute = shanghaiMinute(bar.startMs);
       let index = position.get(minute);
       if (index === undefined)
         // Opening-auction minutes join the first minute; closing ticks the last.
@@ -101,7 +101,7 @@ export function intradaySlots(series: IntradaySeries, ranges: Range[] | null) {
   }
   const values = new Map<number, Merged>();
   series.bars.forEach((bar, index) => merge(values, index, bar));
-  const labels = series.bars.map(bar => label(shanghaiMinute(bar.start_ms)));
+  const labels = series.bars.map(bar => label(shanghaiMinute(bar.startMs)));
   const count = series.bars.length;
   const ticks = count
     ? [...new Set([0, Math.floor(count / 3), Math.floor((2 * count) / 3), count - 1])].map(

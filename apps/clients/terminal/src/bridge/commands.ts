@@ -27,10 +27,9 @@ export type CommandParams = {
   "market.open": Record<string, never>;
   "market.close": Record<string, never>;
   "market.watchlist": { instruments: InstrumentKey[] };
-  "market.minutes": { venue: string; symbol: string };
-  "market.recording": Record<string, never>;
+  "market.watch": { restart: boolean };
   "trading.call": { account: string; request: JsonValue };
-  "market.data": { request: JsonValue };
+  "market.call": { request: JsonValue };
   "node.action": { service: string; action: "start" | "stop" | "restart" };
 };
 export type TerminalCommand = Exclude<keyof CommandParams, "runtime.snapshot">;

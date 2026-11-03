@@ -308,7 +308,6 @@ export function LiveAccount({
       )}
       <AccountRecords
         live={live}
-        snapshot={snapshot}
         busy={busy}
         run={run}
         activity={activity}

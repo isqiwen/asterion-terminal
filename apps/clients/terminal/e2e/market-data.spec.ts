@@ -41,7 +41,7 @@ test(
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "开始采集", exact: true })).toHaveCount(0);
       const snapshot = await rpc(page.request, "runtime.snapshot");
-      expect(snapshot.market).toBeNull();
+      expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
       expect(
         (snapshot.nodes as NodeStatus[])
           .flatMap(node => node.health?.services ?? [])

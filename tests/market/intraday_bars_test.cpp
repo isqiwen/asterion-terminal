@@ -97,16 +97,13 @@ TEST(IntradayBars, DelayedAggregationAndInterruptionHaveIndependentRevisions)
     EXPECT_THROW(bars.changed_after(interrupted + 1), std::invalid_argument);
 }
 
-TEST(IntradayBars, ProtocolRoundTripValidatesBars)
+TEST(IntradayBars, ProtocolCarriesBarsAndThePreviousSettlement)
 {
     IntradayBars bars;
     bars.observe(quote(base, "100", 10));
-    auto encoded = protocol::encode_minutes(*bars.series({"SHFE", "br2611"}));
-    const auto decoded = protocol::decode_minutes(encoded);
-    EXPECT_EQ(decoded.at("bars").size(), 1u);
-    EXPECT_EQ(decoded.at("previous_settlement"), Decimal::parse("15390").str());
-    encoded.mutable_bars(0)->set_high("1");
-    EXPECT_THROW(protocol::decode_minutes(encoded), std::invalid_argument);
+    const auto encoded = protocol::encode_minutes(*bars.series({"SHFE", "br2611"}));
+    EXPECT_EQ(encoded.bars_size(), 1);
+    EXPECT_EQ(encoded.previous_settlement(), Decimal::parse("15390").str());
 }
 
 TEST(IntradayBars, IsolatedReplayDoesNotInflateDuplicatesOrFillMissingMinutes)
@@ -130,6 +127,5 @@ TEST(IntradayBars, IsolatedReplayDoesNotInflateDuplicatesOrFillMissingMinutes)
     EXPECT_EQ(series->bars[1].volume, 10);
     EXPECT_EQ(series->bars[2].volume, 10);
     EXPECT_EQ(series->bars[2].start_ms - series->bars[1].start_ms, 180000);
-    const auto decoded = protocol::decode_minutes(protocol::encode_minutes(*series));
-    EXPECT_EQ(decoded.at("bars").size(), 3);
+    EXPECT_EQ(protocol::encode_minutes(*series).bars_size(), 3);
 }

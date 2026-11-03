@@ -47,20 +47,24 @@ with tempfile.TemporaryDirectory(prefix='asterion-market-acceptance-') as root:
         return response['result']
     try:
         call('market.endpoint.save',{'host':args.host,'port':args.port,'fingerprint':args.fingerprint})
-        original=call('market.open')['market']['instance_id']
+        def instance():
+            return call('market.call',{'request':{'snapshot':{}}})['market']['snapshot']['instanceId']
+        call('market.open')
+        original=instance()
         seen=set();deadline=time.monotonic()+args.timeout
         while time.monotonic()<deadline:
-            market=call('runtime.snapshot')['market']
-            for row in market['subscriptions']:
-                key=row['venue']+':'+row['symbol']
-                if key in wanted and row.get('quote') and row['quote'].get('last') is not None:
-                    seen.add(key)
+            for frame in call('market.watch',{'restart':False})['market_watch']['frames']:
+                for row in frame.get('subscriptions',[]):
+                    key=row['instrument']['venue']+':'+row['instrument']['symbol']
+                    if key in wanted and row.get('quote',{}).get('last') is not None:
+                        seen.add(key)
             if wanted<=seen:break
             time.sleep(.2)
         step('requested instruments quoted',wanted<=seen,','.join(sorted(seen)))
-        step('client closes',call('market.close')['market'] is None)
-        reopened=call('market.open')['market']
-        step('same service continues',reopened['instance_id']==original)
+        call('market.close')
+        step('client closes',call('market.watch',{'restart':False})['market_watch'] is None)
+        call('market.open')
+        step('same service continues',instance()==original)
     except Exception as error:
         step('run',False,str(error))
     finally:

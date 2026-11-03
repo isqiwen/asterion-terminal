@@ -27,7 +27,7 @@ set(asterion_process_test_targets
   asterion_acquisition_tests
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
   asterion_kernel_tests asterion_live_tests
-  asterion_market_snapshot_tests asterion_rpc_host_tests asterion_terminal_application_tests)
+  asterion_rpc_host_tests asterion_terminal_application_tests)
 # Optional arguments: a timeout in seconds, then SERIAL for tests whose
 # timing depends on the machine not being shared with other tests.
 function(asterion_unit_tests target source library)
@@ -115,8 +115,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME market_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/market/scripts/setup.sh)
   set_tests_properties(market_setup PROPERTIES SKIP_RETURN_CODE 77)
 endif()
-asterion_unit_tests(asterion_market_snapshot_tests market/market_snapshot_test.cpp asterion_protocol)
-target_sources(asterion_market_snapshot_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native/market_snapshot.cpp)
 asterion_unit_tests(asterion_ctp_catalog_tests market/ctp_catalog_test.cpp asterion_ctp)
 target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
 target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")

@@ -71,11 +71,10 @@ TEST(Ctp, ProtocolPreservesMissingPricesAndSourceDates)
     q.trading_day = "20260928";
     q.source_ms = 0;
     state.subscriptions.push_back({q.instrument, asterion::SubscriptionState::subscribed, 0, q});
-    auto result =
-        asterion::protocol::decode_market(asterion::protocol::encode_market(state, "test"));
-    EXPECT_TRUE(result["subscriptions"][0]["quote"]["last"].is_null());
-    EXPECT_EQ(result["subscriptions"][0]["quote"]["action_day"], "20260925");
-    EXPECT_EQ(result["subscriptions"][0]["quote"]["source_ms"], 0);
+    const auto result = asterion::protocol::encode_market(state, "test").subscriptions(0).quote();
+    EXPECT_FALSE(result.has_last());
+    EXPECT_EQ(result.action_day(), "20260925");
+    EXPECT_EQ(result.source_ms(), 0);
 }
 
 namespace {
@@ -261,9 +260,8 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
     EXPECT_FALSE(quotes[0].quote.bid_levels[2].quantity);
     EXPECT_FALSE(quotes[0].quote.ask_levels[2].price);
     EXPECT_EQ(quotes[0].quote.ask_levels[3].price->str(), "3515");
-    const auto decoded_depth = asterion::protocol::decode_market(
-        asterion::protocol::encode_market(feed.snapshot(), "depth"));
-    EXPECT_EQ(decoded_depth["subscriptions"][0]["quote"]["bid_levels"][0]["price"], "3508.25");
+    const auto encoded_depth = asterion::protocol::encode_market(feed.snapshot(), "depth");
+    EXPECT_EQ(encoded_depth.subscriptions(0).quote().bid_levels(0).price(), "3508.25");
     EXPECT_EQ(quotes[1].quote.last->str(), "1");
     EXPECT_FALSE(quotes[0].out_of_order);
     EXPECT_TRUE(quotes[1].out_of_order);
@@ -459,7 +457,17 @@ TEST(CtpPublication, ContinuousQuotesChangeOnlyTheirRowAndMatchFullSnapshots)
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
-    auto merged = protocol::decode_market(protocol::encode_market(full, "fixture"));
+    // The page's table: a full frame, then each changed row replaced in place.
+    auto merged = protocol::encode_market(full, "fixture");
+    const auto same_rows = [](const auto& a, const auto& b) {
+        if (a.subscriptions_size() != b.subscriptions_size() || a.sequence() != b.sequence()
+            || a.out_of_order() != b.out_of_order())
+            return false;
+        for (int i = 0; i < a.subscriptions_size(); ++i)
+            if (a.subscriptions(i).SerializeAsString() != b.subscriptions(i).SerializeAsString())
+                return false;
+        return true;
+    };
     auto cursor = full.sequence;
     std::size_t updates = 0, bytes = 0;
     const auto began = std::chrono::steady_clock::now();
@@ -473,16 +481,15 @@ TEST(CtpPublication, ContinuousQuotesChangeOnlyTheirRowAndMatchFullSnapshots)
             EXPECT_EQ(delta.subscriptions.front().instrument, contracts.front());
             const auto encoded = protocol::encode_market(delta, "fixture");
             bytes += encoded.ByteSizeLong();
-            auto decoded = protocol::decode_market(encoded);
-            merged["subscriptions"][0] = decoded["subscriptions"][0];
-            merged["sequence"] = decoded["sequence"];
-            merged["out_of_order"] = decoded["out_of_order"];
+            *merged.mutable_subscriptions(0) = encoded.subscriptions(0);
+            merged.set_sequence(encoded.sequence());
+            merged.set_out_of_order(encoded.out_of_order());
             ++updates;
         }
         cursor = delta.sequence;
         const auto verify = feed.snapshot();
         EXPECT_EQ(verify.sequence, cursor);
-        EXPECT_EQ(merged, protocol::decode_market(protocol::encode_market(verify, "fixture")));
+        EXPECT_TRUE(same_rows(merged, protocol::encode_market(verify, "fixture")));
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
@@ -656,25 +663,12 @@ TEST(Ctp, DepthPreservesMissingLevelsZeroSizeAndExactPrices)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    const auto encoded = protocol::encode_market(state, "depth");
-    const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
-    ASSERT_EQ(decoded["bid_levels"].size(), 4);
-    EXPECT_EQ(decoded["bid_levels"][0]["price"], "100.00000001");
-    EXPECT_EQ(decoded["bid_levels"][0]["quantity"], 0);
-    EXPECT_TRUE(decoded["bid_levels"][1]["price"].is_null());
-    EXPECT_TRUE(decoded["bid_levels"][1]["quantity"].is_null());
-    auto bad = encoded;
-    bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels()->RemoveLast();
-    EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
-    bad = encoded;
-    bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->set_quantity(-1);
-    EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
-    bad = encoded;
-    bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->clear_price();
-    EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
-    bad = encoded;
-    bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->set_price("NaN");
-    EXPECT_THROW(protocol::decode_market(bad), std::exception);
+    const auto encoded = protocol::encode_market(state, "depth").subscriptions(0).quote();
+    ASSERT_EQ(encoded.bid_levels_size(), 4);
+    EXPECT_EQ(encoded.bid_levels(0).price(), "100.00000001");
+    EXPECT_EQ(encoded.bid_levels(0).quantity(), 0);
+    EXPECT_FALSE(encoded.bid_levels(1).has_price());
+    EXPECT_FALSE(encoded.bid_levels(1).has_quantity());
 }
 
 TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero)
@@ -687,13 +681,10 @@ TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    auto encoded = protocol::encode_market(state, "session-prices");
-    const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
-    EXPECT_EQ(decoded["open"], "3490.25000001");
-    EXPECT_EQ(decoded["upper_limit"], "0");
-    EXPECT_TRUE(decoded["lower_limit"].is_null());
-    encoded.mutable_subscriptions(0)->mutable_quote()->set_lower_limit("NaN");
-    EXPECT_THROW(protocol::decode_market(encoded), std::exception);
+    const auto encoded = protocol::encode_market(state, "session-prices").subscriptions(0).quote();
+    EXPECT_EQ(encoded.open(), "3490.25000001");
+    EXPECT_EQ(encoded.upper_limit(), "0");
+    EXPECT_FALSE(encoded.has_lower_limit());
 }
 
 TEST(Ctp, OpenInterestChangeUsesProviderReferenceAndPreservesMissing)
@@ -715,16 +706,14 @@ TEST(Ctp, OpenInterestChangeUsesProviderReferenceAndPreservesMissing)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    const auto decoded = protocol::decode_market(
-        protocol::encode_market(state, "reference"))["subscriptions"][0]["quote"];
-    EXPECT_EQ(decoded["open_interest_change"], "-25.25");
-    EXPECT_EQ(decoded["previous_close"], "3480.12500001");
+    const auto encoded = protocol::encode_market(state, "reference").subscriptions(0).quote();
+    EXPECT_EQ(encoded.open_interest_change(), "-25.25");
+    EXPECT_EQ(encoded.previous_close(), "3480.12500001");
     state.subscriptions[0].quote->previous_close.reset();
     state.subscriptions[0].quote->open_interest_change.reset();
-    const auto absent = protocol::decode_market(
-        protocol::encode_market(state, "reference"))["subscriptions"][0]["quote"];
-    EXPECT_TRUE(absent["open_interest_change"].is_null());
-    EXPECT_TRUE(absent["previous_close"].is_null());
+    const auto absent = protocol::encode_market(state, "reference").subscriptions(0).quote();
+    EXPECT_FALSE(absent.has_open_interest_change());
+    EXPECT_FALSE(absent.has_previous_close());
 }
 
 TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnectBaseline)
@@ -798,7 +787,8 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
     bool saw_intraday = false;
     std::size_t bytes = 0;
     int exact_comparisons = 0;
-    auto merged = protocol::decode_market(first);
+    // The page's table: the first frame, then each changed row replaced in place.
+    auto merged = first;
     for (int i = 0; i < 10; ++i) {
         const auto delta = receive(channel);
         ASSERT_TRUE(delta.subscriptions_delta());
@@ -813,18 +803,22 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
             saw_intraday |= delta.subscriptions(0).has_change_1m_percent();
         }
         bytes += delta.ByteSizeLong();
-        const auto decoded = protocol::decode_market(delta);
-        for (const auto& row : decoded.at("subscriptions")) {
-            const auto index = std::stoi(row.at("symbol").get<std::string>().substr(2)) - 1000;
-            merged["subscriptions"][index] = row;
+        for (const auto& row : delta.subscriptions()) {
+            const auto index = std::stoi(row.instrument().symbol().substr(2)) - 1000;
+            *merged.mutable_subscriptions(index) = row;
         }
-        merged["sequence"] = decoded.at("sequence");
-        merged["out_of_order"] = decoded.at("out_of_order");
+        merged.set_sequence(delta.sequence());
+        merged.set_out_of_order(delta.out_of_order());
         const auto current = call(read);
         EXPECT_FALSE(current.subscriptions_delta());
         EXPECT_TRUE(current.has_catalog());
         if (current.sequence() == delta.sequence()) {
-            EXPECT_EQ(merged, protocol::decode_market(current));
+            ASSERT_EQ(merged.subscriptions_size(), current.subscriptions_size());
+            for (int row = 0; row < merged.subscriptions_size(); ++row)
+                EXPECT_EQ(
+                    merged.subscriptions(row).SerializeAsString(),
+                    current.subscriptions(row).SerializeAsString());
+            EXPECT_EQ(merged.out_of_order(), current.out_of_order());
             ++exact_comparisons;
         }
         sequence = delta.sequence();

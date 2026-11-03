@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { Offset, Side, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
 import { explicitCloseBuckets, type TerminalContext } from "../contract";
@@ -48,8 +49,8 @@ export function OrderTicket({
           ? "close_today"
           : order.offset
         : "close";
-  const quote = snapshot?.market?.subscriptions.find(
-    row => row.venue === traded?.venue && row.symbol === traded?.symbol,
+  const quote = useMarket()?.snapshot.subscriptions.find(
+    row => row.instrument?.venue === traded?.venue && row.instrument?.symbol === traded?.symbol,
   )?.quote;
   const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;

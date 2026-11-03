@@ -122,8 +122,7 @@ Application::Impl::invoke(const std::string& method, const json& params)
         // Selection must remain bound to the same market operation while preparation
         // suspends. Read-only queries do not acquire this gate.
         std::optional<ResetFlag> market_admission;
-        if (method.starts_with("market.") && method != "market.minutes"
-            && method != "market.recording" && method != "market.data") {
+        if (method == "market.open" || method == "market.close") {
             if (market_busy)
                 throw Error(
                     ErrorCode::conflict,
@@ -181,13 +180,6 @@ Application::Impl::Publication Application::Impl::capture()
 {
     Publication next;
     next.settings = settings_view;
-    if (market) {
-        next.market = market->owner_read();
-        const auto& saved = settings_view->market_endpoint;
-        next.market.header["watchlist"] = saved.is_object() && saved.contains("instruments")
-            ? saved.at("instruments")
-            : json::array();
-    }
     next.nodes = {services.view()};
     next.metadata = {
         {"protocol", 1},
@@ -227,12 +219,10 @@ Application::Impl::Publication Application::Impl::capture()
 
 bool Application::Impl::Publication::same_state(const Publication& other) const
 {
-    return metadata == other.metadata && nodes == other.nodes && settings == other.settings
-        && market.header == other.market.header && market.catalog == other.market.catalog
-        && market.rows == other.market.rows;
+    return metadata == other.metadata && nodes == other.nodes && settings == other.settings;
 }
 
-json Application::Impl::Publication::render(std::optional<MarketCursor> held) const
+json Application::Impl::Publication::render() const
 {
     auto result = metadata;
     auto& nodes_view = result["nodes"] = json::array();
@@ -242,7 +232,6 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
     result["trading_fingerprint"] = settings->trading_fingerprint;
     result["market_endpoint"] = settings->market_endpoint;
     result["strategy_repository"] = settings->repository;
-    result["market"] = market.render(held);
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
     return result;
@@ -252,7 +241,7 @@ json Application::Impl::Response::render() &&
 {
     if (!publication)
         return std::move(values);
-    auto result = publication->render(cursor);
+    auto result = publication->render();
     for (auto& [key, value] : values.items())
         result[key] = std::move(value);
     return result;
@@ -285,14 +274,7 @@ Application::Impl::Response Application::Impl::read_published(const json& params
             {"revision", published->revision},
             {"refreshed_at_ms", published->refreshed_at_ms}
         };
-    std::optional<MarketCursor> held;
-    if (params.contains("market_rows"))
-        held = MarketCursor{
-            params.at("market_set").get<std::uint64_t>(),
-            params.at("market_rows").get<std::uint64_t>(),
-            params.at("catalog").get<std::uint64_t>()
-        };
-    return Response{published, held};
+    return Response{published};
 }
 
 void Application::Impl::record_refresh_failure(ErrorCode code) noexcept
@@ -345,8 +327,7 @@ PolledTask<void> Application::Impl::refresh_loop(std::stop_token stop)
         } catch (...) {
             record_refresh_failure(ErrorCode::internal_error);
         }
-        const auto next = std::chrono::steady_clock::now()
-            + (market ? std::chrono::milliseconds(500) : std::chrono::milliseconds(2000));
+        const auto next = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
         co_await PollUntil{[&] {
             return stop.stop_requested() || lifetime.stop_requested()
                 || std::chrono::steady_clock::now() >= next;
@@ -396,16 +377,11 @@ PolledTask<Application::Impl::Response> Application::Impl::dispatch(const json& 
     const auto method = text(request, "method");
     const auto& params = request.at("params");
     if (method == "runtime.snapshot") {
-        const bool incremental = params.is_object() && params.contains("market_rows");
-        if (!params.is_object()
-            || (incremental
-                    ? params.size() != 4 || !params.contains("since")
-                        || !params.contains("market_set") || !params.contains("catalog")
-                    : params.size() > 1 || (params.size() == 1 && !params.contains("since"))))
+        if (!params.is_object() || params.size() > 1
+            || (params.size() == 1 && !params.contains("since")))
             throw std::invalid_argument("request fields do not match the current contract");
-        for (const auto* name : {"since", "market_rows", "market_set", "catalog"})
-            if (params.contains(name) && !params.at(name).is_number_unsigned())
-                throw std::invalid_argument("snapshot revisions must be unsigned integers");
+        if (params.contains("since") && !params.at("since").is_number_unsigned())
+            throw std::invalid_argument("snapshot revisions must be unsigned integers");
         if (params.contains("since") && cache)
             co_return read_published(params);
     }

@@ -58,4 +58,4 @@
 
 - 支持简体中文和英文：宿主在 `src/i18n/`，每个功能在 `features/*/locales/`。两种语言的键或占位符不一致时启动即报错。服务错误按错误码本地化，原始英文放在详情里。
 - `features/contract.ts` 定义功能的工作区和语言资源，`src/features.ts` 列出内置功能，功能只能调用自己声明的原生命令。
-- 原生命令按职责分在 `native/commands_*.cpp`，参数类型在 `src/bridge/commands.ts`；快照命令 `runtime.snapshot` 给出本机服务、行情和设置。交易账户经 `trading.call` 读取和操作。Lab、Market 数据页和交易页使用生成的 Protobuf 类型。
+- 原生命令按职责分在 `native/commands_*.cpp`，参数类型在 `src/bridge/commands.ts`；快照命令 `runtime.snapshot` 给出本机服务和设置。行情经 `market.watch` 和 `market.call`、交易账户经 `trading.call` 读取和操作，页面都使用生成的 Protobuf 类型。

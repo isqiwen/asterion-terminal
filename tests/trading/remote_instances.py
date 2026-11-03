@@ -9,7 +9,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
 from market_installation import market_host
-from trading_requests import account_policy, submit
+from trading_requests import account_policy, market_catalog, submit
 import market_tls
 
 
@@ -73,8 +73,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
             children[name] = host.start(name)
             call(terminal, "trading.connections.save", dict(id=name, name=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
-        wait(lambda: call(terminal, "runtime.snapshot")["market"]["catalog"]["phase"] == "ready")
-        create = account_policy(call(terminal, "runtime.snapshot")["market"]["catalog"])
+        create = account_policy(market_catalog(lambda *a: call(terminal, *a)))
         # A mistyped server pin cannot reach the account.
         saved = next(c for c in call(terminal, "runtime.snapshot")["trading_connections"] if c["id"] == "real")
         call(terminal, "trading.connections.save", dict(saved, fingerprint=host.stranger))

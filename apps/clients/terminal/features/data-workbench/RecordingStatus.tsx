@@ -1,10 +1,11 @@
-import { fromJson } from "@bufbuild/protobuf";
-import { useEffect, useRef, useState } from "react";
-import { StatusSchema, type Status } from "../../src/generated/asterion/recording_pb";
+import { useEffect, useState } from "react";
+import type { Status } from "../../src/generated/asterion/recording_pb";
+import { useMarket } from "../../src/host/market";
 import {
   ErrorNotice,
   asDisplayError,
   getLocale,
+  marketData,
   translate,
   type DisplayError,
   type TerminalContext,
@@ -33,12 +34,13 @@ const size = (bytes: bigint) =>
 // Only this client's status reads are polled. Changing or closing its Market
 // connection discards pending replies without changing the recorder's lifetime.
 export function RecordingStatus({ context }: { context: TerminalContext }) {
-  const market = context.snapshot?.market;
-  const { host, port, service, instance_id: instance, transport_online: online } = market ?? {};
+  const market = useMarket();
+  const instance = market?.snapshot.instanceId;
+  const online = market?.online;
+  const saved = context.snapshot?.market_endpoint;
+  const address = saved && "host" in saved ? `${saved.host}:${saved.port}` : "";
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<DisplayError>("");
-  const query = useRef(context.query);
-  query.current = context.query;
   useEffect(() => {
     setStatus(null);
     setError("");
@@ -49,10 +51,8 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
       if (pending) return;
       pending = true;
       try {
-        const reply = await query.current("market.recording");
+        const next = await marketData({ case: "recordingStatus", value: {} }, "recordingStatus");
         if (!active) return;
-        if (!reply.recording) throw new Error(t("未返回录制状态"));
-        const next = fromJson(StatusSchema, reply.recording);
         if (next.instance !== instance) throw new Error(t("录制状态不属于当前行情服务"));
         setStatus(next);
         setError("");
@@ -73,7 +73,7 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [host, port, service, instance, online]);
+  }, [address, instance, online]);
 
   return (
     <section className="recording-status" aria-label={t("Market 录制监控")}>

@@ -118,7 +118,6 @@ export function LivePanel(context: TerminalContext) {
                   <CreateLive
                     account={account}
                     configuration={view.account}
-                    snapshot={snapshot}
                     busy={busy}
                     run={runFor(account.id, true)}
                     openSettings={context.openSettings}

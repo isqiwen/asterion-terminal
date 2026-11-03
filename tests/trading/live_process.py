@@ -17,7 +17,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
 from market_installation import market_host
-from trading_requests import account_policy, submit, units
+from trading_requests import account_policy, market_catalog, submit, units
 import market_tls
 if sys.platform != "linux":
     raise SystemExit(77)
@@ -108,12 +108,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         call(process, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
         call(process, "market.open")
-        deadline = time.monotonic() + 20
-        while call(process, "runtime.snapshot")["market"]["catalog"]["phase"] != "ready":
-            assert time.monotonic() < deadline, "the CTP contract catalog did not load"
-            time.sleep(0.2)
-        create = account_policy(call(process, "runtime.snapshot")["market"]["catalog"],
-                                working_orders="1")
+        create = account_policy(market_catalog(lambda *a: call(process, *a)), working_orders="1")
         live = trading(process, create)["live"]
         assert live["accountId"] == "account"
         assert "authorization" not in live

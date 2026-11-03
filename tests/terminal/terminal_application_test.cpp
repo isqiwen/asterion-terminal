@@ -72,7 +72,7 @@ struct ApplicationTestAccess
                 [&](std::stop_token) -> PolledTask<std::function<Json()>> {
                     auto snapshot = app.impl_->capture();
                     co_return [snapshot = std::move(snapshot)] {
-                        return snapshot.render({});
+                        return snapshot.render();
                     };
                 })
             .get();
@@ -119,17 +119,6 @@ struct ApplicationTestAccess
                 },
                 lane);
         });
-    }
-
-    static void select_market(Application& app, const ServiceEndpoint& endpoint)
-    {
-        auto client = MarketClient::open(app.impl_->service_io, endpoint).get();
-        app.impl_->service_io
-            .submit<void>([&](std::stop_token) -> PolledTask<void> {
-                app.impl_->market = std::move(client);
-                co_return;
-            })
-            .get();
     }
 
     // Changes what the core publishes, as an owner operation does.
@@ -583,264 +572,7 @@ TEST(TerminalTrading, ClosingCancelsAnUnansweredRequest)
     EXPECT_THROW(pending.get(), Error);
 }
 
-namespace {
-
-// A market service as the Terminal reads it: the state of one instance, and
-// the minute series of any contract, which it may hold back.
-struct QuoteService
-{
-    service::Transport address;
-    Progress progress;
-    const std::string instance;
-    std::mutex mutex;
-    std::condition_variable condition;
-    bool asked = false, held;
-    std::uint64_t sequence = 0;
-    service::RpcHost host;
-    std::jthread server;
-
-    QuoteService(const std::string& name, bool hold)
-        : address{
-              "/tmp/ast-quotes-" + name + "-" + unique_process_id().substr(0, 12) + ".sock",
-              {},
-              0,
-              {}
-          },
-          instance("instance-" + name),
-          held(hold),
-          host(
-              address,
-              [this](const auto&, std::string bytes) {
-                  return serve(bytes);
-              },
-              {},
-              progress),
-          server([this] {
-              (void)host.run();
-          })
-    {}
-
-    ~QuoteService()
-    {
-        service::request_stop();
-    }
-
-    terminal::ServiceEndpoint endpoint(const std::string& service) const
-    {
-        return {"", service, 0, address.endpoint};
-    }
-
-    bool wait()
-    {
-        std::unique_lock lock(mutex);
-        return condition.wait_for(lock, testing_support::bound(2s), [&] {
-            return asked;
-        });
-    }
-
-    void release()
-    {
-        std::lock_guard lock(mutex);
-        held = false;
-    }
-
-private:
-    service::RpcHost::Reply serve(const std::string& bytes)
-    {
-        market::proto::Request request;
-        if (!request.ParseFromString(bytes))
-            throw std::runtime_error("invalid fixture market request");
-        market::proto::Response response;
-        response.set_version(1);
-        response.set_service_id(request.service_id());
-        response.set_correlation_id(request.correlation_id());
-        if (request.has_events())
-            return [] {
-                return std::optional<service::RpcHost::Message>{};
-            };
-        if (request.has_minutes()) {
-            auto* series = response.mutable_minutes();
-            *series->mutable_instrument() = request.minutes().instrument();
-            series->set_trading_day("20261013");
-            series->set_first_observation_ms(1);
-            {
-                std::lock_guard lock(mutex);
-                asked = true;
-            }
-            condition.notify_all();
-            return [this, reply = response.SerializeAsString()]()
-                       -> std::optional<service::RpcHost::Message> {
-                std::lock_guard lock(mutex);
-                if (held)
-                    return {};
-                return service::RpcHost::Message(reply);
-            };
-        }
-        return
-            [this,
-                response = std::move(response),
-                watch = request.has_watch()]() mutable -> std::optional<service::RpcHost::Message> {
-                LiveMarketSnapshot state;
-                state.phase = MarketPhase::connected;
-                state.sequence = ++sequence;
-                *response.mutable_snapshot() = protocol::encode_market(state, instance);
-                response.mutable_snapshot()->mutable_catalog()->set_phase("unconfigured");
-                response.mutable_snapshot()->set_catalog_revision(1);
-                return service::RpcHost::Message(response.SerializeAsString(), watch);
-            };
-    }
-};
-
-} // namespace
-
-TEST(TerminalMarket, AMinuteSeriesNamesItsServiceAndIsRefusedOnceAnotherIsSelected)
-{
-    service::reset_stop_request();
-    QuoteService first("a", true), second("b", false);
-    terminal::Application app;
-    const auto minutes = request("market.minutes", {{"venue", "SHFE"}, {"symbol", "rb2610"}});
-    terminal::ApplicationTestAccess::select_market(app, first.endpoint("market-a"));
-    auto late = std::async(std::launch::async, [&] {
-        return app.dispatch(minutes);
-    });
-    ASSERT_TRUE(first.wait());
-    // The other service is selected while the first has not answered.
-    terminal::ApplicationTestAccess::select_market(app, second.endpoint("market-b"));
-    first.release();
-    ASSERT_EQ(late.wait_for(testing_support::bound(2s)), std::future_status::ready);
-    try {
-        (void)late.get();
-        FAIL() << "the series of a service no longer selected was returned";
-    } catch (const Error& error) {
-        EXPECT_EQ(error.code(), ErrorCode::conflict);
-    }
-    const auto series = app.dispatch(minutes).at("intraday");
-    EXPECT_EQ(series.at("service"), "market-b");
-    EXPECT_EQ(series.at("instance_id"), "instance-b");
-    EXPECT_EQ(series.at("symbol"), "rb2610");
-}
-
-TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable)
-{
-    service::reset_stop_request();
-    service::Transport address;
-    address.endpoint = "/tmp/ast-market-view-" + unique_process_id().substr(0, 12) + ".sock";
-    Progress progress;
-    std::promise<void> history_entered, minutes_entered;
-    bool history_started = false, connected = true;
-    std::uint64_t sequence = 0;
-    service::RpcHost host(
-        address,
-        [&](const auto&, std::string bytes) -> service::RpcHost::Reply {
-            market::proto::Request request;
-            if (!request.ParseFromString(bytes))
-                throw std::runtime_error("invalid fixture market request");
-            market::proto::Response response;
-            response.set_version(1);
-            response.set_service_id(request.service_id());
-            response.set_correlation_id(request.correlation_id());
-            if (request.has_events()) {
-                if (!history_started) {
-                    history_started = true;
-                    history_entered.set_value();
-                }
-                return [] {
-                    return std::optional<std::string>{};
-                };
-            }
-            if (request.has_minutes()) {
-                minutes_entered.set_value();
-                return [] {
-                    return std::optional<std::string>{};
-                };
-            }
-            return [&, response = std::move(response), watch = request.has_watch()]() mutable
-                       -> std::optional<service::RpcHost::Message> {
-                LiveMarketSnapshot state;
-                state.phase = connected ? MarketPhase::connected : MarketPhase::disconnected;
-                state.sequence = ++sequence;
-                *response.mutable_snapshot() = protocol::encode_market(state, "fixture-instance");
-                response.mutable_snapshot()->mutable_catalog()->set_phase("unconfigured");
-                response.mutable_snapshot()->set_catalog_revision(1);
-                return service::RpcHost::Message(response.SerializeAsString(), watch);
-            };
-        },
-        {},
-        progress);
-    std::jthread server([&] {
-        (void)host.run();
-    });
-
-    struct Stop
-    {
-        ~Stop()
-        {
-            service::request_stop();
-        }
-    } stop;
-
-    terminal::ServiceIo io;
-    auto client = terminal::MarketClient::open(
-        io,
-        terminal::ServiceEndpoint{"", "fixture", 0, address.endpoint})
-                      .get();
-    ASSERT_EQ(
-        history_entered.get_future().wait_for(testing_support::bound(1s)),
-        std::future_status::ready);
-    const auto before = client->snapshot().get().at("sequence").get<std::uint64_t>();
-    const auto until = std::chrono::steady_clock::now() + testing_support::bound(1s);
-    while (client->snapshot().get().at("sequence").get<std::uint64_t>() <= before
-        && std::chrono::steady_clock::now() < until)
-        std::this_thread::sleep_for(2ms);
-    EXPECT_GT(client->snapshot().get().at("sequence").get<std::uint64_t>(), before);
-    auto minutes = client->minutes("SHFE", "rb2610");
-    ASSERT_EQ(
-        minutes_entered.get_future().wait_for(testing_support::bound(1s)),
-        std::future_status::ready);
-    std::latch reads_entered(2);
-    std::promise<void> release_reads;
-    const auto reads_released = release_reads.get_future().share();
-    std::vector<std::future<void>> reads;
-
-    struct ReleaseReads
-    {
-        std::promise<void>& signal;
-        std::vector<std::future<void>>& reads;
-
-        ~ReleaseReads()
-        {
-            signal.set_value();
-            for (auto& work : reads)
-                work.wait();
-        }
-    } release_guard{release_reads, reads};
-
-    for (unsigned i = 0; i < 2; ++i)
-        reads.push_back(io.submit<void>([&](std::stop_token) -> PolledTask<void> {
-            co_await io.read<void>([&] {
-                reads_entered.count_down();
-                reads_released.wait();
-            });
-        }));
-    reads_entered.wait();
-    auto control = io.submit<void>([client](std::stop_token) -> PolledTask<void> {
-        const auto state = co_await PollFuture{client->snapshot()};
-        EXPECT_EQ(state.at("phase"), "connected");
-    });
-    ASSERT_EQ(control.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    EXPECT_NO_THROW(control.get());
-    EXPECT_EQ(client->snapshot().get().at("phase"), "connected");
-    auto close = io.submit<void>([&](std::stop_token) -> PolledTask<void> {
-        client.reset();
-        co_return;
-    });
-    EXPECT_EQ(close.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    close.get();
-    ASSERT_EQ(minutes.wait_for(testing_support::bound(500ms)), std::future_status::ready);
-    EXPECT_THROW((void)minutes.get(), Error);
-}
-
-TEST(TerminalMarket, DataRequestsUseSavedTlsWithoutSelectingALiveWatchOrStartingLab)
+TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
 {
     const auto root =
         std::filesystem::temp_directory_path() / ("asterion-data-ui-" + unique_process_id());
@@ -874,21 +606,16 @@ TEST(TerminalMarket, DataRequestsUseSavedTlsWithoutSelectingALiveWatchOrStarting
         {{"host", "127.0.0.1"},
             {"port", static_cast<unsigned>(host.port)},
             {"fingerprint", host.server_pin}}));
-    const auto call = [](std::string id, Json operation) {
-        operation["version"] = 1;
-        operation["serviceId"] = "market-data";
-        operation["correlationId"] = std::move(id);
-        return request("market.data", {{"request", std::move(operation)}});
+    const auto call = [](Json operation) {
+        return request("market.call", {{"request", std::move(operation)}});
     };
     auto first = terminal::ApplicationTestAccess::submit(
         app,
-        call("first", {{"acquisitionSources", Json::object()}}));
-    auto second = terminal::ApplicationTestAccess::submit(
-        app,
-        call("second", {{"datasets", Json::object()}}));
+        call({{"acquisitionSources", Json::object()}}));
+    auto second =
+        terminal::ApplicationTestAccess::submit(app, call({{"datasets", Json::object()}}));
     const auto catalog = first.get();
-    EXPECT_EQ(catalog.at("market_data").at("correlationId"), "first");
-    const auto& sources = catalog.at("market_data").at("acquisitionSources");
+    const auto& sources = catalog.at("market").at("acquisitionSources");
     EXPECT_FALSE(sources.value("canManage", false));
     ASSERT_EQ(sources.at("sources").size(), 3);
     EXPECT_EQ(sources.at("sources")[0].at("provider"), "gfex");
@@ -897,19 +624,40 @@ TEST(TerminalMarket, DataRequestsUseSavedTlsWithoutSelectingALiveWatchOrStarting
     EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"minutes"}));
     EXPECT_EQ(sources.at("sources")[2].at("provider"), "shfe");
     EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"daily", "settlement"}));
-    EXPECT_TRUE(second.get().at("market_data").contains("datasets"));
-    const auto denied = app.dispatch(call(
-        "denied",
-        {{"acquisitionStart",
-            {{"id", "forbidden"},
-                {"provider", "shfe"},
-                {"table", "daily"},
-                {"beginDay", "2026-10-30"},
-                {"endDay", "2026-10-30"}}}}));
-    EXPECT_EQ(denied.at("market_data").at("error").at("code"), "permission_denied");
-    EXPECT_THROW(app.dispatch(call("stream", {{"watch", Json::object()}})), std::invalid_argument);
-    const auto snapshot = app.dispatch(request("runtime.snapshot"));
-    EXPECT_TRUE(snapshot.at("market").is_null());
+    EXPECT_TRUE(second.get().at("market").contains("datasets"));
+    try {
+        app.dispatch(call(
+            {{"acquisitionStart",
+                {{"id", "forbidden"},
+                    {"provider", "shfe"},
+                    {"table", "daily"},
+                    {"beginDay", "2026-10-30"},
+                    {"endDay", "2026-10-30"}}}}));
+        FAIL() << "a read-only client started acquisition";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::permission_denied);
+    }
+    EXPECT_THROW(app.dispatch(call({{"watch", Json::object()}})), std::invalid_argument);
+    EXPECT_TRUE(
+        app.dispatch(request("market.watch", {{"restart", false}})).at("market_watch").is_null());
+    // An open watch hands the page its frames in order, the first one complete.
+    app.dispatch(request("market.open"));
+    Json frames = Json::array();
+    const auto until = std::chrono::steady_clock::now() + testing_support::bound(5s);
+    while (frames.empty() && std::chrono::steady_clock::now() < until) {
+        frames = app.dispatch(request("market.watch", {{"restart", false}}))
+                     .at("market_watch")
+                     .at("frames");
+        std::this_thread::sleep_for(50ms);
+    }
+    ASSERT_FALSE(frames.empty());
+    EXPECT_FALSE(frames[0].value("subscriptionsDelta", false));
+    EXPECT_TRUE(frames[0].contains("catalog"));
+    for (std::size_t i = 1; i < frames.size(); ++i)
+        if (frames[i].value("subscriptionsDelta", false))
+            EXPECT_EQ(frames[i].at("baseSequence"), frames[i - 1].at("sequence"));
+    EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("market"));
+    app.dispatch(request("market.close"));
     EXPECT_FALSE(std::filesystem::exists(root / "data/acquisition/forbidden.pb"));
     app.dispatch(request("market.endpoint.clear"));
 }

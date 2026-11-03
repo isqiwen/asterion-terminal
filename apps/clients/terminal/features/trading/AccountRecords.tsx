@@ -9,7 +9,6 @@ import { key, offsets, statuses, t, type Run } from "./live-shared";
 // time. A working order can be cancelled from its row.
 export function AccountRecords({
   live,
-  snapshot,
   busy,
   run,
   activity,
@@ -18,7 +17,7 @@ export function AccountRecords({
   stale,
   cancelling,
   cancel,
-}: Pick<TerminalContext, "snapshot" | "busy"> & {
+}: Pick<TerminalContext, "busy"> & {
   live: LiveSnapshot;
   run: Run;
   activity: Activity;
@@ -159,7 +158,6 @@ export function AccountRecords({
         <AccountPolicyEditor
           key={live.policyRevision}
           live={live}
-          snapshot={snapshot}
           disabled={busy || stale}
           run={run}
         />

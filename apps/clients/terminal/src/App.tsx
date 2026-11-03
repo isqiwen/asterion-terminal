@@ -9,6 +9,7 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import { useLocale } from "./i18n";
 import { SetupGate } from "./startup/SetupGate";
 import { TradingAccountsProvider, useTradingAccounts } from "./host/trading-accounts";
+import { MarketProvider } from "./host/market";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { WindowFrame } from "@asterion/workbench/components/WindowFrame";
 import { Workbench } from "@asterion/workbench/workspace/Workbench";
@@ -102,12 +103,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   // another command.
   const commands = useRef(0);
   const revision = useRef<number | undefined>(undefined);
-  const held = useRef<Snapshot | null>(null);
   // Every full snapshot carries the core's revision and the time the core last
   // refreshed it.
   const accept = useCallback((next: Snapshot) => {
     if (next.revision < (revision.current ?? 0)) return;
-    held.current = next;
     setSnapshot(next);
     setError("");
     revision.current = next.revision;
@@ -162,45 +161,37 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
   const polling = !!snapshot?.nodes?.length;
-  const live = !!snapshot?.market;
   const pollInFlight = useRef(false);
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
     // revision returns no state. Hidden windows stop polling. A command in
-    // flight does not: accounts and quotes are still observed while it waits.
+    // flight does not.
     if (!visible || !polling) return;
     let cancelled = false;
-    const timer = window.setInterval(
-      async () => {
-        // Keep one read per window, including across visibility changes.
-        if (pollInFlight.current) return;
-        pollInFlight.current = true;
-        const current = generation.current;
-        try {
-          const next = await pollSnapshot(revision.current ?? 0, held.current);
-          if (
-            cancelled ||
-            current !== generation.current ||
-            next.revision < (revision.current ?? 0)
-          )
-            return;
-          if ("unchanged" in next) {
-            setError("");
-            setCheckedAt(next.refreshed_at_ms);
-          } else accept(next);
-        } catch (reason) {
-          if (!cancelled && current === generation.current) setError(asDisplayError(reason));
-        } finally {
-          pollInFlight.current = false;
-        }
-      },
-      live ? 500 : 2000,
-    );
+    const timer = window.setInterval(async () => {
+      // Keep one read per window, including across visibility changes.
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
+      const current = generation.current;
+      try {
+        const next = await pollSnapshot(revision.current ?? 0);
+        if (cancelled || current !== generation.current || next.revision < (revision.current ?? 0))
+          return;
+        if ("unchanged" in next) {
+          setError("");
+          setCheckedAt(next.refreshed_at_ms);
+        } else accept(next);
+      } catch (reason) {
+        if (!cancelled && current === generation.current) setError(asDisplayError(reason));
+      } finally {
+        pollInFlight.current = false;
+      }
+    }, 2000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [visible, polling, live, accept]);
+  }, [visible, polling, accept]);
   async function trade(...args: CommandCall) {
     const current = ++generation.current;
     commands.current += 1;
@@ -230,7 +221,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     marketMode: route.options.marketMode ?? "live",
     workspacePage: route.options.page,
     workspaceParams: route.options.params,
-    query: (...args) => request(...args),
     navigate: (id, options) => setNavigation(previous => selectView(previous, id, options)),
     openSettings: showSettings,
     trade,
@@ -273,103 +263,107 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           )}
           active={visible}
         >
-          <Workbench
-            title={t(route.module.title)}
-            showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-            navigation={modules.map((item, index) => ({
-              id: item.id,
-              title: t(item.title),
-              icon: <Icon name={item.icon} />,
-              active: item.id === navigation.module,
-              shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
-              select: () => setNavigation(previous => selectModule(previous, item.id)),
-            }))}
-            rail={
-              <>
-                <button
-                  aria-label={t("本机服务")}
-                  title={t("本机服务")}
-                  onClick={() => showSettings("connections")}
-                >
-                  <Icon name="connections" />
-                </button>
-                <button
-                  aria-label={t("设置")}
-                  title={`${t("设置")} · ⌘, / Ctrl+,`}
-                  onClick={() => showSettings()}
-                >
-                  <Icon name="settings" />
-                </button>
-              </>
-            }
-            toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
-            notices={
-              error ? (
-                <div className="alert" role="alert">
-                  <ErrorNotice error={error} namespace="host" />
-                  <span className="panel-spacer" />
-                  <button disabled={busy} onClick={() => void refresh()}>
-                    {t("重试连接")}
+          <MarketProvider active={visible}>
+            <Workbench
+              title={t(route.module.title)}
+              showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
+              navigation={modules.map((item, index) => ({
+                id: item.id,
+                title: t(item.title),
+                icon: <Icon name={item.icon} />,
+                active: item.id === navigation.module,
+                shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
+                select: () => setNavigation(previous => selectModule(previous, item.id)),
+              }))}
+              rail={
+                <>
+                  <button
+                    aria-label={t("本机服务")}
+                    title={t("本机服务")}
+                    onClick={() => showSettings("connections")}
+                  >
+                    <Icon name="connections" />
                   </button>
+                  <button
+                    aria-label={t("设置")}
+                    title={`${t("设置")} · ⌘, / Ctrl+,`}
+                    onClick={() => showSettings()}
+                  >
+                    <Icon name="settings" />
+                  </button>
+                </>
+              }
+              toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
+              notices={
+                error ? (
+                  <div className="alert" role="alert">
+                    <ErrorNotice error={error} namespace="host" />
+                    <span className="panel-spacer" />
+                    <button disabled={busy} onClick={() => void refresh()}>
+                      {t("重试连接")}
+                    </button>
+                  </div>
+                ) : !snapshot ? (
+                  <div className="notice" role="status">
+                    {t("正在启动本机 C++ 核心…")}
+                  </div>
+                ) : null
+              }
+              body={
+                <div className="module-workspace">
+                  {route.module.views.length > 1 && (
+                    <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+                      {route.module.views.map(id => (
+                        <button
+                          key={id}
+                          aria-current={view === id ? "page" : undefined}
+                          onClick={() => context.navigate(id)}
+                        >
+                          {workspaces.find(item => item.id === id)!.title}
+                        </button>
+                      ))}
+                    </nav>
+                  )}
+                  <main className="terminal-business">
+                    <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
+                      {Panel && currentFeature && (
+                        <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                          <Panel {...panelContext} />
+                        </WorkspaceDraftScope>
+                      )}
+                    </Suspense>
+                  </main>
                 </div>
-              ) : !snapshot ? (
-                <div className="notice" role="status">
-                  {t("正在启动本机 C++ 核心…")}
-                </div>
-              ) : null
-            }
-            body={
-              <div className="module-workspace">
-                {route.module.views.length > 1 && (
-                  <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
-                    {route.module.views.map(id => (
-                      <button
-                        key={id}
-                        aria-current={view === id ? "page" : undefined}
-                        onClick={() => context.navigate(id)}
-                      >
-                        {workspaces.find(item => item.id === id)!.title}
-                      </button>
-                    ))}
-                  </nav>
-                )}
-                <main className="terminal-business">
-                  <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                    {Panel && currentFeature && (
-                      <WorkspaceDraftScope store={drafts} namespace={current!.id}>
-                        <Panel {...panelContext} />
-                      </WorkspaceDraftScope>
-                    )}
-                  </Suspense>
-                </main>
-              </div>
-            }
+              }
 
-            status={
-              <>
-                <ServiceStatus
-                  snapshot={snapshot}
-                  failed={!!error}
-                  busy={busy}
-                  checkedAt={checkedAt}
-                  refresh={() => void refresh()}
-                  settings={() => showSettings("connections")}
-                />
-                <span className="panel-spacer" />
-                <span className="status-updated">
-                  {error
-                    ? t("状态待确认")
-                    : checkedAt
-                      ? t("状态读取于 {p0}", { p0: new Date(checkedAt).toLocaleTimeString(locale) })
-                      : t("正在读取状态…")}
-                </span>
-                <span className="status-divider" />
-                <button onClick={() => context.navigate("workspace.trading")}>
-                  <LiveSummary />
-                </button>
-              </>
-            }
-          />
+              status={
+                <>
+                  <ServiceStatus
+                    snapshot={snapshot}
+                    failed={!!error}
+                    busy={busy}
+                    checkedAt={checkedAt}
+                    refresh={() => void refresh()}
+                    settings={() => showSettings("connections")}
+                  />
+                  <span className="panel-spacer" />
+                  <span className="status-updated">
+                    {error
+                      ? t("状态待确认")
+                      : checkedAt
+                        ? t("状态读取于 {p0}", {
+                            p0: new Date(checkedAt).toLocaleTimeString(locale),
+                          })
+                        : t("正在读取状态…")}
+                  </span>
+                  <span className="status-divider" />
+                  <button onClick={() => context.navigate("workspace.trading")}>
+                    <LiveSummary />
+                  </button>
+                </>
+              }
+            />
+          </MarketProvider>
         </TradingAccountsProvider>
       )}
     </WindowFrame>

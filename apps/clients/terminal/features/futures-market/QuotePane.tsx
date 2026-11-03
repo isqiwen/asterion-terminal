@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/client-ui/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/client-ui/PriceChart";
-import {
-  timestamp,
-  type IntradaySeries,
-  type LiveMarket,
-  type Snapshot,
-} from "../../src/bridge/client";
+import { timestamp } from "../../src/bridge/client";
+import type { MinuteSeries, Subscription } from "../../src/generated/asterion/market_pb";
+import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,
   asDisplayError,
   getLocale,
+  marketData,
   translate,
   useWorkspaceDraft,
   type DisplayError,
@@ -24,7 +22,7 @@ import { intradaySlots, sessionRanges } from "./intraday-slots";
 import { averagePeriods, movingAverage } from "./indicators";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
-type Row = LiveMarket["subscriptions"][number];
+type Row = Subscription;
 export type PanePeriod =
   "分时" | "Tick" | "1分" | "5分" | "10分" | "日K" | "周K" | "月K" | "季K" | "年K" | "历史K线";
 const primary: PanePeriod[] = ["分时", "Tick", "1分", "5分", "10分", "日K"];
@@ -39,18 +37,13 @@ const historical = {
 } as const;
 const averageColors = ["#cdd0d7", "#e5b45a", "#d555ae", "#52aa76", "#4aabe0"];
 
-// Polls one market service's minute bars of one contract while mounted. The
-// series is that service's observation: after another service is selected, or
-// the same one has started again, the series is dropped and asked for afresh,
-// and a reply that names another service is not taken.
-function useIntraday(context: TerminalContext, market: LiveMarket, row: Row) {
-  const [series, setSeries] = useState<IntradaySeries | null>(null);
+// Polls the market service's minute bars of one contract while mounted. When
+// the service has started again, the series is dropped and asked for afresh.
+function useIntraday(market: MarketView, row: Row) {
+  const [series, setSeries] = useState<MinuteSeries | null>(null);
   const [error, setError] = useState<DisplayError>("");
-  const query = useRef(context.query);
-  useEffect(() => {
-    query.current = context.query;
-  }, [context.query]);
-  const { service, instance_id: instance } = market;
+  const { venue, symbol } = row.instrument!;
+  const instance = market.snapshot.instanceId;
   useEffect(() => {
     let current = true;
     // One read at a time, so replies are taken in the order they were asked for.
@@ -60,15 +53,11 @@ function useIntraday(context: TerminalContext, market: LiveMarket, row: Row) {
     const load = () => {
       if (pending) return;
       pending = true;
-      void query
-        .current("market.minutes", { venue: row.venue, symbol: row.symbol })
-        .then((result: Snapshot) => {
-          const next = result.intraday;
+      void marketData({ case: "minutes", value: { instrument: { venue, symbol } } }, "minutes")
+        .then(next => {
           if (!current) return;
-          if (!next || next.venue !== row.venue || next.symbol !== row.symbol)
+          if (next.instrument?.venue !== venue || next.instrument.symbol !== symbol)
             throw new Error(t("返回的数据与所选合约不匹配"));
-          if (next.service !== service || next.instance_id !== instance)
-            throw new Error(t("返回的数据不属于当前行情服务"));
           setSeries(next);
           setError("");
         })
@@ -87,24 +76,17 @@ function useIntraday(context: TerminalContext, market: LiveMarket, row: Row) {
       current = false;
       window.clearInterval(timer);
     };
-  }, [row.venue, row.symbol, service, instance]);
+  }, [venue, symbol, instance]);
   return { series, error };
 }
 
-function IntradayPanel({
-  context,
-  market,
-  row,
-}: {
-  context: TerminalContext;
-  market: LiveMarket;
-  row: Row;
-}) {
-  const { series, error } = useIntraday(context, market, row);
-  const product = market.catalog.contracts.find(
-    item => item.venue === row.venue && item.symbol === row.symbol,
+function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
+  const { series, error } = useIntraday(market, row);
+  const { venue, symbol } = row.instrument!;
+  const product = market.snapshot.catalog?.contracts.find(
+    item => item.instrument?.venue === venue && item.instrument.symbol === symbol,
   )?.product;
-  const reference = series?.previous_settlement ?? row.quote?.previous_settlement ?? null;
+  const reference = series?.previousSettlement ?? row.quote?.previousSettlement ?? null;
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
@@ -118,11 +100,8 @@ function IntradayPanel({
         {t("本交易日尚无分时记录")}
       </div>
     );
-  const { slots, ticks } = intradaySlots(
-    series,
-    product ? sessionRanges(row.venue, product) : null,
-  );
-  const since = new Date(series.first_observation_ms).toLocaleTimeString(getLocale(), {
+  const { slots, ticks } = intradaySlots(series, product ? sessionRanges(venue, product) : null);
+  const since = new Date(Number(series.firstObservationMs)).toLocaleTimeString(getLocale(), {
     timeZone: "Asia/Shanghai",
     hour12: false,
     hour: "2-digit",
@@ -157,7 +136,7 @@ function IntradayPanel({
         }}
       />
       <p className="intraday-note">
-        {t("Market 服务观测")} · {series.trading_day} · {t("自")} {since}
+        {t("Market 服务观测")} · {series.tradingDay} · {t("自")} {since}
         {series.interrupted && ` · ${t("序列曾中断")}`}
       </p>
     </>
@@ -165,17 +144,15 @@ function IntradayPanel({
 }
 
 function MinuteCandles({
-  context,
   market,
   row,
   minutes,
 }: {
-  context: TerminalContext;
-  market: LiveMarket;
+  market: MarketView;
   row: Row;
   minutes: number;
 }) {
-  const { series, error } = useIntraday(context, market, row);
+  const { series, error } = useIntraday(market, row);
   return <ObservedCandles series={series} error={error} minutes={minutes} row={row} />;
 }
 function ObservedCandles({
@@ -184,7 +161,7 @@ function ObservedCandles({
   minutes,
   row,
 }: {
-  series: IntradaySeries | null;
+  series: MinuteSeries | null;
   error: DisplayError;
   minutes: number;
   row: Row;
@@ -199,7 +176,7 @@ function ObservedCandles({
   const candles: Candle[] = [];
   let key = -1;
   for (const bar of series.bars) {
-    const bucket = Math.floor(bar.start_ms / (minutes * 60000));
+    const bucket = Math.floor(Number(bar.startMs) / (minutes * 60000));
     const last = candles[candles.length - 1];
     if (bucket !== key || !last) {
       key = bucket;
@@ -215,7 +192,7 @@ function ObservedCandles({
       if (Number(bar.high) > Number(last.high)) last.high = bar.high;
       if (Number(bar.low) < Number(last.low)) last.low = bar.low;
       last.close = bar.close;
-      last.volume = String(Number(last.volume) + bar.volume);
+      last.volume = String(Number(last.volume) + Number(bar.volume));
     }
   }
   if (!candles.length)
@@ -230,7 +207,7 @@ function ObservedCandles({
       fitHeight
       showPriceExtremes
       mirrorPriceAxis
-      key={`${row.venue}.${row.symbol}:${minutes}:${series.trading_day}`}
+      key={`${row.instrument!.venue}.${row.instrument!.symbol}:${minutes}:${series.tradingDay}`}
       series={{ kind: "candles", points: candles }}
       overlays={averagePeriods.slice(0, 4).map((period, index) => ({
         label: `MA${period}`,
@@ -262,7 +239,7 @@ export function QuotePane({
   actions,
 }: {
   context: TerminalContext;
-  market: LiveMarket;
+  market: MarketView;
   row: Row;
   name: string;
   pane: string;
@@ -280,11 +257,12 @@ export function QuotePane({
         ? "down"
         : undefined;
   const status = quoteStatus(market, row);
-  const identity = `${row.venue}.${row.symbol}`;
+  const { venue, symbol } = row.instrument!;
+  const identity = `${venue}.${symbol}`;
   return (
     <section className="quote-pane" aria-label={`${name} ${t(period)}`}>
       <header className="quote-pane-header">
-        <strong title={`${name} · ${row.symbol}`}>{name}</strong>
+        <strong title={`${name} · ${symbol}`}>{name}</strong>
         <b data-tone={tone}>{row.quote?.last ?? "—"}</b>
         {change && (
           <>
@@ -303,7 +281,7 @@ export function QuotePane({
         {status !== t("实时") && <small className="quote-pane-status">{status}</small>}
         <span className="panel-spacer" />
         {actions}
-        <small className="quote-pane-symbol">{row.symbol}</small>
+        <small className="quote-pane-symbol">{symbol}</small>
       </header>
       <nav className="quote-pane-periods" aria-label={t("图表周期")}>
         {primary.map(value => (
@@ -340,13 +318,12 @@ export function QuotePane({
       </nav>
       <div className="quote-pane-body">
         {period === "分时" ? (
-          <IntradayPanel key={identity} context={context} market={market} row={row} />
+          <IntradayPanel key={identity} market={market} row={row} />
         ) : period === "Tick" ? (
           <QuoteChart market={market} row={row} />
         ) : period === "1分" || period === "5分" || period === "10分" ? (
           <MinuteCandles
             key={identity}
-            context={context}
             market={market}
             row={row}
             minutes={Number.parseInt(period, 10)}
@@ -354,8 +331,8 @@ export function QuotePane({
         ) : (
           <ContractHistory
             key={identity}
-            venue={row.venue}
-            symbol={row.symbol}
+            venue={venue}
+            symbol={symbol}
             context={context}
             preferenceKey={period === "历史K线" ? `${pane}.history-full` : `${pane}.history`}
             fixedPeriod={period === "历史K线" ? undefined : historical[period]}

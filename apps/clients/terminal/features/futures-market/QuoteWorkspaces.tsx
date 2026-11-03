@@ -1,11 +1,12 @@
 import { recordQuoteVisit, useRecentQuotes } from "./recent-quotes";
 import { contractName } from "./contract-name";
-import type { LiveMarket } from "../../src/bridge/client";
+import type { Subscription } from "../../src/generated/asterion/market_pb";
+import { rowKey, useMarket, type MarketView } from "../../src/host/market";
 import { useEffect, useState, type ReactNode } from "react";
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { quoteChange, quoteStatus } from "./QuoteTable";
 import { ContractHistory } from "./ContractHistory";
-import { QuoteChart, quoteId, type QuoteRow } from "./QuoteChart";
+import { QuoteChart } from "./QuoteChart";
 import { WatchlistToggle } from "./WatchlistToggle";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -40,6 +41,9 @@ const sortableFields = new Set([
   "昨收",
   "振幅%",
 ]);
+// A row of these lists: Market's row with its identity and display name.
+type QuoteRow = Subscription & { venue: string; symbol: string; displayName?: string };
+const quoteId = (row: QuoteRow) => rowKey(row);
 const tone = (row: QuoteRow) => {
   const amount = quoteChange(row)?.amount;
   return amount == null || amount === 0 ? undefined : amount > 0 ? "up" : "down";
@@ -54,12 +58,12 @@ function cell(row: QuoteRow, name: string) {
     return change ? `${change.percent > 0 ? "+" : ""}${change.percent.toFixed(2)}%` : "—";
   if (name === "涨跌")
     return change ? `${change.amount > 0 ? "+" : ""}${Number(change.amount.toFixed(8))}` : "—";
-  if (name === "昨收") return q?.previous_close ?? "—";
+  if (name === "昨收") return q?.previousClose ?? "—";
   if (name === "开盘") return q?.open ?? "—";
   if (name === "最高") return q?.high ?? "—";
   if (name === "最低") return q?.low ?? "—";
-  if (name === "振幅%" && q?.high != null && q.low != null && Number(q.previous_settlement) > 0)
-    return `${(((Number(q.high) - Number(q.low)) / Number(q.previous_settlement)) * 100).toFixed(2)}%`;
+  if (name === "振幅%" && q?.high != null && q.low != null && Number(q.previousSettlement) > 0)
+    return `${(((Number(q.high) - Number(q.low)) / Number(q.previousSettlement)) * 100).toFixed(2)}%`;
   return "—";
 }
 function QuoteHeader({
@@ -68,7 +72,7 @@ function QuoteHeader({
   actions,
 }: {
   row: QuoteRow;
-  market: LiveMarket;
+  market: MarketView;
   actions?: ReactNode;
 }) {
   const status = quoteStatus(market, row);
@@ -99,17 +103,20 @@ function useQuotes(context: TerminalContext, watchlistOnly = false) {
       recordQuoteVisit(context.workspacePage);
     }
   }, [context.workspacePage]);
-  const market = context.snapshot?.market;
-  const rows = (market?.subscriptions ?? [])
-    .filter(
-      row =>
-        !watchlistOnly ||
-        market?.watchlist?.some(id => id.venue === row.venue && id.symbol === row.symbol),
-    )
+  const market = useMarket();
+  const saved = context.snapshot?.market_endpoint;
+  const watchlist = saved && "instruments" in saved ? saved.instruments : [];
+  const rows = (market?.snapshot.subscriptions ?? [])
     .map(row => ({
       ...row,
-      displayName: contractName(row, market?.catalog),
+      venue: row.instrument!.venue,
+      symbol: row.instrument!.symbol,
+      displayName: contractName(row.instrument!, market?.snapshot.catalog),
     }))
+    .filter(
+      row =>
+        !watchlistOnly || watchlist.some(id => id.venue === row.venue && id.symbol === row.symbol),
+    )
     .filter(row =>
       `${quoteId(row)} ${row.displayName ?? ""}`
         .toLowerCase()
@@ -291,7 +298,7 @@ export function WatchlistWorkspace(context: TerminalContext) {
                   ? "没有匹配的自选合约"
                   : recent
                     ? "尚无最近浏览合约"
-                    : market?.phase !== "connected"
+                    : market?.snapshot.phase !== "connected"
                       ? "实时行情未连接，自选合约没有报价。"
                       : "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。",
               )}
@@ -302,7 +309,7 @@ export function WatchlistWorkspace(context: TerminalContext) {
                 className="primary"
                 onClick={() => context.navigate("workspace.market", { marketMode: "live" })}
               >
-                {t(market?.phase !== "connected" ? "连接行情" : "去市场添加自选")}
+                {t(market?.snapshot.phase !== "connected" ? "连接行情" : "去市场添加自选")}
               </button>
             )}
           </div>
@@ -345,11 +352,10 @@ export function WatchlistWorkspace(context: TerminalContext) {
 export function ContractWorkspace(context: TerminalContext) {
   const { market, rows, active, select, filtering, clearSearch } = useQuotes(context);
   const [chart, setChart] = useWorkspaceDraft("contract-chart", "live");
-  const historyAvailable =
-    market?.transport_online && market.phase === "connected" && market.history?.available;
+  const historyAvailable = market?.online && market.snapshot.phase === "connected";
   const q = active?.quote;
-  const bid = q?.bid != null ? q.bid_quantity : 0,
-    ask = q?.ask != null ? q.ask_quantity : 0;
+  const bid = q?.bid != null ? Number(q.bidQuantity) : 0,
+    ask = q?.ask != null ? Number(q.askQuantity) : 0;
   const total = bid + ask;
   return (
     <section className="contract-workspace" aria-label={t("合约")}>
@@ -368,10 +374,10 @@ export function ContractWorkspace(context: TerminalContext) {
         </div>
         {rows.map((row, index) => {
           const points = historyAvailable
-            ? (market.history?.points
+            ? market.ticks
                 .filter(p => p.venue === row.venue && p.symbol === row.symbol)
                 .map(p => Number(p.price))
-                .filter(Number.isFinite) ?? [])
+                .filter(Number.isFinite)
             : [];
           const low = Math.min(...points),
             range = Math.max(...points) - low;
@@ -503,16 +509,16 @@ export function ContractWorkspace(context: TerminalContext) {
               <dl>
                 {[
                   ["开盘", q?.open],
-                  ["日增仓", q?.open_interest_change],
-                  ["涨停", q?.upper_limit],
-                  ["跌停", q?.lower_limit],
+                  ["日增仓", q?.openInterestChange],
+                  ["涨停", q?.upperLimit],
+                  ["跌停", q?.lowerLimit],
                   ["均价", null],
                   ["最高", q?.high],
                   ["最低", q?.low],
-                  ["昨结算", q?.previous_settlement],
-                  ["持仓量", q?.open_interest],
+                  ["昨结算", q?.previousSettlement],
+                  ["持仓量", q?.openInterest],
                   ["成交量", q?.volume],
-                  ["交易日", q?.trading_day],
+                  ["交易日", q?.tradingDay],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <dt>{t(String(label))}</dt>
@@ -542,8 +548,8 @@ export function ContractWorkspace(context: TerminalContext) {
                 <span>{q?.ask != null ? ask : "—"}</span>
               </div>
               {[2, 3, 4, 5].map(level => {
-                const bid = q?.bid_levels?.[level - 2];
-                const ask = q?.ask_levels?.[level - 2];
+                const bid = q?.bidLevels[level - 2];
+                const ask = q?.askLevels[level - 2];
                 return (
                   <div className="depth-level" key={level}>
                     <span>{bid?.quantity ?? "—"}</span>
@@ -561,8 +567,8 @@ export function ContractWorkspace(context: TerminalContext) {
                   </div>
                 );
               })}
-              {!q?.bid_levels?.some(level => level.price !== null) &&
-                !q?.ask_levels?.some(level => level.price !== null) && (
+              {!q?.bidLevels.some(level => level.price != null) &&
+                !q?.askLevels.some(level => level.price != null) && (
                   <p className="quote-empty">{t("当前报价未提供更多档位")}</p>
                 )}
             </section>

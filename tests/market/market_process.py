@@ -19,13 +19,18 @@ def call(process, method, params=None):
     process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()
     reply=json.loads(process.stdout.readline());assert 'error' not in reply,reply;return reply['result']
 def ready(process):
+    """The open watch's latest frame once its row has a quote."""
     deadline=time.monotonic()+8
     while time.monotonic()<deadline:
-        state=call(process,'runtime.snapshot')
-        if state.get('market') and state['market']['transport_online'] and state['market']['subscriptions'][0]['quote']:
-            return state
+        watch=call(process,'market.watch',dict(restart=False))['market_watch']
+        for frame in reversed(watch['frames']):
+            rows=frame.get('subscriptions',[])
+            if watch['online'] and rows and 'quote' in rows[0]:
+                return frame
         time.sleep(.1)
-    raise AssertionError(state)
+    raise AssertionError(watch)
+def recording(process):
+    return call(process,'market.call',dict(request=dict(recordingStatus={})))['market']['recordingStatus']
 def close(process):
     process.stdin.close();process.wait(timeout=8)
     assert process.returncode == 0, process.stderr.read()
@@ -33,28 +38,31 @@ process=terminal()
 try:
     call(process,'market.endpoint.save',dict(host='127.0.0.1',port=port,fingerprint=market_tls.fingerprint(tls)))
     call(process,'market.open')
-    state=ready(process)
-    instance=state['market']['instance_id']
-    recording=call(process,'market.recording')['recording']
-    assert recording['instance']==instance and recording['phase']=='connected',recording
-    assert recording['subscribed']==1 and int(recording['lastQuoteMs'])>0,recording
-    assert state['market']['remote'] and state['market']['subscriptions'][0]['quote']['last']=='3510'
+    frame=ready(process)
+    instance=frame['instanceId']
+    status=recording(process)
+    assert status['instance']==instance and status['phase']=='connected',status
+    assert status['subscribed']==1 and int(status['lastQuoteMs'])>0,status
+    assert frame['subscriptions'][0]['quote']['last']=='3510'
+    state=call(process,'runtime.snapshot')
+    assert 'market' not in state
     assert all(service['kind']!='market' for node in state['nodes'] for service in (node.get('health') or {}).get('services',[])), state['nodes']
     selected=[dict(venue='SHFE',symbol='rb2610')]
     state=call(process,'market.watchlist',dict(instruments=selected))
-    assert state['market']['watchlist']==selected
-    assert call(process,'market.close')['market'] is None
+    assert state['market_endpoint']['instruments']==selected
+    call(process,'market.close')
+    assert call(process,'market.watch',dict(restart=False))['market_watch'] is None
     call(process,'market.open')
-    assert ready(process)['market']['instance_id']==instance
-    assert call(process,'market.recording')['recording']['instance']==instance
+    assert ready(process)['instanceId']==instance
     close(process)
     process=terminal()
     call(process,'market.open')
-    state=ready(process)
-    assert state['market']['instance_id']==instance and state['market']['watchlist']==selected
-    assert 'fixture-only-secret' not in json.dumps(state)
+    frame=ready(process)
+    assert frame['instanceId']==instance
+    assert call(process,'runtime.snapshot')['market_endpoint']['instruments']==selected
+    assert 'fixture-only-secret' not in json.dumps(frame)
     call(process,'market.endpoint.clear')
-    assert call(process,'runtime.snapshot')['market'] is None
+    assert call(process,'market.watch',dict(restart=False))['market_watch'] is None
 finally:
     if process.poll() is None:
         close(process)

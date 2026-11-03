@@ -1,16 +1,15 @@
 import { PriceChart } from "@asterion/client-ui/PriceChart";
-import { timestamp, type LiveMarket } from "../../src/bridge/client";
+import { timestamp } from "../../src/bridge/client";
+import type { Subscription } from "../../src/generated/asterion/market_pb";
+import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../contract";
 import { chartTime } from "./chart-time";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export type QuoteRow = LiveMarket["subscriptions"][number] & { displayName?: string };
-export const quoteId = (row: QuoteRow) => `${row.venue}.${row.symbol}`;
-export function QuoteChart({ market, row }: { market: LiveMarket; row: QuoteRow }) {
-  const history = market.history;
-  const points =
-    history?.points.filter(p => p.venue === row.venue && p.symbol === row.symbol) ?? [];
-  const reference = row.quote?.previous_settlement;
-  const available = market.transport_online && market.phase === "connected" && history?.available;
+export function QuoteChart({ market, row }: { market: MarketView; row: Subscription }) {
+  const { venue, symbol } = row.instrument!;
+  const points = market.ticks.filter(p => p.venue === venue && p.symbol === symbol);
+  const reference = row.quote?.previousSettlement;
+  const available = market.online && market.snapshot.phase === "connected";
   return (
     <section className="contract-live-chart" aria-label={t("最近报价走势")}>
       {available && points.length ? (
@@ -18,7 +17,7 @@ export function QuoteChart({ market, row }: { market: LiveMarket; row: QuoteRow 
           compact
           fitHeight
           fillArea
-          key={`${quoteId(row)}:${history.stream_id}:${history.generation}`}
+          key={`${rowKey(row)}:${market.generation}`}
           referencePrice={
             reference && Number.isFinite(Number(reference)) && Number(reference) > 0
               ? { value: reference, label: t("昨结价") }
@@ -50,12 +49,16 @@ export function QuoteChart({ market, row }: { market: LiveMarket; row: QuoteRow 
           {t(available ? "等待报价事件" : "报价序列暂不可用")}
         </p>
       )}
-      {history?.interrupted && (
+      {market.interrupted && (
         <p className="quote-data-note">{t("序列曾中断，仅显示恢复后的可用记录。")}</p>
       )}
       <details className="quote-data-note">
         <summary>{t("数据说明")}</summary>
-        <p>{t("最近最多 512 条跨合约报价事件；非完整分时，不代表逐笔成交或分钟 K 线。")}</p>
+        <p>
+          {t(
+            "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。",
+          )}
+        </p>
       </details>
     </section>
   );

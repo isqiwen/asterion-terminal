@@ -53,22 +53,6 @@ export function readySnapshot(): Snapshot {
     revision: 1,
     refreshed_at_ms: Date.now(),
     market_endpoint: { host: "research", port: 7450, fingerprint: "a".repeat(64), instruments: [] },
-    market: {
-      watchlist: [],
-      catalog: { phase: "idle", error_code: "", diagnostic: "", trading_day: "", contracts: [] },
-      history: { stream_id: "", generation: "", available: false, interrupted: false, points: [] },
-      service: "market-data",
-      remote: true,
-      host: "research",
-      port: 7450,
-      instance_id: "market",
-      phase: "awaiting_input",
-      error_code: 0,
-      transport_online: true,
-      sequence: 0,
-      out_of_order: 0,
-      subscriptions: [],
-    },
     nodes: [
       {
         id: "local",

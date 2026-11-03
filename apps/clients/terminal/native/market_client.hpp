@@ -1,38 +1,34 @@
 #pragma once
 #include "service_endpoint.hpp"
 #include "service_io.hpp"
-#include "market_snapshot.hpp"
 #include <asterion/base/serialization.hpp>
 #include <memory>
 
 namespace asterion::terminal {
 
-class Application;
+// One generated market.proto Request, as ProtoJSON, on its own pinned TLS
+// connection; returns the Response as ProtoJSON. Errors are thrown.
+[[nodiscard]] std::future<Json> call_market(ServiceIo&, ServiceEndpoint, Json);
 
-class MarketClient
+// The selected Market's watch stream, held for the page. Frames (Snapshot
+// messages as ProtoJSON) wait in order until the page takes them; a page that
+// stops taking them gets a new stream, whose first frame is complete.
+class MarketWatch
 {
 public:
-    [[nodiscard]] static std::future<std::shared_ptr<MarketClient>>
+    [[nodiscard]] static std::future<std::shared_ptr<MarketWatch>>
     open(ServiceIo&, ServiceEndpoint);
-    // Bounded one-shot data RPC, independent of the selected live watch. The
-    // generated Protobuf JSON mapping carries the UI's request without a
-    // second set of hand-written business fields.
-    [[nodiscard]] static std::future<Json> data(ServiceIo&, ServiceEndpoint, Json);
-    ~MarketClient();
-    MarketClient(const MarketClient&) = delete;
-    MarketClient& operator=(const MarketClient&) = delete;
-    // Current trading-day minute bars observed by the market service.
-    [[nodiscard]] std::future<Json> minutes(const std::string& venue, const std::string& symbol);
-    [[nodiscard]] std::future<Json> recording_status();
-    [[nodiscard]] std::future<Json> snapshot() const;
+    ~MarketWatch();
+    MarketWatch(const MarketWatch&) = delete;
+    MarketWatch& operator=(const MarketWatch&) = delete;
+    // {frames, online}; called on the I/O owner. restart starts a new stream at
+    // once, for a page that has no complete frame to apply deltas to.
+    Json take(bool restart);
     ServiceEndpoint endpoint() const;
 
 private:
-    friend class Application;
-    // Capture selected service data in one I/O owner turn.
-    MarketProjection owner_read() const;
-    MarketClient(ServiceIo&, ServiceEndpoint);
     struct Impl;
+    explicit MarketWatch(std::shared_ptr<Impl>);
     std::shared_ptr<Impl> impl_;
 };
 

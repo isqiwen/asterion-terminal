@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { LiveMarket } from "../../src/bridge/client";
+import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,
   asDisplayError,
@@ -17,11 +17,12 @@ export function WatchlistToggle({
   row,
 }: {
   context: TerminalContext;
-  market: LiveMarket;
+  market: MarketView;
   row: { venue: string; symbol: string };
 }) {
   const [error, setError] = useState<DisplayError>("");
-  const ids = market.watchlist ?? [];
+  const saved = context.snapshot?.market_endpoint;
+  const ids = saved && "instruments" in saved ? saved.instruments : [];
   const same = (id: { venue: string; symbol: string }) =>
     id.venue === row.venue && id.symbol === row.symbol;
   const present = ids.some(same);
@@ -31,7 +32,7 @@ export function WatchlistToggle({
         className="watchlist-toggle"
         aria-pressed={present}
         title={row.symbol}
-        disabled={context.busy || !market.transport_online || market.phase !== "connected"}
+        disabled={context.busy || !market.online || market.snapshot.phase !== "connected"}
         onClick={() => {
           setError("");
           context

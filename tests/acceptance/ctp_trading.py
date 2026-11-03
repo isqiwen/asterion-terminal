@@ -135,32 +135,35 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                    for p in live.get("positions", [])
                    if p["venue"] == venue and p["symbol"] == symbol and p["side"] == "BUY")
 
+    def market():
+        """Market's current state through the Terminal relay, as ProtoJSON."""
+        return call("market.call", {"request": {"snapshot": {}}})["market"]["snapshot"]
+
     def quote():
-        market = call("runtime.snapshot")["market"] or {}
-        return next((sub.get("quote") for sub in market.get("subscriptions", [])
-                     if sub["venue"] == venue and sub["symbol"] == symbol), None)
+        return next((sub.get("quote") for sub in market().get("subscriptions", [])
+                     if sub["instrument"] == {"venue": venue, "symbol": symbol}), None)
 
     try:
         call("market.endpoint.save", {"host": args.market_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
-        step("remote Market connection", bool(call("market.open").get("market")))
+        step("remote Market connection", bool(market().get("instanceId")))
         deadline = time.monotonic() + args.timeout
         while not (quote() or {}).get("last") and time.monotonic() < deadline:
             time.sleep(1)
         first = quote() or {}
         if not step("market quote", bool(first.get("last")),
-                    f"last={first.get('last')} trading_day={first.get('trading_day')}"):
+                    f"last={first.get('last')} trading_day={first.get('tradingDay')}"):
             raise RuntimeError("no market quote: run during trading hours with a listed contract")
 
         # The counter may pause for two minutes before or between instruments.
         deadline = time.monotonic() + max(args.timeout, 600)
         while time.monotonic() < deadline:
-            catalog = (call("runtime.snapshot")["market"] or {}).get("catalog", {})
+            catalog = market().get("catalog", {})
             phase = catalog.get("phase")
             if phase in ("ready", "error"):
                 break
             time.sleep(1)
         # The counter's refusal is the only evidence: the node and its logs are temporary.
-        detail = " ".join(str(catalog[key]) for key in ("phase", "error_code", "diagnostic")
+        detail = " ".join(str(catalog[key]) for key in ("phase", "errorCode", "diagnostic")
                           if catalog.get(key))
         if not step("contract catalog", phase == "ready", detail):
             raise RuntimeError("the contract catalog did not load")
@@ -170,14 +173,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
             raise RuntimeError("configured trading service does not match the explicitly selected simulation counter")
         # Exchange terms from the CTP catalog, as the trading page builds them.
         row = next(item for item in catalog["contracts"]
-                   if item["venue"] == venue and item["symbol"] == symbol)
-        _, product, delivery_month = row["contract_id"].split("/")
+                   if item["instrument"] == {"venue": venue, "symbol": symbol})
+        _, product, delivery_month = row["contractId"].split("/")
         trading({"liveCreate": {
             "risk": {"maxOrderQuantity": units(1), "maxGrossQuantity": units(1),
                      "maxWorkingOrders": "1"},
             "maxPriceDeviation": units(args.deviation),
             "contracts": [{"venue": venue, "symbol": symbol, "currency": "CNY",
-                           "priceIncrement": units(row["price_tick"]),
+                           "priceIncrement": units(row["priceTick"]),
                            "quantityIncrement": units(1), "multiplier": units(row["multiplier"]),
                            "product": product, "deliveryMonth": delivery_month}]}})
         live = wait(lambda s: s["phase"] in ("ready", "error"))
@@ -191,15 +194,15 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
             raise RuntimeError("the account did not synchronize")
         step("funds and positions reported", "funds" in live,
              f"available={number(live.get('funds', {}).get('available'))} long={held(live)}")
-        step("market and account trading day", first.get("trading_day") == live.get("tradingDay"),
-             f"market={first.get('trading_day')} account={live.get('tradingDay')}")
+        step("market and account trading day", first.get("tradingDay") == live.get("tradingDay"),
+             f"market={first.get('tradingDay')} account={live.get('tradingDay')}")
 
         last = Decimal(quote()["last"])
         # Well below the market yet inside the policy's deviation and the exchange limit.
         resting = (last * (1 - Decimal(args.deviation) * Decimal("0.8")) / tick).to_integral_value(
             ROUND_FLOOR) * tick
-        if quote().get("lower_limit"):
-            resting = max(resting, Decimal(quote()["lower_limit"]))
+        if quote().get("lowerLimit"):
+            resting = max(resting, Decimal(quote()["lowerLimit"]))
         def manual(order_id):
             return {"submit": {"orderId": order_id, "venue": venue, "symbol": symbol,
                                "side": "BUY", "offset": "OPEN", "quantity": units(1),
@@ -239,7 +242,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         act({"liveRevoke": {}})
         step("authorization revoked", "authorization" not in session())
         trading({"liveDisconnect": {}})
-        call("market.close")
     except Exception as error:  # report, never the credentials
         step("run", False, str(error))
     finally:

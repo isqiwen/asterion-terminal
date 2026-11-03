@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { liveAccount, livePolicy, rpc, trading } from "./rpc-fixture";
+import { liveAccount, livePolicy, marketState, trading } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 
 test(
@@ -8,9 +8,7 @@ test(
   async ({ page, tradingHost }) => {
     test.setTimeout(90000);
     const account = tradingHost.connection;
-    await expect
-      .poll(async () => (await rpc(page.request, "runtime.snapshot")).market.catalog.phase)
-      .toBe("ready");
+    await expect.poll(async () => (await marketState(page.request)).catalog?.phase).toBe("ready");
     await trading(page.request, account, await livePolicy(page.request));
     await expect
       .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })

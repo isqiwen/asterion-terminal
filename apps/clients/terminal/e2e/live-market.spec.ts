@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { rpc } from "./rpc-fixture";
+import { marketState, rpc } from "./rpc-fixture";
 import { test, expect } from "./test";
 
 test(
@@ -11,27 +11,30 @@ test(
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     const panel = page.getByRole("region", { name: "实时期货行情" });
     await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
-    const before = (await rpc(page.request, "runtime.snapshot")).market;
-    expect(before.remote).toBe(true);
-    expect(before.watchlist).toEqual([]);
+    const saved = async () => (await rpc(page.request, "runtime.snapshot")).market_endpoint;
+    const watch = async () =>
+      (await rpc(page.request, "market.watch", { restart: false })).market_watch;
+    const before = await marketState(page.request);
+    expect((await saved()).instruments).toEqual([]);
     await expect(panel.locator('input[type="password"]')).toHaveCount(0);
     await panel.getByRole("button", { name: "加入自选", exact: true }).click();
     await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(1);
     await rpc(page.request, "market.close");
-    expect((await rpc(page.request, "runtime.snapshot")).market).toBeNull();
+    expect(await watch()).toBeNull();
     await rpc(page.request, "market.open");
-    const after = (await rpc(page.request, "runtime.snapshot")).market;
-    expect(after.instance_id).toBe(before.instance_id);
-    expect(after.watchlist).toEqual([{ venue: "SHFE", symbol: "rb2610" }]);
+    expect((await marketState(page.request)).instanceId).toBe(before.instanceId);
+    expect((await saved()).instruments).toEqual([{ venue: "SHFE", symbol: "rb2610" }]);
     await rpc(page.request, "market.watchlist", { instruments: [] });
-    expect((await rpc(page.request, "runtime.snapshot")).market.subscriptions).toHaveLength(1);
+    // The saved watchlist is the desktop's own; Market still collects the contract.
+    expect((await marketState(page.request)).subscriptions).toHaveLength(1);
     await openView(page, "coverage");
     const recording = page.getByRole("region", { name: "Market 录制监控" });
     await expect(recording.getByText("行情已连接", { exact: true })).toBeVisible();
     await expect(recording.getByText("磁盘可用空间", { exact: true })).toBeVisible();
-    expect((await rpc(page.request, "market.recording")).recording.instance).toBe(
-      before.instance_id,
-    );
+    expect(
+      (await rpc(page.request, "market.call", { request: { recordingStatus: {} } })).market
+        .recordingStatus.instance,
+    ).toBe(before.instanceId);
   },
 );

@@ -1,62 +1,38 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import type { Snapshot } from "../src/bridge/client";
+import { serveWatch, watchRow } from "./market-fixture";
 
 test("quote columns apply atomically, preserve values and navigation, and reset hidden sorting", async ({
   page,
 }) => {
-  await page.route("**/__asterion/api", async route => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { result?: Snapshot };
-    if (body.result?.market) {
-      body.result.market = {
-        ...body.result.market,
-        // These views are specified without a contract catalog; a catalog
-        // cached by an earlier session must not leak into them.
-        catalog: {
-          ...body.result.market.catalog,
-          phase: "unconfigured",
-          trading_day: "",
-          contracts: [],
-        },
-        transport_online: true,
+  // Two quoted months and no contract catalog, in one complete frame.
+  const ids = ["rb2610", "rb2701"].map(symbol => ({ venue: "SHFE", symbol }));
+  let sent = false;
+  await serveWatch(
+    page,
+    restart => {
+      if (sent && !restart) return { frames: [], online: true };
+      sent = true;
+      const frame = {
+        instanceId: "fixture",
         phase: "connected",
-        error_code: 0,
-        watchlist: ["rb2610", "rb2701"].map(symbol => ({ venue: "SHFE", symbol })),
-        subscriptions: ["rb2610", "rb2701"].map((symbol, index) => ({
-          venue: "SHFE",
-          symbol,
-          state: "subscribed",
-          error_code: 0,
-          quote: {
+        sequence: "1",
+        catalog: { phase: "unconfigured" },
+        subscriptions: ids.map((id, index) =>
+          watchRow(id, {
             last: String(100 + index * 10),
-            previous_settlement: "100",
-            previous_close: null,
-            open_interest_change: null,
-            open: null,
-            upper_limit: null,
-            lower_limit: null,
-            volume: 25 + index,
-            bid: null,
-            ask: null,
-            high: null,
-            low: null,
-            bid_levels: Array.from({ length: 4 }, () => ({ price: null, quantity: null })),
-            ask_levels: Array.from({ length: 4 }, () => ({ price: null, quantity: null })),
-            bid_quantity: 0,
-            ask_quantity: 0,
-            trading_day: "20260929",
-            action_day: "20260929",
-            update_time: "10:00:00",
-            open_interest: String(50 + index),
-            received_ms: Date.now(),
-            source_ms: Date.now(),
-          },
-        })),
+            previousSettlement: "100",
+            volume: String(25 + index),
+            openInterest: String(50 + index),
+            receivedMs: String(Date.now()),
+            sourceMs: String(Date.now()),
+          }),
+        ),
       };
-    }
-    await route.fulfill({ response, json: body });
-  });
+      return { frames: [frame], online: true };
+    },
+    ids,
+  );
   await page.goto("/");
   await openView(page, "market");
   const board = page.locator(".futures-market-board");

@@ -27,15 +27,27 @@ int main(int argc, char** argv)
             identity
         };
         asterion::terminal::ServiceIo io;
-        auto client = asterion::terminal::MarketClient::open(io, endpoint).get();
+        auto watch = asterion::terminal::MarketWatch::open(io, endpoint).get();
+        const auto take = [&] {
+            return io
+                .submit<asterion::Json>(
+                    [&](std::stop_token) -> asterion::PolledTask<asterion::Json> {
+                        co_return watch->take(false);
+                    })
+                .get();
+        };
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        for (;;) {
-            const auto state = client->snapshot().get();
-            if (state.at("transport_online") == true && state.at("subscriptions").size() == 1
-                && !state["subscriptions"][0]["quote"].is_null()) {
-                if (state["subscriptions"][0]["quote"]["last"] != "3510")
-                    return 3;
-                break;
+        std::string instance;
+        for (bool quoted = false; !quoted;) {
+            const auto taken = take();
+            for (const auto& frame : taken.at("frames")) {
+                instance = frame.at("instanceId");
+                const auto& rows = frame.value("subscriptions", asterion::Json::array());
+                if (rows.size() == 1 && rows[0].contains("quote")) {
+                    if (rows[0]["quote"]["last"] != "3510")
+                        return 3;
+                    quoted = taken.at("online") == true;
+                }
             }
             if (std::chrono::steady_clock::now() > deadline)
                 return 4;
@@ -73,14 +85,20 @@ int main(int argc, char** argv)
             if (response.SerializeAsString().find("tls-fixture") != std::string::npos)
                 return 10;
         }
-        const auto instance = client->snapshot().get().at("instance_id");
-        const auto recording = client->recording_status().get();
+        const auto call = [&](asterion::Json request) {
+            return asterion::terminal::call_market(io, endpoint, std::move(request)).get();
+        };
+        const auto recording =
+            call({{"recordingStatus", asterion::Json::object()}}).at("recordingStatus");
         if (recording.at("instance") != instance || recording.at("phase") != "connected"
             || recording.at("subscribed") != 1)
             return 11;
-        client.reset();
-        auto again = asterion::terminal::MarketClient::open(io, endpoint).get();
-        return again->snapshot().get().at("instance_id") == instance ? 0 : 5;
+        watch.reset();
+        auto again = asterion::terminal::MarketWatch::open(io, endpoint).get();
+        return call({{"snapshot", asterion::Json::object()}}).at("snapshot").at("instanceId")
+                == instance
+            ? 0
+            : 5;
     } catch (const std::exception& e) {
         std::cerr << e.what();
         return 1;

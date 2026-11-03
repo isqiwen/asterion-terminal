@@ -1,72 +1,81 @@
 import { act, render, screen } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
-import type { IntradaySeries, LiveMarket, Snapshot } from "../../src/bridge/client";
+import { create } from "@bufbuild/protobuf";
+import { beforeEach, expect, test, vi } from "vitest";
+import { marketData } from "../../src/bridge/market-data";
+import {
+  MinuteSeriesSchema,
+  SnapshotSchema,
+  SubscriptionSchema,
+  type MinuteSeries,
+} from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
+import type { MarketView } from "../../src/host/market";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { readySnapshot } from "../../src/testing/core";
-import type { TerminalContext } from "../contract";
 import { QuotePane } from "./QuotePane";
 import { feature } from "./feature";
 
 // The chart draws on a canvas; these tests read the note beneath it.
 vi.mock("@asterion/client-ui/IntradayChart", () => ({ IntradayChart: () => null }));
+vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
 registerTerminalFeatures([feature]);
 
-const row: LiveMarket["subscriptions"][number] = {
-  venue: "SHFE",
-  symbol: "rb2610",
+const row = create(SubscriptionSchema, {
+  instrument: { venue: "SHFE", symbol: "rb2610" },
   state: "subscribed",
-  error_code: 0,
-  quote: null,
-};
-// Two market services that both observe the contract.
-const service = (name: string): LiveMarket => ({
-  ...readySnapshot().market!,
-  service: `market-${name}`,
-  instance_id: `instance-${name}`,
-  phase: "connected",
-  subscriptions: [row],
 });
-// What a service answers: the day's series as it has observed it since this
-// hour, Shanghai time.
-const answer = (market: LiveMarket, since: number): Snapshot => {
-  const intraday: IntradaySeries = {
-    service: market.service,
-    instance_id: market.instance_id,
-    venue: row.venue,
-    symbol: row.symbol,
-    trading_day: "20261013",
-    first_observation_ms: Date.UTC(2026, 9, 13, since - 8),
-    interrupted: false,
-    previous_settlement: "3500",
+// The market service as one of its processes observes the contract.
+const service = (instance: string): MarketView => ({
+  snapshot: create(SnapshotSchema, {
+    instanceId: instance,
+    phase: "connected",
+    subscriptions: [row],
+  }),
+  online: true,
+  ticks: [],
+  generation: 1,
+  interrupted: false,
+});
+// What the service answers: the day's series of a contract as it has observed
+// it since this hour, Shanghai time.
+const answer = (since: number, symbol = "rb2610"): MinuteSeries => {
+  const start = BigInt(Date.UTC(2026, 9, 13, since - 8));
+  return create(MinuteSeriesSchema, {
+    instrument: { venue: "SHFE", symbol },
+    tradingDay: "20261013",
+    firstObservationMs: start,
+    previousSettlement: "3500",
     bars: [
       {
-        start_ms: Date.UTC(2026, 9, 13, since - 8),
+        startMs: start,
         open: "3500",
         high: "3500",
         low: "3500",
         close: "3500",
-        volume: 1,
-        average_price: "3500",
-        open_interest: "1",
+        volume: 1n,
+        averagePrice: "3500",
+        openInterest: "1",
       },
     ],
-  };
-  return { ...readySnapshot(), market, intraday };
+  });
 };
+let replies: ((series: MinuteSeries) => void)[] = [];
+beforeEach(() => {
+  replies = [];
+  vi.mocked(marketData).mockImplementation(
+    () => new Promise(resolve => replies.push(resolve as (series: MinuteSeries) => void)),
+  );
+});
 // The pane on its intraday chart, with every read left for the test to answer.
-function mount(market: LiveMarket) {
-  const replies: ((result: Snapshot) => void)[] = [];
-  const query: TerminalContext["query"] = () => new Promise(resolve => replies.push(resolve));
+function mount(market: MarketView) {
   const store = createWorkspaceDrafts();
-  const pane = (selected: LiveMarket) => (
+  const pane = (selected: MarketView) => (
     <WorkspaceDraftScope store={store} namespace="test">
       <QuotePane
         context={{
-          snapshot: { ...readySnapshot(), market: selected },
+          snapshot: readySnapshot(),
           busy: false,
           error: "",
-          query,
           navigate: () => {},
           openSettings: () => {},
           trade: async () => {},
@@ -80,32 +89,26 @@ function mount(market: LiveMarket) {
     </WorkspaceDraftScope>
   );
   const view = render(pane(market));
-  return { replies, select: (next: LiveMarket) => view.rerender(pane(next)) };
+  return (next: MarketView) => view.rerender(pane(next));
 }
 const note = () => screen.queryByText(/Market 服务观测/)?.textContent ?? null;
 
-test("another market service's series is asked for afresh and a late reply is dropped", async () => {
-  const [first, second] = [service("a"), service("b")];
-  const { replies, select } = mount(first);
+test("a restarted market service's series is asked for afresh and a late reply is dropped", async () => {
+  const select = mount(service("a"));
   expect(replies).toHaveLength(1);
-  // The other service is selected while the first has not answered yet.
-  select(second);
+  // The service starts again while the first read has not been answered.
+  select(service("b"));
   expect(replies).toHaveLength(2);
-  await act(async () => replies[0](answer(first, 10)));
+  await act(async () => replies[0]!(answer(10)));
   expect(note()).toBeNull();
   expect(document.body.textContent).toContain("读取中");
-  await act(async () => replies[1](answer(second, 11)));
+  await act(async () => replies[1]!(answer(11)));
   expect(note()).toContain("11:00");
-  // The same service started again observes from a new beginning.
-  select({ ...second, instance_id: "instance-b-again" });
-  expect(replies).toHaveLength(3);
-  expect(note()).toBeNull();
 });
 
-test("a series that names another market service is refused", async () => {
-  const [first, second] = [service("a"), service("b")];
-  const { replies } = mount(second);
-  await act(async () => replies[0](answer(first, 10)));
+test("a series of another contract is refused", async () => {
+  mount(service("a"));
+  await act(async () => replies[0]!(answer(10, "rb2611")));
   expect(note()).toBeNull();
-  expect(screen.getByRole("alert").textContent).toBe("返回的数据不属于当前行情服务");
+  expect(screen.getByRole("alert").textContent).toBe("返回的数据与所选合约不匹配");
 });

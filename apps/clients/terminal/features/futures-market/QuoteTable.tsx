@@ -1,29 +1,27 @@
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
 import { getLocale, translate } from "../contract";
-import type { LiveMarket } from "../../src/bridge/client";
+import type { Subscription } from "../../src/generated/asterion/market_pb";
+import { rowKey, type MarketView } from "../../src/host/market";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function quoteStatus(
-  market: LiveMarket,
-  row: LiveMarket["subscriptions"][number],
-  now = Date.now(),
-) {
+export function quoteStatus(market: MarketView, row: Subscription, now = Date.now()) {
   const q = row.quote;
-  if (!market.transport_online || market.phase !== "connected")
+  if (!market.online || market.snapshot.phase !== "connected")
     return t(q ? "断线 · 旧报价" : "行情未连接");
   if (row.state === "error") return t("订阅失败");
   if (row.state !== "subscribed") return t("订阅中");
   if (!q) return t("等待首笔");
-  if (!q.source_ms) return t("时间未知");
-  if (q.source_ms > now + 5000) return t("来源时间超前");
-  return t(now - q.source_ms > 30000 || now - q.received_ms > 30000 ? "行情未更新" : "实时");
+  const source = Number(q.sourceMs);
+  if (!source) return t("时间未知");
+  if (source > now + 5000) return t("来源时间超前");
+  return t(now - source > 30000 || now - Number(q.receivedMs) > 30000 ? "行情未更新" : "实时");
 }
 // Display-only change relative to previous settlement; never a ledger calculation.
-export function quoteChange(row: LiveMarket["subscriptions"][number]) {
+export function quoteChange(row: Subscription) {
   const q = row.quote;
-  if (q?.last == null || q.previous_settlement == null) return null;
+  if (q?.last == null || q.previousSettlement == null) return null;
   const last = Number(q.last),
-    base = Number(q.previous_settlement);
+    base = Number(q.previousSettlement);
   if (!Number.isFinite(last) || !Number.isFinite(base) || base <= 0) return null;
   return { amount: last - base, percent: ((last - base) / base) * 100 };
 }
@@ -34,12 +32,13 @@ const overviewHeadings: Record<string, string> = {
   涨跌幅: "涨跌幅(结)",
   持仓量: "持仓",
 };
-function speed(row: LiveMarket["subscriptions"][number]) {
-  const value = row.change_1m_percent == null ? NaN : Number(row.change_1m_percent);
+function speed(row: Subscription) {
+  const value = row.change1mPercent == null ? NaN : Number(row.change1mPercent);
   return Number.isFinite(value) ? value : null;
 }
 export function QuoteTable({
   market,
+  rows = market.snapshot.subscriptions,
   overviewStyle = false,
   selected,
   onSelect,
@@ -51,10 +50,12 @@ export function QuoteTable({
   columns = quoteColumns,
 }: {
   columns?: readonly QuoteColumn[];
-  nameFor?: (row: LiveMarket["subscriptions"][number]) => string | undefined;
+  nameFor?: (row: Subscription) => string | undefined;
   sort?: { column: string; direction: "ascending" | "descending" };
   onSort?: (column: string) => void;
-  market: LiveMarket;
+  market: MarketView;
+  // The rows to show, in order; all of the market's rows by default.
+  rows?: readonly Subscription[];
   overviewStyle?: boolean;
   selected?: string;
   onSelect?: (id: string) => void;
@@ -120,7 +121,9 @@ export function QuoteTable({
           </tr>
         </thead>
         <tbody>
-          {market.subscriptions.map(row => {
+          {rows.map(row => {
+            const id = rowKey(row);
+            const { venue, symbol } = row.instrument!;
             const name = nameFor?.(row);
             const q = row.quote;
             const change = quoteChange(row);
@@ -134,49 +137,49 @@ export function QuoteTable({
             return (
               <tr
                 title={quoteStatus(market, row)}
-                key={`${row.venue}.${row.symbol}`}
-                data-selected={selected === `${row.venue}.${row.symbol}`}
+                key={id}
+                data-selected={selected === id}
                 onClick={
                   onSelect
                     ? event => {
-                        onSelect(`${row.venue}.${row.symbol}`);
+                        onSelect(id);
                         event.currentTarget
                           .querySelector<HTMLButtonElement>(".quote-select")
                           ?.focus({ preventScroll: true });
                       }
                     : undefined
                 }
-                onDoubleClick={onOpen ? () => onOpen(`${row.venue}.${row.symbol}`) : undefined}
+                onDoubleClick={onOpen ? () => onOpen(id) : undefined}
               >
                 <td>
                   {onSelect ? (
                     <button
                       className="quote-select"
-                      data-quote-id={`${row.venue}.${row.symbol}`}
-                      aria-label={row.symbol}
-                      title={name ? `${name} · ${row.symbol}` : row.symbol}
-                      aria-pressed={selected === `${row.venue}.${row.symbol}`}
+                      data-quote-id={id}
+                      aria-label={symbol}
+                      title={name ? `${name} · ${symbol}` : symbol}
+                      aria-pressed={selected === id}
                       onKeyDown={event => {
                         if (event.key === "Enter" && onOpen) {
                           event.preventDefault();
-                          onOpen(`${row.venue}.${row.symbol}`);
+                          onOpen(id);
                           return;
                         }
                         if (!onNavigate || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
                         event.preventDefault();
-                        onNavigate(`${row.venue}.${row.symbol}`, event.key === "ArrowUp" ? -1 : 1);
+                        onNavigate(id, event.key === "ArrowUp" ? -1 : 1);
                       }}
                     >
-                      {name ?? row.symbol}
+                      {name ?? symbol}
                     </button>
                   ) : (
-                    <strong>{row.symbol}</strong>
+                    <strong>{symbol}</strong>
                   )}
-                  <small className="quote-venue">{row.venue}</small>
+                  <small className="quote-venue">{venue}</small>
                   {onSelect && !overviewStyle && quoteStatus(market, row) !== t("实时") && (
                     <small className="quote-inline-status">
                       {quoteStatus(market, row)}
-                      {row.error_code !== 0 && ` · CTP ${row.error_code}`}
+                      {row.errorCode !== 0 && ` · CTP ${row.errorCode}`}
                     </small>
                   )}
                 </td>
@@ -203,10 +206,10 @@ export function QuoteTable({
                           ? (q?.last ?? "—")
                           : column === "持仓量"
                             ? overviewStyle &&
-                              q?.open_interest != null &&
-                              Number(q.open_interest) >= 10000
-                              ? `${(Number(q.open_interest) / 10000).toFixed(2)}${getLocale() === "zh-CN" ? "万" : " ×10k"}`
-                              : (q?.open_interest ?? "—")
+                              q?.openInterest != null &&
+                              Number(q.openInterest) >= 10000
+                              ? `${(Number(q.openInterest) / 10000).toFixed(2)}${getLocale() === "zh-CN" ? "万" : " ×10k"}`
+                              : (q?.openInterest ?? "—")
                             : column === "成交量"
                               ? (q?.volume ?? "—")
                               : !change
@@ -222,25 +225,25 @@ export function QuoteTable({
                       {q?.last ?? "—"}
                     </td>
                     <td className="numeric">
-                      {q?.bid ?? "—"} / {q?.bid_quantity ?? "—"}
+                      {q?.bid ?? "—"} / {q?.bidQuantity ?? "—"}
                     </td>
                     <td className="numeric">
-                      {q?.ask ?? "—"} / {q?.ask_quantity ?? "—"}
+                      {q?.ask ?? "—"} / {q?.askQuantity ?? "—"}
                     </td>
                     <>
                       <td className="numeric">{q?.volume ?? "—"}</td>
-                      <td className="numeric">{q?.open_interest ?? "—"}</td>
+                      <td className="numeric">{q?.openInterest ?? "—"}</td>
                     </>
                     <td>
-                      {q?.source_ms ? (
+                      {q?.sourceMs ? (
                         <time
-                          dateTime={new Date(q.source_ms).toISOString()}
-                          title={new Date(q.source_ms).toLocaleString(getLocale(), {
+                          dateTime={new Date(Number(q.sourceMs)).toISOString()}
+                          title={new Date(Number(q.sourceMs)).toLocaleString(getLocale(), {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}
                         >
-                          {new Date(q.source_ms).toLocaleString(getLocale(), {
+                          {new Date(Number(q.sourceMs)).toLocaleString(getLocale(), {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}
@@ -254,9 +257,9 @@ export function QuoteTable({
                 {!onSelect && (
                   <td className="quote-status">
                     <span className="quote-status-label">{quoteStatus(market, row)}</span>
-                    {row.error_code !== 0 && (
+                    {row.errorCode !== 0 && (
                       <details>
-                        <summary>{t("详情")}</summary>CTP {row.error_code}
+                        <summary>{t("详情")}</summary>CTP {row.errorCode}
                       </details>
                     )}
                   </td>

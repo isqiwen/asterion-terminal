@@ -1,4 +1,5 @@
 import { MarketBoard } from "./MarketBoard";
+import { useMarket } from "../../src/host/market";
 import { useState } from "react";
 import {
   ErrorNotice,
@@ -16,11 +17,11 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const [venue, setVenue] = useState("SHFE"),
     [symbol, setSymbol] = useState("");
   const [error, setError] = useState<DisplayError>("");
-  const market = context.snapshot?.market;
+  const market = useMarket();
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const watched = endpoint?.instruments ?? [];
-  const phase = market ? (market.transport_online ? market.phase : "unreachable") : "closed";
+  const phase = market ? (market.online ? market.snapshot.phase : "unreachable") : "closed";
   const phases: Record<string, string> = {
     closed: t("尚未连接行情服务"),
     disconnected: t("服务尚未连接柜台"),
@@ -74,14 +75,19 @@ export function LivePanel({ context }: { context: TerminalContext }) {
             <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
           </div>
         )}
-        {!!market?.error_code && (
+        {!!market?.snapshot.errorCode && (
           <p role="alert">
-            {t("行情连接异常，请检查配置或服务时段。")} CTP {market.error_code}
+            {t("行情连接异常，请检查配置或服务时段。")} CTP {market.snapshot.errorCode}
           </p>
         )}
-        {market?.catalog?.phase === "error" && (
+        {market?.snapshot.catalog?.phase === "error" && (
           <ErrorNotice
-            error={new BackendError(market.catalog.error_code, market.catalog.diagnostic)}
+            error={
+              new BackendError(
+                market.snapshot.catalog.errorCode,
+                market.snapshot.catalog.diagnostic,
+              )
+            }
           />
         )}
         <details className="market-config">
@@ -143,10 +149,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
         {market && (
           <details className="market-config">
             <summary>{t("连接详情")}</summary>
-            <p>
-              {market.service} · {market.instance_id}
-            </p>
-            <p>{t("忽略乱序报价：{count}", { count: market.out_of_order })}</p>
+            <p>{market.snapshot.instanceId}</p>
+            <p>{t("忽略乱序报价：{count}", { count: String(market.snapshot.outOfOrder) })}</p>
           </details>
         )}
       </div>

@@ -1,13 +1,14 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
+import { useMarket } from "../../src/host/market";
 import { useWorkspaceDraft, type TerminalContext } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
 import type { TradingAccount } from "../../src/generated/asterion/trading_pb";
 import {
   t,
-  key,
   environmentName,
+  listedKey,
   policyContract,
   riskLimits,
   type LimitsDraft,
@@ -17,11 +18,10 @@ import {
 export function CreateLive({
   account,
   configuration,
-  snapshot,
   busy,
   run,
   openSettings,
-}: Pick<TerminalContext, "snapshot" | "busy" | "openSettings"> & {
+}: Pick<TerminalContext, "busy" | "openSettings"> & {
   account: TradingConnection;
   configuration: TradingAccount;
   run: Run;
@@ -37,7 +37,7 @@ export function CreateLive({
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
   const [choice, setChoice] = useState("");
-  const catalog = snapshot?.market?.catalog;
+  const catalog = useMarket()?.snapshot.catalog;
   const listed = catalog?.phase === "ready" ? catalog.contracts : [];
   return (
     <>
@@ -65,7 +65,7 @@ export function CreateLive({
               risk: riskLimits(limits),
               maxPriceDeviation: decimal(limits.max_price_deviation),
               contracts: contracts.map(value =>
-                policyContract(listed.find(item => key(item) === value)!),
+                policyContract(listed.find(item => listedKey(item) === value)!),
               ),
             },
           })).then(created => {
@@ -95,7 +95,7 @@ export function CreateLive({
                   </label>
                   <datalist id="live-catalog">
                     {listed.map(item => (
-                      <option key={key(item)} value={key(item)}>
+                      <option key={listedKey(item)} value={listedKey(item)}>
                         {item.name}
                       </option>
                     ))}
@@ -103,7 +103,7 @@ export function CreateLive({
                   <button
                     type="button"
                     disabled={
-                      !listed.some(item => key(item) === choice) ||
+                      !listed.some(item => listedKey(item) === choice) ||
                       contracts.includes(choice) ||
                       contracts.length >= 20
                     }

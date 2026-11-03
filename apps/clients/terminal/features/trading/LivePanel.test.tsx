@@ -96,7 +96,6 @@ const show = (namespace: string) =>
           snapshot={snapshot}
           busy={false}
           error=""
-          query={async () => snapshot}
           navigate={() => {}}
           openSettings={() => {}}
           trade={async () => {}}

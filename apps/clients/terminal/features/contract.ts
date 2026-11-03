@@ -1,5 +1,4 @@
 // Reads a feature may make through `query`; anything that acts goes through `trade`.
-export type QueryCommand = "market.minutes" | "market.recording";
 import type { CommandHandler } from "../src/bridge/commands";
 export { useWorkspaceDraft } from "../src/host/workspace/drafts";
 export { save } from "../src/bridge/desktop";
@@ -46,7 +45,6 @@ export type TerminalContext = {
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
   openSettings: (page?: "preferences" | "connections" | "trading" | "sources" | "research") => void;
-  query: CommandHandler<Snapshot, QueryCommand>;
   trade: CommandHandler;
 };
 // Built-in application features share the typed application context.

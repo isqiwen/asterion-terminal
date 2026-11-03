@@ -31,7 +31,7 @@
 | 7 | M3.13 | 研究与界面小修 | 完成：7 项均有测试；h>1 的 t 值改用有效样本数 天数 / h，而非隔 h 天抽样 | |
 | 8 | M3.14 | 文档与代码瘦身 | 完成：主题文档从约 1950 行减到约 700 行；删除只为卸载清理旧钥匙串而保留的凭据代码 | |
 | 9 | M3.3 | 实例操作与监控（剩余部分） | 完成：暂停新增、平仓、最近事件和桌面通知；外部推送渠道未做 | M3.9 |
-| 10 | M3.4 | 客户端收敛 | 进行中：M3.4.1 账户完成（交易页经 `trading.call` 用生成的类型）；M3.4.2 行情待做 | |
+| 10 | M3.4 | 客户端收敛 | 进行中：账户与行情都改为页面用生成的类型（`trading.call`、`market.call`、`market.watch`）；待接真实 Market 记录每帧大小和界面耗时；`pnpm test:desktop` 的行情列设置一步缺 Market 夹具 | |
 | 11 | M3.6 | 两周仿真浸泡 | 待做（使用者） | M3.3、M3.9、M3.10 |
 | 12 | M4.0 | 实盘换月 | 待做 | M3.6 |
 | 13 | M4.1–M4.4 | 多因子组合 | 未开始 | M4.0 |
@@ -170,7 +170,7 @@
 设计：
 - **TLS 连接和私钥留在原生层**，不进入页面或 Electron 主进程的 JS；原生层只按保存的地址建立连接并原样转发，不再解析业务字段。理由：私钥已在原生层管理，改动最小。
 - **M3.4.1 账户**：新增 `trading.call {account, request}`，把 `trading.proto` 的 `Request` 原样转发、返回 `Response`，取代 `trading.strategy` 和全部 `live.*` 命令。交易页用生成的 `LiveSnapshot` 类型，打开的账户每秒读一次快照（同时最多一个在途）；状态栏和连接详情读同一份。删除 `commands_live.cpp`、`TradingClient` 的视图和渲染、`protocol/src/trading.cpp` 的界面映射、`client.ts` 里 `LiveSession` 等手写类型，`runtime.snapshot` 不再含账户。
-- **M3.4.2 行情**：新增 `market.call`（取代 `market.data`、`market.minutes`、`market.recording`）和 `market.watch`：为页面打开一条 Market `watch` 流，原生层按顺序转发服务端的帧（首帧完整，之后只有变化的行），页面用生成的类型自己维护报价表。删除 `market_client`、`market_snapshot`、`market_history` 的投影、`protocol/src/market.cpp`、`runtime.snapshot` 中的行情和 `client.ts` 的 `LiveMarket` 等类型。
+- **M3.4.2 行情**：新增 `market.call`（取代 `market.data`、`market.minutes`、`market.recording`）和 `market.watch`：原生层为页面保持一条 Market `watch` 流并按顺序排队帧，页面每 0.5 秒取走（首帧完整，之后只有变化的行），用生成的类型自己维护报价表；没有完整首帧时要求重开流。Tick 图取自这些帧。删除 `market_snapshot`、`market_history` 的投影、`protocol/src/market.cpp` 的界面映射、`runtime.snapshot` 中的行情和 `client.ts` 的 `LiveMarket` 等类型。
 - 不变：连接设置文件、证书生成、Lab 通道、本机服务看护、Python 运行时安装。
 
 完成标准：
