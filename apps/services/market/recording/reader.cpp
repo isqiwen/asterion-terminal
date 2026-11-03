@@ -168,4 +168,22 @@ wire::Minutes Reader::minutes(const wire::MinutesQuery& request)
     return out;
 }
 
+std::vector<InstrumentId> Reader::instruments(const std::string& trading_day)
+{
+    require_trading_day(trading_day);
+    const auto folder = root_ / "minutes" / ("trading_day=" + trading_day);
+    if (!has_parquet(folder))
+        return {};
+    duckdb::Connection connection(*database_);
+    const auto result = query(
+        connection,
+        "SELECT DISTINCT venue, symbol FROM read_parquet(" + parquet::literal(folder / "*.parquet")
+            + ") ORDER BY venue, symbol",
+        {});
+    std::vector<InstrumentId> out;
+    for (duckdb::idx_t row = 0; row < result->RowCount(); ++row)
+        out.push_back({result->GetValue(0, row).ToString(), result->GetValue(1, row).ToString()});
+    return out;
+}
+
 } // namespace asterion::recording

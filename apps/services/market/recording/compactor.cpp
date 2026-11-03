@@ -21,14 +21,18 @@ Compactor::Status Compactor::status() const
     return status_;
 }
 
-void Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall)
+std::optional<std::string>
+Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall)
 {
     if (finished_.valid()) {
         if (finished_.wait_for(0s) != std::future_status::ready)
-            return;
+            return {};
         std::lock_guard lock(mutex_);
+        std::optional<std::string> merged;
         try {
             finished_.get();
+            if (!merged_.empty())
+                merged = std::exchange(merged_, {});
             status_.error.clear();
         } catch (const std::exception& error) {
             status_.error = error.what();
@@ -36,10 +40,10 @@ void Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_cloc
             log::error("market recording merge failed: {}", status_.error);
         }
         status_.day.clear();
-        return;
+        return merged;
     }
     if (!quiet || now < next_)
-        return;
+        return {};
     next_ = now + 1min;
     finished_ = worker_.submit([this, wall](std::stop_token stop) {
         const auto days = compactable_days(root_, wall, stop);
@@ -57,13 +61,17 @@ void Compactor::poll(bool quiet, Clock::time_point now, std::chrono::system_cloc
         }
         if (stop.stop_requested())
             return;
-        // Old ticks go once every finished day is merged.
-        if (!days.empty())
+        if (!days.empty()) {
             compact_day(root_, days.front(), stop);
-        else
-            for (const auto& day : prune_ticks(root_, tick_days_))
-                log::info("market recording ticks removed: trading_day={}", day);
+            std::lock_guard state(mutex_);
+            merged_ = days.front();
+            return;
+        }
+        // Old ticks go once every finished day is merged.
+        for (const auto& day : prune_ticks(root_, tick_days_))
+            log::info("market recording ticks removed: trading_day={}", day);
     });
+    return {};
 }
 
 } // namespace asterion::recording

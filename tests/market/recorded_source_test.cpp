@@ -51,13 +51,17 @@ protected:
         ASSERT_TRUE(recorder.status().error.empty()) << recorder.status().error;
     }
 
-    ac::wire::Task publish(ac::Manager& manager, const std::string& id, bool refresh = false)
+    ac::wire::Task publish(
+        ac::Manager& manager,
+        const std::string& id,
+        bool refresh = false,
+        const std::string& contract = "SHFE/rb/2027-01")
     {
         ac::wire::Request request;
         request.set_id(id);
         request.set_provider("recorder");
         request.set_table("minutes");
-        request.set_contract("SHFE/rb/2027-01");
+        request.set_contract(contract);
         request.set_begin_day("2026-10-28");
         request.set_end_day("2026-10-29");
         request.set_refresh(refresh);
@@ -179,6 +183,38 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
     ASSERT_EQ(publish(manager, "after-merge", true).state(), "succeeded");
     EXPECT_EQ(store.read(store.current(), key).size(), 4);
     EXPECT_EQ(store.read(original, key), baseline);
+}
+
+TEST_F(RecordedSource, AMergedDayIsReportedAndEveryContractOfItReachesResearch)
+{
+    record("first");
+    record("copper", base, {"SHFE", "cu2612"}, "80000");
+    recording::Compactor compactor(root / "recordings", archive, 30);
+    auto now = recording::Compactor::Clock::now();
+    const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
+    std::optional<std::string> merged;
+    const auto deadline = now + 5s;
+    for (bool quiet = true; !merged && recording::Compactor::Clock::now() < deadline;
+        quiet = false) {
+        merged = compactor.poll(quiet, now, wall);
+        std::this_thread::sleep_for(5ms);
+    }
+    ASSERT_EQ(merged, "20261028") << compactor.status().error;
+    ac::Manager manager(root, {{"recorder", factory()}});
+    const auto task = publish(manager, "day", true, "");
+    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    std::map<std::string, std::string> research;
+    const wh::Store store(wh::source_directory(root, "research"), "research");
+    for (const auto& [key, part] : store.current().partitions)
+        research[key] = part.source;
+    EXPECT_EQ(
+        research,
+        (std::map<std::string, std::string>{
+            {"minutes/SHFE/2026-10-28/cu/2026-12", "recorder"},
+            {"minutes/SHFE/2026-10-28/rb/2027-01", "recorder"},
+            {"observations/SHFE/2026-10-28/cu/2026-12", "recorder"},
+            {"observations/SHFE/2026-10-28/rb/2027-01", "recorder"}
+        }));
 }
 
 TEST_F(RecordedSource, MaintenanceShutdownDoesNotWaitForAnArchiveReader)

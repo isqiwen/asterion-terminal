@@ -59,8 +59,16 @@ struct State
     bool catalog_wanted = false;
     Clock::time_point next_login{}, next_catalog{}, quiet_since = Clock::now();
     recording::Compactor compactor;
+    acquisition::Manager& acquisitions;
+    // Merged trading days (YYYYMMDD) whose recorded minutes are still to be
+    // published; tried again each minute while acquisition is busy.
+    std::set<std::string> unpublished;
+    Clock::time_point next_publish{};
 
-    State(const Session::Configuration& config, std::shared_ptr<std::shared_mutex> archive)
+    State(
+        const Session::Configuration& config,
+        std::shared_ptr<std::shared_mutex> archive,
+        acquisition::Manager& manager)
         : service(config.service),
           instance(config.instance),
           directory(config.settings.directory),
@@ -68,7 +76,8 @@ struct State
           catalog_sdk(config.settings.ctp_catalog_library),
           catalog(sdk_owner),
           settings(config.settings),
-          compactor(directory / "recordings", std::move(archive), config.settings.tick_days)
+          compactor(directory / "recordings", std::move(archive), config.settings.tick_days),
+          acquisitions(manager)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
         {
@@ -184,7 +193,36 @@ struct State
         if (recorder) {
             recorder->poll(now_ms(), intraday);
             const auto now = Clock::now();
-            compactor.poll(now - quiet_since >= 30min, now, std::chrono::system_clock::now());
+            if (const auto day = compactor
+                    .poll(now - quiet_since >= 30min, now, std::chrono::system_clock::now()))
+                unpublished.insert(*day);
+            publish_recorded(now);
+        }
+    }
+
+    // Every contract's minutes of a merged day go to the recorder source, and
+    // so to research. A merge after late quotes publishes the day again.
+    void publish_recorded(Clock::time_point now)
+    {
+        if (unpublished.empty() || now < next_publish)
+            return;
+        next_publish = now + 1min;
+        const auto day = *unpublished.begin();
+        asterion::acquisition::proto::Request request;
+        request.set_id("recorded-" + day + "-" + unique_process_id().substr(0, 8));
+        request.set_provider("recorder");
+        request.set_table("minutes");
+        request.set_begin_day(day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6));
+        request.set_end_day(request.begin_day());
+        request.set_refresh(true);
+        try {
+            acquisitions.submit(request);
+            unpublished.erase(day);
+        } catch (const Error& error) {
+            // Another task of the recorder, or both workers, are busy.
+            if (error.code() != ErrorCode::conflict
+                && error.code() != ErrorCode::resource_exhausted)
+                throw;
         }
     }
 
@@ -386,7 +424,7 @@ struct Session::Loop
         thread = std::jthread([this, config = std::move(config)](std::stop_token stop) {
             try {
                 {
-                    State state(config, archive);
+                    State state(config, archive, acquisitions);
                     while (!stop.stop_requested()) {
                         state.advance();
                         for (int i = 0; i < 4; ++i) {

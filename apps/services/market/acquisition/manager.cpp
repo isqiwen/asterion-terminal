@@ -41,7 +41,11 @@ void validate(wire::Request& request)
         && request.table() != "contracts" && request.table() != "minutes"
         && request.table() != "settlement")
         throw std::invalid_argument("acquisition table is not implemented");
-    if (request.table() == "minutes") {
+    if (request.table() == "minutes" && request.contract().empty()) {
+        // Every contract the source holds on those days.
+        if (request.exchanges_size())
+            throw std::invalid_argument("a minute acquisition of every contract names no exchange");
+    } else if (request.table() == "minutes") {
         require_contract(request.contract());
         const auto exchange = request.contract().substr(0, request.contract().find('/'));
         if (request.exchanges().empty())
@@ -336,13 +340,22 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
     };
     if (request.table() == "minutes" || request.table() == "settlement"
         || !source.supports("calendar", request.exchanges(0))) {
-        std::vector<std::pair<std::string, std::string>> plan;
-        for (const auto& exchange : request.exchanges())
-            for (auto day = first; day <= last; day += std::chrono::days(1)) {
-                const auto weekday = std::chrono::weekday(day).iso_encoding();
-                if (request.table() == "minutes" || weekday < 6)
-                    plan.emplace_back(exchange, day_text(day));
-            }
+        // Exchange, day and, for minutes, contract of each partition.
+        std::vector<std::tuple<std::string, std::string, std::string>> plan;
+        if (request.table() == "minutes" && request.contract().empty())
+            for (auto day = first; day <= last; day += std::chrono::days(1))
+                for (const auto& contract : source.minute_contracts(day_text(day)))
+                    plan.emplace_back(
+                        contract.substr(0, contract.find('/')),
+                        day_text(day),
+                        contract);
+        else
+            for (const auto& exchange : request.exchanges())
+                for (auto day = first; day <= last; day += std::chrono::days(1)) {
+                    const auto weekday = std::chrono::weekday(day).iso_encoding();
+                    if (request.table() == "minutes" || weekday < 6)
+                        plan.emplace_back(exchange, day_text(day), request.contract());
+                }
         task.set_days_total(plan.size());
         publish(task, active);
         // Every version lists all partitions: publish in batches, and on
@@ -357,15 +370,15 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
             published_at = std::chrono::steady_clock::now();
         };
         try {
-            for (const auto& [exchange, day] : plan) {
+            for (const auto& [exchange, day, contract] : plan) {
                 check_stop(stop);
                 auto key = request.table() + "/" + exchange + "/" + day;
-                if (!request.contract().empty())
-                    key += "/" + request.contract().substr(exchange.size() + 1);
+                if (!contract.empty())
+                    key += "/" + contract.substr(exchange.size() + 1);
                 if (request.refresh() || !version.partitions.contains(key)) {
                     MinuteBatch batch;
                     if (request.table() == "minutes")
-                        batch = source.minutes(request.contract(), day);
+                        batch = source.minutes(contract, day);
                     else
                         batch.rows = request.table() == "settlement"
                             ? source.settlement(exchange, day)

@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/futures/market.hpp>
 #include <asterion/recording.pb.h>
 #include <duckdb.hpp>
 #include <filesystem>
@@ -16,6 +17,8 @@ public:
     recording::proto::Days days();
     std::vector<recording::proto::Segment> segments(const std::string& trading_day);
     recording::proto::Minutes minutes(const recording::proto::MinutesQuery& request);
+    // The instruments with recorded minutes on a trading day (YYYYMMDD).
+    std::vector<InstrumentId> instruments(const std::string& trading_day);
 
 private:
     const std::filesystem::path root_;

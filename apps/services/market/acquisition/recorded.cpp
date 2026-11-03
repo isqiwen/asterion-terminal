@@ -1,6 +1,7 @@
 #include "recorded.hpp"
 #include "recording/reader.hpp"
 #include <algorithm>
+#include <set>
 #include <thread>
 
 namespace asterion::market_data::acquisition {
@@ -97,6 +98,24 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
                 segment.end()});
     }
     return result;
+}
+
+std::vector<std::string> Recorded::minute_contracts(const std::string& day)
+{
+    day_of(day);
+    auto compact = day;
+    std::erase(compact, '-');
+    std::shared_lock lock(*archive_, std::defer_lock);
+    while (!lock.try_lock()) {
+        check_stop(stop_);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::set<std::string> contracts;
+    // A symbol that names no delivery on that day is left out, as minutes() would refuse it.
+    for (const auto& id : recording::Reader(root_).instruments(compact))
+        if (const auto contract = contract_of(id.venue, id.symbol, day))
+            contracts.insert(*contract);
+    return {contracts.begin(), contracts.end()};
 }
 
 } // namespace asterion::market_data::acquisition

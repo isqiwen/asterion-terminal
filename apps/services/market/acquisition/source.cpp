@@ -89,6 +89,11 @@ Rows Source::calendar(const std::string&, int)
     throw SourceError("unsupported", "source does not provide calendars");
 }
 
+std::vector<std::string> Source::minute_contracts(const std::string&)
+{
+    throw SourceError("unsupported", "name the contract of a minute acquisition");
+}
+
 Rows Source::contracts(const std::string&)
 {
     throw SourceError("unsupported", "source does not provide contracts");

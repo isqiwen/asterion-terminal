@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 
 namespace asterion::recording {
@@ -24,7 +25,9 @@ public:
         std::filesystem::path root,
         std::shared_ptr<std::shared_mutex> archive,
         unsigned tick_days);
-    void poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall);
+    // Returns a trading day (YYYYMMDD) whose merge has just completed.
+    std::optional<std::string>
+    poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall);
     Status status() const;
 
     bool running() const
@@ -40,6 +43,8 @@ private:
     Status status_;
     Clock::time_point next_{};
     std::future<void> finished_;
+    // The day the finished job merged, if it merged one.
+    std::string merged_;
     // Destroyed first: stop and join before the state the callback uses.
     ThreadPool worker_{1, 1};
 };

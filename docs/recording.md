@@ -68,8 +68,8 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 
 ## 发布研究版本
 
-在 Terminal「数据 → 数据覆盖」选择「Market 录制」，填写合约（`EXCHANGE/product/YYYY-MM`）和交易日范围，点「发布录制分钟」（需要 `manage` 权限）。Market 把已落盘的分钟线和对应观测段一起提交为 `recorder` 来源的固定版本，Lab 用 `minute_provider=recorder` 读取。
+每个交易日合并完成后，Market 自动把当天全部合约的录制分钟线和对应观测段提交为 `recorder` 来源的新版本，再合成研究数据集（见 [Market](market.md#仓库与固定版本)）：Tushare 没有的合约交易日就用这些录制数据。采集正忙时每分钟重试；收盘后迟到的报价再次合并时，这一天会重新发布。
 
-- 默认跳过已发布的分区；勾选“重新发布”时生成新版本，旧版本保留。
+- 也可以在 Terminal「数据 → 数据覆盖」选择「Market 录制」，按合约和交易日范围手动发布或重新发布（需要 `manage` 权限）。
 - 柜台给出的交易日、`partial` 标记和缺失字段原样保留，不补缺口。
-- 合并与发布互斥，实时录制不等待。
+- 每次发布生成新版本，旧版本保留；合并与发布互斥，实时录制不等待。
