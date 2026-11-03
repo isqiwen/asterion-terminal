@@ -6,20 +6,9 @@
 
 ## 策略包
 
-策略仓库里用 `strategy.json` 列出要发布的代码：
-
-```json
-{
-  "name": "ma-cross",
-  "version": "1",
-  "entry": "strategies.ma_cross:MaCross",
-  "runtime": "python3.12-numpy2.3.5",
-  "files": ["strategies/ma_cross.py", "strategies/_rules.py"]
-}
-```
-
-- 只包含列出的 1–64 个 Python 文件，合计不超过 512 KiB；不含账户、参数、行情或回测结果。策略从共享模块 `asterion_strategy` 导入 `Strategy`，与研究使用同一套接口。
-- 交易页“准备策略包”读取这些文件（不导入代码），核对后“发布到此交易主机”。同名同版本不能覆盖；结果不明时先读取主机上的包列表，不自动重发。发布不启动实例，也不授权。
+- 交易页选一个策略，“准备策略包”读取策略目录里的全部 Python 文件（与回测复制的范围相同，不导入代码），核对后“发布到此交易主机”。包名是策略标识（如 `ma_cross.MaCross`），版本是准备时刻（如 `20261103-231502`），每次发布都是新版本。
+- 一个包最多 64 个 Python 文件、合计 512 KiB；不含账户、参数、行情或回测结果。策略从共享模块 `asterion_strategy` 导入 `Strategy`，与研究使用同一套接口。
+- 同名同版本不能覆盖；结果不明时先读取主机上的包列表，不自动重发。发布不启动实例，也不授权。
 - 包存放在 `data/<账户>/strategies/packages/<名称>/<版本>/`。
 - Trading 安装包自带 CPython 3.12、NumPy 2.3.5 和 Protobuf 5.29.3，安装和启动都不联网。
 

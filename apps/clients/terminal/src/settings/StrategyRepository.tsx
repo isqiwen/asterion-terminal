@@ -6,7 +6,7 @@ import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsSection } from "./Section";
 const t = (key: string) => translate("host", key);
-// Where the user's strategies live: a Git repository of their own. The
+// Where the user's strategies live, research/ of the project by default. The
 // Terminal keeps the directory; lab reads the strategies from it.
 export function StrategyRepository({
   snapshot,
@@ -37,7 +37,7 @@ export function StrategyRepository({
     <SettingsSection
       title={t("策略仓库")}
       description={t(
-        "你自己的 Git 仓库，策略写在其中 strategies/ 目录下的模块里。研究页从这里列出策略，运行时记下提交号和未提交的改动。",
+        "策略和因子所在的目录，选项目里的 research/。策略写在 strategies/，因子写在 factors/；目录在 Git 里时，运行会记下提交号。",
       )}
       actions={
         nativeDesktop && (

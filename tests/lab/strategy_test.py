@@ -171,24 +171,16 @@ class Repository(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_package_reads_only_declared_sources_without_importing_them(self):
+    def test_a_package_is_the_directorys_python_code_without_importing_it(self):
         from asterion_lab.package import build
         from asterion.strategy_pb2 import Build
-        request = Build(repository=str(self.root), manifest="strategy.json")
-        package = build(request)
-        self.assertEqual([file.path for file in package.files],
-                         ["strategies/ma_cross.py", "strategies/_rules.py"])
-        self.assertEqual(package.files[0].content, (self.root / "strategies/ma_cross.py").read_bytes())
-        # Preparing source does not require that it can be imported.
-        (self.root / "strategies/ma_cross.py").write_text("raise RuntimeError('do not import')\n")
-        self.assertIn(b"do not import", build(request).files[0].content)
-        with self.assertRaises(ValueError):
-            build(Build(repository=str(self.root), manifest="../strategy.json"))
-        helper = self.root / "strategies/_rules.py"
-        helper.unlink()
-        helper.symlink_to(self.root / "helpers.py")
-        with self.assertRaisesRegex(ValueError, "symbolic links"):
-            build(request)
+        package = build(Build(repository=str(self.root), strategy="ma_cross.MaCross"))
+        self.assertEqual(package.manifest.entry, "strategies.ma_cross:MaCross")
+        self.assertEqual([file.path for file in package.files], repository.python_files(self.root))
+        self.assertIn("strategies/broken.py", package.manifest.files)  # never imported
+        self.assertIn("helpers.py", package.manifest.files)
+        with self.assertRaisesRegex(ValueError, "no strategy"):
+            build(Build(repository=str(self.root), strategy="missing.Missing"))
 
     def test_listing(self):
         listed = repository.list_strategies(str(self.root))
@@ -237,12 +229,28 @@ class Repository(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "failed to import"):
             repository.load(self.root, "broken.Any", {})
 
-    def test_not_a_repository(self):
+    def test_a_directory_outside_git_is_a_strategy_directory_too(self):
         plain = Path(self.temporary.name) / "plain"
-        plain.mkdir()
-        for root in (str(plain), "relative", str(self.root / "strategies")):
-            with self.subTest(root=root), self.assertRaises(ValueError):
-                repository.list_strategies(root)
+        shutil.copytree(EXAMPLES, plain)
+        listed = repository.list_strategies(str(plain))
+        self.assertIn("ma_cross.MaCross", [entry.id for entry in listed.strategies])
+        self.assertEqual(repository.revision(plain), repository.Revision("", ""))
+        with self.assertRaises(ValueError):
+            repository.list_strategies("relative")
+
+    def test_a_subdirectory_of_a_work_tree_records_only_its_own_changes(self):
+        project = Path(self.temporary.name) / "project"
+        shutil.copytree(EXAMPLES, project / "research")
+        git(project, "init", "-q")
+        git(project, "add", ".")
+        git(project, "commit", "-qm", "project")
+        research = project / "research"
+        self.assertEqual(repository.revision(research).changes, "")
+        (project / "elsewhere.py").write_text("x = 1\n")
+        self.assertEqual(repository.revision(research).changes, "")
+        (research / "strategies/ma_cross.py").write_text("x = 2\n")
+        self.assertNotEqual(repository.revision(research).changes, "")
+        self.assertNotIn("elsewhere.py", repository.python_files(research))
 
     def test_service(self):
         class Log:

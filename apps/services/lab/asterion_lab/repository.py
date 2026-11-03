@@ -1,11 +1,12 @@
-"""The user's strategy repository: a Git work tree of their own (decision D5).
+"""The user's strategy directory, `research/` of the project by default.
 
 Its strategies are the Strategy subclasses defined in the modules of its
 `strategies/` directory, named `<module>.<class>`, and its factors the public
 functions defined in the modules of `factors/`, named `<module>.<function>`;
-modules import the repository's other code from its root, so a strategy can
-use a factor. A strategy's version is the commit;
-uncommitted changes are named by the digest of what differs from it.
+modules import the directory's other code from its root, so a strategy can
+use a factor. Inside a Git work tree, a strategy's version is the commit and
+uncommitted changes of the directory are named by the digest of what differs
+from it; outside one, the copy each run takes is the only record.
 
 Strategy code is the user's: it is imported only in a child process, so that
 a slow or broken module never holds up the service and every listing sees the
@@ -52,21 +53,35 @@ def git(root: Path, *arguments) -> bytes:
 def checked(root) -> Path:
     root = Path(root)
     if not root.is_absolute() or not root.is_dir():
-        raise ValueError(f"strategy repository is not a directory: {root}")
-    top = git(root, "rev-parse", "--show-toplevel").decode().strip()
-    if Path(top).resolve() != root.resolve():
-        raise ValueError(f"strategy repository is not the top of a Git work tree: {root}")
+        raise ValueError(f"strategy directory is not a directory: {root}")
     return root
 
 
-def revision(root: Path) -> Revision:
+def commit_of(root: Path) -> str:
+    """The commit of the Git work tree holding the directory, or empty."""
     try:
-        commit = git(root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+        return git(root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     except ValueError:
-        raise ValueError(f"strategy repository has no commit yet: {root}")
+        return ""
+
+
+def python_files(root: Path) -> list:
+    """The directory's Python files, Git's ignored ones left out."""
+    if commit_of(root):
+        names = [os.fsdecode(name) for name in git(
+            root, "ls-files", "-co", "--exclude-standard", "-z", "--", "*.py").split(b"\0") if name]
+    else:
+        names = [path.relative_to(root).as_posix() for path in root.rglob("*.py")]
+    return sorted(name for name in names if (root / name).is_file())
+
+
+def revision(root: Path) -> Revision:
+    commit = commit_of(root)
+    if not commit:
+        return Revision("", "")
     untracked = [path for path in git(root, "ls-files", "--others", "--exclude-standard", "-z")
                  .split(b"\0") if path]
-    tracked = git(root, "diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv")
+    tracked = git(root, "diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--", ".")
     if not tracked and not untracked:
         return Revision(commit, "")
     digest = hashlib.sha256(tracked)
@@ -81,9 +96,7 @@ def snapshot(root: Path, destination: Path) -> Revision:
     run, which then never reads the repository itself."""
     root = checked(root)
     taken = revision(root)
-    names = [os.fsdecode(name) for name in git(
-        root, "ls-files", "-co", "--exclude-standard", "-z", "--", "*.py").split(b"\0") if name]
-    files = [name for name in names if (root / name).is_file()]
+    files = python_files(root)
     if sum((root / name).stat().st_size for name in files) > SNAPSHOT_BYTES:
         raise ValueError(f"the repository's Python files exceed {SNAPSHOT_BYTES >> 20} MiB")
     destination.mkdir(parents=True, exist_ok=True)

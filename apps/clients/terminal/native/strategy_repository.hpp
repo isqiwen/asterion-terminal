@@ -4,9 +4,9 @@
 
 namespace asterion::terminal {
 
-// Which directory holds the user's strategies: a Git work tree of their own
-// (decision D5). The Terminal keeps it and names it in every request to lab
-// that reads strategies; lab checks it is a work tree when it reads one.
+// Which directory holds the user's strategies, research/ of the project by
+// default. The Terminal keeps it and names it in every request to lab that
+// reads strategies.
 class StrategyRepository
 {
 public:

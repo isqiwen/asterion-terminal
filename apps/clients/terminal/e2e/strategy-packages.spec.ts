@@ -23,26 +23,26 @@ test(
       await page.goto("/");
       await openView(page, "trading");
       const packages = page.getByRole("region", { name: "策略包", exact: true });
+      await packages
+        .getByRole("combobox", { name: "策略", exact: true })
+        .selectOption("ma_cross.MaCross");
       await packages.getByRole("button", { name: "准备策略包", exact: true }).click();
-      await expect(packages.getByText("ma-cross · 1", { exact: true })).toBeVisible();
-      await expect(
-        packages.getByText("strategies/ma_cross.py, strategies/_rules.py", { exact: true }),
-      ).toBeVisible();
+      await expect(packages.getByText(/^ma_cross\.MaCross · \d{8}-\d{6}$/)).toBeVisible();
+      await expect(packages.getByText(/strategies\/ma_cross\.py/)).toBeVisible();
       await packages.getByRole("button", { name: "发布到此交易主机", exact: true }).click();
-      await expect(packages.getByRole("listitem")).toContainText(
-        "ma-cross · 1 · strategies.ma_cross:MaCross",
-      );
+      await expect(packages.getByRole("listitem")).toContainText("strategies.ma_cross:MaCross");
       await expect(
         packages.getByRole("button", { name: "发布到此交易主机", exact: true }),
       ).toHaveCount(0);
       await tradingHost.restart();
       await packages.getByRole("button", { name: "读取主机策略包", exact: true }).click();
-      await expect(packages.getByRole("listitem")).toContainText("ma-cross · 1");
+      await expect(packages.getByRole("listitem")).toContainText("ma_cross.MaCross");
       const state = await rpc(page.request, "trading.call", {
         account: tradingHost.connection,
         request: { strategy: { inspect: {} } },
       });
       expect(state.trading.strategy.packages).toHaveLength(1);
+      const published = state.trading.strategy.packages[0];
       expect(state.trading.strategy.instance).toBeUndefined();
       const account = tradingHost.connection;
       await trading(page.request, account, await livePolicy(page.request));
@@ -54,7 +54,7 @@ test(
         await form.getByLabel("实例 ID", { exact: true }).fill(id);
         await form
           .getByRole("combobox", { name: "已发布版本", exact: true })
-          .selectOption("ma-cross/1");
+          .selectOption(`${published.name}/${published.version}`);
         await form.getByLabel("SHFE/rb2610", { exact: true }).check();
         await form.getByRole("button", { name: "核对启动配置", exact: true }).click();
       };

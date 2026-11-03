@@ -8,6 +8,7 @@ import {
   type State,
 } from "../../src/generated/asterion/strategy_pb";
 import { LiveSnapshotSchema, TradingEnvironment } from "../../src/generated/asterion/trading_pb";
+import { StrategiesSchema } from "../../src/generated/asterion/lab_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
@@ -26,6 +27,20 @@ const code = create(PackageSchema, {
   manifest: { name: "example", version: "one", entry: "rule:Example", files: ["rule.py"] },
   files: [{ path: "rule.py", content: new Uint8Array([35, 10]) }],
 });
+// Lab lists one strategy and builds `built` for it.
+const labAnswers = (built: () => Promise<typeof code>) =>
+  vi
+    .mocked(lab)
+    .mockImplementation((async (operation: { case: string }) =>
+      operation.case === "strategies"
+        ? create(StrategiesSchema, { strategies: [{ id: "rule.Example" }] })
+        : built()) as never);
+const choose = async () => {
+  await screen.findByRole("option", { name: "rule.Example" });
+  fireEvent.change(screen.getByRole("combobox", { name: "策略" }), {
+    target: { value: "rule.Example" },
+  });
+};
 const installed = () => create(StateSchema, { packages: [code.manifest!] });
 const configuration = create(InstanceSchema, {
   id: "run-a",
@@ -53,12 +68,13 @@ const live = create(LiveSnapshotSchema, {
 });
 
 test("the prepared files are reviewed and published only to the selected account, without starting", async () => {
-  vi.mocked(lab).mockResolvedValue(code);
+  labAnswers(async () => code);
   vi.mocked(strategyRequest).mockResolvedValue(create(StateSchema, { packages: [code.manifest!] }));
   render(<StrategyPackages account="account-a" repository="/strategies" />);
+  await choose();
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
   expect(lab).toHaveBeenCalledWith(
-    { case: "strategyPackage", value: { repository: "/strategies", manifest: "strategy.json" } },
+    { case: "strategyPackage", value: { repository: "/strategies", strategy: "rule.Example" } },
     "strategyPackage",
   );
   expect(screen.getByText("rule.py")).toBeDefined();
@@ -78,17 +94,19 @@ test("the prepared files are reviewed and published only to the selected account
 
 test("a repository change discards a late preparation; publishing an uncertain outcome is not retried", async () => {
   let finish: (value: typeof code) => void = () => {};
-  vi.mocked(lab).mockReturnValue(
-    new Promise(resolve => {
-      finish = resolve;
-    }),
+  labAnswers(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
   );
   const view = render(<StrategyPackages account="account-a" repository="/old" />);
+  await choose();
   fireEvent.click(screen.getByText("准备策略包"));
   view.rerender(<StrategyPackages account="account-a" repository="/new" />);
   await act(async () => finish(code));
   expect(screen.queryByText("发布到此交易主机")).toBeNull();
-  vi.mocked(lab).mockResolvedValue(code);
+  labAnswers(async () => code);
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
   vi.mocked(strategyRequest).mockRejectedValue(new Error("connection lost"));
   await act(async () => fireEvent.click(screen.getByText("发布到此交易主机")));

@@ -26,7 +26,7 @@ Lab 用保存在本机的 Market 地址和客户端证书直连 Market；没有�
 
 ## 策略
 
-策略写在使用者自己的 Git 仓库里，研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
+策略和因子写在策略目录里，默认是项目的 `research/`（设置里选一次），随项目一起提交；也可以选任何其他目录，不在 Git 里也能用。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
 
 ```python
 from asterion_strategy import Strategy
@@ -52,7 +52,7 @@ class MaCross(Strategy):
 - `on_bar` 每根完整 K 线调用一次；多品种策略改写 `on_bars`，同一时刻完成的 K 线一起给出，没有 K 线的品种不出现。
 - `ready(ctx)` 每次决策后报告是否就绪；未就绪时目标被丢弃。实盘要求策略显式实现它。
 - `ctx.history(symbol, field, count)` 返回最近 `count` 个值（只读 NumPy 数组）。`ctx.target(symbol, lots)` 给整数手数，`ctx.weights({symbol: weight})` 给权益占比，一个策略只用一种。目标从下一根 K 线起执行；手数换算、风控和金额都由 C++ 计算。
-- 记录的策略版本是提交号；有未提交改动时另记改动摘要。回测或扫描被接纳时，仓库里的 Python 文件（Git 跟踪的和未被忽略的，最多 16 MiB）复制到 `sources/`，这次回测、扫描的全部候选和滚动验证都从这份副本导入，之后修改仓库不影响它们。
+- 策略目录在 Git 里时，记录的策略版本是提交号，目录里有未提交改动时另记改动摘要。回测或扫描被接纳时，策略目录里的 Python 文件（Git 忽略的除外，最多 16 MiB）复制到 `sources/`，这次回测、扫描的全部候选和滚动验证都从这份副本导入，之后修改仓库不影响它们。
 
 ## 因子
 

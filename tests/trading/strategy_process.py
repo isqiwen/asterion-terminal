@@ -166,24 +166,23 @@ class TestStrategy(Strategy):
     def on_bar(self, ctx, bar):
         ctx.target(bar.symbol, self.params["lots"])
 '''
-            (repo / 'strategy.py').write_text(source_code)
+            (repo / 'strategies').mkdir()
+            (repo / 'strategies/strategy.py').write_text(source_code)
             (repo / 'helper.py').write_text('DEFAULT = 2\n')
             (repo / 'not-published.txt').write_text('test-only data excluded from the package')
-            manifest = dict(name='example', version='1', entry='strategy:TestStrategy',
-                            runtime='python3.12-numpy2.3.5', files=['strategy.py', 'helper.py'])
-            (repo / 'strategy.json').write_text(json.dumps(manifest))
-            package = build_package(strategy.Build(repository=str(repo), manifest='strategy.json'))
-            assert [f.path for f in package.files] == manifest['files']
+            package = build_package(strategy.Build(repository=str(repo), strategy='strategy.TestStrategy'))
+            assert [f.path for f in package.files] == ['helper.py', 'strategies/strategy.py']
+            name, version = package.manifest.name, package.manifest.version
             # Real Terminal native command, generated JSON and pinned mutual TLS.
             published = terminal_call(terminal, 'trading.call', dict(account='remote',
                 request=MessageToDict(trading.Request(strategy=strategy.Request(publish=package)))))['trading']['strategy']
-            assert published['packages'][0]['name'] == 'example'
+            assert published['packages'][0]['name'] == name
             assert rpc(host, strategy.Request(publish=package), True).code == 'conflict'
             invalid = strategy.Package(); invalid.CopyFrom(package)
             invalid.manifest.version = 'invalid'
             invalid.manifest.files[0] = '../escape.py'; invalid.files[0].path = '../escape.py'
             assert rpc(host, strategy.Request(publish=invalid), True).code == 'invalid_request'
-            assert not (host.root / 'data/account/strategies/packages/example/invalid').exists()
+            assert not (host.root / 'data/account/strategies/packages/strategy.TestStrategy/invalid').exists()
             invalid.CopyFrom(package); invalid.manifest.version = 'runtime'; invalid.manifest.runtime = 'unknown'
             assert rpc(host, strategy.Request(publish=invalid), True).code == 'invalid_request'
             invalid.CopyFrom(package); invalid.manifest.name = '..'; invalid.manifest.version = 'escape'
@@ -191,7 +190,7 @@ class TestStrategy(Strategy):
             assert not (host.root / 'data/account/strategies/escape').exists()
             # Repository deletion proves the instance reads installed code only.
             shutil.rmtree(repo)
-            config = strategy.Instance(id='first', package=strategy.PackageRef(name='example', version='1'),
+            config = strategy.Instance(id='first', package=strategy.PackageRef(name=name, version=version),
                                        contracts=['SHFE/rb2610'], period='1m',
                                        params={'lots': strategy.ParameterValue(integer=3)})
             assert rpc(host, strategy.Request(start=config), True).code == 'unavailable'

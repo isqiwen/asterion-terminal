@@ -214,7 +214,6 @@
   "保存地址": "Save address",
   "历史数据供应商": "History vendors",
   "交易": "Trading",
-  "你自己的 Git 仓库，策略写在其中 strategies/ 目录下的模块里。研究页从这里列出策略，运行时记下提交号和未提交的改动。": "A Git repository of your own, with strategies in the modules of its strategies/ directory. The research page lists them from here and records the commit and any uncommitted changes of every run.",
   "保存": "Save",
   "更换目录": "Change directory",
   "研究": "Research",
@@ -246,5 +245,6 @@
   "Market 独立接入与录制行情，向所有客户端提供实时流和历史数据。通过证书验证服务与客户端身份，柜台和历史供应商凭据在 Market 主机配置。": "Market independently collects and records data for all clients. Certificates verify both parties; broker and historical provider credentials stay on the Market host.",
   "在 Market 主机登记本机证书指纹，并授予只读或采集管理权限。": "Register this Terminal certificate fingerprint on the Market host with read or acquisition management permission.",
   "生成本机证书": "Create Terminal certificate",
-  "Market 服务证书指纹": "Market server certificate fingerprint"
+  "Market 服务证书指纹": "Market server certificate fingerprint",
+  "策略和因子所在的目录，选项目里的 research/。策略写在 strategies/，因子写在 factors/；目录在 Git 里时，运行会记下提交号。": "The directory of your strategies and factors: choose research/ of the project. Strategies go in strategies/, factors in factors/; inside Git, each run records the commit."
 }

@@ -10,8 +10,9 @@ message ParameterValue {
     string text = 4;
   }
 }
-// strategy.json, authored in the user's repository. Only these Python files
-// are published. A package has no account, instance parameters or market data.
+// What Lab builds from one strategy of the strategy directory. Only these
+// Python files are published. A package has no account, instance parameters
+// or market data.
 message Manifest {
   string name = 1;
   string version = 2;
@@ -28,8 +29,8 @@ message Package {
   repeated File files = 2;
 }
 message Build {
-  string repository = 1;
-  string manifest = 2; // relative path of the descriptor within that repository
+  string repository = 1; // the strategy directory
+  string strategy = 2; // <module>.<class> of its strategies/
 }
 message PackageRef {
   string name = 1;

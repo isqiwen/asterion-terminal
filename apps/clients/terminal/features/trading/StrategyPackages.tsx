@@ -28,7 +28,8 @@ export function StrategyPackages(props: Props) {
 }
 
 function AccountStrategies({ account, repository, live, connected = false }: Props) {
-  const [manifest, setManifest] = useState("strategy.json");
+  const [strategies, setStrategies] = useState<string[]>([]);
+  const [strategy, setStrategy] = useState("");
   const [preparation, setPreparation] = useState<{ repository: string; value: Package }>();
   const prepared = preparation?.repository === repository ? preparation.value : undefined;
   const [state, setState] = useState<State>();
@@ -72,6 +73,17 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       if (active.current) setReading(false);
     }
   }, [account]);
+  useEffect(() => {
+    if (!repository) return;
+    let current = true;
+    void lab({ case: "strategies", value: { repository } }, "strategies").then(
+      listed => current && setStrategies(listed.strategies.map(item => item.id)),
+      reason => current && setError(asDisplayError(reason)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [repository]);
   useEffect(() => {
     active.current = true;
     ++sequence.current;
@@ -158,23 +170,30 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       ) : (
         <>
           <label>
-            {t("包描述文件")}
-            <input
-              value={manifest}
+            {t("策略")}
+            <select
+              value={strategy}
               disabled={busy}
               onChange={event => {
-                setManifest(event.target.value);
+                setStrategy(event.target.value);
                 setPreparation(undefined);
               }}
-            />
+            >
+              <option value="">{t("选择策略")}</option>
+              {strategies.map(id => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
           </label>
           <button
-            disabled={busy || !manifest}
+            disabled={busy || !strategy}
             onClick={() =>
               void perform(async () => {
                 setPreparation(undefined);
                 const value = await lab(
-                  { case: "strategyPackage", value: { repository, manifest } },
+                  { case: "strategyPackage", value: { repository, strategy } },
                   "strategyPackage",
                 );
                 setPreparation({ repository, value });
