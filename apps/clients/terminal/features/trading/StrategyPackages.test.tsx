@@ -1,13 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Period } from "../../src/generated/asterion/common_pb";
+import { InstanceSchema, PackageSchema } from "../../src/generated/asterion/strategy_pb";
 import {
-  InstanceSchema,
-  PackageSchema,
-  StateSchema,
-  type State,
-} from "../../src/generated/asterion/strategy_pb";
-import { LiveSnapshotSchema, TradingEnvironment } from "../../src/generated/asterion/trading_pb";
+  AccountSchema,
+  BrokerState,
+  Environment,
+  InstanceState,
+  StrategiesSchema as HostStrategiesSchema,
+  type Strategies,
+} from "../../src/generated/asterion/trading_pb";
 import { StrategiesSchema } from "../../src/generated/asterion/lab_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
@@ -42,35 +45,44 @@ const choose = async () => {
     target: { value: "rule.Example" },
   });
 };
-const installed = () => create(StateSchema, { packages: [code.manifest!] });
+const installed = () => create(HostStrategiesSchema, { packages: [code.manifest!] });
+const rb = { exchange: "SHFE", symbol: "rb2610" };
 const configuration = create(InstanceSchema, {
   id: "run-a",
-  package: { name: "example", version: "one" },
-  contracts: ["SHFE/rb2610"],
-  period: "1m",
+  packageName: "example",
+  packageVersion: "one",
+  instruments: [rb],
+  period: Period.MINUTES_1,
 });
-const runtime = (state: string) =>
-  create(StateSchema, {
+const runtime = (state: InstanceState) =>
+  create(HostStrategiesSchema, {
     packages: [code.manifest!],
-    instance: { configuration, state, completedSteps: 2n },
+    instance: { instance: configuration, state, completedSteps: 2n },
   });
 const writes = () =>
-  vi.mocked(strategyRequest).mock.calls.filter(([, operation]) => operation?.case !== "inspect");
+  vi
+    .mocked(strategyRequest)
+    .mock.calls.filter(([, operation]) => operation.case !== "getStrategies");
 const click = async (name: string) =>
   act(async () => fireEvent.click(screen.getByRole("button", { name })));
 // The account the strategy would trade, as Trading reports it.
-const live = create(LiveSnapshotSchema, {
-  environment: TradingEnvironment.BROKER_SIMULATION,
+const record = create(AccountSchema, {
+  id: "record",
+  environment: Environment.SIMULATION,
   broker: { brokerId: "9999", userId: "000001", front: "tcp://test", appId: "test" },
-  phase: "ready",
-  positionsReconciled: true,
-  policyRevision: "policy-a",
-  contracts: [{ venue: "SHFE", symbol: "rb2610", product: "rb", deliveryMonth: "2026-10" }],
+  session: {
+    brokerState: BrokerState.READY,
+    positionsReconciled: true,
+    policyRevision: "policy-a",
+    policy: { contracts: [{ instrument: rb, product: "rb", deliveryMonth: "2026-10" }] },
+  },
 });
 
 test("the prepared files are reviewed and published only to the selected account, without starting", async () => {
   labAnswers(async () => code);
-  vi.mocked(strategyRequest).mockResolvedValue(create(StateSchema, { packages: [code.manifest!] }));
+  vi.mocked(strategyRequest).mockResolvedValue(
+    create(HostStrategiesSchema, { packages: [code.manifest!] }),
+  );
   render(<StrategyPackages account="account-a" repository="/strategies" />);
   await choose();
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
@@ -85,7 +97,7 @@ test("the prepared files are reviewed and published only to the selected account
     [
       "account-a",
       {
-        case: "publish",
+        case: "publishStrategy",
         value: code,
       },
     ],
@@ -127,19 +139,21 @@ test("a repository change discards a late preparation; publishing an uncertain o
 
 test("review sends explicit configuration and exact values only on confirmation, without authorizing", async () => {
   vi.mocked(strategyRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "start"
-      ? create(StateSchema, {
+    operation.case === "startStrategy"
+      ? create(HostStrategiesSchema, {
           packages: [code.manifest!],
-          instance: { configuration: operation.value, state: "warming" },
+          instance: { instance: operation.value, state: InstanceState.WARMING },
         })
       : installed(),
   );
-  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
+  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
-  fireEvent.click(screen.getByLabelText("SHFE/rb2610"));
-  fireEvent.change(screen.getByLabelText("K 线周期"), { target: { value: "5m" } });
+  fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
+  fireEvent.change(screen.getByLabelText("K 线周期"), {
+    target: { value: String(Period.MINUTES_5) },
+  });
   await click("添加参数");
   fireEvent.change(screen.getByLabelText("参数名 1"), { target: { value: "window" } });
   fireEvent.change(screen.getByLabelText("参数值 1"), { target: { value: "9007199254740993" } });
@@ -152,21 +166,21 @@ test("review sends explicit configuration and exact values only on confirmation,
   expect(writes()).toHaveLength(1);
   const [account, operation] = writes()[0];
   expect(account).toBe("account-a");
-  expect(operation?.case).toBe("start");
-  if (operation?.case !== "start") throw new Error("missing start");
+  expect(operation.case).toBe("startStrategy");
+  if (operation.case !== "startStrategy") throw new Error("missing start");
   expect(operation.value).toMatchObject({
     id: "new-run",
-    contracts: ["SHFE/rb2610"],
-    period: "5m",
-    weightBudget: { grossUnits: 100000001n, netUnits: 0n },
+    instruments: [rb],
+    period: Period.MINUTES_5,
+    weightLimits: { gross: { text: "1.00000001" }, net: { text: "0" } },
     params: { window: { value: { case: "integer", value: 9007199254740993n } } },
   });
   expect(screen.getByText("正在现场预热")).toBeDefined();
 });
 
 test("an ended instance resumes from its record under a new id after review", async () => {
-  vi.mocked(strategyRequest).mockResolvedValue(runtime("interrupted"));
-  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
+  vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.INTERRUPTED));
+  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
   await click("从实例 run-a 的记录恢复");
@@ -174,7 +188,7 @@ test("an ended instance resumes from its record under a new id after review", as
   expect(writes()).toEqual([]);
   await click("确认启动");
   const [, operation] = writes()[0];
-  if (operation?.case !== "start") throw new Error("missing start");
+  if (operation.case !== "startStrategy") throw new Error("missing start");
   expect(operation.value).toMatchObject({ ...configuration, id: "run-b", resumeFrom: "run-a" });
   expect(configuration.resumeFrom).toBe("");
 });
@@ -189,39 +203,43 @@ test("pause and flatten act on the inspected instance; a failure raises a deskto
       }
     },
   );
-  const ready = create(StateSchema, {
+  const ready = create(HostStrategiesSchema, {
     packages: [code.manifest!],
     instance: {
-      configuration,
-      state: "ready",
+      instance: configuration,
+      state: InstanceState.READY,
       events: [{ timeMs: 1n, text: "sent SHFE/rb2610 buy open 1 @ 3501" }],
     },
   });
   vi.mocked(strategyRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "flatten"
-      ? create(StateSchema, {
+    operation.case === "flattenStrategy"
+      ? create(HostStrategiesSchema, {
           packages: [code.manifest!],
-          instance: { configuration, state: "failed", error: "broker rejected a strategy order" },
+          instance: {
+            instance: configuration,
+            state: InstanceState.FAILED,
+            error: "broker rejected a strategy order",
+          },
         })
       : ready,
   );
-  render(<StrategyPackages account="account-a" repository="" live={live} connected />);
+  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByText(/sent SHFE\/rb2610/)).toBeDefined());
   await click("暂停新增");
-  expect(writes()[0][1]).toEqual({ case: "pause", value: { instanceId: "run-a", paused: true } });
+  expect(writes()[0][1]).toEqual({ case: "pauseStrategy", value: { id: "run-a", paused: true } });
   await click("平仓");
   expect(writes()).toHaveLength(1);
   await click("确认平仓");
-  expect(writes()[1][1]).toEqual({ case: "flatten", value: { instanceId: "run-a" } });
+  expect(writes()[1][1]).toEqual({ case: "flattenStrategy", value: { id: "run-a" } });
   expect(shown).toHaveBeenCalledWith("策略实例 run-a", "broker rejected a strategy order");
   vi.unstubAllGlobals();
 });
 
 test("stop remains available during an inspection and a late reply cannot resurrect the stopped instance", async () => {
-  vi.mocked(strategyRequest).mockResolvedValue(runtime("warming"));
+  vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.WARMING));
   render(<StrategyPackages account="account-a" repository="" />);
   await waitFor(() => expect(screen.getByText("正在现场预热")).toBeDefined());
-  let reply!: (value: State) => void;
+  let reply!: (value: Strategies) => void;
   vi.mocked(strategyRequest).mockReturnValueOnce(
     new Promise(resolve => {
       reply = resolve;
@@ -230,23 +248,28 @@ test("stop remains available during an inspection and a late reply cannot resurr
   fireEvent.click(screen.getByRole("button", { name: "读取主机策略包" }));
   await click("停止策略并撤单");
   expect(writes()).toEqual([]);
-  vi.mocked(strategyRequest).mockResolvedValueOnce(runtime("stopped"));
+  vi.mocked(strategyRequest).mockResolvedValueOnce(runtime(InstanceState.STOPPED));
   await click("确认停止并撤单");
-  expect(writes()).toEqual([["account-a", { case: "stop", value: { instanceId: "run-a" } }]]);
-  await act(async () => reply(runtime("warming")));
+  expect(writes()).toEqual([["account-a", { case: "stopStrategy", value: { id: "run-a" } }]]);
+  await act(async () => reply(runtime(InstanceState.WARMING)));
   expect(screen.getByText("已停止")).toBeDefined();
   expect(screen.queryByText("正在现场预热")).toBeNull();
 });
 
 test("a changed account policy requires reviewing the configuration again before starting", async () => {
   const props = { account: "account-a", repository: "", connected: true };
-  const view = render(<StrategyPackages {...props} live={live} />);
+  const view = render(<StrategyPackages {...props} record={record} />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
-  fireEvent.click(screen.getByLabelText("SHFE/rb2610"));
+  fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   await click("核对启动配置");
-  view.rerender(<StrategyPackages {...props} live={{ ...live, policyRevision: "policy-b" }} />);
+  view.rerender(
+    <StrategyPackages
+      {...props}
+      record={{ ...record, session: { ...record.session!, policyRevision: "policy-b" } }}
+    />,
+  );
   expect(screen.getByRole("alert").textContent).toContain("账户政策已变化");
   await click("确认启动");
   expect(writes()).toEqual([]);
@@ -259,7 +282,7 @@ test("a changed account policy requires reviewing the configuration again before
 
 test("polling is read-only; failures preserve stale state and unmount never stops trading", async () => {
   vi.useFakeTimers();
-  vi.mocked(strategyRequest).mockResolvedValue(runtime("ready"));
+  vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.READY));
   const view = render(<StrategyPackages account="account-a" repository="" />);
   await act(async () => {});
   vi.mocked(strategyRequest).mockRejectedValue(new Error("connection lost"));
@@ -279,7 +302,7 @@ test("polling is read-only; failures preserve stale state and unmount never stop
 });
 
 test("switching accounts discards a previous host's late response", async () => {
-  let reply!: (value: State) => void;
+  let reply!: (value: Strategies) => void;
   vi.mocked(strategyRequest).mockReturnValueOnce(
     new Promise(resolve => {
       reply = resolve;
@@ -287,7 +310,10 @@ test("switching accounts discards a previous host's late response", async () => 
   );
   const view = render(<StrategyPackages account="account-a" repository="" />);
   view.rerender(<StrategyPackages account="account-b" repository="" />);
-  await act(async () => reply(runtime("ready")));
+  await act(async () => reply(runtime(InstanceState.READY)));
   expect(screen.queryByText("策略已就绪")).toBeNull();
-  expect(strategyRequest).toHaveBeenLastCalledWith("account-b", { case: "inspect", value: {} });
+  expect(strategyRequest).toHaveBeenLastCalledWith("account-b", {
+    case: "getStrategies",
+    value: {},
+  });
 });

@@ -42,7 +42,8 @@ for name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS',
     os.environ[name] = '1'
 
 import numpy
-from asterion.strategy_pb2 import ChildRequest, ChildReply, Decision
+from asterion.common_pb2 import ErrorCode
+from asterion.strategy_pb2 import Decision, Request, Response
 from asterion_strategy import Strategy, Context, Bar, step
 
 
@@ -58,7 +59,7 @@ def receive(channel):
     size, = struct.unpack('!I', exact(4))
     if not 0 < size <= 65536:
         raise ValueError('invalid strategy frame size')
-    return ChildRequest.FromString(exact(size))
+    return Request.FromString(exact(size))
 
 
 def reply(channel, value):
@@ -75,7 +76,7 @@ def main():
         with listener.accept()[0] as channel:
             try:
                 request = receive(channel)
-                if request.WhichOneof('operation') != 'load':
+                if request.WhichOneof('call') != 'load':
                     raise ValueError('first strategy request must load an instance')
                 if sys.version_info[:2] != (3, 12) or numpy.__version__ != '2.3.5':
                     raise ValueError('strategy requires Python 3.12 and NumPy 2.3.5')
@@ -94,39 +95,42 @@ def main():
                         raise ValueError(f'missing parameter value: {key}')
                     params[key] = getattr(value, field)
                 strategy = cls(**params)
-                context = Context(request.load.contracts)
-                reply(channel, ChildReply(loaded=True))
+                context = Context([f'{i.exchange}/{i.symbol}' for i in request.load.instruments])
+                reply(channel, Response(load={}))
                 sequence = 0
                 while True:
                     request = receive(channel)
-                    operation = request.WhichOneof('operation')
+                    operation = request.WhichOneof('call')
                     if operation == 'stop':
                         break
                     if operation != 'bars' or request.bars.sequence != sequence + 1:
                         raise ValueError('strategy inputs must arrive once in sequence')
-                    bars = [Bar(row.contract, row.contract,
+                    bars = [Bar(f'{row.instrument.exchange}/{row.instrument.symbol}',
+                        f'{row.instrument.exchange}/{row.instrument.symbol}',
                         datetime.datetime.fromtimestamp(row.end_ms / 1000,
                             datetime.timezone(datetime.timedelta(hours=8))),
-                        row.open_units / 1e8, row.high_units / 1e8,
-                        row.low_units / 1e8, row.close_units / 1e8,
-                        row.volume, row.open_interest_units / 1e8)
+                        float(row.open.text), float(row.high.text),
+                        float(row.low.text), float(row.close.text),
+                        row.volume, float(row.open_interest.text))
                         for row in request.bars.bars]
                     wanted = step(strategy, context, bars)
                     sequence = request.bars.sequence
                     decision = Decision(sequence=sequence, ready=context.ready)
                     for contract, value in wanted.items():
-                        target = decision.targets.add(contract=contract)
+                        exchange, symbol = contract.split('/')
+                        target = decision.targets.add(instrument=dict(exchange=exchange, symbol=symbol))
                         if context.mode == 'target':
                             target.lots = value
                         else:
-                            target.weight_units = int((Decimal(str(value)) * 100000000)
-                                .to_integral_value(rounding=ROUND_HALF_EVEN))
-                    reply(channel, ChildReply(decision=decision))
+                            target.weight.text = str(Decimal(str(value)).quantize(
+                                Decimal('0.00000001'), rounding=ROUND_HALF_EVEN).normalize())
+                    reply(channel, Response(bars=decision))
                 del strategy, context
             except EOFError:
                 return
             except Exception as error:
-                reply(channel, ChildReply(error=f'{type(error).__name__}: {error}'[:4096]))
+                reply(channel, Response(error=dict(code=ErrorCode.ERROR_CODE_OPERATION_FAILED,
+                    message=f'{type(error).__name__}: {error}'[:4096])))
 
 
 if __name__ == '__main__':

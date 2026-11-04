@@ -32,33 +32,44 @@ export async function marketState(request: APIRequestContext) {
 // The account policy the trading page creates: rb2610 from the CTP catalog,
 // 5 per order, 10 in total, 2 working orders, 2% from the latest price.
 export async function livePolicy(request: APIRequestContext) {
-  const units = (value: number) => ({ units: String(Math.round(value * 1e8)) });
   const catalog = (await marketState(request)).catalog;
   const row = catalog.contracts.find(
     (item: { instrument: { symbol: string } }) => item.instrument.symbol === "rb2610",
   );
   const [, product, deliveryMonth] = row.contract.split("/");
   return {
-    liveCreate: {
-      risk: { maxOrderQuantity: units(5), maxGrossQuantity: units(10), maxWorkingOrders: "2" },
-      maxPriceDeviation: units(0.02),
+    openAccount: {
+      limits: { maxOrderLots: { text: "5" }, maxGrossLots: { text: "10" }, maxWorkingOrders: 2 },
+      maxPriceDeviation: { text: "0.02" },
       contracts: [
         {
-          venue: row.instrument.exchange,
-          symbol: row.instrument.symbol,
-          currency: "CNY",
-          priceIncrement: units(Number(row.priceTick.text)),
-          quantityIncrement: units(1),
-          multiplier: units(row.multiplier),
+          instrument: row.instrument,
           product,
           deliveryMonth,
+          multiplier: { text: String(row.multiplier) },
+          priceTick: row.priceTick,
+          lotSize: { text: "1" },
         },
       ],
     },
   };
 }
 
-// The account as its Trading service reports it now.
+// The account as its Trading service reports it now, with its open session.
 export async function liveAccount(request: APIRequestContext, account: string) {
-  return (await trading(request, account, { attach: {} })).live;
+  return (await trading(request, account, { getAccount: {} })).getAccount;
+}
+
+// The account's strategy packages and instance.
+export async function strategies(request: APIRequestContext, account: string) {
+  return (await trading(request, account, { getStrategies: {} })).getStrategies;
+}
+
+// Polls until the account's broker session is ready.
+export async function brokerReady(request: APIRequestContext, account: string) {
+  await expect
+    .poll(async () => (await liveAccount(request, account)).session?.brokerState, {
+      timeout: 20000,
+    })
+    .toBe("BROKER_STATE_READY");
 }

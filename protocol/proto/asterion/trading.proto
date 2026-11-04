@@ -1,282 +1,301 @@
 syntax = "proto3";
-import "asterion/health.proto";
-package asterion.protocol.proto;
-
-import "asterion/domain.proto";
+package trading;
+import "asterion/common.proto";
 import "asterion/strategy.proto";
 
-// Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
-message Costs {
-  Decimal margin_per_lot = 1;
-  Decimal open_fee = 2;
-  Decimal close_today_fee = 3;
-  Decimal close_yesterday_fee = 4;
-  Decimal margin_rate = 5;
-  Decimal open_fee_rate = 6;
-  Decimal close_today_fee_rate = 7;
-  Decimal close_yesterday_fee_rate = 8;
+// Trading: one CTP account, its orders and its strategy instance.
+
+message Request {
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_health = 10;
+    common.Empty get_account = 11;
+    Policy open_account = 12;
+    common.Empty connect_broker = 13;
+    common.Empty disconnect_broker = 14;
+    common.Empty query_costs = 15;
+    Command send_command = 16;
+
+    common.Empty get_strategies = 20;
+    strategy.Package publish_strategy = 21;
+    strategy.Instance start_strategy = 22;
+    InstanceId stop_strategy = 23;
+    PauseStrategy pause_strategy = 24;
+    InstanceId flatten_strategy = 25;
+  }
 }
-message CostVersion {
-  string effective_from = 1;
-  string source = 2;
-  Costs values = 3;
+
+message Response {
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Health get_health = 10;
+    Account get_account = 11;
+    Account open_account = 12;
+    Account connect_broker = 13;
+    Account disconnect_broker = 14;
+    Account query_costs = 15;
+    Account send_command = 16;
+
+    Strategies get_strategies = 20;
+    Strategies publish_strategy = 21;
+    Strategies start_strategy = 22;
+    Strategies stop_strategy = 23;
+    Strategies pause_strategy = 24;
+    Strategies flatten_strategy = 25;
+  }
 }
-message CostSchedule {
-  repeated CostVersion versions = 1;
+
+// ---- Health
+
+message Health {
+  bool account_open = 1;
+  bool recovery_required = 2;
+  bool ready = 3;
+  Progress io = 4;
+  Progress initialization = 5;
+  Progress state = 6;
+  Progress persistence = 7;
+  Progress command = 8;
 }
-message RiskLimits {
-  Decimal max_order_quantity = 1;
-  Decimal max_gross_quantity = 2;
-  uint64 max_working_orders = 3;
+
+// How long one loop of the service has gone without progress.
+message Progress {
+  bool observed = 1;
+  bool pending = 2;
+  uint64 idle_ms = 3;
 }
-// A CTP futures account. Non-secret identities only: the password and the
-// authentication code stay in the trading host's systemd credentials.
-message LiveBroker {
+
+// ---- Account
+
+enum Environment {
+  ENVIRONMENT_UNSPECIFIED = 0;
+  ENVIRONMENT_REAL = 1;
+  ENVIRONMENT_SIMULATION = 2;
+}
+
+// Without the password and authentication code: those stay on the host.
+message Broker {
   string front = 1;
   string broker_id = 2;
   string user_id = 3;
   string app_id = 4;
 }
-// A policy is independent of the account and of physical journal segments.
-message LivePolicy {
-  RiskLimits risk = 1;
-  repeated Contract contracts = 2;
-  Decimal max_price_deviation = 3;
-}
-message LivePolicyChange {
-  LivePolicy policy = 1;
+
+message Account {
+  string id = 1;
+  Environment environment = 2;
+  Broker broker = 3;
+  // Absent until open_account.
+  Session session = 4;
 }
 
-enum TradingEnvironment {
-  UNSPECIFIED_TRADING_ENVIRONMENT = 0;
-  REAL = 1;
-  BROKER_SIMULATION = 2;
+enum BrokerState {
+  BROKER_STATE_UNSPECIFIED = 0;
+  BROKER_STATE_DISCONNECTED = 1;
+  BROKER_STATE_CONNECTING = 2;
+  BROKER_STATE_AUTHENTICATING = 3;
+  BROKER_STATE_LOGGING_IN = 4;
+  BROKER_STATE_CONFIRMING = 5;
+  BROKER_STATE_SYNCHRONIZING = 6;
+  BROKER_STATE_READY = 7;
+  BROKER_STATE_FAILED = 8;
 }
 
-message LiveInput {
-  LiveBroker broker = 1;
-  LivePolicy policy = 2;
-  string account_id = 3;
-  TradingEnvironment environment = 4;
-}
-message TradingAccount {
-  string account_id = 1;
-  LiveBroker broker = 2;
-  TradingEnvironment environment = 3;
-}
-// The owner confirms the account by its user ID. The permission lasts across
-// connections and trading days.
-message LiveAuthorize {
-  string user_id = 1;
-}
-// The owner verified at the broker that an unconfirmed order does not exist;
-// it stops counting as working exposure. It is never resent either way.
-message LiveResolve {
-  string order_id = 1;
+message Session {
+  Policy policy = 1;
+  string policy_revision = 2;
+  BrokerState broker_state = 3;
+  int32 ctp_error = 4;
+  string trading_day = 5;
+  // Lasts until revoked, the policy changes or Trading restarts.
+  optional int64 authorized_ms = 6;
+  bool positions_reconciled = 7;
+  bool recovery_required = 8;
+  Funds funds = 9;
+  repeated Position positions = 10;
+  repeated Order orders = 11;
+  repeated Trade trades = 12;
+  // Recorded as sent but not reported by the broker; never resent.
+  repeated UnconfirmedOrder unconfirmed = 13;
+  repeated ContractCosts costs = 14;
+  Journal journal = 15;
 }
 
-enum Side {
-  SIDE_UNSPECIFIED = 0;
-  BUY = 1;
-  SELL = 2;
+// The account journal's use of its limits; a full journal refuses commands.
+message Journal {
+  uint64 records = 1;
+  uint64 records_limit = 2;
+  uint64 bytes = 3;
+  uint64 bytes_limit = 4;
+  uint64 segments = 5;
 }
 
-// Which sides of a contract a strategy may hold. Unspecified is invalid.
-enum PositionSides {
-  POSITION_SIDES_UNSPECIFIED = 0;
-  LONG_AND_SHORT = 1;
-  LONG_ONLY = 2;
-  SHORT_ONLY = 3;
+message Policy {
+  common.RiskLimits limits = 1;
+  common.Decimal max_price_deviation = 2;
+  repeated ContractTerms contracts = 3;
 }
 
-// CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
-enum Offset {
-  OFFSET_UNSPECIFIED = 0;
-  OPEN = 1;
-  CLOSE_TODAY = 2;
-  CLOSE_YESTERDAY = 3;
-  CLOSE = 4;
+message ContractTerms {
+  common.Instrument instrument = 1;
+  string product = 2;
+  string delivery_month = 3;
+  common.Decimal multiplier = 4;
+  common.Decimal price_tick = 5;
+  common.Decimal lot_size = 6;
+}
+
+message Funds {
+  common.Decimal balance = 1;
+  common.Decimal available = 2;
+  common.Decimal margin = 3;
+  common.Decimal commission = 4;
+  common.Decimal close_profit = 5;
+  common.Decimal position_profit = 6;
+}
+
+message Position {
+  common.Instrument instrument = 1;
+  common.Side side = 2;
+  common.Decimal today_lots = 3;
+  common.Decimal yesterday_lots = 4;
 }
 
 enum OrderState {
   ORDER_STATE_UNSPECIFIED = 0;
-  ACCEPTED = 1;
-  PARTIALLY_FILLED = 2;
-  FILLED = 3;
-  CANCELLED = 4;
-  REJECTED = 5;
+  ORDER_STATE_SUBMITTED = 1;
+  ORDER_STATE_ACCEPTED = 2;
+  ORDER_STATE_PARTIALLY_FILLED = 3;
+  ORDER_STATE_FILLED = 4;
+  ORDER_STATE_CANCELLED = 5;
+  ORDER_STATE_REJECTED = 6;
 }
 
-message Empty {}
-message Submit {
-  string order_id = 1;
-  string venue = 2;
-  string symbol = 3;
-  Side side = 4;
-  Offset offset = 5;
-  Decimal quantity = 6;
-  Decimal price = 7;
-}
-message Cancel {
-  string order_id = 1;
-}
-message Command {
-  string request_id = 1;
-  oneof operation {
-    Submit submit = 2;
-    Cancel cancel = 3;
-    LiveAuthorize live_authorize = 4;
-    Empty live_revoke = 5;
-    LiveResolve live_resolve = 6;
-    LivePolicyChange live_policy = 7;
-  }
-}
-// A connection is bound to one immutable process session.
-message Request {
-  uint32 version = 1;
-  string session_id = 2;
-  string correlation_id = 3;
-  // Stable account identity, required for commands.
-  string account_id = 4;
-  // The policy reviewed by the caller; required for every command.
-  string policy_revision = 5;
-  oneof operation {
-    Empty snapshot = 10;
-    Command command = 12;
-    Empty shutdown = 13;
-    Empty attach = 14;
-    Empty heartbeat = 15;
-    LivePolicy live_create = 16;
-    Empty live_connect = 17;
-    Empty live_disconnect = 18;
-    Empty live_costs = 19;
-    asterion.strategy.proto.Request strategy = 20;
-  }
-}
-// Broker-reported account state; the broker owns the live ledger.
-message LiveFunds {
-  Decimal balance = 1;
-  Decimal available = 2;
-  Decimal margin = 3;
-  Decimal commission = 4;
-  Decimal close_profit = 5;
-  Decimal position_profit = 6;
-}
-message LivePosition {
-  string venue = 1;
-  string symbol = 2;
-  Side side = 3;
-  Decimal today = 4;
-  Decimal yesterday = 5;
-}
-// status: submitted, accepted, partially_filled, filled, cancelled, rejected.
-message LiveOrder {
+message Order {
   string id = 1;
   string broker_key = 2;
-  string exchange_order_id = 3;
-  string venue = 4;
-  string symbol = 5;
-  Side side = 6;
-  Offset offset = 7;
-  Decimal quantity = 8;
-  Decimal filled = 9;
-  Decimal limit_price = 10;
-  string status = 11;
-  int32 error_code = 12;
+  common.Instrument instrument = 3;
+  common.Side side = 4;
+  common.Offset offset = 5;
+  common.Decimal lots = 6;
+  common.Decimal filled_lots = 7;
+  common.Decimal price = 8;
+  OrderState state = 9;
+  int32 ctp_error = 10;
 }
-message LiveTrade {
+
+message Trade {
   string id = 1;
   string order_id = 2;
-  string venue = 3;
-  string symbol = 4;
-  Side side = 5;
-  Offset offset = 6;
-  Decimal quantity = 7;
-  Decimal price = 8;
-  string trading_day = 9;
-  string trade_time = 10;
+  common.Instrument instrument = 3;
+  common.Side side = 4;
+  common.Offset offset = 5;
+  common.Decimal lots = 6;
+  common.Decimal price = 7;
+  string trading_day = 8;
+  // HH:MM:SS Beijing time, as the counter reports it; the counter gives no
+  // calendar date for night trades.
+  string trade_time = 9;
 }
-// An order this session recorded for sending that the synchronized broker
-// does not report. It is never resent.
+
 message UnconfirmedOrder {
   string id = 1;
   string broker_key = 2;
   string trading_day = 3;
 }
-// The account's margin and commission rates for one contract, as the broker
-// reports them. state: querying, ready or unavailable; costs only when ready.
-message LiveCosts {
-  string venue = 1;
-  string symbol = 2;
-  string state = 3;
-  int32 error_code = 4;
-  int64 queried_ms = 5;
-  Costs costs = 6;
+
+enum CostsState {
+  COSTS_STATE_UNSPECIFIED = 0;
+  COSTS_STATE_QUERYING = 1;
+  COSTS_STATE_READY = 2;
+  COSTS_STATE_UNAVAILABLE = 3;
 }
-// Lasts until the owner revokes it, the policy changes or the service restarts.
-message LiveAuthorization {
-  int64 authorized_at_ms = 1;
+
+// The account's own rates, as the broker reports them.
+message ContractCosts {
+  common.Instrument instrument = 1;
+  CostsState state = 2;
+  int32 ctp_error = 3;
+  common.Costs costs = 4;
 }
-message JournalCapacity {
-  uint64 records_used = 1;
-  uint64 records_limit = 2;
-  uint64 bytes_used = 3;
-  uint64 bytes_limit = 4;
-}
-message LiveSnapshot {
-  LiveBroker broker = 1;
-  RiskLimits risk = 2;
-  repeated Contract contracts = 3;
-  // disconnected, connecting, authenticating, logging_in, confirming,
-  // synchronizing, ready or error.
-  string phase = 4;
-  int32 error_code = 5;
-  string trading_day = 6;
-  int64 synchronized_ms = 7;
-  LiveFunds funds = 8;
-  repeated LivePosition positions = 9;
-  repeated LiveOrder orders = 10;
-  repeated LiveTrade trades = 11;
-  LiveAuthorization authorization = 12;
-  repeated UnconfirmedOrder unconfirmed = 13;
-  bool recovery_required = 14;
-  repeated LiveCosts costs = 15;
-  Decimal max_price_deviation = 16;
-  JournalCapacity capacity = 17;
-  string account_id = 18;
-  // Immutable event segments; excludes the active journal file.
-  uint64 segment_count = 19;
-  string policy_revision = 20;
-  TradingEnvironment environment = 23;
-  // One observed broker state, not an atomic funds/positions/trades cut.
-  // Sequence is scoped to this process and connection generation.
-  uint64 broker_sequence = 24;
-  uint64 connection_generation = 25;
-  bool positions_reconciled = 26;
-}
-message Error {
-  string code = 1;
-  string message = 2;
-}
-message Health {
-  string instance_id = 1;
-  string version = 2;
-  uint64 uptime_ms = 3;
-  bool initialized = 4;
-  bool recovery_required = 5;
-  asterion.runtime.proto.ExecutionHealth execution = 6;
-}
-message Response {
-  TradingAccount account = 4;
-  uint32 version = 1;
-  string session_id = 2;
-  string correlation_id = 3;
-  oneof result {
-    Error error = 10;
-    Empty closed = 11;
-    Empty uninitialized = 12;
-    Health health = 13;
-    LiveSnapshot live = 14;
-    asterion.strategy.proto.State strategy = 15;
+
+// ---- Commands
+
+// Executed only for the account and policy revision the caller reviewed.
+message Command {
+  string request_id = 1;
+  string account_id = 2;
+  string policy_revision = 3;
+  oneof action {
+    SubmitOrder submit_order = 10;
+    OrderId cancel_order = 11;
+    Authorize authorize = 12;
+    common.Empty revoke = 13;
+    // The owner checked at the broker that this unconfirmed order does not exist.
+    OrderId resolve_order = 14;
+    Policy change_policy = 15;
   }
+}
+
+message SubmitOrder {
+  string order_id = 1;
+  common.Instrument instrument = 2;
+  common.Side side = 3;
+  common.Offset offset = 4;
+  common.Decimal lots = 5;
+  common.Decimal price = 6;
+}
+
+message OrderId {
+  string id = 1;
+}
+
+// The owner confirms the account by its CTP user ID.
+message Authorize {
+  string user_id = 1;
+}
+
+// ---- Strategy instance
+
+message InstanceId {
+  string id = 1;
+}
+
+// A paused instance's targets only reduce positions.
+message PauseStrategy {
+  string id = 1;
+  bool paused = 2;
+}
+
+message Strategies {
+  repeated strategy.Manifest packages = 1;
+  InstanceStatus instance = 2;
+}
+
+enum InstanceState {
+  INSTANCE_STATE_UNSPECIFIED = 0;
+  INSTANCE_STATE_STARTING = 1;
+  INSTANCE_STATE_WARMING = 2;
+  INSTANCE_STATE_READY = 3;
+  INSTANCE_STATE_STOPPED = 4;
+  INSTANCE_STATE_FAILED = 5;
+  INSTANCE_STATE_INTERRUPTED = 6;
+}
+
+message InstanceStatus {
+  strategy.Instance instance = 1;
+  InstanceState state = 2;
+  string error = 3;
+  bool paused = 4;
+  uint64 process_id = 5;
+  uint64 completed_steps = 6;
+  strategy.Decision last_decision = 7;
+  // The latest, oldest first.
+  repeated InstanceEvent events = 8;
+}
+
+message InstanceEvent {
+  int64 time_ms = 1;
+  string text = 2;
 }

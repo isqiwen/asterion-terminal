@@ -1,14 +1,23 @@
 import { decimalText } from "../../src/bridge/decimal";
-import { Side, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { Side } from "../../src/generated/asterion/common_pb";
+import {
+  BrokerState,
+  CostsState,
+  OrderState,
+  type Account,
+  type Session,
+} from "../../src/generated/asterion/trading_pb";
 import type { TerminalContext } from "../contract";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { key, offsets, statuses, t, type Run } from "./live-shared";
 
+const working = [OrderState.SUBMITTED, OrderState.ACCEPTED, OrderState.PARTIALLY_FILLED];
+
 // The account's positions, orders, fills, rates and risk policy, one tab at a
 // time. A working order can be cancelled from its row.
 export function AccountRecords({
-  live,
+  record,
   busy,
   run,
   activity,
@@ -18,7 +27,7 @@ export function AccountRecords({
   cancelling,
   cancel,
 }: Pick<TerminalContext, "busy"> & {
-  live: LiveSnapshot;
+  record: Account;
   run: Run;
   activity: Activity;
   setActivity: (value: Activity) => void;
@@ -27,6 +36,8 @@ export function AccountRecords({
   cancelling: readonly string[];
   cancel: (id: string) => Promise<void>;
 }) {
+  const live = record.session!;
+  const policy = live.policy;
   return (
     <>
       <ActivityTabs value={activity} onChange={setActivity} />
@@ -43,11 +54,11 @@ export function AccountRecords({
             </thead>
             <tbody>
               {live.positions.map(p => (
-                <tr key={`${key(p)}.${p.side}`}>
-                  <td>{p.symbol}</td>
+                <tr key={`${key(p.instrument)}.${p.side}`}>
+                  <td>{p.instrument?.symbol}</td>
                   <td>{p.side === Side.BUY ? t("多头") : t("空头")}</td>
-                  <td>{decimalText(p.today)}</td>
-                  <td>{decimalText(p.yesterday)}</td>
+                  <td>{decimalText(p.todayLots)}</td>
+                  <td>{decimalText(p.yesterdayLots)}</td>
                 </tr>
               ))}
             </tbody>
@@ -75,24 +86,27 @@ export function AccountRecords({
                 .reverse()
                 .map(o => (
                   <tr key={o.brokerKey}>
-                    <td>{o.symbol}</td>
+                    <td>{o.instrument?.symbol}</td>
                     <td>
                       {o.side === Side.BUY ? t("买入") : t("卖出")} / {t(offsets[o.offset])}
                     </td>
-                    <td>{decimalText(o.limitPrice)}</td>
-                    <td>{decimalText(o.quantity)}</td>
-                    <td>{decimalText(o.filled)}</td>
+                    <td>{decimalText(o.price)}</td>
+                    <td>{decimalText(o.lots)}</td>
+                    <td>{decimalText(o.filledLots)}</td>
                     <td>
-                      {t(statuses[o.status] ?? o.status)}
-                      {o.errorCode ? ` (${o.errorCode})` : ""}
+                      {t(statuses[o.state] ?? OrderState[o.state])}
+                      {o.ctpError ? ` (${o.ctpError})` : ""}
                     </td>
                     <td>
-                      {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
+                      {o.id && working.includes(o.state) && (
                         <button
                           disabled={
                             cancelling.includes(o.id) ||
                             stale ||
-                            !(ready || (live.phase === "error" && live.errorCode === -1008))
+                            !(
+                              ready ||
+                              (live.brokerState === BrokerState.FAILED && live.ctpError === -1008)
+                            )
                           }
                           onClick={() => void cancel(o.id)}
                         >
@@ -124,10 +138,10 @@ export function AccountRecords({
                 .reverse()
                 .map(f => (
                   <tr key={f.id}>
-                    <td>{f.symbol}</td>
+                    <td>{f.instrument?.symbol}</td>
                     <td>{f.tradeTime}</td>
                     <td>{decimalText(f.price)}</td>
-                    <td>{decimalText(f.quantity)}</td>
+                    <td>{decimalText(f.lots)}</td>
                   </tr>
                 ))}
             </tbody>
@@ -146,18 +160,18 @@ export function AccountRecords({
         <section aria-label={t("风险限制")}>
           <h3>{t("风险限制")}</h3>
           <p>
-            {t("单笔数量上限")}: {decimalText(live.risk?.maxOrderQuantity)} · {t("总持仓量上限")}:{" "}
-            {decimalText(live.risk?.maxGrossQuantity)} · {t("在途委托数上限")}:{" "}
-            {String(live.risk?.maxWorkingOrders ?? 0n)} · {t("价格偏离上限")}:{" "}
-            {decimalText(live.maxPriceDeviation)}
+            {t("单笔数量上限")}: {decimalText(policy?.limits?.maxOrderLots)} · {t("总持仓量上限")}:{" "}
+            {decimalText(policy?.limits?.maxGrossLots)} · {t("在途委托数上限")}:{" "}
+            {policy?.limits?.maxWorkingOrders ?? 0} · {t("价格偏离上限")}:{" "}
+            {decimalText(policy?.maxPriceDeviation)}
           </p>
           <p>
-            {t("可交易合约")}: {live.contracts.map(item => key(item)).join("、")}
+            {t("可交易合约")}: {policy?.contracts.map(item => key(item.instrument)).join("、")}
           </p>
         </section>
         <AccountPolicyEditor
           key={live.policyRevision}
-          live={live}
+          record={record}
           disabled={busy || stale}
           run={run}
         />
@@ -167,16 +181,16 @@ export function AccountRecords({
 }
 
 // The account's margin and commission rates as the broker reports them.
-function AccountRates({ live, busy, run }: { live: LiveSnapshot; busy: boolean; run: Run }) {
-  const states: Record<string, string> = {
-    querying: "查询中",
-    ready: "已返回",
-    unavailable: "券商未提供",
+function AccountRates({ live, busy, run }: { live: Session; busy: boolean; run: Run }) {
+  const states: Partial<Record<CostsState, string>> = {
+    [CostsState.QUERYING]: "查询中",
+    [CostsState.READY]: "已返回",
+    [CostsState.UNAVAILABLE]: "券商未提供",
   };
   return (
     <section className="account-rates" aria-label={t("账户费率")}>
       <div className="source-actions">
-        <button disabled={busy} onClick={() => void run({ case: "liveCosts", value: {} })}>
+        <button disabled={busy} onClick={() => void run({ case: "queryCosts", value: {} })}>
           {t("查询账户费率")}
         </button>
         <span className="subtle">
@@ -200,8 +214,8 @@ function AccountRates({ live, busy, run }: { live: LiveSnapshot; busy: boolean; 
               {live.costs.map(row => {
                 const c = row.costs;
                 return (
-                  <tr key={key(row)}>
-                    <td>{row.symbol}</td>
+                  <tr key={key(row.instrument)}>
+                    <td>{row.instrument?.symbol}</td>
                     <td>{c && `${decimalText(c.marginPerLot)} / ${decimalText(c.marginRate)}`}</td>
                     <td>{c && `${decimalText(c.openFee)} / ${decimalText(c.openFeeRate)}`}</td>
                     <td>
@@ -212,8 +226,8 @@ function AccountRates({ live, busy, run }: { live: LiveSnapshot; busy: boolean; 
                         `${decimalText(c.closeYesterdayFee)} / ${decimalText(c.closeYesterdayFeeRate)}`}
                     </td>
                     <td>
-                      {t(states[row.state] ?? row.state)}
-                      {row.errorCode ? ` (${row.errorCode})` : ""}
+                      {t(states[row.state] ?? CostsState[row.state])}
+                      {row.ctpError ? ` (${row.ctpError})` : ""}
                     </td>
                   </tr>
                 );

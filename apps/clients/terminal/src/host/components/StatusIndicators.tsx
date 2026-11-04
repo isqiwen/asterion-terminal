@@ -2,6 +2,7 @@ import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { translate, useLocale } from "../../i18n";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
+import { BrokerState } from "../../generated/asterion/trading_pb";
 
 // One indicator per service, in the sidebar's order: 行情 (Market), 研究 (Lab)
 // and 交易 (each trading connection). The dot's colour is the state; a word
@@ -68,8 +69,8 @@ export function StatusIndicators({
               ? ["bad", "停滞"]
               : view.live?.recoveryRequired
                 ? ["warning", "需恢复"]
-                : view.live?.phase === "ready"
-                  ? ["good", view.live.authorization ? "已授权" : ""]
+                : view.live?.brokerState === BrokerState.READY
+                  ? ["good", view.live.authorizedMs !== undefined ? "已授权" : ""]
                   : ["", "未就绪"];
         return (
           <button key={connection.id} className={`status-item ${tone}`} onClick={openTrading}>

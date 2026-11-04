@@ -7,22 +7,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { tradingRequest, type TradingFields, type TradingOperation } from "../bridge/trading";
+import { tradingRequest, type TradingCall } from "../bridge/trading";
 import type {
+  Account,
   Health,
-  LiveSnapshot,
+  Progress,
   Response,
-  TradingAccount,
+  Session,
 } from "../generated/asterion/trading_pb";
-import type { Progress } from "../generated/asterion/health_pb";
 import { BackendError, asDisplayError, type DisplayError } from "../i18n/errors";
 import { notify } from "./notifications";
 
 // What Terminal last read from one account's Trading service.
 export type TradingView = {
-  account?: TradingAccount;
-  // Absent until read, and while the service has no account policy yet.
-  live?: LiveSnapshot;
+  account?: Account;
+  // The account's session: absent until read, and until the account is opened.
+  live?: Session;
   initialized?: boolean;
   health?: Health;
   // The last read failed; the fields above are what was read before.
@@ -30,21 +30,20 @@ export type TradingView = {
 };
 export type TradingAccounts = {
   views: Readonly<Record<string, TradingView>>;
-  send: (account: string, operation: TradingOperation, fields?: TradingFields) => Promise<Response>;
+  send: (account: string, operation: TradingCall) => Promise<Response>;
 };
 
 // Some part of the Trading service's work has not advanced for 30 seconds.
 export function stalled(health: Health | undefined) {
-  const e = health?.execution;
   const late = (p: Progress | undefined, periodic: boolean) =>
-    !!p?.observed && Number(p.ageMs) > 30000 && (periodic || p.pending);
+    !!p?.observed && Number(p.idleMs) > 30000 && (periodic || p.pending);
   return (
-    !!e &&
-    (late(e.io, true) ||
-      late(e.state, true) ||
-      late(e.persistence, false) ||
-      late(e.initialization, false) ||
-      late(e.command, false))
+    !!health &&
+    (late(health.io, true) ||
+      late(health.state, true) ||
+      late(health.persistence, false) ||
+      late(health.initialization, false) ||
+      late(health.command, false))
   );
 }
 
@@ -52,16 +51,12 @@ const Accounts = createContext<TradingAccounts>({ views: {}, send: tradingReques
 export const useTradingAccounts = () => useContext(Accounts);
 
 function merge(view: TradingView, response: Response): TradingView {
-  const next = { ...view, account: response.account, failed: undefined };
-  switch (response.result.case) {
-    case "live":
-      return { ...next, live: response.result.value, initialized: true };
-    case "uninitialized":
-      return { ...next, live: undefined, initialized: false };
-    case "health":
-      return { ...next, health: response.result.value };
-  }
-  return next;
+  const next = { ...view, failed: undefined };
+  const result = response.result;
+  if (result.case === "getHealth") return { ...next, health: result.value };
+  if (result.value?.$typeName !== "trading.Account") return next;
+  const account = result.value;
+  return { ...next, account, live: account.session, initialized: !!account.session };
 }
 
 // Every registered account is read once a second with one read in flight, and
@@ -97,11 +92,11 @@ export function TradingAccountsProvider({
       reading.add(id);
       const command = commands.current[id];
       try {
-        const responses = [await tradingRequest(id, { case: "attach", value: {} })];
+        const responses = [await tradingRequest(id, { case: "getAccount", value: {} })];
         if (health) {
-          const beat = await tradingRequest(id, { case: "heartbeat", value: {} });
+          const beat = await tradingRequest(id, { case: "getHealth", value: {} });
           responses.push(beat);
-          if (beat.result.case !== "health" || !stalled(beat.result.value)) stalling.delete(id);
+          if (beat.result.case !== "getHealth" || !stalled(beat.result.value)) stalling.delete(id);
           else if (!stalling.has(id)) {
             stalling.add(id);
             notify(new BackendError("trading_stalled", id));
@@ -135,11 +130,11 @@ export function TradingAccountsProvider({
     };
   }, [key, active, accept]);
   const send = useCallback<TradingAccounts["send"]>(
-    async (id, operation, fields) => {
+    async (id, operation) => {
       const next = () => (commands.current[id] = (commands.current[id] ?? 0) + 1);
       next();
       try {
-        const response = await tradingRequest(id, operation, fields);
+        const response = await tradingRequest(id, operation);
         accept(id, [response]);
         return response;
       } finally {

@@ -588,7 +588,7 @@ std::future<void> LiveSession::execute_strategy(StrategyOrderBasis basis, Submit
 
 std::future<void> LiveSession::accept_strategy_target(
     StrategyAuthorityPtr authority,
-    strategy::proto::Decision decision,
+    ::strategy::Decision decision,
     std::vector<MarketQuote> quotes,
     std::chrono::steady_clock::time_point expires_at)
 {
@@ -612,7 +612,7 @@ std::future<void> LiveSession::advance_strategy_target(
         });
 }
 
-std::future<protocol::proto::LiveSnapshot> LiveSession::snapshot() const
+std::future<::trading::Session> LiveSession::snapshot() const
 {
     return loop_->call(
         [](LiveAccountState& account) {

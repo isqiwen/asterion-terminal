@@ -11,16 +11,14 @@ class StrategyBars
 {
 public:
     // `sequence`: the last input already delivered, when resuming from a record.
-    StrategyBars(
-        const strategy::proto::Instance&,
-        std::int64_t started_ms,
-        std::uint64_t sequence = 0);
-    std::vector<strategy::proto::Bars> observe(const MarketQuote&);
+    StrategyBars(const ::strategy::Instance&, std::int64_t started_ms, std::uint64_t sequence = 0);
+    std::vector<::strategy::Bars> observe(const MarketQuote&);
 
 private:
     struct Current
     {
-        strategy::proto::Bar bar;
+        ::strategy::Bar bar;
+        Decimal high, low;
         std::int64_t key = 0, source_ms = 0, volume = 0;
         bool initialized = false, complete = false;
     };
@@ -29,7 +27,7 @@ private:
     std::int64_t interval_, started_ms_;
     std::vector<std::string> contracts_;
     std::map<std::string, Current> current_;
-    std::map<std::int64_t, std::map<std::string, strategy::proto::Bar>> pending_;
+    std::map<std::int64_t, std::map<std::string, ::strategy::Bar>> pending_;
     std::uint64_t sequence_ = 0;
 };
 

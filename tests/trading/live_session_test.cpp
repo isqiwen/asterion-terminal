@@ -15,7 +15,9 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <thread>
+#include "account_journal.hpp"
 #include <algorithm>
+#include <regex>
 #include <sys/resource.h>
 using namespace asterion;
 
@@ -28,12 +30,32 @@ namespace {
 // futures without occupying their I/O thread.
 class LiveSession
 {
-    trading::LiveSession session_;
+    // The account the journal records: the manifest's, or a recovered journal's.
+    std::string account_;
+    asterion::trading::LiveSession session_;
+
+    template <class... Args>
+    static std::string account_of(const fs::path& journal, const Args&... args)
+    {
+        std::string account;
+        (
+            (void)[&] {
+                if constexpr (std::is_same_v<std::decay_t<Args>, Json>)
+                    account = args.at("account_id").template get<std::string>();
+            }(),
+            ...);
+        if (account.empty())
+            account =
+                asterion::read_journal_header(journal, asterion::trading::AccountJournal::sidecars)
+                    .at("account_id");
+        return account;
+    }
 
 public:
     template <class... Args>
-    explicit LiveSession(Args&&... args)
-        : session_(std::forward<Args>(args)...)
+    explicit LiveSession(const fs::path& journal, Args&&... args)
+        : account_(account_of(journal, args...)),
+          session_(journal, std::forward<Args>(args)...)
     {
         session_.initialized().get();
     }
@@ -53,14 +75,14 @@ public:
         session_.query_costs().get();
     }
 
-    protocol::proto::LiveSnapshot wire_snapshot() const
+    ::trading::Session wire_snapshot() const
     {
         return session_.snapshot().get();
     }
 
-    // Exercise the same presentation decoder used by Terminal, after the typed
-    // account-thread boundary. JSON exists only in this test's UI assertions.
-    // The generated ProtoJSON with field names as declared and empty fields printed.
+    // The session as these tests read it: its ProtoJSON with decimals as text,
+    // enum values by their short lower-case names, instruments as venue and
+    // symbol, and the account the journal records.
     Json snapshot() const
     {
         google::protobuf::util::JsonPrintOptions options;
@@ -69,7 +91,87 @@ public:
         std::string text;
         if (!google::protobuf::util::MessageToJsonString(wire_snapshot(), &text, options).ok())
             throw std::runtime_error("cannot print the snapshot");
-        return Json::parse(text);
+        auto state = plain(Json::parse(text));
+        const auto rename = [](Json& item, const char* from, const char* to) {
+            if (item.contains(from)) {
+                item[to] = item.at(from);
+                item.erase(from);
+            }
+        };
+        rename(state, "broker_state", "phase");
+        rename(state, "ctp_error", "error_code");
+        if (state.at("phase") == "failed")
+            state["phase"] = "error";
+        for (auto& order : state.at("orders")) {
+            rename(order, "state", "status");
+            rename(order, "lots", "quantity");
+            rename(order, "filled_lots", "filled");
+            rename(order, "price", "limit_price");
+            rename(order, "ctp_error", "error_code");
+        }
+        for (auto& trade : state.at("trades"))
+            rename(trade, "lots", "quantity");
+        for (auto& position : state.at("positions")) {
+            rename(position, "today_lots", "today");
+            rename(position, "yesterday_lots", "yesterday");
+        }
+        const auto& policy = state.at("policy");
+        state["risk"] = {
+            {"max_order_quantity", policy.at("limits").at("max_order_lots")},
+            {"max_gross_quantity", policy.at("limits").at("max_gross_lots")},
+            {"max_working_orders", policy.at("limits").at("max_working_orders")}
+        };
+        state["max_price_deviation"] = policy.at("max_price_deviation");
+        state["contracts"] = policy.at("contracts");
+        const auto& journal = state.at("journal");
+        state["capacity"] = {
+            {"records_used", journal.at("records")},
+            {"records_limit", journal.at("records_limit")},
+            {"bytes_used", journal.at("bytes")},
+            {"bytes_limit", journal.at("bytes_limit")}
+        };
+        state["segment_count"] = journal.at("segments");
+        if (state.contains("authorized_ms"))
+            state["authorization"] = {{"authorized_at_ms", state.at("authorized_ms")}};
+        state["account_id"] = account_;
+        return state;
+    }
+
+    static Json plain(const Json& value)
+    {
+        if (value.is_array()) {
+            Json result = Json::array();
+            for (const auto& item : value)
+                result.push_back(plain(item));
+            return result;
+        }
+        if (value.is_object()) {
+            if (value.size() == 1 && value.contains("text"))
+                return value.at("text");
+            Json result = Json::object();
+            for (const auto& [key, item] : value.items()) {
+                if (key == "instrument") {
+                    result["venue"] = item.at("exchange");
+                    result["symbol"] = item.at("symbol");
+                } else
+                    result[key] = plain(item);
+            }
+            return result;
+        }
+        if (value.is_string()) {
+            static const std::regex prefix(
+                "(BROKER_STATE|ORDER_STATE|COSTS_STATE|SIDE|OFFSET|ENVIRONMENT)_([A-Z_]+)");
+            std::smatch match;
+            const auto text = value.get<std::string>();
+            if (std::regex_match(text, match, prefix)) {
+                auto name = match[2].str();
+                std::ranges::transform(name, name.begin(), [](unsigned char c) {
+                    return std::tolower(c);
+                });
+                return name;
+            }
+        }
+        return value;
     }
 
     auto execute(std::string_view record, std::string_view policy, const Json& command)
@@ -77,7 +179,7 @@ public:
         return session_.execute(
             record,
             policy,
-            trading::AccountRequest::from_wire(protocol::encode_command(command)));
+            asterion::trading::AccountRequest::from_wire(protocol::encode_command(command)));
     }
 
     bool recovery_required() const
@@ -108,14 +210,14 @@ public:
     auto register_strategy(
         std::string instance = "strategy-run",
         std::vector<InstrumentId> contracts = {{"SHFE", "rb2610"}},
-        std::optional<trading::StrategyWeightBudget> budget = std::nullopt)
+        std::optional<asterion::trading::StrategyWeightBudget> budget = std::nullopt)
     {
         return session_.register_strategy(std::move(instance), std::move(contracts), budget);
     }
 
     void accept_target(
-        trading::StrategyAuthorityPtr authority,
-        strategy::proto::Decision decision,
+        asterion::trading::StrategyAuthorityPtr authority,
+        ::strategy::Decision decision,
         std::vector<MarketQuote> quotes,
         std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 10s)
     {
@@ -128,42 +230,45 @@ public:
             .get();
     }
 
-    auto advance_target(trading::StrategyAuthorityPtr authority)
+    auto advance_target(asterion::trading::StrategyAuthorityPtr authority)
     {
         return session_.advance_strategy_target(std::move(authority));
     }
 
-    auto release_strategy(trading::StrategyAuthorityPtr authority)
+    auto release_strategy(asterion::trading::StrategyAuthorityPtr authority)
     {
         return session_.release_strategy(std::move(authority));
     }
 
-    auto strategy_failure(trading::StrategyAuthorityPtr authority) const
+    auto strategy_failure(asterion::trading::StrategyAuthorityPtr authority) const
     {
         return session_.strategy_failure(std::move(authority)).get();
     }
 
-    void pause_strategy(trading::StrategyAuthorityPtr authority, bool paused)
+    void pause_strategy(asterion::trading::StrategyAuthorityPtr authority, bool paused)
     {
         session_.pause_strategy(std::move(authority), paused).get();
     }
 
-    void flatten_strategy(trading::StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes)
+    void flatten_strategy(
+        asterion::trading::StrategyAuthorityPtr authority,
+        std::vector<MarketQuote> quotes)
     {
         session_.flatten_strategy(std::move(authority), std::move(quotes)).get();
     }
 
-    auto strategy_events(trading::StrategyAuthorityPtr authority)
+    auto strategy_events(asterion::trading::StrategyAuthorityPtr authority)
     {
         return session_.take_strategy_events(std::move(authority)).get();
     }
 
-    auto execute_strategy(trading::StrategyOrderBasis basis, const Json& command)
+    auto execute_strategy(asterion::trading::StrategyOrderBasis basis, const Json& command)
     {
-        auto request = trading::AccountRequest::from_wire(protocol::encode_command(command));
+        auto request =
+            asterion::trading::AccountRequest::from_wire(protocol::encode_command(command));
         return session_.execute_strategy(
             std::move(basis),
-            std::get<trading::SubmitOrder>(request.operation));
+            std::get<asterion::trading::SubmitOrder>(request.operation));
     }
 };
 
@@ -263,7 +368,7 @@ Json authorize(std::string id = "authorize", std::string user = "000001")
     return {{"request_id", std::move(id)}, {"action", "live_authorize"}, {"user_id", user}};
 }
 
-// ProtoJSON prints 64-bit integers as strings and a Decimal as its units.
+// ProtoJSON prints 64-bit integers as strings.
 std::int64_t number(const Json& value)
 {
     return std::stoll(value.get<std::string>());
@@ -271,7 +376,7 @@ std::int64_t number(const Json& value)
 
 std::string decimal(const Json& value)
 {
-    return Decimal::from_raw(number(value.at("units"))).str();
+    return Decimal::parse(value.get<std::string>()).str();
 }
 
 Json find_order(const Json& snapshot, const std::string& id)
@@ -1437,10 +1542,10 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     const auto disconnected = session.wire_snapshot();
-    EXPECT_EQ(disconnected.phase(), "disconnected");
+    EXPECT_EQ(disconnected.broker_state(), ::trading::BROKER_STATE_DISCONNECTED);
     EXPECT_FALSE(disconnected.positions_reconciled());
     EXPECT_FALSE(disconnected.has_funds());
-    EXPECT_FALSE(disconnected.has_authorization());
+    EXPECT_FALSE(disconnected.has_authorized_ms());
     ASSERT_EQ(ready(session).at("phase"), "ready");
     session.query_costs();
     ASSERT_EQ(
@@ -1463,31 +1568,26 @@ TEST_F(Live, WireObservationPreservesExactValuesAndDetachedState)
         "observed",
         "filled"));
     const auto snapshot = session.wire_snapshot();
-    EXPECT_EQ(snapshot.account_id(), "fixture-account");
-    EXPECT_GT(snapshot.broker_sequence(), disconnected.broker_sequence());
-    EXPECT_GE(snapshot.connection_generation(), disconnected.connection_generation());
-    EXPECT_EQ(snapshot.risk().max_order_quantity().units(), Decimal::parse("5").raw());
-    EXPECT_EQ(snapshot.max_price_deviation().units(), Decimal::parse("0.02").raw());
-    ASSERT_EQ(snapshot.contracts_size(), 1);
-    EXPECT_EQ(snapshot.contracts(0).multiplier().units(), Decimal::parse("10").raw());
+    EXPECT_EQ(snapshot.policy().limits().max_order_lots().text(), "5");
+    EXPECT_EQ(snapshot.policy().max_price_deviation().text(), "0.02");
+    ASSERT_EQ(snapshot.policy().contracts_size(), 1);
+    EXPECT_EQ(snapshot.policy().contracts(0).multiplier().text(), "10");
     ASSERT_TRUE(snapshot.has_funds());
-    EXPECT_EQ(snapshot.funds().commission().units(), Decimal::parse("12.34").raw());
+    EXPECT_EQ(snapshot.funds().commission().text(), "12.34");
     ASSERT_EQ(snapshot.orders_size(), 1);
-    EXPECT_EQ(snapshot.orders(0).side(), protocol::proto::BUY);
-    EXPECT_EQ(snapshot.orders(0).offset(), protocol::proto::OPEN);
-    EXPECT_EQ(snapshot.orders(0).limit_price().units(), Decimal::parse("3500").raw());
-    EXPECT_EQ(snapshot.orders(0).filled().units(), Decimal::parse("2").raw());
+    EXPECT_EQ(snapshot.orders(0).side(), ::common::SIDE_BUY);
+    EXPECT_EQ(snapshot.orders(0).offset(), ::common::OFFSET_OPEN);
+    EXPECT_EQ(snapshot.orders(0).price().text(), "3500");
+    EXPECT_EQ(snapshot.orders(0).filled_lots().text(), "2");
     ASSERT_EQ(snapshot.costs_size(), 1);
-    EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().units(), Decimal::parse("1.5").raw());
-    EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().units(), Decimal::parse("0.0001").raw());
-    ASSERT_TRUE(snapshot.has_authorization());
+    EXPECT_EQ(snapshot.costs(0).costs().close_today_fee().text(), "1.5");
+    EXPECT_EQ(snapshot.costs(0).costs().open_fee_rate().text(), "0.0001");
+    ASSERT_TRUE(snapshot.has_authorized_ms());
     act(session, {{"request_id", "revoke"}, {"action", "live_revoke"}});
-    EXPECT_FALSE(session.wire_snapshot().has_authorization());
-    EXPECT_TRUE(snapshot.has_authorization()) << "a published value cannot follow later mutations";
+    EXPECT_FALSE(session.wire_snapshot().has_authorized_ms());
+    EXPECT_TRUE(snapshot.has_authorized_ms()) << "a published value cannot follow later mutations";
     session.disconnect();
-    const auto after_disconnect = session.wire_snapshot();
-    EXPECT_GT(after_disconnect.connection_generation(), snapshot.connection_generation());
-    EXPECT_FALSE(after_disconnect.positions_reconciled());
+    EXPECT_FALSE(session.wire_snapshot().positions_reconciled());
 }
 
 TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
@@ -1498,30 +1598,32 @@ TEST(LiveProtocol, TypedCommandsKeepDurableContentAndPolicyValues)
         {"policy", manifest().at("policy")}
     };
     const auto wire = protocol::encode_command(command);
-    const auto admitted = trading::AccountRequest::from_wire(wire);
-    ASSERT_NE(admitted.as<trading::ChangePolicy>(), nullptr);
+    const auto admitted = asterion::trading::AccountRequest::from_wire(wire);
+    ASSERT_NE(admitted.as<asterion::trading::ChangePolicy>(), nullptr);
     EXPECT_EQ(
-        admitted.as<trading::ChangePolicy>()->definition.limits.max_order_quantity,
+        admitted.as<asterion::trading::ChangePolicy>()->definition.limits.max_order_quantity,
         Decimal::parse("5"));
     EXPECT_EQ(
-        admitted.as<trading::ChangePolicy>()->definition.max_price_deviation,
+        admitted.as<asterion::trading::ChangePolicy>()->definition.max_price_deviation,
         Decimal::parse("0.02"));
     EXPECT_EQ(admitted.command, command);
-    const auto restored = trading::AccountRequest::from_record(command);
+    const auto restored = asterion::trading::AccountRequest::from_record(command);
     EXPECT_EQ(restored.command, admitted.command);
     EXPECT_EQ(restored.id, admitted.id);
     auto invalid = wire;
-    invalid.mutable_live_policy()->mutable_policy()->clear_risk();
-    EXPECT_THROW(trading::AccountRequest::from_wire(invalid), std::invalid_argument);
+    invalid.mutable_change_policy()->clear_limits();
+    EXPECT_THROW(asterion::trading::AccountRequest::from_wire(invalid), std::invalid_argument);
     invalid = wire;
-    auto* policy = invalid.mutable_live_policy()->mutable_policy();
+    auto* policy = invalid.mutable_change_policy();
     *policy->add_contracts() = policy->contracts(0);
-    EXPECT_THROW(trading::AccountRequest::from_wire(invalid), std::invalid_argument);
+    EXPECT_THROW(asterion::trading::AccountRequest::from_wire(invalid), std::invalid_argument);
     auto order = protocol::encode_command(submit("exact", "2", "3500.25"));
-    const auto typed = trading::AccountRequest::from_wire(order);
-    EXPECT_EQ(typed.as<trading::SubmitOrder>()->order.limit_price, Decimal::parse("3500.25"));
-    order.mutable_submit()->set_side(protocol::proto::SIDE_UNSPECIFIED);
-    EXPECT_THROW(trading::AccountRequest::from_wire(order), std::invalid_argument);
+    const auto typed = asterion::trading::AccountRequest::from_wire(order);
+    EXPECT_EQ(
+        typed.as<asterion::trading::SubmitOrder>()->order.limit_price,
+        Decimal::parse("3500.25"));
+    order.mutable_submit_order()->set_side(::common::SIDE_UNSPECIFIED);
+    EXPECT_THROW(asterion::trading::AccountRequest::from_wire(order), std::invalid_argument);
 }
 
 TEST(LiveProtocol, CommandsRoundTripAndBrokerIdentityValidation)
@@ -1533,7 +1635,7 @@ TEST(LiveProtocol, CommandsRoundTripAndBrokerIdentityValidation)
         EXPECT_EQ(protocol::decode_command(protocol::encode_command(command)), command);
     auto spaced = manifest();
     spaced["broker"]["user_id"] = "000 001";
-    EXPECT_THROW(protocol::encode_live_input(spaced), std::invalid_argument);
+    EXPECT_THROW(protocol::live_input(spaced), std::invalid_argument);
 }
 
 TEST_F(Live, AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked)
@@ -1864,7 +1966,7 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
     for (const auto [accounts, rows] : {std::pair{1, 0}, {1, 250}, {1, 1000}, {4, 1000}}) {
         exchange.reset();
         exchange.call<void (*)(int)>("asterion_fake_trader_seed_history", rows);
-        std::vector<std::unique_ptr<trading::LiveSession>> sessions;
+        std::vector<std::unique_ptr<asterion::trading::LiveSession>> sessions;
         for (int i = 0; i < accounts; ++i) {
             const auto id =
                 std::to_string(accounts) + "." + std::to_string(rows) + "." + std::to_string(i);
@@ -1872,7 +1974,7 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
             config["account_id"] = "measure." + id;
             config["broker"]["user_id"] = "u" + id;
             fs::create_directory(directory.path / id);
-            auto session = std::make_unique<trading::LiveSession>(
+            auto session = std::make_unique<asterion::trading::LiveSession>(
                 directory.path / id,
                 ASTERION_TEST_CTP_TRADER,
                 owners.path,
@@ -1881,11 +1983,12 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
             session->connect("test-only", "test-only").get();
             const auto deadline = std::chrono::steady_clock::now() + 20s;
             auto snapshot = session->snapshot().get();
-            while (snapshot.phase() != "ready" && std::chrono::steady_clock::now() < deadline) {
+            while (snapshot.broker_state() != ::trading::BROKER_STATE_READY
+                && std::chrono::steady_clock::now() < deadline) {
                 std::this_thread::sleep_for(20ms);
                 snapshot = session->snapshot().get();
             }
-            ASSERT_EQ(snapshot.phase(), "ready");
+            ASSERT_EQ(snapshot.broker_state(), ::trading::BROKER_STATE_READY);
             ASSERT_EQ(snapshot.orders_size(), rows);
             ASSERT_EQ(snapshot.trades_size(), rows);
             sessions.push_back(std::move(session));
@@ -1899,10 +2002,10 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
         };
         for (int sample = 0; sample < 35; ++sample) {
             const auto begin = std::chrono::steady_clock::now();
-            std::vector<std::future<protocol::proto::LiveSnapshot>> pending;
+            std::vector<std::future<::trading::Session>> pending;
             for (const auto& session : sessions)
                 pending.push_back(session->snapshot());
-            std::vector<protocol::proto::LiveSnapshot> snapshots;
+            std::vector<::trading::Session> snapshots;
             for (auto& future : pending)
                 snapshots.push_back(future.get());
             const auto observation = elapsed(begin);
@@ -1959,8 +2062,8 @@ namespace {
 class StrategyExecution : public Live
 {
 protected:
-    static trading::StrategyOrderBasis
-    basis(trading::StrategyAuthorityPtr authority, std::uint64_t sequence = 1)
+    static asterion::trading::StrategyOrderBasis
+    basis(asterion::trading::StrategyAuthorityPtr authority, std::uint64_t sequence = 1)
     {
         return {std::move(authority), sequence, 0, true, std::chrono::steady_clock::now() + 10s};
     }
@@ -1973,13 +2076,14 @@ namespace {
 class StrategyTarget : public Live
 {
 protected:
-    static strategy::proto::Decision lots(std::int64_t quantity, std::uint64_t sequence = 1)
+    static ::strategy::Decision lots(std::int64_t quantity, std::uint64_t sequence = 1)
     {
-        strategy::proto::Decision decision;
+        ::strategy::Decision decision;
         decision.set_sequence(sequence);
         decision.set_ready(true);
         auto* target = decision.add_targets();
-        target->set_contract("SHFE/rb2610");
+        target->mutable_instrument()->set_exchange("SHFE");
+        target->mutable_instrument()->set_symbol("rb2610");
         target->set_lots(quantity);
         return decision;
     }
@@ -2002,7 +2106,8 @@ protected:
     }
 
     template <class Predicate>
-    static Json progress(LiveSession& session, trading::StrategyAuthorityPtr owner, Predicate done)
+    static Json
+    progress(LiveSession& session, asterion::trading::StrategyAuthorityPtr owner, Predicate done)
     {
         const auto deadline = std::chrono::steady_clock::now() + 9s;
         for (;;) {
@@ -2039,10 +2144,10 @@ TEST_F(StrategyTarget, DirectQuotesDriveSerialCloseThenOpenFromReconciledPositio
             && s.at("positions_reconciled") == true;
     });
     ASSERT_EQ(state.at("orders").size(), 3U);
-    EXPECT_EQ(state.at("orders")[1].at("offset"), "CLOSE_TODAY");
-    EXPECT_EQ(state.at("orders")[2].at("offset"), "OPEN");
+    EXPECT_EQ(state.at("orders")[1].at("offset"), "close_today");
+    EXPECT_EQ(state.at("orders")[2].at("offset"), "open");
     for (int i : {1, 2}) {
-        EXPECT_EQ(state.at("orders")[i].at("side"), "SELL");
+        EXPECT_EQ(state.at("orders")[i].at("side"), "sell");
         EXPECT_EQ(decimal(state.at("orders")[i].at("limit_price")), "3499");
         EXPECT_EQ(state.at("orders")[i].at("status"), "filled");
     }
@@ -2198,7 +2303,7 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
     session.flatten_strategy(owner, {quote()});
     const auto state = progress(session, owner, filled(2));
     ASSERT_EQ(state.at("orders").size(), 2U);
-    EXPECT_EQ(state.at("orders")[1].at("side"), "SELL");
+    EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
     EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     const auto events = session.strategy_events(owner);
@@ -2237,7 +2342,7 @@ TEST_F(StrategyTarget, FlatteningBeforeTheFirstDecisionClosesOnlyFromAFreshQuote
         return s.at("orders").size() == 2 && s.at("orders")[1].at("status") == "filled";
     });
     ASSERT_EQ(state.at("orders").size(), 2U);
-    EXPECT_EQ(state.at("orders")[1].at("side"), "SELL");
+    EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
     EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
@@ -2270,15 +2375,17 @@ TEST_F(StrategyTarget, WeightsWaitForNewEquityAndPersistTheFrozenConversionWithT
         LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
         ASSERT_EQ(ready(session).at("phase"), "ready");
         act(session, authorize());
-        auto owner =
-            session
-                .register_strategy(
-                    "weighted",
-                    {{"SHFE", "rb2610"}},
-                    trading::StrategyWeightBudget{Decimal::parse("1"), Decimal::parse("1")})
-                .get();
+        auto owner = session
+                         .register_strategy(
+                             "weighted",
+                             {{"SHFE", "rb2610"}},
+                             asterion::trading::StrategyWeightBudget{
+                                 Decimal::parse("1"),
+                                 Decimal::parse("1")
+                             })
+                         .get();
         auto decision = lots(0);
-        decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+        decision.mutable_targets(0)->mutable_weight()->set_text("0.07");
         // Old equity would buy two lots. Only the post-admission response buys one.
         exchange.call<void (*)(double)>("asterion_fake_trader_balance", 500000.01);
         session.accept_target(owner, decision, {quote()});
@@ -2294,9 +2401,9 @@ TEST_F(StrategyTarget, WeightsWaitForNewEquityAndPersistTheFrozenConversionWithT
         EXPECT_TRUE(session.strategy_failure(owner).empty());
     }
     const auto parsed =
-        trading::parse_record(test::read_record(test::journal_record(directory.path, 2)));
-    const auto& record = std::get<trading::CommandRecord>(parsed);
-    const auto& source = record.request.as<trading::SubmitOrder>()->strategy;
+        asterion::trading::parse_record(test::read_record(test::journal_record(directory.path, 2)));
+    const auto& record = std::get<asterion::trading::CommandRecord>(parsed);
+    const auto& source = record.request.as<asterion::trading::SubmitOrder>()->strategy;
     ASSERT_TRUE(source && source->weight_sizing);
     EXPECT_EQ(source->weight_sizing->equity, Decimal::parse("500000.01"));
     EXPECT_EQ(source->weight_sizing->weight, Decimal::parse("0.07"));
@@ -2314,7 +2421,7 @@ TEST_F(StrategyTarget, WeightsRequireExplicitBudgetsAndCannotExceedThem)
     ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
     auto decision = lots(0);
-    decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+    decision.mutable_targets(0)->mutable_weight()->set_text("0.07");
     auto owner = session.register_strategy("missing-budget").get();
     EXPECT_THROW(session.accept_target(owner, decision, {quote()}), std::invalid_argument);
     session.release_strategy(owner).get();
@@ -2322,7 +2429,10 @@ TEST_F(StrategyTarget, WeightsRequireExplicitBudgetsAndCannotExceedThem)
                 .register_strategy(
                     "limited",
                     {{"SHFE", "rb2610"}},
-                    trading::StrategyWeightBudget{Decimal::parse("0.05"), Decimal::parse("0.05")})
+                    asterion::trading::StrategyWeightBudget{
+                        Decimal::parse("0.05"),
+                        Decimal::parse("0.05")
+                    })
                 .get();
     session.accept_target(owner, decision, {quote()});
     EXPECT_THROW(
@@ -2344,17 +2454,19 @@ TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
     ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
-    auto owner = session
-                     .register_strategy(
-                         "portfolio",
-                         {{"SHFE", "rb2610"}, {"SHFE", "rb2611"}},
-                         trading::StrategyWeightBudget{Decimal::parse("1"), Decimal::parse("1")})
-                     .get();
+    auto owner =
+        session
+            .register_strategy(
+                "portfolio",
+                {{"SHFE", "rb2610"}, {"SHFE", "rb2611"}},
+                asterion::trading::StrategyWeightBudget{Decimal::parse("1"), Decimal::parse("1")})
+            .get();
     auto decision = lots(0);
-    decision.mutable_targets(0)->set_weight_units(Decimal::parse("0.07").raw());
+    decision.mutable_targets(0)->mutable_weight()->set_text("0.07");
     auto* second = decision.add_targets();
-    second->set_contract("SHFE/rb2611");
-    second->set_weight_units(Decimal::parse("0.07").raw());
+    second->mutable_instrument()->set_exchange("SHFE");
+    second->mutable_instrument()->set_symbol("rb2611");
+    second->mutable_weight()->set_text("0.07");
     auto other = quote();
     other.instrument.symbol = "rb2611";
     exchange.call<void (*)(double)>("asterion_fake_trader_balance", 500000.01);
@@ -2366,8 +2478,7 @@ TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
     exchange.call<void (*)(double)>("asterion_fake_trader_balance", 1000000.01);
     wait_for(session, [&](const Json&) {
         const auto snapshot = session.wire_snapshot();
-        return snapshot.has_funds()
-            && snapshot.funds().balance().units() == Decimal::parse("1000000.01").raw();
+        return snapshot.has_funds() && snapshot.funds().balance().text() == "1000000.01";
     });
     state = progress(session, owner, [](const Json& s) {
         return s.at("orders").size() == 2 && s.at("orders")[1].at("status") == "filled"
@@ -2428,7 +2539,7 @@ TEST_F(StrategyExecution, UsesTheExistingRiskAndPriceChecksAndBlocksFurtherLegsA
 
 TEST_F(StrategyExecution, PlannedOrderIsDurableAndAttributedWithoutRestoringAuthority)
 {
-    trading::StrategyAuthorityPtr old_owner;
+    asterion::trading::StrategyAuthorityPtr old_owner;
     {
         LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
         ASSERT_EQ(ready(session).at("phase"), "ready");
@@ -2439,11 +2550,11 @@ TEST_F(StrategyExecution, PlannedOrderIsDurableAndAttributedWithoutRestoringAuth
         BrokerSnapshot facts;
         facts.phase = BrokerPhase::ready;
         facts.positions_reconciled = true;
-        const auto policy = trading::PolicyDefinition::from_wire(
-            protocol::encode_live_policy(manifest().at("policy")));
-        const trading::PositionTarget target{{"SHFE", "rb2610"}, Decimal::parse("1")};
+        const auto policy = asterion::trading::PolicyDefinition::from_wire(
+            protocol::encode_policy(manifest().at("policy")));
+        const asterion::trading::PositionTarget target{{"SHFE", "rb2610"}, Decimal::parse("1")};
         const auto plan =
-            trading::plan_strategy_orders({&target, 1}, policy.contracts, facts, false);
+            asterion::trading::plan_strategy_orders({&target, 1}, policy.contracts, facts, false);
         ASSERT_EQ(plan.orders.size(), 1U);
         const auto& leg = plan.orders[0];
         auto order = submit("strategy.fill", leg.quantity.str().c_str());
@@ -2462,9 +2573,10 @@ TEST_F(StrategyExecution, PlannedOrderIsDurableAndAttributedWithoutRestoringAuth
             Error);
     }
     const auto record = test::read_record(test::journal_record(directory.path, 2));
-    const auto decoded = std::get<trading::CommandRecord>(trading::parse_record(record));
-    ASSERT_TRUE(decoded.request.as<trading::SubmitOrder>()->strategy);
-    const auto& source = *decoded.request.as<trading::SubmitOrder>()->strategy;
+    const auto decoded =
+        std::get<asterion::trading::CommandRecord>(asterion::trading::parse_record(record));
+    ASSERT_TRUE(decoded.request.as<asterion::trading::SubmitOrder>()->strategy);
+    const auto& source = *decoded.request.as<asterion::trading::SubmitOrder>()->strategy;
     EXPECT_EQ(source.instance, "strategy-run");
     EXPECT_EQ(source.target_sequence, 1U);
     EXPECT_EQ(source.leg, 0U);

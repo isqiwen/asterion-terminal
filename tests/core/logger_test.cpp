@@ -185,9 +185,6 @@ TEST(Logger, TraceScopesRestoreAcrossFailuresAndThreads)
         const std::string nested = "test.nested";
         TraceScope child(nested);
         EXPECT_EQ(current_trace_id(), nested);
-        const auto first = next_correlation_id(), second = next_correlation_id();
-        EXPECT_NE(first, second);
-        EXPECT_NO_THROW(validate_id(first));
         throw Error(ErrorCode::conflict, "test request failure");
     };
     EXPECT_THROW(fail(), Error);

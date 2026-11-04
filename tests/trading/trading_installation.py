@@ -42,15 +42,15 @@ def response_kind(response):
             if not byte & 128: break
             shift += 7
         at += length
-        if key >> 3 >= 10:
+        if key >> 3 >= 2:
             return key >> 3
 
 
 def heartbeat(channel, correlation):
     assert len(correlation) == 3
-    # Request(version=1, session_id=adm, correlation_id, heartbeat={}).
-    prefix = b"\x08\x01\x12\x03adm\x1a\x03" + correlation
-    request = prefix + b"\x7a\x00"
+    # Request(id, get_health={}); the id is the correlation's first byte.
+    prefix = b"\x08" + bytes([correlation[0] & 0x7f])
+    request = prefix + b"\x52\x00"
     channel.sendall(struct.pack("!I", len(request)) + request)
 
     def receive(size):
@@ -64,13 +64,12 @@ def heartbeat(channel, correlation):
     size = struct.unpack("!I", receive(4))[0]
     assert 0 < size <= 4096
     response = receive(size)
-    assert response.startswith(prefix) and response_kind(response) == 13, response
+    assert response.startswith(prefix) and response_kind(response) == 10, response
 
 
-def result(channel, version, session, body):
-    """Sends Request(version, session, correlation "chk", body); returns the
-    Response's result field number."""
-    request = bytes([0x08, version, 0x12, len(session)]) + session + b"\x1a\x03chk" + body
+def result(channel, body):
+    """Sends Request(id=1, body); returns the Response's result field number."""
+    request = b"\x08\x01" + body
     channel.sendall(struct.pack("!I", len(request)) + request)
 
     def receive(size):
@@ -178,17 +177,13 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
             return raw
         refused(installation, plain)
         print("PASS: only the configured Terminal certificate is admitted", flush=True)
-        # Another protocol version or account is refused before any record exists;
-        # stopping is systemd's, never a request's.
-        attach, shutdown = b"\x72\x00", b"\x6a\x00"
+        # Reading the account creates no record; a request without a call is refused.
         with installation.client("adm") as channel:
-            assert result(channel, 2, b"adm", attach) == 10
-            assert result(channel, 1, b"oth", attach) == 10
-            assert result(channel, 1, b"adm", attach) == 12  # uninitialized
-            assert result(channel, 1, b"adm", shutdown) == 10
+            assert result(channel, b"\x5a\x00") == 11  # get_account: not yet open
+            assert result(channel, b"") == 2  # error
         assert not (installation.root / "data/adm/journal.sqlite").exists()
         assert process.poll() is None
-        print("PASS: version, account and stop requests are refused without a record", flush=True)
+        print("PASS: reads and refused requests leave no record", flush=True)
         silent = socket.create_connection(("127.0.0.1", port), timeout=3)
         with ExitStack() as peers:
             peers.enter_context(silent)

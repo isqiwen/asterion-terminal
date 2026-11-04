@@ -9,7 +9,7 @@
 #include <cstdlib>
 using namespace asterion;
 using namespace std::chrono_literals;
-namespace wire = asterion::protocol::proto;
+namespace wire = ::trading;
 
 namespace {
 
@@ -51,7 +51,7 @@ TEST(Protobuf, TypedDecimalAndCommandRoundTrip)
         {"price", "92233720368.54775807"}
     };
     auto message = protocol::encode_command(command);
-    EXPECT_EQ(message.submit().price().units(), INT64_MAX);
+    EXPECT_EQ(message.submit_order().price().text(), "92233720368.54775807");
     wire::Command parsed;
     ASSERT_TRUE(parsed.ParseFromString(message.SerializeAsString()));
     EXPECT_EQ(protocol::decode_command(parsed), command);
@@ -69,15 +69,15 @@ TEST(Protobuf, TypedDecimalAndCommandRoundTrip)
 TEST(Protobuf, UnknownFieldsInsideOneofAndRepeatedMessagesAreRejected)
 {
     wire::Request request;
-    auto* price = request.mutable_command()->mutable_submit()->mutable_price();
+    auto* price = request.mutable_send_command()->mutable_submit_order()->mutable_price();
     price->GetReflection()->MutableUnknownFields(price)->AddVarint(127, 1);
     EXPECT_THROW(protocol::validate_message(request), std::invalid_argument);
-    request.clear_command();
-    request.mutable_snapshot();
+    request.clear_send_command();
+    request.mutable_get_account();
     EXPECT_NO_THROW(protocol::validate_message(request));
-    wire::LiveSnapshot snapshot;
-    snapshot.add_orders()->mutable_limit_price()->set_units(10);
-    auto* second = snapshot.add_orders()->mutable_quantity();
+    wire::Session snapshot;
+    snapshot.add_orders()->mutable_price()->set_text("10");
+    auto* second = snapshot.add_orders()->mutable_lots();
     second->GetReflection()->MutableUnknownFields(second)->AddVarint(127, 1);
     EXPECT_THROW(protocol::validate_message(snapshot), std::invalid_argument);
     second->GetReflection()->MutableUnknownFields(second)->Clear();
@@ -122,10 +122,10 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
         << R"({"console":{"enabled":false,"level":"info"},)" R"("file":{"enabled":true,"level":"info","pattern":"%l %v","path":"../logs/rpc.log","retention_days":1}})";
     log::init(root, "rpc-test");
     wire::Request request;
-    request.set_correlation_id("rpc.test");
-    request.mutable_live_connect();
+    request.set_id(7);
+    request.mutable_connect_broker();
     wire::Response response;
-    response.mutable_error()->set_code("permission_denied");
+    response.mutable_error()->set_code(::common::ERROR_CODE_PERMISSION_DENIED);
     response.mutable_error()->set_message("test-only-private-provider-diagnostic");
     protocol::log_rpc_result("rpc-test", request, response, true, {{"session_id", "session.test"}});
     std::vector<std::string> lines;
@@ -141,5 +141,5 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     // the remote error's message.
     EXPECT_EQ(
         lines.front(),
-        "warning rpc failed: module=rpc-test operation=live_connect correlation_id=rpc.test " "code=permission_denied session_id=session.test");
+        "warning rpc failed: module=rpc-test operation=connect_broker id=7 " "code=permission_denied session_id=session.test");
 }

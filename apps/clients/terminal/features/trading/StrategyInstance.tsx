@@ -1,43 +1,33 @@
 import { useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
+import { Period } from "../../src/generated/asterion/common_pb";
+import { InstanceSchema, type Instance } from "../../src/generated/asterion/strategy_pb";
 import {
-  InstanceSchema,
-  type Instance,
-  type State,
-} from "../../src/generated/asterion/strategy_pb";
+  BrokerState,
+  type Account,
+  type Strategies,
+} from "../../src/generated/asterion/trading_pb";
+import { decimal, decimalText } from "../../src/bridge/decimal";
 import { ActionError, useActionError } from "../contract";
-import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
-import { environmentName, t } from "./live-shared";
+import { environmentName, key, t } from "./live-shared";
 import {
   activeStrategy,
   parameterText,
   parameterValues,
-  weightText,
-  weightUnits,
+  periodText,
+  strategyPeriods,
   type ParameterInput,
 } from "./strategy-instance";
 
-export type StrategyAccount = Pick<
-  LiveSnapshot,
-  | "phase"
-  | "positionsReconciled"
-  | "recoveryRequired"
-  | "policyRevision"
-  | "contracts"
-  | "broker"
-  | "environment"
-  | "authorization"
->;
-
 export function StrategyInstance({
   state,
-  live,
+  account,
   available,
   busy,
   start,
 }: {
-  state: State;
-  live?: StrategyAccount;
+  state: Strategies;
+  account?: Account;
   available: boolean;
   busy: boolean;
   start: (configuration: Instance) => Promise<boolean>;
@@ -46,17 +36,22 @@ export function StrategyInstance({
   const [id, setId] = useState("");
   const [packageKey, setPackage] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [period, setPeriod] = useState("1m");
+  const [period, setPeriod] = useState(Period.MINUTES_1);
   const [rows, setRows] = useState<ParameterInput[]>([]);
   const [budget, setBudget] = useState(false);
   const [gross, setGross] = useState("");
   const [net, setNet] = useState("");
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
-  const contracts = live?.contracts.map(item => `${item.venue}/${item.symbol}`) ?? [];
+  const live = account?.session;
+  const allowed = live?.policy?.contracts.map(item => item.instrument!) ?? [];
+  const contracts = allowed.map(key);
   const usable =
-    available && live?.phase === "ready" && live.positionsReconciled && !live.recoveryRequired;
+    available &&
+    live?.brokerState === BrokerState.READY &&
+    live.positionsReconciled &&
+    !live.recoveryRequired;
   const running = activeStrategy(state.instance?.state);
-  const ended = state.instance?.configuration;
+  const ended = state.instance?.instance;
   const update = (id: number, change: Partial<ParameterInput>) =>
     setRows(current => current.map(row => (row.id === id ? { ...row, ...change } : row)));
 
@@ -64,13 +59,13 @@ export function StrategyInstance({
   return (
     <section className="strategy-instance" aria-label={t("配置策略实例")}>
       <h4>{t("配置策略实例")}</h4>
-      {live && (
+      {account && live && (
         <p>
-          {t("CTP 账户")} · {live.broker?.brokerId} / {live.broker?.userId} ·{" "}
+          {t("CTP 账户")} · {account.broker?.brokerId} / {account.broker?.userId} ·{" "}
           {t("主机配置的柜台环境：{environment}", {
-            environment: t(environmentName(live.environment)),
+            environment: t(environmentName(account.environment)),
           })}{" "}
-          · {t(live.authorization ? "已授权" : "尚未允许发送委托")}
+          · {t(live.authorizedMs !== undefined ? "已授权" : "尚未允许发送委托")}
         </p>
       )}
       {!usable && <p role="status">{t("请先连接并同步账户，再启动实例。")}</p>}
@@ -92,24 +87,24 @@ export function StrategyInstance({
             )}
             <dt>{t("已发布版本")}</dt>
             <dd>
-              {review.configuration.package?.name} · {review.configuration.package?.version}
+              {review.configuration.packageName} · {review.configuration.packageVersion}
             </dd>
             <dt>{t("实际合约")}</dt>
-            <dd>{review.configuration.contracts.join(", ")}</dd>
+            <dd>{review.configuration.instruments.map(key).join(", ")}</dd>
             <dt>{t("K 线周期")}</dt>
-            <dd>{review.configuration.period}</dd>
+            <dd>{periodText(review.configuration.period)}</dd>
             <dt>{t("参数覆盖")}</dt>
             <dd>
               {Object.entries(review.configuration.params)
                 .map(([name, value]) => `${name} = ${parameterText(value)}`)
                 .join(", ") || t("使用包内默认参数")}
             </dd>
-            {review.configuration.weightBudget && (
+            {review.configuration.weightLimits && (
               <>
                 <dt>{t("总绝对权重预算")}</dt>
-                <dd>{weightText(review.configuration.weightBudget.grossUnits!)}</dd>
+                <dd>{decimalText(review.configuration.weightLimits.gross)}</dd>
                 <dt>{t("净权重绝对值预算")}</dt>
-                <dd>{weightText(review.configuration.weightBudget.netUnits!)}</dd>
+                <dd>{decimalText(review.configuration.weightLimits.net)}</dd>
               </>
             )}
           </dl>
@@ -154,13 +149,12 @@ export function StrategyInstance({
                 policy: live!.policyRevision,
                 configuration: create(InstanceSchema, {
                   id: id.trim(),
-                  package: { name: installed.name, version: installed.version },
-                  contracts: selected,
+                  packageName: installed.name,
+                  packageVersion: installed.version,
+                  instruments: selected.map(item => allowed[contracts.indexOf(item)]!),
                   period,
                   params: parameterValues(rows),
-                  weightBudget: budget
-                    ? { grossUnits: weightUnits(gross), netUnits: weightUnits(net) }
-                    : undefined,
+                  weightLimits: budget ? { gross: decimal(gross), net: decimal(net) } : undefined,
                 }),
               });
             });
@@ -198,12 +192,15 @@ export function StrategyInstance({
               </label>
               <label>
                 {t("K 线周期")}
-                <select value={period} onChange={event => setPeriod(event.target.value)}>
-                  {Array.from({ length: 60 }, (_, i) => `${i + 1}m`)
-                    .concat("1d")
-                    .map(value => (
-                      <option key={value}>{value}</option>
-                    ))}
+                <select
+                  value={period}
+                  onChange={event => setPeriod(Number(event.target.value) as Period)}
+                >
+                  {strategyPeriods.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

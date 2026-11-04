@@ -1,16 +1,17 @@
 import { useState } from "react";
-import type { InstanceStatus } from "../../src/generated/asterion/strategy_pb";
+import { InstanceState, type InstanceStatus } from "../../src/generated/asterion/trading_pb";
+import { decimalText } from "../../src/bridge/decimal";
 import { BackendError, ErrorNotice, getLocale } from "../contract";
-import { t } from "./live-shared";
-import { activeStrategy, parameterText, weightText } from "./strategy-instance";
+import { key, t } from "./live-shared";
+import { activeStrategy, parameterText, periodText } from "./strategy-instance";
 
-const states: Record<string, string> = {
-  starting: "策略正在启动",
-  warming: "正在现场预热",
-  ready: "策略已就绪",
-  stopped: "已停止",
-  interrupted: "已中断",
-  failed: "策略运行失败",
+const states: Partial<Record<InstanceState, string>> = {
+  [InstanceState.STARTING]: "策略正在启动",
+  [InstanceState.WARMING]: "正在现场预热",
+  [InstanceState.READY]: "策略已就绪",
+  [InstanceState.STOPPED]: "已停止",
+  [InstanceState.INTERRUPTED]: "已中断",
+  [InstanceState.FAILED]: "策略运行失败",
 };
 
 export function StrategyMonitor({
@@ -33,7 +34,7 @@ export function StrategyMonitor({
   flatten: (id: string) => Promise<boolean>;
 }) {
   const [confirm, setConfirm] = useState<{ id: string; action: "stop" | "flatten" }>();
-  const configuration = instance?.configuration;
+  const configuration = instance?.instance;
   if (!instance || !configuration) return null;
   return (
     <section className="strategy-monitor" aria-label={t("策略运行状态")}>
@@ -53,12 +54,12 @@ export function StrategyMonitor({
       <dl>
         <dt>{t("已发布版本")}</dt>
         <dd>
-          {configuration.package?.name} · {configuration.package?.version}
+          {configuration.packageName} · {configuration.packageVersion}
         </dd>
         <dt>{t("实际合约")}</dt>
-        <dd>{configuration.contracts.join(", ")}</dd>
+        <dd>{configuration.instruments.map(key).join(", ")}</dd>
         <dt>{t("K 线周期")}</dt>
-        <dd>{configuration.period}</dd>
+        <dd>{periodText(configuration.period)}</dd>
         <dt>{t("已处理完整 K 线批次")}</dt>
         <dd>{instance.completedSteps.toString()}</dd>
         <dt>{t("最近读取时间")}</dt>
@@ -69,16 +70,16 @@ export function StrategyMonitor({
             .map(([name, value]) => `${name} = ${parameterText(value)}`)
             .join(", ") || t("使用包内默认参数")}
         </dd>
-        {configuration.weightBudget && (
+        {configuration.weightLimits && (
           <>
             <dt>{t("总绝对权重预算")}</dt>
-            <dd>{weightText(configuration.weightBudget.grossUnits!)}</dd>
+            <dd>{decimalText(configuration.weightLimits.gross)}</dd>
             <dt>{t("净权重绝对值预算")}</dt>
-            <dd>{weightText(configuration.weightBudget.netUnits!)}</dd>
+            <dd>{decimalText(configuration.weightLimits.net)}</dd>
           </>
         )}
       </dl>
-      {instance.state === "warming" && (
+      {instance.state === InstanceState.WARMING && (
         <p className="subtle">
           {t("预热是否完成由策略按参数和实际收到的数据判断；批次数不是预热百分比。")}
         </p>
@@ -97,14 +98,14 @@ export function StrategyMonitor({
               </thead>
               <tbody>
                 {instance.lastDecision.targets.map(target => (
-                  <tr key={target.contract}>
-                    <td>{target.contract}</td>
-                    <td>{t(target.value.case === "lots" ? "手数" : "权重")}</td>
+                  <tr key={key(target.instrument)}>
+                    <td>{key(target.instrument)}</td>
+                    <td>{t(target.size.case === "lots" ? "手数" : "权重")}</td>
                     <td>
-                      {target.value.case === "lots"
-                        ? target.value.value.toString()
-                        : target.value.case === "weightUnits"
-                          ? weightText(target.value.value)
+                      {target.size.case === "lots"
+                        ? target.size.value.toString()
+                        : target.size.case === "weight"
+                          ? decimalText(target.size.value)
                           : "—"}
                     </td>
                   </tr>

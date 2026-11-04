@@ -7,8 +7,8 @@
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/system/rpc_host.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/protocol/health.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/system/trace.hpp>
 #include <algorithm>
@@ -38,11 +38,9 @@ int main(int argc, char** argv)
                 + installation.string());
         asterion::log::init(installation, "asterion_trading-" + account_name);
         const auto settings = asterion::trading::load_settings(installation, account_name);
-        namespace wire = asterion::protocol::proto;
-        const auto& session_id = settings.account;
+        namespace wire = ::trading;
         const auto& sdk = settings.ctp_library;
-        const auto configured_account =
-            asterion::protocol::encode_trading_account(settings.identity);
+        const auto configured_account = asterion::protocol::encode_account(settings.identity);
         const auto& journal = settings.journal;
         const auto& ownership_directory = settings.owners;
         asterion::service::install_stop_signals();
@@ -53,33 +51,31 @@ int main(int argc, char** argv)
         std::future<void> login;
         bool recovering = false;
         asterion::Progress initialization, io_progress;
-        const auto started = std::chrono::steady_clock::now();
-        const auto instance = asterion::unique_process_id();
         const auto fill_health = [&](wire::Health& h) {
-            h.set_instance_id(instance);
-            h.set_version("0.1.0");
-            h.set_uptime_ms(
-                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - started)
-                        .count()));
-            auto* e = h.mutable_execution();
-            *e->mutable_io() = asterion::protocol::encode_progress(io_progress.observe());
-            *e->mutable_initialization() =
+            *h.mutable_io() = asterion::protocol::encode_progress(io_progress.observe());
+            *h.mutable_initialization() =
                 asterion::protocol::encode_progress(initialization.observe());
             const auto current = account_owner.get();
-            h.set_initialized(bool(account));
+            h.set_account_open(bool(account));
             h.set_recovery_required(current && current->recovery_required());
             if (current) {
                 const auto observed = current->health();
-                *e->mutable_state() = asterion::protocol::encode_progress(observed.state);
-                *e->mutable_persistence() =
+                *h.mutable_state() = asterion::protocol::encode_progress(observed.state);
+                *h.mutable_persistence() =
                     asterion::protocol::encode_progress(observed.persistence);
-                *e->mutable_command() = asterion::protocol::encode_progress(observed.command);
-                e->set_business_ready(observed.business_ready);
+                *h.mutable_command() = asterion::protocol::encode_progress(observed.command);
+                h.set_ready(observed.business_ready);
             }
         };
 
         asterion::trading::StrategyHost strategies(installation, journal, settings.market);
+
+        // The result of a call is the field of the same number in Response.
+        const auto result = [](wire::Response& response, const wire::Request& request) {
+            return response.GetReflection()->MutableMessage(
+                &response,
+                response.GetDescriptor()->FindFieldByNumber(request.call_case()));
+        };
 
         struct Pending
         {
@@ -88,16 +84,16 @@ int main(int argc, char** argv)
             asterion::trading::LiveSession* session = nullptr;
             std::shared_future<void> initialization;
             std::future<void> action;
-            std::future<wire::LiveSnapshot> snapshot;
-            std::future<asterion::strategy::proto::State> strategy;
-            bool needs_snapshot = false;
+            std::future<wire::Session> snapshot;
+            std::future<wire::Strategies> strategy;
+            bool needs_account = false;
+            // The Terminal logs the same id when it sends the request.
+            std::string trace_id;
 
             void fail(const std::exception& error)
             {
-                response.mutable_error()->set_code(
-                    std::string(asterion::error_name(asterion::classify(error))));
-                response.mutable_error()->set_message(error.what());
-                needs_snapshot = false;
+                *response.mutable_error() = asterion::protocol::error(error);
+                needs_account = false;
             }
         };
 
@@ -105,50 +101,41 @@ int main(int argc, char** argv)
             auto work = std::make_shared<Pending>();
             auto& request = work->request;
             auto& response = work->response;
-            response.set_version(1);
-            response.set_session_id(session_id);
-            *response.mutable_account() = configured_account;
+            auto& trace_id = work->trace_id;
             work->session = account;
             try {
                 if (!request.ParseFromString(frame))
                     throw std::invalid_argument("malformed Protobuf request");
                 asterion::protocol::validate_message(request);
-                response.set_correlation_id(request.correlation_id());
-                asterion::validate_id(request.correlation_id());
-                asterion::TraceScope trace(request.correlation_id());
-                if (request.version() != 1 || request.session_id() != session_id)
-                    throw std::invalid_argument("protocol version or session mismatch");
-                if (request.has_command())
-                    asterion::validate_id(request.account_id());
-                else if (!request.account_id().empty())
-                    throw std::invalid_argument(
-                        "account identity is only valid for trading commands");
-                if (request.has_command())
-                    asterion::validate_id(request.policy_revision());
-                else if (!request.policy_revision().empty())
-                    throw std::invalid_argument(
-                        "policy revision is only valid for trading commands");
-                if (request.has_strategy()) {
-                    work->strategy = strategies.request(request.strategy(), account);
-                } else if (request.has_heartbeat()) {
-                    fill_health(*response.mutable_health());
-                } else if (request.has_shutdown()) {
-                    throw std::invalid_argument("the trading service is stopped by systemd");
-                } else if ((request.has_attach() || request.has_snapshot()) && !work->session
-                    && account_owner) {
-                    work->session = account_owner.get();
-                    work->initialization = account_owner->initialized();
-                    work->needs_snapshot = true;
-                } else if (request.has_attach() && !work->session) {
-                    response.mutable_uninitialized();
-                } else {
-                    if (request.has_live_create()) {
+                response.set_id(request.id());
+                trace_id = std::to_string(request.id());
+                asterion::TraceScope trace(trace_id);
+                switch (request.call_case()) {
+                    case wire::Request::kGetHealth:
+                        fill_health(*response.mutable_get_health());
+                        break;
+                    case wire::Request::kGetStrategies:
+                    case wire::Request::kPublishStrategy:
+                    case wire::Request::kStartStrategy:
+                    case wire::Request::kStopStrategy:
+                    case wire::Request::kPauseStrategy:
+                    case wire::Request::kFlattenStrategy:
+                        work->strategy = strategies.request(request, account);
+                        break;
+                    case wire::Request::kGetAccount:
+                        if (!work->session && account_owner) {
+                            work->session = account_owner.get();
+                            work->initialization = account_owner->initialized();
+                        }
+                        work->needs_account = true;
+                        break;
+                    case wire::Request::kOpenAccount: {
                         if (account_owner)
-                            throw std::invalid_argument("session already initialized");
+                            throw std::invalid_argument("the account is already open");
                         auto manifest = settings.identity;
                         manifest["type"] = "live_ctp";
                         manifest["policy"] =
-                            asterion::protocol::decode_live_policy(request.live_create());
+                            asterion::protocol::decode_policy(request.open_account());
                         account_owner = std::make_unique<asterion::trading::LiveSession>(
                             journal,
                             sdk,
@@ -158,25 +145,30 @@ int main(int argc, char** argv)
                         work->session = account_owner.get();
                         initializing = account_owner->initialized();
                         work->initialization = initializing;
-                    } else if (!work->session) {
-                        throw std::invalid_argument("session is not initialized");
-                    } else if (request.has_live_connect()) {
-                        work->action =
-                            work->session->connect(settings.password, settings.auth_code);
-                    } else if (request.has_live_disconnect()) {
-                        work->action = work->session->disconnect();
-                    } else if (request.has_live_costs()) {
-                        work->action = work->session->query_costs();
-                    } else if (request.has_command()) {
-                        work->action = work->session->execute(
-                            request.account_id(),
-                            request.policy_revision(),
-                            asterion::trading::AccountRequest::from_wire(request.command()));
-
-                    } else if (!request.has_snapshot() && !request.has_attach()) {
-                        throw std::invalid_argument("missing live session operation");
+                        work->needs_account = true;
+                        break;
                     }
-                    work->needs_snapshot = true;
+                    default:
+                        if (!work->session)
+                            throw std::invalid_argument("the account is not open");
+                        if (request.has_connect_broker())
+                            work->action =
+                                work->session->connect(settings.password, settings.auth_code);
+                        else if (request.has_disconnect_broker())
+                            work->action = work->session->disconnect();
+                        else if (request.has_query_costs())
+                            work->action = work->session->query_costs();
+                        else if (request.has_send_command()) {
+                            const auto& command = request.send_command();
+                            asterion::validate_id(command.account_id());
+                            asterion::validate_id(command.policy_revision());
+                            work->action = work->session->execute(
+                                command.account_id(),
+                                command.policy_revision(),
+                                asterion::trading::AccountRequest::from_wire(command));
+                        } else
+                            throw std::invalid_argument("missing trading call");
+                        work->needs_account = true;
                 }
             } catch (const std::exception& error) {
                 work->fail(error);
@@ -185,12 +177,12 @@ int main(int argc, char** argv)
             return [&, work]() -> std::optional<std::string> {
                 auto& request = work->request;
                 auto& response = work->response;
-                asterion::TraceScope trace(request.correlation_id());
+                asterion::TraceScope trace(work->trace_id);
                 try {
                     if (work->strategy.valid()) {
                         if (work->strategy.wait_for(0ms) != std::future_status::ready)
                             return {};
-                        *response.mutable_strategy() = work->strategy.get();
+                        result(response, request)->CopyFrom(work->strategy.get());
                     }
                     if (work->initialization.valid()) {
                         if (work->initialization.wait_for(0ms) != std::future_status::ready)
@@ -205,28 +197,33 @@ int main(int argc, char** argv)
                             return {};
                         work->action.get();
                     }
-                    if (work->needs_snapshot) {
-                        if (!work->snapshot.valid())
-                            work->snapshot = work->session->snapshot();
-                        if (work->snapshot.wait_for(0ms) != std::future_status::ready)
-                            return {};
-                        *response.mutable_live() = work->snapshot.get();
+                    if (work->needs_account) {
+                        wire::Account reply = configured_account;
+                        if (work->session) {
+                            if (!work->snapshot.valid())
+                                work->snapshot = work->session->snapshot();
+                            if (work->snapshot.wait_for(0ms) != std::future_status::ready)
+                                return {};
+                            *reply.mutable_session() = work->snapshot.get();
+                        }
+                        result(response, request)->CopyFrom(reply);
                     }
                 } catch (const std::exception& error) {
                     work->fail(error);
                 }
-                const auto& command = request.command();
-                const std::string_view order = command.has_submit() ? command.submit().order_id()
-                    : command.has_cancel()                          ? command.cancel().order_id()
-                    : command.has_live_resolve() ? command.live_resolve().order_id()
-                                                 : std::string_view{};
+                const auto& command = request.send_command();
+                const std::string_view order = command.has_submit_order()
+                    ? command.submit_order().order_id()
+                    : command.has_cancel_order()  ? command.cancel_order().id()
+                    : command.has_resolve_order() ? command.resolve_order().id()
+                                                  : std::string_view{};
                 asterion::protocol::log_rpc_result(
                     "trading",
                     request,
                     response,
-                    request.has_snapshot() || request.has_heartbeat() || request.has_attach(),
-                    {{"session_id", session_id},
-                        {"account_id", request.account_id()},
+                    request.has_get_account() || request.has_get_health()
+                        || request.has_get_strategies(),
+                    {{"account_id", command.account_id()},
                         {"request_id", command.request_id()},
                         {"order_id", order}});
                 request.Clear();

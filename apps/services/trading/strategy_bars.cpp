@@ -5,20 +5,50 @@
 #include <stdexcept>
 
 namespace asterion::trading {
-namespace wire = strategy::proto;
+namespace wire = ::strategy;
+
+namespace {
+
+std::int64_t minutes(::common::Period period)
+{
+    switch (period) {
+        case ::common::PERIOD_MINUTES_1:
+            return 1;
+        case ::common::PERIOD_MINUTES_5:
+            return 5;
+        case ::common::PERIOD_MINUTES_10:
+            return 10;
+        case ::common::PERIOD_MINUTES_15:
+            return 15;
+        case ::common::PERIOD_MINUTES_30:
+            return 30;
+        case ::common::PERIOD_MINUTES_60:
+            return 60;
+        default:
+            return 0;
+    }
+}
+
+void put(::common::Decimal* field, const Decimal& value)
+{
+    field->set_text(value.str());
+}
+
+} // namespace
 
 StrategyBars::StrategyBars(
     const wire::Instance& configuration,
     std::int64_t started_ms,
     std::uint64_t sequence)
-    : daily_(configuration.period() == "1d"),
-      interval_(daily_ ? 0 : std::stoll(configuration.period()) * 60000),
+    : daily_(configuration.period() == ::common::PERIOD_DAY),
+      interval_(minutes(configuration.period()) * 60000),
       started_ms_(started_ms),
-      contracts_(configuration.contracts().begin(), configuration.contracts().end()),
       sequence_(sequence)
 {
-    for (const auto& contract : contracts_)
-        current_.emplace(contract, Current{});
+    for (const auto& id : configuration.instruments()) {
+        contracts_.push_back(id.exchange() + "/" + id.symbol());
+        current_.emplace(contracts_.back(), Current{});
+    }
 }
 
 std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
@@ -68,23 +98,25 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
         // happens to carry its boundary timestamp. Daily starts discard that day.
         const bool complete = current.initialized;
         current.bar.Clear();
-        current.bar.set_contract(contract);
+        current.bar.mutable_instrument()->set_exchange(quote.instrument.venue);
+        current.bar.mutable_instrument()->set_symbol(quote.instrument.symbol);
         current.bar.set_trading_day(day);
         // A day completes at its 15:00 Beijing close, as research labels it.
         current.bar.set_end_ms(daily_ ? key + 15 * 3600000LL : key + interval_);
-        current.bar.set_open_units(quote.last->raw());
-        current.bar.set_high_units(quote.last->raw());
-        current.bar.set_low_units(quote.last->raw());
+        put(current.bar.mutable_open(), *quote.last);
+        current.high = current.low = *quote.last;
         current.key = key;
         current.complete = complete;
         current.initialized = true;
     }
     auto& bar = current.bar;
-    bar.set_high_units(std::max(bar.high_units(), quote.last->raw()));
-    bar.set_low_units(std::min(bar.low_units(), quote.last->raw()));
-    bar.set_close_units(quote.last->raw());
+    current.high = std::max(current.high, *quote.last);
+    current.low = std::min(current.low, *quote.last);
+    put(bar.mutable_high(), current.high);
+    put(bar.mutable_low(), current.low);
+    put(bar.mutable_close(), *quote.last);
     bar.set_volume(bar.volume() + delta);
-    bar.set_open_interest_units(quote.open_interest->raw());
+    put(bar.mutable_open_interest(), *quote.open_interest);
     current.source_ms = quote.source_ms;
     current.volume = quote.volume;
 

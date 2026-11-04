@@ -2,7 +2,7 @@ import { CatalogState } from "../../src/generated/asterion/market_pb";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
-import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { BrokerState, type Account, type Policy } from "../../src/generated/asterion/trading_pb";
 import { catalogName } from "../contract";
 import {
   command,
@@ -15,24 +15,26 @@ import {
   type Run,
 } from "./live-shared";
 
-const currentLimits = (live: LiveSnapshot): LimitsDraft => ({
-  max_order_quantity: decimalText(live.risk?.maxOrderQuantity),
-  max_gross_quantity: decimalText(live.risk?.maxGrossQuantity),
-  max_working_orders: String(live.risk?.maxWorkingOrders ?? 0n),
-  max_price_deviation: decimalText(live.maxPriceDeviation),
+const currentLimits = (policy: Policy | undefined): LimitsDraft => ({
+  max_order_quantity: decimalText(policy?.limits?.maxOrderLots),
+  max_gross_quantity: decimalText(policy?.limits?.maxGrossLots),
+  max_working_orders: String(policy?.limits?.maxWorkingOrders ?? 0),
+  max_price_deviation: decimalText(policy?.maxPriceDeviation),
 });
 
 export function AccountPolicyEditor({
-  live,
+  record,
   disabled,
   run,
 }: {
-  live: LiveSnapshot;
+  record: Account;
   disabled: boolean;
   run: Run;
 }) {
-  const [limits, setLimits] = useState(() => currentLimits(live));
-  const [contracts, setContracts] = useState(live.contracts.map(contractKey));
+  const live = record.session!;
+  const allowed = live.policy?.contracts ?? [];
+  const [limits, setLimits] = useState(() => currentLimits(live.policy));
+  const [contracts, setContracts] = useState(allowed.map(item => contractKey(item.instrument)));
   const [choice, setChoice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const catalog = useMarket()?.board.catalog;
@@ -52,25 +54,23 @@ export function AccountPolicyEditor({
         onSubmit={event => {
           event.preventDefault();
           // A contract already allowed keeps the terms it was recorded with.
-          void command(run, live, () => ({
-            case: "livePolicy",
+          void command(run, record, () => ({
+            case: "changePolicy",
             value: {
-              policy: {
-                risk: riskLimits(limits),
-                maxPriceDeviation: decimal(limits.max_price_deviation),
-                contracts: contracts.map(
-                  value =>
-                    live.contracts.find(item => contractKey(item) === value) ??
-                    policyContract(available.find(item => listedKey(item) === value)!),
-                ),
-              },
+              limits: riskLimits(limits),
+              maxPriceDeviation: decimal(limits.max_price_deviation),
+              contracts: contracts.map(
+                value =>
+                  allowed.find(item => contractKey(item.instrument) === value) ??
+                  policyContract(available.find(item => listedKey(item) === value)!),
+              ),
             },
           })).then(applied => {
             if (applied) setConfirmed(false);
           });
         }}
       >
-        <fieldset disabled={disabled || live.phase !== "ready"}>
+        <fieldset disabled={disabled || live.brokerState !== BrokerState.READY}>
           <div className="futures-fields">
             {(
               [
@@ -148,8 +148,8 @@ export function AccountPolicyEditor({
           <button
             type="button"
             onClick={() => {
-              setLimits(currentLimits(live));
-              setContracts(live.contracts.map(contractKey));
+              setLimits(currentLimits(live.policy));
+              setContracts(allowed.map(item => contractKey(item.instrument)));
               setChoice("");
               setConfirmed(false);
             }}

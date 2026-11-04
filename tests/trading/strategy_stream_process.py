@@ -15,7 +15,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from strategy_process import source, build, rpc, until, terminate, initialize_account, account_snapshot, account_command
 from trading_installation import install, Programs
-from asterion import strategy_pb2 as wire, trading_pb2 as trading
+from asterion import common_pb2 as common, strategy_pb2 as wire, trading_pb2 as trading
 from asterion_strategy import Bar, Context, step
 
 CODE = '''from asterion_strategy import Strategy
@@ -41,7 +41,8 @@ def main():
         for path in (source / 'apps/services/trading/python/strategy_runner.py',
                      source / 'apps/services/common/python/asterion_strategy.py'):
             shutil.copy2(path, code)
-        shutil.copy2(build / 'generated-python/asterion/strategy_pb2.py', code / 'asterion')
+        for name in ('strategy_pb2.py', 'common_pb2.py'):
+            shutil.copy2(build / 'generated-python/asterion' / name, code / 'asterion')
         (host.root / 'runtime').mkdir()
         (host.root / 'runtime/python').symlink_to(Path(sys.executable).resolve().parents[1])
         host.account('account', user='strategy')
@@ -50,41 +51,41 @@ def main():
         try:
             initialize_account(host)
             account_command(host, trading.Command(request_id='authorize.stream',
-                live_authorize=trading.LiveAuthorize(user_id='strategy')))
+                authorize=trading.Authorize(user_id='strategy')))
             manifest = wire.Manifest(name='two-bars', version='1', entry='rule:TwoBars',
                 runtime='python3.12-numpy2.3.5', files=['rule.py'])
-            rpc(host, wire.Request(publish=wire.Package(manifest=manifest,
-                files=[wire.File(path='rule.py', content=CODE.encode())])))
-            config = wire.Instance(id='live-window', package=wire.PackageRef(name='two-bars', version='1'),
-                contracts=['SHFE/rb2610'], period='1m')
+            rpc(host, 'publish_strategy', wire.Package(manifest=manifest,
+                files=[wire.File(path='rule.py', content=CODE.encode())]))
+            config = wire.Instance(id='live-window', package_name='two-bars', package_version='1',
+                instruments=[dict(exchange='SHFE', symbol='rb2610')], period=common.PERIOD_MINUTES_1)
             started_ms = int(time.time() * 1000)
-            initial = rpc(host, wire.Request(start=config)).instance
-            assert initial.state == 'warming' and not initial.completed_steps, initial
+            initial = rpc(host, 'start_strategy', config).instance
+            assert initial.state == trading.INSTANCE_STATE_WARMING and not initial.completed_steps, initial
             def observe():
-                state = rpc(host, wire.Request(inspect=wire.Empty())).instance
-                assert state.state in ('warming', 'ready'), state
+                state = rpc(host, 'get_strategies', {}).instance
+                assert state.state in (trading.INSTANCE_STATE_WARMING, trading.INSTANCE_STATE_READY), state
                 return state
             first = until(observe, lambda state: state.completed_steps >= 1, seconds=130)
-            assert first.completed_steps == 1 and first.state == 'warming', first
+            assert first.completed_steps == 1 and first.state == trading.INSTANCE_STATE_WARMING, first
             assert not first.last_decision.targets and not first.last_decision.ready
             assert not account_snapshot(host).orders
-            ready = until(observe, lambda state: state.state == 'ready', seconds=70)
+            ready = until(observe, lambda state: state.state == trading.INSTANCE_STATE_READY, seconds=70)
             assert ready.completed_steps == 2 and ready.last_decision.targets[0].lots == 3, ready
             sent = until(lambda: account_snapshot(host), lambda state: len(state.orders) == 1)
-            assert sent.orders[0].quantity.units == 3 * 10**8, sent
+            assert sent.orders[0].lots.text == '3', sent
             order_id = sent.orders[0].id
             # The three-lot order rests past the batch's 10 s: the batch is dropped and its
             # order cancelled once, and the instance keeps running.
             dropped = until(lambda: account_snapshot(host),
-                lambda state: state.orders[0].status == 'cancelled', seconds=20)
+                lambda state: state.orders[0].state == trading.ORDER_STATE_CANCELLED, seconds=20)
             assert dropped.orders[0].id == order_id, dropped
-            assert observe().state == 'ready'
+            assert observe().state == trading.INSTANCE_STATE_READY
             # A provider disconnect does not end the instance; bars continue after CTP reconnects.
             (root / 'ctp-flow/disconnect').touch()
             time.sleep(2)
             (root / 'ctp-flow/disconnect').unlink()
             until(observe, lambda state: state.completed_steps >= 3, seconds=130)
-            rpc(host, wire.Request(stop=wire.Stop(instance_id=config.id)))
+            rpc(host, 'stop_strategy', dict(id=config.id))
             with sqlite3.connect(root / 'runs/live-window.sqlite') as db:
                 saved = wire.Instance.FromString(db.execute('SELECT value FROM configuration').fetchone()[0])
                 assert saved == config
@@ -95,46 +96,47 @@ def main():
             assert 'batch abandoned: strategy target expired before completion' in events, events
             assert len(rows) >= 3
             namespace = {}; exec(CODE, namespace)
-            strategy, context = namespace['TwoBars'](), Context(config.contracts)
+            strategy, context = namespace['TwoBars'](), Context(['SHFE/rb2610'])
             for index, (raw, result) in enumerate(rows, 1):
                 batch, decision = wire.Bars.FromString(raw), wire.Decision.FromString(result)
                 assert batch.sequence == decision.sequence == index
                 bars = []
                 for row in batch.bars:
                     assert row.end_ms % 60000 == 0 and row.end_ms - 60000 > started_ms
-                    assert row.HasField('open_interest_units') and row.volume > 0
-                    bars.append(Bar(row.contract, row.contract,
+                    assert row.HasField('open_interest') and row.volume > 0
+                    symbol = f'{row.instrument.exchange}/{row.instrument.symbol}'
+                    bars.append(Bar(symbol, symbol,
                         datetime.datetime.fromtimestamp(row.end_ms / 1000,
                             datetime.timezone(datetime.timedelta(hours=8))),
-                        row.open_units / 1e8, row.high_units / 1e8, row.low_units / 1e8,
-                        row.close_units / 1e8, row.volume, row.open_interest_units / 1e8))
+                        float(row.open.text), float(row.high.text), float(row.low.text),
+                        float(row.close.text), row.volume, float(row.open_interest.text)))
                 wanted = step(strategy, context, bars)
                 assert context.ready == decision.ready
-                assert wanted == {target.contract: target.lots for target in decision.targets}
-            assert rpc(host, wire.Request(start=config), True).code == 'conflict'
+                assert wanted == {f'{t.instrument.exchange}/{t.instrument.symbol}': t.lots for t in decision.targets}
+            assert rpc(host, 'start_strategy', config, True).code == 'conflict'
             # A warm restart replays the ended instance's record before live bars.
             resumed_config = wire.Instance()
             resumed_config.CopyFrom(config)
             resumed_config.id, resumed_config.resume_from = 'resumed-window', config.id
-            resumed = rpc(host, wire.Request(start=resumed_config)).instance
-            assert resumed.state == 'ready' and resumed.completed_steps == len(rows), resumed
+            resumed = rpc(host, 'start_strategy', resumed_config).instance
+            assert resumed.state == trading.INSTANCE_STATE_READY and resumed.completed_steps == len(rows), resumed
             assert resumed.last_decision == wire.Decision.FromString(rows[-1][1]), resumed
-            paused = rpc(host, wire.Request(pause=wire.Pause(instance_id=resumed_config.id, paused=True))).instance
+            paused = rpc(host, 'pause_strategy', dict(id=resumed_config.id, paused=True)).instance
             assert paused.paused and paused.events[-1].text == 'paused', paused
-            flattened = rpc(host, wire.Request(flatten=wire.Stop(instance_id=resumed_config.id))).instance
+            flattened = rpc(host, 'flatten_strategy', dict(id=resumed_config.id)).instance
             assert flattened.paused and flattened.events[-1].text == 'flatten requested', flattened
-            rpc(host, wire.Request(stop=wire.Stop(instance_id=resumed_config.id)))
+            rpc(host, 'stop_strategy', dict(id=resumed_config.id))
             other = wire.Instance()
             other.CopyFrom(resumed_config)
-            other.id, other.period = 'other-window', '5m'
-            assert rpc(host, wire.Request(start=other), True).code == 'invalid_request'
+            other.id, other.period = 'other-window', common.PERIOD_MINUTES_5
+            assert rpc(host, 'start_strategy', other, True).code == 'invalid_request'
             orders = len(account_snapshot(host).orders)
             config.id = 'fresh-window'
-            fresh = rpc(host, wire.Request(start=config)).instance
-            assert fresh.state == 'warming' and not fresh.completed_steps and not fresh.HasField('last_decision')
-            rpc(host, wire.Request(stop=wire.Stop(instance_id=config.id)))
+            fresh = rpc(host, 'start_strategy', config).instance
+            assert fresh.state == trading.INSTANCE_STATE_WARMING and not fresh.completed_steps and not fresh.HasField('last_decision')
+            rpc(host, 'stop_strategy', dict(id=config.id))
             assert len(account_snapshot(host).orders) == orders
-            assert account_snapshot(host).HasField('authorization')
+            assert account_snapshot(host).HasField('authorized_ms')
             print('Direct Trading feed, complete live minutes, readiness, batch expiry, surviving a '
                   'disconnect, exact input replay, warm restart and empty restart passed')
         finally:

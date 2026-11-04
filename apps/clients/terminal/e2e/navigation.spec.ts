@@ -4,14 +4,13 @@ import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
 test("four business modules preserve navigation without starting work", async ({ page }) => {
   await page.goto("/");
-  const methods: { method: string; params: { request?: Record<string, { inspect?: object }> } }[] =
-    [];
+  const methods: { method: string; params: { request?: Record<string, object> } }[] = [];
   page.on("request", request => {
     if (request.url().endsWith("/__asterion/api")) methods.push(request.postDataJSON());
   });
   // Opening a page only reads accounts: their state, health and strategy packages.
   const reads = ({ request }: (typeof methods)[number]["params"]) =>
-    !!request && ("attach" in request || "heartbeat" in request || !!request.strategy?.inspect);
+    !!request && ("getAccount" in request || "getHealth" in request || "getStrategies" in request);
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   const names = ["行情", "研究", "交易", "数据"];
   await expect(nav.getByRole("button")).toHaveText(names);

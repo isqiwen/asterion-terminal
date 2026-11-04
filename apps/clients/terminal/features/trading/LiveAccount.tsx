@@ -1,24 +1,17 @@
 import { useState } from "react";
 import type { TradingConnection, Snapshot } from "../../src/bridge/client";
 import { decimalText } from "../../src/bridge/decimal";
-import { TradingEnvironment, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useWorkspaceDraft } from "../contract";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket } from "./OrderTicket";
-import {
-  t,
-  phases,
-  command,
-  environmentName,
-  type CommandOperation,
-  type Run,
-} from "./live-shared";
+import { t, phases, command, environmentName, type CommandAction, type Run } from "./live-shared";
 
 export function LiveAccount({
   account,
-  live,
+  record,
   stale,
   snapshot,
   busy,
@@ -26,7 +19,8 @@ export function LiveAccount({
   control,
 }: {
   account: TradingConnection;
-  live: LiveSnapshot;
+  // The account as Trading reports it, with its open session.
+  record: Account;
   // The service is unreachable or its record needs recovery.
   stale: boolean;
   snapshot: Snapshot | null;
@@ -35,7 +29,8 @@ export function LiveAccount({
   control: Run;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
-  const broker = live.broker!;
+  const live = record.session!;
+  const broker = record.broker!;
   const identity = JSON.stringify([
     account.id,
     account.host,
@@ -45,7 +40,7 @@ export function LiveAccount({
     broker.brokerId,
     broker.userId,
   ]);
-  const real = live.environment === TradingEnvironment.REAL;
+  const real = record.environment === Environment.REAL;
   const [environmentConfirmed, setEnvironmentConfirmed] = useWorkspaceDraft(
     `ctp-environment-confirmed:${identity}`,
     false,
@@ -54,15 +49,15 @@ export function LiveAccount({
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
   const confirmed = confirmedPolicy === live.policyRevision;
-  const ready = live.phase === "ready";
-  const authorized = !!live.authorization;
-  const act = (operation: () => CommandOperation) => command(run, live, operation);
+  const ready = live.brokerState === BrokerState.READY;
+  const authorized = live.authorizedMs !== undefined;
+  const act = (action: () => CommandAction) => command(run, record, action);
   // One step is offered at a time: the counter connection, then permission to
   // send, then the order ticket. A window that has not confirmed the
   // environment of an already connected account confirms it first.
   const stage = stale
     ? "stale"
-    : live.phase === "disconnected" || live.phase === "error"
+    : live.brokerState === BrokerState.DISCONNECTED || live.brokerState === BrokerState.FAILED
       ? "connect"
       : !ready
         ? "connecting"
@@ -75,7 +70,7 @@ export function LiveAccount({
     <div className="environment-check">
       <label>
         {t("柜台环境")}
-        <span>{t(environmentName(live.environment))}</span>
+        <span>{t(environmentName(record.environment))}</span>
       </label>
       <label className="checkbox">
         <input
@@ -99,7 +94,7 @@ export function LiveAccount({
   const cancel = async (id: string) => {
     setCancelling(current => [...current, id]);
     try {
-      await command(control, live, () => ({ case: "cancel", value: { orderId: id } }));
+      await command(control, record, () => ({ case: "cancelOrder", value: { id } }));
     } finally {
       setCancelling(current => current.filter(item => item !== id));
     }
@@ -120,7 +115,7 @@ export function LiveAccount({
           )}
         </strong>
         <span data-testid="live-phase">
-          {t(stale ? "服务失联" : (phases[live.phase] ?? live.phase))}
+          {t(stale ? "服务失联" : (phases[live.brokerState] ?? BrokerState[live.brokerState]))}
         </span>
         <span>{authorized ? t("已授权") : t("尚未允许发送委托")}</span>
         <span>{broker.front}</span>
@@ -131,7 +126,7 @@ export function LiveAccount({
               disabled={revoking}
               onClick={() => {
                 setRevoking(true);
-                void command(control, live, () => ({ case: "liveRevoke", value: {} })).finally(() =>
+                void command(control, record, () => ({ case: "revoke", value: {} })).finally(() =>
                   setRevoking(false),
                 );
               }}
@@ -139,11 +134,11 @@ export function LiveAccount({
               {t("撤销授权")}
             </button>
           )}
-          {live.phase !== "disconnected" && (
+          {live.brokerState !== BrokerState.DISCONNECTED && (
             <button
               disabled={busy}
               title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
-              onClick={() => void run({ case: "liveDisconnect", value: {} })}
+              onClick={() => void run({ case: "disconnectBroker", value: {} })}
             >
               {t("断开账户")}
             </button>
@@ -153,10 +148,6 @@ export function LiveAccount({
       <details>
         <summary>{t("柜台观察范围")}</summary>
         <dl className="definition-list">
-          <dt>{t("连接代次")}</dt>
-          <dd>{String(live.connectionGeneration)}</dd>
-          <dt>{t("观察序号")}</dt>
-          <dd>{String(live.brokerSequence)}</dd>
           <dt>{t("持仓核对状态")}</dt>
           <dd>{t(live.positionsReconciled ? "已纳入已知成交" : "尚未核对已知成交")}</dd>
         </dl>
@@ -180,11 +171,11 @@ export function LiveAccount({
           )}
         </p>
       )}
-      {live.phase === "error" && (
+      {live.brokerState === BrokerState.FAILED && (
         <p className="alert" role="alert">
-          {live.errorCode === -1008
+          {live.ctpError === -1008
             ? t("柜台回报队列已满，新增报单已停止。请重新连接并核对账户；已有委托不会自动撤销。")
-            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.errorCode })}
+            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.ctpError })}
         </p>
       )}
       {live.unconfirmed.length > 0 && (
@@ -201,9 +192,7 @@ export function LiveAccount({
               <button
                 key={item.id}
                 disabled={busy || stale}
-                onClick={() =>
-                  void act(() => ({ case: "liveResolve", value: { orderId: item.id } }))
-                }
+                onClick={() => void act(() => ({ case: "resolveOrder", value: { id: item.id } }))}
               >
                 {t("已核实券商无此委托：{id}", { id: item.id })}
               </button>
@@ -242,7 +231,7 @@ export function LiveAccount({
           onSubmit={event => {
             event.preventDefault();
             if (!environmentReady) return;
-            void run({ case: "liveConnect", value: {} });
+            void run({ case: "connectBroker", value: {} });
           }}
         >
           <fieldset disabled={busy}>
@@ -257,7 +246,9 @@ export function LiveAccount({
         </form>
       )}
       {stage === "connecting" && (
-        <p role="status">{t("正在连接柜台：{phase}", { phase: t(phases[live.phase]) })}</p>
+        <p role="status">
+          {t("正在连接柜台：{phase}", { phase: t(phases[live.brokerState] ?? "") })}
+        </p>
       )}
       {stage === "environment" && (
         <section aria-label={t("柜台环境")}>
@@ -283,7 +274,7 @@ export function LiveAccount({
               disabled={busy || !confirmed}
               onClick={() => {
                 setConfirmedPolicy(null);
-                void act(() => ({ case: "liveAuthorize", value: { userId: broker.userId } }));
+                void act(() => ({ case: "authorize", value: { userId: broker.userId } }));
               }}
             >
               {t("允许发送委托")}
@@ -298,7 +289,7 @@ export function LiveAccount({
       )}
       {stage === "trade" && (
         <OrderTicket
-          live={live}
+          record={record}
           snapshot={snapshot}
           busy={busy}
           accountName={account.instance}
@@ -307,7 +298,7 @@ export function LiveAccount({
         />
       )}
       <AccountRecords
-        live={live}
+        record={record}
         busy={busy}
         run={run}
         activity={activity}

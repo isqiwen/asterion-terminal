@@ -21,7 +21,8 @@
 
 namespace asterion::trading {
 namespace fs = std::filesystem;
-namespace wire = strategy::proto;
+namespace wire = ::strategy;
+namespace pb = ::trading;
 using namespace std::chrono_literals;
 
 namespace {
@@ -85,19 +86,22 @@ void validate(const wire::Package& package)
 void validate(const wire::Instance& instance)
 {
     package_identity(instance.id(), "instance");
-    package_identity(instance.package().name(), instance.package().version());
-    if (instance.contracts_size() < 1 || instance.contracts_size() > 20)
+    package_identity(instance.package_name(), instance.package_version());
+    if (instance.instruments_size() < 1 || instance.instruments_size() > 20)
         throw std::invalid_argument("a strategy instance selects 1-20 native contracts");
     std::set<std::string> contracts;
-    const std::regex contract("(SHFE|INE|DCE|CZCE|CFFEX|GFEX)/[A-Za-z]+[0-9]{3,4}");
-    for (const auto& value : instance.contracts())
-        if (!std::regex_match(value, contract) || !contracts.insert(value).second)
-            throw std::invalid_argument("invalid or duplicate native contract: " + value);
-    if (!std::regex_match(instance.period(), std::regex("1d|([1-9]|[1-5][0-9]|60)m")))
-        throw std::invalid_argument("strategy period is 1d or 1m through 60m");
-    if (instance.has_weight_budget()
-        && (!instance.weight_budget().has_gross_units()
-            || !instance.weight_budget().has_net_units()))
+    const std::regex exchange("SHFE|INE|DCE|CZCE|CFFEX|GFEX"), symbol("[A-Za-z]+[0-9]{3,4}");
+    for (const auto& value : instance.instruments()) {
+        const auto name = value.exchange() + "/" + value.symbol();
+        if (!std::regex_match(value.exchange(), exchange)
+            || !std::regex_match(value.symbol(), symbol) || !contracts.insert(name).second)
+            throw std::invalid_argument("invalid or duplicate native contract: " + name);
+    }
+    if (instance.period() == ::common::PERIOD_UNSPECIFIED
+        || instance.period() > ::common::PERIOD_DAY)
+        throw std::invalid_argument("strategy bars are daily or of 1 to 60 minutes");
+    if (instance.has_weight_limits()
+        && (!instance.weight_limits().has_gross() || !instance.weight_limits().has_net()))
         throw std::invalid_argument(
             "strategy weight budget requires explicit gross and net limits");
     if (instance.ByteSizeLong() > 16384)
@@ -144,7 +148,7 @@ struct StrategyHost::State
 {
     fs::path installation, root, endpoint;
     std::unique_ptr<FileLock> lock;
-    wire::InstanceStatus instance;
+    pb::InstanceStatus instance;
     std::unique_ptr<ChildProcess> child;
     ipc::Channel channel;
     ctp::Configuration market;
@@ -172,9 +176,10 @@ struct StrategyHost::State
             if (!instance.ParseFromString(read(root / "instance.pb", 32768)))
                 throw std::invalid_argument(
                     "invalid strategy instance: " + (root / "instance.pb").string());
-            if (instance.state() == "warming" || instance.state() == "ready"
-                || instance.state() == "starting") {
-                instance.set_state("interrupted");
+            if (instance.state() == pb::INSTANCE_STATE_WARMING
+                || instance.state() == pb::INSTANCE_STATE_READY
+                || instance.state() == pb::INSTANCE_STATE_STARTING) {
+                instance.set_state(pb::INSTANCE_STATE_INTERRUPTED);
                 instance.set_error("Trading restarted; explicitly start a new strategy instance");
                 instance.set_process_id(0);
                 save();
@@ -235,7 +240,7 @@ struct StrategyHost::State
                              .count();
         sqlite::Database::Statement insert(*records, "INSERT INTO events VALUES(?,?)");
         insert.bind(1, now).bind(2, event).step();
-        log::info("strategy {}: {}", instance.configuration().id(), event);
+        log::info("strategy {}: {}", instance.instance().id(), event);
         auto* added = instance.add_events();
         added->set_time_ms(now);
         added->set_text(event);
@@ -246,21 +251,21 @@ struct StrategyHost::State
 
     void require_running(const std::string& id) const
     {
-        if (!authority || instance.configuration().id() != id)
+        if (!authority || instance.instance().id() != id)
             throw Error(ErrorCode::conflict, "strategy instance changed; inspect before acting");
     }
 
-    void pause(const wire::Pause& request)
+    void pause(const pb::PauseStrategy& request)
     {
-        require_running(request.instance_id());
+        require_running(request.id());
         account->pause_strategy(authority, request.paused()).get();
         instance.set_paused(request.paused());
         record_event(request.paused() ? "paused" : "resumed");
     }
 
-    void flatten(const wire::Stop& request)
+    void flatten(const pb::InstanceId& request)
     {
-        require_running(request.instance_id());
+        require_running(request.id());
         account->flatten_strategy(authority, latest_quotes()).get();
         instance.set_paused(true);
         record_event("flatten requested");
@@ -290,27 +295,27 @@ struct StrategyHost::State
                 .step();
             transaction.commit();
         }
-        wire::ChildRequest request;
+        wire::Request request;
         *request.mutable_bars() = input;
         channel.send(request.SerializeAsString(), 1s);
-        wire::ChildReply reply;
-        if (!reply.ParseFromString(channel.receive(2s)) || !reply.error().empty()
-            || !reply.has_decision())
+        wire::Response reply;
+        if (!reply.ParseFromString(channel.receive(2s)) || !reply.has_bars())
             throw std::runtime_error(
-                reply.error().empty() ? "strategy returned no decision" : reply.error());
-        const auto& decision = reply.decision();
+                reply.has_error() ? reply.error().message() : "strategy returned no decision");
+        const auto& decision = reply.bars();
         if (decision.sequence() != input.sequence()
             || (!decision.ready() && decision.targets_size()))
             throw std::runtime_error("strategy decision sequence or readiness is invalid");
-        std::set<std::string> targets;
+        std::set<InstrumentId> selected_ids, targets;
+        for (const auto& id : instance.instance().instruments())
+            selected_ids.insert({id.exchange(), id.symbol()});
         int mode = 0;
         for (const auto& target : decision.targets()) {
-            const auto& contracts = instance.configuration().contracts();
-            if (std::find(contracts.begin(), contracts.end(), target.contract()) == contracts.end()
-                || !targets.insert(target.contract()).second || !target.value_case()
-                || (mode && mode != target.value_case()))
+            const InstrumentId id{target.instrument().exchange(), target.instrument().symbol()};
+            if (!selected_ids.contains(id) || !targets.insert(id).second || !target.size_case()
+                || (mode && mode != target.size_case()))
                 throw std::runtime_error("strategy decision has invalid targets");
-            mode = target.value_case();
+            mode = target.size_case();
         }
         {
             sqlite::Database::Transaction transaction(*records);
@@ -324,16 +329,15 @@ struct StrategyHost::State
         }
         instance.set_completed_steps(input.sequence());
         *instance.mutable_last_decision() = decision;
-        instance.set_state(decision.ready() ? "ready" : "warming");
+        instance.set_state(
+            decision.ready() ? pb::INSTANCE_STATE_READY : pb::INSTANCE_STATE_WARMING);
         if (!execute)
             return;
         save();
         std::vector<MarketQuote> selected;
-        for (const auto& target : decision.targets()) {
-            const auto split = target.contract().find('/');
-            selected.push_back(quotes.at(
-                {target.contract().substr(0, split), target.contract().substr(split + 1)}));
-        }
+        for (const auto& target : decision.targets())
+            selected.push_back(
+                quotes.at({target.instrument().exchange(), target.instrument().symbol()}));
         account->accept_strategy_target(authority, decision, std::move(selected), expires_at).get();
     }
 
@@ -398,7 +402,7 @@ struct StrategyHost::State
             }
             execution = account->advance_strategy_target(authority, latest_quotes());
         } catch (const std::exception& error) {
-            instance.set_state("failed");
+            instance.set_state(pb::INSTANCE_STATE_FAILED);
             instance.set_error(error.what());
             instance.set_process_id(0);
             close();
@@ -409,7 +413,7 @@ struct StrategyHost::State
     void observe()
     {
         if (child && child->exited()) {
-            instance.set_state("failed");
+            instance.set_state(pb::INSTANCE_STATE_FAILED);
             instance.set_error(
                 "strategy process exited with code " + std::to_string(child->exit_code()));
             instance.set_process_id(0);
@@ -418,10 +422,10 @@ struct StrategyHost::State
         }
     }
 
-    wire::State snapshot()
+    pb::Strategies snapshot()
     {
         observe();
-        wire::State result;
+        pb::Strategies result;
         for (const auto& name : fs::directory_iterator(root / "packages")) {
             if (!name.is_directory() || name.path().filename().string().starts_with('.'))
                 continue;
@@ -437,7 +441,7 @@ struct StrategyHost::State
                         "invalid installed strategy manifest: " + version.path().string());
             }
         }
-        if (instance.has_configuration())
+        if (instance.has_instance())
             *result.mutable_instance() = instance;
         return result;
     }
@@ -481,7 +485,7 @@ struct StrategyHost::State
                 ErrorCode::unavailable,
                 "initialize and synchronize the account before starting a strategy");
         const auto package =
-            root / "packages" / configuration.package().name() / configuration.package().version();
+            root / "packages" / configuration.package_name() / configuration.package_version();
         (void)read(package / "strategy.json", 16384);
         const auto run = root / "runs" / (configuration.id() + ".sqlite");
         if (fs::exists(run))
@@ -499,21 +503,19 @@ struct StrategyHost::State
                 "strategy runtime must be installed at " + python.string() + " with code in "
                     + code.string());
         std::vector<InstrumentId> contracts;
-        for (const auto& contract : configuration.contracts()) {
-            const auto split = contract.find('/');
-            contracts.push_back({contract.substr(0, split), contract.substr(split + 1)});
-        }
+        for (const auto& id : configuration.instruments())
+            contracts.push_back({id.exchange(), id.symbol()});
         std::optional<StrategyWeightBudget> budget;
-        if (configuration.has_weight_budget())
+        if (configuration.has_weight_limits())
             budget = StrategyWeightBudget{
-                Decimal::from_raw(configuration.weight_budget().gross_units()),
-                Decimal::from_raw(configuration.weight_budget().net_units())
+                Decimal::parse(configuration.weight_limits().gross().text()),
+                Decimal::parse(configuration.weight_limits().net().text())
             };
         authority = execution->register_strategy(configuration.id(), contracts, budget).get();
         account = execution;
         instance.Clear();
-        *instance.mutable_configuration() = configuration;
-        instance.set_state("starting");
+        *instance.mutable_instance() = configuration;
+        instance.set_state(pb::INSTANCE_STATE_STARTING);
         try {
             save();
             create_directories_durably(root / "runs");
@@ -558,13 +560,13 @@ struct StrategyHost::State
                 std::this_thread::sleep_for(10ms);
             }
             channel = ipc::Channel::connect(endpoint.string(), 1s);
-            wire::ChildRequest request;
+            wire::Request request;
             *request.mutable_load() = configuration;
             channel.send(request.SerializeAsString(), 1s);
-            wire::ChildReply reply;
-            if (!reply.ParseFromString(channel.receive(10s)) || !reply.loaded())
+            wire::Response reply;
+            if (!reply.ParseFromString(channel.receive(10s)) || !reply.has_load())
                 throw std::invalid_argument(
-                    reply.error().empty() ? "strategy did not load" : reply.error());
+                    reply.has_error() ? reply.error().message() : "strategy did not load");
             std::uint64_t sequence = 0;
             for (auto input : replay) {
                 input.set_sequence(++sequence);
@@ -586,12 +588,12 @@ struct StrategyHost::State
             connect_deadline = std::chrono::steady_clock::now() + 30s;
             feed->connect(market, contracts);
             if (replay.empty())
-                instance.set_state("warming");
+                instance.set_state(pb::INSTANCE_STATE_WARMING);
             instance.set_process_id(child->id());
             save();
         } catch (const std::exception& error) {
             close();
-            instance.set_state("failed");
+            instance.set_state(pb::INSTANCE_STATE_FAILED);
             instance.set_process_id(0);
             instance.set_error(error.what());
             save();
@@ -611,7 +613,7 @@ struct StrategyHost::State
         if (!child && !authority)
             return;
         close();
-        instance.set_state("stopped");
+        instance.set_state(pb::INSTANCE_STATE_STOPPED);
         instance.set_process_id(0);
         save();
     }
@@ -627,32 +629,32 @@ StrategyHost::~StrategyHost()
     worker_.shutdown();
 }
 
-std::future<wire::State> StrategyHost::request(wire::Request request, LiveSession* account)
+std::future<pb::Strategies> StrategyHost::request(pb::Request request, LiveSession* account)
 {
     if (closing_)
         throw Error(ErrorCode::unavailable, "strategy host is stopping");
-    auto result = std::make_shared<std::promise<wire::State>>();
+    auto result = std::make_shared<std::promise<pb::Strategies>>();
     auto future = result->get_future();
     (void)worker_.submit([this, request = std::move(request), result, account](std::stop_token) {
         try {
-            if (request.has_publish())
-                state_->publish(request.publish());
-            else if (request.has_start())
-                state_->start(request.start(), account);
-            else if (request.has_pause())
-                state_->pause(request.pause());
-            else if (request.has_flatten())
-                state_->flatten(request.flatten());
-            else if (request.has_stop()) {
-                if (request.stop().instance_id().empty())
+            if (request.has_publish_strategy())
+                state_->publish(request.publish_strategy());
+            else if (request.has_start_strategy())
+                state_->start(request.start_strategy(), account);
+            else if (request.has_pause_strategy())
+                state_->pause(request.pause_strategy());
+            else if (request.has_flatten_strategy())
+                state_->flatten(request.flatten_strategy());
+            else if (request.has_stop_strategy()) {
+                if (request.stop_strategy().id().empty())
                     throw std::invalid_argument("stopping a strategy requires its instance id");
-                if (!state_->instance.has_configuration()
-                    || state_->instance.configuration().id() != request.stop().instance_id())
+                if (!state_->instance.has_instance()
+                    || state_->instance.instance().id() != request.stop_strategy().id())
                     throw Error(
                         ErrorCode::conflict,
                         "strategy instance changed; inspect before stopping");
                 state_->stop();
-            } else if (!request.has_inspect())
+            } else if (!request.has_get_strategies())
                 throw std::invalid_argument("missing strategy operation");
             result->set_value(state_->snapshot());
         } catch (...) {

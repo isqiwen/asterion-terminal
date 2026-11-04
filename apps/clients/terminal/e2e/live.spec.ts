@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { liveAccount, rpc } from "./rpc-fixture";
+import { brokerReady, liveAccount, rpc } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 import { join } from "node:path";
 
@@ -40,10 +40,10 @@ test(
     await panel.getByRole("button", { name: "下一步", exact: true }).click();
     await panel.getByRole("button", { name: "创建 CTP 账户", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
-    const capacity = (await liveAccount(page.request, account)).capacity;
-    expect(capacity.recordsLimit).toBe("100001");
-    expect(Number(capacity.recordsUsed)).toBeGreaterThan(0);
-    expect(Number(capacity.bytesUsed)).toBeGreaterThan(0);
+    const journal = (await liveAccount(page.request, account)).session.journal;
+    expect(journal.recordsLimit).toBe("100001");
+    expect(Number(journal.records)).toBeGreaterThan(0);
+    expect(Number(journal.bytes)).toBeGreaterThan(0);
     const order = panel.getByRole("form", { name: "CTP 委托" });
     // Only the current step is offered: no order ticket before the counter
     // connection and the permission to send.
@@ -92,8 +92,10 @@ test(
     await expect(panel.getByRole("table", { includeHidden: true, name: "CTP 持仓" })).toContainText(
       "rb2610",
     );
-    const filled = await liveAccount(page.request, account);
-    expect(filled.orders.some((order: { status: string }) => order.status === "filled")).toBe(true);
+    const filled = (await liveAccount(page.request, account)).session;
+    expect(
+      filled.orders.some((order: { state: string }) => order.state === "ORDER_STATE_FILLED"),
+    ).toBe(true);
     await expect(
       page
         .locator(".status-bar")
@@ -127,12 +129,10 @@ test(
     // A restarted test SDK has no broker-side order memory. Durable terminal
     // evidence keeps the filled intent retired; recovery never resends it.
     await tradingHost.restart();
-    await expect
-      .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })
-      .toBe("ready");
-    const recovered = await liveAccount(page.request, account);
+    await brokerReady(page.request, account);
+    const recovered = (await liveAccount(page.request, account)).session;
     expect(recovered.unconfirmed).toBeUndefined();
     expect(recovered.orders).toBeUndefined();
-    expect(recovered.authorization).toBeUndefined();
+    expect(recovered.authorizedMs).toBeUndefined();
   },
 );

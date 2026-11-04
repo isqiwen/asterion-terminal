@@ -1,6 +1,5 @@
 #include <asterion/system/trace.hpp>
 #include <asterion/system/log.hpp>
-#include <asterion/system/process/child.hpp>
 
 namespace asterion {
 namespace {
@@ -25,13 +24,10 @@ std::string_view current_trace_id() noexcept
     return trace_id;
 }
 
-std::string next_correlation_id()
+void log_request(std::uint64_t id)
 {
-    static IdSequence ids{unique_process_id()};
-    auto id = ids.next();
     if (!trace_id.empty())
         log::info("rpc started: trace_id={} correlation_id={}", trace_id, id);
-    return id;
 }
 
 } // namespace asterion

@@ -1,14 +1,15 @@
 #include "trading_client.hpp"
+#include <atomic>
 #include <google/protobuf/util/json_util.h>
 #include <asterion/system/ipc/rpc_client.hpp>
 #include <asterion/system/trace.hpp>
-#include <asterion/protocol/health.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/protocol/trading.hpp>
 
 namespace asterion::terminal {
 
 using namespace std::chrono_literals;
-namespace wire = protocol::proto;
+namespace wire = ::trading;
 
 std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json payload)
 {
@@ -20,9 +21,9 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                 if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
                     throw std::invalid_argument("invalid trading request");
                 protocol::validate_message(request);
-                request.set_version(1);
-                request.set_session_id(endpoint.session);
-                request.set_correlation_id(next_correlation_id());
+                static std::atomic<std::uint64_t> next{0};
+                request.set_id(++next);
+                log_request(request.id());
                 return request;
             });
             auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
@@ -50,12 +51,10 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                 if (!response.ParseFromString(*raw))
                     throw Error(ErrorCode::unavailable, "invalid Trading response");
                 protocol::validate_message(response);
-                if (response.version() != request.version()
-                    || response.session_id() != request.session_id()
-                    || response.correlation_id() != request.correlation_id())
+                if (response.id() != request.id())
                     throw Error(ErrorCode::unavailable, "Trading response identity mismatch");
                 if (response.has_error())
-                    throw_remote_error(response.error().code(), response.error().message());
+                    protocol::raise(response.error());
                 std::string encoded;
                 if (!google::protobuf::util::MessageToJsonString(response, &encoded).ok())
                     throw Error(ErrorCode::internal_error, "cannot encode trading response");

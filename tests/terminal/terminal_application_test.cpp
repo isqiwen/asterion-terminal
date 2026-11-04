@@ -240,35 +240,23 @@ struct LiveService
             [this](const service::RpcHost::Peer&, std::string frame) -> service::RpcHost::Reply {
                 auto work = std::make_shared<std::future<std::string>>(
                     std::async(std::launch::async, [this, frame = std::move(frame)] {
-                        protocol::proto::Request message;
+                        ::trading::Request message;
                         if (!message.ParseFromString(frame))
                             throw std::runtime_error("invalid fixture request");
-                        protocol::proto::Response response;
-                        response.set_version(1);
-                        response.mutable_account()->set_account_id("fixture-record");
-                        response.mutable_account()->set_environment(
-                            protocol::proto::BROKER_SIMULATION);
-                        response.mutable_account()->mutable_broker()->set_user_id("000001");
-                        response.mutable_account()->mutable_broker()->set_broker_id("9999");
-                        response.mutable_account()->mutable_broker()->set_app_id("test");
-                        response.mutable_account()->mutable_broker()->set_front(
-                            "tcp://127.0.0.1:1");
-                        response.set_session_id(message.session_id());
-                        response.set_correlation_id(message.correlation_id());
-                        if (message.has_heartbeat()) {
-                            response.mutable_health()->set_initialized(true);
-                            response.mutable_health()->set_instance_id("live-fixture");
-                            response.mutable_health()->set_version("0.1.0");
-                            auto* execution = response.mutable_health()->mutable_execution();
-                            execution->mutable_io()->set_observed(true);
-                            execution->mutable_state()->set_observed(true);
-                            execution->mutable_persistence()->set_observed(true);
-                            execution->set_business_ready(true);
+                        ::trading::Response response;
+                        response.set_id(message.id());
+                        if (message.has_get_health()) {
+                            auto* health = response.mutable_get_health();
+                            health->set_account_open(true);
+                            health->mutable_io()->set_observed(true);
+                            health->mutable_state()->set_observed(true);
+                            health->mutable_persistence()->set_observed(true);
+                            health->set_ready(true);
                         } else {
                             {
                                 std::unique_lock lock(mutex);
                                 // Reads are answered at once; anything else may be held.
-                                if (!message.has_attach()) {
+                                if (!message.has_get_account()) {
                                     entered = true;
                                     condition.notify_all();
                                     if (!condition.wait_for(lock, 10s, [&] {
@@ -278,44 +266,42 @@ struct LiveService
                                             "fixture mutation was not released");
                                 }
                             }
-                            const auto input = protocol::encode_live_input(
-                                {{"account_id", "fixture-record"},
-                                    {"type", "live_ctp"},
-                                    {"environment", "simulation"},
-                                    {"broker",
-                                        {{"front", "tcp://127.0.0.1:1"},
-                                            {"broker_id", "9999"},
-                                            {"user_id", "000001"},
-                                            {"app_id", "test"}}},
-                                    {"policy",
-                                        {{"risk",
-                                             {{"max_order_quantity", "5"},
-                                                 {"max_gross_quantity", "10"},
-                                                 {"max_working_orders", std::uint64_t{3}}}},
-                                            {"max_price_deviation", "0.02"},
-                                            {"contracts",
-                                                Json::array(
-                                                    {{{"venue", "SHFE"},
-                                                        {"symbol", "rb2610"},
-                                                        {"currency", "CNY"},
-                                                        {"price_increment", "1"},
-                                                        {"multiplier", "10"},
-                                                        {"quantity_increment", "1"},
-                                                        {"product", "rb"},
-                                                        {"delivery_month", "2026-10"}}})}}}});
-                            auto* snapshot = response.mutable_live();
-                            snapshot->set_account_id("fixture-record");
-                            snapshot->set_environment(input.environment());
-                            snapshot->set_policy_revision("fixture-policy");
-                            *snapshot->mutable_broker() = input.broker();
-                            *snapshot->mutable_risk() = input.policy().risk();
-                            *snapshot->mutable_contracts() = input.policy().contracts();
-                            *snapshot->mutable_max_price_deviation() =
-                                input.policy().max_price_deviation();
-                            snapshot->set_phase("ready");
-                            snapshot->set_trading_day("20261009");
-                            snapshot->mutable_capacity()->set_records_limit(100001);
-                            snapshot->mutable_capacity()->set_bytes_limit(268435456);
+                            const Json identity{
+                                {"account_id", "fixture-record"},
+                                {"environment", "simulation"},
+                                {"broker",
+                                    {{"front", "tcp://127.0.0.1:1"},
+                                        {"broker_id", "9999"},
+                                        {"user_id", "000001"},
+                                        {"app_id", "test"}}}
+                            };
+                            auto account = protocol::encode_account(identity);
+                            auto* session = account.mutable_session();
+                            *session->mutable_policy() = protocol::encode_policy(
+                                {{"risk",
+                                     {{"max_order_quantity", "5"},
+                                         {"max_gross_quantity", "10"},
+                                         {"max_working_orders", std::uint64_t{3}}}},
+                                    {"max_price_deviation", "0.02"},
+                                    {"contracts",
+                                        Json::array(
+                                            {{{"venue", "SHFE"},
+                                                {"symbol", "rb2610"},
+                                                {"currency", "CNY"},
+                                                {"price_increment", "1"},
+                                                {"multiplier", "10"},
+                                                {"quantity_increment", "1"},
+                                                {"product", "rb"},
+                                                {"delivery_month", "2026-10"}}})}});
+                            session->set_policy_revision("fixture-policy");
+                            session->set_broker_state(::trading::BROKER_STATE_READY);
+                            session->set_trading_day("2026-10-09");
+                            response.GetReflection()
+                                ->MutableMessage(
+                                    &response,
+                                    response.GetDescriptor()->FindFieldByNumber(
+                                        message.call_case()))
+                                ->CopyFrom(account);
                         }
                         return response.SerializeAsString();
                     }));
@@ -540,18 +526,20 @@ TEST(TerminalTrading, ARequestWaitingOnOneAccountDoesNotHoldBackAnother)
 {
     LiveService slow(true), other(false);
     terminal::ServiceIo io;
-    auto pending = terminal::call_trading(io, slow.address(), {{"liveCosts", Json::object()}});
+    auto pending = terminal::call_trading(io, slow.address(), {{"queryCosts", Json::object()}});
     ASSERT_TRUE(slow.wait());
     const auto started = std::chrono::steady_clock::now();
     const auto reply = terminal::call_trading(
         io,
         other.address(),
-        {{"accountId", "fixture-record"},
-            {"policyRevision", "fixture-policy"},
-            {"command", {{"requestId", "revoke"}, {"liveRevoke", Json::object()}}}})
+        {{"sendCommand",
+            {{"requestId", "revoke"},
+                {"accountId", "fixture-record"},
+                {"policyRevision", "fixture-policy"},
+                {"revoke", Json::object()}}}})
                            .get();
     EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
-    EXPECT_EQ(reply.at("live").at("accountId"), "fixture-record");
+    EXPECT_EQ(reply.at("sendCommand").at("id"), "fixture-record");
     EXPECT_EQ(pending.wait_for(0s), std::future_status::timeout);
     slow.release();
     ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
@@ -562,7 +550,7 @@ TEST(TerminalTrading, ClosingCancelsAnUnansweredRequest)
 {
     LiveService slow(true);
     auto io = std::make_unique<terminal::ServiceIo>();
-    auto pending = terminal::call_trading(*io, slow.address(), {{"liveCosts", Json::object()}});
+    auto pending = terminal::call_trading(*io, slow.address(), {{"queryCosts", Json::object()}});
     ASSERT_TRUE(slow.wait());
     const auto started = std::chrono::steady_clock::now();
     io.reset();

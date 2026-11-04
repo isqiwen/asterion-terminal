@@ -3,19 +3,19 @@
 
 namespace asterion::trading {
 
-PolicyDefinition PolicyDefinition::from_wire(const protocol::proto::LivePolicy& policy)
+PolicyDefinition PolicyDefinition::from_wire(const ::trading::Policy& policy)
 {
-    protocol::validate_live_policy(policy);
+    protocol::validate_policy(policy);
     PolicyDefinition result;
     result.limits = {
-        Decimal::from_raw(policy.risk().max_order_quantity().units()),
-        Decimal::from_raw(policy.risk().max_gross_quantity().units()),
-        policy.risk().max_working_orders()
+        Decimal::parse(policy.limits().max_order_lots().text()),
+        Decimal::parse(policy.limits().max_gross_lots().text()),
+        policy.limits().max_working_orders()
     };
-    result.max_price_deviation = Decimal::from_raw(policy.max_price_deviation().units());
+    result.max_price_deviation = Decimal::parse(policy.max_price_deviation().text());
     for (const auto& contract : policy.contracts())
         result.contracts.push_back(
-            {protocol::instrument(contract), contract.product(), contract.delivery_month()});
+            {protocol::terms(contract), contract.product(), contract.delivery_month()});
     return result;
 }
 

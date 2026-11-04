@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
-import { Offset, Side, type LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { Offset, Side } from "../../src/generated/asterion/common_pb";
+import type { Account } from "../../src/generated/asterion/trading_pb";
 import { explicitCloseBuckets, type TerminalContext } from "../contract";
 import { command, key, t, type Run } from "./live-shared";
 
@@ -16,14 +17,14 @@ const offsetValues = {
 // separate buttons that name the account, so pressing Enter in a field never
 // sends an order.
 export function OrderTicket({
-  live,
+  record,
   snapshot,
   busy,
   accountName,
   run,
   onSent,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
-  live: LiveSnapshot;
+  record: Account;
   accountName: string;
   run: Run;
   onSent: () => void;
@@ -39,8 +40,11 @@ export function OrderTicket({
     quantity: "1",
     price: "",
   });
-  const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
-  const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
+  const contracts = record.session?.policy?.contracts ?? [];
+  const traded = contracts.find(item => key(item.instrument) === order.contract) ?? contracts[0];
+  const exchange = traded?.instrument?.exchange ?? "";
+  const symbol = traded?.instrument?.symbol ?? "";
+  const explicitBuckets = explicitCloseBuckets(snapshot, exchange);
   const offset =
     order.offset === "open"
       ? "open"
@@ -50,19 +54,18 @@ export function OrderTicket({
           : order.offset
         : "close";
   const quote = useMarket()?.board.rows.find(
-    row => row.instrument?.exchange === traded?.venue && row.instrument?.symbol === traded?.symbol,
+    row => row.instrument?.exchange === exchange && row.instrument?.symbol === symbol,
   )?.quote;
   const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;
-    void command(run, live, () => ({
-      case: "submit",
+    void command(run, record, () => ({
+      case: "submitOrder",
       value: {
         orderId: crypto.randomUUID(),
-        venue: traded.venue,
-        symbol: traded.symbol,
+        instrument: traded.instrument,
         side,
         offset: offsetValues[offset],
-        quantity: decimal(order.quantity),
+        lots: decimal(order.quantity),
         price: decimal(order.price),
       },
     })).then(sent => sent && onSent());
@@ -75,12 +78,12 @@ export function OrderTicket({
             {t("合约")}
             <select
               aria-label={t("委托合约")}
-              value={traded ? key(traded) : ""}
+              value={traded ? key(traded.instrument) : ""}
               onChange={event => setOrder({ ...order, contract: event.target.value })}
             >
-              {live.contracts.map(item => (
-                <option key={key(item)} value={key(item)}>
-                  {item.venue} · {item.symbol}
+              {contracts.map(item => (
+                <option key={key(item.instrument)} value={key(item.instrument)}>
+                  {item.instrument?.exchange} · {item.instrument?.symbol}
                 </option>
               ))}
             </select>
@@ -122,7 +125,7 @@ export function OrderTicket({
               inputMode="decimal"
               value={order.price}
               placeholder={
-                traded ? t("最小变动 {tick}", { tick: decimalText(traded.priceIncrement) }) : ""
+                traded ? t("最小变动 {tick}", { tick: decimalText(traded.priceTick) }) : ""
               }
               onChange={event => setOrder({ ...order, price: event.target.value })}
               required

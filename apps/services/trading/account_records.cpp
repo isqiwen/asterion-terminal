@@ -15,16 +15,16 @@ std::string text(const Json& value, const char* key)
     return result;
 }
 
-Offset offset_of(protocol::proto::Offset value)
+Offset offset_of(::common::Offset value)
 {
     switch (value) {
-        case protocol::proto::OPEN:
+        case ::common::OFFSET_OPEN:
             return Offset::open;
-        case protocol::proto::CLOSE_TODAY:
+        case ::common::OFFSET_CLOSE_TODAY:
             return Offset::close_today;
-        case protocol::proto::CLOSE_YESTERDAY:
+        case ::common::OFFSET_CLOSE_YESTERDAY:
             return Offset::close_yesterday;
-        case protocol::proto::CLOSE:
+        case ::common::OFFSET_CLOSE:
             return Offset::close;
         default:
             throw std::invalid_argument("invalid open/close offset");
@@ -98,7 +98,7 @@ Json account_manifest(const Json& header)
     require_fields(header, {"manifest", "account_id", "policy_revision"});
     validate_id(text(header, "account_id"));
     validate_id(text(header, "policy_revision"));
-    auto manifest = protocol::decode_live_input(protocol::encode_live_input(header.at("manifest")));
+    auto manifest = protocol::live_input(header.at("manifest"));
     if (manifest.at("account_id") != header.at("account_id"))
         throw std::invalid_argument("live account identity differs from record header");
     return manifest;
@@ -123,7 +123,7 @@ std::string_view status_name(BrokerOrderStatus status) noexcept
     return "submitted";
 }
 
-AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command)
+AccountRequest AccountRequest::from_wire(const ::trading::Command& command)
 {
     AccountRequest result;
     result.id = command.request_id();
@@ -131,35 +131,34 @@ AccountRequest AccountRequest::from_wire(const protocol::proto::Command& command
     // The current durable representation is derived once at the ingress boundary.
     // It is never parsed to obtain the typed operation below.
     result.command = protocol::decode_command(command);
-    switch (command.operation_case()) {
-        case protocol::proto::Command::kSubmit: {
-            const auto& order = command.submit();
+    switch (command.action_case()) {
+        case ::trading::Command::kSubmitOrder: {
+            const auto& order = command.submit_order();
             validate_id(order.order_id());
             result.operation = SubmitOrder{
                 {order.order_id(),
-                    {order.venue(), order.symbol()},
-                    order.side() == protocol::proto::BUY ? Side::buy : Side::sell,
-                    Decimal::from_raw(order.quantity().units()),
-                    Decimal::from_raw(order.price().units())},
+                    {order.instrument().exchange(), order.instrument().symbol()},
+                    order.side() == ::common::SIDE_BUY ? Side::buy : Side::sell,
+                    Decimal::parse(order.lots().text()),
+                    Decimal::parse(order.price().text())},
                 offset_of(order.offset())
             };
             break;
         }
-        case protocol::proto::Command::kCancel:
-            result.operation = CancelOrder{required_text(command.cancel().order_id())};
+        case ::trading::Command::kCancelOrder:
+            result.operation = CancelOrder{required_text(command.cancel_order().id())};
             break;
-        case protocol::proto::Command::kLiveAuthorize:
-            result.operation = Authorize{command.live_authorize().user_id()};
+        case ::trading::Command::kAuthorize:
+            result.operation = Authorize{command.authorize().user_id()};
             break;
-        case protocol::proto::Command::kLiveRevoke:
+        case ::trading::Command::kRevoke:
             result.operation = Revoke{};
             break;
-        case protocol::proto::Command::kLiveResolve:
-            result.operation = ResolveOrder{required_text(command.live_resolve().order_id())};
+        case ::trading::Command::kResolveOrder:
+            result.operation = ResolveOrder{required_text(command.resolve_order().id())};
             break;
-        case protocol::proto::Command::kLivePolicy:
-            result.operation =
-                ChangePolicy{PolicyDefinition::from_wire(command.live_policy().policy())};
+        case ::trading::Command::kChangePolicy:
+            result.operation = ChangePolicy{PolicyDefinition::from_wire(command.change_policy())};
             break;
         default:
             throw std::invalid_argument("unsupported live trading operation");
@@ -183,20 +182,20 @@ AccountRequest AccountRequest::strategy_order(SubmitOrder order, StrategyOrderSo
         || (order.offset != Offset::open && order.offset != Offset::close_today
             && order.offset != Offset::close_yesterday && order.offset != Offset::close))
         throw std::invalid_argument("invalid strategy order side or offset");
-    protocol::proto::Command command;
+    ::trading::Command command;
     command.set_request_id(unique_process_id());
-    auto* wire = command.mutable_submit();
+    auto* wire = command.mutable_submit_order();
     wire->set_order_id(order.order.id);
-    wire->set_venue(order.order.instrument.venue);
-    wire->set_symbol(order.order.instrument.symbol);
-    wire->set_side(order.order.side == Side::buy ? protocol::proto::BUY : protocol::proto::SELL);
+    wire->mutable_instrument()->set_exchange(order.order.instrument.venue);
+    wire->mutable_instrument()->set_symbol(order.order.instrument.symbol);
+    wire->set_side(order.order.side == Side::buy ? ::common::SIDE_BUY : ::common::SIDE_SELL);
     wire->set_offset(
-        order.offset == Offset::open                  ? protocol::proto::OPEN
-            : order.offset == Offset::close_today     ? protocol::proto::CLOSE_TODAY
-            : order.offset == Offset::close_yesterday ? protocol::proto::CLOSE_YESTERDAY
-                                                      : protocol::proto::CLOSE);
-    wire->mutable_quantity()->set_units(order.order.quantity.raw());
-    wire->mutable_price()->set_units(order.order.limit_price.raw());
+        order.offset == Offset::open                  ? ::common::OFFSET_OPEN
+            : order.offset == Offset::close_today     ? ::common::OFFSET_CLOSE_TODAY
+            : order.offset == Offset::close_yesterday ? ::common::OFFSET_CLOSE_YESTERDAY
+                                                      : ::common::OFFSET_CLOSE);
+    wire->mutable_lots()->set_text(order.order.quantity.str());
+    wire->mutable_price()->set_text(order.order.limit_price.str());
     auto result = from_wire(command);
     std::get<SubmitOrder>(result.operation).strategy = std::move(source);
     return result;

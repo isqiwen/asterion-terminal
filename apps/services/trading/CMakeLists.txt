@@ -42,7 +42,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ctp-trader.so ${CMAKE_BINARY_DIR}/ctp-md.so ${layout}/lib/
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/lib/strategy/asterion
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py ${layout}/lib/strategy/
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py ${layout}/lib/strategy/asterion/
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py ${CMAKE_BINARY_DIR}/generated-python/asterion/common_pb2.py ${layout}/lib/strategy/asterion/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${runtime} ${layout}/runtime/python
     COMMAND ${CMAKE_COMMAND} -E chdir ${stage} ${CMAKE_COMMAND} -E tar czf payload.tar.gz asterion-trading
     COMMAND sh -c "{ cat \"$1\"; echo __ARCHIVE__; cat \"$2\"; } > \"$3\" && chmod 755 \"$3\"" setup

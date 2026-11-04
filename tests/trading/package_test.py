@@ -112,24 +112,24 @@ class Test(Strategy):
                                 result.extend(part)
                             return bytes(result)
                         size, = struct.unpack('!I', exact(4))
-                        return wire.ChildReply.FromString(exact(size))
-                    config = wire.Instance(contracts=['SHFE/rb2610'],
+                        return wire.Response.FromString(exact(size))
+                    config = wire.Instance(instruments=[dict(exchange='SHFE', symbol='rb2610')],
                         params={'memory': wire.ParameterValue(flag=memory)})
-                    reply = exchange(wire.ChildRequest(load=config))
+                    reply = exchange(wire.Request(load=config))
                     if memory:
-                        assert 'MemoryError' in reply.error, reply
+                        assert 'MemoryError' in reply.error.message, reply
                     else:
-                        assert reply.loaded, reply
+                        assert reply.HasField('load'), reply
                         # The native numeric kernel remained single-threaded.
                         assert len(list(Path(f'/proc/{child.pid}/task').iterdir())) == 1
                         for seq in (1, 2):
-                            request = wire.ChildRequest()
+                            request = wire.Request()
                             request.bars.sequence = seq
-                            request.bars.bars.add(contract='SHFE/rb2610', end_ms=seq * 60000,
-                                open_units=300000000000, high_units=300000000000,
-                                low_units=300000000000, close_units=300000000000,
-                                volume=1, open_interest_units=100000000)
-                            decision = exchange(request).decision
+                            price = {'text': '3000'}
+                            request.bars.bars.add(instrument=dict(exchange='SHFE', symbol='rb2610'),
+                                end_ms=seq * 60000, open=price, high=price, low=price, close=price,
+                                volume=1, open_interest={'text': '1'})
+                            decision = exchange(request).bars
                             assert decision.sequence == seq and decision.ready == (seq == 2)
                             assert len(decision.targets) == (1 if seq == 2 else 0)
                             if seq == 2: assert decision.targets[0].lots == 3

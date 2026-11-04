@@ -174,7 +174,7 @@ class Repository(unittest.TestCase):
 
     def test_a_package_is_the_directorys_python_code_without_importing_it(self):
         from asterion_lab.package import build
-        from asterion.strategy_pb2 import Build
+        from asterion.lab_pb2 import BuildPackage as Build
         package = build(Build(repository=str(self.root), strategy="ma_cross.MaCross"))
         self.assertEqual(package.manifest.entry, "strategies.ma_cross:MaCross")
         self.assertEqual([file.path for file in package.files], repository.python_files(self.root))

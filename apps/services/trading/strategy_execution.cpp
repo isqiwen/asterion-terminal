@@ -65,7 +65,7 @@ StrategyAuthorityPtr LiveAccountState::register_strategy(
 
 void LiveAccountState::accept_strategy_target(
     const StrategyAuthorityPtr& authority,
-    strategy::proto::Decision decision,
+    ::strategy::Decision decision,
     std::vector<MarketQuote> quotes,
     std::chrono::steady_clock::time_point expires_at)
 {
@@ -104,7 +104,7 @@ void LiveAccountState::accept_strategy_target(
         StrategyTargetBatch batch;
         batch.accepted_at = now;
         const auto wall = wall_ms();
-        const bool weighted = decision.targets(0).has_weight_units();
+        const bool weighted = decision.targets(0).has_weight();
         if (weighted
             && (!strategy_->budget
                 || static_cast<std::size_t>(decision.targets_size())
@@ -114,10 +114,11 @@ void LiveAccountState::accept_strategy_target(
         std::set<InstrumentId> seen;
         for (const auto& target : decision.targets()) {
             const auto selected = std::ranges::find_if(authority->contracts_, [&](const auto& id) {
-                return id.venue + "/" + id.symbol == target.contract();
+                return id.venue == target.instrument().exchange()
+                    && id.symbol == target.instrument().symbol();
             });
             if (selected == authority->contracts_.end() || !seen.insert(*selected).second
-                || (weighted ? !target.has_weight_units() : !target.has_lots()))
+                || (weighted ? !target.has_weight() : !target.has_lots()))
                 throw std::invalid_argument(
                     "strategy targets require unique selected contracts and one value kind");
             const auto quote = std::ranges::find_if(quotes, [&](const auto& q) {
@@ -200,7 +201,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
                 const auto& quote = batch.quotes[i];
                 weights.push_back(
                     {quote.instrument,
-                        Decimal::from_raw(batch.decision.targets(i).weight_units()),
+                        Decimal::parse(batch.decision.targets(i).weight().text()),
                         *quote.last,
                         allowed(quote.instrument).multiplier});
             }
@@ -275,7 +276,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
             const auto index = static_cast<std::size_t>(quote - batch.quotes.begin());
             origin.weight_sizing = StrategyOrderSource::WeightSizing{
                 *batch.equity,
-                Decimal::from_raw(batch.decision.targets(static_cast<int>(index)).weight_units()),
+                Decimal::parse(batch.decision.targets(static_cast<int>(index)).weight().text()),
                 *quote->last,
                 batch.targets[index].quantity
             };
@@ -407,9 +408,9 @@ AccountCommand LiveAccountState::cancel_strategy_order()
     found->second.stop_cancel_pending = false;
     if (found->second.terminal)
         co_return;
-    protocol::proto::Command command;
+    ::trading::Command command;
     command.set_request_id(unique_process_id());
-    command.mutable_cancel()->set_order_id(id);
+    command.mutable_cancel_order()->set_id(id);
     const auto request = AccountRequest::from_wire(command);
     try {
         co_await cancel(request, id);

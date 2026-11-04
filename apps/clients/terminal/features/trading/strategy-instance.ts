@@ -1,4 +1,6 @@
 import { create } from "@bufbuild/protobuf";
+import { Period } from "../../src/generated/asterion/common_pb";
+import { InstanceState } from "../../src/generated/asterion/trading_pb";
 import {
   ParameterValueSchema,
   type ParameterValue,
@@ -14,19 +16,18 @@ export type ParameterInput = {
 
 const maximum = (1n << 63n) - 1n;
 
-export function weightUnits(text: string): bigint {
-  if (!/^\d+(\.\d{1,8})?$/.test(text)) throw new Error(t("权重预算必须是非负数，最多八位小数。"));
-  const [whole, fraction = ""] = text.split(".");
-  const value = BigInt(whole) * 100000000n + BigInt(fraction.padEnd(8, "0"));
-  if (value > maximum) throw new Error(t("权重预算超出定点数范围。"));
-  return value;
-}
-
-export function weightText(value: bigint): string {
-  const absolute = value < 0n ? -value : value;
-  const fraction = (absolute % 100000000n).toString().padStart(8, "0").replace(/0+$/, "");
-  return `${value < 0n ? "-" : ""}${absolute / 100000000n}${fraction ? `.${fraction}` : ""}`;
-}
+// The bar periods a live strategy can run on.
+export const strategyPeriods: [Period, string][] = [
+  [Period.MINUTES_1, "1m"],
+  [Period.MINUTES_5, "5m"],
+  [Period.MINUTES_10, "10m"],
+  [Period.MINUTES_15, "15m"],
+  [Period.MINUTES_30, "30m"],
+  [Period.MINUTES_60, "60m"],
+  [Period.DAY, "1d"],
+];
+export const periodText = (period: Period) =>
+  strategyPeriods.find(([value]) => value === period)?.[1] ?? Period[period];
 
 export function parameterValues(rows: ParameterInput[]): Record<string, ParameterValue> {
   const entries: [string, ParameterValue][] = [];
@@ -62,5 +63,7 @@ export function parameterText(parameter: ParameterValue): string {
     : String(parameter.value.value ?? "—");
 }
 
-export const activeStrategy = (state?: string) =>
-  state === "starting" || state === "warming" || state === "ready";
+export const activeStrategy = (state?: InstanceState) =>
+  state === InstanceState.STARTING ||
+  state === InstanceState.WARMING ||
+  state === InstanceState.READY;

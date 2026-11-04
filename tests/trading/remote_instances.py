@@ -32,8 +32,12 @@ def trading(process, account, request, error=False):
     return reply if error else reply["trading"]
 
 
+def account_of(process, account):
+    return trading(process, account, {"getAccount": {}})["getAccount"]
+
+
 def session(process, account):
-    return trading(process, account, {"attach": {}}).get("live")
+    return account_of(process, account).get("session")
 
 
 def wait(condition):
@@ -77,57 +81,59 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         # A mistyped server pin cannot reach the account.
         saved = next(c for c in call(terminal, "runtime.snapshot")["trading_connections"] if c["id"] == "real")
         call(terminal, "trading.connections.save", dict(saved, fingerprint=host.stranger))
-        trading(terminal, "real", {"attach": {}}, error=True)
+        trading(terminal, "real", {"getAccount": {}}, error=True)
         inspected = call(terminal, "runtime.snapshot")
         revision = next(c["revision"] for c in inspected["trading_connections"] if c["id"] == "real")
         call(terminal, "trading.connections.save", dict(saved, revision=revision))
-        real = trading(terminal, "real", {"attach": {}})
-        simulation = trading(terminal, "simulation", {"attach": {}})
-        assert real["account"]["environment"] == "REAL"
-        assert simulation["account"]["broker"]["userId"] == "000002"
-        assert "uninitialized" in simulation
-        environments = {"real": "REAL", "simulation": "BROKER_SIMULATION"}
+        real = account_of(terminal, "real")
+        simulation = account_of(terminal, "simulation")
+        assert real["environment"] == "ENVIRONMENT_REAL"
+        assert simulation["broker"]["userId"] == "000002"
+        assert "session" not in simulation
+        environments = {"real": "ENVIRONMENT_REAL", "simulation": "ENVIRONMENT_SIMULATION"}
         for account in ("real", "simulation"):
-            live = trading(terminal, account, create)["live"]
-            assert live["environment"] == environments[account]
-            assert "authorization" not in live
-        wait(lambda: all(session(terminal, a)["phase"] == "ready" for a in ("real", "simulation")))
+            opened = trading(terminal, account, create)["openAccount"]
+            assert opened["environment"] == environments[account]
+            assert "authorizedMs" not in opened["session"]
+        wait(lambda: all(session(terminal, a)["brokerState"] == "BROKER_STATE_READY"
+                         for a in ("real", "simulation")))
         # Authorizing one account cannot authorize the other.
-        live = session(terminal, "simulation")
-        reviewed = {"accountId": live["accountId"], "policyRevision": live["policyRevision"]}
-        trading(terminal, "simulation", dict(reviewed, command={
-            "requestId": "allow.simulation", "liveAuthorize": {"userId": "000002"}}))
-        assert "authorization" in session(terminal, "simulation")
-        assert "authorization" not in session(terminal, "real")
+        reviewed = {"accountId": "simulation",
+                    "policyRevision": session(terminal, "simulation")["policyRevision"]}
+        trading(terminal, "simulation", {"sendCommand": dict(reviewed,
+            requestId="allow.simulation", authorize={"userId": "000002"})})
+        assert "authorizedMs" in session(terminal, "simulation")
+        assert "authorizedMs" not in session(terminal, "real")
         # Desktop exit is not a trading control: the independent host retains
         # authorization and can continue to execute after a fresh client attaches.
         terminal.communicate(timeout=15)
         assert all(process.poll() is None for process in children.values())
         terminal = launch()
-        assert "authorization" in session(terminal, "simulation")
-        assert "authorization" not in session(terminal, "real")
-        trading(terminal, "simulation", dict(reviewed, command=submit("remote-order", 1)))
-        wait(lambda: any(o.get("id") == "remote-order" and o["status"] == "filled"
+        assert "authorizedMs" in session(terminal, "simulation")
+        assert "authorizedMs" not in session(terminal, "real")
+        trading(terminal, "simulation", {"sendCommand": dict(reviewed, **submit("remote-order", 1))})
+        wait(lambda: any(o.get("id") == "remote-order" and o["state"] == "ORDER_STATE_FILLED"
                          for o in session(terminal, "simulation").get("orders", [])))
         assert "orders" not in session(terminal, "real")
         assert (host.root / "data/simulation/journal.sqlite").is_file()
         assert not (local / "accounts/ctp/simulation/journal.sqlite").exists()
         real_pid = children["real"].pid
         # Counter settings cannot enter the create request from a Terminal.
-        trading(terminal, "real", dict(create, environment="BROKER_SIMULATION"), error=True)
+        trading(terminal, "real", {"openAccount": dict(create["openAccount"],
+                                                       environment="ENVIRONMENT_SIMULATION")}, error=True)
         children["simulation"].terminate()
         children["simulation"].wait(timeout=15)
         os.kill(real_pid, 0)
-        assert session(terminal, "real")["phase"] == "ready"
-        trading(terminal, "simulation", {"attach": {}}, error=True)
+        assert session(terminal, "real")["brokerState"] == "BROKER_STATE_READY"
+        trading(terminal, "simulation", {"getAccount": {}}, error=True)
         children["simulation"] = host.start("simulation")
-        live = session(terminal, "simulation")
-        assert live["environment"] == "BROKER_SIMULATION"
-        assert "authorization" not in live
+        restarted = account_of(terminal, "simulation")
+        assert restarted["environment"] == "ENVIRONMENT_SIMULATION"
+        assert "authorizedMs" not in restarted["session"]
         # A new Terminal process reads the same reference; remote records stay remote.
         terminal.communicate(timeout=15)
         terminal = launch()
-        assert session(terminal, "simulation")["accountId"] == "simulation"
+        assert account_of(terminal, "simulation")["id"] == "simulation"
         # Changing a configured account must not silently reuse an existing journal.
         children["real"].terminate(); children["real"].wait(timeout=15)
         config = host.root / "config/accounts/real.json"

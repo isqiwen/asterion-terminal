@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InstanceStatus, Package, State } from "../../src/generated/asterion/strategy_pb";
+import type { Package } from "../../src/generated/asterion/strategy_pb";
+import {
+  InstanceState,
+  type Account,
+  type InstanceStatus,
+  type Strategies,
+} from "../../src/generated/asterion/trading_pb";
 import { lab } from "../../src/bridge/lab";
-import { strategyRequest } from "../../src/bridge/strategy";
+import { strategyRequest, type StrategyCall } from "../../src/bridge/strategy";
 import {
   ActionError,
   BackendError,
@@ -12,23 +18,23 @@ import {
   notify,
 } from "../contract";
 import { t } from "./live-shared";
-import { StrategyInstance, type StrategyAccount } from "./StrategyInstance";
+import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
 import "./strategy.css";
 
-type Props = { account: string; repository: string; live?: StrategyAccount; connected?: boolean };
-type Operation = NonNullable<Parameters<typeof strategyRequest>[1]>;
+type Props = { account: string; repository: string; record?: Account; connected?: boolean };
 
 // An instance that fails or drops a batch while Terminal is open: a desktop
 // notification, seen with the window hidden, and the notification centre.
 function notifyDesktop(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
-  const id = next?.configuration?.id;
-  if (!id || previous?.configuration?.id !== id) return;
+  const id = next?.instance?.id;
+  if (!id || previous?.instance?.id !== id) return;
   const seen = previous.events.at(-1)?.timeMs ?? 0n;
   const alerts = next.events
     .filter(event => event.timeMs > seen && event.text.startsWith("batch abandoned"))
     .map(event => event.text);
-  if (next.state === "failed" && previous.state !== "failed") alerts.push(next.error);
+  if (next.state === InstanceState.FAILED && previous.state !== InstanceState.FAILED)
+    alerts.push(next.error);
   for (const body of alerts) {
     notify(new BackendError("strategy_instance", `${id}: ${body}`), {
       namespace: "asterion.terminal.trading",
@@ -41,12 +47,12 @@ export function StrategyPackages(props: Props) {
   return <AccountStrategies key={props.account} {...props} />;
 }
 
-function AccountStrategies({ account, repository, live, connected = false }: Props) {
+function AccountStrategies({ account, repository, record, connected = false }: Props) {
   const [strategies, setStrategies] = useState<string[]>([]);
   const [strategy, setStrategy] = useState("");
   const [preparation, setPreparation] = useState<{ repository: string; value: Package }>();
   const prepared = preparation?.repository === repository ? preparation.value : undefined;
-  const [state, setState] = useState<State>();
+  const [state, setState] = useState<Strategies>();
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [reading, setReading] = useState(false);
@@ -60,7 +66,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   const stopPending = useRef(false);
   const preparing = useRef(false);
   const seen = useRef<InstanceStatus | undefined>(undefined);
-  const accept = (next: State) => {
+  const accept = (next: Strategies) => {
     notifyDesktop(seen.current, next.instance);
     seen.current = next.instance;
     setState(next);
@@ -74,7 +80,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     setReading(true);
     const current = ++sequence.current;
     try {
-      const next = await strategyRequest(account, { case: "inspect", value: {} });
+      const next = await strategyRequest(account, { case: "getStrategies", value: {} });
       if (active.current && current === sequence.current) accept(next);
     } catch (reason) {
       if (active.current && current === sequence.current) {
@@ -111,8 +117,8 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   }, [refresh]);
 
   const { error, attempt } = useActionError();
-  async function mutate(operation: Operation) {
-    const stop = operation.case === "stop";
+  async function mutate(operation: StrategyCall) {
+    const stop = operation.case === "stopStrategy";
     const pending = stop ? stopPending : commandPending;
     if (pending.current || (!stop && (preparing.current || stopPending.current || !fresh)))
       return false;
@@ -210,7 +216,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
           <button
             disabled={busy || stopping || !fresh}
             onClick={() =>
-              void mutate({ case: "publish", value: prepared }).then(published => {
+              void mutate({ case: "publishStrategy", value: prepared }).then(published => {
                 if (published) setPreparation(undefined);
               })
             }
@@ -235,16 +241,16 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
             fresh={fresh}
             stopping={stopping}
             busy={busy}
-            stop={instanceId => mutate({ case: "stop", value: { instanceId } })}
-            pause={(instanceId, paused) => mutate({ case: "pause", value: { instanceId, paused } })}
-            flatten={instanceId => mutate({ case: "flatten", value: { instanceId } })}
+            stop={id => mutate({ case: "stopStrategy", value: { id } })}
+            pause={(id, paused) => mutate({ case: "pauseStrategy", value: { id, paused } })}
+            flatten={id => mutate({ case: "flattenStrategy", value: { id } })}
           />
           <StrategyInstance
             state={state}
-            live={live}
+            account={record}
             available={fresh && connected}
             busy={busy || stopping}
-            start={configuration => mutate({ case: "start", value: configuration })}
+            start={configuration => mutate({ case: "startStrategy", value: configuration })}
           />
         </>
       )}

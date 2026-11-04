@@ -51,7 +51,7 @@ message Response {
     Source read_source = 31;
     common.Empty save_source = 32;
     common.Empty delete_source = 33;
-    asterion.strategy.proto.Package build_package = 34;
+    strategy.Package build_package = 34;
 
     FactorResult evaluate_factor = 40;
     common.Empty start_backtest = 41;
@@ -265,7 +265,7 @@ message FactorEntry {
 // The default's type is the parameter's type.
 message Parameter {
   string name = 1;
-  asterion.strategy.proto.ParameterValue default = 2;
+  strategy.ParameterValue default = 2;
 }
 
 message ModuleError {
@@ -279,7 +279,7 @@ message ModuleError {
 message EvaluateFactor {
   string repository = 1;
   string factor = 2;
-  map<string, asterion.strategy.proto.ParameterValue> params = 3;
+  map<string, strategy.ParameterValue> params = 3;
   repeated string symbols = 4;
   string first_day = 5;
   string last_day = 6;
@@ -349,7 +349,7 @@ message Backtest {
   string repository = 2;
   // module.Class
   string strategy = 3;
-  map<string, asterion.strategy.proto.ParameterValue> params = 4;
+  map<string, strategy.ParameterValue> params = 4;
   repeated string symbols = 5;
   string first_day = 6;
   string last_day = 7;
@@ -396,7 +396,7 @@ message RunSummary {
   optional int64 finished_ms = 7;
   // A metric without a value is absent.
   map<string, double> metrics = 8;
-  map<string, asterion.strategy.proto.ParameterValue> params = 9;
+  map<string, strategy.ParameterValue> params = 9;
   string sweep_id = 10;
 }
 
@@ -457,7 +457,7 @@ message Sweep {
 
 message ParameterValues {
   string name = 1;
-  repeated asterion.strategy.proto.ParameterValue values = 2;
+  repeated strategy.ParameterValue values = 2;
 }
 
 // Each round picks by the Sharpe ratio of training_days, then follows it.

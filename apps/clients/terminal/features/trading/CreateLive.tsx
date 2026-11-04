@@ -5,7 +5,7 @@ import { useMarket } from "../../src/host/market";
 import { catalogName, useWorkspaceDraft, type TerminalContext } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
-import type { TradingAccount } from "../../src/generated/asterion/trading_pb";
+import type { Account } from "../../src/generated/asterion/trading_pb";
 import {
   t,
   environmentName,
@@ -24,7 +24,7 @@ export function CreateLive({
   openSettings,
 }: Pick<TerminalContext, "busy" | "openSettings"> & {
   account: TradingConnection;
-  configuration: TradingAccount;
+  configuration: Account;
   run: Run;
 }) {
   const broker = configuration.broker!;
@@ -44,7 +44,7 @@ export function CreateLive({
     <>
       <div className="inline-row">
         <p role="status" aria-label={t("CTP 账户")}>
-          {`${account.instance} · ${configuration.accountId} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
+          {`${account.instance} · ${configuration.id} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
         </p>
         <button type="button" onClick={() => openSettings("trading")}>
           {t("管理交易连接")}
@@ -61,9 +61,9 @@ export function CreateLive({
             return;
           }
           void run(() => ({
-            case: "liveCreate",
+            case: "openAccount",
             value: {
-              risk: riskLimits(limits),
+              limits: riskLimits(limits),
               maxPriceDeviation: decimal(limits.max_price_deviation),
               contracts: contracts.map(value =>
                 policyContract(listed.find(item => listedKey(item) === value)!),

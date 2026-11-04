@@ -7,6 +7,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
+import { BrokerState } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
 import { StrategyPackages } from "./StrategyPackages";
@@ -31,10 +32,10 @@ export function LivePanel(context: TerminalContext) {
   // revoke take something back, so they do not wait for another request.
   const runFor =
     (id: string, hold: boolean): Run =>
-    async (operation, fields) => {
+    async operation => {
       if (hold) setBusy(true);
       const done = await attempt(() =>
-        send(id, typeof operation === "function" ? operation() : operation, fields),
+        send(id, typeof operation === "function" ? operation() : operation),
       );
       if (hold) setBusy(false);
       return done;
@@ -43,8 +44,9 @@ export function LivePanel(context: TerminalContext) {
     if (!view) return "读取中";
     if (view.failed) return "服务未连接";
     if (!view.live) return "未配置风控";
-    if (view.live.phase !== "ready") return phases[view.live.phase] ?? view.live.phase;
-    return view.live.authorization ? "已允许发送委托" : "已就绪";
+    if (view.live.brokerState !== BrokerState.READY)
+      return phases[view.live.brokerState] ?? BrokerState[view.live.brokerState];
+    return view.live.authorizedMs !== undefined ? "已允许发送委托" : "已就绪";
   };
   const repository = snapshot?.research_directory ?? "";
   const view = account ? views[account.id] : undefined;
@@ -87,10 +89,10 @@ export function LivePanel(context: TerminalContext) {
             <div className="ctp-account-column" key={`${account.id}:${account.revision}`}>
               <div className="ctp-account-panel">
                 <ActionError error={error} namespace="asterion.terminal.trading" />
-                {view?.live ? (
+                {view?.live && view.account ? (
                   <LiveAccount
                     account={account}
-                    live={view.live}
+                    record={view.account}
                     stale={!!view.failed || view.live.recoveryRequired}
                     snapshot={snapshot}
                     busy={busy}
@@ -129,7 +131,7 @@ export function LivePanel(context: TerminalContext) {
                 <StrategyPackages
                   account={account.id}
                   repository={repository}
-                  live={view?.live}
+                  record={view?.account}
                   connected={!!view && !view.failed}
                 />
               </div>

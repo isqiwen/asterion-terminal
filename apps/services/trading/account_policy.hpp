@@ -11,7 +11,7 @@ struct PolicyDefinition
     OrderLimitsConfig limits;
     Decimal max_price_deviation;
     std::vector<FuturesContract> contracts;
-    static PolicyDefinition from_wire(const protocol::proto::LivePolicy& policy);
+    static PolicyDefinition from_wire(const ::trading::Policy& policy);
 };
 
 // One immutable policy owns its typed parameters and built-in limits. It owns no

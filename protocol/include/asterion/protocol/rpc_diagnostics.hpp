@@ -3,6 +3,8 @@
 #include <asterion/base/id.hpp>
 #include <asterion/system/log.hpp>
 #include <asterion/common.pb.h>
+#include <algorithm>
+#include <cctype>
 #include <string>
 #include <initializer_list>
 #include <optional>
@@ -41,16 +43,13 @@ void log_rpc_result(
             request,
             request.GetDescriptor()->oneof_decl(0));
         line += " operation=" + (operation ? operation->name() : std::string("missing"));
-        if constexpr (requires { request.correlation_id(); }) {
-            add("correlation_id", request.correlation_id());
-            if (response.has_error())
-                line += " code="
-                    + std::string(error_name(parse_error_code(response.error().code())
-                            .value_or(ErrorCode::operation_failed)));
-        } else {
-            line += " id=" + std::to_string(request.id());
-            if (response.has_error())
-                line += " code=" + ::common::ErrorCode_Name(response.error().code());
+        line += " id=" + std::to_string(request.id());
+        if (response.has_error()) {
+            auto code = ::common::ErrorCode_Name(response.error().code()).substr(11);
+            std::ranges::transform(code, code.begin(), [](unsigned char c) {
+                return std::tolower(c);
+            });
+            line += " code=" + code;
         }
         for (const auto& [name, value] : ids)
             add(name, value);

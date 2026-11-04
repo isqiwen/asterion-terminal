@@ -66,7 +66,7 @@ Settings load_settings(const fs::path& root, const std::string& account)
         {"environment", document.at("environment")}
     };
     try {
-        (void)protocol::encode_trading_account(result.identity);
+        (void)protocol::encode_account(result.identity);
     } catch (const std::exception& error) {
         throw invalid("invalid trading account configuration " + where + ": " + error.what());
     }

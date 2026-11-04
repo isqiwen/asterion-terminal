@@ -1,25 +1,23 @@
 """trading.proto requests in ProtoJSON, built as the trading page builds them."""
-from decimal import Decimal
 import time
 
 
-def units(value):
-    return {"units": str(int(Decimal(str(value)) * 100_000_000))}
+def decimal(value):
+    return {"text": str(value)}
 
 
-def account_policy(catalog, symbol="rb2610", working_orders="2"):
-    """A liveCreate with one contract from Market's CTP catalog (ProtoJSON):
+def account_policy(catalog, symbol="rb2610", working_orders=2):
+    """An openAccount with one contract from Market's CTP catalog (ProtoJSON):
     5 per order, 10 held, 2% deviation."""
     row = next(c for c in catalog["contracts"] if c["instrument"]["symbol"] == symbol)
     _, product, month = row["contract"].split("/")
-    return {"liveCreate": {
-        "risk": {"maxOrderQuantity": units(5), "maxGrossQuantity": units(10),
-                 "maxWorkingOrders": working_orders},
-        "maxPriceDeviation": units("0.02"),
-        "contracts": [{"venue": row["instrument"]["exchange"], "symbol": symbol, "currency": "CNY",
-                       "priceIncrement": units(row["priceTick"]["text"]), "quantityIncrement": units(1),
-                       "multiplier": units(row["multiplier"]), "product": product,
-                       "deliveryMonth": month}]}}
+    return {"openAccount": {
+        "limits": {"maxOrderLots": decimal(5), "maxGrossLots": decimal(10),
+                   "maxWorkingOrders": working_orders},
+        "maxPriceDeviation": decimal("0.02"),
+        "contracts": [{"instrument": row["instrument"], "product": product, "deliveryMonth": month,
+                       "multiplier": decimal(row["multiplier"]), "priceTick": row["priceTick"],
+                       "lotSize": decimal(1)}]}}
 
 
 def market_catalog(call):
@@ -35,5 +33,6 @@ def market_catalog(call):
 
 def submit(order_id, quantity, price="3500", symbol="rb2610"):
     return {"requestId": "submit." + order_id,
-            "submit": {"orderId": order_id, "venue": "SHFE", "symbol": symbol, "side": "BUY",
-                       "offset": "OPEN", "quantity": units(quantity), "price": units(price)}}
+            "submitOrder": {"orderId": order_id, "instrument": {"exchange": "SHFE", "symbol": symbol},
+                            "side": "SIDE_BUY", "offset": "OFFSET_OPEN",
+                            "lots": decimal(quantity), "price": decimal(price)}}

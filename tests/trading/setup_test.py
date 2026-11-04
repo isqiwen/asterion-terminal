@@ -83,7 +83,8 @@ def release(folder, version):
     (top / 'runtime/release').write_text(version)
     (top / 'lib/ctp-trader.so').write_text(version)
     (top / 'lib/ctp-md.so').write_text(version)
-    for name in ('strategy_runner.py', 'asterion_strategy.py', 'asterion/strategy_pb2.py'):
+    for name in ('strategy_runner.py', 'asterion_strategy.py', 'asterion/strategy_pb2.py',
+                 'asterion/common_pb2.py'):
         path = top / 'lib/strategy' / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('# ' + version)

@@ -1,4 +1,4 @@
-import { liveAccount, livePolicy, marketState, trading } from "./rpc-fixture";
+import { brokerReady, liveAccount, livePolicy, marketState, trading } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 
 test(
@@ -11,21 +11,22 @@ test(
       .poll(async () => (await marketState(page.request)).catalog?.status?.state)
       .toBe("CATALOG_STATE_READY");
     await trading(page.request, account, await livePolicy(page.request));
-    await expect
-      .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })
-      .toBe("ready");
+    await brokerReady(page.request, account);
     const before = await liveAccount(page.request, account);
     const authorize = {
-      accountId: before.accountId,
-      policyRevision: before.policyRevision,
-      command: { requestId: "authorization-before-restart", liveAuthorize: { userId: "000001" } },
+      sendCommand: {
+        requestId: "authorization-before-restart",
+        accountId: before.id,
+        policyRevision: before.session.policyRevision,
+        authorize: { userId: "000001" },
+      },
     };
     await trading(page.request, account, authorize);
     await tradingHost.restart();
     const restored = await liveAccount(page.request, account);
-    expect(restored.accountId).toBe(before.accountId);
-    expect(restored.authorization).toBeUndefined();
-    expect(restored.policyRevision).toBe(before.policyRevision);
+    expect(restored.id).toBe(before.id);
+    expect(restored.session.authorizedMs).toBeUndefined();
+    expect(restored.session.policyRevision).toBe(before.session.policyRevision);
     const repeated = await page.request.post("/__asterion/api", {
       data: { version: 1, method: "trading.call", params: { account, request: authorize } },
     });

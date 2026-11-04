@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { liveAccount, livePolicy, marketState, trading } from "./rpc-fixture";
+import { brokerReady, liveAccount, livePolicy, marketState, trading } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 
 test(
@@ -12,25 +12,23 @@ test(
       .poll(async () => (await marketState(page.request)).catalog?.status?.state)
       .toBe("CATALOG_STATE_READY");
     await trading(page.request, account, await livePolicy(page.request));
-    await expect
-      .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })
-      .toBe("ready");
+    await brokerReady(page.request, account);
     const original = await liveAccount(page.request, account);
     await page.goto("/");
     await openView(page, "trading");
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
     await panel.getByRole("button", { name: "风控", exact: true }).click();
     const editor = panel.getByRole("region", { name: "账户政策", exact: true });
-    await expect(editor).toContainText(original.policyRevision);
+    await expect(editor).toContainText(original.session.policyRevision);
     await editor.getByLabel("总持仓量上限", { exact: true }).fill("8");
     await editor.getByLabel("我确认应用上述政策并重新登录", { exact: true }).check();
     await editor.getByRole("button", { name: "应用新政策", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
     const revised = await liveAccount(page.request, account);
-    expect(revised.accountId).toBe(original.accountId);
-    expect(revised.policyRevision).not.toBe(original.policyRevision);
-    expect(revised.risk.maxGrossQuantity.units).toBe("800000000");
-    expect(revised.authorization).toBeUndefined();
+    expect(revised.id).toBe(original.id);
+    expect(revised.session.policyRevision).not.toBe(original.session.policyRevision);
+    expect(revised.session.policy.limits.maxGrossLots.text).toBe("8");
+    expect(revised.session.authorizedMs).toBeUndefined();
     const stale = await page.request.post("/__asterion/api", {
       data: {
         version: 1,
@@ -38,9 +36,12 @@ test(
         params: {
           account,
           request: {
-            accountId: original.accountId,
-            policyRevision: original.policyRevision,
-            command: { requestId: "stale-policy", liveAuthorize: { userId: "000001" } },
+            sendCommand: {
+              requestId: "stale-policy",
+              accountId: original.id,
+              policyRevision: original.session.policyRevision,
+              authorize: { userId: "000001" },
+            },
           },
         },
       },
@@ -48,8 +49,8 @@ test(
     expect((await stale.json()).error.code).toBe("conflict");
     await tradingHost.restart();
     const recovered = await liveAccount(page.request, account);
-    expect(recovered.policyRevision).toBe(revised.policyRevision);
-    expect(recovered.risk.maxGrossQuantity.units).toBe("800000000");
-    expect(recovered.authorization).toBeUndefined();
+    expect(recovered.session.policyRevision).toBe(revised.session.policyRevision);
+    expect(recovered.session.policy.limits.maxGrossLots.text).toBe("8");
+    expect(recovered.session.authorizedMs).toBeUndefined();
   },
 );

@@ -1,138 +1,80 @@
 #include <asterion/base/decimal.hpp>
 #include <asterion/futures/futures.hpp>
-#include <asterion/system/process/artifact.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
-#include <charconv>
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <set>
 #include <stdexcept>
 
 namespace asterion::protocol {
 namespace {
 
-void set(proto::Decimal* target, const Json& value)
+void set(::common::Decimal* target, const Json& value)
 {
-    target->set_units(Decimal::parse(value.get<std::string>()).raw());
+    target->set_text(Decimal::parse(value.get<std::string>()).str());
 }
 
-std::string get(const proto::Decimal& value)
+Decimal value(const ::common::Decimal& decimal)
 {
-    return Decimal::from_raw(value.units()).str();
+    return Decimal::parse(decimal.text());
 }
 
-proto::Side side(const std::string& value)
+std::string get(const ::common::Decimal& decimal)
 {
-    if (value == "buy")
-        return proto::BUY;
-    if (value == "sell")
-        return proto::SELL;
+    return value(decimal).str();
+}
+
+::common::Side side(const std::string& name)
+{
+    if (name == "buy")
+        return ::common::SIDE_BUY;
+    if (name == "sell")
+        return ::common::SIDE_SELL;
     throw std::invalid_argument("invalid side");
 }
 
-std::string side(proto::Side value)
+std::string side(::common::Side side)
 {
-    if (value == proto::BUY)
+    if (side == ::common::SIDE_BUY)
         return "buy";
-    if (value == proto::SELL)
+    if (side == ::common::SIDE_SELL)
         return "sell";
     throw std::invalid_argument("invalid side");
 }
 
-} // namespace
-
-PositionSides position_sides(proto::PositionSides value)
+::common::Offset offset(const std::string& name)
 {
-    switch (value) {
-        case proto::LONG_AND_SHORT:
-            return PositionSides::both;
-        case proto::LONG_ONLY:
-            return PositionSides::long_only;
-        case proto::SHORT_ONLY:
-            return PositionSides::short_only;
-        default:
-            throw std::invalid_argument("position sides must be both, long or short");
-    }
-}
-
-proto::PositionSides encode_position_sides(const Json& value)
-{
-    if (!value.is_string())
-        throw std::invalid_argument("position sides must be both, long or short");
-    switch (parse_position_sides(value.get<std::string>())) {
-        case PositionSides::long_only:
-            return proto::LONG_ONLY;
-        case PositionSides::short_only:
-            return proto::SHORT_ONLY;
-        case PositionSides::both:
-            break;
-    }
-    return proto::LONG_AND_SHORT;
-}
-
-namespace {
-
-proto::Offset offset(const std::string& value)
-{
-    if (value == "open")
-        return proto::OPEN;
-    if (value == "close_today")
-        return proto::CLOSE_TODAY;
-    if (value == "close_yesterday")
-        return proto::CLOSE_YESTERDAY;
-    if (value == "close")
-        return proto::CLOSE;
+    if (name == "open")
+        return ::common::OFFSET_OPEN;
+    if (name == "close_today")
+        return ::common::OFFSET_CLOSE_TODAY;
+    if (name == "close_yesterday")
+        return ::common::OFFSET_CLOSE_YESTERDAY;
+    if (name == "close")
+        return ::common::OFFSET_CLOSE;
     throw std::invalid_argument("invalid offset");
 }
 
-std::string offset(proto::Offset value)
+std::string offset(::common::Offset offset)
 {
-    if (value == proto::OPEN)
-        return "open";
-    if (value == proto::CLOSE_TODAY)
-        return "close_today";
-    if (value == proto::CLOSE_YESTERDAY)
-        return "close_yesterday";
-    if (value == proto::CLOSE)
-        return "close";
-    throw std::invalid_argument("invalid offset");
-}
-
-proto::OrderState state(const std::string& value)
-{
-    if (value == "accepted")
-        return proto::ACCEPTED;
-    if (value == "partially_filled")
-        return proto::PARTIALLY_FILLED;
-    if (value == "filled")
-        return proto::FILLED;
-    if (value == "cancelled")
-        return proto::CANCELLED;
-    if (value == "rejected")
-        return proto::REJECTED;
-    throw std::invalid_argument("invalid order state");
-}
-
-std::string state(proto::OrderState value)
-{
-    switch (value) {
-        case proto::ACCEPTED:
-            return "accepted";
-        case proto::PARTIALLY_FILLED:
-            return "partially_filled";
-        case proto::FILLED:
-            return "filled";
-        case proto::CANCELLED:
-            return "cancelled";
-        case proto::REJECTED:
-            return "rejected";
+    switch (offset) {
+        case ::common::OFFSET_OPEN:
+            return "open";
+        case ::common::OFFSET_CLOSE_TODAY:
+            return "close_today";
+        case ::common::OFFSET_CLOSE_YESTERDAY:
+            return "close_yesterday";
+        case ::common::OFFSET_CLOSE:
+            return "close";
         default:
-            throw std::invalid_argument("invalid order state");
+            throw std::invalid_argument("invalid offset");
     }
 }
 
-proto::Contract contract(const Json& c)
+// Contract terms as the journal stores them; CTP futures trade in CNY.
+::trading::ContractTerms contract(const Json& c)
 {
     require_fields(
         c,
@@ -144,335 +86,63 @@ proto::Contract contract(const Json& c)
             "multiplier",
             "product",
             "delivery_month"});
-    proto::Contract result;
-    result.set_venue(c.at("venue").get<std::string>());
-    result.set_symbol(c.at("symbol").get<std::string>());
-    result.set_currency(c.at("currency").get<std::string>());
+    ::trading::ContractTerms result;
+    result.mutable_instrument()->set_exchange(c.at("venue").get<std::string>());
+    result.mutable_instrument()->set_symbol(c.at("symbol").get<std::string>());
     result.set_product(c.at("product").get<std::string>());
     result.set_delivery_month(c.at("delivery_month").get<std::string>());
-    set(result.mutable_price_increment(), c.at("price_increment"));
-    set(result.mutable_quantity_increment(), c.at("quantity_increment"));
+    set(result.mutable_price_tick(), c.at("price_increment"));
+    set(result.mutable_lot_size(), c.at("quantity_increment"));
     set(result.mutable_multiplier(), c.at("multiplier"));
     return result;
 }
 
-Json contract(const proto::Contract& c)
+Json contract(const ::trading::ContractTerms& c)
 {
     return {
-        {"venue", c.venue()},
-        {"symbol", c.symbol()},
-        {"currency", c.currency()},
-        {"price_increment", get(c.price_increment())},
-        {"quantity_increment", get(c.quantity_increment())},
+        {"venue", c.instrument().exchange()},
+        {"symbol", c.instrument().symbol()},
+        {"currency", "CNY"},
+        {"price_increment", get(c.price_tick())},
+        {"quantity_increment", get(c.lot_size())},
         {"multiplier", get(c.multiplier())},
         {"product", c.product()},
         {"delivery_month", c.delivery_month()}
     };
 }
 
-} // namespace
-
-proto::Costs encode_costs(const Json& c)
-{
-    require_fields(
-        c,
-        {"margin_per_lot",
-            "open_fee",
-            "close_today_fee",
-            "close_yesterday_fee",
-            "margin_rate",
-            "open_fee_rate",
-            "close_today_fee_rate",
-            "close_yesterday_fee_rate"});
-    proto::Costs result;
-    set(result.mutable_margin_per_lot(), c.at("margin_per_lot"));
-    set(result.mutable_open_fee(), c.at("open_fee"));
-    set(result.mutable_close_today_fee(), c.at("close_today_fee"));
-    set(result.mutable_close_yesterday_fee(), c.at("close_yesterday_fee"));
-    set(result.mutable_margin_rate(), c.at("margin_rate"));
-    set(result.mutable_open_fee_rate(), c.at("open_fee_rate"));
-    set(result.mutable_close_today_fee_rate(), c.at("close_today_fee_rate"));
-    set(result.mutable_close_yesterday_fee_rate(), c.at("close_yesterday_fee_rate"));
-    futures_costs(result).validate();
-    return result;
-}
-
-Json decode_costs(const proto::Costs& c)
-{
-    if (!c.has_margin_per_lot() || !c.has_open_fee() || !c.has_close_today_fee()
-        || !c.has_close_yesterday_fee() || !c.has_margin_rate() || !c.has_open_fee_rate()
-        || !c.has_close_today_fee_rate() || !c.has_close_yesterday_fee_rate())
-        throw std::invalid_argument("missing explicit paper costs");
-    return {
-        {"margin_per_lot", get(c.margin_per_lot())},
-        {"open_fee", get(c.open_fee())},
-        {"close_today_fee", get(c.close_today_fee())},
-        {"close_yesterday_fee", get(c.close_yesterday_fee())},
-        {"margin_rate", get(c.margin_rate())},
-        {"open_fee_rate", get(c.open_fee_rate())},
-        {"close_today_fee_rate", get(c.close_today_fee_rate())},
-        {"close_yesterday_fee_rate", get(c.close_yesterday_fee_rate())}
-    };
-}
-
-FuturesCosts futures_costs(const proto::Costs& c)
-{
-    const auto value = [](const proto::Decimal& d) {
-        return Decimal::from_raw(d.units());
-    };
-    return {
-        value(c.margin_per_lot()),
-        value(c.open_fee()),
-        value(c.close_today_fee()),
-        value(c.close_yesterday_fee()),
-        value(c.margin_rate()),
-        value(c.open_fee_rate()),
-        value(c.close_today_fee_rate()),
-        value(c.close_yesterday_fee_rate())
-    };
-}
-
-proto::Costs encode_costs(const FuturesCosts& costs)
-{
-    costs.validate();
-    proto::Costs result;
-#define COST(name) result.mutable_##name()->set_units(costs.name.raw())
-    COST(margin_per_lot);
-    COST(open_fee);
-    COST(close_today_fee);
-    COST(close_yesterday_fee);
-    COST(margin_rate);
-    COST(open_fee_rate);
-    COST(close_today_fee_rate);
-    COST(close_yesterday_fee_rate);
-#undef COST
-    return result;
-}
-
-std::vector<FuturesCostVersion> cost_schedule(const proto::CostSchedule& input)
-{
-    std::vector<FuturesCostVersion> result;
-    for (const auto& version : input.versions()) {
-        (void)decode_costs(version.values());
-        result.push_back(
-            {version.effective_from(), version.source(), futures_costs(version.values())});
-    }
-    validate_cost_schedule(result);
-    return result;
-}
-
-proto::CostSchedule encode_cost_schedule(const Json& input)
-{
-    if (!input.is_array() || input.empty() || input.size() > 512)
-        throw std::invalid_argument("cost schedule requires 1 to 512 versions");
-    proto::CostSchedule result;
-    for (const auto& version : input) {
-        require_fields(version, {"effective_from", "source", "values"});
-        auto* row = result.add_versions();
-        row->set_effective_from(version.at("effective_from").get<std::string>());
-        row->set_source(version.at("source").get<std::string>());
-        *row->mutable_values() = encode_costs(version.at("values"));
-    }
-    (void)cost_schedule(result);
-    return result;
-}
-
-Json decode_cost_schedule(const proto::CostSchedule& input)
-{
-    (void)cost_schedule(input);
-    Json result = Json::array();
-    for (const auto& version : input.versions())
-        result.push_back(
-            {{"effective_from", version.effective_from()},
-                {"source", version.source()},
-                {"values", decode_costs(version.values())}});
-    return result;
-}
-
-void validate_message(const google::protobuf::Message& message)
-{
-    const auto* reflection = message.GetReflection();
-    if (reflection->GetUnknownFields(message).field_count())
-        throw std::invalid_argument("unknown Protobuf field");
-    // Our proto3 contracts have no extensions. Walk message fields directly;
-    // enumerating every populated scalar allocates a vector for each Decimal
-    // and bar in large immutable datasets, without contributing validation.
-    const auto* descriptor = message.GetDescriptor();
-    for (int index = 0; index < descriptor->field_count(); ++index) {
-        const auto* field = descriptor->field(index);
-        if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
-            if (field->is_repeated()) {
-                for (int i = 0; i < reflection->FieldSize(message, field); ++i)
-                    validate_message(reflection->GetRepeatedMessage(message, field, i));
-            } else if (reflection->HasField(message, field))
-                validate_message(reflection->GetMessage(message, field));
-        }
-    }
-}
-
-proto::Contract encode_contract(const Json& value)
-{
-    return contract(value);
-}
-
-Instrument instrument(const proto::Contract& c)
-{
-    if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
-        throw std::invalid_argument("incomplete contract specification");
-    Instrument result{
-        {c.venue(), c.symbol()},
-        c.currency(),
-        Decimal::from_raw(c.price_increment().units()),
-        Decimal::from_raw(c.quantity_increment().units()),
-        Decimal::from_raw(c.multiplier().units())
-    };
-    FuturesContract{result, c.product(), c.delivery_month()}.validate();
-    return result;
-}
-
-Json decode_contract(const proto::Contract& value)
-{
-    return contract(value);
-}
-
-proto::RiskLimits encode_risk(const Json& value)
+::common::RiskLimits encode_risk(const Json& value)
 {
     require_fields(value, {"max_order_quantity", "max_gross_quantity", "max_working_orders"});
     if (!value.at("max_working_orders").is_number_unsigned() || value.at("max_working_orders") == 0)
         throw std::invalid_argument("invalid risk working order limit");
-    proto::RiskLimits result;
-    set(result.mutable_max_order_quantity(), value.at("max_order_quantity"));
-    set(result.mutable_max_gross_quantity(), value.at("max_gross_quantity"));
-    if (get(result.max_order_quantity()) != value.at("max_order_quantity").get<std::string>()
-        || get(result.max_gross_quantity()) != value.at("max_gross_quantity").get<std::string>())
+    ::common::RiskLimits result;
+    set(result.mutable_max_order_lots(), value.at("max_order_quantity"));
+    set(result.mutable_max_gross_lots(), value.at("max_gross_quantity"));
+    if (get(result.max_order_lots()) != value.at("max_order_quantity").get<std::string>()
+        || get(result.max_gross_lots()) != value.at("max_gross_quantity").get<std::string>())
         throw std::invalid_argument("risk quantities require canonical decimal text");
-    if (result.max_order_quantity().units() <= 0 || result.max_gross_quantity().units() <= 0)
-        throw std::invalid_argument("risk quantities must be positive");
-    result.set_max_working_orders(value.at("max_working_orders").get<std::uint64_t>());
+    result.set_max_working_orders(value.at("max_working_orders").get<std::uint32_t>());
     return result;
 }
 
-namespace {
-
-void validate_risk(const proto::RiskLimits& value)
+void validate_risk(const ::common::RiskLimits& limits)
 {
-    if (!value.has_max_order_quantity() || !value.has_max_gross_quantity()
-        || value.max_order_quantity().units() <= 0 || value.max_gross_quantity().units() <= 0
-        || !value.max_working_orders())
+    if (!limits.has_max_order_lots() || !limits.has_max_gross_lots()
+        || value(limits.max_order_lots()) <= Decimal{}
+        || value(limits.max_gross_lots()) <= Decimal{} || !limits.max_working_orders())
         throw std::invalid_argument("missing explicit risk limits");
 }
 
-} // namespace
-
-Json decode_risk(const proto::RiskLimits& value)
+Json decode_risk(const ::common::RiskLimits& limits)
 {
-    validate_risk(value);
+    validate_risk(limits);
     return {
-        {"max_order_quantity", get(value.max_order_quantity())},
-        {"max_gross_quantity", get(value.max_gross_quantity())},
-        {"max_working_orders", value.max_working_orders()}
+        {"max_order_quantity", get(limits.max_order_lots())},
+        {"max_gross_quantity", get(limits.max_gross_lots())},
+        {"max_working_orders", limits.max_working_orders()}
     };
 }
-
-namespace {
-
-Json instrument_fields(const std::string& venue, const std::string& symbol)
-{
-    InstrumentId{venue, symbol}.validate();
-    return {{"venue", venue}, {"symbol", symbol}};
-}
-
-} // namespace
-
-proto::Command encode_command(const Json& c)
-{
-    proto::Command result;
-    result.set_request_id(c.at("request_id").get<std::string>());
-    const auto action = c.at("action").get<std::string>();
-    if (action == "cancel") {
-        require_fields(c, {"request_id", "action", "order_id"});
-        result.mutable_cancel()->set_order_id(c.at("order_id").get<std::string>());
-    } else if (action == "submit") {
-        require_fields(
-            c,
-            {"request_id",
-                "action",
-                "order_id",
-                "venue",
-                "symbol",
-                "side",
-                "offset",
-                "quantity",
-                "price"});
-        auto* order = result.mutable_submit();
-        order->set_order_id(c.at("order_id").get<std::string>());
-        order->set_venue(c.at("venue").get<std::string>());
-        order->set_symbol(c.at("symbol").get<std::string>());
-        InstrumentId{order->venue(), order->symbol()}.validate();
-        order->set_side(side(c.at("side").get<std::string>()));
-        order->set_offset(offset(c.at("offset").get<std::string>()));
-        set(order->mutable_quantity(), c.at("quantity"));
-        set(order->mutable_price(), c.at("price"));
-    } else if (action == "live_authorize") {
-        require_fields(c, {"request_id", "action", "user_id"});
-        result.mutable_live_authorize()->set_user_id(c.at("user_id").get<std::string>());
-    } else if (action == "live_revoke") {
-        require_fields(c, {"request_id", "action"});
-        result.mutable_live_revoke();
-    } else if (action == "live_policy") {
-        require_fields(c, {"request_id", "action", "policy"});
-        *result.mutable_live_policy()->mutable_policy() = encode_live_policy(c.at("policy"));
-    } else if (action == "live_resolve") {
-        require_fields(c, {"request_id", "action", "order_id"});
-        result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
-    } else
-        throw std::invalid_argument("unsupported trading operation");
-    return result;
-}
-
-Json decode_command(const proto::Command& c)
-{
-    Json result{{"request_id", c.request_id()}};
-    switch (c.operation_case()) {
-        case proto::Command::kCancel:
-            result["action"] = "cancel";
-            result["order_id"] = c.cancel().order_id();
-            break;
-        case proto::Command::kSubmit: {
-            const auto& o = c.submit();
-            auto fields = instrument_fields(o.venue(), o.symbol());
-            result.update(
-                {{"action", "submit"},
-                    {"order_id", o.order_id()},
-                    {"side", side(o.side())},
-                    {"offset", offset(o.offset())},
-                    {"quantity", get(o.quantity())},
-                    {"price", get(o.price())}});
-            result.update(fields);
-            break;
-        }
-        case proto::Command::kLiveAuthorize:
-            result.update(
-                {{"action", "live_authorize"}, {"user_id", c.live_authorize().user_id()}});
-            break;
-        case proto::Command::kLiveRevoke:
-            result["action"] = "live_revoke";
-            break;
-        case proto::Command::kLivePolicy:
-            result.update(
-                {{"action", "live_policy"},
-                    {"policy", decode_live_policy(c.live_policy().policy())}});
-            break;
-        case proto::Command::kLiveResolve:
-            result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
-            break;
-        default:
-            throw std::invalid_argument("missing trading operation");
-    }
-    return result;
-}
-
-namespace {
 
 // CTP identities: short printable text without spaces.
 std::string broker_text(const Json& value, const char* name, std::size_t limit)
@@ -508,83 +178,190 @@ Json live_broker(const Json& b)
     };
 }
 
-std::string live_costs_state(const std::string& value)
+std::string environment(const Json& value)
 {
-    if (value != "querying" && value != "ready" && value != "unavailable")
-        throw std::invalid_argument("invalid live costs state");
-    return value;
-}
-
-std::string live_status(const std::string& value)
-{
-    static const std::set<std::string>
-        known{"submitted", "accepted", "partially_filled", "filled", "cancelled", "rejected"};
-    if (!known.contains(value))
-        throw std::invalid_argument("invalid live order status");
-    return value;
+    if (value != "real" && value != "simulation")
+        throw std::invalid_argument("choose the trading account environment");
+    return value.get<std::string>();
 }
 
 } // namespace
 
-proto::LivePolicy encode_live_policy(const Json& policy)
+Instrument terms(const ::trading::ContractTerms& c)
+{
+    if (!c.has_price_tick() || !c.has_lot_size() || !c.has_multiplier())
+        throw std::invalid_argument("incomplete contract specification");
+    Instrument result{
+        {c.instrument().exchange(), c.instrument().symbol()},
+        "CNY",
+        value(c.price_tick()),
+        value(c.lot_size()),
+        value(c.multiplier())
+    };
+    FuturesContract{result, c.product(), c.delivery_month()}.validate();
+    return result;
+}
+
+::common::Costs encode_costs(const FuturesCosts& costs)
+{
+    costs.validate();
+    ::common::Costs result;
+#define COST(name) result.mutable_##name()->set_text(costs.name.str())
+    COST(margin_per_lot);
+    COST(margin_rate);
+    COST(open_fee);
+    COST(open_fee_rate);
+    COST(close_today_fee);
+    COST(close_today_fee_rate);
+    COST(close_yesterday_fee);
+    COST(close_yesterday_fee_rate);
+#undef COST
+    return result;
+}
+
+::trading::Command encode_command(const Json& c)
+{
+    ::trading::Command result;
+    result.set_request_id(c.at("request_id").get<std::string>());
+    const auto action = c.at("action").get<std::string>();
+    if (action == "cancel") {
+        require_fields(c, {"request_id", "action", "order_id"});
+        result.mutable_cancel_order()->set_id(c.at("order_id").get<std::string>());
+    } else if (action == "submit") {
+        require_fields(
+            c,
+            {"request_id",
+                "action",
+                "order_id",
+                "venue",
+                "symbol",
+                "side",
+                "offset",
+                "quantity",
+                "price"});
+        auto* order = result.mutable_submit_order();
+        order->set_order_id(c.at("order_id").get<std::string>());
+        order->mutable_instrument()->set_exchange(c.at("venue").get<std::string>());
+        order->mutable_instrument()->set_symbol(c.at("symbol").get<std::string>());
+        InstrumentId{order->instrument().exchange(), order->instrument().symbol()}.validate();
+        order->set_side(side(c.at("side").get<std::string>()));
+        order->set_offset(offset(c.at("offset").get<std::string>()));
+        set(order->mutable_lots(), c.at("quantity"));
+        set(order->mutable_price(), c.at("price"));
+    } else if (action == "live_authorize") {
+        require_fields(c, {"request_id", "action", "user_id"});
+        result.mutable_authorize()->set_user_id(c.at("user_id").get<std::string>());
+    } else if (action == "live_revoke") {
+        require_fields(c, {"request_id", "action"});
+        result.mutable_revoke();
+    } else if (action == "live_policy") {
+        require_fields(c, {"request_id", "action", "policy"});
+        *result.mutable_change_policy() = encode_policy(c.at("policy"));
+    } else if (action == "live_resolve") {
+        require_fields(c, {"request_id", "action", "order_id"});
+        result.mutable_resolve_order()->set_id(c.at("order_id").get<std::string>());
+    } else
+        throw std::invalid_argument("unsupported trading operation");
+    return result;
+}
+
+Json decode_command(const ::trading::Command& c)
+{
+    Json result{{"request_id", c.request_id()}};
+    switch (c.action_case()) {
+        case ::trading::Command::kCancelOrder:
+            result["action"] = "cancel";
+            result["order_id"] = c.cancel_order().id();
+            break;
+        case ::trading::Command::kSubmitOrder: {
+            const auto& o = c.submit_order();
+            InstrumentId{o.instrument().exchange(), o.instrument().symbol()}.validate();
+            result.update(
+                {{"action", "submit"},
+                    {"order_id", o.order_id()},
+                    {"venue", o.instrument().exchange()},
+                    {"symbol", o.instrument().symbol()},
+                    {"side", side(o.side())},
+                    {"offset", offset(o.offset())},
+                    {"quantity", get(o.lots())},
+                    {"price", get(o.price())}});
+            break;
+        }
+        case ::trading::Command::kAuthorize:
+            result.update({{"action", "live_authorize"}, {"user_id", c.authorize().user_id()}});
+            break;
+        case ::trading::Command::kRevoke:
+            result["action"] = "live_revoke";
+            break;
+        case ::trading::Command::kChangePolicy:
+            result.update(
+                {{"action", "live_policy"}, {"policy", decode_policy(c.change_policy())}});
+            break;
+        case ::trading::Command::kResolveOrder:
+            result.update({{"action", "live_resolve"}, {"order_id", c.resolve_order().id()}});
+            break;
+        default:
+            throw std::invalid_argument("missing trading operation");
+    }
+    return result;
+}
+
+::trading::Policy encode_policy(const Json& policy)
 {
     require_fields(policy, {"risk", "max_price_deviation", "contracts"});
     if (!policy.at("contracts").is_array())
         throw std::invalid_argument("live policy contracts must be an array");
-    proto::LivePolicy result;
-    *result.mutable_risk() = encode_risk(policy.at("risk"));
+    ::trading::Policy result;
+    *result.mutable_limits() = encode_risk(policy.at("risk"));
     set(result.mutable_max_price_deviation(), policy.at("max_price_deviation"));
     if (get(result.max_price_deviation()) != policy.at("max_price_deviation").get<std::string>())
         throw std::invalid_argument("price deviation requires canonical decimal text");
     for (const auto& c : policy.at("contracts"))
         *result.add_contracts() = contract(c);
-    validate_live_policy(result);
+    validate_policy(result);
     return result;
 }
 
-void validate_live_policy(const proto::LivePolicy& policy)
+void validate_policy(const ::trading::Policy& policy)
 {
-    if (!policy.has_risk() || policy.contracts().empty()
+    if (!policy.has_limits() || policy.contracts().empty()
         || static_cast<std::size_t>(policy.contracts_size()) > max_portfolio_contracts)
         throw std::invalid_argument("live policy requires risk and 1 to 20 contracts");
-    validate_risk(policy.risk());
-    const auto deviation = Decimal::from_raw(policy.max_price_deviation().units());
-    if (!policy.has_max_price_deviation() || deviation <= Decimal{}
-        || deviation >= Decimal::parse("1"))
+    validate_risk(policy.limits());
+    if (!policy.has_max_price_deviation())
+        throw std::invalid_argument("price deviation limit must be above 0 and below 1");
+    const auto deviation = value(policy.max_price_deviation());
+    if (deviation <= Decimal{} || deviation >= Decimal::parse("1"))
         throw std::invalid_argument("price deviation limit must be above 0 and below 1");
     std::set<InstrumentId> seen;
-    for (const auto& c : policy.contracts()) {
-        const auto terms = instrument(c);
-        FuturesContract{terms, c.product(), c.delivery_month()}.validate();
-        if (!seen.insert(terms.id).second)
+    for (const auto& c : policy.contracts())
+        if (!seen.insert(terms(c).id).second)
             throw std::invalid_argument("duplicate live contract");
-    }
 }
 
-Json decode_live_policy(const proto::LivePolicy& policy)
+Json decode_policy(const ::trading::Policy& policy)
 {
-    validate_live_policy(policy);
+    validate_policy(policy);
     Json contracts = Json::array();
     for (const auto& value : policy.contracts())
         contracts.push_back(contract(value));
     return {
-        {"risk", decode_risk(policy.risk())},
+        {"risk", decode_risk(policy.limits())},
         {"max_price_deviation", get(policy.max_price_deviation())},
         {"contracts", std::move(contracts)}
     };
 }
 
-proto::TradingAccount encode_trading_account(const Json& account)
+::trading::Account encode_account(const Json& account)
 {
     require_fields(account, {"account_id", "broker", "environment"});
     validate_id(account.at("account_id").get<std::string>());
     const auto broker = live_broker(account.at("broker"));
-    if (account.at("environment") != "real" && account.at("environment") != "simulation")
-        throw std::invalid_argument("choose the trading account environment");
-    proto::TradingAccount result;
-    result.set_account_id(account.at("account_id"));
+    ::trading::Account result;
+    result.set_id(account.at("account_id"));
     result.set_environment(
-        account.at("environment") == "real" ? proto::REAL : proto::BROKER_SIMULATION);
+        environment(account.at("environment")) == "real" ? ::trading::ENVIRONMENT_REAL
+                                                         : ::trading::ENVIRONMENT_SIMULATION);
     result.mutable_broker()->set_front(broker.at("front"));
     result.mutable_broker()->set_broker_id(broker.at("broker_id"));
     result.mutable_broker()->set_user_id(broker.at("user_id"));
@@ -592,47 +369,46 @@ proto::TradingAccount encode_trading_account(const Json& account)
     return result;
 }
 
-proto::LiveInput encode_live_input(const Json& m)
+Json live_input(const Json& m)
 {
     require_fields(m, {"type", "account_id", "broker", "policy", "environment"});
     if (m.at("type") != "live_ctp")
         throw std::invalid_argument("invalid live input");
     validate_id(m.at("account_id").get<std::string>());
-    proto::LiveInput result;
-    result.set_account_id(m.at("account_id"));
-    const auto environment = m.at("environment").get<std::string>();
-    if (environment != "real" && environment != "simulation")
-        throw std::invalid_argument("choose the trading account environment");
-    result.set_environment(environment == "real" ? proto::REAL : proto::BROKER_SIMULATION);
-    const auto broker = live_broker(m.at("broker"));
-    result.mutable_broker()->set_front(broker.at("front"));
-    result.mutable_broker()->set_broker_id(broker.at("broker_id"));
-    result.mutable_broker()->set_user_id(broker.at("user_id"));
-    result.mutable_broker()->set_app_id(broker.at("app_id"));
-    *result.mutable_policy() = encode_live_policy(m.at("policy"));
+    return {
+        {"account_id", m.at("account_id")},
+        {"environment", environment(m.at("environment"))},
+        {"type", "live_ctp"},
+        {"broker", live_broker(m.at("broker"))},
+        {"policy", decode_policy(encode_policy(m.at("policy")))}
+    };
+}
+
+::trading::Progress encode_progress(Progress::Observation observation)
+{
+    ::trading::Progress result;
+    result.set_observed(observation.observed);
+    result.set_pending(observation.pending);
+    result.set_idle_ms(observation.age_ms);
     return result;
 }
 
-Json decode_live_input(const proto::LiveInput& input)
+void validate_message(const google::protobuf::Message& message)
 {
-    if (!input.has_broker() || !input.has_policy())
-        throw std::invalid_argument("live input requires a broker and policy");
-    validate_id(input.account_id());
-    if (input.environment() != proto::REAL && input.environment() != proto::BROKER_SIMULATION)
-        throw std::invalid_argument("choose the trading account environment");
-    auto broker = live_broker(
-        {{"front", input.broker().front()},
-            {"broker_id", input.broker().broker_id()},
-            {"user_id", input.broker().user_id()},
-            {"app_id", input.broker().app_id()}});
-    auto policy = decode_live_policy(input.policy());
-    return {
-        {"account_id", input.account_id()},
-        {"environment", input.environment() == proto::REAL ? "real" : "simulation"},
-        {"type", "live_ctp"},
-        {"broker", std::move(broker)},
-        {"policy", std::move(policy)}
-    };
+    const auto* reflection = message.GetReflection();
+    if (reflection->GetUnknownFields(message).field_count())
+        throw std::invalid_argument("unknown Protobuf field");
+    const auto* descriptor = message.GetDescriptor();
+    for (int index = 0; index < descriptor->field_count(); ++index) {
+        const auto* field = descriptor->field(index);
+        if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
+            if (field->is_repeated()) {
+                for (int i = 0; i < reflection->FieldSize(message, field); ++i)
+                    validate_message(reflection->GetRepeatedMessage(message, field, i));
+            } else if (reflection->HasField(message, field))
+                validate_message(reflection->GetMessage(message, field));
+        }
+    }
 }
 
 } // namespace asterion::protocol

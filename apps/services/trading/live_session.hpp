@@ -56,14 +56,14 @@ public:
     std::future<void> execute_strategy(StrategyOrderBasis basis, SubmitOrder order);
     std::future<void> accept_strategy_target(
         StrategyAuthorityPtr authority,
-        strategy::proto::Decision decision,
+        ::strategy::Decision decision,
         std::vector<MarketQuote> quotes,
         std::chrono::steady_clock::time_point expires_at);
     // `quotes`: the freshest direct observations; each leg is priced from them.
     std::future<void>
     advance_strategy_target(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes = {});
     // Detached transport value constructed on the account owner; JSON belongs to Terminal.
-    std::future<protocol::proto::LiveSnapshot> snapshot() const;
+    std::future<::trading::Session> snapshot() const;
 
     bool recovery_required() const noexcept;
 

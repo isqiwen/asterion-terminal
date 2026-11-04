@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/strategy.pb.h>
+#include <asterion/trading.pb.h>
 #include <asterion/system/thread_pool.hpp>
 #include <filesystem>
 #include <memory>
@@ -19,7 +19,8 @@ public:
         std::filesystem::path account,
         ctp::Configuration market);
     ~StrategyHost();
-    std::future<strategy::proto::State> request(strategy::proto::Request, LiveSession* account);
+    // One of the strategy calls of trading.proto; replies with the strategies after it.
+    std::future<::trading::Strategies> request(::trading::Request, LiveSession* account);
     void poll(); // I/O owner: schedules child-exit observation without waiting.
     void stop();
     bool stopped() const;

@@ -49,7 +49,7 @@ public:
         std::string policy_revision,
         AccountRequest request,
         std::uint64_t admitted_control);
-    protocol::proto::LiveSnapshot snapshot() const;
+    ::trading::Session snapshot() const;
     StrategyAuthorityPtr register_strategy(
         std::string instance,
         std::vector<InstrumentId> contracts,
@@ -73,7 +73,7 @@ public:
     execute_strategy(StrategyOrderBasis basis, AccountRequest request, std::uint64_t control);
     void accept_strategy_target(
         const StrategyAuthorityPtr& authority,
-        strategy::proto::Decision decision,
+        ::strategy::Decision decision,
         std::vector<MarketQuote> quotes,
         std::chrono::steady_clock::time_point expires_at);
     AccountCommand
@@ -216,7 +216,7 @@ private:
 
     struct StrategyTargetBatch
     {
-        strategy::proto::Decision decision;
+        ::strategy::Decision decision;
         std::vector<MarketQuote> quotes;
         std::vector<PositionTarget> targets;
         std::chrono::steady_clock::time_point accepted_at;
@@ -273,7 +273,7 @@ private:
     std::unique_ptr<const AccountPolicy> policy_;
     BrokerSendGate& send_gate_;
     std::unique_ptr<ctp::Trader> trader_;
-    protocol::proto::TradingEnvironment environment_;
+    ::trading::Environment environment_;
     std::string account_id_, trade_front_, app_id_, broker_id_, investor_id_;
     // Journal record 0; the durable form of the account's creation.
     Json header_;

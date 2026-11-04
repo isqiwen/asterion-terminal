@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -19,8 +20,7 @@ private:
 };
 
 std::string_view current_trace_id() noexcept;
-// A fresh process-unique request identity, with a payload-free link to the
-// current command/request in the process log (module requests) when tracing is active.
-std::string next_correlation_id();
+// Links a request about to be sent, by its id, to the current trace in the log.
+void log_request(std::uint64_t id);
 
 } // namespace asterion

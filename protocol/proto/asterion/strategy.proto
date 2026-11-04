@@ -1,7 +1,29 @@
 syntax = "proto3";
-package asterion.strategy.proto;
+package strategy;
+import "asterion/common.proto";
 
-message Empty {}
+// What Lab, Trading and a strategy's Python process share, and the pipe
+// between Trading and that process.
+
+message Request {
+  oneof call {
+    Instance load = 1;
+    Bars bars = 2;
+    common.Empty stop = 3;
+  }
+}
+
+message Response {
+  oneof result {
+    common.Error error = 1;
+    common.Empty load = 2;
+    Decision bars = 3;
+    common.Empty stop = 4;
+  }
+}
+
+// ---- Packages
+
 message ParameterValue {
   oneof value {
     bool flag = 1;
@@ -10,124 +32,79 @@ message ParameterValue {
     string text = 4;
   }
 }
-// What Lab builds from one strategy of the strategy directory. Only these
-// Python files are published. A package has no account, instance parameters
-// or market data.
-message Manifest {
-  string name = 1;
-  string version = 2;
-  string entry = 3; // module:Class
-  string runtime = 4; // python3.12-numpy2.3.5
-  repeated string files = 5;
-}
-message File {
-  string path = 1;
-  bytes content = 2;
-}
+
 message Package {
   Manifest manifest = 1;
   repeated File files = 2;
 }
-message Build {
-  string repository = 1; // the strategy directory
-  string strategy = 2; // <module>.<class> of its strategies/
-}
-message PackageRef {
+
+message Manifest {
   string name = 1;
   string version = 2;
-}
-// Explicit nominal exposure limits, in eight-place Decimal units. This is
-// instance configuration, never strategy code or a grant of authorization.
-message WeightBudget {
-  optional sint64 gross_units = 1;
-  optional sint64 net_units = 2;
-}
-message Instance {
-  string id = 1;
-  PackageRef package = 2;
-  repeated string contracts = 3; // native EXCHANGE/symbol, never continuous series
-  string period = 4; // 1d, or 1m through 60m
-  map<string, ParameterValue> params = 5;
-  WeightBudget weight_budget = 6; // required when the strategy outputs weights
-  // An ended instance with the same configuration: its recorded bars are
-  // replayed into the new strategy before live bars, without executing targets.
-  string resume_from = 7;
-}
-message InstanceStatus {
-  Instance configuration = 1;
-  // Readiness never implies account authorization or permission to send orders.
-  string state = 2; // warming, ready, stopped, failed, interrupted
-  string error = 3;
-  uint64 process_id = 4;
-  uint64 completed_steps = 5;
-  Decision last_decision = 6;
-  bool paused = 7; // targets only reduce positions
-  repeated InstanceEvent events = 8; // the latest, oldest first
-}
-message InstanceEvent {
-  int64 time_ms = 1;
-  string text = 2;
-}
-message State {
-  repeated Manifest packages = 1;
-  InstanceStatus instance = 2;
-}
-message Stop {
-  string instance_id = 1; // stop only the instance the caller inspected
-}
-message Pause {
-  string instance_id = 1;
-  bool paused = 2;
-}
-message Request {
-  oneof operation {
-    Package publish = 1;
-    Empty inspect = 2;
-    Instance start = 3;
-    Stop stop = 4;
-    Pause pause = 5;
-    Stop flatten = 6; // pauses the instance and closes its contracts
-  }
-}
-// Private Trading-to-child IPC. No order or authorization operation.
-message ChildRequest {
-  oneof operation {
-    Instance load = 1;
-    Empty stop = 2;
-    Bars bars = 3;
-  }
-}
-message ChildReply {
-  string error = 1;
-  bool loaded = 2;
-  Decision decision = 3;
+  // module:Class
+  string entry = 3;
+  // Such as python3.12-numpy2.3.5.
+  string runtime = 4;
+  repeated string files = 5;
 }
 
-// Exact received-input record. Prices and weights use eight-place Decimal units.
-message Bar {
-  string contract = 1;
-  string trading_day = 2;
-  int64 end_ms = 3; // minute end; daily bars use the trading-date midnight label
-  sint64 open_units = 4;
-  sint64 high_units = 5;
-  sint64 low_units = 6;
-  sint64 close_units = 7;
-  int64 volume = 8;
-  optional sint64 open_interest_units = 9;
+message File {
+  string path = 1;
+  bytes content = 2;
 }
+
+// ---- Instances
+
+message Instance {
+  string id = 1;
+  string package_name = 2;
+  string package_version = 3;
+  repeated common.Instrument instruments = 4;
+  common.Period period = 5;
+  map<string, ParameterValue> params = 6;
+  // Required when the strategy returns weights.
+  WeightLimits weight_limits = 7;
+  // An ended instance whose recorded bars are replayed before live ones.
+  string resume_from = 8;
+}
+
+// Shares of equity.
+message WeightLimits {
+  common.Decimal gross = 1;
+  common.Decimal net = 2;
+}
+
+// ---- Bars and decisions
+
 message Bars {
   uint64 sequence = 1;
-  repeated Bar bars = 2; // same label, ordered by the instance's contract selection
+  // One bar per instrument, in the instance's order, all ending together.
+  repeated Bar bars = 2;
 }
-message Target {
-  string contract = 1;
-  oneof value {
-    sint64 lots = 2;
-    sint64 weight_units = 3;
-  }
+
+message Bar {
+  common.Instrument instrument = 1;
+  string trading_day = 2;
+  int64 end_ms = 3;
+  common.Decimal open = 4;
+  common.Decimal high = 5;
+  common.Decimal low = 6;
+  common.Decimal close = 7;
+  int64 volume = 8;
+  common.Decimal open_interest = 9;
 }
+
+// Targets are acted on only once the strategy is ready.
 message Decision {
   uint64 sequence = 1;
   bool ready = 2;
-  repeated Target targets = 3; // empty until explicitly ready; never orders
+  repeated Target targets = 3;
+}
+
+message Target {
+  common.Instrument instrument = 1;
+  oneof size {
+    int64 lots = 2;
+    common.Decimal weight = 3;
+  }
 }

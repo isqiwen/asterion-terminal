@@ -73,7 +73,7 @@ struct AccountRequest
     Operation operation;
     // Durable form. A request ID seen again must carry exactly this content.
     Json command;
-    static AccountRequest from_wire(const protocol::proto::Command& command);
+    static AccountRequest from_wire(const ::trading::Command& command);
     static AccountRequest from_record(const Json& command);
     static AccountRequest strategy_order(SubmitOrder order, StrategyOrderSource source);
 

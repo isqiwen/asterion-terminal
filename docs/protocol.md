@@ -1,6 +1,6 @@
 # 通信协议设计
 
-本文规定 Terminal、Lab、Market 和 Trading 之间消息的格式和命名规则，并列出各服务提供的操作。Trading 和策略进程的协议还在迁移到这些规则。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
+本文规定 Terminal、Lab、Market、Trading 和策略进程之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
 
 ## 1. 传输
 
@@ -155,6 +155,55 @@ sequenceDiagram
 - 回测和因子评估在接受时由 Lab 选定研究数据版本和代码提交，结果里的 `pinned` 写明这三项。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
 - Lab 交给子进程的是 `AdmittedRun`、`RollingRun` 和 `AdmittedFactor`：界面的请求加上 Lab 选定的版本和代码副本。它们也定义在 lab.proto 里，但只在 Lab 内部使用。
 
-## 9. 演进
+## 9. Trading
+
+定义在 [trading.proto](../protocol/proto/asterion/trading.proto)。行为说明见 [交易](trading.md)，交易规则见 [交易安全](safety.md)。一个 Trading 进程只管一个 CTP 账户。
+
+| 操作 | 参数 | 结果 |
+| --- | --- | --- |
+| `get_health` | — | 账户是否已开通、是否需要恢复、是否可以交易，及各工作环节多久没有进展 |
+| `get_account` | — | `Account` |
+| `open_account` | `Policy` | `Account`，开通后自动连接柜台 |
+| `connect_broker` / `disconnect_broker` | — | `Account` |
+| `query_costs` | — | `Account`，柜台回报的费率随后出现在 `session.costs` |
+| `send_command` | `Command` | `Account` |
+| `get_strategies` | — | `Strategies`：已发布的策略包和当前实例 |
+| `publish_strategy` | `strategy.Package` | `Strategies` |
+| `start_strategy` | `strategy.Instance` | `Strategies` |
+| `stop_strategy` / `flatten_strategy` | 实例 ID | `Strategies` |
+| `pause_strategy` | 实例 ID、是否暂停 | `Strategies` |
+
+- `Account` 是主机配置的账户和柜台（不含密码和认证码），`session` 是开通后的账户状态：政策及其版本、柜台连接状态、授权时间、资金、持仓、委托、成交、未确认委托、费率和账本用量。账户相关的操作都返回整个 `Account`。理由：页面每次拿到的都是同一份完整状态，不需要合并局部回复。
+- 会改变交易状态的操作都放在 `Command` 里：下单、撤单、授权、撤销授权、确认未回报委托、修改政策。`Command` 带 `account_id` 和 `policy_revision`，与当前账户或政策不符时返回 `CONFLICT`。理由：用户核对的是哪个账户、哪版政策，执行的就只能是它。
+- 每个 `request_id` 只执行一次，重复使用返回 `CONFLICT`。回复丢失时先 `get_account` 读取结果，不重发。
+- `authorized_ms` 存在表示已授权。授权在撤销、修改政策或 Trading 重启后失效。
+- 策略实例的状态依次为 `STARTING`、`WARMING`、`READY`，结束于 `STOPPED`、`FAILED` 或 `INTERRUPTED`。
+
+## 10. 策略进程
+
+定义在 [strategy.proto](../protocol/proto/asterion/strategy.proto)。Trading 为每个策略实例启动一个 Python 子进程，经标准输入输出交换 `strategy.Request` 和 `strategy.Response`，一问一答，没有 `id`。理由：管道只有一个调用方，回复按顺序对应请求。
+
+```mermaid
+sequenceDiagram
+    participant Trading
+    participant Child as 策略进程
+    Trading->>Child: load(Instance)
+    Child-->>Trading: load
+    loop 每根完整 K 线
+        Trading->>Child: bars(Bars)
+        Child-->>Trading: bars(Decision)
+    end
+    Trading->>Child: stop
+    Child-->>Trading: stop
+```
+
+- `Instance` 写明策略包名和版本、合约、周期、参数和权重上限。`resume_from` 指向一个已结束的实例，启动时先重放它记录的 K 线。
+- `Bars` 是所有合约同一时刻结束的一组 K 线，按 `Instance` 中的合约顺序排列。
+- `Decision` 的每个 `Target` 是一个合约的目标手数或目标权重；同一批只能用其中一种。`ready` 为假时目标只记录、不执行。
+- 策略进程出错时回复 `error`，Trading 结束这个实例。
+
+Lab 打包策略时也使用 `strategy.Package` 和 `strategy.ParameterValue`。
+
+## 11. 演进
 
 项目未发布，协议只有当前一版：改字段时同时修改所有服务和客户端，删掉的字段不保留编号。持久化的 Protobuf 文件（采集任务、目录缓存）格式随协议一起变化，旧文件按无效文件处理。

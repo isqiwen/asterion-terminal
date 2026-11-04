@@ -96,14 +96,23 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         """One trading.proto Request; the Response as ProtoJSON (defaults omitted)."""
         return call("trading.call", {"account": ACCOUNT, "request": request})["trading"]
 
+    def account():
+        return trading({"getAccount": {}})["getAccount"]
+
     def session():
-        return trading({"attach": {}}).get("live")
+        return account().get("session")
 
     def number(value):
-        return Decimal(int((value or {}).get("units", "0"))) / 100_000_000
+        return Decimal((value or {}).get("text", "0"))
 
-    def units(value):
-        return {"units": str(int(Decimal(value) * 100_000_000))}
+    def decimal(value):
+        return {"text": str(value)}
+
+    def state(live):
+        return live["brokerState"].removeprefix("BROKER_STATE_").lower()
+
+    def order_state(item):
+        return item["state"].removeprefix("ORDER_STATE_").lower()
 
     def wait(predicate, seconds=None):
         """The session once the predicate holds, or None after the deadline."""
@@ -116,9 +125,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         return None
 
     def act(command):
-        live = session()
-        return trading({"accountId": live["accountId"], "policyRevision": live["policyRevision"],
-                        "command": dict(command, requestId=str(uuid.uuid4()))})
+        current = account()
+        return trading({"sendCommand": dict(command, requestId=str(uuid.uuid4()), accountId=current["id"],
+                                            policyRevision=current["session"]["policyRevision"])})
 
     def refused(name, expected, command):
         try:
@@ -131,9 +140,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         return next((item for item in live.get("orders", []) if item.get("id") == order_id), None)
 
     def held(live):
-        return sum(number(p.get("today")) + number(p.get("yesterday"))
+        return sum(number(p.get("todayLots")) + number(p.get("yesterdayLots"))
                    for p in live.get("positions", [])
-                   if p["venue"] == venue and p["symbol"] == symbol and p["side"] == "BUY")
+                   if p["instrument"] == {"exchange": venue, "symbol": symbol} and p["side"] == "SIDE_BUY")
 
     def market():
         """Market's quotes and catalog through the Terminal relay, as ProtoJSON."""
@@ -166,29 +175,27 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         detail = " ".join(str(value) for value in catalog.get("status", {}).values())
         if not step("contract catalog", state == "CATALOG_STATE_READY", detail):
             raise RuntimeError("the contract catalog did not load")
-        configured = trading({"attach": {}})["account"]
+        configured = account()
         broker = configured.get("broker", {})
-        if configured.get("environment") != "BROKER_SIMULATION" or broker.get("userId") != args.user or broker.get("brokerId") != args.broker or broker.get("front") != args.trade_front:
+        if configured.get("environment") != "ENVIRONMENT_SIMULATION" or broker.get("userId") != args.user or broker.get("brokerId") != args.broker or broker.get("front") != args.trade_front:
             raise RuntimeError("configured trading service does not match the explicitly selected simulation counter")
         # Exchange terms from the CTP catalog, as the trading page builds them.
         row = next(item for item in catalog["contracts"]
                    if item["instrument"] == {"exchange": venue, "symbol": symbol})
         _, product, delivery_month = row["contract"].split("/")
-        trading({"liveCreate": {
-            "risk": {"maxOrderQuantity": units(1), "maxGrossQuantity": units(1),
-                     "maxWorkingOrders": "1"},
-            "maxPriceDeviation": units(args.deviation),
-            "contracts": [{"venue": venue, "symbol": symbol, "currency": "CNY",
-                           "priceIncrement": units(row["priceTick"]["text"]),
-                           "quantityIncrement": units(1), "multiplier": units(row["multiplier"]),
-                           "product": product, "deliveryMonth": delivery_month}]}})
-        live = wait(lambda s: s["phase"] in ("ready", "error"))
+        trading({"openAccount": {
+            "limits": {"maxOrderLots": decimal(1), "maxGrossLots": decimal(1), "maxWorkingOrders": 1},
+            "maxPriceDeviation": decimal(args.deviation),
+            "contracts": [{"instrument": row["instrument"], "product": product,
+                           "deliveryMonth": delivery_month, "multiplier": decimal(row["multiplier"]),
+                           "priceTick": row["priceTick"], "lotSize": decimal(1)}]}})
+        live = wait(lambda s: state(s) in ("ready", "failed"))
         step("account record created", bool(live), "one lot per order, one lot held, one working order")
-        tick = number(live["contracts"][0]["priceIncrement"])
+        tick = number(live["policy"]["contracts"][0]["priceTick"])
 
-        live = wait(lambda s: s["phase"] in ("ready", "error"))
-        if not step("account synchronized", live and live["phase"] == "ready",
-                    f"phase={live and live['phase']} error_code={live and live.get('errorCode', 0)} "
+        live = wait(lambda s: state(s) in ("ready", "failed"))
+        if not step("account synchronized", live and state(live) == "ready",
+                    f"state={live and state(live)} ctp_error={live and live.get('ctpError', 0)} "
                     f"trading_day={live and live.get('tradingDay')}"):
             raise RuntimeError("the account did not synchronize")
         step("funds and positions reported", "funds" in live,
@@ -196,51 +203,51 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
         step("market and account trading day", first.get("tradingDay") == live.get("tradingDay"),
              f"market={first.get('tradingDay')} account={live.get('tradingDay')}")
 
-        last = Decimal(quote()["last"])
+        last = number(quote()["last"])
         # Well below the market yet inside the policy's deviation and the exchange limit.
         resting = (last * (1 - Decimal(args.deviation) * Decimal("0.8")) / tick).to_integral_value(
             ROUND_FLOOR) * tick
         if quote().get("lowerLimit"):
-            resting = max(resting, Decimal(quote()["lowerLimit"]))
+            resting = max(resting, number(quote()["lowerLimit"]))
         def manual(order_id):
-            return {"submit": {"orderId": order_id, "venue": venue, "symbol": symbol,
-                               "side": "BUY", "offset": "OPEN", "quantity": units(1),
-                               "price": units(resting)}}
+            return {"submitOrder": {"orderId": order_id, "instrument": {"exchange": venue, "symbol": symbol},
+                                    "side": "SIDE_BUY", "offset": "OFFSET_OPEN", "lots": decimal(1),
+                                    "price": decimal(resting)}}
         refused("order refused before authorization", "authorize", manual("early"))
-        act({"liveAuthorize": {"userId": args.user}})
-        step("authorized", "authorization" in session())
+        act({"authorize": {"userId": args.user}})
+        step("authorized", "authorizedMs" in session())
 
-        if held(live) == 0 and not any(o["status"] in ("submitted", "accepted", "partially_filled")
+        if held(live) == 0 and not any(order_state(o) in ("submitted", "accepted", "partially_filled")
                                        for o in live.get("orders", [])):
             act(manual("resting"))
-            live = wait(lambda s: order(s, "resting") and order(s, "resting")["status"] != "submitted")
-            status = live and order(live, "resting")["status"]
+            live = wait(lambda s: order(s, "resting") and order_state(order(s, "resting")) != "submitted")
+            status = live and order_state(order(live, "resting"))
             step("resting order accepted by the counter", status == "accepted",
                  f"price={resting} status={status}")
             if status == "accepted":
-                act({"cancel": {"orderId": "resting"}})
-                live = wait(lambda s: order(s, "resting")["status"] == "cancelled")
+                act({"cancelOrder": {"id": "resting"}})
+                live = wait(lambda s: order_state(order(s, "resting")) == "cancelled")
                 step("resting order cancelled", bool(live))
         else:
             step("resting order", False, "skipped: the contract already has a position or orders")
 
-        trading({"liveDisconnect": {}})
-        live = wait(lambda s: s["phase"] == "disconnected")
-        step("authorization kept while disconnected", live and "authorization" in live)
-        trading({"liveConnect": {}})
-        live = wait(lambda s: s["phase"] in ("ready", "error"))
+        trading({"disconnectBroker": {}})
+        live = wait(lambda s: state(s) == "disconnected")
+        step("authorization kept while disconnected", live and "authorizedMs" in live)
+        trading({"connectBroker": {}})
+        live = wait(lambda s: state(s) in ("ready", "failed"))
         if not step("reconnected without a new authorization",
-                    live and live["phase"] == "ready" and "authorization" in live,
-                    f"phase={live and live['phase']}"):
+                    live and state(live) == "ready" and "authorizedMs" in live,
+                    f"state={live and state(live)}"):
             raise RuntimeError("the account did not synchronize again")
 
         live = session()
         step("no unconfirmed orders", not live.get("unconfirmed"), live.get("unconfirmed"))
         print(f"       position kept: long {held(live)} {args.instrument}", flush=True)
         report["position_kept"] = str(held(live))
-        act({"liveRevoke": {}})
-        step("authorization revoked", "authorization" not in session())
-        trading({"liveDisconnect": {}})
+        act({"revoke": {}})
+        step("authorization revoked", "authorizedMs" not in session())
+        trading({"disconnectBroker": {}})
     except Exception as error:  # report, never the credentials
         step("run", False, str(error))
     finally:
