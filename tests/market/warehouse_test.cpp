@@ -92,6 +92,26 @@ TEST_F(Warehouse, ImmutableVersionsAndAbandonedWrites)
     EXPECT_EQ(store.current().identity, second.identity);
 }
 
+TEST_F(Warehouse, ACommitWritesOnlyTheMonthsItChanged)
+{
+    wh::Store store(root, "recorder");
+    const auto shards = [&] {
+        return std::distance(
+            fs::directory_iterator(store.root() / "shards"),
+            fs::directory_iterator{});
+    };
+    publish(store, "minutes/SHFE/2026-10-28/rb/2027-01");
+    const auto first = publish(store, "minutes/DCE/2026-10-28/i/2027-01");
+    EXPECT_EQ(first.partitions.size(), 2);
+    const auto written = shards();
+    // A new SHFE day rewrites the SHFE month only; DCE's shard is shared.
+    const auto second = publish(store, "minutes/SHFE/2026-10-29/rb/2027-01");
+    EXPECT_EQ(shards(), written + 1);
+    EXPECT_EQ(second.partitions.size(), 3);
+    EXPECT_EQ(store.version(first.identity).partitions.size(), 2);
+    EXPECT_LT(fs::file_size(store.root() / "versions" / (second.identity + ".json")), 1024);
+}
+
 TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
 {
     wh::Store store(root, "tushare");

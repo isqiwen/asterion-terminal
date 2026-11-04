@@ -50,7 +50,10 @@ struct Version
 class Writer;
 
 // The same on-disk contract used by research: immutable partition files,
-// versions/<sha256>.json, and an atomically published current pointer.
+// versions/<sha256>.json, and an atomically published current pointer. A
+// version lists its partitions in shards, one per table, exchange and month
+// (shards/<sha256>.json, named by their content), so a commit writes only the
+// shards it changed and no manifest grows with the whole history.
 // Construction/reads create nothing. Market owns the installation lock;
 // one Store per source serializes its writers. Reads never take that lock.
 class Store

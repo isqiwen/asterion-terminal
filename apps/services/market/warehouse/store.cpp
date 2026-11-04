@@ -206,24 +206,26 @@ std::string read_text(const fs::path& root, const fs::path& path, std::uintmax_t
     return content;
 }
 
-Json manifest(const Version& version)
+// A partition's shard: its table, exchange and month, e.g. minutes/SHFE/2026-10.
+std::string shard_of(const std::string& key)
 {
-    Json partitions = Json::object();
-    for (const auto& [key, part] : version.partitions) {
-        auto& item = partitions[key];
-        item = {{"file", part.file}, {"sha256", part.sha256}, {"rows", part.rows}};
-        if (!part.days.empty())
-            item["days"] = part.days;
-        if (!part.source.empty())
-            item["source"] = part.source;
-    }
-    return {
-        {"format", 1},
-        {"provider", version.provider},
-        {"parent", version.parent.empty() ? Json(nullptr) : Json(version.parent)},
-        {"created_ns", version.created_ns},
-        {"partitions", std::move(partitions)}
-    };
+    const auto table = key.find('/');
+    const auto exchange = key.find('/', table + 1);
+    if (exchange == std::string::npos)
+        return key;
+    const auto end = key.find('/', exchange + 1);
+    return key.substr(0, exchange + 1)
+        + key.substr(exchange + 1, std::min<std::size_t>(7, end - exchange - 1));
+}
+
+Json entry(const Partition& part)
+{
+    Json item{{"file", part.file}, {"sha256", part.sha256}, {"rows", part.rows}};
+    if (!part.days.empty())
+        item["days"] = part.days;
+    if (!part.source.empty())
+        item["source"] = part.source;
+    return item;
 }
 
 } // namespace
@@ -301,23 +303,33 @@ Version Store::version(std::string_view identity) const
     require_identity(identity);
     const auto path = root_ / "versions" / (std::string(identity) + ".json");
     const auto doc = Json::parse(read_text(root_, path, manifest_limit));
-    if (doc.at("format") != 1 || doc.at("provider") != provider_)
+    if (doc.at("format") != 2 || doc.at("provider") != provider_)
         throw std::runtime_error(
             "dataset manifest has a different format or provider: " + path.string());
     Version
         result{std::string(identity), provider_, {}, doc.at("created_ns").get<std::int64_t>(), {}};
     if (!doc.at("parent").is_null())
         result.parent = doc.at("parent").get<std::string>();
-    for (const auto& [key, item] : doc.at("partitions").items()) {
-        result.partitions.emplace(
-            key,
-            Partition{
-                item.at("file").get<std::string>(),
-                item.at("sha256").get<std::string>(),
-                item.at("rows").get<std::uint64_t>(),
-                item.value("days", std::vector<std::string>{}),
-                item.value("source", std::string{})
-            });
+    for (const auto& [name, digest] : doc.at("shards").items()) {
+        const auto shard = digest.get<std::string>();
+        require_identity(shard);
+        const auto content = read_text(root_, root_ / "shards" / (shard + ".json"), manifest_limit);
+        if (sha256_bytes(content) != shard)
+            throw std::runtime_error("dataset shard differs from its name: " + shard);
+        const auto partitions = Json::parse(content);
+        for (const auto& [key, item] : partitions.items()) {
+            if (shard_of(key) != name)
+                throw std::runtime_error("dataset shard holds another shard's partition");
+            result.partitions.emplace(
+                key,
+                Partition{
+                    item.at("file").get<std::string>(),
+                    item.at("sha256").get<std::string>(),
+                    item.at("rows").get<std::uint64_t>(),
+                    item.value("days", std::vector<std::string>{}),
+                    item.value("source", std::string{})
+                });
+        }
     }
     return result;
 }
@@ -481,9 +493,28 @@ Version Writer::commit()
     pending_.created_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch())
                               .count();
-    const auto content = manifest(pending_).dump();
-    if (content.size() > manifest_limit)
-        throw Error(ErrorCode::resource_exhausted, "dataset manifest is too large");
+    std::map<std::string, Json> shards;
+    for (const auto& [key, part] : pending_.partitions)
+        shards[shard_of(key)][key] = entry(part);
+    Json names = Json::object();
+    create_directories_durably(store_.root_ / "shards");
+    for (const auto& [name, partitions] : shards) {
+        const auto content = partitions.dump();
+        if (content.size() > manifest_limit)
+            throw Error(ErrorCode::resource_exhausted, "dataset shard is too large: " + name);
+        const auto digest = sha256_bytes(content);
+        // Named by content: an existing shard holds the same bytes.
+        if (!fs::exists(store_.root_ / "shards" / (digest + ".json")))
+            replace_file_durably(store_.root_ / "shards" / (digest + ".json"), content);
+        names[name] = digest;
+    }
+    const auto content = Json{
+        {"format", 2},
+        {"provider", pending_.provider},
+        {"parent", pending_.parent.empty() ? Json(nullptr) : Json(pending_.parent)},
+        {"created_ns", pending_.created_ns},
+        {"shards", std::move(names)}
+    }.dump();
     pending_.identity = sha256_bytes(content);
     create_directories_durably(store_.root_ / "versions");
     replace_file_durably(store_.root_ / "versions" / (pending_.identity + ".json"), content);

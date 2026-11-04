@@ -52,7 +52,11 @@ class Dataset(ParquetTables):
     def version(self, identity):
         if not re.fullmatch(r"[0-9a-f]{64}", identity):
             raise ValueError("invalid test version")
-        return Version(identity, json.loads((self.root / "versions" / f"{identity}.json").read_text()))
+        manifest = json.loads((self.root / "versions" / f"{identity}.json").read_text())
+        partitions = {}
+        for shard in manifest.pop("shards").values():
+            partitions.update(json.loads((self.root / "shards" / f"{shard}.json").read_text()))
+        return Version(identity, {**manifest, "partitions": partitions})
 
 
 class Warehouse(Dataset):
@@ -107,13 +111,25 @@ class Writer:
     def commit(self) -> Version:
         if self.partitions == self.base.manifest["partitions"]:
             return self.base
-        manifest = {"format": 1, "provider": self.warehouse.provider, "parent": self.base.identity or None,
-                    "created_ns": time.time_ns(), "partitions": self.partitions}
+        # Market's layout: partitions in shards of one table, exchange and month.
+        shards = {}
+        for key, entry in self.partitions.items():
+            table, exchange, *rest = key.split("/")
+            name = "/".join([table, exchange] + ([rest[0][:7]] if rest else []))
+            shards.setdefault(name, {})[key] = entry
+        names = {}
+        for name, partitions in shards.items():
+            content = canonical(partitions)
+            names[name] = hashlib.sha256(content).hexdigest()
+            write_durably(self.warehouse.root / "shards" / f"{names[name]}.json", content)
+        manifest = {"format": 2, "provider": self.warehouse.provider, "parent": self.base.identity or None,
+                    "created_ns": time.time_ns(), "shards": names}
         content = canonical(manifest)
         identity = hashlib.sha256(content).hexdigest()
         write_durably(self.warehouse.root / "versions" / f"{identity}.json", content)
         write_durably(self.warehouse.root / "current", identity.encode())
-        self.base = Version(identity, manifest)
+        del manifest["shards"]
+        self.base = Version(identity, {**manifest, "partitions": self.partitions})
         self.partitions = dict(self.partitions)
         cache_version(self.warehouse.directory, self.warehouse.root, self.warehouse.provider, self.base)
         return self.base
