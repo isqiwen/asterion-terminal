@@ -4,14 +4,16 @@ import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 
 // One indicator per service this Terminal uses: Market, Lab once it has been
-// used, and each trading connection.
+// used, and each trading connection (or one saying there is none).
 export function StatusIndicators({
   snapshot,
   openSources,
+  openTradingSettings,
   openTrading,
 }: {
   snapshot: Snapshot | null;
   openSources: () => void;
+  openTradingSettings: () => void;
   openTrading: () => void;
 }) {
   useLocale();
@@ -47,6 +49,11 @@ export function StatusIndicators({
         <span className={`status-item ${labState[0]}`} title={lab.error || undefined}>
           ● Lab{labState[1] && ` ${t(labState[1])}`}
         </span>
+      )}
+      {snapshot && !snapshot.trading_connections?.length && (
+        <button className="status-item" onClick={openTradingSettings}>
+          ● {t("交易未设置")}
+        </button>
       )}
       {(snapshot?.trading_connections ?? []).map(connection => {
         if ("error" in connection) return null;

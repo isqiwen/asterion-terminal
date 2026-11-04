@@ -338,6 +338,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   <StatusIndicators
                     snapshot={snapshot}
                     openSources={() => showSettings("sources")}
+                    openTradingSettings={() => showSettings("trading")}
                     openTrading={() => context.navigate("workspace.trading")}
                   />
                   <span className="panel-spacer" />

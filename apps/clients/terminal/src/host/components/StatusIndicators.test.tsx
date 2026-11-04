@@ -4,7 +4,12 @@ import { localService, readySnapshot } from "../../testing/core";
 import { StatusIndicators } from "./StatusIndicators";
 
 const show = (snapshot = readySnapshot(), openSources = vi.fn()) => (
-  <StatusIndicators snapshot={snapshot} openSources={openSources} openTrading={() => {}} />
+  <StatusIndicators
+    snapshot={snapshot}
+    openSources={openSources}
+    openTradingSettings={() => {}}
+    openTrading={() => {}}
+  />
 );
 
 test("Market, Lab and each trading connection each have their own indicator", () => {
@@ -31,11 +36,12 @@ test("Market, Lab and each trading connection each have their own indicator", ()
   expect(screen.getByText("● Lab 重启中").className).toContain("bad");
 });
 
-test("an unset Market opens its settings", () => {
+test("an unset Market opens its settings; no trading connection says so", () => {
   const snapshot = readySnapshot();
   snapshot.market_endpoint = null;
   const openSources = vi.fn();
   render(show(snapshot, openSources));
   fireEvent.click(screen.getByRole("button", { name: "● Market 未设置" }));
   expect(openSources).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "● 交易未设置" })).toBeTruthy();
 });
