@@ -7,8 +7,8 @@ export function ClientFingerprint({ value }: { value?: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
   return (
-    <p className="settings-hint client-fingerprint">
-      {t("本机证书指纹（Market 和交易主机登记同一个）")}
+    <p className="settings-hint client-fingerprint" title={t("Market 和交易主机登记同一个指纹")}>
+      {t("本机证书指纹")}
       <code>{value}</code>
       <button
         type="button"

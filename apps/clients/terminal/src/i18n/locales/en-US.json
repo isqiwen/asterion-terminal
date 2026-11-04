@@ -167,7 +167,6 @@
   "CTP 仿真": "CTP Simulation",
   "credentials": "Account passwords and authentication codes",
   "行情": "Market",
-  "交易服务连接": "Trading service connections",
   "编辑连接": "Edit connection",
   "确认删除连接": "Confirm deletion",
   "删除连接": "Delete connection",
@@ -196,7 +195,6 @@
   "服务名": "Service name",
   "来源": "Source",
   "查询": "Query",
-  "每条连接对应交易主机上的一个账户实例，账户与凭据在交易主机上配置。填入交易主机的地址、实例名和它的证书指纹。": "Each connection is one account instance on a trading host; the account and its credentials are configured on that host. Enter the host's address, the instance name and the host's certificate fingerprint.",
   "账户": "Accounts",
   "还没有交易连接。": "No trading connections yet.",
   "未登录行情": "Not logged in to market data",
@@ -231,7 +229,6 @@
   "关闭此连接不影响服务录制或其他客户端。": "Closing this connection does not affect recording or other clients.",
   "连接远程行情服务以查看市场。": "Connect to the remote Market service to view quotes.",
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",
-  "Market 独立接入与录制行情，向所有客户端提供实时流和历史数据。通过证书验证服务与客户端身份，柜台和历史供应商凭据在 Market 主机配置。": "Market independently collects and records data for all clients. Certificates verify both parties; broker and historical provider credentials stay on the Market host.",
   "Market 服务证书指纹": "Market server certificate fingerprint",
   "还没有设置 Market：在 设置 → 数据源 里填写它的地址和证书指纹。": "No Market is set: enter its address and certificate fingerprint in Settings → Data Source.",
   "Market 未设置": "No Market set",
@@ -248,6 +245,8 @@
   "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。": "Lab failed to start repeatedly and is no longer restarted; check and restart it in Settings → Local services.",
   "尚未设置行情服务": "Market service not set",
   "在设置里填写 Market 的地址和证书指纹后即可使用。": "Enter the Market address and certificate fingerprint in Settings to use this page.",
-  "本机证书指纹（Market 和交易主机登记同一个）": "This Terminal’s certificate fingerprint (register the same one on Market and trading hosts)",
-  "复制": "Copy"
+  "复制": "Copy",
+  "交易主机": "Trading hosts",
+  "本机证书指纹": "Certificate fingerprint",
+  "Market 和交易主机登记同一个指纹": "Market and trading hosts register this same fingerprint"
 }

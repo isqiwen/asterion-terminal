@@ -33,10 +33,7 @@ export function TradingConnections({
   return (
     <>
       <SettingsSection
-        title={t("交易服务连接")}
-        description={t(
-          "每条连接对应交易主机上的一个账户实例，账户与凭据在交易主机上配置。填入交易主机的地址、实例名和它的证书指纹。",
-        )}
+        title={t("交易主机")}
         actions={
           <button disabled={busy} onClick={() => edit(null)}>
             {t("添加交易连接")}

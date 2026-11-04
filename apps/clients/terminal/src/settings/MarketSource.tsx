@@ -37,10 +37,7 @@ export function MarketSource({
   };
   return (
     <SettingsSection
-      title={t("远程行情服务")}
-      description={t(
-        "Market 独立接入与录制行情，向所有客户端提供实时流和历史数据。通过证书验证服务与客户端身份，柜台和历史供应商凭据在 Market 主机配置。",
-      )}
+      title="Market"
       actions={
         !editing && (
           <button className={endpoint ? undefined : "primary"} disabled={busy} onClick={edit}>
