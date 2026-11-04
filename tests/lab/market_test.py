@@ -16,7 +16,7 @@ source, build = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
 sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python'),
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
-from asterion import acquisition_pb2 as acquisition
+from asterion import common_pb2 as common, market_pb2 as market
 from asterion.market_pb2 import Request as MarketRequest, Response as MarketResponse
 from asterion_lab.market import Client, Dataset, Market, MarketError
 from asterion_lab.service import Service
@@ -104,10 +104,10 @@ class RemoteResearch(unittest.TestCase):
                 last_received_ms=[start+55000], ticks=[20], end=['stopped'])).write_parquet(
                     segments / (name + '.parquet'))
         def rpc(operation, role='reader', **values):
-            request = MarketRequest(version=1, service_id='market-data', correlation_id=operation)
-            getattr(request, operation).SetInParent()
-            for key, value in values.items():
-                setattr(getattr(request, operation), key, value)
+            request = MarketRequest(id=1)
+            call = getattr(request, operation)
+            call.SetInParent()
+            call.CopyFrom(type(call)(**values))
             payload = request.SerializeToString()
             with market_tls.connect(self.tls, self.port, role) as stream:
                 stream.sendall(len(payload).to_bytes(4, 'big') + payload)
@@ -120,19 +120,20 @@ class RemoteResearch(unittest.TestCase):
                     return bytes(out)
                 return MarketResponse.FromString(read(int.from_bytes(read(4), 'big')))
         def publish(identity, refresh=False):
-            values = dict(id=identity, provider='recorder', table='minutes',
-                contract='SHFE/rb/2027-01', begin_day='2026-10-28', end_day='2026-10-28',
-                refresh=refresh)
-            self.assertEqual(rpc('start_acquisition', **values).error.code, 'permission_denied')
+            values = dict(id=identity, provider='recorder', table=market.TABLE_MINUTES,
+                contract='SHFE/rb/2027-01', first_day='2026-10-28', last_day='2026-10-28',
+                refetch=refresh)
+            self.assertEqual(rpc('start_acquisition', **values).error.code,
+                             common.ERROR_CODE_PERMISSION_DENIED)
             response = rpc('start_acquisition', 'manager', **values)
             self.assertFalse(response.HasField('error'), response)
             # The submitting connection has already closed. Another client watches completion.
             deadline = time.monotonic() + 10
             while True:
-                task = rpc('get_acquisition_task', id=identity).acquisition_task
-                if task.state not in (acquisition.TASK_STATE_RUNNING, acquisition.TASK_STATE_QUEUED):
-                    self.assertEqual(task.state, acquisition.TASK_STATE_SUCCEEDED, task)
-                    return task.dataset_version
+                task = rpc('get_acquisition_task', id=identity).get_acquisition_task
+                if task.state not in (market.TASK_STATE_RUNNING, market.TASK_STATE_QUEUED):
+                    self.assertEqual(task.state, market.TASK_STATE_SUCCEEDED, task)
+                    return task.published_version
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
         record('first', base, '3100.123456')
@@ -194,10 +195,13 @@ class RemoteResearch(unittest.TestCase):
     def test_version_pages_ignore_a_new_current_published_between_pages(self):
         call, versions = Client.call, []
         def pages(client, operation, **values):
-            if operation == 'get_dataset_version':
-                values['limit'] = 1
-                versions.append(values['dataset_version'])
             reply = call(client, operation, **values)
+            if operation == 'get_dataset_version':
+                versions.append(values['dataset']['version'])
+                # Market's pages are larger than this dataset; split them to one partition.
+                if len(reply.partitions) > 1:
+                    del reply.partitions[1:]
+                    reply.next_key = reply.partitions[0].key
             if operation == 'get_dataset_version' and len(versions) == 1:
                 self.publish_incomplete()
             return reply
@@ -252,10 +256,12 @@ class RemoteResearch(unittest.TestCase):
         key = 'daily/SHFE/2026-01'
         offsets, call = [], Client.call
         def small(client, operation, **values):
+            reply = call(client, operation, **values)
             if operation == 'read_dataset_file':
-                values['limit'] = 256
+                # Market's chunks are larger than this file; split them to 256 bytes.
                 offsets.append(values['offset'])
-            return call(client, operation, **values)
+                reply.data = reply.data[:256]
+            return reply
         with patch.object(Client, 'call', small), ThreadPoolExecutor(2) as pool:
             jobs = [pool.submit(self.dataset.read, version, key) for _ in range(2)]
             self.assertEqual([job.result().height for job in jobs], [40, 40])
@@ -288,7 +294,7 @@ class RemoteResearch(unittest.TestCase):
         wrong = self.market.selected()
         wrong['fingerprint'] = '0' * 64
         with Client(wrong) as client, self.assertRaisesRegex(MarketError, 'fingerprint'):
-            client.call('get_dataset_version', provider='research')
+            client.call('get_dataset_version', dataset=dict(provider='research'))
 
     def base(self):
         request = Request(version=1, service_id='lab')

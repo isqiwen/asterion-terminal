@@ -149,11 +149,9 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
 
     testing_support::MarketHost host(directory, "catalog-slow");
     host.start();
-    namespace wire = asterion::market::proto;
+    namespace wire = ::market;
     auto call = [&](wire::Request request) {
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id(unique_process_id());
+        request.set_id(1);
         auto channel = host.open();
         channel.send(request.SerializeAsString(), 1s);
         wire::Response response;
@@ -165,8 +163,8 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
     };
     auto snapshot = [&] {
         wire::Request request;
-        request.mutable_get_live_snapshot();
-        return call(request).snapshot();
+        request.mutable_stream_quotes();
+        return call(request).stream_quotes().full();
     };
     auto wait = [&](auto condition) {
         const auto deadline = std::chrono::steady_clock::now() + 8s;
@@ -185,23 +183,23 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
         }
     };
     wait([](const auto& state) {
-        return state.catalog().phase() == "loading";
+        return state.catalog().status().state() == wire::CATALOG_STATE_LOADING;
     });
     const auto begin = std::chrono::steady_clock::now();
-    EXPECT_EQ(snapshot().catalog().phase(), "loading");
+    EXPECT_EQ(snapshot().catalog().status().state(), wire::CATALOG_STATE_LOADING);
     EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
     auto ready = wait([](const auto& state) {
-        return state.catalog().phase() == "ready" && state.quotes_size() == 1
-            && state.quotes(0).has_quote();
+        return state.catalog().status().state() == wire::CATALOG_STATE_READY
+            && state.rows_size() == 1 && state.rows(0).has_quote();
     });
-    EXPECT_EQ(ready.quotes(0).instrument().symbol(), "rb2610");
-    EXPECT_EQ(ready.quotes(0).quote().last(), "3510");
+    EXPECT_EQ(ready.rows(0).instrument().symbol(), "rb2610");
+    EXPECT_EQ(ready.rows(0).quote().last().text(), "3510");
     EXPECT_EQ(ready.catalog().contracts_size(), 1);
     wire::Request watch;
-    auto* selected = watch.mutable_stream_live_quotes()->add_instruments();
-    selected->set_venue("SHFE");
+    auto* selected = watch.mutable_stream_quotes()->add_instruments();
+    selected->set_exchange("SHFE");
     selected->set_symbol("rb2610");
-    EXPECT_EQ(call(watch).live_quotes().snapshot().quotes_size(), 1);
+    EXPECT_EQ(call(watch).stream_quotes().full().rows_size(), 1);
     // Closing this stream does not change the shared catalog or collection.
-    EXPECT_EQ(snapshot().quotes_size(), 1);
+    EXPECT_EQ(snapshot().rows_size(), 1);
 }

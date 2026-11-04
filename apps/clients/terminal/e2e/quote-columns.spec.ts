@@ -1,35 +1,31 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import { serveWatch, watchRow } from "./market-fixture";
+import { board as frameOf, serveWatch, watchRow } from "./market-fixture";
 
 test("quote columns apply atomically, preserve values and navigation, and reset hidden sorting", async ({
   page,
 }) => {
   // Two quoted months and no contract catalog, in one complete frame.
-  const ids = ["rb2610", "rb2701"].map(symbol => ({ venue: "SHFE", symbol }));
+  const ids = ["rb2610", "rb2701"].map(symbol => ({ exchange: "SHFE", symbol }));
   let sent = false;
   await serveWatch(
     page,
     restart => {
       if (sent && !restart) return { frames: [], online: true };
       sent = true;
-      const frame = {
-        instanceId: "fixture",
-        phase: "connected",
-        sequence: "1",
-        catalog: { phase: "unconfigured" },
-        quotes: ids.map((id, index) =>
+      const frame = frameOf(
+        ids.map((id, index) =>
           watchRow(id, {
             last: String(100 + index * 10),
             previousSettlement: "100",
             volume: String(25 + index),
             openInterest: String(50 + index),
             receivedMs: String(Date.now()),
-            sourceMs: String(Date.now()),
+            exchangeMs: String(Date.now()),
           }),
         ),
-      };
-      return { frames: [{ snapshot: frame }], online: true };
+      );
+      return { frames: [{ full: frame }], online: true };
     },
     ids,
   );

@@ -1,22 +1,22 @@
-import type { ContractQuote } from "../../src/generated/asterion/market_pb";
+import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 
 // This is a view of real month contracts, not a provider's continuous series.
 // Catalog product identity is authoritative; never infer products from symbols.
 export function productOverview(market: MarketView) {
   const products = new Map(
-    (market.snapshot.catalog?.contracts ?? []).map(contract => [
-      `${contract.instrument?.venue}.${contract.instrument?.symbol}`,
-      `${contract.instrument?.venue}.${contract.product}`,
+    (market.board.catalog?.contracts ?? []).map(contract => [
+      `${contract.instrument?.exchange}.${contract.instrument?.symbol}`,
+      `${contract.instrument?.exchange}.${contract.product}`,
     ]),
   );
-  const groups = new Map<string, ContractQuote>();
-  const interest = (row: ContractQuote) => {
-    const value = Number(row.quote?.openInterest);
-    return row.quote?.openInterest != null && Number.isFinite(value) ? value : -1;
+  const groups = new Map<string, QuoteRow>();
+  const interest = (row: QuoteRow) => {
+    const value = Number(row.quote?.openInterest?.text);
+    return row.quote?.openInterest && Number.isFinite(value) ? value : -1;
   };
-  const volume = (row: ContractQuote) => row.quote?.volume ?? -1n;
-  for (const row of market.snapshot.quotes) {
+  const volume = (row: QuoteRow) => row.quote?.volume ?? -1n;
+  for (const row of market.board.rows) {
     const key = products.get(rowKey(row));
     if (!key) continue;
     const previous = groups.get(key);

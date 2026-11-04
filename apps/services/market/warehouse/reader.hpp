@@ -1,6 +1,6 @@
 #pragma once
 #include "store.hpp"
-#include <asterion/dataset.pb.h>
+#include <asterion/market.pb.h>
 
 namespace asterion::market_data::warehouse {
 
@@ -8,18 +8,21 @@ namespace asterion::market_data::warehouse {
 class Reader
 {
 public:
-    explicit Reader(std::filesystem::path directory)
-        : directory_(std::move(directory))
+    // A version's partitions come in pages of `page`.
+    explicit Reader(std::filesystem::path directory, int page = 512)
+        : directory_(std::move(directory)),
+          page_(page)
     {}
 
-    dataset::proto::Sources sources(const dataset::proto::SourcesQuery&) const;
-    dataset::proto::Version version(const dataset::proto::VersionQuery&) const;
-    dataset::proto::File file(const dataset::proto::FileQuery&) const;
-    dataset::proto::Summary summary(const dataset::proto::SummaryQuery&) const;
-    dataset::proto::Coverage coverage(const dataset::proto::CoverageQuery&) const;
+    ::market::Datasets datasets() const;
+    ::market::DatasetVersion version(const ::market::GetDatasetVersion&) const;
+    ::market::DatasetFile file(const ::market::ReadDatasetFile&) const;
+    ::market::DatasetSummary summary(const ::market::DatasetRef&) const;
+    ::market::DatasetCoverage coverage(const ::market::DatasetRef&) const;
 
 private:
     std::filesystem::path directory_;
+    int page_;
 };
 
 } // namespace asterion::market_data::warehouse

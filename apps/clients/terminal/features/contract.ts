@@ -6,15 +6,13 @@ export { lab } from "../src/bridge/lab";
 export { marketData } from "../src/bridge/market-data";
 export type {
   Source as MarketSource,
-  Task as MarketTask,
-} from "../src/generated/asterion/acquisition_pb";
-export type {
-  Summary as MarketSummary,
-  Coverage as MarketCoverage,
-  Comparison as MinuteComparisonResult,
-  Differences as MinuteDifferences,
-  MinuteValues,
-} from "../src/generated/asterion/dataset_pb";
+  AcquisitionTask as MarketTask,
+  DatasetSummary as MarketSummary,
+  DatasetCoverage as MarketCoverage,
+  MinuteComparison as MinuteComparisonResult,
+  MinuteDifferences,
+  MinuteBar,
+} from "../src/generated/asterion/market_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export type {
   Summary as LabSummary,

@@ -1,10 +1,10 @@
 #pragma once
 #include "source.hpp"
-#include <asterion/acquisition.pb.h>
+#include <asterion/market.pb.h>
 #include <asterion/system/thread_pool.hpp>
 
 namespace asterion::market_data::acquisition {
-namespace wire = asterion::acquisition::proto;
+namespace wire = ::market;
 
 // Market owns this object and every admitted task, independently of clients.
 // Two fixed workers; at most one admitted task per configured source. A full
@@ -14,26 +14,26 @@ class Manager
 public:
     Manager(std::filesystem::path directory, std::map<std::string, Factory> sources = {});
     ~Manager();
-    wire::Task submit(wire::Request);
+    wire::AcquisitionTask submit(wire::StartAcquisition);
     void cancel(const std::string& id);
-    wire::Task get(const std::string& id) const;
-    wire::Tasks list(const wire::TasksQuery&) const;
+    wire::AcquisitionTask get(const std::string& id) const;
+    wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
     wire::Sources sources() const;
     void stop();
 
 private:
     struct Active
     {
-        wire::Task task;
+        wire::AcquisitionTask task;
         std::stop_source cancel;
         std::shared_future<void> finished;
     };
 
     void run(Active&, Source&, warehouse::Store&);
-    void persist(const wire::Task&) const;
-    void publish(const wire::Task&, Active&);
+    void persist(const wire::AcquisitionTask&) const;
+    void publish(const wire::AcquisitionTask&, Active&);
     void reap();
-    wire::Task load(const std::filesystem::path&) const;
+    wire::AcquisitionTask load(const std::filesystem::path&) const;
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;

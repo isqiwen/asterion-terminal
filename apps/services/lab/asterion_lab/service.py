@@ -14,6 +14,7 @@ from pathlib import Path
 import tempfile
 import time
 
+from asterion.market_pb2 import Table
 from asterion.lab_pb2 import Request, Response, RollingRun
 
 from asterion_lab import backtest, chart, dominant, repository, package
@@ -150,10 +151,11 @@ class Service:
             with Client(self.market.selected()) as client:
                 return client.call("get_dataset_summary", provider=Dataset.provider)
         value = await self.read(read_summary)
-        response.summary.dataset_version = value.dataset_version
-        response.summary.created_ns = value.created_ns
+        response.summary.dataset_version = value.dataset.version
+        response.summary.created_ns = value.dataset.created_ms * 1_000_000
         for table in value.tables:
-            response.summary.tables.add(table=table.table, rows=table.rows,
+            name = Table.Name(table.table).removeprefix("TABLE_").lower()
+            response.summary.tables.add(table=name, rows=table.rows,
                 partitions=table.partitions, first_day=table.first_day, last_day=table.last_day)
 
     def chart_bars(self, request):

@@ -44,7 +44,8 @@ export const offsets: Record<Offset, string> = {
 export const environmentName = (environment: TradingEnvironment | undefined) =>
   environment === TradingEnvironment.REAL ? "真实资金" : "CTP 仿真";
 export const key = (item: { venue: string; symbol: string }) => `${item.venue}.${item.symbol}`;
-export const listedKey = (row: CatalogContract) => key(row.instrument!);
+export const listedKey = (row: CatalogContract) =>
+  `${row.instrument!.exchange}.${row.instrument!.symbol}`;
 
 // One account request, built from the owner's input when sent; resolves false
 // when the input or the request was refused and the panel shows why.
@@ -63,12 +64,12 @@ export const command = (run: Run, live: LiveSnapshot, operation: () => CommandOp
 // Exchange terms of an allowed contract from the CTP contract catalog the
 // market service loaded; domestic CTP futures trade whole lots in CNY.
 export function policyContract(row: CatalogContract): MessageInitShape<typeof ContractSchema> {
-  const [, product, deliveryMonth] = row.contractId.split("/");
+  const [, product, deliveryMonth] = row.contract.split("/");
   return {
-    venue: row.instrument!.venue,
+    venue: row.instrument!.exchange,
     symbol: row.instrument!.symbol,
     currency: "CNY",
-    priceIncrement: decimal(row.priceTick),
+    priceIncrement: decimal(row.priceTick!.text),
     quantityIncrement: decimal("1"),
     multiplier: decimal(String(row.multiplier)),
     product,

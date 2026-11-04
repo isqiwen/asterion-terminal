@@ -24,9 +24,9 @@ export async function trading(
   return (await rpc(request, "trading.call", { account, request: body })).trading;
 }
 
-// The saved Market's state as ProtoJSON, read through the native relay.
+// The saved Market's quotes and catalog as ProtoJSON, read through the native relay.
 export async function marketState(request: APIRequestContext) {
-  return (await rpc(request, "market.call", { request: { getLiveSnapshot: {} } })).market.snapshot;
+  return (await rpc(request, "market.call", { request: { getBoard: {} } })).market.getBoard;
 }
 
 // The account policy the trading page creates: rb2610 from the CTP catalog,
@@ -37,17 +37,17 @@ export async function livePolicy(request: APIRequestContext) {
   const row = catalog.contracts.find(
     (item: { instrument: { symbol: string } }) => item.instrument.symbol === "rb2610",
   );
-  const [, product, deliveryMonth] = row.contractId.split("/");
+  const [, product, deliveryMonth] = row.contract.split("/");
   return {
     liveCreate: {
       risk: { maxOrderQuantity: units(5), maxGrossQuantity: units(10), maxWorkingOrders: "2" },
       maxPriceDeviation: units(0.02),
       contracts: [
         {
-          venue: row.instrument.venue,
+          venue: row.instrument.exchange,
           symbol: row.instrument.symbol,
           currency: "CNY",
-          priceIncrement: units(Number(row.priceTick)),
+          priceIncrement: units(Number(row.priceTick.text)),
           quantityIncrement: units(1),
           multiplier: units(row.multiplier),
           product,

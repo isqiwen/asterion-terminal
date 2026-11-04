@@ -1,3 +1,4 @@
+import { CatalogState } from "../../src/generated/asterion/market_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
@@ -37,8 +38,8 @@ export function CreateLive({
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
   const [choice, setChoice] = useState("");
-  const catalog = useMarket()?.snapshot.catalog;
-  const listed = catalog?.phase === "ready" ? catalog.contracts : [];
+  const catalog = useMarket()?.board.catalog;
+  const listed = catalog?.status?.state === CatalogState.READY ? catalog.contracts : [];
   return (
     <>
       <div className="inline-row">
@@ -79,7 +80,7 @@ export function CreateLive({
             <p>{environment}</p>
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
-              {catalog?.phase !== "ready" ? (
+              {catalog?.status?.state !== CatalogState.READY ? (
                 <p role="status">{t("连接远程行情服务后可选择合约；柜台凭据在服务主机配置。")}</p>
               ) : (
                 <div className="futures-file">

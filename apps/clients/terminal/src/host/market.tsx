@@ -2,17 +2,17 @@ import { fromJson, type JsonValue } from "@bufbuild/protobuf";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { call } from "../bridge/client";
 import {
-  LiveQuotesSchema,
-  type LiveQuotes,
-  type Snapshot,
-  type ContractQuote,
+  QuoteFrameSchema,
+  type Board,
+  type QuoteFrame,
+  type QuoteRow,
 } from "../generated/asterion/market_pb";
 import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
 // the contract's previous point of the same trading day.
 export type TickPoint = {
-  venue: string;
+  exchange: string;
   symbol: string;
   timestamp_ns: string;
   price: string;
@@ -20,10 +20,10 @@ export type TickPoint = {
   day: string;
   total: bigint;
 };
-// The open Market watch as the page keeps it: the latest frame with every
-// row and the catalog filled in, and recent quotes. null when none is open.
+// The open Market stream as the page keeps it: every row and the catalog as
+// the latest frame left them, and recent quotes. null when none is open.
 export type MarketView = {
-  snapshot: Snapshot;
+  board: Board;
   online: boolean;
   ticks: TickPoint[];
   // Changes whenever ticks stop continuing the previous curve.
@@ -34,18 +34,18 @@ export type MarketView = {
 
 const Market = createContext<MarketView | null>(null);
 export const useMarket = () => useContext(Market);
-export const rowKey = (row: ContractQuote) => `${row.instrument?.venue}.${row.instrument?.symbol}`;
+export const rowKey = (row: QuoteRow) => `${row.instrument?.exchange}.${row.instrument?.symbol}`;
 
-function tick(view: MarketView, row: ContractQuote) {
+function tick(view: MarketView, row: QuoteRow) {
   const quote = row.quote;
-  if (!quote?.last || quote.sourceMs <= 0n) return;
-  const venue = row.instrument!.venue;
+  if (!quote?.last || quote.exchangeMs === undefined) return;
+  const exchange = row.instrument!.exchange;
   const symbol = row.instrument!.symbol;
-  const same = (point: TickPoint) => point.venue === venue && point.symbol === symbol;
+  const same = (point: TickPoint) => point.exchange === exchange && point.symbol === symbol;
   let previous: TickPoint | undefined;
   for (let i = view.ticks.length - 1; i >= 0 && !previous; --i)
     if (same(view.ticks[i]!)) previous = view.ticks[i];
-  if (previous?.timestamp_ns === String(quote.sourceMs * 1_000_000n)) return;
+  if (previous?.timestamp_ns === String(quote.exchangeMs * 1_000_000n)) return;
   let volume: string | undefined;
   if (previous) {
     // A new session or counter never joins the old price curve.
@@ -55,10 +55,10 @@ function tick(view: MarketView, row: ContractQuote) {
     } else volume = String(quote.volume - previous.total);
   }
   view.ticks.push({
-    venue,
+    exchange,
     symbol,
-    timestamp_ns: String(quote.sourceMs * 1_000_000n),
-    price: quote.last,
+    timestamp_ns: String(quote.exchangeMs * 1_000_000n),
+    price: quote.last.text,
     volume,
     day: quote.tradingDay,
     total: quote.volume,
@@ -66,38 +66,29 @@ function tick(view: MarketView, row: ContractQuote) {
   if (view.ticks.length > 512) view.ticks.shift();
 }
 
-// A snapshot replaces the view; a delta replaces whole rows on its named baseline.
-export function applyFrames(previous: MarketView | null, frames: LiveQuotes[], online: boolean) {
+// A full frame replaces the view; a changed frame replaces the rows it holds.
+export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], online: boolean) {
   let view: MarketView | null = previous && { ...previous, ticks: [...previous.ticks], online };
-  for (const { update } of frames) {
-    if (update.case === "snapshot") {
+  for (const { frame } of frames) {
+    if (frame.case === "full") {
       view = {
-        snapshot: update.value,
+        board: frame.value,
         online,
         ticks: [],
         generation: (view?.generation ?? 0) + 1,
         interrupted: !!view,
       };
-    } else if (update.case === "delta") {
-      const delta = update.value;
-      if (
-        !view ||
-        view.snapshot.instanceId !== delta.instanceId ||
-        view.snapshot.sequence !== delta.baseSequence
-      )
-        return { view: previous, restart: true };
-      const changed = new Map(delta.quotes.map(row => [rowKey(row), row]));
-      view.snapshot = {
-        ...view.snapshot,
-        phase: delta.phase,
-        errorCode: delta.errorCode,
-        sequence: delta.sequence,
-        outOfOrder: delta.outOfOrder,
-        quotes: view.snapshot.quotes.map(row => changed.get(rowKey(row)) ?? row),
-        catalog: delta.catalog ?? view.snapshot.catalog,
+    } else if (frame.case === "changed" && view) {
+      const board = frame.value;
+      const changed = new Map(board.rows.map(row => [rowKey(row), row]));
+      view.board = {
+        ...view.board,
+        feed: board.feed,
+        rows: view.board.rows.map(row => changed.get(rowKey(row)) ?? row),
+        catalog: board.catalog ?? view.board.catalog,
       };
     } else return { view: previous, restart: true };
-    for (const row of update.value.quotes) tick(view, row);
+    for (const row of frame.value.rows) tick(view, row);
   }
   return { view, restart: false };
 }
@@ -133,7 +124,7 @@ export function MarketProvider({ active, children }: { active: boolean; children
         restart = false;
         if (!watch) current = null;
         else {
-          const frames = watch.frames.map(frame => fromJson(LiveQuotesSchema, frame));
+          const frames = watch.frames.map(frame => fromJson(QuoteFrameSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
         }
         report(current);

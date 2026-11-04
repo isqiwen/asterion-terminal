@@ -607,35 +607,36 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     const auto call = [](Json operation) {
         return request("market.call", {{"request", std::move(operation)}});
     };
-    auto first = terminal::ApplicationTestAccess::submit(
-        app,
-        call({{"listAcquisitionSources", Json::object()}}));
+    auto first =
+        terminal::ApplicationTestAccess::submit(app, call({{"listSources", Json::object()}}));
     auto second =
         terminal::ApplicationTestAccess::submit(app, call({{"listDatasets", Json::object()}}));
     const auto catalog = first.get();
-    const auto& sources = catalog.at("market").at("acquisitionSources");
+    const auto& sources = catalog.at("market").at("listSources");
     EXPECT_FALSE(sources.value("canManage", false));
     ASSERT_EQ(sources.at("sources").size(), 3);
     EXPECT_EQ(sources.at("sources")[0].at("provider"), "gfex");
-    EXPECT_EQ(sources.at("sources")[0].at("tables"), Json::array({"daily"}));
+    EXPECT_EQ(sources.at("sources")[0].at("tables"), Json::array({"TABLE_DAILY"}));
     EXPECT_EQ(sources.at("sources")[1].at("provider"), "recorder");
-    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"minutes"}));
+    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"TABLE_MINUTES"}));
     EXPECT_EQ(sources.at("sources")[2].at("provider"), "shfe");
-    EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"daily", "settlement"}));
-    EXPECT_TRUE(second.get().at("market").contains("datasets"));
+    EXPECT_EQ(
+        sources.at("sources")[2].at("tables"),
+        Json::array({"TABLE_DAILY", "TABLE_SETTLEMENT"}));
+    EXPECT_TRUE(second.get().at("market").contains("listDatasets"));
     try {
         app.dispatch(call(
             {{"startAcquisition",
                 {{"id", "forbidden"},
                     {"provider", "shfe"},
-                    {"table", "daily"},
-                    {"beginDay", "2026-10-30"},
-                    {"endDay", "2026-10-30"}}}}));
+                    {"table", "TABLE_DAILY"},
+                    {"firstDay", "2026-10-30"},
+                    {"lastDay", "2026-10-30"}}}}));
         FAIL() << "a read-only client started acquisition";
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::permission_denied);
     }
-    EXPECT_THROW(app.dispatch(call({{"streamLiveQuotes", Json::object()}})), std::invalid_argument);
+    EXPECT_THROW(app.dispatch(call({{"streamQuotes", Json::object()}})), std::invalid_argument);
     EXPECT_TRUE(
         app.dispatch(request("market.watch", {{"restart", false}})).at("market_watch").is_null());
     // An open watch hands the page its frames in order, the first one complete.
@@ -649,13 +650,10 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         std::this_thread::sleep_for(50ms);
     }
     ASSERT_FALSE(frames.empty());
-    ASSERT_TRUE(frames[0].contains("snapshot"));
-    EXPECT_TRUE(frames[0].at("snapshot").contains("catalog"));
+    ASSERT_TRUE(frames[0].contains("full"));
+    EXPECT_TRUE(frames[0].at("full").contains("catalog"));
     for (std::size_t i = 1; i < frames.size(); ++i)
-        if (frames[i].contains("delta")) {
-            const auto& previous = frames[i - 1].begin().value();
-            EXPECT_EQ(frames[i].at("delta").at("baseSequence"), previous.at("sequence"));
-        }
+        EXPECT_TRUE(frames[i].contains("changed"));
     EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("market"));
     app.dispatch(request("market.close"));
     EXPECT_FALSE(std::filesystem::exists(root / "data/acquisition/forbidden.pb"));

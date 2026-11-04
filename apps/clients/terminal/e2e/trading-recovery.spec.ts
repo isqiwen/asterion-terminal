@@ -7,7 +7,9 @@ test(
   async ({ page, tradingHost }) => {
     test.setTimeout(90000);
     const account = tradingHost.connection;
-    await expect.poll(async () => (await marketState(page.request)).catalog?.phase).toBe("ready");
+    await expect
+      .poll(async () => (await marketState(page.request)).catalog?.status?.state)
+      .toBe("CATALOG_STATE_READY");
     await trading(page.request, account, await livePolicy(page.request));
     await expect
       .poll(async () => (await liveAccount(page.request, account)).phase, { timeout: 20000 })

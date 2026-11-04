@@ -14,7 +14,9 @@ test(
     const saved = async () => (await rpc(page.request, "runtime.snapshot")).market_endpoint;
     const watch = async () =>
       (await rpc(page.request, "market.watch", { restart: false })).market_watch;
-    const before = await marketState(page.request);
+    const status = async () =>
+      (await rpc(page.request, "market.call", { request: { getStatus: {} } })).market.getStatus;
+    const before = await status();
     expect((await saved()).instruments).toEqual([]);
     await expect(panel.locator('input[type="password"]')).toHaveCount(0);
     await panel.getByRole("button", { name: "加入自选", exact: true }).click();
@@ -26,18 +28,15 @@ test(
     await rpc(page.request, "market.close");
     expect(await watch()).toBeNull();
     await rpc(page.request, "market.open");
-    expect((await marketState(page.request)).instanceId).toBe(before.instanceId);
-    expect((await saved()).instruments).toEqual([{ venue: "SHFE", symbol: "rb2610" }]);
+    expect((await status()).startedMs).toBe(before.startedMs);
+    expect((await saved()).instruments).toEqual([{ exchange: "SHFE", symbol: "rb2610" }]);
     await rpc(page.request, "market.watchlist", { instruments: [] });
     // The saved watchlist is the desktop's own; Market still collects the contract.
-    expect((await marketState(page.request)).quotes).toHaveLength(1);
+    expect((await marketState(page.request)).rows).toHaveLength(1);
     await openView(page, "coverage");
     const recording = page.getByRole("region", { name: "录制监控" });
     await expect(recording.getByText("行情已连接", { exact: true })).toBeVisible();
     await expect(recording.getByText("磁盘可用空间", { exact: true })).toBeVisible();
-    expect(
-      (await rpc(page.request, "market.call", { request: { getRecordingStatus: {} } })).market
-        .recordingStatus.instance,
-    ).toBe(before.instanceId);
+    expect((await status()).recording).toBeDefined();
   },
 );

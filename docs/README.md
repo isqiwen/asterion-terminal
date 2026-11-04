@@ -7,6 +7,7 @@
 | 先做什么、做到哪了 | [开发计划](plan.md) |
 | 现在能做什么、有哪些限制 | [现状](status.md) |
 | 系统怎样组成、状态归谁 | [架构](architecture.md) · [服务与部署](services.md) |
+| 服务之间怎样通信 | [通信协议](protocol.md) |
 | 怎样构建、运行与测试 | [开发指南](development.md) |
 | 界面与交互 | [Terminal](terminal.md) |
 | 行情与历史数据 | [Market 行情与数据服务](market.md) · [行情录制](recording.md) · [Lab 固定版本读取与研究](lab.md) |

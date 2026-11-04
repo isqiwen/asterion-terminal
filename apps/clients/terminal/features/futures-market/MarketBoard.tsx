@@ -5,7 +5,7 @@ import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ContractQuote } from "../../src/generated/asterion/market_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
   contractName,
@@ -53,8 +53,8 @@ export function MarketBoard({
     direction: "descending",
   });
   const board = useRef<HTMLDivElement>(null);
-  const { quotes, catalog, phase } = market.snapshot;
-  const venueOf = (row: ContractQuote) => row.instrument!.venue;
+  const { rows: quotes, catalog, feed } = market.board;
+  const venueOf = (row: QuoteRow) => row.instrument!.exchange;
   const venueOrder = ["SHFE", "CFFEX", "CZCE", "INE", "DCE", "GFEX"];
   const venues = [...new Set(quotes.map(venueOf))].sort((a, b) => {
     const rank = (value: string) =>
@@ -68,7 +68,7 @@ export function MarketBoard({
   const candidates = watchlist
     ? quotes.filter(row =>
         watchlist.some(
-          id => id.venue === row.instrument!.venue && id.symbol === row.instrument!.symbol,
+          id => id.exchange === row.instrument!.exchange && id.symbol === row.instrument!.symbol,
         ),
       )
     : overview
@@ -81,19 +81,15 @@ export function MarketBoard({
         .toUpperCase()
         .includes(query),
   );
-  const value = (row: ContractQuote) => {
+  const value = (row: QuoteRow) => {
     if (sort.column === "合约") return row.instrument!.symbol;
     if (sort.column === "涨跌幅") return quoteChange(row)?.percent ?? null;
     if (sort.column === "涨跌") return quoteChange(row)?.amount ?? null;
     if (sort.column === "1分钟涨速")
-      return row.change1mPercent == null ? null : Number(row.change1mPercent);
-    const field =
-      sort.column === "最新价"
-        ? row.quote?.last
-        : sort.column === "成交量"
-          ? row.quote?.volume
-          : row.quote?.openInterest;
-    return field == null ? null : Number(field);
+      return row.change1mPercent ? Number(row.change1mPercent.text) : null;
+    if (sort.column === "成交量") return row.quote ? Number(row.quote.volume) : null;
+    const field = sort.column === "最新价" ? row.quote?.last : row.quote?.openInterest;
+    return field ? Number(field.text) : null;
   };
   rows.sort((a, b) => {
     const left = value(a),
@@ -127,13 +123,13 @@ export function MarketBoard({
     rows.find(row => rowKey(row) === selected) ??
     orderedRows[0] ??
     quotes.find(row => rows.includes(row));
-  const displayName = (row: ContractQuote) => {
+  const displayName = (row: QuoteRow) => {
     const label = overview ? productLabel(row.instrument!, catalog) : undefined;
     return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
   };
   const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setMenuSlot(document.getElementById("market-menu-slot")), [menuOpen]);
-  const inlineToolbar = phase !== "connected" || !quotes.length;
+  const inlineToolbar = feed?.state !== FeedState.CONNECTED || !quotes.length;
   const controls = (
     <div className="market-board-tools">
       <nav className="market-exchanges" aria-label={t("合约范围")}>
@@ -154,7 +150,7 @@ export function MarketBoard({
       </span>
     </div>
   );
-  const table = (groupRows: ContractQuote[]) => (
+  const table = (groupRows: QuoteRow[]) => (
     <QuoteTable
       overviewStyle
       columns={visibleColumns}

@@ -127,22 +127,22 @@ const { createInterface } = require("node:readline");
     await call("market.endpoint.save", { host: "127.0.0.1", port, fingerprint });
     await call("market.open");
     const snapshot = async () =>
-      (await call("market.call", { request: { getLiveSnapshot: {} } })).market.snapshot;
+      (await call("market.call", { request: { getBoard: {} } })).market.getBoard;
     await expect
       .poll(
         async () => {
           const state = await snapshot();
           // Shown when the wait fails: where the market service stopped.
           return (
-            state.quotes?.[0]?.quote?.bidLevels?.[0]?.price ??
-            `phase=${state.phase} catalog=${state.catalog?.phase} ${state.catalog?.diagnostic ?? ""}`
+            state.rows?.[0]?.quote?.bids?.[1]?.price?.text ??
+            `feed=${state.feed?.state} catalog=${JSON.stringify(state.catalog?.status ?? {})}`
           );
         },
         { timeout: 15000 },
       )
       .toBe("3508.25");
     const full = await snapshot();
-    assert.equal(full.catalog.phase, "ready");
+    assert.equal(full.catalog.status.state, "CATALOG_STATE_READY");
     assert.equal(full.catalog.contracts[0].name, "螺纹钢");
     assert.equal((await call("runtime.snapshot")).market_endpoint.instruments.length, 0);
     await openView(page, "market");
@@ -154,18 +154,18 @@ const { createInterface } = require("node:readline");
     await page.screenshot({ path: path.resolve("build/native-depth-check/full-market.png") });
     await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
-    await call("market.watchlist", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
-    const quote = full.quotes[0].quote;
-    assert.equal(quote.open, "3490.25");
-    assert.equal(quote.openInterestChange, "-25.25");
-    assert.equal(quote.previousClose, "3480.125");
-    assert.equal(quote.upperLimit, "3800.5");
+    await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
+    const quote = full.rows[0].quote;
+    assert.equal(quote.open.text, "3490.25");
+    assert.equal(quote.openInterestChange.text, "-25.25");
+    assert.equal(quote.previousClose.text, "3480.125");
+    assert.equal(quote.upperLimit.text, "3800.5");
     assert.equal(quote.lowerLimit, undefined);
-    assert.equal(quote.askLevels[1].quantity, "0");
-    assert.equal(quote.bidLevels[1].price, undefined);
-    assert.equal(quote.bidLevels[1].quantity, undefined);
-    assert.equal(quote.bidLevels[2].quantity, undefined);
-    assert.equal(quote.askLevels[3].price, "3515");
+    assert.equal(quote.asks[2].lots, "0");
+    assert.equal(quote.bids[2].price, undefined);
+    assert.equal(quote.bids[2].lots, undefined);
+    assert.equal(quote.bids[3].lots, undefined);
+    assert.equal(quote.asks[4].price.text, "3515");
     await openView(page, "watchlist");
     const previousClose = page
       .locator(".watchlist-table tbody tr")

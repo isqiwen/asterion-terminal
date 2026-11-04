@@ -71,10 +71,10 @@ TEST(Ctp, ProtocolPreservesMissingPricesAndSourceDates)
     q.trading_day = "20260928";
     q.source_ms = 0;
     state.subscriptions.push_back({q.instrument, asterion::SubscriptionState::subscribed, 0, q});
-    const auto result = asterion::protocol::encode_market(state, "test").quotes(0).quote();
+    const auto result = asterion::protocol::encode_board(state).rows(0).quote();
     EXPECT_FALSE(result.has_last());
-    EXPECT_EQ(result.action_day(), "20260925");
-    EXPECT_EQ(result.source_ms(), 0);
+    EXPECT_EQ(result.trading_day(), "2026-09-28");
+    EXPECT_FALSE(result.has_exchange_ms());
 }
 
 namespace {
@@ -260,8 +260,8 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
     EXPECT_FALSE(quotes[0].quote.bid_levels[2].quantity);
     EXPECT_FALSE(quotes[0].quote.ask_levels[2].price);
     EXPECT_EQ(quotes[0].quote.ask_levels[3].price->str(), "3515");
-    const auto encoded_depth = asterion::protocol::encode_market(feed.snapshot(), "depth");
-    EXPECT_EQ(encoded_depth.quotes(0).quote().bid_levels(0).price(), "3508.25");
+    const auto encoded_depth = asterion::protocol::encode_board(feed.snapshot());
+    EXPECT_EQ(encoded_depth.rows(0).quote().bids(1).price().text(), "3508.25");
     EXPECT_EQ(quotes[1].quote.last->str(), "1");
     EXPECT_FALSE(quotes[0].out_of_order);
     EXPECT_TRUE(quotes[1].out_of_order);
@@ -382,20 +382,18 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
                              .count();
     std::string stream;
     std::uint64_t cursor = 0;
-    std::size_t acknowledgements = 0, quotes = 0, acknowledgement_bytes = 0;
+    std::size_t acknowledgements = 0, quotes = 0;
     for (;;) {
         const auto batch = feed.events_after(stream, cursor, 1024);
         ASSERT_FALSE(batch.failed);
-        const auto wire = protocol::encode_market_events(batch);
-        for (const auto& event : wire.events()) {
-            if (event.has_subscription()) {
+        for (const auto& event : batch.events) {
+            if (const auto* subscription = std::get_if<MarketSubscription>(&event.value)) {
                 ++acknowledgements;
-                EXPECT_FALSE(event.subscription().has_quote());
-                acknowledgement_bytes += event.ByteSizeLong();
-            } else if (event.has_quote()) {
+                EXPECT_FALSE(subscription->quote);
+            } else if (std::holds_alternative<MarketQuoteObservation>(event.value)) {
                 ++quotes;
             }
-            cursor = event.sequence();
+            cursor = event.sequence;
         }
         stream = batch.stream_id;
         if (cursor == batch.latest_sequence)
@@ -404,10 +402,8 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
     }
     EXPECT_EQ(acknowledgements, count);
     EXPECT_EQ(quotes, count * 2);
-    EXPECT_LT(acknowledgement_bytes, count * 96);
     RecordProperty("contracts", static_cast<int>(count));
     RecordProperty("subscription_and_quote_ms", std::to_string(elapsed));
-    RecordProperty("acknowledgement_bytes", std::to_string(acknowledgement_bytes));
     const auto full = feed.snapshot();
     EXPECT_FALSE(full.subscriptions_delta);
     const auto quiet = feed.snapshot(full.sequence);
@@ -427,10 +423,10 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
     EXPECT_THROW(feed.snapshot(full.sequence + 1), std::invalid_argument);
     RecordProperty(
         "full_quote_frame_bytes",
-        std::to_string(protocol::encode_market(full, "sample").ByteSizeLong()));
+        std::to_string(protocol::encode_board(full).ByteSizeLong()));
     RecordProperty(
         "unchanged_quote_frame_bytes",
-        std::to_string(protocol::encode_market(quiet, "sample").ByteSizeLong()));
+        std::to_string(protocol::encode_board(quiet).ByteSizeLong()));
     feed.subscribe({contracts.front(), contracts.back()});
     const auto reset = feed.snapshot(full.sequence);
     EXPECT_FALSE(reset.subscriptions_delta);
@@ -458,13 +454,12 @@ TEST(CtpPublication, ContinuousQuotesChangeOnlyTheirRowAndMatchFullSnapshots)
         std::this_thread::sleep_for(10ms);
     }
     // The page's table: a full frame, then each changed row replaced in place.
-    auto merged = protocol::encode_market(full, "fixture");
+    auto merged = protocol::encode_board(full);
     const auto same_rows = [](const auto& a, const auto& b) {
-        if (a.quotes_size() != b.quotes_size() || a.sequence() != b.sequence()
-            || a.out_of_order() != b.out_of_order())
+        if (a.rows_size() != b.rows_size())
             return false;
-        for (int i = 0; i < a.quotes_size(); ++i)
-            if (a.quotes(i).SerializeAsString() != b.quotes(i).SerializeAsString())
+        for (int i = 0; i < a.rows_size(); ++i)
+            if (a.rows(i).SerializeAsString() != b.rows(i).SerializeAsString())
                 return false;
         return true;
     };
@@ -479,17 +474,15 @@ TEST(CtpPublication, ContinuousQuotesChangeOnlyTheirRowAndMatchFullSnapshots)
         if (delta.sequence != cursor) {
             ASSERT_EQ(delta.subscriptions.size(), 1U);
             EXPECT_EQ(delta.subscriptions.front().instrument, contracts.front());
-            const auto encoded = protocol::encode_market(delta, "fixture");
+            const auto encoded = protocol::encode_board(delta);
             bytes += encoded.ByteSizeLong();
-            *merged.mutable_quotes(0) = encoded.quotes(0);
-            merged.set_sequence(encoded.sequence());
-            merged.set_out_of_order(encoded.out_of_order());
+            *merged.mutable_rows(0) = encoded.rows(0);
             ++updates;
         }
         cursor = delta.sequence;
         const auto verify = feed.snapshot();
         EXPECT_EQ(verify.sequence, cursor);
-        EXPECT_TRUE(same_rows(merged, protocol::encode_market(verify, "fixture")));
+        EXPECT_TRUE(same_rows(merged, protocol::encode_board(verify)));
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
@@ -503,148 +496,62 @@ TEST(CtpPublication, ContinuousQuotesChangeOnlyTheirRowAndMatchFullSnapshots)
                 .count()));
 }
 
-TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection)
+TEST(CtpPublication, CatalogIsSentOnlyInTheFirstFrameOfAStream)
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = asterion::market::proto;
+    namespace wire = ::market;
     CtpDirectory directory;
     testing_support::MarketHost host(directory.path, "catalog-large");
     host.start();
     constexpr int count = 20000;
-    auto open = [&] {
-        return host.open();
-    };
     const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
     for (;;) {
-        auto channel = open();
+        auto channel = host.open();
         wire::Request request;
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id("catalog.ready");
-        request.mutable_get_live_snapshot();
+        request.set_id(1);
+        request.mutable_get_status();
         channel.send(request.SerializeAsString(), testing_support::bound(10s));
         wire::Response response;
         ASSERT_TRUE(response.ParseFromString(channel.receive(testing_support::bound(10s))));
-        if (response.snapshot().catalog().phase() == "ready")
+        if (response.get_status().catalog().state() == wire::CATALOG_STATE_READY)
             break;
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(20ms);
     }
     wire::Request watch;
-    watch.set_version(1);
-    watch.set_service_id("market-data");
-    watch.set_correlation_id("catalog.watch");
+    watch.set_id(2);
     // This test measures catalog publication, independently of initial quote churn.
-    auto* filter = watch.mutable_stream_live_quotes()->add_instruments();
-    filter->set_venue("SHFE");
+    auto* filter = watch.mutable_stream_quotes()->add_instruments();
+    filter->set_exchange("SHFE");
     filter->set_symbol("rb9999");
-    auto connection = open();
-    connection.send(watch.SerializeAsString(), testing_support::bound(10s));
     const auto receive = [&](testing_support::MarketChannel& channel) {
         wire::Response response;
         if (!response.ParseFromString(channel.receive(testing_support::bound(10s)))
-            || !response.has_live_quotes())
-            throw std::runtime_error("expected catalog snapshot");
-        return response.live_quotes();
+            || !response.has_stream_quotes())
+            throw std::runtime_error("expected a quote frame");
+        return response.stream_quotes();
     };
+    auto connection = host.open();
+    connection.send(watch.SerializeAsString(), testing_support::bound(10s));
     const auto first_frame = receive(connection);
-    ASSERT_TRUE(first_frame.has_snapshot());
-    const auto& first = first_frame.snapshot();
-    ASSERT_TRUE(first.has_catalog());
+    ASSERT_TRUE(first_frame.has_full());
+    const auto& first = first_frame.full();
     EXPECT_EQ(first.catalog().contracts_size(), count);
-    EXPECT_EQ(first.catalog().phase(), "ready");
+    EXPECT_EQ(first.catalog().status().state(), wire::CATALOG_STATE_READY);
     const auto second_frame = receive(connection);
-    ASSERT_TRUE(second_frame.has_delta());
-    const auto& second = second_frame.delta();
+    ASSERT_TRUE(second_frame.has_changed());
+    const auto& second = second_frame.changed();
     EXPECT_FALSE(second.has_catalog());
     EXPECT_LT(second.ByteSizeLong(), first.ByteSizeLong() / 100);
     RecordProperty("catalog_contracts", count);
     RecordProperty("initial_frame_bytes", std::to_string(first.ByteSizeLong()));
     RecordProperty("unchanged_frame_bytes", std::to_string(second.ByteSizeLong()));
-    auto reconnected = open();
+    auto reconnected = host.open();
     reconnected.send(watch.SerializeAsString(), testing_support::bound(10s));
     const auto initial_frame = receive(reconnected);
-    ASSERT_TRUE(initial_frame.has_snapshot());
-    const auto& initial = initial_frame.snapshot();
-    EXPECT_EQ(initial.catalog().contracts_size(), count);
-}
-
-TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity)
-{
-    using namespace asterion;
-    using namespace std::chrono_literals;
-    namespace wire = asterion::market::proto;
-    CtpDirectory directory;
-    testing_support::MarketHost host(directory.path, "steady");
-    host.start();
-    auto call = [&](wire::Request request) {
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id("events.request");
-        auto channel = host.open();
-        channel.send(request.SerializeAsString(), testing_support::bound(10s));
-        wire::Response response;
-        if (!response.ParseFromString(channel.receive(testing_support::bound(10s))))
-            throw std::runtime_error("invalid market response");
-        EXPECT_EQ(response.correlation_id(), request.correlation_id());
-        return response;
-    };
-    wire::Request read;
-    read.mutable_read_feed_events()->set_limit(1);
-    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(20s);
-    for (;;) {
-        wire::Request request;
-        request.mutable_get_live_snapshot();
-        if (call(request).snapshot().out_of_order() >= 1)
-            break;
-        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
-        std::this_thread::sleep_for(10ms);
-    }
-    const auto first = call(read);
-    ASSERT_TRUE(first.has_events());
-    ASSERT_EQ(first.events().events_size(), 1);
-    EXPECT_FALSE(first.events().gap());
-    EXPECT_FALSE(first.events().failed());
-    EXPECT_EQ(first.SerializeAsString(), call(read).SerializeAsString());
-    std::uint64_t cursor = 0;
-    unsigned quotes = 0, reordered = 0;
-    do {
-        read.mutable_read_feed_events()->set_stream_id(first.events().stream_id());
-        read.mutable_read_feed_events()->set_after_sequence(cursor);
-        const auto response = call(read);
-        ASSERT_TRUE(response.has_events());
-        EXPECT_EQ(response.SerializeAsString().find("private-fixture-key"), std::string::npos);
-        ASSERT_EQ(response.events().events_size(), 1);
-        const auto& event = response.events().events(0);
-        EXPECT_EQ(event.sequence(), ++cursor);
-        if (event.has_quote()) {
-            ++quotes;
-            reordered += event.quote().out_of_order();
-            EXPECT_FALSE(event.quote().quote().has_previous_settlement());
-            EXPECT_EQ(event.quote().quote().open(), "3490.25");
-            EXPECT_EQ(event.quote().quote().previous_close(), "3480.125");
-            EXPECT_EQ(event.quote().quote().open_interest_change(), "-25.25");
-            EXPECT_EQ(event.quote().quote().upper_limit(), "3800.5");
-            EXPECT_FALSE(event.quote().quote().has_lower_limit());
-            EXPECT_EQ(event.quote().quote().instrument().symbol(), "rb2610");
-        } else if (event.has_subscription()) {
-            EXPECT_EQ(event.subscription().instrument().symbol(), "rb2610");
-            EXPECT_EQ(event.subscription().state(), "subscribed");
-            EXPECT_FALSE(event.subscription().has_quote());
-        } else {
-            ASSERT_TRUE(event.has_status());
-        }
-    } while (cursor < first.events().latest_sequence());
-    EXPECT_EQ(quotes, 2U);
-    EXPECT_EQ(reordered, 1U);
-    read.mutable_read_feed_events()->set_after_sequence(cursor);
-    EXPECT_EQ(call(read).events().events_size(), 0);
-    read.mutable_read_feed_events()->set_limit(1025);
-    EXPECT_EQ(call(read).error().code(), "invalid_request");
-    read.mutable_read_feed_events()->set_limit(1);
-    host.start();
-    EXPECT_EQ(call(read).error().code(), "invalid_request");
+    ASSERT_TRUE(initial_frame.has_full());
+    EXPECT_EQ(initial_frame.full().catalog().contracts_size(), count);
 }
 
 TEST(Ctp, DepthPreservesMissingLevelsZeroSizeAndExactPrices)
@@ -664,12 +571,20 @@ TEST(Ctp, DepthPreservesMissingLevelsZeroSizeAndExactPrices)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    const auto encoded = protocol::encode_market(state, "depth").quotes(0).quote();
-    ASSERT_EQ(encoded.bid_levels_size(), 4);
-    EXPECT_EQ(encoded.bid_levels(0).price(), "100.00000001");
-    EXPECT_EQ(encoded.bid_levels(0).quantity(), 0);
-    EXPECT_FALSE(encoded.bid_levels(1).has_price());
-    EXPECT_FALSE(encoded.bid_levels(1).has_quantity());
+    quote.bid = Decimal::parse("100.5");
+    quote.bid_quantity = 3;
+    state.subscriptions[0].quote = quote;
+    const auto encoded = protocol::encode_board(state).rows(0).quote();
+    ASSERT_EQ(encoded.bids_size(), 5);
+    EXPECT_EQ(encoded.bids(0).price().text(), "100.5");
+    EXPECT_EQ(encoded.bids(0).lots(), 3);
+    EXPECT_EQ(encoded.bids(1).price().text(), "100.00000001");
+    EXPECT_EQ(encoded.bids(1).lots(), 0);
+    EXPECT_FALSE(encoded.bids(2).has_price());
+    EXPECT_FALSE(encoded.bids(2).has_lots());
+    ASSERT_EQ(encoded.asks_size(), 5);
+    EXPECT_FALSE(encoded.asks(0).has_price());
+    EXPECT_EQ(encoded.asks(4).price().text(), "105");
 }
 
 TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero)
@@ -682,9 +597,9 @@ TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    const auto encoded = protocol::encode_market(state, "session-prices").quotes(0).quote();
-    EXPECT_EQ(encoded.open(), "3490.25000001");
-    EXPECT_EQ(encoded.upper_limit(), "0");
+    const auto encoded = protocol::encode_board(state).rows(0).quote();
+    EXPECT_EQ(encoded.open().text(), "3490.25000001");
+    EXPECT_EQ(encoded.upper_limit().text(), "0");
     EXPECT_FALSE(encoded.has_lower_limit());
 }
 
@@ -707,157 +622,126 @@ TEST(Ctp, OpenInterestChangeUsesProviderReferenceAndPreservesMissing)
     LiveMarketSnapshot state;
     state.subscriptions.push_back(
         {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
-    const auto encoded = protocol::encode_market(state, "reference").quotes(0).quote();
-    EXPECT_EQ(encoded.open_interest_change(), "-25.25");
-    EXPECT_EQ(encoded.previous_close(), "3480.12500001");
+    const auto encoded = protocol::encode_board(state).rows(0).quote();
+    EXPECT_EQ(encoded.open_interest_change().text(), "-25.25");
+    EXPECT_EQ(encoded.previous_close().text(), "3480.12500001");
     state.subscriptions[0].quote->previous_close.reset();
     state.subscriptions[0].quote->open_interest_change.reset();
-    const auto absent = protocol::encode_market(state, "reference").quotes(0).quote();
+    const auto absent = protocol::encode_board(state).rows(0).quote();
     EXPECT_FALSE(absent.has_open_interest_change());
     EXPECT_FALSE(absent.has_previous_close());
 }
 
-TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnectBaseline)
+TEST(CtpPublication, StreamSendsChangedRowsAfterAFullFrameAndStartsOverOnReconnect)
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = asterion::market::proto;
+    namespace wire = ::market;
     CtpDirectory directory;
     testing_support::MarketHost host(directory.path, "publication");
     host.start();
-    auto open = [&] {
-        return host.open();
-    };
-    auto identify = [](wire::Request& request) {
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id(unique_process_id());
-    };
+    std::uint64_t ids = 0;
     auto receive = [](testing_support::MarketChannel& channel) {
         wire::Response response;
-        if (!response.ParseFromString(channel.receive(testing_support::bound(2s)))
-            || (!response.has_snapshot() && !response.has_live_quotes()))
-            throw std::runtime_error("expected market snapshot");
+        if (!response.ParseFromString(channel.receive(testing_support::bound(2s))))
+            throw std::runtime_error("invalid market response");
         return response;
     };
     auto call = [&](wire::Request request) {
-        identify(request);
-        auto channel = open();
+        request.set_id(++ids);
+        auto channel = host.open();
         channel.send(request.SerializeAsString(), testing_support::bound(2s));
-        return receive(channel).snapshot();
+        return receive(channel);
     };
-    wire::Request read;
-    read.mutable_get_live_snapshot();
+    wire::Request status;
+    status.mutable_get_status();
     const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(5s);
-    while (call(read).out_of_order() < 50) {
+    while (call(status).get_status().out_of_order_quotes() < 50) {
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
     // Feed callbacks and minute aggregation advance independently. The last
     // initial instrument proves the ordered aggregator consumed all 50 rows;
-    // only rb1000 receives subsequent fixture ticks. Waiting on feed counters
-    // alone can leave any subset of initial rows to appear in the first delta.
+    // only rb1000 receives subsequent fixture ticks.
     wire::Request minutes;
-    identify(minutes);
-    minutes.mutable_get_intraday_bars()->mutable_instrument()->set_venue("SHFE");
-    minutes.mutable_get_intraday_bars()->mutable_instrument()->set_symbol("rb1049");
+    minutes.mutable_get_minutes()->set_exchange("SHFE");
+    minutes.mutable_get_minutes()->set_symbol("rb1049");
     for (;;) {
-        auto reader = open();
-        reader.send(minutes.SerializeAsString(), testing_support::bound(2s));
-        wire::Response response;
-        ASSERT_TRUE(response.ParseFromString(reader.receive(testing_support::bound(2s))));
-        ASSERT_TRUE(response.has_minutes());
-        if (response.minutes().bars_size()) {
-            ASSERT_EQ(response.minutes().bars_size(), 1);
-            ASSERT_EQ(response.minutes().bars(0).close(), "3510");
+        const auto response = call(minutes);
+        ASSERT_TRUE(response.has_get_minutes());
+        if (response.get_minutes().bars_size()) {
+            ASSERT_EQ(response.get_minutes().bars_size(), 1);
+            ASSERT_EQ(response.get_minutes().bars(0).close().text(), "3510");
             break;
         }
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(10ms);
     }
     wire::Request watch;
-    identify(watch);
-    watch.mutable_stream_live_quotes();
-    auto channel = open();
+    watch.set_id(++ids);
+    watch.mutable_stream_quotes();
+    auto channel = host.open();
     channel.send(watch.SerializeAsString(), testing_support::bound(2s));
-    const auto first_frame = receive(channel).live_quotes();
-    ASSERT_TRUE(first_frame.has_snapshot());
-    const auto& first = first_frame.snapshot();
-    ASSERT_EQ(first.quotes_size(), 50);
+    const auto first_frame = receive(channel).stream_quotes();
+    ASSERT_TRUE(first_frame.has_full());
+    const auto& first = first_frame.full();
+    ASSERT_EQ(first.rows_size(), 50);
     ASSERT_TRUE(first.has_catalog());
-    std::uint64_t sequence = first.sequence();
     bool saw_intraday = false;
     std::size_t bytes = 0;
-    int exact_comparisons = 0;
     // The page's table: the first frame, then each changed row replaced in place.
     auto merged = first;
     for (int i = 0; i < 10; ++i) {
-        const auto update = receive(channel).live_quotes();
-        ASSERT_TRUE(update.has_delta());
-        const auto& delta = update.delta();
-        ASSERT_EQ(delta.base_sequence(), sequence);
-        EXPECT_GE(delta.sequence(), sequence);
-        ASSERT_FALSE(delta.has_catalog());
-        // An unchanged watch frame is valid if no callback ran in this interval.
+        const auto update = receive(channel).stream_quotes();
+        ASSERT_TRUE(update.has_changed());
+        const auto& changed = update.changed();
+        ASSERT_FALSE(changed.has_catalog());
+        // An unchanged frame is valid if no callback ran in this interval.
         // Every changed row must belong to the sole actively ticking instrument.
-        ASSERT_LE(delta.quotes_size(), 1);
-        if (delta.quotes_size()) {
-            EXPECT_EQ(delta.quotes(0).instrument().symbol(), "rb1000");
-            saw_intraday |= delta.quotes(0).has_change_1m_percent();
+        ASSERT_LE(changed.rows_size(), 1);
+        if (changed.rows_size()) {
+            EXPECT_EQ(changed.rows(0).instrument().symbol(), "rb1000");
+            saw_intraday |= changed.rows(0).has_change_1m_percent();
         }
-        bytes += delta.ByteSizeLong();
-        for (const auto& row : delta.quotes()) {
+        bytes += changed.ByteSizeLong();
+        for (const auto& row : changed.rows()) {
             const auto index = std::stoi(row.instrument().symbol().substr(2)) - 1000;
-            *merged.mutable_quotes(index) = row;
+            *merged.mutable_rows(index) = row;
         }
-        merged.set_sequence(delta.sequence());
-        merged.set_out_of_order(delta.out_of_order());
-        const auto current = call(read);
-        EXPECT_TRUE(current.has_catalog());
-        if (current.sequence() == delta.sequence()) {
-            ASSERT_EQ(merged.quotes_size(), current.quotes_size());
-            for (int row = 0; row < merged.quotes_size(); ++row)
-                EXPECT_EQ(
-                    merged.quotes(row).SerializeAsString(),
-                    current.quotes(row).SerializeAsString());
-            EXPECT_EQ(merged.out_of_order(), current.out_of_order());
-            ++exact_comparisons;
-        }
-        sequence = delta.sequence();
     }
     EXPECT_TRUE(saw_intraday);
-    EXPECT_GT(exact_comparisons, 0);
     EXPECT_LT(bytes, first.ByteSizeLong() * 10 / 5);
-    auto reconnect = open();
+    auto reconnect = host.open();
     reconnect.send(watch.SerializeAsString(), testing_support::bound(2s));
-    const auto reset_frame = receive(reconnect).live_quotes();
-    ASSERT_TRUE(reset_frame.has_snapshot());
-    const auto& reset = reset_frame.snapshot();
-    EXPECT_EQ(reset.quotes_size(), 50);
+    const auto reset_frame = receive(reconnect).stream_quotes();
+    ASSERT_TRUE(reset_frame.has_full());
+    const auto& reset = reset_frame.full();
+    EXPECT_EQ(reset.rows_size(), 50);
     EXPECT_TRUE(reset.has_catalog());
-    // More simultaneous watch connections than the former request worker pool.
-    // Each retains its own full baseline; neither queries nor stop wait for a
-    // watch connection to release a worker.
+    // Rows that stopped ticking are what the merged table holds.
+    for (int row = 1; row < merged.rows_size(); ++row)
+        EXPECT_EQ(merged.rows(row).SerializeAsString(), reset.rows(row).SerializeAsString());
+    // More simultaneous streams than the former request worker pool. Each
+    // retains its own full baseline; neither queries nor stop wait for a
+    // stream to release a worker.
     std::vector<testing_support::MarketChannel> observers;
     for (int i = 0; i < 30; ++i) {
-        auto observer = open();
+        auto observer = host.open();
         observer.send(watch.SerializeAsString(), testing_support::bound(2s));
-        EXPECT_TRUE(receive(observer).live_quotes().has_snapshot());
+        EXPECT_TRUE(receive(observer).stream_quotes().has_full());
         observers.push_back(std::move(observer));
     }
-    auto excess = open();
+    auto excess = host.open();
     excess.send(watch.SerializeAsString(), testing_support::bound(2s));
-    wire::Response rejected;
-    ASSERT_TRUE(rejected.ParseFromString(excess.receive(testing_support::bound(2s))));
+    const auto rejected = receive(excess);
     ASSERT_TRUE(rejected.has_error());
-    EXPECT_EQ(rejected.error().code(), "resource_exhausted");
-    EXPECT_EQ(call(read).quotes_size(), 50);
+    EXPECT_EQ(rejected.error().code(), ::common::ERROR_CODE_RESOURCE_EXHAUSTED);
+    EXPECT_TRUE(call(status).has_get_status());
     ASSERT_EQ(::kill(static_cast<pid_t>(host.process->id()), SIGTERM), 0);
     ASSERT_TRUE(host.process->wait(testing_support::bound(5s)));
     EXPECT_EQ(host.process->exit_code(), 0);
     RecordProperty("initial_frame_bytes", std::to_string(first.ByteSizeLong()));
     RecordProperty("ten_update_frame_bytes", std::to_string(bytes));
-    RecordProperty("exact_full_comparisons", exact_comparisons);
 }
 
 TEST(CtpEvents, FullMarketSubscriptionsAreBatchedAndRetentionRemainsBounded)

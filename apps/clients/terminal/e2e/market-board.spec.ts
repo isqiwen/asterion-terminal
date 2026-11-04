@@ -1,6 +1,6 @@
 import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-import { serveWatch, watchRow } from "./market-fixture";
+import { board as frame, serveWatch, watchRow } from "./market-fixture";
 
 test("market board groups exchanges and links contract selection without inventing candles", async ({
   page,
@@ -11,41 +11,27 @@ test("market board groups exchanges and links contract selection without inventi
   let quoteCount = 0;
   let interrupted = false;
   let available = true;
-  let sequence = 0;
+  let started = false;
+  let resumed = false;
   let sent = 0;
-  const rb = { venue: "SHFE", symbol: "rb2610" };
-  const iron = { venue: "DCE", symbol: "i2701" };
+  const rb = { exchange: "SHFE", symbol: "rb2610" };
+  const iron = { exchange: "DCE", symbol: "i2701" };
   const quote = (index: number) =>
     watchRow(iron, {
       last: index % 2 ? "100.00000001" : "102",
-      sourceMs: String(1790582400000 + index * 1000),
+      exchangeMs: String(1790582400000 + index * 1000),
     });
   await serveWatch(
     page,
     restart => {
       const frames: object[] = [];
-      const base = { instanceId: "fixture", phase: "connected" };
-      if (restart || !sequence || (interrupted && sequence < 1000)) {
-        if (interrupted) sequence = 1000;
+      if (restart || !started || (interrupted && !resumed)) {
+        if (interrupted) resumed = true;
+        started = true;
         sent = quoteCount ? 1 : 0;
-        frames.push({
-          snapshot: {
-            ...base,
-            sequence: String(++sequence),
-            catalog: { phase: "unconfigured" },
-            quotes: [watchRow(rb), sent ? quote(0) : watchRow(iron)],
-          },
-        });
+        frames.push({ full: frame([watchRow(rb), sent ? quote(0) : watchRow(iron)]) });
       }
-      for (; sent < quoteCount; ++sent)
-        frames.push({
-          delta: {
-            ...base,
-            sequence: String(sequence + 1),
-            baseSequence: String(sequence++),
-            quotes: [quote(sent)],
-          },
-        });
+      for (; sent < quoteCount; ++sent) frames.push({ changed: frame([quote(sent)], false) });
       return { frames, online: available };
     },
     [rb, iron],

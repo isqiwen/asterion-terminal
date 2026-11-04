@@ -11,7 +11,7 @@ namespace asterion::market_data {
 struct WatchCursor
 {
     std::optional<std::uint64_t> catalog, feed;
-    std::uint64_t intraday = 0, sequence = 0;
+    std::uint64_t intraday = 0;
 };
 
 class Session
@@ -19,14 +19,14 @@ class Session
 public:
     struct Configuration
     {
-        std::string service, instance;
+        std::string instance;
         Settings settings;
     };
 
     explicit Session(Configuration config);
     ~Session();
     std::future<service::RpcHost::Message> request(
-        market::proto::Request request,
+        ::market::Request request,
         std::shared_ptr<WatchCursor> cursor = {},
         bool can_manage = false);
     void stop();

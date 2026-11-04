@@ -53,11 +53,11 @@ export function ContractHistory({
   const market = useMarket();
   const contractId =
     historyContractId ??
-    market?.snapshot.catalog?.contracts.find(
+    market?.board.catalog?.contracts.find(
       item =>
-        item.instrument?.venue === venue &&
+        item.instrument?.exchange === venue &&
         item.instrument.symbol.toUpperCase() === symbol.toUpperCase(),
-    )?.contractId;
+    )?.contract;
   const [retry, setRetry] = useState(0);
   // What the research dataset holds of this contract.
   const [stored, setStored] = useState<{

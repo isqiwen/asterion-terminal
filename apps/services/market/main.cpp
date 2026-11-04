@@ -4,6 +4,7 @@
 #include <asterion/system/log.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>
@@ -11,7 +12,7 @@
 #include <iostream>
 using namespace asterion;
 using namespace std::chrono_literals;
-namespace wire = asterion::market::proto;
+namespace wire = ::market;
 
 int main(int argc, char** argv)
 {
@@ -26,7 +27,6 @@ int main(int argc, char** argv)
         const auto settings =
             market_data::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
         FileLock owner(settings.directory, "market.lock");
-        const std::string service = "market-data";
         service::Transport transport;
         transport.bind = settings.bind;
         transport.port = settings.port;
@@ -42,15 +42,12 @@ int main(int argc, char** argv)
         auto serve = [&](const Host::Peer& peer, std::string frame) -> Host::Reply {
             wire::Request request;
             wire::Response failure;
-            failure.set_version(1);
-            failure.set_service_id(service);
             const auto fail = [](wire::Response& response, const std::exception& error) {
-                response.mutable_error()->set_code(std::string(error_name(classify(error))));
-                response.mutable_error()->set_message(
-                    dynamic_cast<const Error*>(&error)
-                            || classify(error) == ErrorCode::invalid_request
-                        ? error.what()
-                        : "Market request rejected; check configuration and SDK availability");
+                *response.mutable_error() = protocol::error(error);
+                if (!dynamic_cast<const Error*>(&error)
+                    && classify(error) != ErrorCode::invalid_request)
+                    response.mutable_error()->set_message(
+                        "Market request rejected; check configuration and SDK availability");
             };
             struct Pending
             {
@@ -70,10 +67,7 @@ int main(int argc, char** argv)
                 if (!request.ParseFromString(frame))
                     throw std::invalid_argument("malformed Protobuf request");
                 protocol::validate_message(request);
-                failure.set_correlation_id(request.correlation_id());
-                validate_id(request.correlation_id());
-                if (request.version() != 1 || request.service_id() != service)
-                    throw std::invalid_argument("market service identity mismatch");
+                failure.set_id(request.id());
                 const auto client = settings.clients.find(peer.fingerprint);
                 if (client == settings.clients.end()
                     || ((request.has_start_acquisition() || request.has_cancel_acquisition())
@@ -81,7 +75,7 @@ int main(int argc, char** argv)
                     throw Error(
                         ErrorCode::permission_denied,
                         "Market acquisition management permission is required");
-                if (request.has_stream_live_quotes()) {
+                if (request.has_stream_quotes()) {
                     if (watchers == 32)
                         throw Error(ErrorCode::resource_exhausted, "market watch capacity is full");
                     pending->watchers = &watchers;
@@ -144,7 +138,7 @@ int main(int argc, char** argv)
             io_progress);
         // Listen before starting resources whose teardown may wait for a provider.
         state = std::make_unique<market_data::Session>(
-            market_data::Session::Configuration{service, instance, settings});
+            market_data::Session::Configuration{instance, settings});
         try {
             if (!host.run())
                 std::_Exit(1);

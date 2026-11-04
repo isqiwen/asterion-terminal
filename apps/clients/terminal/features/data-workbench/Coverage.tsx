@@ -1,4 +1,4 @@
-import { TaskState } from "../../src/generated/asterion/acquisition_pb";
+import { Table, TaskState } from "../../src/generated/asterion/market_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinuteComparison } from "./MinuteComparison";
 import { RecordingStatus } from "./RecordingStatus";
@@ -31,17 +31,15 @@ const states: Record<number, string> = {
 };
 const activeTask = (task: MarketTask) => [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
-const tableName = (name: string) =>
-  t(
-    {
-      daily: "日线",
-      calendar: "交易日历",
-      contracts: "合约表",
-      minutes: "分钟线",
-      settlement: "结算参数",
-      observations: "观测区间",
-    }[name] ?? name,
-  );
+const tables: Partial<Record<Table, string>> = {
+  [Table.DAILY]: "日线",
+  [Table.CALENDAR]: "交易日历",
+  [Table.CONTRACTS]: "合约表",
+  [Table.MINUTES]: "分钟线",
+  [Table.SETTLEMENT]: "结算参数",
+  [Table.OBSERVATIONS]: "观测区间",
+};
+const tableName = (table: Table) => t(tables[table] ?? Table[table]);
 type Source = Pick<MarketSource, "provider" | "tables" | "exchanges">;
 
 // Every read and acquisition goes to the saved remote Market. Browsing a
@@ -81,24 +79,14 @@ function DataPage({ context }: { context: TerminalContext }) {
     let active = true;
     const load = async () => {
       try {
-        const catalog = await marketData(
-          { case: "listAcquisitionSources", value: {} },
-          "acquisitionSources",
-        );
+        const catalog = await marketData({ case: "listSources", value: {} });
         const listed = new Map<string, Source>(catalog.sources.map(item => [item.provider, item]));
-        let afterProvider = "";
-        do {
-          const page = await marketData(
-            { case: "listDatasets", value: { afterProvider } },
-            "datasets",
-          );
-          for (const item of page.sources) {
-            // A disabled provider's already stored dataset is still readable.
-            if (!listed.has(item.provider))
-              listed.set(item.provider, { provider: item.provider, tables: [], exchanges: [] });
-          }
-          afterProvider = page.nextProvider;
-        } while (afterProvider && active);
+        const stored = await marketData({ case: "listDatasets", value: {} });
+        for (const item of stored.datasets) {
+          // A disabled provider's already stored dataset is still readable.
+          if (!listed.has(item.provider))
+            listed.set(item.provider, { provider: item.provider, tables: [], exchanges: [] });
+        }
         if (!active) return;
         // What research reads comes first.
         const next = [...listed.values()].sort(
@@ -173,7 +161,7 @@ function DataPage({ context }: { context: TerminalContext }) {
 
 function SourceCoverage({ source, canManage }: { source: Source; canManage: boolean }) {
   const provider = source.provider;
-  const [table, setTable] = useState(source.tables[0] ?? "");
+  const [table, setTable] = useState(source.tables[0] ?? Table.UNSPECIFIED);
   const [exchange, setExchange] = useState(source.exchanges[0] ?? "");
   const [contract, setContract] = useState("");
   const [replace, setReplace] = useState(false);
@@ -194,36 +182,15 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     if (pending.current) return;
     pending.current = true;
     try {
-      const nextSummary = await marketData(
-        { case: "getDatasetSummary", value: { provider } },
-        "datasetSummary",
-      );
-      const products: MarketCoverage["products"] = [];
-      if (nextSummary.datasetVersion) {
-        let afterProduct = "";
-        do {
-          const page = await marketData(
-            {
-              case: "getDatasetCoverage",
-              value: {
-                provider,
-                datasetVersion: nextSummary.datasetVersion,
-                afterProduct,
-              },
-            },
-            "datasetCoverage",
-          );
-          products.push(...page.products);
-          afterProduct = page.nextProduct;
-        } while (afterProduct && mounted.current);
-      }
+      const nextSummary = await marketData({ case: "getDatasetSummary", value: { provider } });
+      const version = nextSummary.dataset?.version;
+      const products = version
+        ? (await marketData({ case: "getDatasetCoverage", value: { provider, version } })).products
+        : [];
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
-        const page = await marketData(
-          { case: "listAcquisitionTasks", value: { afterId } },
-          "acquisitionTasks",
-        );
+        const page = await marketData({ case: "listAcquisitionTasks", value: { afterId } });
         nextTasks.push(...page.tasks.filter(task => task.request?.provider === provider));
         afterId = page.nextId;
       } while (afterId && mounted.current);
@@ -232,7 +199,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       setCoverage(products);
       setTasks(
         nextTasks.sort((a, b) =>
-          a.startedNs > b.startedNs ? -1 : a.startedNs < b.startedNs ? 1 : 0,
+          a.startedMs > b.startedMs ? -1 : a.startedMs < b.startedMs ? 1 : 0,
         ),
       );
       setError("");
@@ -260,29 +227,26 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     const id = `${provider}-${crypto.randomUUID()}`;
     setSubmitted(id);
     await started.attempt(async () => {
-      await marketData(
-        {
-          case: "startAcquisition",
-          value: {
-            id,
-            provider,
-            table,
-            refresh: replace,
-            exchanges: [exchange],
-            contract: table === "minutes" ? contract : "",
-            beginDay: begin,
-            endDay: end,
-          },
+      await marketData({
+        case: "startAcquisition",
+        value: {
+          id,
+          provider,
+          table,
+          refetch: replace,
+          exchanges: [exchange],
+          contract: table === Table.MINUTES ? contract : "",
+          firstDay: begin,
+          lastDay: end,
         },
-        "acquisitionTask",
-      );
+      });
       await refresh();
     });
     if (mounted.current) setSubmitting(false);
   };
   const cancel = (id: string) =>
     cancelled.attempt(async () => {
-      await marketData({ case: "cancelAcquisition", value: { id } }, "acquisitionTask");
+      await marketData({ case: "cancelAcquisition", value: { id } });
       await refresh();
     });
   const months = useMemo(
@@ -294,12 +258,12 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       <section className="data-card" aria-label={t("数据集版本")}>
         <header>
           <h3>{t("数据集版本")}</h3>
-          {summary?.datasetVersion && (
-            <code title={summary.datasetVersion}>{summary.datasetVersion.slice(0, 12)}</code>
+          {summary?.dataset?.version && (
+            <code title={summary.dataset.version}>{summary.dataset.version.slice(0, 12)}</code>
           )}
         </header>
         <ErrorNotice error={error} />
-        {summary?.datasetVersion ? (
+        {summary?.dataset?.version ? (
           <table className="data-table">
             <thead>
               <tr>
@@ -343,7 +307,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           <div className="data-fields">
             <label>
               {t("表")}
-              <select value={table} onChange={event => setTable(event.target.value)}>
+              <select value={table} onChange={event => setTable(Number(event.target.value))}>
                 {source.tables.map(item => (
                   <option key={item} value={item}>
                     {tableName(item)}
@@ -365,7 +329,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 ))}
               </select>
             </label>
-            {table === "minutes" && (
+            {table === Table.MINUTES && (
               <label>
                 {t("合约（分钟线必填）")}
                 <input
@@ -409,7 +373,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 begin > end ||
                 !exchange ||
                 !table ||
-                (table === "minutes" && !contract)
+                (table === Table.MINUTES && !contract)
               }
               onClick={() => void acquire()}
             >
@@ -455,19 +419,19 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                   </td>
                   <td>{tableName(task.request!.table)}</td>
                   <td>
-                    {task.request!.beginDay} – {task.request!.endDay}
+                    {task.request!.firstDay} – {task.request!.lastDay}
                   </td>
-                  <td title={task.error} data-state={TaskState[task.state].toLowerCase()}>
+                  <td title={task.error?.message} data-state={TaskState[task.state].toLowerCase()}>
                     {t(states[task.state] ?? String(task.state))}
-                    {task.error ? ` · ${task.error}` : ""}
+                    {task.error ? ` · ${task.error.message}` : ""}
                   </td>
                   <td>
-                    {task.daysDone.toString()} / {task.daysTotal.toString()}
-                    {task.daysEmpty > 0n
-                      ? ` · ${t("{count} 天来源尚无数据", { count: Number(task.daysEmpty) })}`
+                    {task.itemsDone.toString()} / {task.items.toString()}
+                    {task.itemsEmpty > 0n
+                      ? ` · ${t("{count} 天来源尚无数据", { count: Number(task.itemsEmpty) })}`
                       : ""}
                   </td>
-                  <td className="numeric">{task.requests.toString()}</td>
+                  <td className="numeric">{task.requestsSent.toString()}</td>
                   <td>
                     {canManage && activeTask(task) && (
                       <button onClick={() => void cancel(task.request!.id)}>{t("取消")}</button>
@@ -501,10 +465,8 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 {coverage.map(product => {
                   const byMonth = new Map(product.months.map(m => [m.month, m]));
                   return (
-                    <tr key={`${product.exchange}/${product.product}`}>
-                      <th scope="row">
-                        {product.exchange}/{product.product}
-                      </th>
+                    <tr key={product.product}>
+                      <th scope="row">{product.product}</th>
                       {months.map(month => {
                         const cell = byMonth.get(month);
                         const share = cell?.openDays ? cell.days / cell.openDays : 0;

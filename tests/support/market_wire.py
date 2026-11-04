@@ -4,8 +4,10 @@ import market_tls
 
 
 def send(stream, operation, **values):
-    request = Request(version=1, service_id='market-data', correlation_id=operation)
-    getattr(request, operation).CopyFrom(getattr(request, operation).__class__(**values))
+    request = Request(id=1)
+    call = getattr(request, operation)
+    call.SetInParent()
+    call.CopyFrom(call.__class__(**values))
     payload = request.SerializeToString()
     stream.sendall(len(payload).to_bytes(4, 'big') + payload)
 
@@ -24,6 +26,7 @@ def receive(stream):
 
 
 def rpc(tls, port, operation, role='reader', **values):
+    """The result of one call, which has the call's name."""
     with market_tls.connect(tls, port, role) as stream:
         send(stream, operation, **values)
-        return receive(stream)
+        return getattr(receive(stream), operation)

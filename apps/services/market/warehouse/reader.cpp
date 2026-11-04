@@ -1,36 +1,40 @@
 #include "reader.hpp"
 #include "parquet_engine.hpp"
+#include <asterion/protocol/market.hpp>
 #include <asterion/base/error.hpp>
 #include <algorithm>
 #include <fstream>
 #include <set>
-#include <regex>
 
 namespace asterion::market_data::warehouse {
 namespace fs = std::filesystem;
-namespace wire = dataset::proto;
+namespace wire = ::market;
 
 namespace {
-
-std::uint32_t limit(std::uint32_t requested, std::uint32_t standard, std::uint32_t maximum)
-{
-    if (requested > maximum)
-        throw std::invalid_argument("dataset read limit is too large");
-    return requested ? requested : standard;
-}
 
 Version selected(const Store& store, const std::string& identity)
 {
     return identity.empty() ? store.current() : store.version(identity);
 }
 
+Store open_store(const fs::path& directory, const wire::DatasetRef& ref)
+{
+    return Store(source_directory(directory, ref.provider()), ref.provider());
+}
+
+wire::Dataset dataset_of(const Version& version)
+{
+    wire::Dataset out;
+    out.set_provider(version.provider);
+    out.set_version(version.identity);
+    out.set_created_ms(version.created_ns / 1'000'000);
+    return out;
+}
+
 } // namespace
 
-wire::Sources Reader::sources(const wire::SourcesQuery& query) const
+wire::Datasets Reader::datasets() const
 {
-    const auto count = limit(query.limit(), 64, 128);
-    if (!query.after_provider().empty())
-        require_provider(query.after_provider());
     std::set<std::string> providers;
     if (fs::exists(directory_ / "warehouse/current"))
         providers.insert("tushare");
@@ -41,37 +45,27 @@ wire::Sources Reader::sources(const wire::SourcesQuery& query) const
                 providers.insert(entry.path().filename().string());
         }
     }
-    wire::Sources result;
-    for (auto at = providers.upper_bound(query.after_provider()); at != providers.end(); ++at) {
-        if (result.sources_size() == static_cast<int>(count)) {
-            result.set_next_provider(result.sources(result.sources_size() - 1).provider());
-            break;
-        }
-        const auto version = Store(source_directory(directory_, *at), *at).current();
-        auto* source = result.add_sources();
-        source->set_provider(*at);
-        source->set_dataset_version(version.identity);
-        source->set_created_ns(version.created_ns);
-    }
+    wire::Datasets result;
+    for (const auto& provider : providers)
+        *result.add_datasets() =
+            dataset_of(Store(source_directory(directory_, provider), provider).current());
     return result;
 }
 
-wire::Version Reader::version(const wire::VersionQuery& query) const
+wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
 {
-    const auto count = limit(query.limit(), 128, 512);
     if (!query.after_key().empty()) {
         require_key(query.after_key());
-        require_identity(query.dataset_version());
+        require_identity(query.dataset().version());
     }
-    if (!query.table().empty())
-        columns(query.table());
-    const Store store(source_directory(directory_, query.provider()), query.provider());
-    const auto version = selected(store, query.dataset_version());
-    wire::Version result;
-    result.set_provider(version.provider);
-    result.set_dataset_version(version.identity);
+    const auto wanted = query.table() == wire::TABLE_UNSPECIFIED
+        ? std::string{}
+        : protocol::table_name(query.table());
+    const auto store = open_store(directory_, query.dataset());
+    const auto version = selected(store, query.dataset().version());
+    wire::DatasetVersion result;
+    *result.mutable_dataset() = dataset_of(version);
     result.set_parent(version.parent);
-    result.set_created_ns(version.created_ns);
     for (auto at = version.partitions.upper_bound(query.after_key());
         at != version.partitions.end();
         ++at) {
@@ -79,20 +73,21 @@ wire::Version Reader::version(const wire::VersionQuery& query) const
         const auto slash = key.find('/');
         const auto table = key.substr(0, slash);
         const auto exchange = key.substr(slash + 1, key.find('/', slash + 1) - slash - 1);
-        if ((!query.table().empty() && query.table() != table)
+        if ((!wanted.empty() && wanted != table)
             || (!query.exchange().empty() && query.exchange() != exchange))
             continue;
-        if (result.partitions_size() == static_cast<int>(count)) {
+        if (result.partitions_size() == page_) {
             result.set_next_key(result.partitions(result.partitions_size() - 1).key());
             break;
         }
         auto* item = result.add_partitions();
         item->set_key(key);
+        item->set_table(protocol::table_of(table));
         item->set_sha256(part.sha256);
         item->set_rows(part.rows);
         for (const auto& day : part.days)
             item->add_days(day);
-        item->set_source(part.source);
+        item->set_taken_from(part.source);
     }
     if (result.ByteSizeLong() > 1024 * 1024)
         throw Error(
@@ -101,20 +96,17 @@ wire::Version Reader::version(const wire::VersionQuery& query) const
     return result;
 }
 
-wire::File Reader::file(const wire::FileQuery& query) const
+wire::DatasetFile Reader::file(const wire::ReadDatasetFile& query) const
 {
-    const auto count = limit(query.limit(), 1024 * 1024, 1024 * 1024);
-    require_identity(query.dataset_version());
-    const Store store(source_directory(directory_, query.provider()), query.provider());
-    const auto version = store.version(query.dataset_version());
+    const std::uint64_t count = 1024 * 1024;
+    require_identity(query.dataset().version());
+    const auto store = open_store(directory_, query.dataset());
+    const auto version = store.version(query.dataset().version());
     const auto path = store.file(version, query.key());
     const auto size = fs::file_size(path);
     if (query.offset() > size)
         throw std::invalid_argument("dataset offset exceeds the partition size");
-    wire::File result;
-    result.set_provider(version.provider);
-    result.set_dataset_version(version.identity);
-    result.set_key(query.key());
+    wire::DatasetFile result;
     result.set_sha256(version.partitions.at(query.key()).sha256);
     result.set_offset(query.offset());
     result.set_size(size);
@@ -127,18 +119,16 @@ wire::File Reader::file(const wire::FileQuery& query) const
     return result;
 }
 
-wire::Summary Reader::summary(const wire::SummaryQuery& query) const
+wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
 {
-    const Store store(source_directory(directory_, query.provider()), query.provider());
-    const auto version = selected(store, query.dataset_version());
-    wire::Summary result;
-    result.set_provider(version.provider);
-    result.set_dataset_version(version.identity);
-    result.set_created_ns(version.created_ns);
+    const auto store = open_store(directory_, query);
+    const auto version = selected(store, query.version());
+    wire::DatasetSummary result;
+    *result.mutable_dataset() = dataset_of(version);
     for (const auto* table :
         {"daily", "calendar", "contracts", "minutes", "settlement", "observations"}) {
         auto* item = result.add_tables();
-        item->set_table(table);
+        item->set_table(protocol::table_of(table));
         std::string files;
         // Partitions name the days they hold; only those that do not are read.
         std::set<std::string> days;
@@ -168,18 +158,12 @@ wire::Summary Reader::summary(const wire::SummaryQuery& query) const
     return result;
 }
 
-wire::Coverage Reader::coverage(const wire::CoverageQuery& query) const
+wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
 {
-    const auto count = limit(query.limit(), 64, 128);
-    require_identity(query.dataset_version());
-    if (!query.after_product().empty()
-        && !std::regex_match(query.after_product(), std::regex("[A-Z]{3,5}/[a-z]{1,3}")))
-        throw std::invalid_argument("invalid coverage product cursor");
-    const Store store(source_directory(directory_, query.provider()), query.provider());
-    const auto version = store.version(query.dataset_version());
-    wire::Coverage result;
-    result.set_provider(version.provider);
-    result.set_dataset_version(version.identity);
+    require_identity(query.version());
+    const auto store = open_store(directory_, query);
+    const auto version = store.version(query.version());
+    wire::DatasetCoverage result;
     std::string daily, calendar;
     for (const auto& [key, part] : version.partitions) {
         auto* files = key.starts_with("daily/") ? &daily
@@ -197,21 +181,15 @@ wire::Coverage Reader::coverage(const wire::CoverageQuery& query) const
             ? "CREATE TEMP VIEW calendar AS SELECT NULL::VARCHAR AS exchange, NULL::DATE AS day," " false AS open WHERE false"
             : "CREATE TEMP VIEW calendar AS SELECT * FROM read_parquet([" + calendar + "])");
     const auto rows = engine.run(
-        "WITH products AS (SELECT DISTINCT exchange, product FROM daily WHERE exchange || '/' || product > '"
-        + query.after_product() + "' ORDER BY exchange, product LIMIT " + std::to_string(count + 1)
-        + "), d AS (SELECT exchange, product, strftime(day, '%Y-%m') AS month," " count(DISTINCT day) AS days FROM daily JOIN products USING (exchange, product) GROUP BY ALL)," " c AS (SELECT exchange, strftime(day, '%Y-%m') AS month, count(DISTINCT day) AS open_days" " FROM calendar WHERE open GROUP BY ALL)" " SELECT d.exchange, d.product, d.month, d.days, coalesce(c.open_days, 0)" " FROM d LEFT JOIN c USING (exchange, month) ORDER BY 1, 2, 3");
+        "WITH d AS (SELECT exchange, product, strftime(day, '%Y-%m') AS month," " count(DISTINCT day) AS days FROM daily GROUP BY ALL)," " c AS (SELECT exchange, strftime(day, '%Y-%m') AS month, count(DISTINCT day) AS open_days" " FROM calendar WHERE open GROUP BY ALL)" " SELECT d.exchange, d.product, d.month, d.days, coalesce(c.open_days, 0)" " FROM d LEFT JOIN c USING (exchange, month) ORDER BY 1, 2, 3");
     wire::ProductCoverage* product = nullptr;
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
         const auto exchange = rows->GetValue(0, row).ToString();
         const auto name = rows->GetValue(1, row).ToString();
-        if (!product || product->exchange() != exchange || product->product() != name) {
-            if (result.products_size() == static_cast<int>(count)) {
-                result.set_next_product(product->exchange() + '/' + product->product());
-                break;
-            }
+        const auto key = exchange + '/' + name;
+        if (!product || product->product() != key) {
             product = result.add_products();
-            product->set_exchange(exchange);
-            product->set_product(name);
+            product->set_product(key);
         }
         auto* month = product->add_months();
         month->set_month(rows->GetValue(2, row).ToString());

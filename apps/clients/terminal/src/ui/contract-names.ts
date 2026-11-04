@@ -1,7 +1,7 @@
-import type { CatalogContract, CatalogState } from "../generated/asterion/market_pb";
+import type { CatalogContract, Catalog } from "../generated/asterion/market_pb";
 import { getLocale } from "../i18n";
 
-type Id = { venue: string; symbol: string };
+type Id = { exchange: string; symbol: string };
 
 // Each product's name in Chinese and in English, as the exchanges publish them.
 // Names only label quotes; identity is always venue + symbol.
@@ -98,30 +98,30 @@ const products: Record<string, [string, string]> = {
 const english = () => getLocale() === "en-US";
 const productName = (venue: string, product: string) =>
   products[`${venue}.${product}`]?.[english() ? 1 : 0];
-const listed = (row: Id, catalog?: CatalogState) =>
+const listed = (row: Id, catalog?: Catalog) =>
   catalog?.contracts.find(
-    item => item.instrument?.venue === row.venue && item.instrument.symbol === row.symbol,
+    item => item.instrument?.exchange === row.exchange && item.instrument.symbol === row.symbol,
   );
 
 // A product's name for a catalog contract, e.g. 螺纹钢 or Rebar for SHFE.rb.
-export function productLabel(row: Id, catalog?: CatalogState) {
+export function productLabel(row: Id, catalog?: Catalog) {
   const contract = listed(row, catalog);
-  return contract ? (productName(row.venue, contract.product) ?? contract.product) : undefined;
+  return contract ? (productName(row.exchange, contract.product) ?? contract.product) : undefined;
 }
 
 // A dated contract's name, e.g. 螺纹钢2610 or Rebar 2610. In Chinese the
 // provider's own name comes first; providers name contracts only in Chinese.
 export function catalogName(contract: CatalogContract) {
-  const { venue, symbol } = contract.instrument!;
+  const { exchange, symbol } = contract.instrument!;
   const provided = contract.name.trim();
   if (!english() && provided && provided !== symbol) return provided;
-  const label = productName(venue, contract.product);
+  const label = productName(exchange, contract.product);
   return label && symbol.startsWith(contract.product)
     ? `${label}${english() ? " " : ""}${symbol.slice(contract.product.length)}`
     : undefined;
 }
 
-export function contractName(row: Id, catalog?: CatalogState) {
+export function contractName(row: Id, catalog?: Catalog) {
   const contract = listed(row, catalog);
   return contract && catalogName(contract);
 }

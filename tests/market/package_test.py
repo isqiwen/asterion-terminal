@@ -23,7 +23,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).parents[1] / 'support'))
 import market_tls
 from market_wire import rpc
-from asterion import acquisition_pb2 as acquisition
+from asterion import market_pb2 as market
 
 
 def unpack(bundle, root):
@@ -103,23 +103,23 @@ def main():
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):
             rpc(tls, port, 'start_acquisition', 'manager', id='recorded-release', provider='recorder',
-                table='minutes', contract='SHFE/rb/2027-01', begin_day='2026-10-28', end_day='2026-10-28')
+                table=market.TABLE_MINUTES, contract='SHFE/rb/2027-01', first_day='2026-10-28',
+                last_day='2026-10-28')
             deadline = time.monotonic() + 30
             while True:
-                task = rpc(tls, port, 'get_acquisition_task', id='recorded-release').acquisition_task
-                if task.state not in (acquisition.TASK_STATE_QUEUED, acquisition.TASK_STATE_RUNNING):
+                task = rpc(tls, port, 'get_acquisition_task', id='recorded-release')
+                if task.state not in (market.TASK_STATE_QUEUED, market.TASK_STATE_RUNNING):
                     break
                 assert time.monotonic() < deadline, task
                 time.sleep(.05)
-            assert task.state == acquisition.TASK_STATE_SUCCEEDED, task
-            version = task.dataset_version
-            assert version
+            assert task.state == market.TASK_STATE_SUCCEEDED, task
+            dataset = dict(provider='recorder', version=task.published_version)
+            assert task.published_version
             def published():
-                manifest = rpc(tls, port, 'get_dataset_version', provider='recorder', dataset_version=version).dataset
+                manifest = rpc(tls, port, 'get_dataset_version', dataset=dataset)
                 partition, = manifest.partitions
                 assert partition.rows == 1, partition
-                return rpc(tls, port, 'read_dataset_file', provider='recorder', dataset_version=version,
-                           key=partition.key).dataset_file.data
+                return rpc(tls, port, 'read_dataset_file', dataset=dataset, key=partition.key).data
             before = published()
             table = pl.read_parquet(io.BytesIO(before))
             assert table['close'].to_list() == [Decimal('3100.123456')]
@@ -127,7 +127,7 @@ def main():
         # recordings and fixed versions remain readable after a restart.
         unpack(sys.argv[1], Path(folder))
         with running(root, port):
-            assert rpc(tls, port, 'get_acquisition_task', id='recorded-release').acquisition_task == task
+            assert rpc(tls, port, 'get_acquisition_task', id='recorded-release') == task
             assert published() == before
     print('Pure C++ release: publication, fixed reads and restart passed without Python')
 

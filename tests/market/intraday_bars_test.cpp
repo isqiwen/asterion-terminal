@@ -103,7 +103,7 @@ TEST(IntradayBars, ProtocolCarriesBarsAndThePreviousSettlement)
     bars.observe(quote(base, "100", 10));
     const auto encoded = protocol::encode_minutes(*bars.series({"SHFE", "br2611"}));
     EXPECT_EQ(encoded.bars_size(), 1);
-    EXPECT_EQ(encoded.previous_settlement(), Decimal::parse("15390").str());
+    EXPECT_EQ(encoded.previous_settlement().text(), Decimal::parse("15390").str());
 }
 
 TEST(IntradayBars, IsolatedReplayDoesNotInflateDuplicatesOrFillMissingMinutes)

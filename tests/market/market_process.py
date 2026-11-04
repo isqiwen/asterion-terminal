@@ -24,14 +24,14 @@ def ready(process):
     while time.monotonic()<deadline:
         watch=call(process,'market.watch',dict(restart=False))['market_watch']
         for frame in reversed(watch['frames']):
-            frame = frame.get('snapshot', frame.get('delta', {}))
-            rows=frame.get('quotes',[])
+            frame = frame.get('full', frame.get('changed', {}))
+            rows=frame.get('rows',[])
             if watch['online'] and rows and 'quote' in rows[0]:
                 return frame
         time.sleep(.1)
     raise AssertionError(watch)
-def recording(process):
-    return call(process,'market.call',dict(request=dict(getRecordingStatus={})))['market']['recordingStatus']
+def status(process):
+    return call(process,'market.call',dict(request=dict(getStatus={})))['market']['getStatus']
 def close(process):
     process.stdin.close();process.wait(timeout=8)
     assert process.returncode == 0, process.stderr.read()
@@ -40,25 +40,24 @@ try:
     call(process,'market.endpoint.save',dict(host='127.0.0.1',port=port,fingerprint=market_tls.fingerprint(tls)))
     call(process,'market.open')
     frame=ready(process)
-    instance=frame['instanceId']
-    status=recording(process)
-    assert status['instance']==instance and status['phase']=='connected',status
-    assert status['subscribed']==1 and int(status['lastQuoteMs'])>0,status
-    assert frame['quotes'][0]['quote']['last']=='3510'
+    started=status(process)
+    assert started['feed']['state']=='FEED_STATE_CONNECTED',started
+    assert started['subscribed']==1 and int(started['lastQuoteMs'])>0,started
+    assert frame['rows'][0]['quote']['last']['text']=='3510'
     state=call(process,'runtime.snapshot')
     assert 'market' not in state
-    selected=[dict(venue='SHFE',symbol='rb2610')]
+    selected=[dict(exchange='SHFE',symbol='rb2610')]
     state=call(process,'market.watchlist',dict(instruments=selected))
     assert state['market_endpoint']['instruments']==selected
     call(process,'market.close')
     assert call(process,'market.watch',dict(restart=False))['market_watch'] is None
     call(process,'market.open')
-    assert ready(process)['instanceId']==instance
+    assert ready(process)['rows'][0]['quote']['last']['text']=='3510'
     close(process)
     process=terminal()
     call(process,'market.open')
     frame=ready(process)
-    assert frame['instanceId']==instance
+    assert status(process)['startedMs']==started['startedMs']
     assert call(process,'runtime.snapshot')['market_endpoint']['instruments']==selected
     assert 'fixture-only-secret' not in json.dumps(frame)
     call(process,'market.endpoint.clear')

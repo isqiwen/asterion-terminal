@@ -11,13 +11,13 @@ def account_policy(catalog, symbol="rb2610", working_orders="2"):
     """A liveCreate with one contract from Market's CTP catalog (ProtoJSON):
     5 per order, 10 held, 2% deviation."""
     row = next(c for c in catalog["contracts"] if c["instrument"]["symbol"] == symbol)
-    _, product, month = row["contractId"].split("/")
+    _, product, month = row["contract"].split("/")
     return {"liveCreate": {
         "risk": {"maxOrderQuantity": units(5), "maxGrossQuantity": units(10),
                  "maxWorkingOrders": working_orders},
         "maxPriceDeviation": units("0.02"),
-        "contracts": [{"venue": row["instrument"]["venue"], "symbol": symbol, "currency": "CNY",
-                       "priceIncrement": units(row["priceTick"]), "quantityIncrement": units(1),
+        "contracts": [{"venue": row["instrument"]["exchange"], "symbol": symbol, "currency": "CNY",
+                       "priceIncrement": units(row["priceTick"]["text"]), "quantityIncrement": units(1),
                        "multiplier": units(row["multiplier"]), "product": product,
                        "deliveryMonth": month}]}}
 
@@ -26,8 +26,8 @@ def market_catalog(call):
     """Market's CTP contract catalog through the Terminal relay, once it has loaded."""
     deadline = time.monotonic() + 20
     while True:
-        catalog = call("market.call", {"request": {"getLiveSnapshot": {}}})["market"]["snapshot"]["catalog"]
-        if catalog.get("phase") == "ready":
+        catalog = call("market.call", {"request": {"getBoard": {}}})["market"]["getBoard"].get("catalog", {})
+        if catalog.get("status", {}).get("state") == "CATALOG_STATE_READY":
             return catalog
         assert time.monotonic() < deadline, catalog
         time.sleep(0.2)

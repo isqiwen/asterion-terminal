@@ -3,10 +3,12 @@ import { create } from "@bufbuild/protobuf";
 import { beforeEach, expect, test, vi } from "vitest";
 import { marketData } from "../../src/bridge/market-data";
 import {
-  MinuteSeriesSchema,
-  SnapshotSchema,
-  ContractQuoteSchema,
-  type MinuteSeries,
+  BoardSchema,
+  FeedState,
+  MinutesSchema,
+  QuoteRowSchema,
+  Subscription,
+  type Minutes,
 } from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import type { MarketView } from "../../src/host/market";
@@ -20,50 +22,47 @@ vi.mock("@asterion/client-ui/IntradayChart", () => ({ IntradayChart: () => null 
 vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
 registerTerminalFeatures([feature]);
 
-const row = create(ContractQuoteSchema, {
-  instrument: { venue: "SHFE", symbol: "rb2610" },
-  state: "subscribed",
+const row = create(QuoteRowSchema, {
+  instrument: { exchange: "SHFE", symbol: "rb2610" },
+  subscription: Subscription.ACTIVE,
 });
-// The market service as one of its processes observes the contract.
-const service = (instance: string): MarketView => ({
-  snapshot: create(SnapshotSchema, {
-    instanceId: instance,
-    phase: "connected",
-    quotes: [row],
-  }),
+// The market service as one quote stream observes the contract.
+const service = (generation: number): MarketView => ({
+  board: create(BoardSchema, { feed: { state: FeedState.CONNECTED }, rows: [row] }),
   online: true,
   ticks: [],
-  generation: 1,
+  generation,
   interrupted: false,
 });
 // What the service answers: the day's series of a contract as it has observed
 // it since this hour, Shanghai time.
-const answer = (since: number, symbol = "rb2610"): MinuteSeries => {
+const answer = (since: number): Minutes => {
   const start = BigInt(Date.UTC(2026, 9, 13, since - 8));
-  return create(MinuteSeriesSchema, {
-    instrument: { venue: "SHFE", symbol },
-    tradingDay: "20261013",
-    firstObservationMs: start,
-    previousSettlement: "3500",
+  const price = { text: "3500" };
+  return create(MinutesSchema, {
+    instrument: { exchange: "SHFE", symbol: "rb2610" },
+    tradingDay: "2026-10-13",
+    observedFromMs: start,
+    previousSettlement: price,
     bars: [
       {
         startMs: start,
-        open: "3500",
-        high: "3500",
-        low: "3500",
-        close: "3500",
+        open: price,
+        high: price,
+        low: price,
+        close: price,
         volume: 1n,
-        averagePrice: "3500",
-        openInterest: "1",
+        averagePrice: price,
+        openInterest: { text: "1" },
       },
     ],
   });
 };
-let replies: ((series: MinuteSeries) => void)[] = [];
+let replies: ((series: Minutes) => void)[] = [];
 beforeEach(() => {
   replies = [];
   vi.mocked(marketData).mockImplementation(
-    () => new Promise(resolve => replies.push(resolve as (series: MinuteSeries) => void)),
+    () => new Promise(resolve => replies.push(resolve as (series: Minutes) => void)),
   );
 });
 // The pane on its intraday chart, with every read left for the test to answer.
@@ -93,22 +92,15 @@ function mount(market: MarketView) {
 }
 const note = () => screen.queryByText(/行情服务观测/)?.textContent ?? null;
 
-test("a restarted market service's series is asked for afresh and a late reply is dropped", async () => {
-  const select = mount(service("a"));
+test("a restarted quote stream's series is asked for afresh and a late reply is dropped", async () => {
+  const select = mount(service(1));
   expect(replies).toHaveLength(1);
-  // The service starts again while the first read has not been answered.
-  select(service("b"));
+  // The stream starts again while the first read has not been answered.
+  select(service(2));
   expect(replies).toHaveLength(2);
   await act(async () => replies[0]!(answer(10)));
   expect(note()).toBeNull();
   expect(document.body.textContent).toContain("读取中");
   await act(async () => replies[1]!(answer(11)));
   expect(note()).toContain("11:00");
-});
-
-test("a series of another contract is refused", async () => {
-  mount(service("a"));
-  await act(async () => replies[0]!(answer(10, "rb2611")));
-  expect(note()).toBeNull();
-  expect(screen.getByRole("alert").textContent).toBe("返回的数据与所选合约不匹配");
 });

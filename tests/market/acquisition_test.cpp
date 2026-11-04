@@ -167,19 +167,19 @@ ac::Factory factory(const std::shared_ptr<Vendor>& vendor)
     };
 }
 
-ac::wire::Request request(const std::string& id, const std::string& provider = "tushare")
+ac::wire::StartAcquisition request(const std::string& id, const std::string& provider = "tushare")
 {
-    ac::wire::Request result;
+    ac::wire::StartAcquisition result;
     result.set_id(id);
     result.set_provider(provider);
-    result.set_table("daily");
-    result.set_begin_day("2026-01-01");
-    result.set_end_day("2026-01-31");
+    result.set_table(::market::TABLE_DAILY);
+    result.set_first_day("2026-01-01");
+    result.set_last_day("2026-01-31");
     result.add_exchanges("SHFE");
     return result;
 }
 
-ac::wire::Task finished(ac::Manager& manager, const std::string& id)
+ac::wire::AcquisitionTask finished(ac::Manager& manager, const std::string& id)
 {
     const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
     for (;;) {
@@ -335,9 +335,9 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     manager.submit(request("first"));
     const auto first = finished(manager, "first");
-    ASSERT_EQ(first.state(), ac::wire::TASK_STATE_SUCCEEDED) << first.error();
-    EXPECT_EQ(first.days_total(), 2);
-    EXPECT_EQ(first.days_empty(), 1);
+    ASSERT_EQ(first.state(), ac::wire::TASK_STATE_SUCCEEDED) << first.error().message();
+    EXPECT_EQ(first.items(), 2);
+    EXPECT_EQ(first.items_empty(), 1);
     wh::Store store(root, "tushare");
     const auto original = store.current();
     EXPECT_EQ(
@@ -347,12 +347,12 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     manager.submit(request("fill"));
     const auto filled = finished(manager, "fill");
     EXPECT_EQ(filled.state(), ac::wire::TASK_STATE_SUCCEEDED);
-    EXPECT_EQ(filled.days_total(), 1);
+    EXPECT_EQ(filled.items(), 1);
     const auto before_refresh = store.current();
     auto refresh = request("refresh");
-    refresh.set_begin_day("2026-01-05");
-    refresh.set_end_day("2026-01-05");
-    refresh.set_refresh(true);
+    refresh.set_first_day("2026-01-05");
+    refresh.set_last_day("2026-01-05");
+    refresh.set_refetch(true);
     vendor->close = "1616.25";
     manager.submit(refresh);
     EXPECT_EQ(finished(manager, "refresh").state(), ac::wire::TASK_STATE_SUCCEEDED);
@@ -367,15 +367,14 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     EXPECT_THROW(manager.submit(request("first")), Error);
     manager.stop();
     ac::Manager restarted(root, {{"tushare", factory(vendor)}});
-    EXPECT_EQ(restarted.get("first").dataset_version(), first.dataset_version());
+    EXPECT_EQ(restarted.get("first").published_version(), first.published_version());
     EXPECT_THROW(restarted.submit(request("first")), Error);
-    ac::wire::TasksQuery query;
-    query.set_limit(1);
+    ac::wire::ListAcquisitionTasks query;
     const auto page = restarted.list(query);
-    ASSERT_EQ(page.tasks_size(), 1);
-    ASSERT_FALSE(page.next_id().empty());
-    query.set_after_id(page.next_id());
-    EXPECT_NE(restarted.list(query).tasks(0).request().id(), page.tasks(0).request().id());
+    ASSERT_EQ(page.tasks_size(), 3);
+    EXPECT_TRUE(page.next_id().empty());
+    query.set_after_id(page.tasks(0).request().id());
+    EXPECT_EQ(restarted.list(query).tasks(0).request().id(), page.tasks(1).request().id());
 }
 
 TEST_F(Acquisition, AProviderIsNotAskedForToday)
@@ -387,8 +386,8 @@ TEST_F(Acquisition, AProviderIsNotAskedForToday)
     const auto today = std::chrono::floor<std::chrono::days>(
         std::chrono::system_clock::now() + std::chrono::hours(8));
     auto through_today = request("through-today");
-    through_today.set_begin_day(ac::day_text(today - std::chrono::days(7)));
-    through_today.set_end_day(ac::day_text(today));
+    through_today.set_first_day(ac::day_text(today - std::chrono::days(7)));
+    through_today.set_last_day(ac::day_text(today));
     manager.submit(through_today);
     ASSERT_EQ(finished(manager, "through-today").state(), ac::wire::TASK_STATE_SUCCEEDED);
     auto compact = ac::day_text(today);
@@ -421,10 +420,10 @@ TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)
     manager.cancel("cancel");
     const auto task = finished(manager, "cancel");
     EXPECT_EQ(task.state(), ac::wire::TASK_STATE_CANCELLED);
-    EXPECT_EQ(task.requests(), 4);
-    EXPECT_EQ(task.days_done(), 1);
+    EXPECT_EQ(task.requests_sent(), 4);
+    EXPECT_EQ(task.items_done(), 1);
     wh::Store store(root, "tushare");
-    EXPECT_EQ(store.current().identity, task.dataset_version());
+    EXPECT_EQ(store.current().identity, task.published_version());
     EXPECT_EQ(store.current().partitions.at("daily/SHFE/2026-01").rows, 1);
     manager.stop();
     const auto calls = vendor->calls.size();
@@ -501,35 +500,33 @@ TEST_F(Acquisition, MarketRestartMarksUnfinishedTasksAndServesIndependentReadOnl
 {
     testing_support::MarketHost host(root);
     create_directories_durably(root / "data/acquisition");
-    ac::wire::Task pending;
+    ac::wire::AcquisitionTask pending;
     *pending.mutable_request() = request("interrupted");
     pending.set_state(ac::wire::TASK_STATE_RUNNING);
-    pending.set_started_ns(1);
+    pending.set_started_ms(1);
     replace_file_durably(root / "data/acquisition/interrupted.pb", pending.SerializeAsString());
     host.start();
-    const auto call = [&](testing_support::MarketChannel& channel, market::proto::Request request) {
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id("acquisition");
+    const auto call = [&](testing_support::MarketChannel& channel, ::market::Request request) {
+        request.set_id(1);
         channel.send(request.SerializeAsString(), 5s);
-        market::proto::Response result;
+        ::market::Response result;
         EXPECT_TRUE(result.ParseFromString(channel.receive(5s)));
         return result;
     };
     auto one = host.open(), two = host.open();
-    market::proto::Request query;
+    ::market::Request query;
     query.mutable_get_acquisition_task()->set_id("interrupted");
     const auto result = call(one, query);
-    ASSERT_TRUE(result.has_acquisition_task()) << result.DebugString();
-    EXPECT_EQ(result.acquisition_task().state(), ac::wire::TASK_STATE_INTERRUPTED);
-    EXPECT_GT(result.acquisition_task().finished_ns(), 0);
+    ASSERT_TRUE(result.has_get_acquisition_task()) << result.DebugString();
+    EXPECT_EQ(result.get_acquisition_task().state(), ac::wire::TASK_STATE_INTERRUPTED);
+    EXPECT_GT(result.get_acquisition_task().finished_ms(), 0);
     one = host.open();
     query.mutable_list_acquisition_tasks();
     EXPECT_EQ(
-        call(two, query).acquisition_tasks().tasks(0).state(),
+        call(two, query).list_acquisition_tasks().tasks(0).state(),
         ac::wire::TASK_STATE_INTERRUPTED);
-    query.mutable_get_health();
-    EXPECT_TRUE(call(one, query).has_health());
+    query.mutable_get_status();
+    EXPECT_TRUE(call(one, query).has_get_status());
 }
 
 Json minute_row(const std::string& time, int close = 3100)
@@ -547,14 +544,14 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     };
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("minutes");
-    task.set_table("minutes");
+    task.set_table(::market::TABLE_MINUTES);
     task.set_contract("SHFE/rb/2026-05");
-    task.set_begin_day("2026-01-05");
-    task.set_end_day("2026-01-07");
+    task.set_first_day("2026-01-05");
+    task.set_last_day("2026-01-07");
     manager.submit(task);
     const auto done = finished(manager, "minutes");
-    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error();
-    EXPECT_EQ(done.days_empty(), 1);
+    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error().message();
+    EXPECT_EQ(done.items_empty(), 1);
     EXPECT_EQ(vendor->minute_offsets, (std::vector<std::size_t>{0}));
     wh::Store store(root, "tushare");
     const auto version = store.current();
@@ -590,13 +587,13 @@ TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
         }
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("year");
-    task.set_table("minutes");
+    task.set_table(::market::TABLE_MINUTES);
     task.set_contract("SHFE/rb/2026-05");
-    task.set_begin_day("2025-05-19");
-    task.set_end_day("2026-05-15");
+    task.set_first_day("2025-05-19");
+    task.set_last_day("2026-05-15");
     manager.submit(task);
     const auto done = finished(manager, "year");
-    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error();
+    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error().message();
     wh::Store store(root, "tushare");
     EXPECT_EQ(store.current().partitions.size(), weekdays);
     const auto versions =
@@ -678,63 +675,59 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
         root / "credentials/asterion.market.tushare.token",
         "private-provider-token");
     host.start();
-    const auto call = [&](const std::string& name, market::proto::Request query) {
-        query.set_version(1);
-        query.set_service_id("market-data");
-        query.set_correlation_id("access");
+    const auto call = [&](const std::string& name, ::market::Request query) {
+        query.set_id(1);
         auto channel = host.open(name);
         channel.send(query.SerializeAsString(), 5s);
-        market::proto::Response response;
+        ::market::Response response;
         EXPECT_TRUE(response.ParseFromString(channel.receive(5s)));
         EXPECT_EQ(response.SerializeAsString().find("private-provider-token"), std::string::npos);
         return response;
     };
-    market::proto::Request query;
-    query.mutable_list_acquisition_sources();
+    ::market::Request query;
+    query.mutable_list_sources();
     const auto catalog = call("reader", query);
-    ASSERT_TRUE(catalog.has_acquisition_sources()) << catalog.DebugString();
-    EXPECT_FALSE(catalog.acquisition_sources().can_manage());
-    ASSERT_EQ(catalog.acquisition_sources().sources_size(), 2);
-    EXPECT_EQ(catalog.acquisition_sources().sources(0).provider(), "recorder");
-    EXPECT_EQ(catalog.acquisition_sources().sources(1).provider(), "tushare");
-    EXPECT_EQ(catalog.acquisition_sources().sources(1).tables_size(), 4);
-    EXPECT_TRUE(call("manager", query).acquisition_sources().can_manage());
+    ASSERT_TRUE(catalog.has_list_sources()) << catalog.DebugString();
+    EXPECT_FALSE(catalog.list_sources().can_manage());
+    ASSERT_EQ(catalog.list_sources().sources_size(), 2);
+    EXPECT_EQ(catalog.list_sources().sources(0).provider(), "recorder");
+    EXPECT_EQ(catalog.list_sources().sources(1).provider(), "tushare");
+    EXPECT_EQ(catalog.list_sources().sources(1).tables_size(), 4);
+    EXPECT_TRUE(call("manager", query).list_sources().can_manage());
     auto* start = query.mutable_start_acquisition();
     *start = request("remote");
     // Future dates exercise real admission and persistence without provider traffic.
-    start->set_begin_day("9999-01-01");
-    start->set_end_day("9999-01-01");
-    EXPECT_EQ(call("reader", query).error().code(), "permission_denied");
+    start->set_first_day("9999-01-01");
+    start->set_last_day("9999-01-01");
+    EXPECT_EQ(call("reader", query).error().code(), ::common::ERROR_CODE_PERMISSION_DENIED);
     EXPECT_FALSE(fs::exists(root / "data/acquisition/remote.pb"));
     const auto admitted = call("manager", query);
-    ASSERT_TRUE(admitted.has_acquisition_task()) << admitted.DebugString();
-    EXPECT_EQ(call("manager", query).error().code(), "conflict");
+    ASSERT_TRUE(admitted.has_start_acquisition()) << admitted.DebugString();
+    EXPECT_EQ(call("manager", query).error().code(), ::common::ERROR_CODE_CONFLICT);
     query.mutable_get_acquisition_task()->set_id("remote");
-    market::proto::Response observed;
+    ::market::Response observed;
     for (int i = 0; i < 100; ++i) {
         observed = call("reader", query);
-        if (observed.acquisition_task().state() == ac::wire::TASK_STATE_SUCCEEDED)
+        if (observed.get_acquisition_task().state() == ac::wire::TASK_STATE_SUCCEEDED)
             break;
         std::this_thread::sleep_for(10ms);
     }
-    EXPECT_EQ(observed.acquisition_task().state(), ac::wire::TASK_STATE_SUCCEEDED);
-    EXPECT_EQ(observed.acquisition_task().requests(), 0U);
+    EXPECT_EQ(observed.get_acquisition_task().state(), ac::wire::TASK_STATE_SUCCEEDED);
+    EXPECT_EQ(observed.get_acquisition_task().requests_sent(), 0U);
     query.mutable_cancel_acquisition()->set_id("remote");
-    EXPECT_EQ(call("reader", query).error().code(), "permission_denied");
-    EXPECT_TRUE(call("manager", query).has_acquisition_task());
+    EXPECT_EQ(call("reader", query).error().code(), ::common::ERROR_CODE_PERMISSION_DENIED);
+    EXPECT_TRUE(call("manager", query).has_cancel_acquisition());
     // An unregistered identity and a wrong server pin fail before business admission.
     ipc::create_identity(root / "stranger.crt", root / "stranger.key", "unregistered test");
-    query.mutable_get_health();
+    query.mutable_get_status();
     EXPECT_THROW(call("stranger", query), std::exception);
     auto tls = host.tls();
     tls.peers = {std::string(64, 'a')};
     testing_support::MarketChannel wrong_pin(host.port, tls);
-    query.set_version(1);
-    query.set_service_id("market-data");
-    query.set_correlation_id("wrong-pin");
+    query.set_id(1);
     wrong_pin.send(query.SerializeAsString(), 2s);
     EXPECT_THROW(wrong_pin.receive(2s), std::exception);
-    EXPECT_TRUE(call("reader", query).has_health());
+    EXPECT_TRUE(call("reader", query).has_get_status());
 }
 
 TEST_F(Acquisition, RemotePublicTaskPublishesAfterItsAdministratorDisconnects)
@@ -749,13 +742,11 @@ TEST_F(Acquisition, RemotePublicTaskPublishesAfterItsAdministratorDisconnects)
     config["acquisition"]["exchanges"] = {venue};
     replace_file_durably(root / "config/market.json", config.dump());
     host.start();
-    const auto call = [&](const std::string& client, market::proto::Request request) {
-        request.set_version(1);
-        request.set_service_id("market-data");
-        request.set_correlation_id("public");
+    const auto call = [&](const std::string& client, ::market::Request request) {
+        request.set_id(1);
         auto connection = host.open(client);
         connection.send(request.SerializeAsString(), 5s);
-        market::proto::Response response;
+        ::market::Response response;
         if (!response.ParseFromString(connection.receive(5s)))
             throw std::runtime_error("invalid Market reply");
         return response;
@@ -764,37 +755,37 @@ TEST_F(Acquisition, RemotePublicTaskPublishesAfterItsAdministratorDisconnects)
     std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char c) {
         return std::tolower(c);
     });
-    market::proto::Request query;
+    ::market::Request query;
     auto* start = query.mutable_start_acquisition();
     start->set_id("public");
     start->set_provider(provider);
-    start->set_table("daily");
-    start->set_begin_day(day);
-    start->set_end_day(day);
+    start->set_table(::market::TABLE_DAILY);
+    start->set_first_day(day);
+    start->set_last_day(day);
     start->add_exchanges(venue);
     const auto accepted = call("manager", query); // This connection now closes.
-    ASSERT_TRUE(accepted.has_acquisition_task()) << accepted.DebugString();
+    ASSERT_TRUE(accepted.has_start_acquisition()) << accepted.DebugString();
     query.mutable_get_acquisition_task()->set_id("public");
-    ac::wire::Task task;
+    ac::wire::AcquisitionTask task;
     const auto deadline = std::chrono::steady_clock::now() + 75s;
     do {
         const auto reply = call("reader", query);
-        ASSERT_TRUE(reply.has_acquisition_task()) << reply.DebugString();
-        task = reply.acquisition_task();
+        ASSERT_TRUE(reply.has_get_acquisition_task()) << reply.DebugString();
+        task = reply.get_acquisition_task();
         if (task.state() != ac::wire::TASK_STATE_QUEUED
             && task.state() != ac::wire::TASK_STATE_RUNNING)
             break;
         std::this_thread::sleep_for(50ms);
     } while (std::chrono::steady_clock::now() < deadline);
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
-    ASSERT_FALSE(task.dataset_version().empty());
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    ASSERT_FALSE(task.published_version().empty());
     query.mutable_get_dataset_summary()->set_provider(provider);
-    query.mutable_get_dataset_summary()->set_dataset_version(task.dataset_version());
+    query.mutable_get_dataset_summary()->set_version(task.published_version());
     const auto summary = call("reader", query);
-    ASSERT_TRUE(summary.has_dataset_summary()) << summary.DebugString();
-    EXPECT_GT(summary.dataset_summary().tables_size(), 0);
-    query.mutable_get_health();
-    EXPECT_TRUE(call("reader", query).has_health());
-    std::cout << venue << " " << day << ": TLS task published " << task.dataset_version()
+    ASSERT_TRUE(summary.has_get_dataset_summary()) << summary.DebugString();
+    EXPECT_GT(summary.get_dataset_summary().tables_size(), 0);
+    query.mutable_get_status();
+    EXPECT_TRUE(call("reader", query).has_get_status());
+    std::cout << venue << " " << day << ": TLS task published " << task.published_version()
               << " after administrator disconnect\n";
 }

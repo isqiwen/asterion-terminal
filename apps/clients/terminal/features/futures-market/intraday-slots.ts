@@ -1,5 +1,5 @@
 import type { IntradaySlot } from "@asterion/client-ui/IntradayChart";
-import type { MinuteBar, MinuteSeries } from "../../src/generated/asterion/market_pb";
+import type { MinuteBar, Minutes } from "../../src/generated/asterion/market_pb";
 import sessionFile from "../../../../../config/futures-sessions.json";
 
 // Display layout only: the reviewed session reference places observed minutes
@@ -18,8 +18,8 @@ const label = (minute: number) => {
 // Bars carry UTC epoch starts; exchange sessions are defined in UTC+8.
 const shanghaiMinute = (ms: bigint) => (Math.floor(Number(ms) / 60000) + 480) % 1440;
 
-export function sessionRanges(venue: string, product: string): Range[] | null {
-  const entry = sessions.products[venue]?.[product];
+export function sessionRanges(exchange: string, product: string): Range[] | null {
+  const entry = sessions.products[exchange]?.[product];
   if (!entry) return null;
   const [day, night] = entry;
   const days = sessions.day_sessions[day];
@@ -32,8 +32,8 @@ type Merged = { price: string; average: string | null; volume: number };
 function merge(target: Map<number, Merged>, index: number, bar: MinuteBar) {
   const previous = target.get(index);
   target.set(index, {
-    price: bar.close,
-    average: bar.averagePrice ?? previous?.average ?? null,
+    price: bar.close!.text,
+    average: bar.averagePrice?.text ?? previous?.average ?? null,
     volume: (previous?.volume ?? 0) + Number(bar.volume),
   });
 }
@@ -59,7 +59,7 @@ function fill(count: number, values: Map<number, Merged>, labels: (index: number
   return slots;
 }
 
-export function intradaySlots(series: MinuteSeries, ranges: Range[] | null) {
+export function intradaySlots(series: Minutes, ranges: Range[] | null) {
   if (ranges) {
     const minutes: number[] = [];
     const ticks: { index: number; label: string }[] = [];

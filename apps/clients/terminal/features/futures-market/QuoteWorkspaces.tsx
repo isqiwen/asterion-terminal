@@ -1,5 +1,5 @@
 import { selectQuote, useSelectedQuote } from "./selected-quote";
-import type { ContractQuote } from "../../src/generated/asterion/market_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, useMarket, type MarketView } from "../../src/host/market";
 import { useEffect, type ReactNode } from "react";
 import { contractName, translate, useWorkspaceDraft, type TerminalContext } from "../contract";
@@ -11,28 +11,29 @@ import { MarketUnavailable } from "./MarketUnavailable";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // A row of these lists: Market's row with its identity and display name.
-type QuoteRow = ContractQuote & { venue: string; symbol: string; displayName?: string };
-const quoteId = (row: QuoteRow) => rowKey(row);
-const tone = (row: QuoteRow) => {
+type Listed = QuoteRow & { exchange: string; symbol: string; displayName?: string };
+const quoteId = (row: Listed) => rowKey(row);
+const tone = (row: Listed) => {
   const amount = quoteChange(row)?.amount;
   return amount == null || amount === 0 ? undefined : amount > 0 ? "up" : "down";
 };
-function cell(row: QuoteRow, name: string) {
+function cell(row: Listed, name: string) {
   const q = row.quote,
     change = quoteChange(row);
   if (name === "代码") return row.symbol;
   if (name === "名称") return row.displayName ?? row.symbol;
-  if (name === "现价") return q?.last ?? "—";
+  if (name === "现价") return q?.last?.text ?? "—";
   if (name === "涨幅%")
     return change ? `${change.percent > 0 ? "+" : ""}${change.percent.toFixed(2)}%` : "—";
   if (name === "涨跌")
     return change ? `${change.amount > 0 ? "+" : ""}${Number(change.amount.toFixed(8))}` : "—";
-  if (name === "昨收") return q?.previousClose ?? "—";
-  if (name === "开盘") return q?.open ?? "—";
-  if (name === "最高") return q?.high ?? "—";
-  if (name === "最低") return q?.low ?? "—";
-  if (name === "振幅%" && q?.high != null && q.low != null && Number(q.previousSettlement) > 0)
-    return `${(((Number(q.high) - Number(q.low)) / Number(q.previousSettlement)) * 100).toFixed(2)}%`;
+  if (name === "昨收") return q?.previousClose?.text ?? "—";
+  if (name === "开盘") return q?.open?.text ?? "—";
+  if (name === "最高") return q?.high?.text ?? "—";
+  if (name === "最低") return q?.low?.text ?? "—";
+  const base = Number(q?.previousSettlement?.text);
+  if (name === "振幅%" && q?.high && q.low && base > 0)
+    return `${(((Number(q.high.text) - Number(q.low.text)) / base) * 100).toFixed(2)}%`;
   return "—";
 }
 function QuoteHeader({
@@ -40,7 +41,7 @@ function QuoteHeader({
   market,
   actions,
 }: {
-  row: QuoteRow;
+  row: Listed;
   market: MarketView;
   actions?: ReactNode;
 }) {
@@ -55,7 +56,7 @@ function QuoteHeader({
         {cell(row, "涨跌")} · {cell(row, "涨幅%")}
       </span>
       {actions}
-      <small>{row.venue}</small>
+      <small>{row.exchange}</small>
       {status !== t("实时") && (
         <span className="quote-freshness" role="status">
           {status}
@@ -75,23 +76,26 @@ export function ContractWorkspace(context: TerminalContext) {
   const market = useMarket();
   const saved = context.snapshot?.market_endpoint;
   const watchlist = saved && "instruments" in saved ? saved.instruments : [];
-  const rows: QuoteRow[] = (market?.snapshot.quotes ?? []).map(row => ({
+  const rows: Listed[] = (market?.board.rows ?? []).map(row => ({
     ...row,
-    venue: row.instrument!.venue,
+    exchange: row.instrument!.exchange,
     symbol: row.instrument!.symbol,
-    displayName: contractName(row.instrument!, market?.snapshot.catalog),
+    displayName: contractName(row.instrument!, market?.board.catalog),
   }));
   const query = search.trim().toLowerCase();
   const listed = query
     ? rows.filter(row => `${quoteId(row)} ${row.displayName ?? ""}`.toLowerCase().includes(query))
-    : rows.filter(row => watchlist.some(id => id.venue === row.venue && id.symbol === row.symbol));
+    : rows.filter(row =>
+        watchlist.some(id => id.exchange === row.exchange && id.symbol === row.symbol),
+      );
   const active =
     rows.find(row => quoteId(row) === (selected || context.workspacePage)) ?? listed[0];
   const [chart, setChart] = useWorkspaceDraft("contract-chart", "live");
-  const historyAvailable = market?.online && market.snapshot.phase === "connected";
+  const historyAvailable = market?.online && market.board.feed?.state === FeedState.CONNECTED;
   const q = active?.quote;
-  const bid = q?.bid != null ? Number(q.bidQuantity) : 0,
-    ask = q?.ask != null ? Number(q.askQuantity) : 0;
+  const best = { bid: q?.bids[0], ask: q?.asks[0] };
+  const bid = Number(best.bid?.lots ?? 0n),
+    ask = Number(best.ask?.lots ?? 0n);
   const total = bid + ask;
   if (!market) return <MarketUnavailable context={context} />;
   return (
@@ -109,7 +113,7 @@ export function ContractWorkspace(context: TerminalContext) {
         {listed.map((row, index) => {
           const points = historyAvailable
             ? market.ticks
-                .filter(p => p.venue === row.venue && p.symbol === row.symbol)
+                .filter(p => p.exchange === row.exchange && p.symbol === row.symbol)
                 .map(p => Number(p.price))
                 .filter(Number.isFinite)
             : [];
@@ -144,7 +148,7 @@ export function ContractWorkspace(context: TerminalContext) {
             >
               <span>
                 <b title={row.displayName}>{row.displayName ?? row.symbol}</b>
-                <small>{row.displayName ? row.symbol : row.venue}</small>
+                <small>{row.displayName ? row.symbol : row.exchange}</small>
               </span>
               <svg viewBox="0 0 80 24" aria-label={t("最近报价走势")} data-tone={tone(row)}>
                 {points.length > 1 && (
@@ -162,7 +166,7 @@ export function ContractWorkspace(context: TerminalContext) {
               </svg>
               <span data-tone={tone(row)}>{cell(row, "涨跌")}</span>
               <span>—</span>
-              <span>{row.quote?.volume ?? "—"}</span>
+              <span>{row.quote?.volume.toString() ?? "—"}</span>
               <span data-tone={tone(row)}>
                 {cell(row, "现价")}
                 <small>{cell(row, "涨幅%")}</small>
@@ -201,7 +205,7 @@ export function ContractWorkspace(context: TerminalContext) {
               ) : (
                 <ContractHistory
                   key={quoteId(active)}
-                  venue={active.venue}
+                  venue={active.exchange}
                   symbol={active.symbol}
                   context={context}
                 />
@@ -241,20 +245,20 @@ export function ContractWorkspace(context: TerminalContext) {
                 actions={<WatchlistToggle context={context} market={market} row={active} />}
               />
               <strong className="contract-last" data-tone={tone(active)}>
-                {q?.last ?? "—"}
+                {q?.last?.text ?? "—"}
               </strong>
               <dl>
                 {[
-                  ["开盘", q?.open],
-                  ["日增仓", q?.openInterestChange],
-                  ["涨停", q?.upperLimit],
-                  ["跌停", q?.lowerLimit],
+                  ["开盘", q?.open?.text],
+                  ["日增仓", q?.openInterestChange?.text],
+                  ["涨停", q?.upperLimit?.text],
+                  ["跌停", q?.lowerLimit?.text],
                   ["均价", null],
-                  ["最高", q?.high],
-                  ["最低", q?.low],
-                  ["昨结算", q?.previousSettlement],
-                  ["持仓量", q?.openInterest],
-                  ["成交量", q?.volume],
+                  ["最高", q?.high?.text],
+                  ["最低", q?.low?.text],
+                  ["昨结算", q?.previousSettlement?.text],
+                  ["持仓量", q?.openInterest?.text],
+                  ["成交量", q?.volume.toString()],
                   ["交易日", q?.tradingDay],
                 ].map(([label, value]) => (
                   <div key={label}>
@@ -277,20 +281,20 @@ export function ContractWorkspace(context: TerminalContext) {
                 {total > 0 && <span style={{ width: `${(bid / total) * 100}%` }} />}
               </div>
               <div className="depth-level">
-                <span>{q?.bid != null ? bid : "—"}</span>
-                <b data-tone="down">{q?.bid ?? "—"}</b>
+                <span>{best.bid?.price ? bid : "—"}</span>
+                <b data-tone="down">{best.bid?.price?.text ?? "—"}</b>
                 <span>{t("买一")}</span>
                 <span>{t("卖一")}</span>
-                <b data-tone="up">{q?.ask ?? "—"}</b>
-                <span>{q?.ask != null ? ask : "—"}</span>
+                <b data-tone="up">{best.ask?.price?.text ?? "—"}</b>
+                <span>{best.ask?.price ? ask : "—"}</span>
               </div>
               {[2, 3, 4, 5].map(level => {
-                const bid = q?.bidLevels[level - 2];
-                const ask = q?.askLevels[level - 2];
+                const bid = q?.bids[level - 1];
+                const ask = q?.asks[level - 1];
                 return (
                   <div className="depth-level" key={level}>
-                    <span>{bid?.quantity ?? "—"}</span>
-                    <b data-tone="down">{bid?.price ?? "—"}</b>
+                    <span>{bid?.lots?.toString() ?? "—"}</span>
+                    <b data-tone="down">{bid?.price?.text ?? "—"}</b>
                     <span>
                       {t("买")}
                       {level}
@@ -299,13 +303,13 @@ export function ContractWorkspace(context: TerminalContext) {
                       {t("卖")}
                       {level}
                     </span>
-                    <b data-tone="up">{ask?.price ?? "—"}</b>
-                    <span>{ask?.quantity ?? "—"}</span>
+                    <b data-tone="up">{ask?.price?.text ?? "—"}</b>
+                    <span>{ask?.lots?.toString() ?? "—"}</span>
                   </div>
                 );
               })}
-              {!q?.bidLevels.some(level => level.price != null) &&
-                !q?.askLevels.some(level => level.price != null) && (
+              {!q?.bids.slice(1).some(level => level.price) &&
+                !q?.asks.slice(1).some(level => level.price) && (
                   <p className="quote-empty">{t("当前报价未提供更多档位")}</p>
                 )}
             </section>

@@ -143,14 +143,14 @@ sequenceDiagram
         State->>Bars: observe(报价)
     end
     State->>Recorder: poll()，安排落盘
-    Client->>RPC: 双向 TLS，Request.stream_live_quotes
+    Client->>RPC: 双向 TLS，Request.stream_quotes
     RPC->>State: 经 Session 转交请求与连接游标
-    State-->>RPC: 首帧完整快照与目录
-    RPC-->>Client: Response.live_quotes.snapshot
+    State-->>RPC: 全部所选行与目录
+    RPC-->>Client: Response.stream_quotes.full
     loop 同一条报价流连接
         RPC->>State: 按连接游标请求下一帧
-        State-->>RPC: 变化行、base_sequence、变化后的目录
-        RPC-->>Client: Response.live_quotes.delta
+        State-->>RPC: 变化的行、变化后的目录
+        RPC-->>Client: Response.stream_quotes.changed
     end
     Note over Client,State: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
 ```
@@ -180,7 +180,7 @@ sequenceDiagram
     Manager->>Research: 合成 research
     Research->>Research: 持有研究写锁，读取来源版本并发布
     Manager->>Manager: 持久化任务进度或完成状态
-    Client->>RPC: get_dataset_version(provider=research)
+    Client->>RPC: get_dataset_version(research，当前版本)
     RPC-->>Client: 固定版本 ID、分区与摘要
     loop 分页与文件下载
         Client->>RPC: get_dataset_version / read_dataset_file，携带同一版本 ID
@@ -215,6 +215,6 @@ sequenceDiagram
 | 5 | [compaction.cpp](../apps/services/market/recording/compaction.cpp)、[recorded_publication.cpp](../apps/services/market/acquisition/recorded_publication.cpp) | 归档替换与发布恢复 |
 | 6 | [manager.cpp](../apps/services/market/acquisition/manager.cpp)、[source.hpp](../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
 | 7 | [store.cpp](../apps/services/market/warehouse/store.cpp)、[research.cpp](../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
-| 8 | [market.proto](../protocol/proto/asterion/market.proto)、[dataset.proto](../protocol/proto/asterion/dataset.proto)、[acquisition.proto](../protocol/proto/asterion/acquisition.proto) | 客户端契约与固定版本读取 |
+| 8 | [通信协议](protocol.md)、[market.proto](../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
 
 改动后的行为验证从 [tests/market](../tests/market) 对应测试开始；跨客户端与重启行为看 [concurrency_process.py](../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../tests/acceptance/ctp_market.py)。协议或上述所有权发生变化时，同步更新对应图与说明。

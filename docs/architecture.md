@@ -41,7 +41,7 @@ flowchart TB
 | 系统 `system` | `asterion_system` | 本机 IPC、固定指纹 TLS、RPC、子进程、文件锁、持久写入、线程池、日志 |
 | 期货 `futures` | `asterion_futures` | 合约、订单、账本、回放与撮合、交易时段、分钟线、订单限额 |
 | 数据库 `database/` | `asterion_sqlite` | SQLite 访问 |
-| 协议 | `asterion_protocol` | `protocol/proto/` 的 Protobuf 契约 |
+| 协议 | `asterion_protocol` | `protocol/proto/` 的 Protobuf 契约，规则见[通信协议](protocol.md) |
 
 依赖只向下。业务代码在 `apps/services/<服务>/`，跨服务共用的代码在 `apps/services/common/`。订单限额编译进 Trading 和回测扩展，两边用同一套实现。
 
@@ -56,7 +56,7 @@ flowchart TB
 
 - 原生层定时汇总服务状态，发布带修订号的快照；界面按修订号读取，没变化时不返回内容。
 - 页面用 `pnpm generate:protocol` 生成的 TS 类型直接组装和读取消息。Lab 由 Electron 主进程转发字节；Market 和 Trading 由原生层按保存的连接原样转发（`market.call`、`trading.call`），TLS 私钥不离开原生层。
-- 实时行情：原生层为页面保持一条 Market `stream_live_quotes` 流，把帧按顺序排队；页面每 0.5 秒取走新帧（`market.watch`），自己维护报价表（首帧完整，之后只有变化的行）。页面没有完整的首帧时要求重开一条流。理由：桌面和浏览器开发桥都只有请求/应答，没有推送。
+- 实时行情：原生层为页面保持一条 Market `stream_quotes` 流，把帧按顺序排队；页面每 0.5 秒取走新帧（`market.watch`），自己维护报价表（首帧完整，之后只有变化的行）。页面没有完整的首帧时要求重开一条流。理由：桌面和浏览器开发桥都只有请求/应答，没有推送。
 
 ## 进程与安装目录
 

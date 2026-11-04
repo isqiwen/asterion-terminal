@@ -1,4 +1,5 @@
 #include "recorded_publication.hpp"
+#include <asterion/protocol/common.hpp>
 #include <asterion/base/error.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/base/serialization.hpp>
@@ -52,10 +53,9 @@ void RecordedPublication::poll(Clock::time_point now)
             save();
         } else if (task.state() != wire::TASK_STATE_SUCCEEDED) {
             log::error(
-                "recorded minutes of {} did not reach research: {} {}",
+                "recorded minutes of {} did not reach research: {}",
                 day_,
-                task.error_code(),
-                task.error());
+                task.error().message());
             next_ = now + 1h;
         }
         task_.clear();
@@ -66,13 +66,13 @@ void RecordedPublication::poll(Clock::time_point now)
         return;
     next_ = now + 1min;
     const auto day = *days_.begin();
-    wire::Request request;
+    wire::StartAcquisition request;
     request.set_id("recorded-" + day + "-" + unique_process_id().substr(0, 8));
     request.set_provider("recorder");
-    request.set_table("minutes");
-    request.set_begin_day(day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6));
-    request.set_end_day(request.begin_day());
-    request.set_refresh(true);
+    request.set_table(wire::TABLE_MINUTES);
+    request.set_first_day(protocol::iso_day(day));
+    request.set_last_day(request.first_day());
+    request.set_refetch(true);
     try {
         manager_.submit(request);
         task_ = request.id();

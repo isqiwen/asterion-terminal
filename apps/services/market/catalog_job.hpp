@@ -3,6 +3,7 @@
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/log.hpp>
 #include <asterion/system/thread_pool.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <filesystem>
@@ -14,7 +15,7 @@ namespace asterion::market_data {
 // share its single SDK executor; only one step per operation can be outstanding.
 class CatalogJob
 {
-    using State = market::proto::CatalogState;
+    using State = ::market::Catalog;
 
     struct Operation
     {
@@ -30,18 +31,19 @@ class CatalogJob
             try {
                 if (load_cache) {
                     State cached;
-                    cached.set_phase("unconfigured");
+                    cached.mutable_status()->set_state(::market::CATALOG_STATE_NONE);
                     const auto status = std::filesystem::symlink_status(file);
                     if (status.type() != std::filesystem::file_type::not_found) {
                         if (!std::filesystem::is_regular_file(status)
                             || std::filesystem::file_size(file) > 64 * 1024 * 1024)
                             throw Error(ErrorCode::invalid_request, "invalid cached CTP catalog");
                         std::ifstream input(file, std::ios::binary);
-                        if (!cached.ParseFromIstream(&input) || cached.phase() != "ready"
+                        if (!cached.ParseFromIstream(&input)
+                            || cached.status().state() != ::market::CATALOG_STATE_READY
                             || cached.contracts_size() > 20000)
                             throw Error(ErrorCode::invalid_request, "invalid cached CTP catalog");
                         protocol::validate_message(cached);
-                        cached.set_phase("cached");
+                        cached.mutable_status()->set_state(::market::CATALOG_STATE_CACHED);
                     }
                     result = std::move(cached);
                     return;
@@ -54,18 +56,17 @@ class CatalogJob
                 if (!catalog)
                     return;
                 State ready;
-                ready.set_phase("ready");
-                ready.set_trading_day(catalog->trading_day);
+                ready.mutable_status()->set_state(::market::CATALOG_STATE_READY);
+                ready.mutable_status()->set_trading_day(protocol::iso_day(catalog->trading_day));
                 for (const auto& entry : catalog->contracts) {
                     auto* item = ready.add_contracts();
-                    item->mutable_instrument()->set_venue(entry.instrument.venue);
-                    item->mutable_instrument()->set_symbol(entry.instrument.symbol);
+                    *item->mutable_instrument() = protocol::encode_instrument(entry.instrument);
+                    item->set_contract(entry.contract_id);
                     item->set_product(entry.product);
                     item->set_name(entry.name);
-                    item->set_expiry(entry.expiry);
-                    item->set_contract_id(entry.contract_id);
+                    item->set_expiry_day(protocol::iso_day(entry.expiry));
                     item->set_multiplier(entry.multiplier);
-                    item->set_price_tick(entry.price_tick.str());
+                    *item->mutable_price_tick() = protocol::decimal(entry.price_tick);
                 }
                 // Keep the live result if an optional offline cache cannot be written.
                 if (!stop.stop_requested() && !file.empty()) {
@@ -78,14 +79,12 @@ class CatalogJob
                 result = std::move(ready);
             } catch (const Error& error) {
                 result.emplace();
-                result->set_phase("error");
-                result->set_error_code(std::string(error_name(error.code())));
-                result->set_diagnostic(error.what());
+                result->mutable_status()->set_state(::market::CATALOG_STATE_FAILED);
+                result->mutable_status()->set_error(error.what());
             } catch (const std::exception&) {
                 result.emplace();
-                result->set_phase("error");
-                result->set_error_code("operation_failed");
-                result->set_diagnostic("CTP catalog query failed");
+                result->mutable_status()->set_state(::market::CATALOG_STATE_FAILED);
+                result->mutable_status()->set_error("CTP catalog query failed");
             }
             if (result)
                 query.reset(); // API/SPI and library die on the SDK executor.
@@ -134,7 +133,7 @@ public:
         operation_->config = std::move(config);
         schedule();
         State loading = cached_;
-        loading.set_phase("loading");
+        loading.mutable_status()->set_state(::market::CATALOG_STATE_LOADING);
         publish(std::move(loading));
     }
 
@@ -151,13 +150,14 @@ public:
         }
         auto result = std::move(*operation_->result);
         operation_.reset(); // Its SDK resource was released before completing the step.
-        if (result.phase() == "ready" || result.phase() == "cached") {
+        const auto state = result.status().state();
+        if (state == ::market::CATALOG_STATE_READY || state == ::market::CATALOG_STATE_CACHED) {
             cached_ = result;
-            cached_.set_phase("cached");
-        } else if (result.phase() == "error") {
+            cached_.mutable_status()->set_state(::market::CATALOG_STATE_CACHED);
+        } else if (state == ::market::CATALOG_STATE_FAILED) {
             // A failed refresh reports its error while retaining known contracts.
             *result.mutable_contracts() = cached_.contracts();
-            result.set_trading_day(cached_.trading_day());
+            result.mutable_status()->set_trading_day(cached_.status().trading_day());
         }
         publish(std::move(result));
     }
@@ -194,7 +194,7 @@ private:
     ThreadPool& sdk_owner_;
     State state_ = [] {
         State state;
-        state.set_phase("unconfigured");
+        state.mutable_status()->set_state(::market::CATALOG_STATE_NONE);
         return state;
     }();
     State cached_;

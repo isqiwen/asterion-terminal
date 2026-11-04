@@ -49,8 +49,8 @@ export function OrderTicket({
           ? "close_today"
           : order.offset
         : "close";
-  const quote = useMarket()?.snapshot.quotes.find(
-    row => row.instrument?.venue === traded?.venue && row.instrument?.symbol === traded?.symbol,
+  const quote = useMarket()?.board.rows.find(
+    row => row.instrument?.exchange === traded?.venue && row.instrument?.symbol === traded?.symbol,
   )?.quote;
   const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;
@@ -133,19 +133,15 @@ export function OrderTicket({
           <div className="order-quotes" role="group" aria-label={t("按行情填入限价")}>
             {(
               [
-                ["last", "最新 {price}"],
-                ["bid", "买一 {price}"],
-                ["ask", "卖一 {price}"],
+                ["last", "最新 {price}", quote.last?.text],
+                ["bid", "买一 {price}", quote.bids[0]?.price?.text],
+                ["ask", "卖一 {price}", quote.asks[0]?.price?.text],
               ] as const
             ).map(
-              ([field, label]) =>
-                quote[field] && (
-                  <button
-                    key={field}
-                    type="button"
-                    onClick={() => setOrder({ ...order, price: quote[field]! })}
-                  >
-                    {t(label, { price: quote[field]! })}
+              ([field, label, price]) =>
+                price && (
+                  <button key={field} type="button" onClick={() => setOrder({ ...order, price })}>
+                    {t(label, { price })}
                   </button>
                 ),
             )}

@@ -30,8 +30,11 @@ void validate_watchlist(const Json& value)
         throw std::invalid_argument("at most 50 watchlist contracts");
     std::set<InstrumentId> unique;
     for (const auto& item : value) {
-        require_fields(item, {"venue", "symbol"});
-        InstrumentId id{item.at("venue").get<std::string>(), item.at("symbol").get<std::string>()};
+        require_fields(item, {"exchange", "symbol"});
+        InstrumentId id{
+            item.at("exchange").get<std::string>(),
+            item.at("symbol").get<std::string>()
+        };
         id.validate();
         if (!unique.insert(id).second)
             throw std::invalid_argument("duplicate watchlist contract");

@@ -1,15 +1,15 @@
 import { PriceChart } from "@asterion/client-ui/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { ContractQuote } from "../../src/generated/asterion/market_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../contract";
 import { chartTime } from "./chart-time";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function QuoteChart({ market, row }: { market: MarketView; row: ContractQuote }) {
-  const { venue, symbol } = row.instrument!;
-  const points = market.ticks.filter(p => p.venue === venue && p.symbol === symbol);
-  const reference = row.quote?.previousSettlement;
-  const available = market.online && market.snapshot.phase === "connected";
+export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow }) {
+  const { exchange, symbol } = row.instrument!;
+  const points = market.ticks.filter(p => p.exchange === exchange && p.symbol === symbol);
+  const reference = row.quote?.previousSettlement?.text;
+  const available = market.online && market.board.feed?.state === FeedState.CONNECTED;
   return (
     <section className="contract-live-chart" aria-label={t("最近报价走势")}>
       {available && points.length ? (

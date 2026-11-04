@@ -8,7 +8,7 @@ afterEach(() => setLocale("zh-CN"));
 
 test("contracts are named in the interface's language", () => {
   const rebar = create(CatalogContractSchema, {
-    instrument: { venue: "SHFE", symbol: "rb2610" },
+    instrument: { exchange: "SHFE", symbol: "rb2610" },
     product: "rb",
     name: "螺纹钢2610",
   });

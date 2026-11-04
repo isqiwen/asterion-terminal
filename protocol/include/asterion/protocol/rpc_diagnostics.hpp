@@ -2,6 +2,7 @@
 #include <asterion/base/error.hpp>
 #include <asterion/base/id.hpp>
 #include <asterion/system/log.hpp>
+#include <asterion/common.pb.h>
 #include <string>
 #include <initializer_list>
 #include <optional>
@@ -36,14 +37,21 @@ void log_rpc_result(
             }
             line += " " + std::string(name) + "=" + std::string(value);
         };
-        const auto* operation =
-            request.GetDescriptor()->FindFieldByNumber(request.operation_case());
+        const auto* operation = request.GetReflection()->GetOneofFieldDescriptor(
+            request,
+            request.GetDescriptor()->oneof_decl(0));
         line += " operation=" + (operation ? operation->name() : std::string("missing"));
-        add("correlation_id", request.correlation_id());
-        if (response.has_error())
-            line += " code="
-                + std::string(error_name(parse_error_code(response.error().code())
-                        .value_or(ErrorCode::operation_failed)));
+        if constexpr (requires { request.correlation_id(); }) {
+            add("correlation_id", request.correlation_id());
+            if (response.has_error())
+                line += " code="
+                    + std::string(error_name(parse_error_code(response.error().code())
+                            .value_or(ErrorCode::operation_failed)));
+        } else {
+            line += " id=" + std::to_string(request.id());
+            if (response.has_error())
+                line += " code=" + ::common::ErrorCode_Name(response.error().code());
+        }
         for (const auto& [name, value] : ids)
             add(name, value);
         if (attempt)

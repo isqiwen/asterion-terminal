@@ -1,6 +1,6 @@
 #pragma once
 #include "store.hpp"
-#include <asterion/dataset.pb.h>
+#include <asterion/market.pb.h>
 
 namespace asterion::market_data::warehouse {
 
@@ -13,9 +13,10 @@ namespace asterion::market_data::warehouse {
 Version compose_research(const std::filesystem::path& data, Store& research);
 
 // The contract-days whose minutes Tushare and the recorder both hold,
-// compared minute by minute (see dataset.proto's Comparison).
-dataset::proto::Comparison compare_minutes(const std::filesystem::path& data);
-dataset::proto::Differences
-minute_differences(const std::filesystem::path& data, const dataset::proto::DifferencesQuery&);
+// compared minute by minute on open, high, low, close and volume. A recorded
+// minute marked partial is counted, not compared.
+::market::MinuteComparison compare_minutes(const std::filesystem::path& data);
+::market::MinuteDifferences
+minute_differences(const std::filesystem::path& data, const ::market::GetMinuteDifferences&);
 
 } // namespace asterion::market_data::warehouse

@@ -1,5 +1,7 @@
 #include "manager.hpp"
 #include "warehouse/research.hpp"
+#include <asterion/protocol/common.hpp>
+#include <asterion/protocol/market.hpp>
 #include <asterion/system/log.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <fstream>
@@ -11,9 +13,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::int64_t now_ns()
+std::int64_t now_ms()
 {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch())
         .count();
 }
@@ -25,27 +27,30 @@ void require_id(const std::string& id)
         throw std::invalid_argument("invalid acquisition task id");
 }
 
-bool pending(const wire::Task& task)
+std::string table(const wire::StartAcquisition& request)
+{
+    return protocol::table_name(request.table());
+}
+
+bool pending(const wire::AcquisitionTask& task)
 {
     return task.state() == wire::TASK_STATE_RUNNING || task.state() == wire::TASK_STATE_QUEUED;
 }
 
-void validate(wire::Request& request)
+void validate(wire::StartAcquisition& request)
 {
     require_id(request.id());
     warehouse::require_provider(request.provider());
-    const auto first = day_of(request.begin_day()), last = day_of(request.end_day());
-    if (first > last || request.begin_day() < "1990-01-01")
+    const auto first = day_of(request.first_day()), last = day_of(request.last_day());
+    if (first > last || request.first_day() < "1990-01-01")
         throw std::invalid_argument("acquisition needs a range of days from 1990 on");
-    if (request.table() != "daily" && request.table() != "calendar"
-        && request.table() != "contracts" && request.table() != "minutes"
-        && request.table() != "settlement")
+    if (request.table() == wire::TABLE_OBSERVATIONS)
         throw std::invalid_argument("acquisition table is not implemented");
-    if (request.table() == "minutes" && request.contract().empty()) {
+    if (table(request) == "minutes" && request.contract().empty()) {
         // Every contract the source holds on those days.
         if (request.exchanges_size())
             throw std::invalid_argument("a minute acquisition of every contract names no exchange");
-    } else if (request.table() == "minutes") {
+    } else if (table(request) == "minutes") {
         require_contract(request.contract());
         const auto exchange = request.contract().substr(0, request.contract().find('/'));
         if (request.exchanges().empty())
@@ -81,7 +86,7 @@ wire::Sources Manager::sources() const
                 }
             }
             if (supported)
-                entry->add_tables(table);
+                entry->add_tables(protocol::table_of(table));
         }
         for (const auto& exchange : exchanges)
             entry->add_exchanges(exchange);
@@ -116,9 +121,9 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
         auto task = load(entry.path());
         if (pending(task)) {
             task.set_state(wire::TASK_STATE_INTERRUPTED);
-            task.set_error_code("interrupted");
-            task.set_error("Market stopped before acquisition completed");
-            task.set_finished_ns(now_ns());
+            task.mutable_error()->set_code(::common::ERROR_CODE_UNAVAILABLE);
+            task.mutable_error()->set_message("Market stopped before acquisition completed");
+            task.set_finished_ms(now_ms());
             persist(task);
         }
     }
@@ -129,19 +134,19 @@ Manager::~Manager()
     stop();
 }
 
-void Manager::persist(const wire::Task& task) const
+void Manager::persist(const wire::AcquisitionTask& task) const
 {
     replace_file_durably(directory_ / (task.request().id() + ".pb"), task.SerializeAsString());
 }
 
-wire::Task Manager::load(const fs::path& path) const
+wire::AcquisitionTask Manager::load(const fs::path& path) const
 {
     if (!fs::is_regular_file(path))
         throw Error(ErrorCode::not_found, "acquisition task is missing");
     if (fs::file_size(path) > 65536)
         throw std::runtime_error("acquisition task file is too large");
     std::ifstream input(path, std::ios::binary);
-    wire::Task task;
+    wire::AcquisitionTask task;
     if (!task.ParseFromIstream(&input) || task.request().id() != path.stem().string()
         || !wire::TaskState_IsValid(task.state()) || task.state() == wire::TASK_STATE_UNSPECIFIED)
         throw std::runtime_error("invalid acquisition task: " + path.string());
@@ -164,7 +169,7 @@ void Manager::reap()
     }
 }
 
-wire::Task Manager::submit(wire::Request request)
+wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
 {
     validate(request);
     std::lock_guard lock(mutex_);
@@ -183,7 +188,7 @@ wire::Task Manager::submit(wire::Request request)
     auto active = std::make_unique<Active>();
     *active->task.mutable_request() = request;
     active->task.set_state(wire::TASK_STATE_QUEUED);
-    active->task.set_started_ns(now_ns());
+    active->task.set_started_ms(now_ms());
     persist(active->task);
     const auto accepted = active->task;
     auto* current = active.get();
@@ -216,29 +221,33 @@ wire::Task Manager::submit(wire::Request request)
                     task.set_state(
                         error.code == "cancelled" ? wire::TASK_STATE_CANCELLED
                                                   : wire::TASK_STATE_FAILED);
-                    task.set_error_code(error.code);
-                    task.set_error(error.what());
+                    task.mutable_error()->set_code(
+                        protocol::error_code(
+                            error.code == "unsupported"
+                                ? ErrorCode::invalid_request
+                                : parse_error_code(error.code)
+                                      .value_or(ErrorCode::operation_failed)));
+                    task.mutable_error()->set_message(error.what());
                 } catch (const std::exception& error) {
                     {
                         std::lock_guard lock(mutex_);
                         task = current->task;
                     }
                     task.set_state(wire::TASK_STATE_FAILED);
-                    task.set_error_code("operation_failed");
-                    task.set_error(error.what());
+                    *task.mutable_error() = protocol::error(error);
                     log::error(
                         "acquisition {} failed: provider={} table={} days={}..{} contract={}: {}",
                         request.id(),
                         request.provider(),
-                        request.table(),
-                        request.begin_day(),
-                        request.end_day(),
+                        table(request),
+                        request.first_day(),
+                        request.last_day(),
                         request.contract(),
                         error.what());
                 }
                 if (source)
-                    task.set_requests(source->requests());
-                task.set_finished_ns(now_ns());
+                    task.set_requests_sent(source->requests());
+                task.set_finished_ms(now_ms());
                 // The source may have committed data immediately before a status write
                 // failed. The warehouse remains authoritative; never roll it back.
                 publish(task, *current);
@@ -247,14 +256,14 @@ wire::Task Manager::submit(wire::Request request)
     return accepted;
 }
 
-void Manager::publish(const wire::Task& task, Active& active)
+void Manager::publish(const wire::AcquisitionTask& task, Active& active)
 {
     std::lock_guard lock(mutex_);
     persist(task);
     active.task = task;
 }
 
-wire::Task Manager::get(const std::string& id) const
+wire::AcquisitionTask Manager::get(const std::string& id) const
 {
     require_id(id);
     std::lock_guard lock(mutex_);
@@ -266,13 +275,11 @@ wire::Task Manager::get(const std::string& id) const
     return load(directory_ / (id + ".pb"));
 }
 
-wire::Tasks Manager::list(const wire::TasksQuery& query) const
+wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) const
 {
     if (!query.after_id().empty())
         require_id(query.after_id());
-    if (query.limit() > 128)
-        throw std::invalid_argument("too many acquisition tasks requested");
-    const std::size_t limit = query.limit() ? query.limit() : 64;
+    const std::size_t limit = 128;
     std::lock_guard lock(mutex_);
     std::set<std::string> ids;
     for (const auto& entry : fs::directory_iterator(directory_)) {
@@ -284,7 +291,7 @@ wire::Tasks Manager::list(const wire::TasksQuery& query) const
         if (ids.size() > limit + 1)
             ids.erase(std::prev(ids.end()));
     }
-    wire::Tasks result;
+    wire::AcquisitionTasks result;
     for (const auto& id : ids) {
         if (result.tasks_size() == static_cast<int>(limit)) {
             result.set_next_id(result.tasks(result.tasks_size() - 1).request().id());
@@ -319,20 +326,20 @@ void Manager::stop()
 
 void Manager::run(Active& active, Source& source, warehouse::Store& store)
 {
-    wire::Task task;
+    wire::AcquisitionTask task;
     {
         std::lock_guard lock(mutex_);
         task = active.task;
     }
     if (task.request().exchanges().empty())
         for (const auto* exchange : {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"})
-            if (source.supports(task.request().table(), exchange))
+            if (source.supports(table(task.request()), exchange))
                 task.mutable_request()->add_exchanges(exchange);
     const auto& request = task.request();
     if (request.exchanges().empty())
         throw SourceError("unsupported", "source does not provide the requested table");
     for (const auto& exchange : request.exchanges())
-        if (!source.supports(request.table(), exchange))
+        if (!source.supports(table(request), exchange))
             throw SourceError("unsupported", "source does not provide this table for " + exchange);
     publish(task, active);
     const auto stop = active.cancel.get_token();
@@ -341,27 +348,27 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         std::chrono::system_clock::now() + std::chrono::hours(8));
     // A provider's day so far would be stored as the whole day and never taken
     // again: other sources stop at yesterday.
-    const auto first = day_of(request.begin_day()),
+    const auto first = day_of(request.first_day()),
                last = std::min(
-                   day_of(request.end_day()),
+                   day_of(request.last_day()),
                    source.marks_partial_days() ? today : today - std::chrono::days{1});
     if (last < first)
         return;
     auto writer = store.writer();
     auto version = store.current();
-    task.set_dataset_version(version.identity);
+    task.set_published_version(version.identity);
     const auto commit = [&] {
         version = writer.commit();
         warehouse::compose_research(directory_.parent_path(), research_);
-        task.set_dataset_version(version.identity);
-        task.set_requests(source.requests());
+        task.set_published_version(version.identity);
+        task.set_requests_sent(source.requests());
         publish(task, active);
     };
-    if (request.table() == "minutes" || request.table() == "settlement"
+    if (table(request) == "minutes" || table(request) == "settlement"
         || !source.supports("calendar", request.exchanges(0))) {
         // Exchange, day and, for minutes, contract of each partition.
         std::vector<std::tuple<std::string, std::string, std::string>> plan;
-        if (request.table() == "minutes" && request.contract().empty())
+        if (table(request) == "minutes" && request.contract().empty())
             for (auto day = first; day <= last; day += std::chrono::days(1))
                 for (const auto& contract : source.minute_contracts(day_text(day)))
                     plan.emplace_back(
@@ -372,10 +379,10 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
             for (const auto& exchange : request.exchanges())
                 for (auto day = first; day <= last; day += std::chrono::days(1)) {
                     const auto weekday = std::chrono::weekday(day).iso_encoding();
-                    if (request.table() == "minutes" || weekday < 6)
+                    if (table(request) == "minutes" || weekday < 6)
                         plan.emplace_back(exchange, day_text(day), request.contract());
                 }
-        task.set_days_total(plan.size());
+        task.set_items(plan.size());
         publish(task, active);
         // Every version lists all partitions: publish in batches, and on
         // cancellation or failure keep what was fetched.
@@ -391,20 +398,20 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         try {
             for (const auto& [exchange, day, contract] : plan) {
                 check_stop(stop);
-                auto key = request.table() + "/" + exchange + "/" + day;
+                auto key = table(request) + "/" + exchange + "/" + day;
                 if (!contract.empty())
                     key += "/" + contract.substr(exchange.size() + 1);
-                if (request.refresh() || !version.partitions.contains(key)) {
+                if (request.refetch() || !version.partitions.contains(key)) {
                     MinuteBatch batch;
-                    if (request.table() == "minutes")
+                    if (table(request) == "minutes")
                         batch = source.minutes(contract, day);
                     else
-                        batch.rows = request.table() == "settlement"
+                        batch.rows = table(request) == "settlement"
                             ? source.settlement(exchange, day)
                             : source.daily(exchange, day);
                     check_stop(stop);
                     if (batch.rows.empty())
-                        task.set_days_empty(task.days_empty() + 1);
+                        task.set_items_empty(task.items_empty() + 1);
                     else {
                         writer.put(key, batch.rows, {day});
                         if (!batch.observations.empty())
@@ -418,8 +425,8 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                 if (unpublished >= 200
                     || std::chrono::steady_clock::now() - published_at >= std::chrono::minutes(5))
                     publish_batch();
-                task.set_days_done(task.days_done() + 1);
-                task.set_requests(source.requests());
+                task.set_items_done(task.items_done() + 1);
+                task.set_requests_sent(source.requests());
                 publish(task, active);
             }
         } catch (...) {
@@ -431,27 +438,27 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
     }
     for (const auto& exchange : request.exchanges()) {
         check_stop(stop);
-        if (request.table() == "daily" || request.table() == "calendar") {
+        if (table(request) == "daily" || table(request) == "calendar") {
             for (int year = int(std::chrono::year_month_day(first).year());
                 year <= int(std::chrono::year_month_day(last).year());
                 ++year) {
                 const auto key = "calendar/" + exchange + "/" + std::to_string(year);
-                if (request.refresh() || !version.partitions.contains(key)
+                if (request.refetch() || !version.partitions.contains(key)
                     || year == int(std::chrono::year_month_day(today).year()))
                     writer.put(key, source.calendar(exchange, year));
             }
         }
-        if (request.table() == "daily" || request.table() == "contracts")
+        if (table(request) == "daily" || table(request) == "contracts")
             writer.put("contracts/" + exchange, source.contracts(exchange));
     }
     check_stop(stop);
     commit();
-    if (request.table() != "daily")
+    if (table(request) != "daily")
         return;
     std::vector<std::pair<std::string, std::string>> plan;
     for (const auto& exchange : request.exchanges()) {
         std::set<std::string> stored;
-        if (!request.refresh())
+        if (!request.refetch())
             for (const auto& [key, part] : version.partitions)
                 if (key.starts_with("daily/" + exchange + "/"))
                     stored.insert(part.days.begin(), part.days.end());
@@ -461,14 +468,14 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
             for (const auto& row :
                 store.read(version, "calendar/" + exchange + "/" + std::to_string(year))) {
                 const auto day = std::get<std::string>(row[1]);
-                if (std::get<bool>(row[2]) && day >= request.begin_day() && day <= day_text(last)
+                if (std::get<bool>(row[2]) && day >= request.first_day() && day <= day_text(last)
                     && !stored.contains(day))
                     plan.emplace_back(exchange, day);
             }
         }
     }
     std::sort(plan.begin(), plan.end());
-    task.set_days_total(plan.size());
+    task.set_items(plan.size());
     publish(task, active);
     Rows rows;
     std::vector<std::string> days;
@@ -490,7 +497,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
             check_stop(stop);
             auto batch = source.daily(venue, day);
             if (batch.empty())
-                task.set_days_empty(task.days_empty() + 1);
+                task.set_items_empty(task.items_empty() + 1);
             else {
                 rows.insert(
                     rows.end(),
@@ -498,8 +505,8 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                     std::make_move_iterator(batch.end()));
                 days.push_back(day);
             }
-            task.set_days_done(task.days_done() + 1);
-            task.set_requests(source.requests());
+            task.set_items_done(task.items_done() + 1);
+            task.set_requests_sent(source.requests());
             publish(task, active);
         }
     } catch (...) {

@@ -55,7 +55,7 @@ export type Snapshot = {
         host: string;
         port: number;
         fingerprint: string;
-        instruments: { venue: string; symbol: string }[];
+        instruments: { exchange: string; symbol: string }[];
       }
     | { error: "unreadable" };
   // The fixed strategy directory, when the entry point names one.

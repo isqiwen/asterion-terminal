@@ -1,140 +1,193 @@
+#include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
 
 namespace asterion::protocol {
 
-market::proto::Snapshot encode_market(const LiveMarketSnapshot& state, const std::string& instance)
+namespace {
+
+void put(::common::Decimal* field, const Decimal& value)
 {
-    market::proto::Snapshot out;
-    out.set_instance_id(instance);
-    out.set_phase(std::string(market_phase_name(state.phase)));
-    out.set_error_code(state.error_code);
-    out.set_sequence(state.sequence);
-    out.set_out_of_order(state.out_of_order);
+    field->set_text(value.str());
+}
+
+::market::Subscription subscription(SubscriptionState state)
+{
+    switch (state) {
+        case SubscriptionState::pending:
+            return ::market::SUBSCRIPTION_PENDING;
+        case SubscriptionState::subscribed:
+            return ::market::SUBSCRIPTION_ACTIVE;
+        case SubscriptionState::error:
+            return ::market::SUBSCRIPTION_FAILED;
+    }
+    return ::market::SUBSCRIPTION_FAILED;
+}
+
+void encode_levels(
+    const std::optional<Decimal>& best,
+    std::int64_t best_lots,
+    const std::array<MarketDepthLevel, 4>& rest,
+    google::protobuf::RepeatedPtrField<::market::Level>* out)
+{
+    auto* first = out->Add();
+    if (best) {
+        put(first->mutable_price(), *best);
+        first->set_lots(best_lots);
+    }
+    for (const auto& level : rest) {
+        auto* row = out->Add();
+        if (level.price)
+            put(row->mutable_price(), *level.price);
+        if (level.quantity)
+            row->set_lots(*level.quantity);
+    }
+}
+
+::market::Quote encode_quote(const MarketQuote& q)
+{
+    ::market::Quote quote;
+    if (q.last)
+        put(quote.mutable_last(), *q.last);
+    if (q.open)
+        put(quote.mutable_open(), *q.open);
+    if (q.high)
+        put(quote.mutable_high(), *q.high);
+    if (q.low)
+        put(quote.mutable_low(), *q.low);
+    if (q.average_price)
+        put(quote.mutable_average_price(), *q.average_price);
+    if (q.previous_close)
+        put(quote.mutable_previous_close(), *q.previous_close);
+    if (q.previous_settlement)
+        put(quote.mutable_previous_settlement(), *q.previous_settlement);
+    if (q.upper_limit)
+        put(quote.mutable_upper_limit(), *q.upper_limit);
+    if (q.lower_limit)
+        put(quote.mutable_lower_limit(), *q.lower_limit);
+    if (q.open_interest)
+        put(quote.mutable_open_interest(), *q.open_interest);
+    if (q.open_interest_change)
+        put(quote.mutable_open_interest_change(), *q.open_interest_change);
+    quote.set_volume(q.volume);
+    encode_levels(q.bid, q.bid_quantity, q.bid_levels, quote.mutable_bids());
+    encode_levels(q.ask, q.ask_quantity, q.ask_levels, quote.mutable_asks());
+    quote.set_trading_day(iso_day(q.trading_day));
+    if (q.source_ms)
+        quote.set_exchange_ms(q.source_ms);
+    quote.set_received_ms(q.received_ms);
+    return quote;
+}
+
+} // namespace
+
+::common::Instrument encode_instrument(const InstrumentId& id)
+{
+    ::common::Instrument out;
+    out.set_exchange(id.venue);
+    out.set_symbol(id.symbol);
+    return out;
+}
+
+InstrumentId instrument(const ::common::Instrument& id)
+{
+    return {id.exchange(), id.symbol()};
+}
+
+::market::Feed encode_feed(MarketPhase phase, int ctp_error)
+{
+    ::market::Feed feed;
+    switch (phase) {
+        case MarketPhase::disconnected:
+            feed.set_state(::market::FEED_STATE_DISCONNECTED);
+            break;
+        case MarketPhase::connecting:
+            feed.set_state(::market::FEED_STATE_CONNECTING);
+            break;
+        case MarketPhase::logging_in:
+            feed.set_state(::market::FEED_STATE_LOGGING_IN);
+            break;
+        case MarketPhase::reconnecting:
+            feed.set_state(::market::FEED_STATE_RECONNECTING);
+            break;
+        case MarketPhase::connected:
+            feed.set_state(::market::FEED_STATE_CONNECTED);
+            break;
+        case MarketPhase::error:
+            feed.set_state(::market::FEED_STATE_FAILED);
+            break;
+    }
+    feed.set_ctp_error(ctp_error);
+    return feed;
+}
+
+::market::Board encode_board(const LiveMarketSnapshot& state)
+{
+    ::market::Board board;
+    *board.mutable_feed() = encode_feed(state.phase, state.error_code);
     for (const auto& s : state.subscriptions) {
-        auto* row = out.add_quotes();
-        row->mutable_instrument()->set_venue(s.instrument.venue);
-        row->mutable_instrument()->set_symbol(s.instrument.symbol);
-        row->set_state(std::string(subscription_state_name(s.state)));
-        row->set_error_code(s.error_code);
-        if (!s.quote)
-            continue;
-        const auto& q = *s.quote;
-        auto* quote = row->mutable_quote();
-        *quote->mutable_instrument() = row->instrument();
-        if (q.last)
-            quote->set_last(q.last->str());
-        if (q.bid)
-            quote->set_bid(q.bid->str());
-        if (q.ask)
-            quote->set_ask(q.ask->str());
-        if (q.previous_settlement)
-            quote->set_previous_settlement(q.previous_settlement->str());
-        if (q.previous_close)
-            quote->set_previous_close(q.previous_close->str());
-        if (q.open_interest_change)
-            quote->set_open_interest_change(q.open_interest_change->str());
-        if (q.average_price)
-            quote->set_average_price(q.average_price->str());
-        if (q.open)
-            quote->set_open(q.open->str());
-        if (q.upper_limit)
-            quote->set_upper_limit(q.upper_limit->str());
-        if (q.lower_limit)
-            quote->set_lower_limit(q.lower_limit->str());
-        if (q.high)
-            quote->set_high(q.high->str());
-        if (q.low)
-            quote->set_low(q.low->str());
-        if (q.open_interest)
-            quote->set_open_interest(q.open_interest->str());
-        quote->set_bid_quantity(q.bid_quantity);
-        quote->set_ask_quantity(q.ask_quantity);
-        quote->set_volume(q.volume);
-        const auto depth = [](const auto& levels, auto* output) {
-            for (const auto& level : levels) {
-                if (level.quantity && (!level.price || *level.quantity < 0))
-                    throw std::invalid_argument("invalid market depth level");
-                auto* row = output->Add();
-                if (level.price)
-                    row->set_price(level.price->str());
-                if (level.quantity)
-                    row->set_quantity(*level.quantity);
-            }
-        };
-        depth(q.bid_levels, quote->mutable_bid_levels());
-        depth(q.ask_levels, quote->mutable_ask_levels());
-        quote->set_action_day(q.action_day);
-        quote->set_trading_day(q.trading_day);
-        quote->set_update_time(q.update_time);
-        quote->set_source_ms(q.source_ms);
-        quote->set_received_ms(q.received_ms);
+        auto* row = board.add_rows();
+        *row->mutable_instrument() = encode_instrument(s.instrument);
+        row->set_subscription(subscription(s.state));
+        row->set_ctp_error(s.error_code);
+        if (s.quote)
+            *row->mutable_quote() = encode_quote(*s.quote);
     }
-    return out;
+    return board;
 }
 
-market::proto::EventBatch encode_market_events(const MarketEventBatch& batch)
+::market::Minutes encode_minutes(const IntradaySeries& series)
 {
-    market::proto::EventBatch out;
-    out.set_stream_id(batch.stream_id);
-    out.set_oldest_sequence(batch.oldest_sequence);
-    out.set_latest_sequence(batch.latest_sequence);
-    out.set_gap(batch.gap);
-    out.set_failed(batch.failed);
-    for (const auto& event : batch.events) {
-        auto* row = out.add_events();
-        row->set_sequence(event.sequence);
-        row->set_received_ms(event.received_ms);
-        if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-            row->mutable_status()->set_phase(std::string(market_phase_name(status->phase)));
-            row->mutable_status()->set_error_code(status->error_code);
-        } else if (const auto* subscription = std::get_if<MarketSubscription>(&event.value)) {
-            if (subscription->quote)
-                throw std::invalid_argument("subscription acknowledgement cannot carry a quote");
-            auto* state = row->mutable_subscription();
-            state->mutable_instrument()->set_venue(subscription->instrument.venue);
-            state->mutable_instrument()->set_symbol(subscription->instrument.symbol);
-            state->set_state(std::string(subscription_state_name(subscription->state)));
-            state->set_error_code(subscription->error_code);
-        } else {
-            const auto& observation = std::get<MarketQuoteObservation>(event.value);
-            LiveMarketSnapshot single;
-            single.subscriptions.push_back(
-                {observation.quote.instrument,
-                    SubscriptionState::subscribed,
-                    0,
-                    observation.quote});
-            auto encoded = encode_market(single, batch.stream_id);
-            *row->mutable_quote()->mutable_quote() = encoded.quotes(0).quote();
-            row->mutable_quote()->set_out_of_order(observation.out_of_order);
-        }
-    }
-    return out;
-}
-
-market::proto::MinuteSeries encode_minutes(const IntradaySeries& series)
-{
-    market::proto::MinuteSeries out;
-    out.mutable_instrument()->set_venue(series.instrument.venue);
-    out.mutable_instrument()->set_symbol(series.instrument.symbol);
-    out.set_trading_day(series.trading_day);
-    out.set_first_observation_ms(series.first_observation_ms);
-    out.set_interrupted(series.interrupted);
+    ::market::Minutes out;
+    *out.mutable_instrument() = encode_instrument(series.instrument);
+    out.set_trading_day(iso_day(series.trading_day));
     if (series.previous_settlement)
-        out.set_previous_settlement(series.previous_settlement->str());
+        put(out.mutable_previous_settlement(), *series.previous_settlement);
+    if (series.first_observation_ms)
+        out.set_observed_from_ms(series.first_observation_ms);
+    out.set_interrupted(series.interrupted);
     for (const auto& bar : series.bars) {
         auto* row = out.add_bars();
         row->set_start_ms(bar.start_ms);
-        row->set_open(bar.open.str());
-        row->set_high(bar.high.str());
-        row->set_low(bar.low.str());
-        row->set_close(bar.close.str());
+        put(row->mutable_open(), bar.open);
+        put(row->mutable_high(), bar.high);
+        put(row->mutable_low(), bar.low);
+        put(row->mutable_close(), bar.close);
         row->set_volume(bar.volume);
         if (bar.average_price)
-            row->set_average_price(bar.average_price->str());
+            put(row->mutable_average_price(), *bar.average_price);
         if (bar.open_interest)
-            row->set_open_interest(bar.open_interest->str());
+            put(row->mutable_open_interest(), *bar.open_interest);
+        row->set_partial(bar.partial);
     }
     return out;
+}
+
+std::string table_name(::market::Table table)
+{
+    switch (table) {
+        case ::market::TABLE_CALENDAR:
+            return "calendar";
+        case ::market::TABLE_CONTRACTS:
+            return "contracts";
+        case ::market::TABLE_DAILY:
+            return "daily";
+        case ::market::TABLE_MINUTES:
+            return "minutes";
+        case ::market::TABLE_SETTLEMENT:
+            return "settlement";
+        case ::market::TABLE_OBSERVATIONS:
+            return "observations";
+        default:
+            throw std::invalid_argument("missing table");
+    }
+}
+
+::market::Table table_of(std::string_view name)
+{
+    for (int value = ::market::TABLE_CALENDAR; value <= ::market::TABLE_OBSERVATIONS; ++value)
+        if (table_name(static_cast<::market::Table>(value)) == name)
+            return static_cast<::market::Table>(value);
+    throw std::invalid_argument("unknown table: " + std::string(name));
 }
 
 } // namespace asterion::protocol

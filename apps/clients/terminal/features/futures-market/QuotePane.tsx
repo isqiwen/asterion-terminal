@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/client-ui/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/client-ui/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { MinuteSeries, ContractQuote } from "../../src/generated/asterion/market_pb";
+import type { Minutes, QuoteRow } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,
@@ -22,7 +22,7 @@ import { intradaySlots, sessionRanges } from "./intraday-slots";
 import { averagePeriods, movingAverage } from "./indicators";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
-type Row = ContractQuote;
+type Row = QuoteRow;
 export type PanePeriod =
   "分时" | "Tick" | "1分" | "5分" | "10分" | "日K" | "周K" | "月K" | "季K" | "年K" | "历史K线";
 const primary: PanePeriod[] = ["分时", "Tick", "1分", "5分", "10分", "日K"];
@@ -38,12 +38,12 @@ const historical = {
 const averageColors = ["#cdd0d7", "#e5b45a", "#d555ae", "#52aa76", "#4aabe0"];
 
 // Polls the market service's minute bars of one contract while mounted. When
-// the service has started again, the series is dropped and asked for afresh.
+// the quote stream starts again, the series is dropped and asked for afresh.
 function useIntraday(market: MarketView, row: Row) {
-  const [series, setSeries] = useState<MinuteSeries | null>(null);
+  const [series, setSeries] = useState<Minutes | null>(null);
   const [error, setError] = useState<DisplayError>("");
-  const { venue, symbol } = row.instrument!;
-  const instance = market.snapshot.instanceId;
+  const { exchange, symbol } = row.instrument!;
+  const generation = market.generation;
   useEffect(() => {
     let current = true;
     // One read at a time, so replies are taken in the order they were asked for.
@@ -53,14 +53,9 @@ function useIntraday(market: MarketView, row: Row) {
     const load = () => {
       if (pending) return;
       pending = true;
-      void marketData(
-        { case: "getIntradayBars", value: { instrument: { venue, symbol } } },
-        "minutes",
-      )
+      void marketData({ case: "getMinutes", value: { exchange, symbol } })
         .then(next => {
           if (!current) return;
-          if (next.instrument?.venue !== venue || next.instrument.symbol !== symbol)
-            throw new Error(t("返回的数据与所选合约不匹配"));
           setSeries(next);
           setError("");
         })
@@ -79,17 +74,17 @@ function useIntraday(market: MarketView, row: Row) {
       current = false;
       window.clearInterval(timer);
     };
-  }, [venue, symbol, instance]);
+  }, [exchange, symbol, generation]);
   return { series, error };
 }
 
 function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
   const { series, error } = useIntraday(market, row);
-  const { venue, symbol } = row.instrument!;
-  const product = market.snapshot.catalog?.contracts.find(
-    item => item.instrument?.venue === venue && item.instrument.symbol === symbol,
+  const { exchange, symbol } = row.instrument!;
+  const product = market.board.catalog?.contracts.find(
+    item => item.instrument?.exchange === exchange && item.instrument.symbol === symbol,
   )?.product;
-  const reference = series?.previousSettlement ?? row.quote?.previousSettlement ?? null;
+  const reference = series?.previousSettlement?.text ?? row.quote?.previousSettlement?.text ?? null;
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
@@ -103,8 +98,8 @@ function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
         {t("本交易日尚无分时记录")}
       </div>
     );
-  const { slots, ticks } = intradaySlots(series, product ? sessionRanges(venue, product) : null);
-  const since = new Date(Number(series.firstObservationMs)).toLocaleTimeString(getLocale(), {
+  const { slots, ticks } = intradaySlots(series, product ? sessionRanges(exchange, product) : null);
+  const since = new Date(Number(series.observedFromMs ?? 0n)).toLocaleTimeString(getLocale(), {
     timeZone: "Asia/Shanghai",
     hour12: false,
     hour: "2-digit",
@@ -164,7 +159,7 @@ function ObservedCandles({
   minutes,
   row,
 }: {
-  series: MinuteSeries | null;
+  series: Minutes | null;
   error: DisplayError;
   minutes: number;
   row: Row;
@@ -185,16 +180,16 @@ function ObservedCandles({
       key = bucket;
       candles.push({
         timestamp_ns: `${bucket * minutes * 60000}000000`,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
+        open: bar.open!.text,
+        high: bar.high!.text,
+        low: bar.low!.text,
+        close: bar.close!.text,
         volume: String(bar.volume),
       });
     } else {
-      if (Number(bar.high) > Number(last.high)) last.high = bar.high;
-      if (Number(bar.low) < Number(last.low)) last.low = bar.low;
-      last.close = bar.close;
+      if (Number(bar.high!.text) > Number(last.high)) last.high = bar.high!.text;
+      if (Number(bar.low!.text) < Number(last.low)) last.low = bar.low!.text;
+      last.close = bar.close!.text;
       last.volume = String(Number(last.volume) + Number(bar.volume));
     }
   }
@@ -210,7 +205,7 @@ function ObservedCandles({
       fitHeight
       showPriceExtremes
       mirrorPriceAxis
-      key={`${row.instrument!.venue}.${row.instrument!.symbol}:${minutes}:${series.tradingDay}`}
+      key={`${row.instrument!.exchange}.${row.instrument!.symbol}:${minutes}:${series.tradingDay}`}
       series={{ kind: "candles", points: candles }}
       overlays={averagePeriods.slice(0, 4).map((period, index) => ({
         label: `MA${period}`,
@@ -260,13 +255,13 @@ export function QuotePane({
         ? "down"
         : undefined;
   const status = quoteStatus(market, row);
-  const { venue, symbol } = row.instrument!;
-  const identity = `${venue}.${symbol}`;
+  const { exchange, symbol } = row.instrument!;
+  const identity = `${exchange}.${symbol}`;
   return (
     <section className="quote-pane" aria-label={`${name} ${t(period)}`}>
       <header className="quote-pane-header">
         <strong title={`${name} · ${symbol}`}>{name}</strong>
-        <b data-tone={tone}>{row.quote?.last ?? "—"}</b>
+        <b data-tone={tone}>{row.quote?.last?.text ?? "—"}</b>
         {change && (
           <>
             <span data-tone={tone}>
@@ -334,7 +329,7 @@ export function QuotePane({
         ) : (
           <ContractHistory
             key={identity}
-            venue={venue}
+            venue={exchange}
             symbol={symbol}
             context={context}
             preferenceKey={period === "历史K线" ? `${pane}.history-full` : `${pane}.history`}

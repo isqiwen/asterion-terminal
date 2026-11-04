@@ -1,3 +1,4 @@
+import { CatalogState } from "../../src/generated/asterion/market_pb";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
@@ -34,8 +35,8 @@ export function AccountPolicyEditor({
   const [contracts, setContracts] = useState(live.contracts.map(contractKey));
   const [choice, setChoice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
-  const catalog = useMarket()?.snapshot.catalog;
-  const available = catalog?.phase === "ready" ? catalog.contracts : [];
+  const catalog = useMarket()?.board.catalog;
+  const available = catalog?.status?.state === CatalogState.READY ? catalog.contracts : [];
   return (
     <section aria-label={t("账户政策")}>
       <h3>{t("账户政策")}</h3>
@@ -131,7 +132,7 @@ export function AccountPolicyEditor({
           >
             {t("添加")}
           </button>
-          {catalog?.phase !== "ready" && (
+          {catalog?.status?.state !== CatalogState.READY && (
             <p className="subtle">
               {t("新增合约前，请在行情页取得合约目录；现有合约仍可调整风险限额。")}
             </p>

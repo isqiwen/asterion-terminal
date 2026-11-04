@@ -1,8 +1,7 @@
-import { TaskState } from "../../src/generated/asterion/acquisition_pb";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
-import { TaskSchema } from "../../src/generated/asterion/acquisition_pb";
+import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/market_pb";
 import type { TerminalContext } from "../contract";
 import { Coverage } from "./Coverage";
 
@@ -23,26 +22,26 @@ const context = () =>
       market_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
     },
   }) as unknown as TerminalContext;
-const source = (provider: string, tables = ["daily"]) => ({
+const source = (provider: string, tables = [Table.DAILY]) => ({
   provider,
   tables,
   exchanges: ["SHFE"],
 });
 const task = (id: string, provider: string) =>
-  create(TaskSchema, {
-    request: { id, provider, table: "daily", beginDay: "2026-10-30", endDay: "2026-10-30" },
+  create(AcquisitionTaskSchema, {
+    request: { id, provider, table: Table.DAILY, firstDay: "2026-10-30", lastDay: "2026-10-30" },
     state: TaskState.RUNNING,
-    daysTotal: 1n,
+    items: 1n,
   });
 function serve(canManage = true) {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
-      case "listAcquisitionSources":
-        return { sources: [source("tushare"), source("shfe", ["settlement"])], canManage };
+      case "listSources":
+        return { sources: [source("tushare"), source("shfe", [Table.SETTLEMENT])], canManage };
       case "listDatasets":
-        return { sources: [], nextProvider: "" };
+        return { datasets: [] };
       case "getDatasetSummary":
-        return { datasetVersion: "", tables: [] };
+        return { tables: [] };
       case "listAcquisitionTasks":
         return { tasks: [task("first", "tushare")], nextId: "" };
       default:
@@ -63,7 +62,7 @@ test("switching providers submits directly to Market without configuring Lab or 
     ),
   );
   fireEvent.change(screen.getByLabelText("数据源"), { target: { value: "shfe" } });
-  expect((screen.getByLabelText("表") as HTMLSelectElement).value).toBe("settlement");
+  expect((screen.getByLabelText("表") as HTMLSelectElement).value).toBe(String(Table.SETTLEMENT));
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "开始采集" }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -72,15 +71,14 @@ test("switching providers submits directly to Market without configuring Lab or 
   fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         case: "startAcquisition",
         value: expect.objectContaining({
           provider: "shfe",
-          table: "settlement",
+          table: Table.SETTLEMENT,
           exchanges: ["SHFE"],
         }),
-      },
-      "acquisitionTask",
+      }),
     ),
   );
   expect(props.trade).not.toHaveBeenCalled();
@@ -99,51 +97,34 @@ test("read-only clients see shared tasks but cannot start or cancel them", async
   );
 });
 
-test("stored disabled sources remain visible and every coverage page uses the summary version", async () => {
-  request.mockImplementation(
-    async (body: {
-      case: string;
-      value: { afterProvider?: string; afterProduct?: string; afterId?: string };
-    }) => {
-      switch (body.case) {
-        case "listAcquisitionSources":
-          return { sources: [], canManage: false };
-        case "listDatasets":
-          return body.value.afterProvider
-            ? { sources: [{ provider: "tushare" }], nextProvider: "" }
-            : { sources: [{ provider: "shfe" }], nextProvider: "shfe" };
-        case "getDatasetSummary":
-          return { datasetVersion: "fixed-version", tables: [] };
-        case "getDatasetCoverage":
-          return {
-            products: [
-              {
-                exchange: "SHFE",
-                product: body.value.afterProduct ? "rb" : "cu",
-                months: [{ month: "2026-10", days: 1, openDays: 0 }],
-              },
-            ],
-            nextProduct: body.value.afterProduct ? "" : "SHFE/cu",
-          };
-        case "listAcquisitionTasks":
-          return body.value.afterId
-            ? { tasks: [task("remote-task", "shfe")], nextId: "" }
-            : { tasks: [], nextId: "first" };
-        default:
-          return {};
-      }
-    },
-  );
+test("stored disabled sources remain visible and coverage uses the summary's version", async () => {
+  request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
+    switch (body.case) {
+      case "listSources":
+        return { sources: [], canManage: false };
+      case "listDatasets":
+        return { datasets: [{ provider: "shfe" }, { provider: "tushare" }] };
+      case "getDatasetSummary":
+        return { dataset: { version: "fixed-version" }, tables: [] };
+      case "getDatasetCoverage":
+        return {
+          products: [{ product: "SHFE/rb", months: [{ month: "2026-10", days: 1, openDays: 0 }] }],
+        };
+      case "listAcquisitionTasks":
+        return body.value.afterId
+          ? { tasks: [task("remote-task", "shfe")], nextId: "" }
+          : { tasks: [], nextId: "first" };
+      default:
+        return {};
+    }
+  });
   render(<Coverage {...context()} />);
   await screen.findByRole("rowheader", { name: "SHFE/rb" });
   await screen.findByRole("option", { name: "tushare" });
-  expect(request).toHaveBeenCalledWith(
-    {
-      case: "getDatasetCoverage",
-      value: { provider: "shfe", datasetVersion: "fixed-version", afterProduct: "SHFE/cu" },
-    },
-    "datasetCoverage",
-  );
+  expect(request).toHaveBeenCalledWith({
+    case: "getDatasetCoverage",
+    value: { provider: "shfe", version: "fixed-version" },
+  });
   expect(screen.queryByRole("button", { name: "开始采集" })).toBeNull();
   expect(screen.getByRole("table", { name: "采集任务" })).toBeTruthy();
 });
@@ -158,12 +139,12 @@ test("polls shared tasks even when this client has no active acquisition", async
   let remote = false;
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
-      case "listAcquisitionSources":
+      case "listSources":
         return { sources: [source("shfe")], canManage: true };
       case "listDatasets":
-        return { sources: [], nextProvider: "" };
+        return { datasets: [] };
       case "getDatasetSummary":
-        return { datasetVersion: "", tables: [] };
+        return { tables: [] };
       case "listAcquisitionTasks":
         return { tasks: remote ? [task("other-client", "shfe")] : [], nextId: "" };
       default:
@@ -173,10 +154,7 @@ test("polls shared tasks even when this client has no active acquisition", async
   render(<Coverage {...context()} />);
   await screen.findByRole("button", { name: "开始采集" });
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith(
-      { case: "listAcquisitionTasks", value: { afterId: "" } },
-      "acquisitionTasks",
-    ),
+    expect(request).toHaveBeenCalledWith({ case: "listAcquisitionTasks", value: { afterId: "" } }),
   );
   remote = true;
   await act(async () => {
@@ -185,10 +163,10 @@ test("polls shared tasks even when this client has no active acquisition", async
   await screen.findByRole("table", { name: "采集任务" });
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith(
-      { case: "cancelAcquisition", value: { id: "other-client" } },
-      "acquisitionTask",
-    ),
+    expect(request).toHaveBeenCalledWith({
+      case: "cancelAcquisition",
+      value: { id: "other-client" },
+    }),
   );
 });
 
@@ -196,8 +174,8 @@ test("recorded minutes publish through Market with a contract and explicit refre
   serve();
   const current = request.getMockImplementation()!;
   request.mockImplementation(async body =>
-    body.case === "listAcquisitionSources"
-      ? { sources: [source("recorder", ["minutes"])], canManage: true }
+    body.case === "listSources"
+      ? { sources: [source("recorder", [Table.MINUTES])], canManage: true }
       : current(body),
   );
   render(<Coverage {...context()} />);
@@ -211,16 +189,15 @@ test("recorded minutes publish through Market with a contract and explicit refre
   fireEvent.click(publish);
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         case: "startAcquisition",
         value: expect.objectContaining({
           provider: "recorder",
-          table: "minutes",
+          table: Table.MINUTES,
           contract: "SHFE/rb/2027-01",
-          refresh: true,
+          refetch: true,
         }),
-      },
-      "acquisitionTask",
+      }),
     ),
   );
 });

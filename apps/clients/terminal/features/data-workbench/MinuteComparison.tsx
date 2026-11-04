@@ -9,7 +9,7 @@ import {
   type MessageValues,
   type MinuteComparisonResult,
   type MinuteDifferences,
-  type MinuteValues,
+  type MinuteBar,
 } from "../contract";
 
 const t = (key: string, values?: MessageValues) =>
@@ -26,7 +26,7 @@ export function MinuteComparison() {
   const [open, setOpen] = useState("");
   useEffect(() => {
     let active = true;
-    void marketData({ case: "getMinuteComparison", value: {} }, "minuteComparison")
+    void marketData({ case: "compareMinutes", value: {} })
       .then(next => active && setResult(next))
       .catch(() => active && setResult(undefined));
     return () => {
@@ -57,7 +57,7 @@ export function MinuteComparison() {
         </thead>
         <tbody>
           {result.differing.map(day => {
-            const key = `${day.contract}:${day.day}`;
+            const key = `${day.contract}:${day.tradingDay}`;
             return (
               <tr
                 key={key}
@@ -65,7 +65,7 @@ export function MinuteComparison() {
                 onClick={() => setOpen(open === key ? "" : key)}
               >
                 <td>{day.contract}</td>
-                <td>{day.day}</td>
+                <td>{day.tradingDay}</td>
                 <td>{day.compared}</td>
                 <td>{day.differing}</td>
                 <td>{day.tushareOnly}</td>
@@ -90,7 +90,7 @@ function Minutes({ contract, day }: { contract: string; day: string }) {
   const [state, setState] = useState<{ result?: MinuteDifferences; error: DisplayError }>();
   useEffect(() => {
     let active = true;
-    void marketData({ case: "getMinuteDifferences", value: { contract, day } }, "minuteDifferences")
+    void marketData({ case: "getMinuteDifferences", value: { contract, tradingDay: day } })
       .then(result => active && setState({ result, error: "" }))
       .catch(reason => active && setState({ error: asDisplayError(reason) }));
     return () => {
@@ -99,10 +99,15 @@ function Minutes({ contract, day }: { contract: string; day: string }) {
   }, [contract, day]);
   if (state?.error) return <ErrorNotice error={state.error} />;
   if (!state?.result) return <p role="status">{t("读取中")}</p>;
-  const cells = (side: MinuteValues | undefined, other: MinuteValues | undefined) =>
+  const value = (bar: MinuteBar | undefined, field: (typeof fields)[number]) =>
+    field === "volume" ? bar?.volume.toString() : bar?.[field]?.text;
+  const cells = (side: MinuteBar | undefined, other: MinuteBar | undefined) =>
     fields.map(field => (
-      <td key={field} data-differs={!side || !other || side[field] !== other[field] || undefined}>
-        {side ? side[field] : "—"}
+      <td
+        key={field}
+        data-differs={!side || !other || value(side, field) !== value(other, field) || undefined}
+      >
+        {side ? value(side, field) : "—"}
       </td>
     ));
   return (

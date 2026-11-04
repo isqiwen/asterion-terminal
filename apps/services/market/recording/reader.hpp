@@ -1,22 +1,28 @@
 #pragma once
-#include <asterion/futures/market.hpp>
-#include <asterion/recording.pb.h>
+#include <asterion/futures/intraday_bars.hpp>
 #include <duckdb.hpp>
 #include <filesystem>
 #include <memory>
 
 namespace asterion::recording {
 
-// Answers the read-only queries from the files the recorder wrote. It has its
-// own DuckDB database, so a long read never holds the lane the recorder's
-// writer uses.
+// Reads the files the recorder wrote. It has its own DuckDB database, so a
+// long read never holds the lane the recorder's writer uses. Days are YYYYMMDD.
 class Reader
 {
 public:
+    struct Segment
+    {
+        std::string instance;
+        std::uint64_t number = 0;
+        std::int64_t first_received_ms = 0, last_received_ms = 0;
+        std::uint64_t ticks = 0;
+        std::string end;
+    };
+
     explicit Reader(std::filesystem::path recordings);
-    recording::proto::Days days();
-    std::vector<recording::proto::Segment> segments(const std::string& trading_day);
-    recording::proto::Minutes minutes(const recording::proto::MinutesQuery& request);
+    std::vector<Segment> segments(const std::string& trading_day);
+    std::vector<MinuteBar> minutes(const std::string& trading_day, const InstrumentId& id);
     // The instruments with recorded minutes on a trading day (YYYYMMDD).
     std::vector<InstrumentId> instruments(const std::string& trading_day);
 

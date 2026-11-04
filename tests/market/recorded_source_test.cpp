@@ -55,20 +55,20 @@ protected:
         ASSERT_TRUE(recorder.status().error.empty()) << recorder.status().error;
     }
 
-    ac::wire::Task publish(
+    ac::wire::AcquisitionTask publish(
         ac::Manager& manager,
         const std::string& id,
         bool refresh = false,
         const std::string& contract = "SHFE/rb/2027-01")
     {
-        ac::wire::Request request;
+        ac::wire::StartAcquisition request;
         request.set_id(id);
         request.set_provider("recorder");
-        request.set_table("minutes");
+        request.set_table(::market::TABLE_MINUTES);
         request.set_contract(contract);
-        request.set_begin_day("2026-10-28");
-        request.set_end_day("2026-10-29");
-        request.set_refresh(refresh);
+        request.set_first_day("2026-10-28");
+        request.set_last_day("2026-10-29");
+        request.set_refetch(refresh);
         manager.submit(request);
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
@@ -95,12 +95,12 @@ TEST_F(RecordedSource, PublicationRetainsPartialBarsGapsAndOldVersionsAcrossComp
     record("first");
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "first");
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
-    EXPECT_EQ(task.days_done(), 2);
-    EXPECT_EQ(task.days_empty(), 1);
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    EXPECT_EQ(task.items_done(), 2);
+    EXPECT_EQ(task.items_empty(), 1);
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
     const auto original = store.current();
-    EXPECT_EQ(original.identity, task.dataset_version());
+    EXPECT_EQ(original.identity, task.published_version());
     ASSERT_EQ(original.partitions.size(), 2);
     const std::string key = "minutes/SHFE/2026-10-28/rb/2027-01";
     const std::string observations = "observations/SHFE/2026-10-28/rb/2027-01";
@@ -122,8 +122,8 @@ TEST_F(RecordedSource, PublicationRetainsPartialBarsGapsAndOldVersionsAcrossComp
     }
     ASSERT_FALSE(fs::exists(root / "recordings/minutes/trading_day=20261028/first-1.parquet"));
     const auto updated = publish(manager, "refresh", true);
-    ASSERT_EQ(updated.state(), ac::wire::TASK_STATE_SUCCEEDED) << updated.error();
-    EXPECT_NE(updated.dataset_version(), original.identity);
+    ASSERT_EQ(updated.state(), ac::wire::TASK_STATE_SUCCEEDED) << updated.error().message();
+    EXPECT_NE(updated.published_version(), original.identity);
     EXPECT_EQ(store.read(store.current(), key).size(), 4);
     EXPECT_EQ(store.read(store.current(), observations).size(), 2);
     EXPECT_EQ(store.read(original, key), rows);
@@ -207,7 +207,7 @@ TEST_F(RecordedSource, AMergedDayIsReportedAndEveryContractOfItReachesResearch)
     ASSERT_EQ(merged, "20261028") << compactor.status().error;
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "day", true, "");
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     std::map<std::string, std::string> research;
     const wh::Store store(wh::source_directory(root, "research"), "research");
     for (const auto& [key, part] : store.current().partitions)
@@ -279,7 +279,7 @@ TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)
     record("average", base, {"SHFE", "rb2701"}, "3100.123456", "666.66733333");
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "average");
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
     const auto rows = store.read(store.current(), "minutes/SHFE/2026-10-28/rb/2027-01");
     ASSERT_FALSE(rows.empty());

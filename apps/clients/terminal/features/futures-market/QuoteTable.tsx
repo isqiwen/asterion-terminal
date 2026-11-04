@@ -1,27 +1,27 @@
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
 import { getLocale, translate } from "../contract";
-import type { ContractQuote } from "../../src/generated/asterion/market_pb";
+import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function quoteStatus(market: MarketView, row: ContractQuote, now = Date.now()) {
+export function quoteStatus(market: MarketView, row: QuoteRow, now = Date.now()) {
   const q = row.quote;
-  if (!market.online || market.snapshot.phase !== "connected")
+  if (!market.online || market.board.feed?.state !== FeedState.CONNECTED)
     return t(q ? "断线 · 旧报价" : "行情未连接");
-  if (row.state === "error") return t("订阅失败");
-  if (row.state !== "subscribed") return t("订阅中");
+  if (row.subscription === Subscription.FAILED) return t("订阅失败");
+  if (row.subscription !== Subscription.ACTIVE) return t("订阅中");
   if (!q) return t("等待首笔");
-  const source = Number(q.sourceMs);
-  if (!source) return t("时间未知");
+  if (q.exchangeMs === undefined) return t("时间未知");
+  const source = Number(q.exchangeMs);
   if (source > now + 5000) return t("来源时间超前");
   return t(now - source > 30000 || now - Number(q.receivedMs) > 30000 ? "行情未更新" : "实时");
 }
 // Display-only change relative to previous settlement; never a ledger calculation.
-export function quoteChange(row: ContractQuote) {
+export function quoteChange(row: QuoteRow) {
   const q = row.quote;
-  if (q?.last == null || q.previousSettlement == null) return null;
-  const last = Number(q.last),
-    base = Number(q.previousSettlement);
+  if (!q?.last || !q.previousSettlement) return null;
+  const last = Number(q.last.text),
+    base = Number(q.previousSettlement.text);
   if (!Number.isFinite(last) || !Number.isFinite(base) || base <= 0) return null;
   return { amount: last - base, percent: ((last - base) / base) * 100 };
 }
@@ -32,13 +32,13 @@ const overviewHeadings: Record<string, string> = {
   涨跌幅: "涨跌幅(结)",
   持仓量: "持仓",
 };
-function speed(row: ContractQuote) {
-  const value = row.change1mPercent == null ? NaN : Number(row.change1mPercent);
+function speed(row: QuoteRow) {
+  const value = row.change1mPercent ? Number(row.change1mPercent.text) : NaN;
   return Number.isFinite(value) ? value : null;
 }
 export function QuoteTable({
   market,
-  rows = market.snapshot.quotes,
+  rows = market.board.rows,
   overviewStyle = false,
   selected,
   onSelect,
@@ -50,12 +50,12 @@ export function QuoteTable({
   columns = quoteColumns,
 }: {
   columns?: readonly QuoteColumn[];
-  nameFor?: (row: ContractQuote) => string | undefined;
+  nameFor?: (row: QuoteRow) => string | undefined;
   sort?: { column: string; direction: "ascending" | "descending" };
   onSort?: (column: string) => void;
   market: MarketView;
   // The rows to show, in order; all of the market's rows by default.
-  rows?: readonly ContractQuote[];
+  rows?: readonly QuoteRow[];
   overviewStyle?: boolean;
   selected?: string;
   onSelect?: (id: string) => void;
@@ -123,7 +123,7 @@ export function QuoteTable({
         <tbody>
           {rows.map(row => {
             const id = rowKey(row);
-            const { venue, symbol } = row.instrument!;
+            const { exchange, symbol } = row.instrument!;
             const name = nameFor?.(row);
             const q = row.quote;
             const change = quoteChange(row);
@@ -175,11 +175,11 @@ export function QuoteTable({
                   ) : (
                     <strong>{symbol}</strong>
                   )}
-                  <small className="quote-venue">{venue}</small>
+                  <small className="quote-venue">{exchange}</small>
                   {onSelect && !overviewStyle && quoteStatus(market, row) !== t("实时") && (
                     <small className="quote-inline-status">
                       {quoteStatus(market, row)}
-                      {row.errorCode !== 0 && ` · CTP ${row.errorCode}`}
+                      {row.ctpError !== 0 && ` · CTP ${row.ctpError}`}
                     </small>
                   )}
                 </td>
@@ -203,15 +203,15 @@ export function QuoteTable({
                       {column === "1分钟涨速"
                         ? (speed(row)?.toFixed(2) ?? "—")
                         : column === "最新价"
-                          ? (q?.last ?? "—")
+                          ? (q?.last?.text ?? "—")
                           : column === "持仓量"
                             ? overviewStyle &&
-                              q?.openInterest != null &&
-                              Number(q.openInterest) >= 10000
-                              ? `${(Number(q.openInterest) / 10000).toFixed(2)}${getLocale() === "zh-CN" ? "万" : " ×10k"}`
-                              : (q?.openInterest ?? "—")
+                              q?.openInterest &&
+                              Number(q.openInterest.text) >= 10000
+                              ? `${(Number(q.openInterest.text) / 10000).toFixed(2)}${getLocale() === "zh-CN" ? "万" : " ×10k"}`
+                              : (q?.openInterest?.text ?? "—")
                             : column === "成交量"
-                              ? (q?.volume ?? "—")
+                              ? (q?.volume.toString() ?? "—")
                               : !change
                                 ? "—"
                                 : column === "涨跌幅"
@@ -222,28 +222,28 @@ export function QuoteTable({
                 ) : (
                   <>
                     <td className="numeric" data-tone={tone}>
-                      {q?.last ?? "—"}
+                      {q?.last?.text ?? "—"}
                     </td>
                     <td className="numeric">
-                      {q?.bid ?? "—"} / {q?.bidQuantity ?? "—"}
+                      {q?.bids[0]?.price?.text ?? "—"} / {q?.bids[0]?.lots?.toString() ?? "—"}
                     </td>
                     <td className="numeric">
-                      {q?.ask ?? "—"} / {q?.askQuantity ?? "—"}
+                      {q?.asks[0]?.price?.text ?? "—"} / {q?.asks[0]?.lots?.toString() ?? "—"}
                     </td>
                     <>
-                      <td className="numeric">{q?.volume ?? "—"}</td>
-                      <td className="numeric">{q?.openInterest ?? "—"}</td>
+                      <td className="numeric">{q?.volume.toString() ?? "—"}</td>
+                      <td className="numeric">{q?.openInterest?.text ?? "—"}</td>
                     </>
                     <td>
-                      {q?.sourceMs ? (
+                      {q?.exchangeMs !== undefined ? (
                         <time
-                          dateTime={new Date(Number(q.sourceMs)).toISOString()}
-                          title={new Date(Number(q.sourceMs)).toLocaleString(getLocale(), {
+                          dateTime={new Date(Number(q.exchangeMs)).toISOString()}
+                          title={new Date(Number(q.exchangeMs)).toLocaleString(getLocale(), {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}
                         >
-                          {new Date(Number(q.sourceMs)).toLocaleString(getLocale(), {
+                          {new Date(Number(q.exchangeMs)).toLocaleString(getLocale(), {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}
@@ -257,9 +257,9 @@ export function QuoteTable({
                 {!onSelect && (
                   <td className="quote-status">
                     <span className="quote-status-label">{quoteStatus(market, row)}</span>
-                    {row.errorCode !== 0 && (
+                    {row.ctpError !== 0 && (
                       <details>
-                        <summary>{t("详情")}</summary>CTP {row.errorCode}
+                        <summary>{t("详情")}</summary>CTP {row.ctpError}
                       </details>
                     )}
                   </td>

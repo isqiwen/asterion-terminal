@@ -1,3 +1,4 @@
+import { FeedState } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import { ActionError, translate, useActionError, type TerminalContext } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -11,12 +12,12 @@ export function WatchlistToggle({
 }: {
   context: TerminalContext;
   market: MarketView;
-  row: { venue: string; symbol: string };
+  row: { exchange: string; symbol: string };
 }) {
   const saved = context.snapshot?.market_endpoint;
   const ids = saved && "instruments" in saved ? saved.instruments : [];
-  const same = (id: { venue: string; symbol: string }) =>
-    id.venue === row.venue && id.symbol === row.symbol;
+  const same = (id: { exchange: string; symbol: string }) =>
+    id.exchange === row.exchange && id.symbol === row.symbol;
   const present = ids.some(same);
   const { error, attempt } = useActionError();
   return (
@@ -25,13 +26,15 @@ export function WatchlistToggle({
         className="watchlist-toggle"
         aria-pressed={present}
         title={row.symbol}
-        disabled={context.busy || !market.online || market.snapshot.phase !== "connected"}
+        disabled={
+          context.busy || !market.online || market.board.feed?.state !== FeedState.CONNECTED
+        }
         onClick={() =>
           void attempt(() =>
             context.trade("market.watchlist", {
               instruments: present
                 ? ids.filter(id => !same(id))
-                : [...ids, { venue: row.venue, symbol: row.symbol }],
+                : [...ids, { exchange: row.exchange, symbol: row.symbol }],
             }),
           )
         }

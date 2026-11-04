@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { beforeEach, expect, test, vi } from "vitest";
-import { ComparisonSchema, DifferencesSchema } from "../../src/generated/asterion/dataset_pb";
+import {
+  MinuteComparisonSchema,
+  MinuteDifferencesSchema,
+} from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { MinuteComparison } from "./MinuteComparison";
 import { feature } from "./feature";
@@ -14,44 +17,39 @@ beforeEach(() => {
 });
 
 const values = (close: string) => ({
-  open: "3100",
-  high: "3110",
-  low: "3090",
-  close,
-  volume: "12",
+  open: { text: "3100" },
+  high: { text: "3110" },
+  low: { text: "3090" },
+  close: { text: close },
+  volume: 12n,
 });
 const open = 1793322000000; // 2026-10-30 09:00 Beijing
 
 test("nothing is shown while Tushare and the recorder agree", async () => {
-  request.mockResolvedValue(create(ComparisonSchema, { days: 12, differingDays: 0 }));
+  request.mockResolvedValue(create(MinuteComparisonSchema, { days: 12, differingDays: 0 }));
   const view = render(<MinuteComparison />);
   await act(async () => {});
-  expect(request).toHaveBeenCalledWith(
-    { case: "getMinuteComparison", value: {} },
-    "minuteComparison",
-  );
+  expect(request).toHaveBeenCalledWith({ case: "compareMinutes", value: {} });
   expect(view.container.innerHTML).toBe("");
 });
 
 test("a disagreeing contract-day opens its minutes with both sources' values", async () => {
   request.mockImplementation(async (operation: { case: string }) =>
-    operation.case === "getMinuteComparison"
-      ? create(ComparisonSchema, {
+    operation.case === "compareMinutes"
+      ? create(MinuteComparisonSchema, {
           days: 12,
           differingDays: 1,
           differing: [
             {
               contract: "SHFE/rb/2027-01",
-              day: "2026-10-30",
+              tradingDay: "2026-10-30",
               compared: 224,
               differing: 1,
               tushareOnly: 1,
             },
           ],
         })
-      : create(DifferencesSchema, {
-          contract: "SHFE/rb/2027-01",
-          day: "2026-10-30",
+      : create(MinuteDifferencesSchema, {
           minutes: [
             { startMs: BigInt(open), tushare: values("3105"), recorder: values("3106") },
             { startMs: BigInt(open + 60000), tushare: values("3101") },
@@ -67,10 +65,10 @@ test("a disagreeing contract-day opens its minutes with both sources' values", a
   const minutes = await screen.findByRole("table", {
     name: "SHFE/rb/2027-01 2026-10-30 不一致的分钟",
   });
-  expect(request).toHaveBeenCalledWith(
-    { case: "getMinuteDifferences", value: { contract: "SHFE/rb/2027-01", day: "2026-10-30" } },
-    "minuteDifferences",
-  );
+  expect(request).toHaveBeenCalledWith({
+    case: "getMinuteDifferences",
+    value: { contract: "SHFE/rb/2027-01", tradingDay: "2026-10-30" },
+  });
   const [differing, missing] = within(minutes).getAllByRole("row").slice(2);
   const texts = (row: HTMLElement) =>
     within(row)

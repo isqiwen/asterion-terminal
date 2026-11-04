@@ -44,10 +44,6 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
             "recorded symbol does not identify this delivery on the requested day");
     auto compact = day;
     std::erase(compact, '-');
-    recording::proto::MinutesQuery query;
-    query.set_trading_day(compact);
-    query.set_venue(exchange);
-    query.set_symbol(symbol);
     MinuteBatch result;
     // Compaction replaces archive files; the live feed and recording writer
     // do not acquire this lock and continue independently of historical reads.
@@ -59,35 +55,35 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
     check_stop(stop_);
     recording::Reader reader(root_);
     ++requests_;
-    const auto bars = reader.minutes(query);
-    if (bars.bars().empty())
+    const auto bars = reader.minutes(compact, {exchange, symbol});
+    if (bars.empty())
         return result;
-    const auto number = [](const std::string& value) -> warehouse::Cell {
-        return value.empty() ? warehouse::Cell{} : warehouse::Cell{value};
+    const auto number = [](const std::optional<Decimal>& value) -> warehouse::Cell {
+        return value ? warehouse::Cell{value->str()} : warehouse::Cell{};
     };
     // An average is turnover over volume and the provider's multiplier, so it
     // has more places than research keeps; prices and interest do not.
-    const auto average = [](const std::string& value) -> warehouse::Cell {
-        if (value.empty())
+    const auto average = [](const std::optional<Decimal>& value) -> warehouse::Cell {
+        if (!value)
             return {};
-        return quantize(Decimal::parse(value), Decimal::parse("0.000001"), Rounding::half_even);
+        return quantize(*value, Decimal::parse("0.000001"), Rounding::half_even);
     };
-    for (const auto& bar : bars.bars()) {
+    for (const auto& bar : bars) {
         check_stop(stop_);
         result.rows.push_back(
             {exchange,
                 product,
                 contract,
                 day,
-                bar.start_ms(),
-                bar.partial(),
-                number(bar.open()),
-                number(bar.high()),
-                number(bar.low()),
-                number(bar.close()),
-                std::to_string(bar.volume()),
-                average(bar.average_price()),
-                number(bar.open_interest())});
+                bar.start_ms,
+                bar.partial,
+                number(bar.open),
+                number(bar.high),
+                number(bar.low),
+                number(bar.close),
+                std::to_string(bar.volume),
+                average(bar.average_price),
+                number(bar.open_interest)});
     }
     // These are service observation intervals, not proof that this contract
     // traded throughout a segment. Preserve gaps and unfinished segments.
@@ -97,12 +93,12 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
             {exchange,
                 contract,
                 day,
-                segment.instance(),
-                static_cast<std::int64_t>(segment.number()),
-                segment.first_received_ms(),
-                segment.last_received_ms(),
-                static_cast<std::int64_t>(segment.ticks()),
-                segment.end()});
+                segment.instance,
+                static_cast<std::int64_t>(segment.number),
+                segment.first_received_ms,
+                segment.last_received_ms,
+                static_cast<std::int64_t>(segment.ticks),
+                segment.end});
     }
     return result;
 }

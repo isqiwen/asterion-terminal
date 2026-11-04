@@ -16,8 +16,8 @@ import socket
 import ssl
 import struct
 import tempfile
-import uuid
 
+from asterion.common_pb2 import ErrorCode
 from asterion.market_pb2 import Request, Response
 from asterion_lab.warehouse import ParquetTables, Version, canonical, write_durably
 
@@ -34,6 +34,7 @@ class MarketError(ValueError):
 class Client:
     """One bounded TLS connection. Read failures are returned, never retried."""
     def __init__(self, origin):
+        self.calls = 0
         self.origin, self.stream = origin, None
 
     def __enter__(self):
@@ -46,10 +47,11 @@ class Client:
     def call(self, operation, **values):
         if operation not in ("get_dataset_version", "read_dataset_file", "get_dataset_summary"):
             raise ValueError("Lab only reads Market datasets")
-        request = Request(version=1, service_id="market-data", correlation_id=uuid.uuid4().hex)
-        getattr(request, operation).SetInParent()
-        for name, value in values.items():
-            setattr(getattr(request, operation), name, value)
+        self.calls += 1
+        request = Request(id=self.calls)
+        call = getattr(request, operation)
+        call.SetInParent()
+        call.CopyFrom(type(call)(**values))
         try:
             if self.stream is None:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -74,17 +76,15 @@ class Client:
             response = Response.FromString(self.receive(size))
         except OSError as error:
             raise MarketError("unavailable", f"Market dataset read failed: {error}") from None
-        if (response.version, response.service_id, response.correlation_id) != (
-                request.version, request.service_id, request.correlation_id):
+        if response.id != request.id:
             raise MarketError("invalid_data", "Market dataset response identity mismatch")
         result = response.WhichOneof("result")
         if result == "error":
-            raise MarketError(response.error.code, response.error.message)
-        expected = {"get_dataset_version": "dataset", "read_dataset_file": "dataset_file",
-                    "get_dataset_summary": "dataset_summary"}[operation]
-        if result != expected:
+            code = ErrorCode.Name(response.error.code).removeprefix("ERROR_CODE_").lower()
+            raise MarketError(code, response.error.message)
+        if result != operation:
             raise MarketError("invalid_data", "Market returned another dataset operation")
-        return getattr(response, expected)
+        return getattr(response, operation)
 
     def receive(self, size):
         data = bytearray()
@@ -155,25 +155,26 @@ class Dataset(ParquetTables):
         partitions, after, selected = {}, "", identity
         with Client(origin) as client:
             while True:
-                page = client.call("get_dataset_version", provider=self.provider, dataset_version=selected,
-                                   after_key=after, limit=128)
-                if (not selected and not after and page.provider == self.provider
-                        and not page.dataset_version and not page.partitions and not page.next_key):
-                    return Version("", dict(provider=self.provider, created_ns=0, partitions={}))
-                if (page.provider != self.provider or not IDENTITY.fullmatch(page.dataset_version)
-                        or selected and page.dataset_version != selected):
+                page = client.call("get_dataset_version", after_key=after,
+                                   dataset=dict(provider=self.provider, version=selected))
+                dataset = page.dataset
+                if (not selected and not after and dataset.provider == self.provider
+                        and not dataset.version and not page.partitions and not page.next_key):
+                    return Version("", dict(provider=self.provider, created_ms=0, partitions={}))
+                if (dataset.provider != self.provider or not IDENTITY.fullmatch(dataset.version)
+                        or selected and dataset.version != selected):
                     raise MarketError("invalid_data", "Market returned another dataset version")
                 if not after:
-                    selected = page.dataset_version
+                    selected = dataset.version
                     manifest = dict(provider=self.provider, parent=page.parent or None,
-                                    created_ns=page.created_ns, origin=origin, partitions=partitions)
+                                    created_ms=dataset.created_ms, origin=origin, partitions=partitions)
                 for part in page.partitions:
                     if part.key <= after or not IDENTITY.fullmatch(part.sha256):
                         raise MarketError("invalid_data", "invalid Market partition page")
                     after = part.key
                     partitions[part.key] = dict(file=f"files/{part.sha256}.parquet",
                                                sha256=part.sha256, rows=part.rows, days=list(part.days),
-                                               source=part.source)
+                                               source=part.taken_from)
                 if not page.next_key:
                     break
                 if not page.partitions or page.next_key != after:
@@ -201,11 +202,9 @@ class Dataset(ParquetTables):
                     digest, offset, size = hashlib.sha256(), 0, None
                     with Client(version.manifest["origin"]) as client:
                         while size is None or offset < size:
-                            item = client.call("read_dataset_file", provider=self.provider,
-                                               dataset_version=version.identity, key=key,
-                                               offset=offset, limit=CHUNK)
-                            if ((item.provider, item.dataset_version, item.key, item.sha256, item.offset) !=
-                                    (self.provider, version.identity, key, part["sha256"], offset)
+                            item = client.call("read_dataset_file", key=key, offset=offset,
+                                               dataset=dict(provider=self.provider, version=version.identity))
+                            if ((item.sha256, item.offset) != (part["sha256"], offset)
                                     or size is not None and item.size != size
                                     or not item.data or len(item.data) > CHUNK
                                     or offset + len(item.data) > item.size):

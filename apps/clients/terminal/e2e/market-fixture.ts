@@ -1,11 +1,27 @@
 import type { Page } from "@playwright/test";
 
-type Instrument = { venue: string; symbol: string };
-// A market.proto ContractQuote in ProtoJSON, with a quote when one is given.
-export const watchRow = (id: Instrument, quote?: Record<string, unknown>) => ({
+type Instrument = { exchange: string; symbol: string };
+const decimals = new Set(["last", "open", "high", "low", "previousSettlement", "openInterest"]);
+// A market.proto QuoteRow in ProtoJSON, with a quote when one is given; prices
+// are given as text.
+export const watchRow = (id: Instrument, quote?: Record<string, string>) => ({
   instrument: id,
-  state: "subscribed",
-  ...(quote && { quote: { instrument: id, tradingDay: "20261013", ...quote } }),
+  subscription: "SUBSCRIPTION_ACTIVE",
+  ...(quote && {
+    quote: Object.fromEntries([
+      ["tradingDay", "2026-10-13"],
+      ...Object.entries(quote).map(([key, value]) => [
+        key,
+        decimals.has(key) ? { text: value } : value,
+      ]),
+    ]),
+  }),
+});
+// A full or changed quote frame with a connected feed and no contract catalog.
+export const board = (rows: object[], catalog = true) => ({
+  feed: { state: "FEED_STATE_CONNECTED" },
+  rows,
+  ...(catalog && { catalog: { status: { state: "CATALOG_STATE_NONE" } } }),
 });
 
 // Replaces the frames of the open Market watch with the test's own stream and

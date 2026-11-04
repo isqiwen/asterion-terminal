@@ -1,3 +1,4 @@
+#include <asterion/protocol/market.hpp>
 #include "acquisition/exchanges.hpp"
 #include "acquisition/manager.hpp"
 #include <asterion/system/durable_file.hpp>
@@ -167,7 +168,7 @@ TEST_F(ExchangeSources, MissingPublicationIsUncoveredButRefusalAndWrongDateFail)
     EXPECT_THROW(stopped.daily("SHFE", "2026-10-30"), ac::SourceError);
 }
 
-ac::wire::Task wait(ac::Manager& manager, const std::string& id)
+ac::wire::AcquisitionTask wait(ac::Manager& manager, const std::string& id)
 {
     const auto until = std::chrono::steady_clock::now() + 10s;
     for (;;) {
@@ -197,16 +198,16 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     ac::Manager manager(root, {{"shfe", [&](auto stop) {
                                     return std::make_unique<ac::Exchange>("SHFE", stop, fetch);
                                 }}});
-    ac::wire::Request request;
+    ac::wire::StartAcquisition request;
     request.set_id("fees");
     request.set_provider("shfe");
-    request.set_table("settlement");
-    request.set_begin_day("2026-10-29");
-    request.set_end_day("2026-10-30");
+    request.set_table(::market::TABLE_SETTLEMENT);
+    request.set_first_day("2026-10-29");
+    request.set_last_day("2026-10-30");
     manager.submit(request);
     auto task = wait(manager, "fees");
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
-    EXPECT_EQ(task.days_empty(), 1);
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    EXPECT_EQ(task.items_empty(), 1);
     EXPECT_EQ(task.request().exchanges_size(), 1);
     wh::Store store(wh::source_directory(root, "shfe"), "shfe");
     const auto original = store.current();
@@ -215,24 +216,24 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     request.set_id("again");
     manager.submit(request);
     EXPECT_EQ(
-        wait(manager, "again").requests(),
+        wait(manager, "again").requests_sent(),
         1); // Only the missing publication is fetched again.
     EXPECT_EQ(store.current().identity, original.identity);
     fail = true;
     request.set_id("partial");
-    request.set_begin_day("2026-10-28");
+    request.set_first_day("2026-10-28");
     manager.submit(request);
     const auto failed = wait(manager, "partial");
     EXPECT_EQ(failed.state(), ac::wire::TASK_STATE_FAILED);
-    EXPECT_EQ(failed.error_code(), "unavailable");
-    EXPECT_EQ(failed.days_done(), 1);
+    EXPECT_EQ(failed.error().code(), ::common::ERROR_CODE_UNAVAILABLE);
+    EXPECT_EQ(failed.items_done(), 1);
     EXPECT_EQ(store.current().partitions.size(), 2);
     EXPECT_EQ(store.version(original.identity).partitions.size(), 1);
-    EXPECT_EQ(store.current().identity, failed.dataset_version());
+    EXPECT_EQ(store.current().identity, failed.published_version());
     request.set_id("wrong");
     request.add_exchanges("DCE");
     manager.submit(request);
-    EXPECT_EQ(wait(manager, "wrong").error_code(), "unsupported");
+    EXPECT_EQ(wait(manager, "wrong").error().code(), ::common::ERROR_CODE_INVALID_REQUEST);
 }
 
 // Dated text fixtures are excerpts of the official 2015/2016 publications.
@@ -304,22 +305,22 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
             continue;
         if (!ac::Exchange(exchange, {}).supports(table, exchange))
             continue;
-        ac::wire::Request request;
+        ac::wire::StartAcquisition request;
         request.set_id(table);
         request.set_provider(provider);
-        request.set_table(table);
-        request.set_begin_day(day);
-        request.set_end_day(day);
+        request.set_table(asterion::protocol::table_of(table));
+        request.set_first_day(day);
+        request.set_last_day(day);
         manager.submit(request);
         // The production transport has its own bounded deadline.
-        ac::wire::Task task;
+        ac::wire::AcquisitionTask task;
         do {
             std::this_thread::sleep_for(50ms);
             task = manager.get(table);
         } while (task.state() == ac::wire::TASK_STATE_QUEUED
             || task.state() == ac::wire::TASK_STATE_RUNNING);
-        ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
-        ASSERT_EQ(task.days_empty(), 0) << "select a published trading day";
+        ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+        ASSERT_EQ(task.items_empty(), 0) << "select a published trading day";
         wh::Store store(wh::source_directory(root, provider), provider);
         const auto rows =
             store.read(store.current(), std::string(table) + "/" + exchange + "/" + day);

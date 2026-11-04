@@ -36,13 +36,13 @@ Version compose_research(const std::filesystem::path& data, Store& research)
     return writer.commit();
 }
 
-dataset::proto::Comparison compare_minutes(const std::filesystem::path& data)
+::market::MinuteComparison compare_minutes(const std::filesystem::path& data)
 {
     const Store tushare(source_directory(data, "tushare"), "tushare");
     const Store recorder(source_directory(data, "recorder"), "recorder");
     const auto primary = tushare.current();
     const auto recorded = recorder.current();
-    dataset::proto::Comparison result;
+    ::market::MinuteComparison result;
     result.set_tushare_version(primary.identity);
     result.set_recorder_version(recorded.identity);
     std::string left, right;
@@ -78,7 +78,7 @@ dataset::proto::Comparison compare_minutes(const std::filesystem::path& data)
             continue;
         auto* day = result.add_differing();
         day->set_contract(rows->GetValue(0, row).ToString());
-        day->set_day(rows->GetValue(1, row).ToString());
+        day->set_trading_day(rows->GetValue(1, row).ToString());
         day->set_compared(count(2));
         day->set_differing(count(3));
         day->set_tushare_only(count(4));
@@ -88,28 +88,27 @@ dataset::proto::Comparison compare_minutes(const std::filesystem::path& data)
     return result;
 }
 
-dataset::proto::Differences
-minute_differences(const std::filesystem::path& data, const dataset::proto::DifferencesQuery& query)
+::market::MinuteDifferences
+minute_differences(const std::filesystem::path& data, const ::market::GetMinuteDifferences& query)
 {
     const auto slash = query.contract().find('/');
     if (slash == std::string::npos)
         throw std::invalid_argument("contract must be EXCHANGE/product/YYYY-MM");
-    const auto key = "minutes/" + query.contract().substr(0, slash) + "/" + query.day() + "/"
-        + query.contract().substr(slash + 1);
+    const auto key = "minutes/" + query.contract().substr(0, slash) + "/" + query.trading_day()
+        + "/" + query.contract().substr(slash + 1);
     require_key(key);
     const Store tushare(source_directory(data, "tushare"), "tushare");
     const Store recorder(source_directory(data, "recorder"), "recorder");
     const auto primary = tushare.current();
     const auto recorded = recorder.current();
-    dataset::proto::Differences result;
-    result.set_contract(query.contract());
-    result.set_day(query.day());
+    ::market::MinuteDifferences result;
     if (!primary.partitions.contains(key) || !recorded.partitions.contains(key))
         return result;
     const auto values = [](const char* side) {
         std::string columns;
-        for (const auto* name : {"open", "high", "low", "close", "volume"})
+        for (const auto* name : {"open", "high", "low", "close"})
             columns += std::string(", ") + side + "." + name + "::VARCHAR";
+        columns += std::string(", ") + side + ".volume::BIGINT";
         return columns;
     };
     parquet::Engine engine;
@@ -122,16 +121,19 @@ minute_differences(const std::filesystem::path& data, const dataset::proto::Diff
     for (std::size_t row = 0; row < rows->RowCount(); ++row) {
         auto* minute = result.add_minutes();
         minute->set_start_ms(rows->GetValue(0, row).GetValue<std::int64_t>());
-        const auto fill = [&](dataset::proto::MinuteValues* side, std::size_t first) {
-            const auto text = [&](std::size_t column) {
+        const auto fill = [&](::market::MinuteBar* side, std::size_t first) {
+            const auto put = [&](auto mutable_field, std::size_t column) {
                 const auto cell = rows->GetValue(first + column, row);
-                return cell.IsNull() ? std::string{} : Decimal::parse(cell.ToString()).str();
+                if (!cell.IsNull())
+                    (side->*mutable_field)()->set_text(Decimal::parse(cell.ToString()).str());
             };
-            side->set_open(text(0));
-            side->set_high(text(1));
-            side->set_low(text(2));
-            side->set_close(text(3));
-            side->set_volume(text(4));
+            side->set_start_ms(minute->start_ms());
+            put(&::market::MinuteBar::mutable_open, 0);
+            put(&::market::MinuteBar::mutable_high, 1);
+            put(&::market::MinuteBar::mutable_low, 2);
+            put(&::market::MinuteBar::mutable_close, 3);
+            if (const auto volume = rows->GetValue(first + 4, row); !volume.IsNull())
+                side->set_volume(volume.GetValue<std::int64_t>());
         };
         if (rows->GetValue(1, row).GetValue<bool>())
             fill(minute->mutable_tushare(), 3);

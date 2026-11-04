@@ -1,7 +1,7 @@
 // The current UI-to-Native contract. JSON is encoded only by the bridge.
 // Command names and parameters stay correlated through host and component callbacks.
 
-type InstrumentKey = { venue: string; symbol: string };
+type InstrumentKey = { exchange: string; symbol: string };
 import type { JsonValue } from "@bufbuild/protobuf";
 
 export type CommandParams = {

@@ -136,36 +136,35 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                    if p["venue"] == venue and p["symbol"] == symbol and p["side"] == "BUY")
 
     def market():
-        """Market's current state through the Terminal relay, as ProtoJSON."""
-        return call("market.call", {"request": {"getLiveSnapshot": {}}})["market"]["snapshot"]
+        """Market's quotes and catalog through the Terminal relay, as ProtoJSON."""
+        return call("market.call", {"request": {"getBoard": {}}})["market"]["getBoard"]
 
     def quote():
-        return next((sub.get("quote") for sub in market().get("quotes", [])
-                     if sub["instrument"] == {"venue": venue, "symbol": symbol}), None)
+        return next((row.get("quote") for row in market().get("rows", [])
+                     if row["instrument"] == {"exchange": venue, "symbol": symbol}), None)
 
     try:
         call("market.endpoint.save", {"host": args.market_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
-        step("remote Market connection", bool(market().get("instanceId")))
+        step("remote Market connection", bool(market().get("feed")))
         deadline = time.monotonic() + args.timeout
         while not (quote() or {}).get("last") and time.monotonic() < deadline:
             time.sleep(1)
         first = quote() or {}
         if not step("market quote", bool(first.get("last")),
-                    f"last={first.get('last')} trading_day={first.get('tradingDay')}"):
+                    f"last={first.get('last', {}).get('text')} trading_day={first.get('tradingDay')}"):
             raise RuntimeError("no market quote: run during trading hours with a listed contract")
 
         # The counter may pause for two minutes before or between instruments.
         deadline = time.monotonic() + max(args.timeout, 600)
         while time.monotonic() < deadline:
             catalog = market().get("catalog", {})
-            phase = catalog.get("phase")
-            if phase in ("ready", "error"):
+            state = catalog.get("status", {}).get("state")
+            if state in ("CATALOG_STATE_READY", "CATALOG_STATE_FAILED"):
                 break
             time.sleep(1)
         # The counter's refusal is the only evidence: the node and its logs are temporary.
-        detail = " ".join(str(catalog[key]) for key in ("phase", "errorCode", "diagnostic")
-                          if catalog.get(key))
-        if not step("contract catalog", phase == "ready", detail):
+        detail = " ".join(str(value) for value in catalog.get("status", {}).values())
+        if not step("contract catalog", state == "CATALOG_STATE_READY", detail):
             raise RuntimeError("the contract catalog did not load")
         configured = trading({"attach": {}})["account"]
         broker = configured.get("broker", {})
@@ -173,14 +172,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
             raise RuntimeError("configured trading service does not match the explicitly selected simulation counter")
         # Exchange terms from the CTP catalog, as the trading page builds them.
         row = next(item for item in catalog["contracts"]
-                   if item["instrument"] == {"venue": venue, "symbol": symbol})
-        _, product, delivery_month = row["contractId"].split("/")
+                   if item["instrument"] == {"exchange": venue, "symbol": symbol})
+        _, product, delivery_month = row["contract"].split("/")
         trading({"liveCreate": {
             "risk": {"maxOrderQuantity": units(1), "maxGrossQuantity": units(1),
                      "maxWorkingOrders": "1"},
             "maxPriceDeviation": units(args.deviation),
             "contracts": [{"venue": venue, "symbol": symbol, "currency": "CNY",
-                           "priceIncrement": units(row["priceTick"]),
+                           "priceIncrement": units(row["priceTick"]["text"]),
                            "quantityIncrement": units(1), "multiplier": units(row["multiplier"]),
                            "product": product, "deliveryMonth": delivery_month}]}})
         live = wait(lambda s: s["phase"] in ("ready", "error"))
