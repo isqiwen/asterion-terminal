@@ -157,3 +157,26 @@ TEST(Recorder, TheLastMinuteIsWrittenWhenItsTradingDayEndsWhileRecordingContinue
     EXPECT_EQ(bars(), "0 3100.00000000 false\n1 3101.00000000 false\n");
     fs::remove_all(root);
 }
+
+TEST(Recorder, AWarehouseReadInProgressDoesNotHoldBackRecordingWrites)
+{
+    using namespace std::chrono_literals;
+    const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
+    {
+        recording::Recorder recorder(root, "instance");
+        IntradayBars minutes;
+        recorder.poll(base, minutes);
+        {
+            parquet::Engine reading; // A long warehouse query holds its lane.
+            for (int interval = 1; interval <= 6; ++interval) {
+                const auto at = base + interval * 30000;
+                recorder.observe(quote(at - 1000, "3100", "20261029"), false, minutes);
+                recorder.poll(at, minutes);
+                std::this_thread::sleep_for(50ms);
+            }
+            EXPECT_EQ(recorder.status().lost, 0u);
+        }
+        recorder.close("stopped", base + 200000, minutes);
+    }
+    fs::remove_all(root);
+}

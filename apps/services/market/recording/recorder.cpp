@@ -39,7 +39,7 @@ duckdb::Value quantity(const std::optional<std::int64_t>& value)
 
 void write_ticks(const fs::path& path, const std::vector<Recorder::Row>& rows)
 {
-    parquet::Engine engine;
+    parquet::Engine engine(parquet::Lane::recording);
     engine.run(std::string("CREATE TEMP TABLE ticks(") + tick_schema + ")");
     {
         duckdb::Appender appender(*engine.connection, "ticks");
@@ -86,7 +86,7 @@ void write_ticks(const fs::path& path, const std::vector<Recorder::Row>& rows)
 
 void write_minutes(const fs::path& path, const std::vector<Recorder::Minute>& minutes)
 {
-    parquet::Engine engine;
+    parquet::Engine engine(parquet::Lane::recording);
     engine.run(std::string("CREATE TEMP TABLE minutes(") + minute_schema + ")");
     {
         duckdb::Appender appender(*engine.connection, "minutes");
@@ -113,7 +113,7 @@ void write_segments(
     const std::string& instance,
     const std::vector<Recorder::Segment>& segments)
 {
-    parquet::Engine engine;
+    parquet::Engine engine(parquet::Lane::recording);
     engine.run(std::string("CREATE TEMP TABLE segments(") + segment_schema + ")");
     {
         duckdb::Appender appender(*engine.connection, "segments");

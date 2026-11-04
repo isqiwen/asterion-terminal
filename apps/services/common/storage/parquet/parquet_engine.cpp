@@ -6,42 +6,43 @@ namespace asterion::parquet {
 namespace {
 namespace fs = std::filesystem;
 
-std::mutex& query_mutex()
+struct Shared
 {
-    static std::mutex mutex;
-    return mutex;
-}
+    std::mutex mutex;
+    std::unique_ptr<duckdb::DuckDB> database;
+};
 
-duckdb::DuckDB& shared_database()
+Shared& lane(Lane which)
 {
-    static const auto database = [] {
+    const auto open = [] {
         duckdb::DBConfig config;
         config.SetOptionByName("autoinstall_known_extensions", duckdb::Value::BOOLEAN(false));
         config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
         config.SetOptionByName("allow_community_extensions", duckdb::Value::BOOLEAN(false));
         config.SetOptionByName("threads", duckdb::Value::BIGINT(1));
         // Storage reads and writes bounded pages/segments, not arbitrary analytics.
-        // This buffer budget is shared by the one query lane in this process. It
-        // does not include caller-owned bars or other process allocations.
+        // Each lane has this buffer budget; it does not include caller-owned
+        // bars or other process allocations.
         config.SetOptionByName("memory_limit", duckdb::Value("128 MiB"));
         config.SetOptionByName("temp_directory", duckdb::Value(""));
         return std::make_unique<duckdb::DuckDB>(nullptr, &config);
-    }();
-    return *database;
+    };
+    static Shared warehouse{{}, open()}, recording{{}, open()};
+    return which == Lane::recording ? recording : warehouse;
 }
 
 } // namespace
 
-Engine::Engine()
-    : lease(query_mutex()),
-      connection(std::make_unique<duckdb::Connection>(shared_database()))
+Engine::Engine(Lane which)
+    : lease(lane(which).mutex),
+      connection(std::make_unique<duckdb::Connection>(*lane(which).database))
 {}
 
 std::unique_ptr<duckdb::MaterializedQueryResult> Engine::run(const std::string& sql)
 {
     auto result = connection->Query(sql);
     if (result->HasError())
-        throw std::runtime_error("Parquet storage operation failed");
+        throw std::runtime_error("Parquet storage operation failed: " + result->GetError());
     return result;
 }
 

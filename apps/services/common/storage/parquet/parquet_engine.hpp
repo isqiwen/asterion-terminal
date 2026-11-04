@@ -8,15 +8,20 @@
 // The embedded DuckDB every Parquet reader and writer in this directory shares.
 namespace asterion::parquet {
 
-// One in-memory engine per process (no catalog, no extension downloads);
-// starting DuckDB costs far more than a query. Bound Parquet execution to one
-// query lane so concurrent chart/read requests cannot multiply the engine's
-// working set or concurrently touch its shared buffer queues. Each call still
-// owns a connection and its temporary tables; hashing and indicators run outside
-// this lane.
+// In-memory engines (no catalog, no extension downloads), one per lane;
+// starting DuckDB costs far more than a query. Each lane runs one query at a
+// time, so concurrent reads cannot multiply its working set. Recording has a
+// lane of its own: a long warehouse read never holds back its writes. Each
+// call still owns a connection and its temporary tables.
+enum class Lane
+{
+    warehouse,
+    recording
+};
+
 struct Engine
 {
-    Engine();
+    explicit Engine(Lane lane = Lane::warehouse);
     std::unique_ptr<duckdb::MaterializedQueryResult> run(const std::string& sql);
     // Declaration order keeps the connection's destruction inside the lease.
     std::unique_lock<std::mutex> lease;
