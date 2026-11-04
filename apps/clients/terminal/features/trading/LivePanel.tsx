@@ -30,7 +30,7 @@ export function LivePanel(context: TerminalContext) {
         await send(id, typeof operation === "function" ? operation() : operation, fields);
         return true;
       } catch (reason) {
-        notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
+        notify(reason, { namespace: "asterion.terminal.trading" });
         return false;
       } finally {
         if (hold) setBusy(false);

@@ -15,6 +15,7 @@ import type {
   TradingAccount,
 } from "../generated/asterion/trading_pb";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
+import { notify } from "./notifications";
 
 // What Terminal last read from one account's Trading service.
 export type TradingView = {
@@ -70,6 +71,8 @@ export function TradingAccountsProvider({
   useEffect(() => {
     if (!active || !key) return;
     const reading = new Set<string>();
+    // Accounts whose last read failed: a loss is reported once, when it begins.
+    const failing = new Set<string>();
     let ticks = 0;
     let stopped = false;
     const read = async (id: string, health: boolean) => {
@@ -80,7 +83,12 @@ export function TradingAccountsProvider({
         const responses = [await tradingRequest(id, { case: "attach", value: {} })];
         if (health) responses.push(await tradingRequest(id, { case: "heartbeat", value: {} }));
         if (!stopped && command === commands.current[id]) accept(id, responses);
+        failing.delete(id);
       } catch (reason) {
+        if (!failing.has(id)) {
+          failing.add(id);
+          notify(reason, { namespace: "asterion.terminal.trading" });
+        }
         if (!stopped)
           setViews(current => ({
             ...current,

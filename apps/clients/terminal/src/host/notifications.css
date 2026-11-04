@@ -1,38 +1,101 @@
-.notifications {
-  position: fixed;
-  right: 16px;
-  bottom: 36px;
-  z-index: 50;
-  display: grid;
-  gap: 8px;
-  width: min(360px, calc(100vw - 32px));
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.notification-center {
+  position: relative;
+  display: flex;
+  min-width: 0;
 }
-.notification {
+.notification-latest {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 8px 7px 12px;
+  gap: 6px;
+  max-width: 360px;
+  min-width: 0;
+}
+.notification-latest::before {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.notification-latest.warning::before {
+  background: var(--warning);
+}
+.notification-latest.urgent {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.notification-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-count {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: var(--canvas);
+  font-size: 11px;
+  line-height: 15px;
+}
+.notification-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 50;
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(420px, 60vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--line);
-  border-left: 2px solid var(--danger);
   border-radius: var(--panel-radius);
   background: var(--panel);
-  color: var(--text);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
   font-size: 12px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
 }
-.notification > span {
-  flex: 1;
+.notification-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.notification-panel > p {
+  margin: 0;
+  padding: 16px 10px;
+}
+.notification-panel ol {
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.notification-panel li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--danger);
+}
+.notification-panel li.warning {
+  border-left-color: var(--warning);
+}
+.notification-panel li + li {
+  border-top: 1px solid var(--line);
+}
+.notification-panel time,
+.notification-source {
+  color: var(--muted);
+}
+.notification-panel .notification-text {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
-.notification.sticky {
-  background: var(--danger-surface);
-}
-.notification button,
+.notification-panel button,
 .copy-diagnostic {
-  flex-shrink: 0;
   min-height: 0;
   padding: 0 2px;
   border: 0;
@@ -40,7 +103,7 @@
   color: var(--muted);
   font-size: 12px;
 }
-.notification button:hover,
+.notification-panel button:hover,
 .copy-diagnostic:hover {
   color: var(--text);
 }

@@ -2,6 +2,7 @@ import { fromJson, type JsonValue } from "@bufbuild/protobuf";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { call } from "../bridge/client";
 import { SnapshotSchema, type Snapshot, type Subscription } from "../generated/asterion/market_pb";
+import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
 // the contract's previous point of the same trading day.
@@ -100,6 +101,16 @@ export function MarketProvider({ active, children }: { active: boolean; children
     // This page has no complete frame yet.
     let restart = true;
     let current: MarketView | null = null;
+    // A connection that drops is reported once, when it drops.
+    let online = false;
+    const report = (view: MarketView | null) => {
+      if (online && !view?.online)
+        notify("行情连接中断，正在重连。", {
+          namespace: "asterion.terminal.futures-market",
+          severity: "warning",
+        });
+      online = !!view?.online;
+    };
     const read = async () => {
       if (reading) return;
       reading = true;
@@ -114,9 +125,11 @@ export function MarketProvider({ active, children }: { active: boolean; children
           const frames = watch.frames.map(frame => fromJson(SnapshotSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
         }
+        report(current);
         setView(current);
       } catch {
         current = current && { ...current, online: false };
+        report(current);
         if (!stopped) setView(current);
       } finally {
         reading = false;

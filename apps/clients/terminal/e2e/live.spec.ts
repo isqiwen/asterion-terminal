@@ -89,8 +89,8 @@ test(
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");
     await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
-    // A refused order is reported in the notification area until it is closed.
-    const notifications = page.getByRole("list", { name: "通知", exact: true });
+    // A refused order is the latest message of the status bar's notification centre.
+    const notifications = page.locator(".notification-latest");
     await expect(notifications).toBeVisible();
     await expect(
       panel.getByRole("table", { includeHidden: true, name: "CTP 委托记录" }).locator("tbody tr"),

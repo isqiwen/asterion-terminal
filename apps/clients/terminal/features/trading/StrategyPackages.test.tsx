@@ -13,7 +13,7 @@ import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
 import { StrategyPackages } from "./StrategyPackages";
-import { Notifications } from "../../src/host/notifications";
+import { NotificationCenter } from "../../src/host/notifications";
 import { feature } from "./feature";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
@@ -104,7 +104,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
   const view = render(
     <>
       <StrategyPackages account="account-a" repository="/old" />
-      <Notifications />
+      <NotificationCenter />
     </>,
   );
   await choose();
@@ -112,7 +112,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
   view.rerender(
     <>
       <StrategyPackages account="account-a" repository="/new" />
-      <Notifications />
+      <NotificationCenter />
     </>,
   );
   await act(async () => finish(code));
@@ -122,7 +122,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
   vi.mocked(strategyRequest).mockRejectedValue(new Error("connection lost"));
   await act(async () => fireEvent.click(screen.getByText("发布到此交易主机")));
   expect(writes()).toHaveLength(1);
-  expect(screen.getByRole("alert").textContent).toContain("connection lost");
+  expect(screen.getByText(/connection lost/)).toBeDefined();
 });
 
 test("review sends explicit configuration and exact values only on confirmation, without authorizing", async () => {

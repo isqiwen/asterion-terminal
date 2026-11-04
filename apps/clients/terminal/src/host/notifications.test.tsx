@@ -1,23 +1,28 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { BackendError } from "../i18n/errors";
-import { Notifications, notify } from "./notifications";
+import { NotificationCenter, notify } from "./notifications";
 
-test("failures close after 8 s, trading ones stay, and a missing Market is no failure", () => {
-  vi.useFakeTimers();
-  render(<Notifications />);
+test("the status bar shows the latest message; opened, all of them until cleared", () => {
+  render(<NotificationCenter />);
   act(() => {
     notify(new BackendError("market_unconfigured", "no Market is configured"));
     notify(new BackendError("invalid_request", "bad input"));
-    notify(new BackendError("conflict", "order refused"), { sticky: true });
+    notify(new BackendError("conflict", "order refused"), {
+      namespace: "asterion.terminal.trading",
+    });
   });
-  expect(screen.getAllByRole("alert").map(item => item.textContent)).toEqual([
-    "请求无效，请检查输入复制诊断×",
-    "操作与当前状态冲突复制诊断×",
+  const latest = screen.getByRole("button", { expanded: false });
+  expect(latest.textContent).toBe("操作与当前状态冲突2");
+  // An unread trading error stays highlighted until the list is opened.
+  expect(latest.className).toContain("urgent");
+  fireEvent.click(latest);
+  const items = screen.getByRole("region", { name: "通知" }).querySelectorAll("li");
+  expect([...items].map(item => item.querySelector(".notification-text")!.textContent)).toEqual([
+    "操作与当前状态冲突",
+    "请求无效，请检查输入",
   ]);
-  act(() => vi.advanceTimersByTime(8000));
-  expect(screen.getAllByRole("alert")).toHaveLength(1);
-  act(() => fireEvent.click(screen.getByRole("button", { name: "关闭" })));
-  expect(screen.queryByRole("alert")).toBeNull();
-  vi.useRealTimers();
+  expect(screen.getByRole("button", { expanded: true }).className).not.toContain("urgent");
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
+  expect(screen.getByText("没有消息")).toBeDefined();
 });

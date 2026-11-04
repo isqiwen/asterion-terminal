@@ -246,5 +246,12 @@
   "复制诊断": "Copy diagnostic",
   "已复制": "Copied",
   "通知": "Notifications",
-  "关闭": "Close"
+  "关闭": "Close",
+  "清空": "Clear",
+  "没有消息": "No messages",
+  "Terminal": "Terminal",
+  "策略实例失败或放弃了一个批次，详情见交易页的实例事件。": "A strategy instance failed or dropped a batch; see its events on the trading page.",
+  "行情连接中断，正在重连。": "The market connection dropped; reconnecting.",
+  "Lab 意外退出，已自动重启。": "Lab exited unexpectedly and was restarted.",
+  "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。": "Lab failed to start repeatedly and is no longer restarted; check and restart it in Settings → Local services."
 }

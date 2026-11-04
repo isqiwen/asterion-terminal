@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { InstanceStatus, Package, State } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
-import { ErrorNotice, asDisplayError, type DisplayError, notify } from "../contract";
+import { BackendError, ErrorNotice, asDisplayError, type DisplayError, notify } from "../contract";
 import { t } from "./live-shared";
 import { StrategyInstance, type StrategyAccount } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -11,16 +11,22 @@ import "./strategy.css";
 type Props = { account: string; repository: string; live?: StrategyAccount; connected?: boolean };
 type Operation = NonNullable<Parameters<typeof strategyRequest>[1]>;
 
-// A desktop notification when an instance fails or drops a batch while Terminal is open.
+// An instance that fails or drops a batch while Terminal is open: a desktop
+// notification, seen with the window hidden, and the notification centre.
 function notifyDesktop(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
   const id = next?.configuration?.id;
-  if (!id || previous?.configuration?.id !== id || typeof Notification === "undefined") return;
+  if (!id || previous?.configuration?.id !== id) return;
   const seen = previous.events.at(-1)?.timeMs ?? 0n;
   const alerts = next.events
     .filter(event => event.timeMs > seen && event.text.startsWith("batch abandoned"))
     .map(event => event.text);
   if (next.state === "failed" && previous.state !== "failed") alerts.push(next.error);
-  for (const body of alerts) new Notification(t("策略实例 {id}", { id }), { body });
+  for (const body of alerts) {
+    notify(new BackendError("strategy_instance", `${id}: ${body}`), {
+      namespace: "asterion.terminal.trading",
+    });
+    if (typeof Notification !== "undefined") new Notification(t("策略实例 {id}", { id }), { body });
+  }
 }
 
 export function StrategyPackages(props: Props) {
@@ -110,7 +116,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       return true;
     } catch (reason) {
       if (active.current && current === sequence.current) {
-        notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
+        notify(reason, { namespace: "asterion.terminal.trading" });
         setFresh(false);
       }
       return false;
@@ -126,7 +132,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     try {
       await action();
     } catch (reason) {
-      notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
+      notify(reason, { namespace: "asterion.terminal.trading" });
     } finally {
       preparing.current = false;
       setBusy(false);

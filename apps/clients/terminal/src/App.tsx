@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
 import { ServiceStatus } from "./host/components/ServiceStatus";
-import { Notifications } from "./host/notifications";
+import { NotificationCenter, notify } from "./host/notifications";
+import { BackendError } from "./i18n/errors";
 import { ErrorNotice, asDisplayError, type DisplayError } from "./i18n/errors";
 import { translate, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -78,6 +79,23 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const route = currentRoute(navigation);
   const view = route.view;
   const viewsRef = useRef<HTMLElement>(null);
+  // A local service that restarts by itself, or gives up, is reported when it happens.
+  const services = useRef<Record<string, { restarts: number; state: string }>>({});
+  useEffect(() => {
+    // The main window reports them; the settings window reads the same snapshot.
+    if (settingsWindow) return;
+    const local = snapshot?.nodes.find(node => node.id === "local")?.health?.services ?? [];
+    for (const service of local) {
+      const before = services.current[service.id];
+      if (before && service.restarts > before.restarts)
+        notify(new BackendError("service_restarted", `${service.id}: ${service.error}`), {
+          severity: "warning",
+        });
+      if (before && service.state === "failed" && before.state !== "failed")
+        notify(new BackendError("service_failed", `${service.id}: ${service.error}`));
+      services.current[service.id] = { restarts: service.restarts, state: service.state };
+    }
+  }, [snapshot, settingsWindow]);
   useEffect(() => {
     viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
       block: "nearest",
@@ -238,7 +256,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
     >
-      <Notifications />
       {!settingsWindow &&
         headerTarget &&
         HeaderTools &&
@@ -354,6 +371,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                       </button>
                     )}
                   <span className="panel-spacer" />
+                  <NotificationCenter />
                   <span className="status-updated">
                     {error
                       ? t("状态待确认")

@@ -163,7 +163,7 @@ export function StrategyInstance({
                 }),
               });
             } catch (reason) {
-              notify(reason, { namespace: "asterion.terminal.trading", sticky: true });
+              notify(reason, { namespace: "asterion.terminal.trading" });
             }
           }}
         >

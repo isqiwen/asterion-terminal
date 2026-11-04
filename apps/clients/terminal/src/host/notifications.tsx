@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { translate, useLocale } from "../i18n";
+import { useState, useSyncExternalStore } from "react";
+import { getLocale, translate, useLocale } from "../i18n";
 import {
   BackendError,
   CopyDiagnostic,
@@ -10,66 +10,128 @@ import {
 } from "../i18n/errors";
 import "./notifications.css";
 
-type Notification = { id: number; error: DisplayError; namespace: string; sticky: boolean };
+type Severity = "error" | "warning";
+type Entry = {
+  id: number;
+  at: Date;
+  source: string;
+  severity: Severity;
+  error: DisplayError;
+  namespace: string;
+};
 
-let shown: Notification[] = [];
+// Where a message comes from, by the namespace its text is translated in.
+const sources: Record<string, string> = {
+  host: "Terminal",
+  "asterion.terminal.research": "研究",
+  "asterion.terminal.trading": "交易",
+  "asterion.terminal.futures-market": "行情",
+  "asterion.terminal.data-workbench": "数据",
+};
+// A Terminal left open for days keeps the latest ones; the services keep the records.
+const KEPT = 200;
+
+let entries: Entry[] = [];
+let seen = 0;
 let next = 0;
 const listeners = new Set<() => void>();
-const publish = (items: Notification[]) => {
-  shown = items;
+const publish = () => {
+  entries = [...entries];
   listeners.forEach(listener => listener());
 };
 
-// Reports a failed operation in the window's one notification area. A sticky
-// one (trading) stays until it is closed; others close after 8 s.
-export function notify(error: unknown, options: { namespace?: string; sticky?: boolean } = {}) {
-  // A missing Market is a state the status bar shows, not a failure to report.
+// Reports an error or a warning of this Terminal run to the notification
+// centre in the status bar. Nothing is kept beyond the run.
+export function notify(error: unknown, options: { namespace?: string; severity?: Severity } = {}) {
+  // A missing Market is a state the status bar shows, not an event.
   if (error instanceof BackendError && error.code === "market_unconfigured") return;
-  publish([
-    ...shown,
-    {
-      id: ++next,
-      error: asDisplayError(error),
-      namespace: options.namespace ?? "host",
-      sticky: !!options.sticky,
-    },
-  ]);
+  const namespace = options.namespace ?? "host";
+  entries.push({
+    id: ++next,
+    at: new Date(),
+    source: sources[namespace] ?? "Terminal",
+    severity: options.severity ?? "error",
+    error: asDisplayError(error),
+    namespace,
+  });
+  entries.splice(0, Math.max(0, entries.length - KEPT));
+  publish();
 }
 
-const dismiss = (id: number) => publish(shown.filter(item => item.id !== id));
-
-function Item({ item }: { item: Notification }) {
-  useEffect(() => {
-    if (item.sticky) return;
-    const timer = window.setTimeout(() => dismiss(item.id), 8000);
-    return () => window.clearTimeout(timer);
-  }, [item]);
-  return (
-    <li className={item.sticky ? "notification sticky" : "notification"} role="alert">
-      <span>{errorSummary(item.error, item.namespace)}</span>
-      <CopyDiagnostic diagnostic={errorDiagnostic(item.error, item.namespace)} />
-      <button type="button" aria-label={translate("host", "关闭")} onClick={() => dismiss(item.id)}>
-        ×
-      </button>
-    </li>
-  );
-}
-
-export function Notifications() {
-  useLocale();
-  const items = useSyncExternalStore(
+function useEntries() {
+  return useSyncExternalStore(
     listener => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => shown,
+    () => entries,
   );
-  if (!items.length) return null;
+}
+
+// The status bar shows the latest message and how many are unread; opened, it
+// lists them all. An unread trading error stays highlighted until then.
+export function NotificationCenter() {
+  useLocale();
+  const all = useEntries();
+  const [open, setOpen] = useState(false);
+  const latest = all.at(-1);
+  if (!latest && !open) return null;
+  const unread = all.filter(entry => entry.id > seen);
+  const urgent = unread.some(entry => entry.source === "交易" && entry.severity === "error");
+  const toggle = () => {
+    if (!open) seen = latest?.id ?? seen;
+    setOpen(!open);
+  };
   return (
-    <ul className="notifications" aria-label={translate("host", "通知")}>
-      {items.map(item => (
-        <Item key={item.id} item={item} />
-      ))}
-    </ul>
+    <div className="notification-center">
+      {open && (
+        <section className="notification-panel" aria-label={translate("host", "通知")}>
+          <header>
+            <strong>{translate("host", "通知")}</strong>
+            <span className="panel-spacer" />
+            <button
+              type="button"
+              disabled={!all.length}
+              onClick={() => {
+                entries = [];
+                publish();
+              }}
+            >
+              {translate("host", "清空")}
+            </button>
+            <button type="button" aria-label={translate("host", "关闭")} onClick={toggle}>
+              ×
+            </button>
+          </header>
+          {all.length ? (
+            <ol>
+              {[...all].reverse().map(entry => (
+                <li key={entry.id} className={entry.severity}>
+                  <time>{entry.at.toLocaleTimeString(getLocale())}</time>
+                  <span className="notification-source">{translate("host", entry.source)}</span>
+                  <span className="notification-text">
+                    {errorSummary(entry.error, entry.namespace)}
+                  </span>
+                  <CopyDiagnostic diagnostic={errorDiagnostic(entry.error, entry.namespace)} />
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="subtle">{translate("host", "没有消息")}</p>
+          )}
+        </section>
+      )}
+      {latest && (
+        <button
+          type="button"
+          className={`notification-latest ${latest.severity}${urgent ? " urgent" : ""}`}
+          aria-expanded={open}
+          onClick={toggle}
+        >
+          <span className="notification-text">{errorSummary(latest.error, latest.namespace)}</span>
+          {unread.length > 0 && <span className="notification-count">{unread.length}</span>}
+        </button>
+      )}
+    </div>
   );
 }
