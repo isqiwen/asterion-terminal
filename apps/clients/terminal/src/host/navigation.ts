@@ -9,7 +9,12 @@ export const modules = [
     icon: "market",
     views: ["workspace.market", "workspace.watchlist", "workspace.contract"],
   },
-  { id: "research", title: "研究", icon: "backtest", views: ["workspace.lab-research"] },
+  {
+    id: "research",
+    title: "研究",
+    icon: "backtest",
+    views: ["workspace.lab-strategies", "workspace.lab-factors"],
+  },
   {
     id: "live",
     title: "交易",

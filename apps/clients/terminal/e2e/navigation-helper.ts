@@ -10,7 +10,8 @@ const destinations = {
   market: ["行情", "市场"],
   watchlist: ["行情", "自选"],
   contract: ["行情", "合约"],
-  research: ["研究"],
+  research: ["研究", "策略"],
+  factors: ["研究", "因子"],
   trading: ["交易"],
   coverage: ["数据"],
 } as const;

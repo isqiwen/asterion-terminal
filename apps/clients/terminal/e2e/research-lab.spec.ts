@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { openView } from "./navigation-helper";
 import { test, expect, type Page } from "./test";
 
 const source = join(__dirname, "../../../..");
@@ -84,10 +85,7 @@ test(
   async ({ page }) => {
     prepare();
     await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "factors");
     await page.getByRole("button", { name: /^momentum price · close/ }).click();
     const form = page.locator(".lab-config");
     await form.getByLabel("品种").fill("SHFE/rb/2026-05, SHFE/rb/2026-10, SHFE/rb");

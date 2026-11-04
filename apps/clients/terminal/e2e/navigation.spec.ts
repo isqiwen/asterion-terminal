@@ -37,7 +37,7 @@ test("four business modules preserve navigation without starting work", async ({
   await expect(page.getByRole("region", { name: "CTP 交易账户", exact: true })).toBeVisible();
   // A module with one view shows no row of view tabs.
   await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
-  await openView(page, "research");
+  await openView(page, "coverage");
   await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
   expect(
     methods.filter(

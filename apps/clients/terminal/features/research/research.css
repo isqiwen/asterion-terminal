@@ -311,8 +311,8 @@
   margin-bottom: 0;
 }
 
-/* The research page: strategies left, result centre, run configuration
-   right, every run below. Columns are divided by lines, not boxed. */
+/* A research view: modules left, result centre, configuration right and, for
+   strategies, every run below. Columns are divided by lines, not boxed. */
 .lab-research {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr) 320px;
@@ -320,9 +320,16 @@
   grid-template-areas:
     "header header header"
     "notice notice notice"
-    "strategies center config"
+    "modules center config"
     "runs runs runs";
   height: 100%;
+}
+.lab-research.lab-factors {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "header header header"
+    "notice notice notice"
+    "modules center config";
 }
 .lab-research.lab-empty {
   display: grid;
@@ -340,11 +347,6 @@
   padding: 0 var(--space-page);
   border-bottom: 1px solid var(--line);
 }
-.lab-header h3 {
-  font-size: 16px;
-  color: var(--text-strong);
-  margin-right: 6px;
-}
 .lab-chip {
   padding: 1px 6px;
   border: 1px solid var(--line-strong);
@@ -352,6 +354,14 @@
   color: var(--muted);
   font-size: 11px;
   font-family: var(--font-terminal);
+}
+button.lab-chip {
+  min-height: 0;
+  background: none;
+  font-family: inherit;
+}
+button.lab-chip:hover {
+  color: var(--text-strong);
 }
 .lab-chip.warn {
   color: var(--warning);
@@ -381,14 +391,14 @@ button.lab-link.strong {
   grid-area: notice;
   margin: 8px var(--space-page) 0;
 }
-.lab-strategies,
+.lab-modules,
 .lab-config,
 .lab-center {
   min-height: 0;
   overflow: auto;
   padding: 16px;
 }
-.lab-strategies h4,
+.lab-modules h4,
 .lab-config > h4,
 .lab-runs h4 {
   margin: 0 0 10px;
@@ -396,16 +406,16 @@ button.lab-link.strong {
   font-size: 12px;
   font-weight: 400;
 }
-.lab-strategies {
-  grid-area: strategies;
+.lab-modules {
+  grid-area: modules;
   border-right: 1px solid var(--line);
 }
-.lab-strategies ul {
+.lab-modules ul {
   list-style: none;
   margin: 0 0 20px;
   padding: 0;
 }
-.lab-strategies li button {
+.lab-modules li button {
   display: grid;
   justify-items: start;
   gap: 2px;
@@ -416,21 +426,21 @@ button.lab-link.strong {
   text-align: left;
   white-space: normal;
 }
-.lab-strategies li button:hover {
+.lab-modules li button:hover {
   background: var(--hover);
 }
-.lab-strategies li button[aria-pressed="true"] {
+.lab-modules li button[aria-pressed="true"] {
   border-left-color: var(--accent);
   background: var(--accent-surface);
 }
-.lab-strategies li strong {
+.lab-modules li strong {
   color: var(--text-strong);
   font-weight: 500;
 }
-.lab-strategies li button[aria-pressed="true"] strong {
+.lab-modules li button[aria-pressed="true"] strong {
   color: var(--accent);
 }
-.lab-strategies li span {
+.lab-modules li span {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;

@@ -28,7 +28,7 @@ test("first launch opens data and module switching retains each view's location"
   expect(currentRoute(state).view).toBe("workspace.coverage");
   state = selectView(state, "workspace.watchlist");
   state = selectModule(state, "research");
-  expect(currentRoute(state).view).toBe("workspace.lab-research");
+  expect(currentRoute(state).view).toBe("workspace.lab-strategies");
   state = selectModule(state, "market");
   expect(currentRoute(state).view).toBe("workspace.watchlist");
 });

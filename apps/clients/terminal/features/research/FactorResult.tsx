@@ -23,9 +23,14 @@ export function FactorResult({ result }: { result: LabFactorResult }) {
   return (
     <div className="lab-result">
       <p className="subtle">
-        {t("{count} 个品种", { count: result.symbols.length })} · {t("数据")}{" "}
-        <code>{result.datasetVersion.slice(0, 8)}</code> · {t("策略仓库")}{" "}
-        <code>{result.commit.slice(0, 8)}</code>
+        {t("{count} 个品种", { count: result.symbols.length })} · {t("研究数据")}{" "}
+        <code>{result.datasetVersion.slice(0, 8)}</code>
+        {result.commit && (
+          <>
+            {" "}
+            · {t("代码")} <code>{result.commit.slice(0, 8)}</code>
+          </>
+        )}
         {result.changes && ` · ${t("含未提交改动")}`}
       </p>
       {result.skipped.length > 0 && (

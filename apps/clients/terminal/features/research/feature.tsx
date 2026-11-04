@@ -6,20 +6,28 @@ import en from "./locales/en-US.json";
 import { lazy } from "react";
 import "./research.css";
 import type { TerminalFeature } from "../contract";
-const ResearchLab = lazy(() =>
-  import("./ResearchLab").then(module => ({ default: module.ResearchLab })),
+const StrategyLab = lazy(() =>
+  import("./StrategyLab").then(module => ({ default: module.StrategyLab })),
 );
-// The research page: strategies, factors and runs on the lab service.
+const FactorLab = lazy(() => import("./FactorLab").then(module => ({ default: module.FactorLab })));
+// The research views: strategies and their runs, factors and their evaluations, on the lab service.
 export const feature: TerminalFeature = {
   id: "asterion.terminal.research",
   languageResources: { "zh-CN": zh, "en-US": en },
   workspaces: [
     {
-      id: "workspace.lab-research",
+      id: "workspace.lab-strategies",
       get title() {
-        return t("研究");
+        return t("策略");
       },
-      component: context => <ResearchLab {...context} />,
+      component: context => <StrategyLab {...context} />,
+    },
+    {
+      id: "workspace.lab-factors",
+      get title() {
+        return t("因子");
+      },
+      component: context => <FactorLab {...context} />,
     },
   ],
 };

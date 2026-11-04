@@ -22,8 +22,7 @@
   "方向": "Side",
   "手数": "Lots",
   "价格": "Price",
-  "研究": "Research",
-  "因子": "Factors",
+  "因子": "Factor",
   "IC 均值": "Mean IC",
   "夏普比率": "Sharpe ratio",
   "最大回撤": "Max drawdown",
@@ -90,7 +89,6 @@
   "未开始": "Not started",
   "权益（逐日结算）": "Equity (daily settlement)",
   "查看": "View",
-  "查看数据覆盖": "View data coverage",
   "查看滚动验证的账户": "View the rolling validation account",
   "样本外（第一轮验证起）": "Out of sample (from the first validation round)",
   "正在读取结果…": "Reading the result…",
@@ -100,7 +98,6 @@
   "滚动验证需要至少一个参数填多个值": "Rolling validation needs at least one parameter with several values",
   "留出日": "Holdout day",
   "留出日 {day} 之前": "Before the holdout day {day}",
-  "策略仓库": "Strategy repository",
   "结束日": "End",
   "请填写品种": "Enter the symbols",
   "运行": "Run",
@@ -138,7 +135,6 @@
   "第 {group} 组": "Group {group}",
   "累计 IC（持有期 {count} 根）": "Cumulative IC ({count}-bar horizon)",
   "评价": "Evaluate",
-  "选择左侧的策略或因子、填写右侧的配置后运行；结果显示在这里。": "Choose a strategy or factor on the left and fill in the settings on the right; the result shows here.",
   "持有期（K 线数）": "Horizons (bars)",
   "分组数": "Group count",
   "QuantStats 指标": "QuantStats figures",
@@ -164,5 +160,8 @@
   "删除这个模块？删除后不能恢复。": "Delete this module? It cannot be restored.",
   "代码与结果": "Code and result",
   "结果": "Result",
-  "打开代码": "Open code"
+  "打开代码": "Open code",
+  "选择左侧的策略、填写右侧的配置后运行；结果显示在这里。": "Choose a strategy on the left and fill in the settings on the right; the result shows here.",
+  "选择左侧的因子、填写右侧的设置后评价；结果显示在这里。": "Choose a factor on the left and fill in the settings on the right; the result shows here.",
+  "先选择一个因子。": "Choose a factor first."
 }

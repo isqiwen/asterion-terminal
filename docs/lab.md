@@ -26,7 +26,7 @@ Lab 用保存在本机的 Market 地址和客户端证书直连 Market；没有�
 
 ## 策略
 
-策略和因子都在固定的策略目录里（位置见[开发](development.md#本机数据目录)）。研究页左侧“代码”列出全部模块，可以新建策略或因子（带一个能直接运行的模板）、在内置编辑器里修改、删除。内置的策略和因子来自项目的 `research/`，安装包原样带上；Lab 每次启动时把它们复制进策略目录，只读，升级时自动更新。新建的模块不能和内置的同名。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
+策略和因子都在固定的策略目录里（位置见[开发](development.md#本机数据目录)）。研究页的“策略”和“因子”视图左侧分别列出各自的模块，可以新建策略或因子（带一个能直接运行的模板）、在内置编辑器里修改、删除。内置的策略和因子来自项目的 `research/`，安装包原样带上；Lab 每次启动时把它们复制进策略目录，只读，升级时自动更新。新建的模块不能和内置的同名。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
 
 ```python
 from asterion_strategy import Strategy
