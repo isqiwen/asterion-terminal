@@ -294,22 +294,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 select: () => setNavigation(previous => selectModule(previous, item.id)),
               }))}
               rail={
-                <>
-                  <button
-                    aria-label={t("本机服务")}
-                    title={t("本机服务")}
-                    onClick={() => showSettings("connections")}
-                  >
-                    <Icon name="connections" />
-                  </button>
-                  <button
-                    aria-label={t("设置")}
-                    title={`${t("设置")} · ⌘, / Ctrl+,`}
-                    onClick={() => showSettings()}
-                  >
-                    <Icon name="settings" />
-                  </button>
-                </>
+                <button
+                  aria-label={t("设置")}
+                  title={`${t("设置")} · ⌘, / Ctrl+,`}
+                  onClick={() => showSettings()}
+                >
+                  <Icon name="settings" />
+                </button>
               }
               toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
               notices={
