@@ -19,9 +19,9 @@ namespace asterion::recording {
 //   recordings/segments/trading_day=<YYYYMMDD>/<instance>.parquet
 //
 // Minutes are the bars the market service aggregates for strategies (the same
-// code), written once a later bar or the next trading day completes them; a
-// bar observation may have missed part of is marked partial, as is the bar
-// forming at a stop.
+// code), written once a later bar or the end of their trading day completes
+// them; a bar observation may have missed part of is marked partial, as is the
+// bar forming at a stop.
 // A segment is one stretch of uninterrupted observation by this process. It
 // ends with the reason observation stopped; a segment without an end belongs
 // to a process that stopped before it could say why. The time between two
@@ -97,6 +97,8 @@ private:
     };
 
     void take(const InstrumentId& id, const IntradaySeries& series);
+    // Writes the last bar of every trading day that has ended at `now_ms`.
+    void finish_ended_days(std::int64_t now_ms);
     void take_minutes(const IntradayBars& minutes, bool final);
     void flush(std::int64_t now_ms);
     // Waits for the oldest write and takes its result.

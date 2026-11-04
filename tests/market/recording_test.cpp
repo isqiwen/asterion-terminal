@@ -2,6 +2,7 @@
 #include "recorder.hpp"
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
+#include <thread>
 
 using namespace asterion;
 namespace fs = std::filesystem;
@@ -119,5 +120,40 @@ TEST(Recorder, WritesTicksMinutesAndSegmentsWithTheReasonEachSegmentEnded)
             + ", last_received_ms - " + std::to_string(base) + ", ticks, \"end\" FROM "
             + read("segments") + " ORDER BY trading_day, segment"),
         "20261029 instance 1 5 60010 3 reconnecting\n" "20261029 instance 2 120005 120005 1 stopped\n" "20261030 instance 2 180005 180005 1 stopped\n");
+    fs::remove_all(root);
+}
+
+TEST(Recorder, TheLastMinuteIsWrittenWhenItsTradingDayEndsWhileRecordingContinues)
+{
+    using namespace std::chrono_literals;
+    constexpr std::int64_t day = 1'793'164'800'000; // 2026-10-28 13:20 Beijing.
+    const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
+    const auto bars = [&] {
+        if (!fs::exists(root / "minutes"))
+            return std::string{};
+        return query(
+            "SELECT (start_ms - " + std::to_string(day)
+            + ") // 60000, close, partial FROM read_parquet('"
+            + (root / "minutes/*/*.parquet").string() + "') ORDER BY start_ms");
+    };
+    {
+        recording::Recorder recorder(root, "instance");
+        IntradayBars minutes;
+        for (const auto& [at, last] : {std::pair{day, "3100"}, std::pair{day + 60000, "3101"}}) {
+            const auto q = quote(at, last, "20261028");
+            recorder.observe(q, false, minutes);
+            minutes.observe(q);
+        }
+        // 15:31 Beijing: the day has ended and the last bar will not change.
+        const auto closed = day + (2 * 60 + 11) * 60000;
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        for (int step = 0; bars() != "0 3100.00000000 false\n1 3101.00000000 false\n"; ++step) {
+            ASSERT_LT(std::chrono::steady_clock::now(), deadline) << bars();
+            recorder.poll(closed + step * 30000, minutes);
+            std::this_thread::sleep_for(10ms);
+        }
+        recorder.close("stopped", closed + 600000, minutes);
+    }
+    EXPECT_EQ(bars(), "0 3100.00000000 false\n1 3101.00000000 false\n");
     fs::remove_all(root);
 }

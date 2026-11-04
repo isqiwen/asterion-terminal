@@ -1,4 +1,5 @@
 #include "recorder.hpp"
+#include "compaction.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/log.hpp>
@@ -200,6 +201,7 @@ void Recorder::poll(std::int64_t now_ms, const IntradayBars& minutes)
         flushed_ms_ = now_ms;
     if (due_ || now_ms - flushed_ms_ >= flush_interval_ms || rows_.size() >= flush_rows) {
         take_minutes(minutes, false);
+        finish_ended_days(now_ms);
         flush(now_ms);
     }
 }
@@ -237,6 +239,17 @@ void Recorder::take(const InstrumentId& id, const IntradaySeries& series)
     if (first + 1 < series.bars.size())
         mark.start_ms = series.bars[series.bars.size() - 2].start_ms;
     mark.forming = series.bars.back();
+}
+
+void Recorder::finish_ended_days(std::int64_t now_ms)
+{
+    const auto now = std::chrono::system_clock::time_point(std::chrono::milliseconds(now_ms));
+    for (auto& [id, mark] : written_)
+        if (mark.forming && mark.forming->start_ms > mark.start_ms
+            && trading_ended(mark.trading_day, now)) {
+            mark.start_ms = mark.forming->start_ms;
+            minutes_[mark.trading_day].push_back({id, *std::exchange(mark.forming, std::nullopt)});
+        }
 }
 
 void Recorder::take_minutes(const IntradayBars& minutes, bool final)

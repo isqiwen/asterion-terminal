@@ -28,10 +28,12 @@ struct Compacted
     std::uint64_t ticks = 0, minutes = 0, files_before = 0, files_after = 0;
 };
 
-// Trading days with files to merge whose trading has ended at `now`: days
-// before today in Beijing, and today from 15:30 Beijing time on. A night
-// session belongs to the next trading day, so it never makes a day eligible
-// early.
+// Whether a trading day (YYYYMMDD) has ended at `now`: days before today in
+// Beijing, and today from 15:30 Beijing time on. A night session belongs to
+// the next trading day, so it never ends a day early.
+bool trading_ended(const std::string& trading_day, std::chrono::system_clock::time_point now);
+
+// Trading days with files to merge whose trading has ended at `now`.
 std::vector<std::string> compactable_days(
     const std::filesystem::path& recordings,
     std::chrono::system_clock::time_point now,
