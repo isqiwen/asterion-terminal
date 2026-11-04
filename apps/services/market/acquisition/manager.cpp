@@ -215,14 +215,23 @@ wire::Task Manager::submit(wire::Request request)
                     task.set_state(error.code == "cancelled" ? "cancelled" : "failed");
                     task.set_error_code(error.code);
                     task.set_error(error.what());
-                } catch (const std::exception&) {
+                } catch (const std::exception& error) {
                     {
                         std::lock_guard lock(mutex_);
                         task = current->task;
                     }
                     task.set_state("failed");
                     task.set_error_code("operation_failed");
-                    task.set_error("acquisition failed while reading or publishing data");
+                    task.set_error(error.what());
+                    log::error(
+                        "acquisition {} failed: provider={} table={} days={}..{} contract={}: {}",
+                        request.id(),
+                        request.provider(),
+                        request.table(),
+                        request.begin_day(),
+                        request.end_day(),
+                        request.contract(),
+                        error.what());
                 }
                 if (source)
                     task.set_requests(source->requests());
