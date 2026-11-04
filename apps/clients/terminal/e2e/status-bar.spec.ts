@@ -3,11 +3,11 @@ import { test, expect } from "./test";
 test("each service has its own indicator; Lab appears once it is used", async ({ page }) => {
   await page.goto("/");
   const bar = page.locator(".status-bar");
-  await expect(bar.getByText(/^● Market/)).toBeVisible({ timeout: 60000 });
-  await expect(bar.getByText(/^● Lab/)).toHaveCount(0);
+  await expect(bar.getByText(/^● 行情/)).toBeVisible({ timeout: 60000 });
+  await expect(bar.getByText(/^● 研究/)).toHaveCount(0);
   await openView(page, "market");
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
-  await expect(bar.getByText("● Lab", { exact: true })).toBeVisible({ timeout: 60000 });
+  await expect(bar.getByText("● 研究", { exact: true })).toBeVisible({ timeout: 60000 });
   await page.screenshot({ path: "apps/clients/terminal/test-results/status-bar-services.png" });
 });
 
@@ -53,7 +53,7 @@ test("a slow status read does not accumulate overlapping polls", async ({ page }
   });
   try {
     await page.goto("/");
-    const market = page.locator(".status-bar").getByText(/^● Market/);
+    const market = page.locator(".status-bar").getByText(/^● 行情/);
     await expect(market).toBeVisible({ timeout: 60000 });
     enabled = true;
     await expect.poll(() => polls).toBe(1);

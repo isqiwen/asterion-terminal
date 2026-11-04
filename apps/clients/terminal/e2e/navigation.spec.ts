@@ -82,13 +82,13 @@ test("a service failure remains visible from every workspace", async ({ page }) 
   await expect(page.getByRole("navigation", { name: "业务工作区" })).toBeVisible();
   issues = true;
   const footer = page.locator(".status-bar");
-  await expect(footer).toContainText("Lab 重启中");
+  await expect(footer).toContainText("研究 重启中");
   await openView(page, "research");
-  await expect(footer).toContainText("Lab 重启中");
+  await expect(footer).toContainText("研究 重启中");
   await openView(page, "market");
-  await expect(footer).toContainText("Lab 重启中");
+  await expect(footer).toContainText("研究 重启中");
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-issues.png" });
   issues = false;
-  await expect(footer).not.toContainText("Lab 重启中");
+  await expect(footer).not.toContainText("研究 重启中");
   await page.unrouteAll({ behavior: "wait" });
 });

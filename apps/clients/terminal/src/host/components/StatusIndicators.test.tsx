@@ -12,7 +12,7 @@ const show = (snapshot = readySnapshot(), openSources = vi.fn()) => (
   />
 );
 
-test("Market, Lab and each trading connection each have their own indicator", () => {
+test("行情, 研究 and each trading connection each have their own indicator", () => {
   const snapshot = readySnapshot();
   localService(snapshot, "lab").health = "ready";
   snapshot.trading_connections = [
@@ -27,13 +27,13 @@ test("Market, Lab and each trading connection each have their own indicator", ()
     },
   ];
   const view = render(show(snapshot));
-  expect(screen.getByText("● Market 未连接")).toBeTruthy();
-  expect(screen.getByText("● Lab").className).toContain("good");
-  expect(screen.getByRole("button", { name: "● 仿真 连接中" })).toBeTruthy();
+  expect(screen.getByText("● 行情 未连接")).toBeTruthy();
+  expect(screen.getByText("● 研究").className).toContain("good");
+  expect(screen.getByRole("button", { name: "● 交易·仿真 连接中" })).toBeTruthy();
 
   localService(snapshot, "lab").state = "restarting";
   view.rerender(show(structuredClone(snapshot)));
-  expect(screen.getByText("● Lab 重启中").className).toContain("bad");
+  expect(screen.getByText("● 研究 重启中").className).toContain("bad");
 });
 
 test("an unset Market opens its settings; no trading connection says so", () => {
@@ -41,7 +41,7 @@ test("an unset Market opens its settings; no trading connection says so", () => 
   snapshot.market_endpoint = null;
   const openSources = vi.fn();
   render(show(snapshot, openSources));
-  fireEvent.click(screen.getByRole("button", { name: "● Market 未设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "● 行情 未设置" }));
   expect(openSources).toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "● 交易未设置" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "● 交易 未设置" })).toBeTruthy();
 });

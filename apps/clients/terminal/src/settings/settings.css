@@ -511,14 +511,6 @@
   background: none;
   color: var(--muted);
 }
-.settings-footer {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
 /* Facts about this Terminal: a label column and a value column. */
 .settings-facts {
   display: grid;

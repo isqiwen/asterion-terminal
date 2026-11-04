@@ -55,7 +55,7 @@ test(
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
     await expect(order).toHaveCount(0);
     await expect(
-      page.locator(".status-bar").getByRole("button", { name: "● live-account", exact: true }),
+      page.locator(".status-bar").getByRole("button", { name: "● 交易·live-account", exact: true }),
     ).toBeVisible();
     // The broker reports the account's own rates.
     await panel.getByRole("button", { name: "费率", exact: true }).click();
@@ -97,12 +97,12 @@ test(
     await expect(
       page
         .locator(".status-bar")
-        .getByRole("button", { name: "● live-account 已授权", exact: true }),
+        .getByRole("button", { name: "● 交易·live-account 已授权", exact: true }),
     ).toBeVisible();
     await openView(page, "research");
     await page
       .locator(".status-bar")
-      .getByRole("button", { name: "● live-account 已授权", exact: true })
+      .getByRole("button", { name: "● 交易·live-account 已授权", exact: true })
       .click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪");
 

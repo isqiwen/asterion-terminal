@@ -3,8 +3,9 @@ import { translate, useLocale } from "../../i18n";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 
-// One indicator per service this Terminal uses: Market, Lab once it has been
-// used, and each trading connection (or one saying there is none).
+// One indicator per service, in the sidebar's order: 行情 (Market), 研究 (Lab,
+// once it has been used) and 交易 (each trading connection). The dot's colour
+// is the state; a word follows only when something is not normal.
 export function StatusIndicators({
   snapshot,
   openSources,
@@ -20,59 +21,61 @@ export function StatusIndicators({
   const t = (key: string) => translate("host", key);
   const market = useMarket();
   const accounts = useTradingAccounts().views;
-  const endpoint = snapshot?.market_endpoint && "host" in snapshot.market_endpoint;
-  const lab = snapshot?.nodes
+  if (!snapshot) return null;
+  const lab = snapshot.nodes
     .find(node => node.id === "local")
     ?.health?.services.find(service => service.kind === "lab");
-  // Lab restarts by itself while the Terminal runs; this only says where it is.
-  const labState = !lab
-    ? null
-    : lab.state !== "running"
-      ? ["bad", "重启中"]
-      : lab.health === "starting"
-        ? ["", "启动中"]
-        : ["ready", "awaiting_input"].includes(lab.health)
-          ? ["good", ""]
-          : ["bad", "异常"];
+  const connections = (snapshot.trading_connections ?? []).filter(item => !("error" in item));
+  const label = (name: string, state: string) => `● ${name}${state && ` ${t(state)}`}`;
   return (
     <>
-      {!snapshot ? null : !endpoint ? (
+      {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
         <button className="status-item warning" onClick={openSources}>
-          ● {t("Market 未设置")}
+          {label(t("行情"), "未设置")}
         </button>
       ) : (
         <span className={`status-item ${market ? (market.online ? "good" : "bad") : ""}`}>
-          ● Market{market ? (market.online ? "" : ` ${t("连接中断")}`) : ` ${t("未连接")}`}
+          {label(t("行情"), !market ? "未连接" : market.online ? "" : "中断")}
         </span>
       )}
-      {lab && labState && (
-        <span className={`status-item ${labState[0]}`} title={lab.error || undefined}>
-          ● Lab{labState[1] && ` ${t(labState[1])}`}
-        </span>
-      )}
-      {snapshot && !snapshot.trading_connections?.length && (
+      {lab &&
+        (() => {
+          // Lab restarts by itself while the Terminal runs; this only says where it is.
+          const [tone, state] =
+            lab.state !== "running"
+              ? ["bad", "重启中"]
+              : lab.health === "starting"
+                ? ["", "启动中"]
+                : ["ready", "awaiting_input"].includes(lab.health)
+                  ? ["good", ""]
+                  : ["bad", "异常"];
+          return (
+            <span className={`status-item ${tone}`} title={lab.error || undefined}>
+              {label(t("研究"), state)}
+            </span>
+          );
+        })()}
+      {!connections.length && (
         <button className="status-item" onClick={openTradingSettings}>
-          ● {t("交易未设置")}
+          {label(t("交易"), "未设置")}
         </button>
       )}
-      {(snapshot?.trading_connections ?? []).map(connection => {
-        if ("error" in connection) return null;
+      {connections.map(connection => {
         const view = accounts[connection.id];
-        const state = !view
+        const [tone, state] = !view
           ? ["", "连接中"]
           : view.failed
-            ? ["bad", "连接中断"]
+            ? ["bad", "中断"]
             : stalled(view.health)
-              ? ["bad", "处理停滞"]
+              ? ["bad", "停滞"]
               : view.live?.recoveryRequired
-                ? ["warning", "需要恢复"]
+                ? ["warning", "需恢复"]
                 : view.live?.phase === "ready"
                   ? ["good", view.live.authorization ? "已授权" : ""]
                   : ["", "未就绪"];
         return (
-          <button key={connection.id} className={`status-item ${state[0]}`} onClick={openTrading}>
-            ● {connection.name}
-            {state[1] && ` ${t(state[1])}`}
+          <button key={connection.id} className={`status-item ${tone}`} onClick={openTrading}>
+            {label(`${t("交易")}·${connection.name}`, state)}
           </button>
         );
       })}

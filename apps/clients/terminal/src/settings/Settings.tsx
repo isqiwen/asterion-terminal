@@ -2,7 +2,6 @@ import type { CommandHandler } from "../bridge/commands";
 import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
 import { SettingsSection } from "./Section";
-import { NotificationCenter } from "../host/notifications";
 import { version } from "../../electron/package.json";
 import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from "./window";
 import { ErrorNotice, type DisplayError } from "../i18n/errors";
@@ -157,9 +156,6 @@ export function Settings({
             </dl>
           </SettingsSection>
         )}
-        <footer className="settings-footer">
-          <NotificationCenter />
-        </footer>
       </main>
     </section>
   );
