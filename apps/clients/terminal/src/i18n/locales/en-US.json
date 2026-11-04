@@ -117,7 +117,6 @@
   "交易主机地址": "Trading host",
   "端口": "Port",
   "交易主机账户实例名": "Account instance on trading host",
-  "服务端证书指纹": "Server certificate fingerprint",
   "保存连接": "Save connection",
   "CTP 行情账户": "CTP market-data accounts",
   "未配置风控": "Risk policy not configured",
@@ -187,5 +186,6 @@
   "中断": "disconnected",
   "停滞": "stalled",
   "需恢复": "needs recovery",
-  "行情服务": "Market"
+  "行情服务": "Market",
+  "交易服务证书指纹": "Trading service certificate fingerprint"
 }

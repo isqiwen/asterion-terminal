@@ -87,7 +87,7 @@ export function TradingConnections({
                 <details>
                   <summary>{t("技术详情")}</summary>
                   <dl>
-                    <dt>{t("服务端证书指纹")}</dt>
+                    <dt>{t("交易服务证书指纹")}</dt>
                     <dd>
                       <code>{entry.fingerprint}</code>
                     </dd>
@@ -129,17 +129,18 @@ export function TradingConnections({
             <fieldset disabled={busy} className="futures-fields">
               {(
                 [
-                  ["name", "连接名称"],
-                  ["host", "交易主机地址"],
-                  ["port", "端口"],
-                  ["instance", "交易主机账户实例名"],
-                  ["fingerprint", "服务端证书指纹"],
+                  ["name", "连接名称", ""],
+                  ["host", "主机地址", "192.168.1.30"],
+                  ["port", "端口", ""],
+                  ["instance", "账户", "simnow"],
+                  ["fingerprint", "交易服务证书指纹", ""],
                 ] as const
-              ).map(([key, label]) => (
+              ).map(([key, label, example]) => (
                 <label key={key}>
                   {t(label)}
                   <input
                     required
+                    placeholder={example || undefined}
                     type={key === "port" ? "number" : "text"}
                     min={key === "port" ? 1 : undefined}
                     max={key === "port" ? 65535 : undefined}
