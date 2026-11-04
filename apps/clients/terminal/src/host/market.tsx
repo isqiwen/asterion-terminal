@@ -1,7 +1,12 @@
 import { fromJson, type JsonValue } from "@bufbuild/protobuf";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { call } from "../bridge/client";
-import { SnapshotSchema, type Snapshot, type Subscription } from "../generated/asterion/market_pb";
+import {
+  LiveQuotesSchema,
+  type LiveQuotes,
+  type Snapshot,
+  type ContractQuote,
+} from "../generated/asterion/market_pb";
 import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
@@ -29,9 +34,9 @@ export type MarketView = {
 
 const Market = createContext<MarketView | null>(null);
 export const useMarket = () => useContext(Market);
-export const rowKey = (row: Subscription) => `${row.instrument?.venue}.${row.instrument?.symbol}`;
+export const rowKey = (row: ContractQuote) => `${row.instrument?.venue}.${row.instrument?.symbol}`;
 
-function tick(view: MarketView, row: Subscription) {
+function tick(view: MarketView, row: ContractQuote) {
   const quote = row.quote;
   if (!quote?.last || quote.sourceMs <= 0n) return;
   const venue = row.instrument!.venue;
@@ -61,32 +66,38 @@ function tick(view: MarketView, row: Subscription) {
   if (view.ticks.length > 512) view.ticks.shift();
 }
 
-// A complete frame replaces every row; a delta frame replaces the rows it
-// carries and follows the previous frame. The catalog is sent again only when
-// it changed. A delta without its previous frame needs a new stream (restart).
-export function applyFrames(previous: MarketView | null, frames: Snapshot[], online: boolean) {
+// A snapshot replaces the view; a delta replaces whole rows on its named baseline.
+export function applyFrames(previous: MarketView | null, frames: LiveQuotes[], online: boolean) {
   let view: MarketView | null = previous && { ...previous, ticks: [...previous.ticks], online };
-  for (const frame of frames) {
-    if (frame.subscriptionsDelta && view?.snapshot.sequence !== frame.baseSequence)
-      return { view: previous, restart: true };
-    if (!view || !frame.subscriptionsDelta) {
-      // A new stream: quotes between the streams are lost, so the curve starts again.
+  for (const { update } of frames) {
+    if (update.case === "snapshot") {
       view = {
-        snapshot: frame,
+        snapshot: update.value,
         online,
         ticks: [],
         generation: (view?.generation ?? 0) + 1,
         interrupted: !!view,
       };
-    } else {
-      const changed = new Map(frame.subscriptions.map(row => [rowKey(row), row]));
+    } else if (update.case === "delta") {
+      const delta = update.value;
+      if (
+        !view ||
+        view.snapshot.instanceId !== delta.instanceId ||
+        view.snapshot.sequence !== delta.baseSequence
+      )
+        return { view: previous, restart: true };
+      const changed = new Map(delta.quotes.map(row => [rowKey(row), row]));
       view.snapshot = {
-        ...frame,
-        subscriptions: view.snapshot.subscriptions.map(row => changed.get(rowKey(row)) ?? row),
-        catalog: frame.catalogOmitted ? view.snapshot.catalog : frame.catalog,
+        ...view.snapshot,
+        phase: delta.phase,
+        errorCode: delta.errorCode,
+        sequence: delta.sequence,
+        outOfOrder: delta.outOfOrder,
+        quotes: view.snapshot.quotes.map(row => changed.get(rowKey(row)) ?? row),
+        catalog: delta.catalog ?? view.snapshot.catalog,
       };
-    }
-    for (const row of frame.subscriptions) tick(view, row);
+    } else return { view: previous, restart: true };
+    for (const row of update.value.quotes) tick(view, row);
   }
   return { view, restart: false };
 }
@@ -122,7 +133,7 @@ export function MarketProvider({ active, children }: { active: boolean; children
         restart = false;
         if (!watch) current = null;
         else {
-          const frames = watch.frames.map(frame => fromJson(SnapshotSchema, frame));
+          const frames = watch.frames.map(frame => fromJson(LiveQuotesSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
         }
         report(current);

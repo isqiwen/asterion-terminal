@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/client-ui/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/client-ui/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { MinuteSeries, Subscription } from "../../src/generated/asterion/market_pb";
+import type { MinuteSeries, ContractQuote } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,
@@ -22,7 +22,7 @@ import { intradaySlots, sessionRanges } from "./intraday-slots";
 import { averagePeriods, movingAverage } from "./indicators";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
-type Row = Subscription;
+type Row = ContractQuote;
 export type PanePeriod =
   "分时" | "Tick" | "1分" | "5分" | "10分" | "日K" | "周K" | "月K" | "季K" | "年K" | "历史K线";
 const primary: PanePeriod[] = ["分时", "Tick", "1分", "5分", "10分", "日K"];
@@ -53,7 +53,10 @@ function useIntraday(market: MarketView, row: Row) {
     const load = () => {
       if (pending) return;
       pending = true;
-      void marketData({ case: "minutes", value: { instrument: { venue, symbol } } }, "minutes")
+      void marketData(
+        { case: "getIntradayBars", value: { instrument: { venue, symbol } } },
+        "minutes",
+      )
         .then(next => {
           if (!current) return;
           if (next.instrument?.venue !== venue || next.instrument.symbol !== symbol)

@@ -29,20 +29,22 @@ test("market board groups exchanges and links contract selection without inventi
         if (interrupted) sequence = 1000;
         sent = quoteCount ? 1 : 0;
         frames.push({
-          ...base,
-          sequence: String(++sequence),
-          catalog: { phase: "unconfigured" },
-          subscriptions: [watchRow(rb), sent ? quote(0) : watchRow(iron)],
+          snapshot: {
+            ...base,
+            sequence: String(++sequence),
+            catalog: { phase: "unconfigured" },
+            quotes: [watchRow(rb), sent ? quote(0) : watchRow(iron)],
+          },
         });
       }
       for (; sent < quoteCount; ++sent)
         frames.push({
-          ...base,
-          sequence: String(sequence + 1),
-          baseSequence: String(sequence++),
-          subscriptionsDelta: true,
-          catalogOmitted: true,
-          subscriptions: [quote(sent)],
+          delta: {
+            ...base,
+            sequence: String(sequence + 1),
+            baseSequence: String(sequence++),
+            quotes: [quote(sent)],
+          },
         });
       return { frames, online: available };
     },

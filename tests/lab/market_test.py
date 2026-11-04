@@ -16,6 +16,7 @@ source, build = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
 sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python'),
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
+from asterion import acquisition_pb2 as acquisition
 from asterion.market_pb2 import Request as MarketRequest, Response as MarketResponse
 from asterion_lab.market import Client, Dataset, Market, MarketError
 from asterion_lab.service import Service
@@ -122,15 +123,15 @@ class RemoteResearch(unittest.TestCase):
             values = dict(id=identity, provider='recorder', table='minutes',
                 contract='SHFE/rb/2027-01', begin_day='2026-10-28', end_day='2026-10-28',
                 refresh=refresh)
-            self.assertEqual(rpc('acquisition_start', **values).error.code, 'permission_denied')
-            response = rpc('acquisition_start', 'manager', **values)
+            self.assertEqual(rpc('start_acquisition', **values).error.code, 'permission_denied')
+            response = rpc('start_acquisition', 'manager', **values)
             self.assertFalse(response.HasField('error'), response)
             # The submitting connection has already closed. Another client watches completion.
             deadline = time.monotonic() + 10
             while True:
-                task = rpc('acquisition_task', id=identity).acquisition_task
-                if task.state not in ('running', 'queued'):
-                    self.assertEqual(task.state, 'succeeded', task)
+                task = rpc('get_acquisition_task', id=identity).acquisition_task
+                if task.state not in (acquisition.TASK_STATE_RUNNING, acquisition.TASK_STATE_QUEUED):
+                    self.assertEqual(task.state, acquisition.TASK_STATE_SUCCEEDED, task)
                     return task.dataset_version
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
@@ -193,11 +194,11 @@ class RemoteResearch(unittest.TestCase):
     def test_version_pages_ignore_a_new_current_published_between_pages(self):
         call, versions = Client.call, []
         def pages(client, operation, **values):
-            if operation == 'dataset':
+            if operation == 'get_dataset_version':
                 values['limit'] = 1
                 versions.append(values['dataset_version'])
             reply = call(client, operation, **values)
-            if operation == 'dataset' and len(versions) == 1:
+            if operation == 'get_dataset_version' and len(versions) == 1:
                 self.publish_incomplete()
             return reply
         with patch.object(Client, 'call', pages):
@@ -251,7 +252,7 @@ class RemoteResearch(unittest.TestCase):
         key = 'daily/SHFE/2026-01'
         offsets, call = [], Client.call
         def small(client, operation, **values):
-            if operation == 'dataset_file':
+            if operation == 'read_dataset_file':
                 values['limit'] = 256
                 offsets.append(values['offset'])
             return call(client, operation, **values)
@@ -274,7 +275,7 @@ class RemoteResearch(unittest.TestCase):
         for failure in ('digest', 'disconnect'):
             def broken(client, operation, **values):
                 item = call(client, operation, **values)
-                if operation == 'dataset_file':
+                if operation == 'read_dataset_file':
                     if failure == 'disconnect':
                         raise MarketError('unavailable', 'connection lost')
                     item.data = bytes([item.data[0] ^ 1]) + item.data[1:]
@@ -287,7 +288,7 @@ class RemoteResearch(unittest.TestCase):
         wrong = self.market.selected()
         wrong['fingerprint'] = '0' * 64
         with Client(wrong) as client, self.assertRaisesRegex(MarketError, 'fingerprint'):
-            client.call('dataset', provider='research')
+            client.call('get_dataset_version', provider='research')
 
     def base(self):
         request = Request(version=1, service_id='lab')

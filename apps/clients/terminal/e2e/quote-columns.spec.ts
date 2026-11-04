@@ -18,7 +18,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
         phase: "connected",
         sequence: "1",
         catalog: { phase: "unconfigured" },
-        subscriptions: ids.map((id, index) =>
+        quotes: ids.map((id, index) =>
           watchRow(id, {
             last: String(100 + index * 10),
             previousSettlement: "100",
@@ -29,7 +29,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
           }),
         ),
       };
-      return { frames: [frame], online: true };
+      return { frames: [{ snapshot: frame }], online: true };
     },
     ids,
   );

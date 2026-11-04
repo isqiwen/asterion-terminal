@@ -16,6 +16,7 @@ source, build = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path[:0] = [str(source / 'tests/support'), str(source / 'tests/lab'),
                str(source / 'apps/services/lab'), str(build / 'generated-python')]
 import market_tls
+from asterion import acquisition_pb2 as acquisition
 from market_installation import market_host, running_market
 from market_wire import rpc, send, receive
 from warehouse_writer import Warehouse
@@ -55,13 +56,13 @@ def main():
             fixed = history(root)
             def call(operation, **values):
                 return rpc(tls, port, operation, **values)
-            initial = until(lambda: call('snapshot').snapshot,
-                            lambda s: s.phase == 'connected' and bool(s.subscriptions))
+            initial = until(lambda: call('get_live_snapshot').snapshot,
+                            lambda s: s.phase == 'connected' and bool(s.quotes))
             instance = initial.instance_id
-            selected = initial.subscriptions[0].instrument
+            selected = initial.quotes[0].instrument
             file_query = dict(provider='tushare', dataset_version=fixed, key='daily/SHFE/2026-10')
-            baseline = call('dataset_file', **file_query).dataset_file
-            recorded = until(lambda: call('recording_status').recording_status,
+            baseline = call('read_dataset_file', **file_query).dataset_file
+            recorded = until(lambda: call('get_recording_status').recording_status,
                              lambda s: s.rows > 0 and s.files > 0, timeout=40)
             assert not recorded.write_error and recorded.lost == 0, recorded
             day = recorded.trading_day
@@ -71,65 +72,65 @@ def main():
                 # Pipelined one-MiB replies exceed the sender's socket buffer.
                 # This client reads nothing while the healthy clients keep working.
                 for _ in range(16):
-                    send(slow, 'dataset_file', **file_query)
-                send(watch, 'watch', instruments=[selected])
-                first = receive(watch).snapshot
+                    send(slow, 'read_dataset_file', **file_query)
+                send(watch, 'stream_live_quotes', instruments=[selected])
+                first = receive(watch).live_quotes.snapshot
                 sequence = first.sequence
                 # The native publication runs while readers and the live watch proceed;
                 # its submitting connection closes immediately after acceptance.
-                call('acquisition_start', role='manager', id='publish', provider='recorder',
+                call('start_acquisition', role='manager', id='publish', provider='recorder',
                      table='minutes', contract='SHFE/rb/2026-10',
                      begin_day=(date.fromisoformat(trading_day) - timedelta(days=30)).isoformat(),
                      end_day=trading_day)
                 with ThreadPoolExecutor(max_workers=1) as readers:
                     def read_history():
                         for _ in range(12):
-                            reply = call('dataset_file', **file_query).dataset_file
+                            reply = call('read_dataset_file', **file_query).dataset_file
                             assert reply == baseline
                     reading = readers.submit(read_history)
                     advancing = 0
                     deadline = time.monotonic() + 4
                     while time.monotonic() < deadline:
-                        frame = receive(watch).snapshot
+                        frame = receive(watch).live_quotes.delta
                         assert frame.instance_id == instance
                         assert frame.base_sequence == sequence
                         advancing += frame.sequence > sequence
                         sequence = frame.sequence
                     reading.result()
                     assert advancing >= 5, 'live watch stopped behind a slow/history reader'
-            before = call('snapshot').snapshot.sequence
+            before = call('get_live_snapshot').snapshot.sequence
             # No clients remain connected; provider intake and the writer keep running.
             time.sleep(.4)
-            assert call('snapshot').snapshot.sequence > before
-            task = until(lambda: call('acquisition_task', id='publish').acquisition_task,
-                         lambda t: t.state not in ('queued', 'running'))
-            assert task.state == 'succeeded' and task.dataset_version, task
-            publication = call('dataset', provider='recorder', dataset_version=task.dataset_version).dataset
+            assert call('get_live_snapshot').snapshot.sequence > before
+            task = until(lambda: call('get_acquisition_task', id='publish').acquisition_task,
+                         lambda t: t.state not in (acquisition.TASK_STATE_QUEUED, acquisition.TASK_STATE_RUNNING))
+            assert task.state == acquisition.TASK_STATE_SUCCEEDED and task.dataset_version, task
+            publication = call('get_dataset_version', provider='recorder', dataset_version=task.dataset_version).dataset
             assert publication.partitions
-            assert call('dataset_file', **file_query).dataset_file == baseline
+            assert call('read_dataset_file', **file_query).dataset_file == baseline
         # Stop above flushes the live archive. Reopen it, then kill a running task.
         with running_market(root, port) as process:
-            restarted = call('snapshot').snapshot.instance_id
+            restarted = call('get_live_snapshot').snapshot.instance_id
             assert restarted != instance
-            call('acquisition_start', role='manager', id='interrupted', provider='recorder',
+            call('start_acquisition', role='manager', id='interrupted', provider='recorder',
                  table='minutes', contract='SHFE/rb/2026-10',
                  begin_day='1990-01-01', end_day=trading_day)
-            progress = until(lambda: call('acquisition_task', id='interrupted').acquisition_task,
-                             lambda t: t.state == 'running' and t.days_done > 0)
+            progress = until(lambda: call('get_acquisition_task', id='interrupted').acquisition_task,
+                             lambda t: t.state == acquisition.TASK_STATE_RUNNING and t.days_done > 0)
             # The submitting client has gone; collection and task work continue.
             assert progress.days_done < progress.days_total
             process.kill()
             process.wait(timeout=10)
         with running_market(root, port):
-            recovered = call('acquisition_task', id='interrupted').acquisition_task
-            assert recovered.state == 'interrupted', recovered
-            assert call('acquisition_task', id='publish').acquisition_task == task
-            assert call('dataset', provider='recorder', dataset_version=task.dataset_version).dataset == publication
-            assert call('dataset_file', **file_query).dataset_file == baseline
+            recovered = call('get_acquisition_task', id='interrupted').acquisition_task
+            assert recovered.state == acquisition.TASK_STATE_INTERRUPTED, recovered
+            assert call('get_acquisition_task', id='publish').acquisition_task == task
+            assert call('get_dataset_version', provider='recorder', dataset_version=task.dataset_version).dataset == publication
+            assert call('read_dataset_file', **file_query).dataset_file == baseline
             stable = recovered.SerializeToString()
             time.sleep(.2)
-            assert call('acquisition_task', id='interrupted').acquisition_task.SerializeToString() == stable
-            until(lambda: call('recording_status').recording_status, lambda s: s.last_quote_ms > 0)
+            assert call('get_acquisition_task', id='interrupted').acquisition_task.SerializeToString() == stable
+            until(lambda: call('get_recording_status').recording_status, lambda s: s.last_quote_ms > 0)
         print('Live intake, slow/history clients, autonomous publication and crash recovery passed')
 
 

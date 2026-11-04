@@ -45,12 +45,12 @@ void RecordedPublication::poll(Clock::time_point now)
 {
     if (!task_.empty()) {
         const auto task = manager_.get(task_);
-        if (task.state() == "queued" || task.state() == "running")
+        if (task.state() == wire::TASK_STATE_QUEUED || task.state() == wire::TASK_STATE_RUNNING)
             return;
-        if (task.state() == "succeeded" && !merged_again_) {
+        if (task.state() == wire::TASK_STATE_SUCCEEDED && !merged_again_) {
             days_.erase(day_);
             save();
-        } else if (task.state() != "succeeded") {
+        } else if (task.state() != wire::TASK_STATE_SUCCEEDED) {
             log::error(
                 "recorded minutes of {} did not reach research: {} {}",
                 day_,

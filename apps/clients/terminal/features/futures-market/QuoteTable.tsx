@@ -1,10 +1,10 @@
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
 import { getLocale, translate } from "../contract";
-import type { Subscription } from "../../src/generated/asterion/market_pb";
+import type { ContractQuote } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function quoteStatus(market: MarketView, row: Subscription, now = Date.now()) {
+export function quoteStatus(market: MarketView, row: ContractQuote, now = Date.now()) {
   const q = row.quote;
   if (!market.online || market.snapshot.phase !== "connected")
     return t(q ? "断线 · 旧报价" : "行情未连接");
@@ -17,7 +17,7 @@ export function quoteStatus(market: MarketView, row: Subscription, now = Date.no
   return t(now - source > 30000 || now - Number(q.receivedMs) > 30000 ? "行情未更新" : "实时");
 }
 // Display-only change relative to previous settlement; never a ledger calculation.
-export function quoteChange(row: Subscription) {
+export function quoteChange(row: ContractQuote) {
   const q = row.quote;
   if (q?.last == null || q.previousSettlement == null) return null;
   const last = Number(q.last),
@@ -32,13 +32,13 @@ const overviewHeadings: Record<string, string> = {
   涨跌幅: "涨跌幅(结)",
   持仓量: "持仓",
 };
-function speed(row: Subscription) {
+function speed(row: ContractQuote) {
   const value = row.change1mPercent == null ? NaN : Number(row.change1mPercent);
   return Number.isFinite(value) ? value : null;
 }
 export function QuoteTable({
   market,
-  rows = market.snapshot.subscriptions,
+  rows = market.snapshot.quotes,
   overviewStyle = false,
   selected,
   onSelect,
@@ -50,12 +50,12 @@ export function QuoteTable({
   columns = quoteColumns,
 }: {
   columns?: readonly QuoteColumn[];
-  nameFor?: (row: Subscription) => string | undefined;
+  nameFor?: (row: ContractQuote) => string | undefined;
   sort?: { column: string; direction: "ascending" | "descending" };
   onSort?: (column: string) => void;
   market: MarketView;
   // The rows to show, in order; all of the market's rows by default.
-  rows?: readonly Subscription[];
+  rows?: readonly ContractQuote[];
   overviewStyle?: boolean;
   selected?: string;
   onSelect?: (id: string) => void;

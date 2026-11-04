@@ -161,8 +161,10 @@ wire::Minutes Reader::minutes(const wire::MinutesQuery& request)
         bar->set_low(text(result->GetValue(3, row)));
         bar->set_close(text(result->GetValue(4, row)));
         bar->set_volume(result->GetValue(5, row).GetValue<std::int64_t>());
-        bar->set_average_price(text(result->GetValue(6, row)));
-        bar->set_open_interest(text(result->GetValue(7, row)));
+        if (!result->GetValue(6, row).IsNull())
+            bar->set_average_price(text(result->GetValue(6, row)));
+        if (!result->GetValue(7, row).IsNull())
+            bar->set_open_interest(text(result->GetValue(7, row)));
         bar->set_partial(result->GetValue(8, row).GetValue<bool>());
     }
     return out;

@@ -26,7 +26,7 @@ export function MinuteComparison() {
   const [open, setOpen] = useState("");
   useEffect(() => {
     let active = true;
-    void marketData({ case: "minuteComparison", value: {} }, "minuteComparison")
+    void marketData({ case: "getMinuteComparison", value: {} }, "minuteComparison")
       .then(next => active && setResult(next))
       .catch(() => active && setResult(undefined));
     return () => {
@@ -90,7 +90,7 @@ function Minutes({ contract, day }: { contract: string; day: string }) {
   const [state, setState] = useState<{ result?: MinuteDifferences; error: DisplayError }>();
   useEffect(() => {
     let active = true;
-    void marketData({ case: "minuteDifferences", value: { contract, day } }, "minuteDifferences")
+    void marketData({ case: "getMinuteDifferences", value: { contract, day } }, "minuteDifferences")
       .then(result => active && setState({ result, error: "" }))
       .catch(reason => active && setState({ error: asDisplayError(reason) }));
     return () => {

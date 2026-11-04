@@ -44,7 +44,7 @@ class Client:
             self.stream.close()
 
     def call(self, operation, **values):
-        if operation not in ("dataset", "dataset_file", "dataset_summary"):
+        if operation not in ("get_dataset_version", "read_dataset_file", "get_dataset_summary"):
             raise ValueError("Lab only reads Market datasets")
         request = Request(version=1, service_id="market-data", correlation_id=uuid.uuid4().hex)
         getattr(request, operation).SetInParent()
@@ -80,9 +80,11 @@ class Client:
         result = response.WhichOneof("result")
         if result == "error":
             raise MarketError(response.error.code, response.error.message)
-        if result != operation:
+        expected = {"get_dataset_version": "dataset", "read_dataset_file": "dataset_file",
+                    "get_dataset_summary": "dataset_summary"}[operation]
+        if result != expected:
             raise MarketError("invalid_data", "Market returned another dataset operation")
-        return getattr(response, operation)
+        return getattr(response, expected)
 
     def receive(self, size):
         data = bytearray()
@@ -153,7 +155,7 @@ class Dataset(ParquetTables):
         partitions, after, selected = {}, "", identity
         with Client(origin) as client:
             while True:
-                page = client.call("dataset", provider=self.provider, dataset_version=selected,
+                page = client.call("get_dataset_version", provider=self.provider, dataset_version=selected,
                                    after_key=after, limit=128)
                 if (not selected and not after and page.provider == self.provider
                         and not page.dataset_version and not page.partitions and not page.next_key):
@@ -199,7 +201,7 @@ class Dataset(ParquetTables):
                     digest, offset, size = hashlib.sha256(), 0, None
                     with Client(version.manifest["origin"]) as client:
                         while size is None or offset < size:
-                            item = client.call("dataset_file", provider=self.provider,
+                            item = client.call("read_dataset_file", provider=self.provider,
                                                dataset_version=version.identity, key=key,
                                                offset=offset, limit=CHUNK)
                             if ((item.provider, item.dataset_version, item.key, item.sha256, item.offset) !=

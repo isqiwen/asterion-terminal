@@ -1,3 +1,4 @@
+import { TaskState } from "../../src/generated/asterion/acquisition_pb";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
@@ -30,19 +31,19 @@ const source = (provider: string, tables = ["daily"]) => ({
 const task = (id: string, provider: string) =>
   create(TaskSchema, {
     request: { id, provider, table: "daily", beginDay: "2026-10-30", endDay: "2026-10-30" },
-    state: "running",
+    state: TaskState.RUNNING,
     daysTotal: 1n,
   });
 function serve(canManage = true) {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
-      case "acquisitionSources":
+      case "listAcquisitionSources":
         return { sources: [source("tushare"), source("shfe", ["settlement"])], canManage };
-      case "datasets":
+      case "listDatasets":
         return { sources: [], nextProvider: "" };
-      case "datasetSummary":
+      case "getDatasetSummary":
         return { datasetVersion: "", tables: [] };
-      case "acquisitionTasks":
+      case "listAcquisitionTasks":
         return { tasks: [task("first", "tushare")], nextId: "" };
       default:
         return {};
@@ -72,7 +73,7 @@ test("switching providers submits directly to Market without configuring Lab or 
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       {
-        case: "acquisitionStart",
+        case: "startAcquisition",
         value: expect.objectContaining({
           provider: "shfe",
           table: "settlement",
@@ -105,15 +106,15 @@ test("stored disabled sources remain visible and every coverage page uses the su
       value: { afterProvider?: string; afterProduct?: string; afterId?: string };
     }) => {
       switch (body.case) {
-        case "acquisitionSources":
+        case "listAcquisitionSources":
           return { sources: [], canManage: false };
-        case "datasets":
+        case "listDatasets":
           return body.value.afterProvider
             ? { sources: [{ provider: "tushare" }], nextProvider: "" }
             : { sources: [{ provider: "shfe" }], nextProvider: "shfe" };
-        case "datasetSummary":
+        case "getDatasetSummary":
           return { datasetVersion: "fixed-version", tables: [] };
-        case "datasetCoverage":
+        case "getDatasetCoverage":
           return {
             products: [
               {
@@ -124,7 +125,7 @@ test("stored disabled sources remain visible and every coverage page uses the su
             ],
             nextProduct: body.value.afterProduct ? "" : "SHFE/cu",
           };
-        case "acquisitionTasks":
+        case "listAcquisitionTasks":
           return body.value.afterId
             ? { tasks: [task("remote-task", "shfe")], nextId: "" }
             : { tasks: [], nextId: "first" };
@@ -138,7 +139,7 @@ test("stored disabled sources remain visible and every coverage page uses the su
   await screen.findByRole("option", { name: "tushare" });
   expect(request).toHaveBeenCalledWith(
     {
-      case: "datasetCoverage",
+      case: "getDatasetCoverage",
       value: { provider: "shfe", datasetVersion: "fixed-version", afterProduct: "SHFE/cu" },
     },
     "datasetCoverage",
@@ -157,13 +158,13 @@ test("polls shared tasks even when this client has no active acquisition", async
   let remote = false;
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
-      case "acquisitionSources":
+      case "listAcquisitionSources":
         return { sources: [source("shfe")], canManage: true };
-      case "datasets":
+      case "listDatasets":
         return { sources: [], nextProvider: "" };
-      case "datasetSummary":
+      case "getDatasetSummary":
         return { datasetVersion: "", tables: [] };
-      case "acquisitionTasks":
+      case "listAcquisitionTasks":
         return { tasks: remote ? [task("other-client", "shfe")] : [], nextId: "" };
       default:
         return {};
@@ -173,7 +174,7 @@ test("polls shared tasks even when this client has no active acquisition", async
   await screen.findByRole("button", { name: "开始采集" });
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
-      { case: "acquisitionTasks", value: { afterId: "" } },
+      { case: "listAcquisitionTasks", value: { afterId: "" } },
       "acquisitionTasks",
     ),
   );
@@ -185,7 +186,7 @@ test("polls shared tasks even when this client has no active acquisition", async
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
-      { case: "acquisitionCancel", value: { id: "other-client" } },
+      { case: "cancelAcquisition", value: { id: "other-client" } },
       "acquisitionTask",
     ),
   );
@@ -195,7 +196,7 @@ test("recorded minutes publish through Market with a contract and explicit refre
   serve();
   const current = request.getMockImplementation()!;
   request.mockImplementation(async body =>
-    body.case === "acquisitionSources"
+    body.case === "listAcquisitionSources"
       ? { sources: [source("recorder", ["minutes"])], canManage: true }
       : current(body),
   );
@@ -211,7 +212,7 @@ test("recorded minutes publish through Market with a contract and explicit refre
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       {
-        case: "acquisitionStart",
+        case: "startAcquisition",
         value: expect.objectContaining({
           provider: "recorder",
           table: "minutes",

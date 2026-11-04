@@ -5,14 +5,13 @@ namespace asterion::protocol {
 market::proto::Snapshot encode_market(const LiveMarketSnapshot& state, const std::string& instance)
 {
     market::proto::Snapshot out;
-    out.set_subscriptions_delta(state.subscriptions_delta);
     out.set_instance_id(instance);
     out.set_phase(std::string(market_phase_name(state.phase)));
     out.set_error_code(state.error_code);
     out.set_sequence(state.sequence);
     out.set_out_of_order(state.out_of_order);
     for (const auto& s : state.subscriptions) {
-        auto* row = out.add_subscriptions();
+        auto* row = out.add_quotes();
         row->mutable_instrument()->set_venue(s.instrument.venue);
         row->mutable_instrument()->set_symbol(s.instrument.symbol);
         row->set_state(std::string(subscription_state_name(s.state)));
@@ -86,7 +85,8 @@ market::proto::EventBatch encode_market_events(const MarketEventBatch& batch)
         row->set_sequence(event.sequence);
         row->set_received_ms(event.received_ms);
         if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-            *row->mutable_status() = encode_market(*status, batch.stream_id);
+            row->mutable_status()->set_phase(std::string(market_phase_name(status->phase)));
+            row->mutable_status()->set_error_code(status->error_code);
         } else if (const auto* subscription = std::get_if<MarketSubscription>(&event.value)) {
             if (subscription->quote)
                 throw std::invalid_argument("subscription acknowledgement cannot carry a quote");
@@ -104,7 +104,7 @@ market::proto::EventBatch encode_market_events(const MarketEventBatch& batch)
                     0,
                     observation.quote});
             auto encoded = encode_market(single, batch.stream_id);
-            *row->mutable_quote()->mutable_quote() = encoded.subscriptions(0).quote();
+            *row->mutable_quote()->mutable_quote() = encoded.quotes(0).quote();
             row->mutable_quote()->set_out_of_order(observation.out_of_order);
         }
     }

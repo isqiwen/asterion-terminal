@@ -5,7 +5,7 @@ import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Subscription } from "../../src/generated/asterion/market_pb";
+import type { ContractQuote } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
   contractName,
@@ -53,10 +53,10 @@ export function MarketBoard({
     direction: "descending",
   });
   const board = useRef<HTMLDivElement>(null);
-  const { subscriptions, catalog, phase } = market.snapshot;
-  const venueOf = (row: Subscription) => row.instrument!.venue;
+  const { quotes, catalog, phase } = market.snapshot;
+  const venueOf = (row: ContractQuote) => row.instrument!.venue;
   const venueOrder = ["SHFE", "CFFEX", "CZCE", "INE", "DCE", "GFEX"];
-  const venues = [...new Set(subscriptions.map(venueOf))].sort((a, b) => {
+  const venues = [...new Set(quotes.map(venueOf))].sort((a, b) => {
     const rank = (value: string) =>
       venueOrder.includes(value) ? venueOrder.indexOf(value) : venueOrder.length;
     return rank(a) - rank(b) || a.localeCompare(b);
@@ -66,14 +66,14 @@ export function MarketBoard({
   // Without a catalog there is no product identity; list subscribed months.
   const overview = !watchlist && scope === "products" && !query && !!catalog?.contracts.length;
   const candidates = watchlist
-    ? subscriptions.filter(row =>
+    ? quotes.filter(row =>
         watchlist.some(
           id => id.venue === row.instrument!.venue && id.symbol === row.instrument!.symbol,
         ),
       )
     : overview
       ? productOverview(market)
-      : subscriptions;
+      : quotes;
   const rows = candidates.filter(
     row =>
       (!filter || venueOf(row) === filter) &&
@@ -81,7 +81,7 @@ export function MarketBoard({
         .toUpperCase()
         .includes(query),
   );
-  const value = (row: Subscription) => {
+  const value = (row: ContractQuote) => {
     if (sort.column === "合约") return row.instrument!.symbol;
     if (sort.column === "涨跌幅") return quoteChange(row)?.percent ?? null;
     if (sort.column === "涨跌") return quoteChange(row)?.amount ?? null;
@@ -126,14 +126,14 @@ export function MarketBoard({
   const active =
     rows.find(row => rowKey(row) === selected) ??
     orderedRows[0] ??
-    subscriptions.find(row => rows.includes(row));
-  const displayName = (row: Subscription) => {
+    quotes.find(row => rows.includes(row));
+  const displayName = (row: ContractQuote) => {
     const label = overview ? productLabel(row.instrument!, catalog) : undefined;
     return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
   };
   const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setMenuSlot(document.getElementById("market-menu-slot")), [menuOpen]);
-  const inlineToolbar = phase !== "connected" || !subscriptions.length;
+  const inlineToolbar = phase !== "connected" || !quotes.length;
   const controls = (
     <div className="market-board-tools">
       <nav className="market-exchanges" aria-label={t("合约范围")}>
@@ -150,11 +150,11 @@ export function MarketBoard({
       </p>
       <button onClick={() => setEditingColumns(true)}>{t("行情表头设置")}</button>
       <span className="subtle">
-        {rows.length} / {subscriptions.length} {t("合约")}
+        {rows.length} / {quotes.length} {t("合约")}
       </span>
     </div>
   );
-  const table = (groupRows: Subscription[]) => (
+  const table = (groupRows: ContractQuote[]) => (
     <QuoteTable
       overviewStyle
       columns={visibleColumns}
@@ -223,7 +223,7 @@ export function MarketBoard({
             {t(
               watchlist && !query
                 ? "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。"
-                : subscriptions.length
+                : quotes.length
                   ? "没有匹配的市场合约"
                   : "尚无订阅行情",
             )}

@@ -1,3 +1,4 @@
+import { TaskState } from "../../src/generated/asterion/acquisition_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinuteComparison } from "./MinuteComparison";
 import { RecordingStatus } from "./RecordingStatus";
@@ -20,15 +21,15 @@ import {
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
-const states: Record<string, string> = {
-  queued: "等待采集",
-  running: "采集中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  interrupted: "已中断",
+const states: Record<number, string> = {
+  [TaskState.QUEUED]: "等待采集",
+  [TaskState.RUNNING]: "采集中",
+  [TaskState.SUCCEEDED]: "已完成",
+  [TaskState.FAILED]: "失败",
+  [TaskState.CANCELLED]: "已取消",
+  [TaskState.INTERRUPTED]: "已中断",
 };
-const activeTask = (task: MarketTask) => ["queued", "running"].includes(task.state);
+const activeTask = (task: MarketTask) => [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 const tableName = (name: string) =>
   t(
@@ -81,13 +82,16 @@ function DataPage({ context }: { context: TerminalContext }) {
     const load = async () => {
       try {
         const catalog = await marketData(
-          { case: "acquisitionSources", value: {} },
+          { case: "listAcquisitionSources", value: {} },
           "acquisitionSources",
         );
         const listed = new Map<string, Source>(catalog.sources.map(item => [item.provider, item]));
         let afterProvider = "";
         do {
-          const page = await marketData({ case: "datasets", value: { afterProvider } }, "datasets");
+          const page = await marketData(
+            { case: "listDatasets", value: { afterProvider } },
+            "datasets",
+          );
           for (const item of page.sources) {
             // A disabled provider's already stored dataset is still readable.
             if (!listed.has(item.provider))
@@ -191,7 +195,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     pending.current = true;
     try {
       const nextSummary = await marketData(
-        { case: "datasetSummary", value: { provider } },
+        { case: "getDatasetSummary", value: { provider } },
         "datasetSummary",
       );
       const products: MarketCoverage["products"] = [];
@@ -200,7 +204,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
         do {
           const page = await marketData(
             {
-              case: "datasetCoverage",
+              case: "getDatasetCoverage",
               value: {
                 provider,
                 datasetVersion: nextSummary.datasetVersion,
@@ -217,7 +221,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       let afterId = "";
       do {
         const page = await marketData(
-          { case: "acquisitionTasks", value: { afterId } },
+          { case: "listAcquisitionTasks", value: { afterId } },
           "acquisitionTasks",
         );
         nextTasks.push(...page.tasks.filter(task => task.request?.provider === provider));
@@ -258,7 +262,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     await started.attempt(async () => {
       await marketData(
         {
-          case: "acquisitionStart",
+          case: "startAcquisition",
           value: {
             id,
             provider,
@@ -278,7 +282,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   };
   const cancel = (id: string) =>
     cancelled.attempt(async () => {
-      await marketData({ case: "acquisitionCancel", value: { id } }, "acquisitionTask");
+      await marketData({ case: "cancelAcquisition", value: { id } }, "acquisitionTask");
       await refresh();
     });
   const months = useMemo(
@@ -453,8 +457,8 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                   <td>
                     {task.request!.beginDay} – {task.request!.endDay}
                   </td>
-                  <td title={task.error} data-state={task.state}>
-                    {t(states[task.state] ?? task.state)}
+                  <td title={task.error} data-state={TaskState[task.state].toLowerCase()}>
+                    {t(states[task.state] ?? String(task.state))}
                     {task.error ? ` · ${task.error}` : ""}
                   </td>
                   <td>

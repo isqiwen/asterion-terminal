@@ -24,7 +24,7 @@ flowchart LR
         RPC --> Acquire
     end
     Provider[Tushare / 交易所] --> Acquire
-    Terminal[Terminal] <-->|请求与 watch| RPC
+    Terminal[Terminal] <-->|请求与报价流| RPC
     Lab[Lab] <-->|固定版本读取| RPC
 ```
 
@@ -51,7 +51,7 @@ classDiagram
     class State {
         advance()
         process()
-        snapshot()
+        live_quotes()
     }
     class Feed {
         connect()
@@ -143,19 +143,19 @@ sequenceDiagram
         State->>Bars: observe(报价)
     end
     State->>Recorder: poll()，安排落盘
-    Client->>RPC: 双向 TLS，Request.watch
+    Client->>RPC: 双向 TLS，Request.stream_live_quotes
     RPC->>State: 经 Session 转交请求与连接游标
     State-->>RPC: 首帧完整快照与目录
-    RPC-->>Client: Response.snapshot
-    loop 同一条 watch 连接
+    RPC-->>Client: Response.live_quotes.snapshot
+    loop 同一条报价流连接
         RPC->>State: 按连接游标请求下一帧
-        State-->>RPC: 变化行、base_sequence、目录修订
-        RPC-->>Client: 增量帧
+        State-->>RPC: 变化行、base_sequence、变化后的目录
+        RPC-->>Client: Response.live_quotes.delta
     end
     Note over Client,State: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
 ```
 
-`Recorder::observe()` 在分钟聚合前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走 watch 帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
+`Recorder::observe()` 在分钟聚合前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
 
 ## 采集、发布与固定版本读取
 
@@ -167,10 +167,10 @@ sequenceDiagram
     participant Source
     participant Writer
     participant Research as compose_research
-    Client->>RPC: acquisition_start
+    Client->>RPC: start_acquisition
     RPC->>RPC: 由已验证证书检查 manage 权限
     RPC->>Manager: submit(request)
-    Manager->>Manager: 持久化 queued 任务
+    Manager->>Manager: 持久化 QUEUED 任务
     Manager-->>Client: 经 RPC 返回已接纳任务
     Manager->>Source: 后台读取供应商或自录数据
     Source-->>Manager: 标准化行与观测段
@@ -180,10 +180,10 @@ sequenceDiagram
     Manager->>Research: 合成 research
     Research->>Research: 持有研究写锁，读取来源版本并发布
     Manager->>Manager: 持久化任务进度或完成状态
-    Client->>RPC: dataset(provider=research)
+    Client->>RPC: get_dataset_version(provider=research)
     RPC-->>Client: 固定版本 ID、分区与摘要
     loop 分页与文件下载
-        Client->>RPC: dataset / dataset_file，携带同一版本 ID
+        Client->>RPC: get_dataset_version / read_dataset_file，携带同一版本 ID
         RPC-->>Client: 该版本的元数据或 Parquet 字节块
     end
 ```
@@ -196,7 +196,7 @@ sequenceDiagram
 
 | 情况 | 行为与代码入口 |
 | --- | --- |
-| 客户端关闭 | 释放该连接与 watch 游标；服务仍录制，已接纳的采集继续，见 `main.cpp` |
+| 客户端关闭 | 释放该连接与报价流游标；服务仍录制，已接纳的采集继续，见 `main.cpp` |
 | 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `State::advance()` |
 | SDK 入口丢事件 | 结束本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `State::advance()` |
 | 磁盘积压 | 录制丢弃积压区间并报告丢失计数，行情继续，见 `Recorder::flush()` |

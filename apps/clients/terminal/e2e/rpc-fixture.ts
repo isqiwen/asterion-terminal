@@ -26,7 +26,7 @@ export async function trading(
 
 // The saved Market's state as ProtoJSON, read through the native relay.
 export async function marketState(request: APIRequestContext) {
-  return (await rpc(request, "market.call", { request: { snapshot: {} } })).market.snapshot;
+  return (await rpc(request, "market.call", { request: { getLiveSnapshot: {} } })).market.snapshot;
 }
 
 // The account policy the trading page creates: rb2610 from the CTP catalog,

@@ -127,14 +127,14 @@ const { createInterface } = require("node:readline");
     await call("market.endpoint.save", { host: "127.0.0.1", port, fingerprint });
     await call("market.open");
     const snapshot = async () =>
-      (await call("market.call", { request: { snapshot: {} } })).market.snapshot;
+      (await call("market.call", { request: { getLiveSnapshot: {} } })).market.snapshot;
     await expect
       .poll(
         async () => {
           const state = await snapshot();
           // Shown when the wait fails: where the market service stopped.
           return (
-            state.subscriptions?.[0]?.quote?.bidLevels?.[0]?.price ??
+            state.quotes?.[0]?.quote?.bidLevels?.[0]?.price ??
             `phase=${state.phase} catalog=${state.catalog?.phase} ${state.catalog?.diagnostic ?? ""}`
           );
         },
@@ -155,7 +155,7 @@ const { createInterface } = require("node:readline");
     await openView(page, "watchlist");
     await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
     await call("market.watchlist", { instruments: [{ venue: "SHFE", symbol: "rb2610" }] });
-    const quote = full.subscriptions[0].quote;
+    const quote = full.quotes[0].quote;
     assert.equal(quote.open, "3490.25");
     assert.equal(quote.openInterestChange, "-25.25");
     assert.equal(quote.previousClose, "3480.125");

@@ -1,11 +1,11 @@
 import { PriceChart } from "@asterion/client-ui/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { Subscription } from "../../src/generated/asterion/market_pb";
+import type { ContractQuote } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../contract";
 import { chartTime } from "./chart-time";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-export function QuoteChart({ market, row }: { market: MarketView; row: Subscription }) {
+export function QuoteChart({ market, row }: { market: MarketView; row: ContractQuote }) {
   const { venue, symbol } = row.instrument!;
   const points = market.ticks.filter(p => p.venue === venue && p.symbol === symbol);
   const reference = row.quote?.previousSettlement;

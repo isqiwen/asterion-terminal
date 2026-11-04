@@ -172,7 +172,8 @@ ac::wire::Task wait(ac::Manager& manager, const std::string& id)
     const auto until = std::chrono::steady_clock::now() + 10s;
     for (;;) {
         auto task = manager.get(id);
-        if (task.state() != "queued" && task.state() != "running")
+        if (task.state() != ac::wire::TASK_STATE_QUEUED
+            && task.state() != ac::wire::TASK_STATE_RUNNING)
             return task;
         if (std::chrono::steady_clock::now() > until)
             throw std::runtime_error("acquisition did not finish");
@@ -204,7 +205,7 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     request.set_end_day("2026-10-30");
     manager.submit(request);
     auto task = wait(manager, "fees");
-    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
     EXPECT_EQ(task.days_empty(), 1);
     EXPECT_EQ(task.request().exchanges_size(), 1);
     wh::Store store(wh::source_directory(root, "shfe"), "shfe");
@@ -222,7 +223,7 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     request.set_begin_day("2026-10-28");
     manager.submit(request);
     const auto failed = wait(manager, "partial");
-    EXPECT_EQ(failed.state(), "failed");
+    EXPECT_EQ(failed.state(), ac::wire::TASK_STATE_FAILED);
     EXPECT_EQ(failed.error_code(), "unavailable");
     EXPECT_EQ(failed.days_done(), 1);
     EXPECT_EQ(store.current().partitions.size(), 2);
@@ -315,8 +316,9 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
         do {
             std::this_thread::sleep_for(50ms);
             task = manager.get(table);
-        } while (task.state() == "queued" || task.state() == "running");
-        ASSERT_EQ(task.state(), "succeeded") << task.error();
+        } while (task.state() == ac::wire::TASK_STATE_QUEUED
+            || task.state() == ac::wire::TASK_STATE_RUNNING);
+        ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
         ASSERT_EQ(task.days_empty(), 0) << "select a published trading day";
         wh::Store store(wh::source_directory(root, provider), provider);
         const auto rows =

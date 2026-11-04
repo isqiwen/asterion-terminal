@@ -54,7 +54,7 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
       if (pending) return;
       pending = true;
       try {
-        const next = await marketData({ case: "recordingStatus", value: {} }, "recordingStatus");
+        const next = await marketData({ case: "getRecordingStatus", value: {} }, "recordingStatus");
         if (!active) return;
         if (next.instance !== instance) throw new Error(t("录制状态不属于当前行情服务"));
         setStatus(next);

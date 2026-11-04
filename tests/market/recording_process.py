@@ -93,8 +93,9 @@ def ask(port, number, body=b"", magic=b"ASTR", raw=False, rejected=False):
         assert error_field in response, response
         return decode(response[error_field][0])
     assert error_field not in response, decode(response[error_field][0])
-    result = {19: 15, 20: 16, 21: 17, 13: 10, 14: 10, 15: 11, 16: 13, 18: 14}.get(number, 10)
-    return decode(response[result][0])
+    result = {19: 15, 20: 16, 21: 17, 13: 10, 14: 28, 15: 11, 16: 13, 18: 14}.get(number, 10)
+    value = decode(response[result][0])
+    return decode(value[1][0]) if number == 14 else value
 
 
 @contextmanager
@@ -107,7 +108,7 @@ def watch_stream(port, instruments):
         yield stream
 
 
-def watch_frame(stream):
+def watch_frame(stream, kind=2):
     def read(size):
         data = bytearray()
         while len(data) < size:
@@ -117,7 +118,9 @@ def watch_frame(stream):
         return bytes(data)
     response = decode(read(int.from_bytes(read(4), "big")))
     assert 12 not in response, response
-    return decode(response[10][0])
+    update = decode(response[28][0])
+    assert kind in update, update
+    return decode(update[kind][0])
 
 
 def watch_members(snapshot, field_number):
@@ -131,34 +134,29 @@ def check_client_isolation(port, instance):
     rb = ("SHFE", "rb2610")
     absent = ("SHFE", "rb2611")
     with watch_stream(port, [rb]) as a, watch_stream(port, [absent]) as b, watch_stream(port, []) as all_rows:
-        first_a, first_b, full = watch_frame(a), watch_frame(b), watch_frame(all_rows)
+        first_a, first_b, full = watch_frame(a, 1), watch_frame(b, 1), watch_frame(all_rows, 1)
         for snapshot in (first_a, first_b, full):
             assert text(snapshot, 1) == instance, snapshot
-            assert not snapshot.get(10) and not snapshot.get(11) and not snapshot.get(12), snapshot
         assert watch_members(first_a, 6) == [rb], first_a
         assert watch_members(first_b, 6) == [], first_b
-        assert watch_members(first_a, 8) == [rb] and watch_members(first_b, 8) == [absent]
-        assert watch_members(full, 8) == [], full
         assert first_a[6] == full[6], (first_a, full)  # one shared quote, not per-client feeds
         # Reading one stream does not advance another stream's baseline.
         next_a = watch_frame(a)
-        assert next_a.get(11) == [1] and next_a.get(12) == first_a.get(4), next_a
+        assert next_a.get(8) == first_a.get(4), next_a
         next_b = watch_frame(b)
-        assert next_b.get(11) == [1] and next_b.get(12) == first_b.get(4), next_b
-        assert not next_b.get(6) and watch_members(next_b, 8) == [absent], next_b
+        assert next_b.get(8) == first_b.get(4), next_b
+        assert not next_b.get(6), next_b
         # A selection change replaces only B's stream and gives B a fresh baseline.
         b.close()
         with watch_stream(port, [rb]) as changed_b:
-            changed = watch_frame(changed_b)
-            assert not changed.get(11) and not changed.get(10), changed
+            changed = watch_frame(changed_b, 1)
             assert watch_members(changed, 6) == [rb], changed
         following_a = watch_frame(a)
-        assert following_a.get(12) == next_a.get(4), following_a
-        assert watch_members(following_a, 8) == [rb], following_a
+        assert following_a.get(8) == next_a.get(4), following_a
         duplicate = field(1, field(1, b"SHFE") + field(2, b"rb2610")) * 2
         denied = ask(port, 14, duplicate, rejected=True)
         assert text(denied, 1) == "invalid_request", denied
-        assert watch_frame(a).get(12) == following_a.get(4)
+        assert watch_frame(a).get(8) == following_a.get(4)
     shared = ask(port, 13)
     assert not shared.get(8) and watch_members(shared, 6) == [rb], shared
 

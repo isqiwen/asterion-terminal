@@ -27,7 +27,7 @@ void require_id(const std::string& id)
 
 bool pending(const wire::Task& task)
 {
-    return task.state() == "running" || task.state() == "queued";
+    return task.state() == wire::TASK_STATE_RUNNING || task.state() == wire::TASK_STATE_QUEUED;
 }
 
 void validate(wire::Request& request)
@@ -115,7 +115,7 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
             continue;
         auto task = load(entry.path());
         if (pending(task)) {
-            task.set_state("interrupted");
+            task.set_state(wire::TASK_STATE_INTERRUPTED);
             task.set_error_code("interrupted");
             task.set_error("Market stopped before acquisition completed");
             task.set_finished_ns(now_ns());
@@ -142,7 +142,8 @@ wire::Task Manager::load(const fs::path& path) const
         throw std::runtime_error("acquisition task file is too large");
     std::ifstream input(path, std::ios::binary);
     wire::Task task;
-    if (!task.ParseFromIstream(&input) || task.request().id() != path.stem().string())
+    if (!task.ParseFromIstream(&input) || task.request().id() != path.stem().string()
+        || !wire::TaskState_IsValid(task.state()) || task.state() == wire::TASK_STATE_UNSPECIFIED)
         throw std::runtime_error("invalid acquisition task: " + path.string());
     require_id(task.request().id());
     return task;
@@ -181,7 +182,7 @@ wire::Task Manager::submit(wire::Request request)
         throw Error(ErrorCode::resource_exhausted, "acquisition capacity is full");
     auto active = std::make_unique<Active>();
     *active->task.mutable_request() = request;
-    active->task.set_state("queued");
+    active->task.set_state(wire::TASK_STATE_QUEUED);
     active->task.set_started_ns(now_ns());
     persist(active->task);
     const auto accepted = active->task;
@@ -197,7 +198,7 @@ wire::Task Manager::submit(wire::Request request)
                 std::unique_ptr<Source> source;
                 try {
                     check_stop(current->cancel.get_token());
-                    task.set_state("running");
+                    task.set_state(wire::TASK_STATE_RUNNING);
                     publish(task, *current);
                     source = sources_.at(request.provider())(current->cancel.get_token());
                     run(*current, *source, *stores_.at(request.provider()));
@@ -206,13 +207,15 @@ wire::Task Manager::submit(wire::Request request)
                         task = current->task;
                     }
                     check_stop(current->cancel.get_token());
-                    task.set_state("succeeded");
+                    task.set_state(wire::TASK_STATE_SUCCEEDED);
                 } catch (const SourceError& error) {
                     {
                         std::lock_guard lock(mutex_);
                         task = current->task;
                     }
-                    task.set_state(error.code == "cancelled" ? "cancelled" : "failed");
+                    task.set_state(
+                        error.code == "cancelled" ? wire::TASK_STATE_CANCELLED
+                                                  : wire::TASK_STATE_FAILED);
                     task.set_error_code(error.code);
                     task.set_error(error.what());
                 } catch (const std::exception& error) {
@@ -220,7 +223,7 @@ wire::Task Manager::submit(wire::Request request)
                         std::lock_guard lock(mutex_);
                         task = current->task;
                     }
-                    task.set_state("failed");
+                    task.set_state(wire::TASK_STATE_FAILED);
                     task.set_error_code("operation_failed");
                     task.set_error(error.what());
                     log::error(

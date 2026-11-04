@@ -56,7 +56,7 @@ test("status reads do not overlap, and switching or closing a Market discards pe
   vi.useFakeTimers();
   const select = mount(market("first"));
   expect(marketData).toHaveBeenCalledWith(
-    { case: "recordingStatus", value: {} },
+    { case: "getRecordingStatus", value: {} },
     "recordingStatus",
   );
   await act(async () => vi.advanceTimersByTime(9000));

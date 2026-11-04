@@ -48,6 +48,7 @@ int main(int argc, char** argv)
                 response.mutable_error()->set_code(std::string(error_name(classify(error))));
                 response.mutable_error()->set_message(
                     dynamic_cast<const Error*>(&error)
+                            || classify(error) == ErrorCode::invalid_request
                         ? error.what()
                         : "Market request rejected; check configuration and SDK availability");
             };
@@ -75,12 +76,12 @@ int main(int argc, char** argv)
                     throw std::invalid_argument("market service identity mismatch");
                 const auto client = settings.clients.find(peer.fingerprint);
                 if (client == settings.clients.end()
-                    || ((request.has_acquisition_start() || request.has_acquisition_cancel())
+                    || ((request.has_start_acquisition() || request.has_cancel_acquisition())
                         && !client->second))
                     throw Error(
                         ErrorCode::permission_denied,
                         "Market acquisition management permission is required");
-                if (request.has_watch()) {
+                if (request.has_stream_live_quotes()) {
                     if (watchers == 32)
                         throw Error(ErrorCode::resource_exhausted, "market watch capacity is full");
                     pending->watchers = &watchers;

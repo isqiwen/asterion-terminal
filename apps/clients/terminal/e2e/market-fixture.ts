@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 type Instrument = { venue: string; symbol: string };
-// A market.proto Subscription in ProtoJSON, with a quote when one is given.
+// A market.proto ContractQuote in ProtoJSON, with a quote when one is given.
 export const watchRow = (id: Instrument, quote?: Record<string, unknown>) => ({
   instrument: id,
   state: "subscribed",

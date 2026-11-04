@@ -49,7 +49,7 @@ export function OrderTicket({
           ? "close_today"
           : order.offset
         : "close";
-  const quote = useMarket()?.snapshot.subscriptions.find(
+  const quote = useMarket()?.snapshot.quotes.find(
     row => row.instrument?.venue === traded?.venue && row.instrument?.symbol === traded?.symbol,
   )?.quote;
   const submit = (side: Side, form: HTMLFormElement | null) => {

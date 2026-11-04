@@ -24,13 +24,14 @@ def ready(process):
     while time.monotonic()<deadline:
         watch=call(process,'market.watch',dict(restart=False))['market_watch']
         for frame in reversed(watch['frames']):
-            rows=frame.get('subscriptions',[])
+            frame = frame.get('snapshot', frame.get('delta', {}))
+            rows=frame.get('quotes',[])
             if watch['online'] and rows and 'quote' in rows[0]:
                 return frame
         time.sleep(.1)
     raise AssertionError(watch)
 def recording(process):
-    return call(process,'market.call',dict(request=dict(recordingStatus={})))['market']['recordingStatus']
+    return call(process,'market.call',dict(request=dict(getRecordingStatus={})))['market']['recordingStatus']
 def close(process):
     process.stdin.close();process.wait(timeout=8)
     assert process.returncode == 0, process.stderr.read()
@@ -43,7 +44,7 @@ try:
     status=recording(process)
     assert status['instance']==instance and status['phase']=='connected',status
     assert status['subscribed']==1 and int(status['lastQuoteMs'])>0,status
-    assert frame['subscriptions'][0]['quote']['last']=='3510'
+    assert frame['quotes'][0]['quote']['last']=='3510'
     state=call(process,'runtime.snapshot')
     assert 'market' not in state
     selected=[dict(venue='SHFE',symbol='rb2610')]

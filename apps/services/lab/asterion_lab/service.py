@@ -148,7 +148,7 @@ class Service:
             if self.market is None:
                 raise ValueError("configure the remote Market address first")
             with Client(self.market.selected()) as client:
-                return client.call("dataset_summary", provider=Dataset.provider)
+                return client.call("get_dataset_summary", provider=Dataset.provider)
         value = await self.read(read_summary)
         response.summary.dataset_version = value.dataset_version
         response.summary.created_ns = value.created_ns

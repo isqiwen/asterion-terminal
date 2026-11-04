@@ -2,19 +2,18 @@
 // @generated from file asterion/acquisition.proto (package asterion.acquisition.proto, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file asterion/acquisition.proto.
  */
 export const file_asterion_acquisition: GenFile = /*@__PURE__*/
-  fileDesc("Chphc3Rlcmlvbi9hY3F1aXNpdGlvbi5wcm90bxIaYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8iDgoMU291cmNlc1F1ZXJ5Ij0KBlNvdXJjZRIQCghwcm92aWRlchgBIAEoCRIOCgZ0YWJsZXMYAiADKAkSEQoJZXhjaGFuZ2VzGAMgAygJIlIKB1NvdXJjZXMSMwoHc291cmNlcxgBIAMoCzIiLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlNvdXJjZRISCgpjYW5fbWFuYWdlGAIgASgIIpABCgdSZXF1ZXN0EgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEg0KBXRhYmxlGAMgASgJEhEKCWJlZ2luX2RheRgEIAEoCRIPCgdlbmRfZGF5GAUgASgJEhEKCWV4Y2hhbmdlcxgGIAMoCRIPCgdyZWZyZXNoGAcgASgIEhAKCGNvbnRyYWN0GAggASgJIv0BCgRUYXNrEjQKB3JlcXVlc3QYASABKAsyIy5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5SZXF1ZXN0Eg0KBXN0YXRlGAIgASgJEhIKCmRheXNfdG90YWwYAyABKAQSEQoJZGF5c19kb25lGAQgASgEEhIKCmRheXNfZW1wdHkYBSABKAQSEAoIcmVxdWVzdHMYBiABKAQSFwoPZGF0YXNldF92ZXJzaW9uGAcgASgJEhIKCmVycm9yX2NvZGUYCCABKAkSDQoFZXJyb3IYCSABKAkSEgoKc3RhcnRlZF9ucxgKIAEoAxITCgtmaW5pc2hlZF9ucxgLIAEoAyIXCglUYXNrUXVlcnkSCgoCaWQYASABKAkiLQoKVGFza3NRdWVyeRIQCghhZnRlcl9pZBgBIAEoCRINCgVsaW1pdBgCIAEoDSJJCgVUYXNrcxIvCgV0YXNrcxgBIAMoCzIgLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlRhc2sSDwoHbmV4dF9pZBgCIAEoCWIGcHJvdG8z");
+  fileDesc("Chphc3Rlcmlvbi9hY3F1aXNpdGlvbi5wcm90bxIaYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8iDgoMU291cmNlc1F1ZXJ5Ij0KBlNvdXJjZRIQCghwcm92aWRlchgBIAEoCRIOCgZ0YWJsZXMYAiADKAkSEQoJZXhjaGFuZ2VzGAMgAygJIlIKB1NvdXJjZXMSMwoHc291cmNlcxgBIAMoCzIiLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlNvdXJjZRISCgpjYW5fbWFuYWdlGAIgASgIIpABCgdSZXF1ZXN0EgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEg0KBXRhYmxlGAMgASgJEhEKCWJlZ2luX2RheRgEIAEoCRIPCgdlbmRfZGF5GAUgASgJEhEKCWV4Y2hhbmdlcxgGIAMoCRIPCgdyZWZyZXNoGAcgASgIEhAKCGNvbnRyYWN0GAggASgJIqQCCgRUYXNrEjQKB3JlcXVlc3QYASABKAsyIy5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5SZXF1ZXN0EjQKBXN0YXRlGAIgASgOMiUuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza1N0YXRlEhIKCmRheXNfdG90YWwYAyABKAQSEQoJZGF5c19kb25lGAQgASgEEhIKCmRheXNfZW1wdHkYBSABKAQSEAoIcmVxdWVzdHMYBiABKAQSFwoPZGF0YXNldF92ZXJzaW9uGAcgASgJEhIKCmVycm9yX2NvZGUYCCABKAkSDQoFZXJyb3IYCSABKAkSEgoKc3RhcnRlZF9ucxgKIAEoAxITCgtmaW5pc2hlZF9ucxgLIAEoAyIXCglUYXNrUXVlcnkSCgoCaWQYASABKAkiLQoKVGFza3NRdWVyeRIQCghhZnRlcl9pZBgBIAEoCRINCgVsaW1pdBgCIAEoDSJJCgVUYXNrcxIvCgV0YXNrcxgBIAMoCzIgLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlRhc2sSDwoHbmV4dF9pZBgCIAEoCSq9AQoJVGFza1N0YXRlEhoKFlRBU0tfU1RBVEVfVU5TUEVDSUZJRUQQABIVChFUQVNLX1NUQVRFX1FVRVVFRBABEhYKElRBU0tfU1RBVEVfUlVOTklORxACEhgKFFRBU0tfU1RBVEVfU1VDQ0VFREVEEAMSFQoRVEFTS19TVEFURV9GQUlMRUQQBBIYChRUQVNLX1NUQVRFX0NBTkNFTExFRBAFEhoKFlRBU0tfU1RBVEVfSU5URVJSVVBURUQQBmIGcHJvdG8z");
 
 /**
- * Enabled acquisition capabilities, without provider settings or credentials.
- * Stored sources remain readable independently of this catalogue.
+ * 已配置的供应商能力；已有数据集通过 list_datasets 独立查询。
  *
  * @generated from message asterion.acquisition.proto.SourcesQuery
  */
@@ -38,7 +37,7 @@ export type Source = Message<"asterion.acquisition.proto.Source"> & {
   provider: string;
 
   /**
-   * Operations accepted by acquisition_start.
+   * daily / minutes / settlement / calendar / contracts。
    *
    * @generated from field: repeated string tables = 2;
    */
@@ -67,7 +66,7 @@ export type Sources = Message<"asterion.acquisition.proto.Sources"> & {
   sources: Source[];
 
   /**
-   * Permission of this authenticated client.
+   * 当前已验证证书是否有采集管理权限。
    *
    * @generated from field: bool can_manage = 2;
    */
@@ -82,7 +81,11 @@ export const SourcesSchema: GenMessage<Sources> = /*@__PURE__*/
   messageDesc(file_asterion_acquisition, 2);
 
 /**
- * Persisted intent contains no provider credentials or caller connection.
+ * start_acquisition 的持久任务参数。任务属于 Market，提交方断线不停止任务。
+ * id 由客户端生成，1..64 字符 [A-Za-z0-9_-]，重复提交返回 conflict。
+ * 收到 QUEUED 只表示已接纳；用 get_acquisition_task 查询终态。
+ * 时间范围包含首尾，1990-01-01 起；供应商最多采到昨天，recorder 可读取今天。
+ * refresh=false 跳过已采集日期，true 重新获取并发布新版本。
  *
  * @generated from message asterion.acquisition.proto.Request
  */
@@ -103,16 +106,22 @@ export type Request = Message<"asterion.acquisition.proto.Request"> & {
   table: string;
 
   /**
+   * YYYY-MM-DD。
+   *
    * @generated from field: string begin_day = 4;
    */
   beginDay: string;
 
   /**
+   * YYYY-MM-DD。
+   *
    * @generated from field: string end_day = 5;
    */
   endDay: string;
 
   /**
+   * 空选来源支持的全部交易所；单合约分钟仅选其交易所。
+   *
    * @generated from field: repeated string exchanges = 6;
    */
   exchanges: string[];
@@ -123,7 +132,8 @@ export type Request = Message<"asterion.acquisition.proto.Request"> & {
   refresh: boolean;
 
   /**
-   * Required for minutes: EXCHANGE/product/YYYY-MM.
+   * minutes 使用 EXCHANGE/product/YYYY-MM；其他表为空。
+   * 仅 recorder 支持空 contract（全部合约），此时 exchanges 必须为空。
    *
    * @generated from field: string contract = 8;
    */
@@ -147,28 +157,34 @@ export type Task = Message<"asterion.acquisition.proto.Task"> & {
   request?: Request | undefined;
 
   /**
-   * queued/running/succeeded/failed/cancelled/interrupted
-   *
-   * @generated from field: string state = 2;
+   * @generated from field: asterion.acquisition.proto.TaskState state = 2;
    */
-  state: string;
+  state: TaskState;
 
   /**
+   * 计划的交易所×日期数；分钟采集按合约×日期计数。
+   *
    * @generated from field: uint64 days_total = 3;
    */
   daysTotal: bigint;
 
   /**
+   * 已处理工作项，含跳过与无数据项；单位同 days_total。
+   *
    * @generated from field: uint64 days_done = 4;
    */
   daysDone: bigint;
 
   /**
+   * 请求过但没有数据的工作项；单位同 days_total。
+   *
    * @generated from field: uint64 days_empty = 5;
    */
   daysEmpty: bigint;
 
   /**
+   * 已发送给来源的请求数。
+   *
    * @generated from field: uint64 requests = 6;
    */
   requests: bigint;
@@ -189,11 +205,15 @@ export type Task = Message<"asterion.acquisition.proto.Task"> & {
   error: string;
 
   /**
+   * 接纳时间，Unix UTC 纳秒。
+   *
    * @generated from field: int64 started_ns = 10;
    */
   startedNs: bigint;
 
   /**
+   * 终态时间，Unix UTC 纳秒；未结束为 0。
+   *
    * @generated from field: int64 finished_ns = 11;
    */
   finishedNs: bigint;
@@ -207,6 +227,8 @@ export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
   messageDesc(file_asterion_acquisition, 4);
 
 /**
+ * cancel_acquisition 仅发出取消意图，已完成任务保持其终态；不存在的 ID 返回 not_found。
+ *
  * @generated from message asterion.acquisition.proto.TaskQuery
  */
 export type TaskQuery = Message<"asterion.acquisition.proto.TaskQuery"> & {
@@ -228,12 +250,14 @@ export const TaskQuerySchema: GenMessage<TaskQuery> = /*@__PURE__*/
  */
 export type TasksQuery = Message<"asterion.acquisition.proto.TasksQuery"> & {
   /**
+   * 首次为空；后续传上一页 next_id，按 ID 字典序排他分页。
+   *
    * @generated from field: string after_id = 1;
    */
   afterId: string;
 
   /**
-   * Default 64, maximum 128.
+   * 0 = 64，最多 128。
    *
    * @generated from field: uint32 limit = 2;
    */
@@ -257,6 +281,8 @@ export type Tasks = Message<"asterion.acquisition.proto.Tasks"> & {
   tasks: Task[];
 
   /**
+   * 空表示没有下一页；任务列表在分页期间可能变化。
+   *
    * @generated from field: string next_id = 2;
    */
   nextId: string;
@@ -268,4 +294,56 @@ export type Tasks = Message<"asterion.acquisition.proto.Tasks"> & {
  */
 export const TasksSchema: GenMessage<Tasks> = /*@__PURE__*/
   messageDesc(file_asterion_acquisition, 7);
+
+/**
+ * 正常 QUEUED → RUNNING → SUCCEEDED；QUEUED/RUNNING 均可失败或取消。
+ * 服务重启把未完成任务标为 INTERRUPTED；终态不可重新运行，重试使用新 ID。
+ * 取消/失败也可能发布已完成分区，dataset_version 是该任务最后已发布版本。
+ *
+ * @generated from enum asterion.acquisition.proto.TaskState
+ */
+export enum TaskState {
+  /**
+   * 无有效状态，服务不返回。
+   *
+   * @generated from enum value: TASK_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TASK_STATE_QUEUED = 1;
+   */
+  QUEUED = 1,
+
+  /**
+   * @generated from enum value: TASK_STATE_RUNNING = 2;
+   */
+  RUNNING = 2,
+
+  /**
+   * @generated from enum value: TASK_STATE_SUCCEEDED = 3;
+   */
+  SUCCEEDED = 3,
+
+  /**
+   * @generated from enum value: TASK_STATE_FAILED = 4;
+   */
+  FAILED = 4,
+
+  /**
+   * @generated from enum value: TASK_STATE_CANCELLED = 5;
+   */
+  CANCELLED = 5,
+
+  /**
+   * @generated from enum value: TASK_STATE_INTERRUPTED = 6;
+   */
+  INTERRUPTED = 6,
+}
+
+/**
+ * Describes the enum asterion.acquisition.proto.TaskState.
+ */
+export const TaskStateSchema: GenEnum<TaskState> = /*@__PURE__*/
+  enumDesc(file_asterion_acquisition, 0);
 

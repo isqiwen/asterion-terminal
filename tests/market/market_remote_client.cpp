@@ -38,9 +38,11 @@ int main(int argc, char** argv)
         std::string instance;
         for (bool quoted = false; !quoted;) {
             const auto taken = take();
-            for (const auto& frame : taken.at("frames")) {
+            for (const auto& update : taken.at("frames")) {
+                const auto& frame =
+                    update.contains("snapshot") ? update.at("snapshot") : update.at("delta");
                 instance = frame.at("instanceId");
-                const auto& rows = frame.value("subscriptions", asterion::Json::array());
+                const auto& rows = frame.value("quotes", asterion::Json::array());
                 if (rows.size() == 1 && rows[0].contains("quote")) {
                     if (rows[0]["quote"]["last"] != "3510")
                         return 3;
@@ -59,7 +61,7 @@ int main(int argc, char** argv)
             request.set_version(1);
             request.set_service_id("market-data");
             request.set_correlation_id("events.test");
-            request.mutable_events()->set_limit(1024);
+            request.mutable_read_feed_events()->set_limit(1024);
             channel.send(request.SerializeAsString(), std::chrono::seconds(2));
             asterion::market::proto::Response response;
             if (!response.ParseFromString(channel.receive(std::chrono::seconds(2)))
@@ -87,13 +89,13 @@ int main(int argc, char** argv)
             return asterion::terminal::call_market(io, endpoint, std::move(request)).get();
         };
         const auto recording =
-            call({{"recordingStatus", asterion::Json::object()}}).at("recordingStatus");
+            call({{"getRecordingStatus", asterion::Json::object()}}).at("recordingStatus");
         if (recording.at("instance") != instance || recording.at("phase") != "connected"
             || recording.at("subscribed") != 1)
             return 11;
         watch.reset();
         auto again = asterion::terminal::MarketWatch::open(io, endpoint).get();
-        return call({{"snapshot", asterion::Json::object()}}).at("snapshot").at("instanceId")
+        return call({{"getLiveSnapshot", asterion::Json::object()}}).at("snapshot").at("instanceId")
                 == instance
             ? 0
             : 5;

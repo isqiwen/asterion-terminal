@@ -16,9 +16,17 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/market.proto.
  */
 export const file_asterion_market: GenFile = /*@__PURE__*/
-  fileDesc("ChVhc3Rlcmlvbi9tYXJrZXQucHJvdG8SFWFzdGVyaW9uLm1hcmtldC5wcm90byIHCgVFbXB0eSIrCgpJbnN0cnVtZW50Eg0KBXZlbnVlGAEgASgJEg4KBnN5bWJvbBgCIAEoCSK0AQoPQ2F0YWxvZ0NvbnRyYWN0EjUKCmluc3RydW1lbnQYASABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSW5zdHJ1bWVudBIPCgdwcm9kdWN0GAIgASgJEg4KBmV4cGlyeRgDIAEoCRISCgptdWx0aXBsaWVyGAQgASgFEhIKCnByaWNlX3RpY2sYBSABKAkSDAoEbmFtZRgGIAEoCRITCgtjb250cmFjdF9pZBgHIAEoCSKVAQoMQ2F0YWxvZ1N0YXRlEg0KBXBoYXNlGAEgASgJEhIKCmVycm9yX2NvZGUYAiABKAkSEgoKZGlhZ25vc3RpYxgDIAEoCRITCgt0cmFkaW5nX2RheRgEIAEoCRI5Cgljb250cmFjdHMYBSADKAsyJi5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uQ2F0YWxvZ0NvbnRyYWN0Ij8KBVdhdGNoEjYKC2luc3RydW1lbnRzGAEgAygLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQiRgoKUmVhZEV2ZW50cxIRCglzdHJlYW1faWQYASABKAkSFgoOYWZ0ZXJfc2VxdWVuY2UYAiABKAQSDQoFbGltaXQYAyABKA0isgoKB1JlcXVlc3QSDwoHdmVyc2lvbhgBIAEoDRISCgpzZXJ2aWNlX2lkGAIgASgJEhYKDmNvcnJlbGF0aW9uX2lkGAMgASgJEjAKCHNuYXBzaG90GA0gASgLMhwuYXN0ZXJpb24ubWFya2V0LnByb3RvLkVtcHR5SAASLQoFd2F0Y2gYDiABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uV2F0Y2hIABIxCgloZWFydGJlYXQYDyABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRW1wdHlIABIzCgZldmVudHMYECABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uUmVhZEV2ZW50c0gAEjcKB21pbnV0ZXMYEiABKAsyJC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uTWludXRlUmVxdWVzdEgAEkEKEHJlY29yZGluZ19zdGF0dXMYEyABKAsyJS5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uU3RhdHVzUXVlcnlIABI8Cg1yZWNvcmRlZF9kYXlzGBQgASgLMiMuYXN0ZXJpb24ucmVjb3JkaW5nLnByb3RvLkRheXNRdWVyeUgAEkIKEHJlY29yZGVkX21pbnV0ZXMYFSABKAsyJi5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uTWludXRlc1F1ZXJ5SAASOAoIZGF0YXNldHMYFiABKAsyJC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLlNvdXJjZXNRdWVyeUgAEjcKB2RhdGFzZXQYFyABKAsyJC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLlZlcnNpb25RdWVyeUgAEjkKDGRhdGFzZXRfZmlsZRgYIAEoCzIhLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uRmlsZVF1ZXJ5SAASPwoPZGF0YXNldF9zdW1tYXJ5GBkgASgLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5TdW1tYXJ5UXVlcnlIABJBChBhY3F1aXNpdGlvbl90YXNrGBogASgLMiUuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza1F1ZXJ5SAASQwoRYWNxdWlzaXRpb25fdGFza3MYGyABKAsyJi5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5UYXNrc1F1ZXJ5SAASQAoRYWNxdWlzaXRpb25fc3RhcnQYHCABKAsyIy5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5SZXF1ZXN0SAASQwoSYWNxdWlzaXRpb25fY2FuY2VsGB0gASgLMiUuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza1F1ZXJ5SAASRwoTYWNxdWlzaXRpb25fc291cmNlcxgeIAEoCzIoLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlNvdXJjZXNRdWVyeUgAEkEKEGRhdGFzZXRfY292ZXJhZ2UYHyABKAsyJS5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkNvdmVyYWdlUXVlcnlIABJEChFtaW51dGVfY29tcGFyaXNvbhggIAEoCzInLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uQ29tcGFyaXNvblF1ZXJ5SAASRgoSbWludXRlX2RpZmZlcmVuY2VzGCEgASgLMiguYXN0ZXJpb24uZGF0YXNldC5wcm90by5EaWZmZXJlbmNlc1F1ZXJ5SABCCwoJb3BlcmF0aW9uIk4KCkRlcHRoTGV2ZWwSEgoFcHJpY2UYASABKAlIAIgBARIVCghxdWFudGl0eRgCIAEoA0gBiAEBQggKBl9wcmljZUILCglfcXVhbnRpdHkixgYKBVF1b3RlEjUKCmluc3RydW1lbnQYASABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSW5zdHJ1bWVudBIRCgRsYXN0GAIgASgJSACIAQESEAoDYmlkGAMgASgJSAGIAQESEAoDYXNrGAQgASgJSAKIAQESFAoMYmlkX3F1YW50aXR5GAUgASgDEhQKDGFza19xdWFudGl0eRgGIAEoAxIOCgZ2b2x1bWUYByABKAMSIAoTcHJldmlvdXNfc2V0dGxlbWVudBgIIAEoCUgDiAEBEhEKBGhpZ2gYCSABKAlIBIgBARIQCgNsb3cYCiABKAlIBYgBARIaCg1vcGVuX2ludGVyZXN0GAsgASgJSAaIAQESEgoKYWN0aW9uX2RheRgMIAEoCRITCgt0cmFkaW5nX2RheRgNIAEoCRITCgt1cGRhdGVfdGltZRgOIAEoCRIRCglzb3VyY2VfbXMYDyABKAMSEwoLcmVjZWl2ZWRfbXMYECABKAMSNQoKYmlkX2xldmVscxgRIAMoCzIhLmFzdGVyaW9uLm1hcmtldC5wcm90by5EZXB0aExldmVsEjUKCmFza19sZXZlbHMYEiADKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRGVwdGhMZXZlbBIRCgRvcGVuGBMgASgJSAeIAQESGAoLdXBwZXJfbGltaXQYFCABKAlICIgBARIYCgtsb3dlcl9saW1pdBgVIAEoCUgJiAEBEhsKDnByZXZpb3VzX2Nsb3NlGBYgASgJSAqIAQESIQoUb3Blbl9pbnRlcmVzdF9jaGFuZ2UYFyABKAlIC4gBARIaCg1hdmVyYWdlX3ByaWNlGBggASgJSAyIAQFCBwoFX2xhc3RCBgoEX2JpZEIGCgRfYXNrQhYKFF9wcmV2aW91c19zZXR0bGVtZW50QgcKBV9oaWdoQgYKBF9sb3dCEAoOX29wZW5faW50ZXJlc3RCBwoFX29wZW5CDgoMX3VwcGVyX2xpbWl0Qg4KDF9sb3dlcl9saW1pdEIRCg9fcHJldmlvdXNfY2xvc2VCFwoVX29wZW5faW50ZXJlc3RfY2hhbmdlQhAKDl9hdmVyYWdlX3ByaWNlIssBCgxTdWJzY3JpcHRpb24SNQoKaW5zdHJ1bWVudBgBIAEoCzIhLmFzdGVyaW9uLm1hcmtldC5wcm90by5JbnN0cnVtZW50Eg0KBXN0YXRlGAIgASgJEhIKCmVycm9yX2NvZGUYAyABKAUSKwoFcXVvdGUYBCABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uUXVvdGUSHgoRY2hhbmdlXzFtX3BlcmNlbnQYBSABKAlIAIgBAUIUChJfY2hhbmdlXzFtX3BlcmNlbnQiRgoNTWludXRlUmVxdWVzdBI1CgppbnN0cnVtZW50GAEgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQiwQEKCU1pbnV0ZUJhchIQCghzdGFydF9tcxgBIAEoAxIMCgRvcGVuGAIgASgJEgwKBGhpZ2gYAyABKAkSCwoDbG93GAQgASgJEg0KBWNsb3NlGAUgASgJEg4KBnZvbHVtZRgGIAEoAxIaCg1hdmVyYWdlX3ByaWNlGAcgASgJSACIAQESGgoNb3Blbl9pbnRlcmVzdBgIIAEoCUgBiAEBQhAKDl9hdmVyYWdlX3ByaWNlQhAKDl9vcGVuX2ludGVyZXN0IvcBCgxNaW51dGVTZXJpZXMSNQoKaW5zdHJ1bWVudBgBIAEoCzIhLmFzdGVyaW9uLm1hcmtldC5wcm90by5JbnN0cnVtZW50EhMKC3RyYWRpbmdfZGF5GAIgASgJEhwKFGZpcnN0X29ic2VydmF0aW9uX21zGAMgASgDEhMKC2ludGVycnVwdGVkGAQgASgIEi4KBGJhcnMYBSADKAsyIC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uTWludXRlQmFyEiAKE3ByZXZpb3VzX3NldHRsZW1lbnQYBiABKAlIAIgBAUIWChRfcHJldmlvdXNfc2V0dGxlbWVudCL5AgoIU25hcHNob3QSEwoLaW5zdGFuY2VfaWQYASABKAkSDQoFcGhhc2UYAiABKAkSEgoKZXJyb3JfY29kZRgDIAEoBRIQCghzZXF1ZW5jZRgEIAEoBBIUCgxvdXRfb2Zfb3JkZXIYBSABKAQSOgoNc3Vic2NyaXB0aW9ucxgGIAMoCzIjLmFzdGVyaW9uLm1hcmtldC5wcm90by5TdWJzY3JpcHRpb24SNAoHY2F0YWxvZxgHIAEoCzIjLmFzdGVyaW9uLm1hcmtldC5wcm90by5DYXRhbG9nU3RhdGUSNAoJd2F0Y2hsaXN0GAggAygLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQSGAoQY2F0YWxvZ19yZXZpc2lvbhgJIAEoBBIXCg9jYXRhbG9nX29taXR0ZWQYCiABKAgSGwoTc3Vic2NyaXB0aW9uc19kZWx0YRgLIAEoCBIVCg1iYXNlX3NlcXVlbmNlGAwgASgEIkEKBkhlYWx0aBITCgtpbnN0YW5jZV9pZBgBIAEoCRINCgVwaGFzZRgCIAEoCRITCgtpbml0aWFsaXplZBgDIAEoCCImCgVFcnJvchIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAki6AgKCFJlc3BvbnNlEg8KB3ZlcnNpb24YASABKA0SEgoKc2VydmljZV9pZBgCIAEoCRIWCg5jb3JyZWxhdGlvbl9pZBgDIAEoCRIzCghzbmFwc2hvdBgKIAEoCzIfLmFzdGVyaW9uLm1hcmtldC5wcm90by5TbmFwc2hvdEgAEi8KBmhlYWx0aBgLIAEoCzIdLmFzdGVyaW9uLm1hcmtldC5wcm90by5IZWFsdGhIABItCgVlcnJvchgMIAEoCzIcLmFzdGVyaW9uLm1hcmtldC5wcm90by5FcnJvckgAEjMKBmV2ZW50cxgNIAEoCzIhLmFzdGVyaW9uLm1hcmtldC5wcm90by5FdmVudEJhdGNoSAASNgoHbWludXRlcxgOIAEoCzIjLmFzdGVyaW9uLm1hcmtldC5wcm90by5NaW51dGVTZXJpZXNIABI8ChByZWNvcmRpbmdfc3RhdHVzGA8gASgLMiAuYXN0ZXJpb24ucmVjb3JkaW5nLnByb3RvLlN0YXR1c0gAEjcKDXJlY29yZGVkX2RheXMYECABKAsyHi5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uRGF5c0gAEj0KEHJlY29yZGVkX21pbnV0ZXMYESABKAsyIS5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uTWludXRlc0gAEjMKCGRhdGFzZXRzGBIgASgLMh8uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2VzSAASMgoHZGF0YXNldBgTIAEoCzIfLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uVmVyc2lvbkgAEjQKDGRhdGFzZXRfZmlsZRgUIAEoCzIcLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uRmlsZUgAEjoKD2RhdGFzZXRfc3VtbWFyeRgVIAEoCzIfLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uU3VtbWFyeUgAEjwKEGFjcXVpc2l0aW9uX3Rhc2sYFiABKAsyIC5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5UYXNrSAASPgoRYWNxdWlzaXRpb25fdGFza3MYFyABKAsyIS5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5UYXNrc0gAEkIKE2FjcXVpc2l0aW9uX3NvdXJjZXMYGCABKAsyIy5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5Tb3VyY2VzSAASPAoQZGF0YXNldF9jb3ZlcmFnZRgZIAEoCzIgLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uQ292ZXJhZ2VIABI/ChFtaW51dGVfY29tcGFyaXNvbhgaIAEoCzIiLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uQ29tcGFyaXNvbkgAEkEKEm1pbnV0ZV9kaWZmZXJlbmNlcxgbIAEoCzIjLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uRGlmZmVyZW5jZXNIAEIICgZyZXN1bHQiVQoQUXVvdGVPYnNlcnZhdGlvbhIrCgVxdW90ZRgBIAEoCzIcLmFzdGVyaW9uLm1hcmtldC5wcm90by5RdW90ZRIUCgxvdXRfb2Zfb3JkZXIYAiABKAgi5wEKBUV2ZW50EhAKCHNlcXVlbmNlGAEgASgEEhMKC3JlY2VpdmVkX21zGAIgASgDEjEKBnN0YXR1cxgKIAEoCzIfLmFzdGVyaW9uLm1hcmtldC5wcm90by5TbmFwc2hvdEgAEjgKBXF1b3RlGAsgASgLMicuYXN0ZXJpb24ubWFya2V0LnByb3RvLlF1b3RlT2JzZXJ2YXRpb25IABI7CgxzdWJzY3JpcHRpb24YDCABKAsyIy5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uU3Vic2NyaXB0aW9uSABCDQoLb2JzZXJ2YXRpb24inAEKCkV2ZW50QmF0Y2gSEQoJc3RyZWFtX2lkGAEgASgJEhcKD29sZGVzdF9zZXF1ZW5jZRgCIAEoBBIXCg9sYXRlc3Rfc2VxdWVuY2UYAyABKAQSCwoDZ2FwGAQgASgIEg4KBmZhaWxlZBgFIAEoCBIsCgZldmVudHMYBiADKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRXZlbnRiBnByb3RvMw", [file_asterion_recording, file_asterion_dataset, file_asterion_acquisition]);
+  fileDesc("ChVhc3Rlcmlvbi9tYXJrZXQucHJvdG8SFWFzdGVyaW9uLm1hcmtldC5wcm90byIHCgVFbXB0eSIrCgpJbnN0cnVtZW50Eg0KBXZlbnVlGAEgASgJEg4KBnN5bWJvbBgCIAEoCSK0AQoPQ2F0YWxvZ0NvbnRyYWN0EjUKCmluc3RydW1lbnQYASABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSW5zdHJ1bWVudBIPCgdwcm9kdWN0GAIgASgJEg4KBmV4cGlyeRgDIAEoCRISCgptdWx0aXBsaWVyGAQgASgFEhIKCnByaWNlX3RpY2sYBSABKAkSDAoEbmFtZRgGIAEoCRITCgtjb250cmFjdF9pZBgHIAEoCSKVAQoMQ2F0YWxvZ1N0YXRlEg0KBXBoYXNlGAEgASgJEhIKCmVycm9yX2NvZGUYAiABKAkSEgoKZGlhZ25vc3RpYxgDIAEoCRITCgt0cmFkaW5nX2RheRgEIAEoCRI5Cgljb250cmFjdHMYBSADKAsyJi5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uQ2F0YWxvZ0NvbnRyYWN0IkoKEFN0cmVhbUxpdmVRdW90ZXMSNgoLaW5zdHJ1bWVudHMYASADKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSW5zdHJ1bWVudCJGCgpSZWFkRXZlbnRzEhEKCXN0cmVhbV9pZBgBIAEoCRIWCg5hZnRlcl9zZXF1ZW5jZRgCIAEoBBINCgVsaW1pdBgDIAEoDSKpCwoHUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgNEhIKCnNlcnZpY2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSOQoRZ2V0X2xpdmVfc25hcHNob3QYDSABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRW1wdHlIABJFChJzdHJlYW1fbGl2ZV9xdW90ZXMYDiABKAsyJy5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uU3RyZWFtTGl2ZVF1b3Rlc0gAEjIKCmdldF9oZWFsdGgYDyABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRW1wdHlIABI9ChByZWFkX2ZlZWRfZXZlbnRzGBAgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLlJlYWRFdmVudHNIABJBChFnZXRfaW50cmFkYXlfYmFycxgSIAEoCzIkLmFzdGVyaW9uLm1hcmtldC5wcm90by5NaW51dGVSZXF1ZXN0SAASRQoUZ2V0X3JlY29yZGluZ19zdGF0dXMYEyABKAsyJS5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uU3RhdHVzUXVlcnlIABJBChJsaXN0X3JlY29yZGVkX2RheXMYFCABKAsyIy5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uRGF5c1F1ZXJ5SAASRgoUZ2V0X3JlY29yZGVkX21pbnV0ZXMYFSABKAsyJi5hc3Rlcmlvbi5yZWNvcmRpbmcucHJvdG8uTWludXRlc1F1ZXJ5SAASPQoNbGlzdF9kYXRhc2V0cxgWIAEoCzIkLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uU291cmNlc1F1ZXJ5SAASQwoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgXIAEoCzIkLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uVmVyc2lvblF1ZXJ5SAASPgoRcmVhZF9kYXRhc2V0X2ZpbGUYGCABKAsyIS5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkZpbGVRdWVyeUgAEkMKE2dldF9kYXRhc2V0X3N1bW1hcnkYGSABKAsyJC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLlN1bW1hcnlRdWVyeUgAEkUKFGdldF9hY3F1aXNpdGlvbl90YXNrGBogASgLMiUuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza1F1ZXJ5SAASSAoWbGlzdF9hY3F1aXNpdGlvbl90YXNrcxgbIAEoCzImLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlRhc2tzUXVlcnlIABJAChFzdGFydF9hY3F1aXNpdGlvbhgcIAEoCzIjLmFzdGVyaW9uLmFjcXVpc2l0aW9uLnByb3RvLlJlcXVlc3RIABJDChJjYW5jZWxfYWNxdWlzaXRpb24YHSABKAsyJS5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5UYXNrUXVlcnlIABJMChhsaXN0X2FjcXVpc2l0aW9uX3NvdXJjZXMYHiABKAsyKC5hc3Rlcmlvbi5hY3F1aXNpdGlvbi5wcm90by5Tb3VyY2VzUXVlcnlIABJFChRnZXRfZGF0YXNldF9jb3ZlcmFnZRgfIAEoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uQ292ZXJhZ2VRdWVyeUgAEkgKFWdldF9taW51dGVfY29tcGFyaXNvbhggIAEoCzInLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uQ29tcGFyaXNvblF1ZXJ5SAASSgoWZ2V0X21pbnV0ZV9kaWZmZXJlbmNlcxghIAEoCzIoLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uRGlmZmVyZW5jZXNRdWVyeUgAQgsKCW9wZXJhdGlvbiJOCgpEZXB0aExldmVsEhIKBXByaWNlGAEgASgJSACIAQESFQoIcXVhbnRpdHkYAiABKANIAYgBAUIICgZfcHJpY2VCCwoJX3F1YW50aXR5IsYGCgVRdW90ZRI1CgppbnN0cnVtZW50GAEgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQSEQoEbGFzdBgCIAEoCUgAiAEBEhAKA2JpZBgDIAEoCUgBiAEBEhAKA2FzaxgEIAEoCUgCiAEBEhQKDGJpZF9xdWFudGl0eRgFIAEoAxIUCgxhc2tfcXVhbnRpdHkYBiABKAMSDgoGdm9sdW1lGAcgASgDEiAKE3ByZXZpb3VzX3NldHRsZW1lbnQYCCABKAlIA4gBARIRCgRoaWdoGAkgASgJSASIAQESEAoDbG93GAogASgJSAWIAQESGgoNb3Blbl9pbnRlcmVzdBgLIAEoCUgGiAEBEhIKCmFjdGlvbl9kYXkYDCABKAkSEwoLdHJhZGluZ19kYXkYDSABKAkSEwoLdXBkYXRlX3RpbWUYDiABKAkSEQoJc291cmNlX21zGA8gASgDEhMKC3JlY2VpdmVkX21zGBAgASgDEjUKCmJpZF9sZXZlbHMYESADKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRGVwdGhMZXZlbBI1Cgphc2tfbGV2ZWxzGBIgAygLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkRlcHRoTGV2ZWwSEQoEb3BlbhgTIAEoCUgHiAEBEhgKC3VwcGVyX2xpbWl0GBQgASgJSAiIAQESGAoLbG93ZXJfbGltaXQYFSABKAlICYgBARIbCg5wcmV2aW91c19jbG9zZRgWIAEoCUgKiAEBEiEKFG9wZW5faW50ZXJlc3RfY2hhbmdlGBcgASgJSAuIAQESGgoNYXZlcmFnZV9wcmljZRgYIAEoCUgMiAEBQgcKBV9sYXN0QgYKBF9iaWRCBgoEX2Fza0IWChRfcHJldmlvdXNfc2V0dGxlbWVudEIHCgVfaGlnaEIGCgRfbG93QhAKDl9vcGVuX2ludGVyZXN0QgcKBV9vcGVuQg4KDF91cHBlcl9saW1pdEIOCgxfbG93ZXJfbGltaXRCEQoPX3ByZXZpb3VzX2Nsb3NlQhcKFV9vcGVuX2ludGVyZXN0X2NoYW5nZUIQCg5fYXZlcmFnZV9wcmljZSLMAQoNQ29udHJhY3RRdW90ZRI1CgppbnN0cnVtZW50GAEgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQSDQoFc3RhdGUYAiABKAkSEgoKZXJyb3JfY29kZRgDIAEoBRIrCgVxdW90ZRgEIAEoCzIcLmFzdGVyaW9uLm1hcmtldC5wcm90by5RdW90ZRIeChFjaGFuZ2VfMW1fcGVyY2VudBgFIAEoCUgAiAEBQhQKEl9jaGFuZ2VfMW1fcGVyY2VudCJGCg1NaW51dGVSZXF1ZXN0EjUKCmluc3RydW1lbnQYASABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSW5zdHJ1bWVudCLBAQoJTWludXRlQmFyEhAKCHN0YXJ0X21zGAEgASgDEgwKBG9wZW4YAiABKAkSDAoEaGlnaBgDIAEoCRILCgNsb3cYBCABKAkSDQoFY2xvc2UYBSABKAkSDgoGdm9sdW1lGAYgASgDEhoKDWF2ZXJhZ2VfcHJpY2UYByABKAlIAIgBARIaCg1vcGVuX2ludGVyZXN0GAggASgJSAGIAQFCEAoOX2F2ZXJhZ2VfcHJpY2VCEAoOX29wZW5faW50ZXJlc3Qi9wEKDE1pbnV0ZVNlcmllcxI1CgppbnN0cnVtZW50GAEgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkluc3RydW1lbnQSEwoLdHJhZGluZ19kYXkYAiABKAkSHAoUZmlyc3Rfb2JzZXJ2YXRpb25fbXMYAyABKAMSEwoLaW50ZXJydXB0ZWQYBCABKAgSLgoEYmFycxgFIAMoCzIgLmFzdGVyaW9uLm1hcmtldC5wcm90by5NaW51dGVCYXISIAoTcHJldmlvdXNfc2V0dGxlbWVudBgGIAEoCUgAiAEBQhYKFF9wcmV2aW91c19zZXR0bGVtZW50ItYBCghTbmFwc2hvdBITCgtpbnN0YW5jZV9pZBgBIAEoCRINCgVwaGFzZRgCIAEoCRISCgplcnJvcl9jb2RlGAMgASgFEhAKCHNlcXVlbmNlGAQgASgEEhQKDG91dF9vZl9vcmRlchgFIAEoBBI0CgZxdW90ZXMYBiADKAsyJC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uQ29udHJhY3RRdW90ZRI0CgdjYXRhbG9nGAcgASgLMiMuYXN0ZXJpb24ubWFya2V0LnByb3RvLkNhdGFsb2dTdGF0ZSLvAQoKUXVvdGVEZWx0YRITCgtpbnN0YW5jZV9pZBgBIAEoCRINCgVwaGFzZRgCIAEoCRISCgplcnJvcl9jb2RlGAMgASgFEhAKCHNlcXVlbmNlGAQgASgEEhQKDG91dF9vZl9vcmRlchgFIAEoBBI0CgZxdW90ZXMYBiADKAsyJC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uQ29udHJhY3RRdW90ZRI0CgdjYXRhbG9nGAcgASgLMiMuYXN0ZXJpb24ubWFya2V0LnByb3RvLkNhdGFsb2dTdGF0ZRIVCg1iYXNlX3NlcXVlbmNlGAggASgEIn8KCkxpdmVRdW90ZXMSMwoIc25hcHNob3QYASABKAsyHy5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uU25hcHNob3RIABIyCgVkZWx0YRgCIAEoCzIhLmFzdGVyaW9uLm1hcmtldC5wcm90by5RdW90ZURlbHRhSABCCAoGdXBkYXRlIkEKBkhlYWx0aBITCgtpbnN0YW5jZV9pZBgBIAEoCRINCgVwaGFzZRgCIAEoCRITCgtpbml0aWFsaXplZBgDIAEoCCImCgVFcnJvchIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiogkKCFJlc3BvbnNlEg8KB3ZlcnNpb24YASABKA0SEgoKc2VydmljZV9pZBgCIAEoCRIWCg5jb3JyZWxhdGlvbl9pZBgDIAEoCRIzCghzbmFwc2hvdBgKIAEoCzIfLmFzdGVyaW9uLm1hcmtldC5wcm90by5TbmFwc2hvdEgAEjgKC2xpdmVfcXVvdGVzGBwgASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkxpdmVRdW90ZXNIABIvCgZoZWFsdGgYCyABKAsyHS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uSGVhbHRoSAASLQoFZXJyb3IYDCABKAsyHC5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRXJyb3JIABIzCgZldmVudHMYDSABKAsyIS5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uRXZlbnRCYXRjaEgAEjYKB21pbnV0ZXMYDiABKAsyIy5hc3Rlcmlvbi5tYXJrZXQucHJvdG8uTWludXRlU2VyaWVzSAASPAoQcmVjb3JkaW5nX3N0YXR1cxgPIAEoCzIgLmFzdGVyaW9uLnJlY29yZGluZy5wcm90by5TdGF0dXNIABI3Cg1yZWNvcmRlZF9kYXlzGBAgASgLMh4uYXN0ZXJpb24ucmVjb3JkaW5nLnByb3RvLkRheXNIABI9ChByZWNvcmRlZF9taW51dGVzGBEgASgLMiEuYXN0ZXJpb24ucmVjb3JkaW5nLnByb3RvLk1pbnV0ZXNIABIzCghkYXRhc2V0cxgSIAEoCzIfLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uU291cmNlc0gAEjIKB2RhdGFzZXQYEyABKAsyHy5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLlZlcnNpb25IABI0CgxkYXRhc2V0X2ZpbGUYFCABKAsyHC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkZpbGVIABI6Cg9kYXRhc2V0X3N1bW1hcnkYFSABKAsyHy5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLlN1bW1hcnlIABI8ChBhY3F1aXNpdGlvbl90YXNrGBYgASgLMiAuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza0gAEj4KEWFjcXVpc2l0aW9uX3Rhc2tzGBcgASgLMiEuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uVGFza3NIABJCChNhY3F1aXNpdGlvbl9zb3VyY2VzGBggASgLMiMuYXN0ZXJpb24uYWNxdWlzaXRpb24ucHJvdG8uU291cmNlc0gAEjwKEGRhdGFzZXRfY292ZXJhZ2UYGSABKAsyIC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkNvdmVyYWdlSAASPwoRbWludXRlX2NvbXBhcmlzb24YGiABKAsyIi5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkNvbXBhcmlzb25IABJBChJtaW51dGVfZGlmZmVyZW5jZXMYGyABKAsyIy5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLkRpZmZlcmVuY2VzSABCCAoGcmVzdWx0Ii8KCkZlZWRTdGF0dXMSDQoFcGhhc2UYASABKAkSEgoKZXJyb3JfY29kZRgCIAEoBSJVChBRdW90ZU9ic2VydmF0aW9uEisKBXF1b3RlGAEgASgLMhwuYXN0ZXJpb24ubWFya2V0LnByb3RvLlF1b3RlEhQKDG91dF9vZl9vcmRlchgCIAEoCCLqAQoFRXZlbnQSEAoIc2VxdWVuY2UYASABKAQSEwoLcmVjZWl2ZWRfbXMYAiABKAMSMwoGc3RhdHVzGAogASgLMiEuYXN0ZXJpb24ubWFya2V0LnByb3RvLkZlZWRTdGF0dXNIABI4CgVxdW90ZRgLIAEoCzInLmFzdGVyaW9uLm1hcmtldC5wcm90by5RdW90ZU9ic2VydmF0aW9uSAASPAoMc3Vic2NyaXB0aW9uGAwgASgLMiQuYXN0ZXJpb24ubWFya2V0LnByb3RvLkNvbnRyYWN0UXVvdGVIAEINCgtvYnNlcnZhdGlvbiKcAQoKRXZlbnRCYXRjaBIRCglzdHJlYW1faWQYASABKAkSFwoPb2xkZXN0X3NlcXVlbmNlGAIgASgEEhcKD2xhdGVzdF9zZXF1ZW5jZRgDIAEoBBILCgNnYXAYBCABKAgSDgoGZmFpbGVkGAUgASgIEiwKBmV2ZW50cxgGIAMoCzIcLmFzdGVyaW9uLm1hcmtldC5wcm90by5FdmVudGIGcHJvdG8z", [file_asterion_recording, file_asterion_dataset, file_asterion_acquisition]);
 
 /**
+ * Market 公共协议：Terminal 看盘与管理采集，Lab 读取固定版本的研究数据。
+ * 双向固定证书 TLS；每条消息为 4 字节大端长度 + Protobuf Request/Response。
+ * 除 stream_live_quotes 连续返回外，每个请求恰好返回一个结果或 error。
+ * 流占用连接直到客户端关闭、服务关闭或返回 error；重连从完整快照重新开始。
+ * 金额/价格为精确十进制字符串，禁止经浮点转换；optional 缺失表示未知，"0" 是已知零值。
+ * *_ms / *_ns 为 Unix UTC 毫秒/纳秒；ProtoJSON 中 int64/uint64 用字符串。
+ * CTP 交易日/自然日为 YYYYMMDD；仓库及采集日期为 YYYY-MM-DD（各消息注明）。
+ *
  * @generated from message asterion.market.proto.Empty
  */
 export type Empty = Message<"asterion.market.proto.Empty"> & {
@@ -36,11 +44,15 @@ export const EmptySchema: GenMessage<Empty> = /*@__PURE__*/
  */
 export type Instrument = Message<"asterion.market.proto.Instrument"> & {
   /**
+   * SHFE / INE / DCE / CZCE / CFFEX / GFEX。
+   *
    * @generated from field: string venue = 1;
    */
   venue: string;
 
   /**
+   * 柜台原始合约代码，保留大小写，如 rb2701；不是仓库 contract_id。
+   *
    * @generated from field: string symbol = 2;
    */
   symbol: string;
@@ -68,6 +80,8 @@ export type CatalogContract = Message<"asterion.market.proto.CatalogContract"> &
   product: string;
 
   /**
+   * CTP 到期日 YYYYMMDD。
+   *
    * @generated from field: string expiry = 3;
    */
   expiry: string;
@@ -88,6 +102,8 @@ export type CatalogContract = Message<"asterion.market.proto.CatalogContract"> &
   name: string;
 
   /**
+   * 仓库合约 ID：EXCHANGE/product/YYYY-MM。
+   *
    * @generated from field: string contract_id = 7;
    */
   contractId: string;
@@ -105,6 +121,8 @@ export const CatalogContractSchema: GenMessage<CatalogContract> = /*@__PURE__*/
  */
 export type CatalogState = Message<"asterion.market.proto.CatalogState"> & {
   /**
+   * unconfigured / cached / loading / ready / error。
+   *
    * @generated from field: string phase = 1;
    */
   phase: string;
@@ -138,12 +156,13 @@ export const CatalogStateSchema: GenMessage<CatalogState> = /*@__PURE__*/
   messageDesc(file_asterion_market, 3);
 
 /**
- * Selection belongs to this stream. Empty selects all collected contracts.
- * Change selection by opening a new watch, which starts with a full baseline.
+ * 仅选择本条流要接收的报价：空列表表示全部，非空最多 50 个、不重复。
+ * 改变选择需重新开流；选择和断线均不改变 Market 自主采集、录制及其他客户端。
+ * 首帧的 quotes 只含已采集的所选合约，catalog 始终是完整目录。
  *
- * @generated from message asterion.market.proto.Watch
+ * @generated from message asterion.market.proto.StreamLiveQuotes
  */
-export type Watch = Message<"asterion.market.proto.Watch"> & {
+export type StreamLiveQuotes = Message<"asterion.market.proto.StreamLiveQuotes"> & {
   /**
    * @generated from field: repeated asterion.market.proto.Instrument instruments = 1;
    */
@@ -151,15 +170,16 @@ export type Watch = Message<"asterion.market.proto.Watch"> & {
 };
 
 /**
- * Describes the message asterion.market.proto.Watch.
- * Use `create(WatchSchema)` to create a new message.
+ * Describes the message asterion.market.proto.StreamLiveQuotes.
+ * Use `create(StreamLiveQuotesSchema)` to create a new message.
  */
-export const WatchSchema: GenMessage<Watch> = /*@__PURE__*/
+export const StreamLiveQuotesSchema: GenMessage<StreamLiveQuotes> = /*@__PURE__*/
   messageDesc(file_asterion_market, 4);
 
 /**
- * Initial read: empty stream_id and after_sequence=0. Subsequent reads must
- * retain stream identity; this bounded volatile stream is not a durable archive.
+ * 首次 stream_id 为空、after_sequence=0；后续保留返回的 stream_id，
+ * after_sequence 取最后实际收到的 Event.sequence，空页保持原游标。
+ * 有限内存中的逐条观测；旧实例的 stream_id 被拒绝，不能作为持久 Tick 历史。
  *
  * @generated from message asterion.market.proto.ReadEvents
  */
@@ -175,6 +195,8 @@ export type ReadEvents = Message<"asterion.market.proto.ReadEvents"> & {
   afterSequence: bigint;
 
   /**
+   * 必填，1..1024 条事件。
+   *
    * @generated from field: uint32 limit = 3;
    */
   limit: number;
@@ -192,16 +214,22 @@ export const ReadEventsSchema: GenMessage<ReadEvents> = /*@__PURE__*/
  */
 export type Request = Message<"asterion.market.proto.Request"> & {
   /**
+   * 固定 1，消息封套格式。
+   *
    * @generated from field: uint32 version = 1;
    */
   version: number;
 
   /**
+   * 固定 "market-data"。
+   *
    * @generated from field: string service_id = 2;
    */
   serviceId: string;
 
   /**
+   * 客户端请求 ID，1..128 字符：[A-Za-z0-9._:-]。
+   *
    * @generated from field: string correlation_id = 3;
    */
   correlationId: string;
@@ -211,124 +239,164 @@ export type Request = Message<"asterion.market.proto.Request"> & {
    */
   operation: {
     /**
-     * @generated from field: asterion.market.proto.Empty snapshot = 13;
+     * → snapshot：一次读取全部最新报价与完整合约目录。
+     *
+     * @generated from field: asterion.market.proto.Empty get_live_snapshot = 13;
      */
     value: Empty;
-    case: "snapshot";
+    case: "getLiveSnapshot";
   } | {
     /**
-     * @generated from field: asterion.market.proto.Watch watch = 14;
+     * → live_quotes：持续推送完整快照/增量；同一 correlation_id。
+     *
+     * @generated from field: asterion.market.proto.StreamLiveQuotes stream_live_quotes = 14;
      */
-    value: Watch;
-    case: "watch";
+    value: StreamLiveQuotes;
+    case: "streamLiveQuotes";
   } | {
     /**
-     * @generated from field: asterion.market.proto.Empty heartbeat = 15;
+     * → health：服务是否响应及行情连接状态；连接成功不等于已有报价。
+     *
+     * @generated from field: asterion.market.proto.Empty get_health = 15;
      */
     value: Empty;
-    case: "heartbeat";
+    case: "getHealth";
   } | {
     /**
-     * @generated from field: asterion.market.proto.ReadEvents events = 16;
+     * → events：按接收顺序读取行情源事件，可能包含乱序报价。
+     *
+     * @generated from field: asterion.market.proto.ReadEvents read_feed_events = 16;
      */
     value: ReadEvents;
-    case: "events";
+    case: "readFeedEvents";
   } | {
     /**
-     * @generated from field: asterion.market.proto.MinuteRequest minutes = 18;
+     * → minutes：本进程已观测到的当前交易日分钟线，末根可能尚未收盘。
+     *
+     * @generated from field: asterion.market.proto.MinuteRequest get_intraday_bars = 18;
      */
     value: MinuteRequest;
-    case: "minutes";
+    case: "getIntradayBars";
   } | {
     /**
-     * @generated from field: asterion.recording.proto.StatusQuery recording_status = 19;
+     * → recording_status：本次运行的录制进度、写盘与合并错误。
+     *
+     * @generated from field: asterion.recording.proto.StatusQuery get_recording_status = 19;
      */
     value: StatusQuery;
-    case: "recordingStatus";
+    case: "getRecordingStatus";
   } | {
     /**
-     * @generated from field: asterion.recording.proto.DaysQuery recorded_days = 20;
+     * → recorded_days：本机录制存档的交易日列表。
+     *
+     * @generated from field: asterion.recording.proto.DaysQuery list_recorded_days = 20;
      */
     value: DaysQuery;
-    case: "recordedDays";
+    case: "listRecordedDays";
   } | {
     /**
-     * @generated from field: asterion.recording.proto.MinutesQuery recorded_minutes = 21;
+     * → recorded_minutes：一个交易日、一个柜台合约的已落盘分钟线。
+     *
+     * @generated from field: asterion.recording.proto.MinutesQuery get_recorded_minutes = 21;
      */
     value: MinutesQuery;
-    case: "recordedMinutes";
+    case: "getRecordedMinutes";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.SourcesQuery datasets = 22;
+     * → datasets：已有已发布版本的数据集；可读来源不等于可采集来源。
+     *
+     * @generated from field: asterion.dataset.proto.SourcesQuery list_datasets = 22;
      */
     value: SourcesQuery;
-    case: "datasets";
+    case: "listDatasets";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.VersionQuery dataset = 23;
+     * → dataset：指定版本的分区清单；首读可选择当前版本。
+     *
+     * @generated from field: asterion.dataset.proto.VersionQuery get_dataset_version = 23;
      */
     value: VersionQuery;
-    case: "dataset";
+    case: "getDatasetVersion";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.FileQuery dataset_file = 24;
+     * → dataset_file：固定版本内一个分区的原始 Parquet 字节块。
+     *
+     * @generated from field: asterion.dataset.proto.FileQuery read_dataset_file = 24;
      */
     value: FileQuery;
-    case: "datasetFile";
+    case: "readDatasetFile";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.SummaryQuery dataset_summary = 25;
+     * → dataset_summary：版本内各表行数与日期范围。
+     *
+     * @generated from field: asterion.dataset.proto.SummaryQuery get_dataset_summary = 25;
      */
     value: SummaryQuery;
-    case: "datasetSummary";
+    case: "getDatasetSummary";
   } | {
     /**
-     * @generated from field: asterion.acquisition.proto.TaskQuery acquisition_task = 26;
+     * → acquisition_task：按客户端提交的任务 ID 查询当前/最终结果。
+     *
+     * @generated from field: asterion.acquisition.proto.TaskQuery get_acquisition_task = 26;
      */
     value: TaskQuery;
-    case: "acquisitionTask";
+    case: "getAcquisitionTask";
   } | {
     /**
-     * @generated from field: asterion.acquisition.proto.TasksQuery acquisition_tasks = 27;
+     * → acquisition_tasks：分页列举所有客户端的持久任务记录。
+     *
+     * @generated from field: asterion.acquisition.proto.TasksQuery list_acquisition_tasks = 27;
      */
     value: TasksQuery;
-    case: "acquisitionTasks";
+    case: "listAcquisitionTasks";
   } | {
     /**
-     * @generated from field: asterion.acquisition.proto.Request acquisition_start = 28;
+     * → acquisition_task：持久接纳后返回 QUEUED，完成须查询；需要管理权限。
+     *
+     * @generated from field: asterion.acquisition.proto.Request start_acquisition = 28;
      */
     value: Request$1;
-    case: "acquisitionStart";
+    case: "startAcquisition";
   } | {
     /**
-     * @generated from field: asterion.acquisition.proto.TaskQuery acquisition_cancel = 29;
+     * → acquisition_task：请求取消后立即返回当前状态，终态须查询；需要管理权限。
+     *
+     * @generated from field: asterion.acquisition.proto.TaskQuery cancel_acquisition = 29;
      */
     value: TaskQuery;
-    case: "acquisitionCancel";
+    case: "cancelAcquisition";
   } | {
     /**
-     * @generated from field: asterion.acquisition.proto.SourcesQuery acquisition_sources = 30;
+     * → acquisition_sources：已配置的采集能力及当前证书的管理权限。
+     *
+     * @generated from field: asterion.acquisition.proto.SourcesQuery list_acquisition_sources = 30;
      */
     value: SourcesQuery$1;
-    case: "acquisitionSources";
+    case: "listAcquisitionSources";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.CoverageQuery dataset_coverage = 31;
+     * → dataset_coverage：固定版本按品种、月份汇总已采集日期。
+     *
+     * @generated from field: asterion.dataset.proto.CoverageQuery get_dataset_coverage = 31;
      */
     value: CoverageQuery;
-    case: "datasetCoverage";
+    case: "getDatasetCoverage";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.ComparisonQuery minute_comparison = 32;
+     * → minute_comparison：当前 Tushare 与 recorder 版本的分钟差异汇总。
+     *
+     * @generated from field: asterion.dataset.proto.ComparisonQuery get_minute_comparison = 32;
      */
     value: ComparisonQuery;
-    case: "minuteComparison";
+    case: "getMinuteComparison";
   } | {
     /**
-     * @generated from field: asterion.dataset.proto.DifferencesQuery minute_differences = 33;
+     * → minute_differences：当前两个来源的指定合约交易日差异明细。
+     *
+     * @generated from field: asterion.dataset.proto.DifferencesQuery get_minute_differences = 33;
      */
     value: DifferencesQuery;
-    case: "minuteDifferences";
+    case: "getMinuteDifferences";
   } | { case: undefined; value?: undefined };
 };
 
@@ -386,16 +454,22 @@ export type Quote = Message<"asterion.market.proto.Quote"> & {
   ask?: string | undefined;
 
   /**
+   * 手；bid 缺失时不展示。
+   *
    * @generated from field: int64 bid_quantity = 5;
    */
   bidQuantity: bigint;
 
   /**
+   * 手；ask 缺失时不展示。
+   *
    * @generated from field: int64 ask_quantity = 6;
    */
   askQuantity: bigint;
 
   /**
+   * 当前交易日累计成交量，手。
+   *
    * @generated from field: int64 volume = 7;
    */
   volume: bigint;
@@ -431,11 +505,15 @@ export type Quote = Message<"asterion.market.proto.Quote"> & {
   tradingDay: string;
 
   /**
+   * 柜台时间 HH:MM:SS，Asia/Shanghai。
+   *
    * @generated from field: string update_time = 14;
    */
   updateTime: string;
 
   /**
+   * 柜台自然日+时刻换算 UTC（含毫秒），解析不可用时为 0。
+   *
    * @generated from field: int64 source_ms = 15;
    */
   sourceMs: bigint;
@@ -446,7 +524,7 @@ export type Quote = Message<"asterion.market.proto.Quote"> & {
   receivedMs: bigint;
 
   /**
-   * Exactly four entries on each side for levels 2..5. Missing values stay absent.
+   * 买卖第 2..5 档，固定四项；第 1 档在 bid/ask 与 bid_quantity/ask_quantity。
    *
    * @generated from field: repeated asterion.market.proto.DepthLevel bid_levels = 17;
    */
@@ -483,7 +561,7 @@ export type Quote = Message<"asterion.market.proto.Quote"> & {
   openInterestChange?: string | undefined;
 
   /**
-   * Per-unit session average price (provider turnover / volume / multiplier).
+   * 当前交易日每单位均价（柜台成交额 / 成交量 / 合约乘数）。
    *
    * @generated from field: optional string average_price = 24;
    */
@@ -498,18 +576,21 @@ export const QuoteSchema: GenMessage<Quote> = /*@__PURE__*/
   messageDesc(file_asterion_market, 8);
 
 /**
- * change_1m_percent: last price versus the latest observation at least 60 s
- * earlier in the same trading day; absent until such an observation exists.
+ * 一行合约的最新状态；state 是 Market 向柜台订阅的状态，不是客户端订阅。
+ * quote 缺失表示暂无报价；change_1m_percent 是相对同交易日至少 60 秒前
+ * 最近一次观测的涨速（百分数，1 表示 1%），历史不足时缺失。
  *
- * @generated from message asterion.market.proto.Subscription
+ * @generated from message asterion.market.proto.ContractQuote
  */
-export type Subscription = Message<"asterion.market.proto.Subscription"> & {
+export type ContractQuote = Message<"asterion.market.proto.ContractQuote"> & {
   /**
    * @generated from field: asterion.market.proto.Instrument instrument = 1;
    */
   instrument?: Instrument | undefined;
 
   /**
+   * pending / subscribed / error。
+   *
    * @generated from field: string state = 2;
    */
   state: string;
@@ -531,10 +612,10 @@ export type Subscription = Message<"asterion.market.proto.Subscription"> & {
 };
 
 /**
- * Describes the message asterion.market.proto.Subscription.
- * Use `create(SubscriptionSchema)` to create a new message.
+ * Describes the message asterion.market.proto.ContractQuote.
+ * Use `create(ContractQuoteSchema)` to create a new message.
  */
-export const SubscriptionSchema: GenMessage<Subscription> = /*@__PURE__*/
+export const ContractQuoteSchema: GenMessage<ContractQuote> = /*@__PURE__*/
   messageDesc(file_asterion_market, 9);
 
 /**
@@ -555,9 +636,7 @@ export const MinuteRequestSchema: GenMessage<MinuteRequest> = /*@__PURE__*/
   messageDesc(file_asterion_market, 10);
 
 /**
- * Minute bars built by the market service from the observations it received.
- * first_observation_ms marks where this service began observing the trading
- * day; interrupted means observations were lost after that point.
+ * 本进程收到的有序报价按自然分钟聚合；start_ms 是分钟起点，volume 是该分钟手数。
  *
  * @generated from message asterion.market.proto.MinuteBar
  */
@@ -611,6 +690,9 @@ export const MinuteBarSchema: GenMessage<MinuteBar> = /*@__PURE__*/
   messageDesc(file_asterion_market, 11);
 
 /**
+ * bars 按 start_ms 升序；无观测时只返回 instrument，bars 为空。
+ * first_observation_ms 是开始观测的位置；interrupted 表示之后曾中断。
+ *
  * @generated from message asterion.market.proto.MinuteSeries
  */
 export type MinuteSeries = Message<"asterion.market.proto.MinuteSeries"> & {
@@ -653,12 +735,11 @@ export const MinuteSeriesSchema: GenMessage<MinuteSeries> = /*@__PURE__*/
   messageDesc(file_asterion_market, 12);
 
 /**
- * Watch sends its first catalog in full. Later frames may omit only the same
- * catalog revision within that watch connection and service instance.
- * The first watch frame and every membership reset carry all subscriptions.
- * Otherwise subscriptions_delta carries changed rows relative to base_sequence,
- * the previous frame on this connection. Unknown/missing baselines are rejected.
- * Snapshot and command responses always carry full subscriptions and catalog.
+ * phase 为行情源状态：disconnected / connecting / logging_in / reconnecting /
+ * connected / error / sdk_unavailable；error_code 为柜台原始错误号，0 表示无错误。
+ * out_of_order 是本次进程累计收到的乱序报价数；这些报价不更新最新价及分钟线。
+ * 完整状态：quotes 和 catalog 全量替换客户端当前内容。
+ * sequence 是此服务实例内的状态修订号，无变化时可以重复。
  *
  * @generated from message asterion.market.proto.Snapshot
  */
@@ -689,39 +770,14 @@ export type Snapshot = Message<"asterion.market.proto.Snapshot"> & {
   outOfOrder: bigint;
 
   /**
-   * @generated from field: repeated asterion.market.proto.Subscription subscriptions = 6;
+   * @generated from field: repeated asterion.market.proto.ContractQuote quotes = 6;
    */
-  subscriptions: Subscription[];
+  quotes: ContractQuote[];
 
   /**
    * @generated from field: asterion.market.proto.CatalogState catalog = 7;
    */
   catalog?: CatalogState | undefined;
-
-  /**
-   * @generated from field: repeated asterion.market.proto.Instrument watchlist = 8;
-   */
-  watchlist: Instrument[];
-
-  /**
-   * @generated from field: uint64 catalog_revision = 9;
-   */
-  catalogRevision: bigint;
-
-  /**
-   * @generated from field: bool catalog_omitted = 10;
-   */
-  catalogOmitted: boolean;
-
-  /**
-   * @generated from field: bool subscriptions_delta = 11;
-   */
-  subscriptionsDelta: boolean;
-
-  /**
-   * @generated from field: uint64 base_sequence = 12;
-   */
-  baseSequence: bigint;
 };
 
 /**
@@ -732,6 +788,97 @@ export const SnapshotSchema: GenMessage<Snapshot> = /*@__PURE__*/
   messageDesc(file_asterion_market, 13);
 
 /**
+ * 只在同一条流的前一帧上应用。实例或 base_sequence 不匹配时重新开流。
+ * quotes 按 instrument 替换整行；行内缺失的可选字段清除旧值。
+ * catalog 存在时全量替换目录，缺失时保留目录。合约集合变化时发送 snapshot。
+ *
+ * @generated from message asterion.market.proto.QuoteDelta
+ */
+export type QuoteDelta = Message<"asterion.market.proto.QuoteDelta"> & {
+  /**
+   * @generated from field: string instance_id = 1;
+   */
+  instanceId: string;
+
+  /**
+   * @generated from field: string phase = 2;
+   */
+  phase: string;
+
+  /**
+   * @generated from field: int32 error_code = 3;
+   */
+  errorCode: number;
+
+  /**
+   * @generated from field: uint64 sequence = 4;
+   */
+  sequence: bigint;
+
+  /**
+   * @generated from field: uint64 out_of_order = 5;
+   */
+  outOfOrder: bigint;
+
+  /**
+   * @generated from field: repeated asterion.market.proto.ContractQuote quotes = 6;
+   */
+  quotes: ContractQuote[];
+
+  /**
+   * @generated from field: asterion.market.proto.CatalogState catalog = 7;
+   */
+  catalog?: CatalogState | undefined;
+
+  /**
+   * @generated from field: uint64 base_sequence = 8;
+   */
+  baseSequence: bigint;
+};
+
+/**
+ * Describes the message asterion.market.proto.QuoteDelta.
+ * Use `create(QuoteDeltaSchema)` to create a new message.
+ */
+export const QuoteDeltaSchema: GenMessage<QuoteDelta> = /*@__PURE__*/
+  messageDesc(file_asterion_market, 14);
+
+/**
+ * stream_live_quotes 的每一帧。首帧必为 snapshot，之后为 delta 或新的 snapshot。
+ * 它合并期间的报价变化，供界面显示最新值；逐条观测用 read_feed_events。
+ *
+ * @generated from message asterion.market.proto.LiveQuotes
+ */
+export type LiveQuotes = Message<"asterion.market.proto.LiveQuotes"> & {
+  /**
+   * @generated from oneof asterion.market.proto.LiveQuotes.update
+   */
+  update: {
+    /**
+     * @generated from field: asterion.market.proto.Snapshot snapshot = 1;
+     */
+    value: Snapshot;
+    case: "snapshot";
+  } | {
+    /**
+     * @generated from field: asterion.market.proto.QuoteDelta delta = 2;
+     */
+    value: QuoteDelta;
+    case: "delta";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message asterion.market.proto.LiveQuotes.
+ * Use `create(LiveQuotesSchema)` to create a new message.
+ */
+export const LiveQuotesSchema: GenMessage<LiveQuotes> = /*@__PURE__*/
+  messageDesc(file_asterion_market, 15);
+
+/**
+ * instance_id 每次 Market 重启改变；phase 同 Snapshot，另有 initializing。
+ * initialized 只表示 SDK 初始化已结束，不表示登录成功或报价新鲜。
+ *
  * @generated from message asterion.market.proto.Health
  */
 export type Health = Message<"asterion.market.proto.Health"> & {
@@ -756,9 +903,13 @@ export type Health = Message<"asterion.market.proto.Health"> & {
  * Use `create(HealthSchema)` to create a new message.
  */
 export const HealthSchema: GenMessage<Health> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 14);
+  messageDesc(file_asterion_market, 16);
 
 /**
+ * code 用于程序分支：invalid_request / permission_denied / not_found / conflict /
+ * resource_exhausted / unavailable / cancelled / recovery_required / operation_failed / internal_error。
+ * message 给出诊断；业务失败只返回 error。写请求响应丢失时先按任务 ID 查询，勿盲目重试。
+ *
  * @generated from message asterion.market.proto.Error
  */
 export type Error = Message<"asterion.market.proto.Error"> & {
@@ -778,9 +929,11 @@ export type Error = Message<"asterion.market.proto.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 15);
+  messageDesc(file_asterion_market, 17);
 
 /**
+ * 三个封套字段原样对应 Request；result 与 Request 注释中的返回类型一致。
+ *
  * @generated from message asterion.market.proto.Response
  */
 export type Response = Message<"asterion.market.proto.Response"> & {
@@ -808,6 +961,12 @@ export type Response = Message<"asterion.market.proto.Response"> & {
      */
     value: Snapshot;
     case: "snapshot";
+  } | {
+    /**
+     * @generated from field: asterion.market.proto.LiveQuotes live_quotes = 28;
+     */
+    value: LiveQuotes;
+    case: "liveQuotes";
   } | {
     /**
      * @generated from field: asterion.market.proto.Health health = 11;
@@ -918,7 +1077,31 @@ export type Response = Message<"asterion.market.proto.Response"> & {
  * Use `create(ResponseSchema)` to create a new message.
  */
 export const ResponseSchema: GenMessage<Response> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 16);
+  messageDesc(file_asterion_market, 18);
+
+/**
+ * 行情源连接事件，只报告连接状态，不包含报价表或合约目录。
+ *
+ * @generated from message asterion.market.proto.FeedStatus
+ */
+export type FeedStatus = Message<"asterion.market.proto.FeedStatus"> & {
+  /**
+   * @generated from field: string phase = 1;
+   */
+  phase: string;
+
+  /**
+   * @generated from field: int32 error_code = 2;
+   */
+  errorCode: number;
+};
+
+/**
+ * Describes the message asterion.market.proto.FeedStatus.
+ * Use `create(FeedStatusSchema)` to create a new message.
+ */
+export const FeedStatusSchema: GenMessage<FeedStatus> = /*@__PURE__*/
+  messageDesc(file_asterion_market, 19);
 
 /**
  * @generated from message asterion.market.proto.QuoteObservation
@@ -930,6 +1113,8 @@ export type QuoteObservation = Message<"asterion.market.proto.QuoteObservation">
   quote?: Quote | undefined;
 
   /**
+   * 相对已接收报价时间倒退；录制保留，实时图表不采用。
+   *
    * @generated from field: bool out_of_order = 2;
    */
   outOfOrder: boolean;
@@ -940,7 +1125,7 @@ export type QuoteObservation = Message<"asterion.market.proto.QuoteObservation">
  * Use `create(QuoteObservationSchema)` to create a new message.
  */
 export const QuoteObservationSchema: GenMessage<QuoteObservation> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 17);
+  messageDesc(file_asterion_market, 20);
 
 /**
  * @generated from message asterion.market.proto.Event
@@ -957,15 +1142,15 @@ export type Event = Message<"asterion.market.proto.Event"> & {
   receivedMs: bigint;
 
   /**
-   * subscription is one acknowledgement, without a cached quote.
+   * subscription 是一次柜台订阅回执，只含 instrument/state/error_code。
    *
    * @generated from oneof asterion.market.proto.Event.observation
    */
   observation: {
     /**
-     * @generated from field: asterion.market.proto.Snapshot status = 10;
+     * @generated from field: asterion.market.proto.FeedStatus status = 10;
      */
-    value: Snapshot;
+    value: FeedStatus;
     case: "status";
   } | {
     /**
@@ -975,9 +1160,9 @@ export type Event = Message<"asterion.market.proto.Event"> & {
     case: "quote";
   } | {
     /**
-     * @generated from field: asterion.market.proto.Subscription subscription = 12;
+     * @generated from field: asterion.market.proto.ContractQuote subscription = 12;
      */
-    value: Subscription;
+    value: ContractQuote;
     case: "subscription";
   } | { case: undefined; value?: undefined };
 };
@@ -987,9 +1172,13 @@ export type Event = Message<"asterion.market.proto.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 18);
+  messageDesc(file_asterion_market, 21);
 
 /**
+ * 按 Event.sequence 升序。latest_sequence 是服务端最新位置，不是本页末条游标。
+ * gap 表示 after_sequence 后有事件已被淘汰；本页从最早仍保留的事件开始。
+ * failed 表示行情源接收曾丢失事件，服务将重启；消费者记录中断后重新连接。
+ *
  * @generated from message asterion.market.proto.EventBatch
  */
 export type EventBatch = Message<"asterion.market.proto.EventBatch"> & {
@@ -1029,5 +1218,5 @@ export type EventBatch = Message<"asterion.market.proto.EventBatch"> & {
  * Use `create(EventBatchSchema)` to create a new message.
  */
 export const EventBatchSchema: GenMessage<EventBatch> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 19);
+  messageDesc(file_asterion_market, 22);
 

@@ -73,7 +73,8 @@ protected:
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         for (;;) {
             const auto task = manager.get(id);
-            if (task.state() != "running" && task.state() != "queued")
+            if (task.state() != ac::wire::TASK_STATE_RUNNING
+                && task.state() != ac::wire::TASK_STATE_QUEUED)
                 return task;
             if (std::chrono::steady_clock::now() >= deadline)
                 throw std::runtime_error("recorded publication did not finish");
@@ -94,7 +95,7 @@ TEST_F(RecordedSource, PublicationRetainsPartialBarsGapsAndOldVersionsAcrossComp
     record("first");
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "first");
-    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
     EXPECT_EQ(task.days_done(), 2);
     EXPECT_EQ(task.days_empty(), 1);
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
@@ -113,7 +114,7 @@ TEST_F(RecordedSource, PublicationRetainsPartialBarsGapsAndOldVersionsAcrossComp
     ASSERT_EQ(segments.size(), 1);
     EXPECT_EQ(std::get<std::string>(segments[0][8]), "stopped");
     record("later", base + 300000);
-    EXPECT_EQ(publish(manager, "skip").state(), "succeeded");
+    EXPECT_EQ(publish(manager, "skip").state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(store.current().identity, original.identity);
     {
         std::unique_lock lock(*archive);
@@ -121,7 +122,7 @@ TEST_F(RecordedSource, PublicationRetainsPartialBarsGapsAndOldVersionsAcrossComp
     }
     ASSERT_FALSE(fs::exists(root / "recordings/minutes/trading_day=20261028/first-1.parquet"));
     const auto updated = publish(manager, "refresh", true);
-    ASSERT_EQ(updated.state(), "succeeded") << updated.error();
+    ASSERT_EQ(updated.state(), ac::wire::TASK_STATE_SUCCEEDED) << updated.error();
     EXPECT_NE(updated.dataset_version(), original.identity);
     EXPECT_EQ(store.read(store.current(), key).size(), 4);
     EXPECT_EQ(store.read(store.current(), observations).size(), 2);
@@ -158,7 +159,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
 {
     record("first");
     ac::Manager manager(root, {{"recorder", factory()}});
-    ASSERT_EQ(publish(manager, "initial").state(), "succeeded");
+    ASSERT_EQ(publish(manager, "initial").state(), ac::wire::TASK_STATE_SUCCEEDED);
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
     const auto original = store.current();
     const std::string key = "minutes/SHFE/2026-10-28/rb/2027-01";
@@ -184,7 +185,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
     ASSERT_FALSE(compactor.running());
     EXPECT_TRUE(compactor.status().error.empty()) << compactor.status().error;
     EXPECT_TRUE(fs::exists(root / "recordings/minutes/trading_day=20261028/SHFE.parquet"));
-    ASSERT_EQ(publish(manager, "after-merge", true).state(), "succeeded");
+    ASSERT_EQ(publish(manager, "after-merge", true).state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(store.read(store.current(), key).size(), 4);
     EXPECT_EQ(store.read(original, key), baseline);
 }
@@ -206,7 +207,7 @@ TEST_F(RecordedSource, AMergedDayIsReportedAndEveryContractOfItReachesResearch)
     ASSERT_EQ(merged, "20261028") << compactor.status().error;
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "day", true, "");
-    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
     std::map<std::string, std::string> research;
     const wh::Store store(wh::source_directory(root, "research"), "research");
     for (const auto& [key, part] : store.current().partitions)
@@ -278,7 +279,7 @@ TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)
     record("average", base, {"SHFE", "rb2701"}, "3100.123456", "666.66733333");
     ac::Manager manager(root, {{"recorder", factory()}});
     const auto task = publish(manager, "average");
-    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error();
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
     const auto rows = store.read(store.current(), "minutes/SHFE/2026-10-28/rb/2027-01");
     ASSERT_FALSE(rows.empty());
@@ -295,8 +296,8 @@ TEST_F(RecordedSource, AMergedDayStaysPendingAcrossARestartUntilItsPublicationSu
         for (;;) {
             queue.poll(std::chrono::steady_clock::now());
             const auto tasks = manager.list({});
-            if (!tasks.tasks().empty() && tasks.tasks(0).state() != "queued"
-                && tasks.tasks(0).state() != "running")
+            if (!tasks.tasks().empty() && tasks.tasks(0).state() != ac::wire::TASK_STATE_QUEUED
+                && tasks.tasks(0).state() != ac::wire::TASK_STATE_RUNNING)
                 break;
             ASSERT_LT(std::chrono::steady_clock::now(), deadline);
             std::this_thread::sleep_for(5ms);
@@ -324,7 +325,7 @@ TEST_F(RecordedSource, AMergedDayStaysPendingAcrossARestartUntilItsPublicationSu
         retry.poll(std::chrono::steady_clock::now());
         const auto tasks = manager.list({});
         if (std::any_of(tasks.tasks().begin(), tasks.tasks().end(), [](const auto& task) {
-                return task.state() == "failed";
+                return task.state() == ac::wire::TASK_STATE_FAILED;
             }))
             break;
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
@@ -338,11 +339,11 @@ TEST_F(RecordedSource, UnrepresentableDecimalsDoNotPublishHalfAVersion)
 {
     record("exact");
     ac::Manager manager(root, {{"recorder", factory()}});
-    ASSERT_EQ(publish(manager, "initial").state(), "succeeded");
+    ASSERT_EQ(publish(manager, "initial").state(), ac::wire::TASK_STATE_SUCCEEDED);
     wh::Store store(wh::source_directory(root, "recorder"), "recorder");
     const auto original = store.current();
     record("too-precise", base + 300000, {"SHFE", "rb2701"}, "3100.12345678");
-    EXPECT_EQ(publish(manager, "rejected", true).state(), "failed");
+    EXPECT_EQ(publish(manager, "rejected", true).state(), ac::wire::TASK_STATE_FAILED);
     EXPECT_EQ(store.current().identity, original.identity);
 }
 

@@ -609,9 +609,9 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     };
     auto first = terminal::ApplicationTestAccess::submit(
         app,
-        call({{"acquisitionSources", Json::object()}}));
+        call({{"listAcquisitionSources", Json::object()}}));
     auto second =
-        terminal::ApplicationTestAccess::submit(app, call({{"datasets", Json::object()}}));
+        terminal::ApplicationTestAccess::submit(app, call({{"listDatasets", Json::object()}}));
     const auto catalog = first.get();
     const auto& sources = catalog.at("market").at("acquisitionSources");
     EXPECT_FALSE(sources.value("canManage", false));
@@ -625,7 +625,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_TRUE(second.get().at("market").contains("datasets"));
     try {
         app.dispatch(call(
-            {{"acquisitionStart",
+            {{"startAcquisition",
                 {{"id", "forbidden"},
                     {"provider", "shfe"},
                     {"table", "daily"},
@@ -635,7 +635,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     } catch (const Error& error) {
         EXPECT_EQ(error.code(), ErrorCode::permission_denied);
     }
-    EXPECT_THROW(app.dispatch(call({{"watch", Json::object()}})), std::invalid_argument);
+    EXPECT_THROW(app.dispatch(call({{"streamLiveQuotes", Json::object()}})), std::invalid_argument);
     EXPECT_TRUE(
         app.dispatch(request("market.watch", {{"restart", false}})).at("market_watch").is_null());
     // An open watch hands the page its frames in order, the first one complete.
@@ -649,11 +649,13 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         std::this_thread::sleep_for(50ms);
     }
     ASSERT_FALSE(frames.empty());
-    EXPECT_FALSE(frames[0].value("subscriptionsDelta", false));
-    EXPECT_TRUE(frames[0].contains("catalog"));
+    ASSERT_TRUE(frames[0].contains("snapshot"));
+    EXPECT_TRUE(frames[0].at("snapshot").contains("catalog"));
     for (std::size_t i = 1; i < frames.size(); ++i)
-        if (frames[i].value("subscriptionsDelta", false))
-            EXPECT_EQ(frames[i].at("baseSequence"), frames[i - 1].at("sequence"));
+        if (frames[i].contains("delta")) {
+            const auto& previous = frames[i - 1].begin().value();
+            EXPECT_EQ(frames[i].at("delta").at("baseSequence"), previous.at("sequence"));
+        }
     EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("market"));
     app.dispatch(request("market.close"));
     EXPECT_FALSE(std::filesystem::exists(root / "data/acquisition/forbidden.pb"));

@@ -48,13 +48,14 @@ with tempfile.TemporaryDirectory(prefix='asterion-market-acceptance-') as root:
     try:
         call('market.endpoint.save',{'host':args.host,'port':args.port,'fingerprint':args.fingerprint})
         def instance():
-            return call('market.call',{'request':{'snapshot':{}}})['market']['snapshot']['instanceId']
+            return call('market.call',{'request':{'getLiveSnapshot':{}}})['market']['snapshot']['instanceId']
         call('market.open')
         original=instance()
         seen=set();deadline=time.monotonic()+args.timeout
         while time.monotonic()<deadline:
             for frame in call('market.watch',{'restart':False})['market_watch']['frames']:
-                for row in frame.get('subscriptions',[]):
+                value = frame.get('snapshot', frame.get('delta', {}))
+                for row in value.get('quotes',[]):
                     key=row['instrument']['venue']+':'+row['instrument']['symbol']
                     if key in wanted and row.get('quote',{}).get('last') is not None:
                         seen.add(key)

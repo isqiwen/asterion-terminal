@@ -1,5 +1,5 @@
 import { selectQuote, useSelectedQuote } from "./selected-quote";
-import type { Subscription } from "../../src/generated/asterion/market_pb";
+import type { ContractQuote } from "../../src/generated/asterion/market_pb";
 import { rowKey, useMarket, type MarketView } from "../../src/host/market";
 import { useEffect, type ReactNode } from "react";
 import { contractName, translate, useWorkspaceDraft, type TerminalContext } from "../contract";
@@ -11,7 +11,7 @@ import { MarketUnavailable } from "./MarketUnavailable";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // A row of these lists: Market's row with its identity and display name.
-type QuoteRow = Subscription & { venue: string; symbol: string; displayName?: string };
+type QuoteRow = ContractQuote & { venue: string; symbol: string; displayName?: string };
 const quoteId = (row: QuoteRow) => rowKey(row);
 const tone = (row: QuoteRow) => {
   const amount = quoteChange(row)?.amount;
@@ -75,7 +75,7 @@ export function ContractWorkspace(context: TerminalContext) {
   const market = useMarket();
   const saved = context.snapshot?.market_endpoint;
   const watchlist = saved && "instruments" in saved ? saved.instruments : [];
-  const rows: QuoteRow[] = (market?.snapshot.subscriptions ?? []).map(row => ({
+  const rows: QuoteRow[] = (market?.snapshot.quotes ?? []).map(row => ({
     ...row,
     venue: row.instrument!.venue,
     symbol: row.instrument!.symbol,

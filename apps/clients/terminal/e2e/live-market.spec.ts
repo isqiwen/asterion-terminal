@@ -30,13 +30,13 @@ test(
     expect((await saved()).instruments).toEqual([{ venue: "SHFE", symbol: "rb2610" }]);
     await rpc(page.request, "market.watchlist", { instruments: [] });
     // The saved watchlist is the desktop's own; Market still collects the contract.
-    expect((await marketState(page.request)).subscriptions).toHaveLength(1);
+    expect((await marketState(page.request)).quotes).toHaveLength(1);
     await openView(page, "coverage");
     const recording = page.getByRole("region", { name: "录制监控" });
     await expect(recording.getByText("行情已连接", { exact: true })).toBeVisible();
     await expect(recording.getByText("磁盘可用空间", { exact: true })).toBeVisible();
     expect(
-      (await rpc(page.request, "market.call", { request: { recordingStatus: {} } })).market
+      (await rpc(page.request, "market.call", { request: { getRecordingStatus: {} } })).market
         .recordingStatus.instance,
     ).toBe(before.instanceId);
   },

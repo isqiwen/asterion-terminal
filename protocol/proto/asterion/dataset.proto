@@ -1,7 +1,12 @@
 syntax = "proto3";
 package asterion.dataset.proto;
 
-// Stored sources, not a provider capability catalogue. Cursors belong to callers.
+// Market 的不可变 Parquet 数据集。provider 是来源 ID，research 是研究用合成数据集。
+// dataset_version/sha256 为 64 位小写十六进制摘要；日期 YYYY-MM-DD，月份 YYYY-MM。
+// 首次 after_* 为空；后续传对应 next_*（字典序排他），next_* 为空即末页。
+// 同一次遍历保留 provider、dataset_version 与过滤条件；数据集列表允许并发新增来源。
+// created_ns 为 Unix UTC 纳秒。分区 key 来自版本清单，不是任意文件路径。
+// 来源尚未发布时，查询当前版本返回空 dataset_version 和空数据，后续需等待发布。
 message SourcesQuery {
   string after_provider = 1;
   uint32 limit = 2; // 0 = 64, at most 128.
@@ -45,18 +50,19 @@ message FileQuery {
   string provider = 1;
   string dataset_version = 2;
   string key = 3;
-  uint64 offset = 4;
+  uint64 offset = 4; // 首块为 0；下一块为返回 offset + data.size。
   uint32 limit = 5; // 0 = 1 MiB, at most 1 MiB.
 }
 message File {
   string provider = 1;
   string dataset_version = 2;
   string key = 3;
-  string sha256 = 4;
+  string sha256 = 4; // 整个文件的摘要；收齐后校验，不是当前块摘要。
   uint64 offset = 5;
-  uint64 size = 6;
+  uint64 size = 6; // 完整文件字节数；offset + data.size == size 时结束。
   bytes data = 7; // Original immutable Parquet bytes; amounts are not converted to floats.
 }
+// dataset_version 为空选择当前，返回值用于固定后续所有读取。
 message SummaryQuery {
   string provider = 1;
   string dataset_version = 2;

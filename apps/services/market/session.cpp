@@ -212,7 +212,8 @@ struct State
         return ids;
     }
 
-    wire::Snapshot snapshot(WatchCursor* held = nullptr, const wire::Watch* watch = nullptr)
+    wire::LiveQuotes
+    live_quotes(WatchCursor* held = nullptr, const wire::StreamLiveQuotes* selection = nullptr)
     {
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
         LiveMarketSnapshot state;
@@ -225,20 +226,12 @@ struct State
         if (!feed && sdk.empty())
             out.set_phase("sdk_unavailable");
         out.set_sequence(state.sequence + catalog_revision + intraday.revision());
-        if (state.subscriptions_delta)
-            out.set_base_sequence(held->sequence);
-        out.set_catalog_revision(catalog_revision);
-        if (held && held->catalog == catalog_revision)
-            out.set_catalog_omitted(true);
-        else
-            *out.mutable_catalog() = catalog_state;
-        if (watch && !watch->instruments().empty()) {
+        if (selection && !selection->instruments().empty()) {
             std::set<InstrumentId> selected;
-            for (const auto& id : watch->instruments()) {
+            for (const auto& id : selection->instruments()) {
                 selected.insert({id.venue(), id.symbol()});
-                *out.add_watchlist() = id;
             }
-            auto& rows = *out.mutable_subscriptions();
+            auto& rows = *out.mutable_quotes();
             rows.erase(
                 std::remove_if(
                     rows.begin(),
@@ -249,17 +242,33 @@ struct State
                     }),
                 rows.end());
         }
-        for (auto& row : *out.mutable_subscriptions())
+        for (auto& row : *out.mutable_quotes())
             if (const auto change = intraday.change_1m_percent(
                     {row.instrument().venue(), row.instrument().symbol()}))
                 row.set_change_1m_percent(change->str());
+        wire::LiveQuotes frame;
+        if (!state.subscriptions_delta) {
+            *out.mutable_catalog() = catalog_state;
+            *frame.mutable_snapshot() = std::move(out);
+        } else {
+            auto* delta = frame.mutable_delta();
+            delta->set_instance_id(out.instance_id());
+            delta->set_phase(out.phase());
+            delta->set_error_code(out.error_code());
+            delta->set_sequence(out.sequence());
+            delta->set_out_of_order(out.out_of_order());
+            *delta->mutable_quotes() = std::move(*out.mutable_quotes());
+            delta->set_base_sequence(held->sequence);
+            if (held->catalog != catalog_revision)
+                *delta->mutable_catalog() = catalog_state;
+        }
         if (held) {
             held->catalog = catalog_revision;
-            held->feed = feed ? std::optional(state.sequence) : std::nullopt;
+            held->feed = state.sequence;
             held->intraday = intraday.revision();
-            held->sequence = out.sequence();
+            held->sequence = state.sequence + catalog_revision + intraday.revision();
         }
-        return out;
+        return frame;
     }
 
     service::RpcHost::Message process(wire::Request request, WatchCursor* held)
@@ -269,7 +278,7 @@ struct State
         response.set_service_id(service);
         response.set_correlation_id(request.correlation_id());
         try {
-            if (request.has_recording_status()) {
+            if (request.has_get_recording_status()) {
                 if (!recorder)
                     throw Error(ErrorCode::unavailable, "this market is not recording");
                 const auto& written = recorder->status();
@@ -296,42 +305,42 @@ struct State
                 const auto maintenance = compactor.status();
                 out->set_merging(maintenance.day);
                 out->set_merge_error(maintenance.error);
-            } else if (request.has_heartbeat()) {
+            } else if (request.has_get_health()) {
                 auto* h = response.mutable_health();
                 h->set_instance_id(instance);
                 h->set_initialized(!catalog.initializing());
                 h->set_phase(phase());
-            } else if (request.has_events()) {
+            } else if (request.has_read_feed_events()) {
                 if (!feed)
                     throw Error(ErrorCode::unavailable, "market event stream not started");
-                const auto& read = request.events();
+                const auto& read = request.read_feed_events();
                 *response.mutable_events() = protocol::encode_market_events(
                     feed->events_after(read.stream_id(), read.after_sequence(), read.limit()));
-            } else if (request.has_minutes()) {
+            } else if (request.has_get_intraday_bars()) {
                 const InstrumentId id{
-                    request.minutes().instrument().venue(),
-                    request.minutes().instrument().symbol()
+                    request.get_intraday_bars().instrument().venue(),
+                    request.get_intraday_bars().instrument().symbol()
                 };
                 id.validate();
                 if (auto series = intraday.series(id))
                     *response.mutable_minutes() = protocol::encode_minutes(*series);
                 else
                     *response.mutable_minutes()->mutable_instrument() =
-                        request.minutes().instrument();
-            } else if (request.has_watch()) {
+                        request.get_intraday_bars().instrument();
+            } else if (request.has_stream_live_quotes()) {
                 if (!held || !held->catalog) {
                     std::vector<InstrumentId> ids;
-                    for (const auto& id : request.watch().instruments())
+                    for (const auto& id : request.stream_live_quotes().instruments())
                         ids.push_back({id.venue(), id.symbol()});
                     if (ids.size() > 50)
                         throw std::invalid_argument("at most 50 watch contracts");
                     ctp::validate_instruments(ids);
                 }
-                *response.mutable_snapshot() = snapshot(held, &request.watch());
+                *response.mutable_live_quotes() = live_quotes(held, &request.stream_live_quotes());
             } else {
-                if (!request.has_snapshot())
+                if (!request.has_get_live_snapshot())
                     throw std::invalid_argument("missing market operation");
-                *response.mutable_snapshot() = snapshot();
+                *response.mutable_snapshot() = live_quotes().snapshot();
             }
         } catch (const Error& error) {
             response.mutable_error()->set_code(std::string(error_name(error.code())));
@@ -339,14 +348,20 @@ struct State
         } catch (const std::exception& error) {
             response.mutable_error()->set_code(std::string(error_name(classify(error))));
             response.mutable_error()->set_message(
-                "Market request rejected; check configuration and SDK availability");
+                classify(error) == ErrorCode::invalid_request
+                    ? error.what()
+                    : "Market request failed; check service logs");
         }
         protocol::log_rpc_result(
             "market-data",
             request,
             response,
-            request.has_snapshot() || request.has_heartbeat() || request.has_watch());
-        return {response.SerializeAsString(), request.has_watch() && response.has_snapshot()};
+            request.has_get_live_snapshot() || request.has_get_health()
+                || request.has_stream_live_quotes());
+        return {
+            response.SerializeAsString(),
+            request.has_stream_live_quotes() && response.has_live_quotes()
+        };
     }
 };
 
@@ -438,12 +453,13 @@ Session::~Session() = default;
 std::future<service::RpcHost::Message>
 Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, bool can_manage)
 {
-    if (request.has_recorded_days() || request.has_recorded_minutes() || request.has_datasets()
-        || request.has_dataset() || request.has_dataset_file() || request.has_dataset_summary()
-        || request.has_acquisition_task() || request.has_acquisition_tasks()
-        || request.has_acquisition_start() || request.has_acquisition_cancel()
-        || request.has_acquisition_sources() || request.has_dataset_coverage()
-        || request.has_minute_comparison() || request.has_minute_differences()) {
+    if (request.has_list_recorded_days() || request.has_get_recorded_minutes()
+        || request.has_list_datasets() || request.has_get_dataset_version()
+        || request.has_read_dataset_file() || request.has_get_dataset_summary()
+        || request.has_get_acquisition_task() || request.has_list_acquisition_tasks()
+        || request.has_start_acquisition() || request.has_cancel_acquisition()
+        || request.has_list_acquisition_sources() || request.has_get_dataset_coverage()
+        || request.has_get_minute_comparison() || request.has_get_minute_differences()) {
         auto promise = std::make_shared<std::promise<service::RpcHost::Message>>();
         auto future = promise->get_future();
         loop_->reads.submit([loop = loop_.get(), request = std::move(request), promise, can_manage](
@@ -454,52 +470,53 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
             response.set_correlation_id(request.correlation_id());
             try {
                 const warehouse::Reader datasets(loop->config.settings.directory);
-                if (request.has_acquisition_sources()) {
+                if (request.has_list_acquisition_sources()) {
                     *response.mutable_acquisition_sources() = loop->acquisitions.sources();
                     response.mutable_acquisition_sources()->set_can_manage(can_manage);
-                } else if (request.has_minute_differences())
+                } else if (request.has_get_minute_differences())
                     *response.mutable_minute_differences() = warehouse::minute_differences(
                         loop->config.settings.directory,
-                        request.minute_differences());
-                else if (request.has_minute_comparison())
+                        request.get_minute_differences());
+                else if (request.has_get_minute_comparison())
                     *response.mutable_minute_comparison() =
                         warehouse::compare_minutes(loop->config.settings.directory);
-                else if (request.has_dataset_coverage())
+                else if (request.has_get_dataset_coverage())
                     *response.mutable_dataset_coverage() =
-                        datasets.coverage(request.dataset_coverage());
-                else if (request.has_acquisition_start())
+                        datasets.coverage(request.get_dataset_coverage());
+                else if (request.has_start_acquisition())
                     *response.mutable_acquisition_task() =
-                        loop->acquisitions.submit(request.acquisition_start());
-                else if (request.has_acquisition_cancel()) {
-                    loop->acquisitions.cancel(request.acquisition_cancel().id());
+                        loop->acquisitions.submit(request.start_acquisition());
+                else if (request.has_cancel_acquisition()) {
+                    loop->acquisitions.cancel(request.cancel_acquisition().id());
                     *response.mutable_acquisition_task() =
-                        loop->acquisitions.get(request.acquisition_cancel().id());
-                } else if (request.has_acquisition_task() || request.has_acquisition_tasks()) {
-                    if (request.has_acquisition_task())
+                        loop->acquisitions.get(request.cancel_acquisition().id());
+                } else if (request.has_get_acquisition_task()
+                    || request.has_list_acquisition_tasks()) {
+                    if (request.has_get_acquisition_task())
                         *response.mutable_acquisition_task() =
-                            loop->acquisitions.get(request.acquisition_task().id());
+                            loop->acquisitions.get(request.get_acquisition_task().id());
                     else
                         *response.mutable_acquisition_tasks() =
-                            loop->acquisitions.list(request.acquisition_tasks());
-                } else if (request.has_datasets())
-                    *response.mutable_datasets() = datasets.sources(request.datasets());
-                else if (request.has_dataset())
-                    *response.mutable_dataset() = datasets.version(request.dataset());
-                else if (request.has_dataset_file())
-                    *response.mutable_dataset_file() = datasets.file(request.dataset_file());
-                else if (request.has_dataset_summary())
+                            loop->acquisitions.list(request.list_acquisition_tasks());
+                } else if (request.has_list_datasets())
+                    *response.mutable_datasets() = datasets.sources(request.list_datasets());
+                else if (request.has_get_dataset_version())
+                    *response.mutable_dataset() = datasets.version(request.get_dataset_version());
+                else if (request.has_read_dataset_file())
+                    *response.mutable_dataset_file() = datasets.file(request.read_dataset_file());
+                else if (request.has_get_dataset_summary())
                     *response.mutable_dataset_summary() =
-                        datasets.summary(request.dataset_summary());
+                        datasets.summary(request.get_dataset_summary());
                 else {
                     std::shared_lock lock(*loop->archive);
                     if (!loop->reader)
                         loop->reader = std::make_unique<recording::Reader>(
                             loop->config.settings.directory / "recordings");
-                    if (request.has_recorded_days())
+                    if (request.has_list_recorded_days())
                         *response.mutable_recorded_days() = loop->reader->days();
                     else
                         *response.mutable_recorded_minutes() =
-                            loop->reader->minutes(request.recorded_minutes());
+                            loop->reader->minutes(request.get_recorded_minutes());
                 }
             } catch (const std::exception& error) {
                 response.mutable_error()->set_code(std::string(error_name(classify(error))));
@@ -510,7 +527,7 @@ Session::request(wire::Request request, std::shared_ptr<WatchCursor> cursor, boo
         });
         return future;
     }
-    const bool control = request.has_heartbeat();
+    const bool control = request.has_get_health();
     Loop::Work work(
         [request = std::move(request), cursor = std::move(cursor)](State& state) mutable {
             return state.process(std::move(request), cursor.get());

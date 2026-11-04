@@ -485,28 +485,28 @@ TEST_F(Warehouse, RemoteClientsKeepIndependentVersionsAndReconnect)
     auto first = host.open();
     auto second = host.open();
     market::proto::Request request;
-    request.mutable_dataset()->set_provider("tushare");
+    request.mutable_get_dataset_version()->set_provider("tushare");
     const auto baseline = call(first, request);
     ASSERT_TRUE(baseline.has_dataset()) << baseline.DebugString();
     EXPECT_EQ(baseline.dataset().dataset_version(), old.identity);
     const auto latest = publish(store, "daily/SHFE/202610", 2);
     EXPECT_EQ(call(second, request).dataset().dataset_version(), latest.identity);
-    request.mutable_dataset()->set_dataset_version(old.identity);
+    request.mutable_get_dataset_version()->set_dataset_version(old.identity);
     EXPECT_EQ(call(first, request).dataset().partitions(0).rows(), 1);
-    request.mutable_dataset()->set_dataset_version(std::string(64, '0'));
+    request.mutable_get_dataset_version()->set_dataset_version(std::string(64, '0'));
     EXPECT_TRUE(call(first, request).has_error());
-    request.mutable_heartbeat();
+    request.mutable_get_health();
     EXPECT_TRUE(call(second, request).has_health());
     first = host.open();
-    request.mutable_dataset_file()->set_provider("tushare");
-    request.mutable_dataset_file()->set_dataset_version(old.identity);
-    request.mutable_dataset_file()->set_key("daily/SHFE/202610");
+    request.mutable_read_dataset_file()->set_provider("tushare");
+    request.mutable_read_dataset_file()->set_dataset_version(old.identity);
+    request.mutable_read_dataset_file()->set_key("daily/SHFE/202610");
     const auto data = call(first, request);
     ASSERT_TRUE(data.has_dataset_file()) << data.DebugString();
     EXPECT_EQ(
         sha256_bytes(data.dataset_file().data()),
         old.partitions.at("daily/SHFE/202610").sha256);
-    request.mutable_heartbeat();
+    request.mutable_get_health();
     EXPECT_TRUE(call(first, request).has_health());
 }
 

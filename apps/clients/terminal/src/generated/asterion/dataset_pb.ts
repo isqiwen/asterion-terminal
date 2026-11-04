@@ -13,7 +13,12 @@ export const file_asterion_dataset: GenFile = /*@__PURE__*/
   fileDesc("ChZhc3Rlcmlvbi9kYXRhc2V0LnByb3RvEhZhc3Rlcmlvbi5kYXRhc2V0LnByb3RvIjUKDFNvdXJjZXNRdWVyeRIWCg5hZnRlcl9wcm92aWRlchgBIAEoCRINCgVsaW1pdBgCIAEoDSJHCgZTb3VyY2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMiUQoHU291cmNlcxIvCgdzb3VyY2VzGAEgAygLMh4uYXN0ZXJpb24uZGF0YXNldC5wcm90by5Tb3VyY2USFQoNbmV4dF9wcm92aWRlchgCIAEoCSJ8CgxWZXJzaW9uUXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhEKCWFmdGVyX2tleRgDIAEoCRINCgVsaW1pdBgEIAEoDRINCgV0YWJsZRgFIAEoCRIQCghleGNoYW5nZRgGIAEoCSJUCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEg4KBnNoYTI1NhgCIAEoCRIMCgRyb3dzGAMgASgEEgwKBGRheXMYBCADKAkSDgoGc291cmNlGAUgASgJIqEBCgdWZXJzaW9uEhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRIOCgZwYXJlbnQYAyABKAkSEgoKY3JlYXRlZF9ucxgEIAEoAxI1CgpwYXJ0aXRpb25zGAUgAygLMiEuYXN0ZXJpb24uZGF0YXNldC5wcm90by5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBiABKAkiYgoJRmlsZVF1ZXJ5EhAKCHByb3ZpZGVyGAEgASgJEhcKD2RhdGFzZXRfdmVyc2lvbhgCIAEoCRILCgNrZXkYAyABKAkSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgNInoKBEZpbGUSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEgsKA2tleRgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDgoGb2Zmc2V0GAUgASgEEgwKBHNpemUYBiABKAQSDAoEZGF0YRgHIAEoDCI5CgxTdW1tYXJ5UXVlcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJImQKDFRhYmxlU3VtbWFyeRINCgV0YWJsZRgBIAEoCRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIn4KB1N1bW1hcnkSEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEhIKCmNyZWF0ZWRfbnMYAyABKAMSNAoGdGFibGVzGAQgAygLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5UYWJsZVN1bW1hcnkiYAoNQ292ZXJhZ2VRdWVyeRIQCghwcm92aWRlchgBIAEoCRIXCg9kYXRhc2V0X3ZlcnNpb24YAiABKAkSFQoNYWZ0ZXJfcHJvZHVjdBgDIAEoCRINCgVsaW1pdBgEIAEoDSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNImsKD1Byb2R1Y3RDb3ZlcmFnZRIQCghleGNoYW5nZRgBIAEoCRIPCgdwcm9kdWN0GAIgASgJEjUKBm1vbnRocxgDIAMoCzIlLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTW9udGhDb3ZlcmFnZSKGAQoIQ292ZXJhZ2USEAoIcHJvdmlkZXIYASABKAkSFwoPZGF0YXNldF92ZXJzaW9uGAIgASgJEjkKCHByb2R1Y3RzGAMgAygLMicuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Qcm9kdWN0Q292ZXJhZ2USFAoMbmV4dF9wcm9kdWN0GAQgASgJIhEKD0NvbXBhcmlzb25RdWVyeSKPAQoLQ29tcGFyZWREYXkSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEhAKCGNvbXBhcmVkGAMgASgNEhEKCWRpZmZlcmluZxgEIAEoDRIUCgx0dXNoYXJlX29ubHkYBSABKA0SFQoNcmVjb3JkZXJfb25seRgGIAEoDRIPCgdwYXJ0aWFsGAcgASgNIp0BCgpDb21wYXJpc29uEhcKD3R1c2hhcmVfdmVyc2lvbhgBIAEoCRIYChByZWNvcmRlcl92ZXJzaW9uGAIgASgJEgwKBGRheXMYAyABKA0SFgoOZGlmZmVyaW5nX2RheXMYBCABKA0SNgoJZGlmZmVyaW5nGAUgAygLMiMuYXN0ZXJpb24uZGF0YXNldC5wcm90by5Db21wYXJlZERheSIxChBEaWZmZXJlbmNlc1F1ZXJ5EhAKCGNvbnRyYWN0GAEgASgJEgsKA2RheRgCIAEoCSJWCgxNaW51dGVWYWx1ZXMSDAoEb3BlbhgBIAEoCRIMCgRoaWdoGAIgASgJEgsKA2xvdxgDIAEoCRINCgVjbG9zZRgEIAEoCRIOCgZ2b2x1bWUYBSABKAkikwEKEE1pbnV0ZURpZmZlcmVuY2USEAoIc3RhcnRfbXMYASABKAMSNQoHdHVzaGFyZRgCIAEoCzIkLmFzdGVyaW9uLmRhdGFzZXQucHJvdG8uTWludXRlVmFsdWVzEjYKCHJlY29yZGVyGAMgASgLMiQuYXN0ZXJpb24uZGF0YXNldC5wcm90by5NaW51dGVWYWx1ZXMiZwoLRGlmZmVyZW5jZXMSEAoIY29udHJhY3QYASABKAkSCwoDZGF5GAIgASgJEjkKB21pbnV0ZXMYAyADKAsyKC5hc3Rlcmlvbi5kYXRhc2V0LnByb3RvLk1pbnV0ZURpZmZlcmVuY2ViBnByb3RvMw");
 
 /**
- * Stored sources, not a provider capability catalogue. Cursors belong to callers.
+ * Market 的不可变 Parquet 数据集。provider 是来源 ID，research 是研究用合成数据集。
+ * dataset_version/sha256 为 64 位小写十六进制摘要；日期 YYYY-MM-DD，月份 YYYY-MM。
+ * 首次 after_* 为空；后续传对应 next_*（字典序排他），next_* 为空即末页。
+ * 同一次遍历保留 provider、dataset_version 与过滤条件；数据集列表允许并发新增来源。
+ * created_ns 为 Unix UTC 纳秒。分区 key 来自版本清单，不是任意文件路径。
+ * 来源尚未发布时，查询当前版本返回空 dataset_version 和空数据，后续需等待发布。
  *
  * @generated from message asterion.dataset.proto.SourcesQuery
  */
@@ -243,6 +248,8 @@ export type FileQuery = Message<"asterion.dataset.proto.FileQuery"> & {
   key: string;
 
   /**
+   * 首块为 0；下一块为返回 offset + data.size。
+   *
    * @generated from field: uint64 offset = 4;
    */
   offset: bigint;
@@ -282,6 +289,8 @@ export type File = Message<"asterion.dataset.proto.File"> & {
   key: string;
 
   /**
+   * 整个文件的摘要；收齐后校验，不是当前块摘要。
+   *
    * @generated from field: string sha256 = 4;
    */
   sha256: string;
@@ -292,6 +301,8 @@ export type File = Message<"asterion.dataset.proto.File"> & {
   offset: bigint;
 
   /**
+   * 完整文件字节数；offset + data.size == size 时结束。
+   *
    * @generated from field: uint64 size = 6;
    */
   size: bigint;
@@ -312,6 +323,8 @@ export const FileSchema: GenMessage<File> = /*@__PURE__*/
   messageDesc(file_asterion_dataset, 7);
 
 /**
+ * dataset_version 为空选择当前，返回值用于固定后续所有读取。
+ *
  * @generated from message asterion.dataset.proto.SummaryQuery
  */
 export type SummaryQuery = Message<"asterion.dataset.proto.SummaryQuery"> & {

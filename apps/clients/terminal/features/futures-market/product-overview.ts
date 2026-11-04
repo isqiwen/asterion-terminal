@@ -1,4 +1,4 @@
-import type { Subscription } from "../../src/generated/asterion/market_pb";
+import type { ContractQuote } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 
 // This is a view of real month contracts, not a provider's continuous series.
@@ -10,13 +10,13 @@ export function productOverview(market: MarketView) {
       `${contract.instrument?.venue}.${contract.product}`,
     ]),
   );
-  const groups = new Map<string, Subscription>();
-  const interest = (row: Subscription) => {
+  const groups = new Map<string, ContractQuote>();
+  const interest = (row: ContractQuote) => {
     const value = Number(row.quote?.openInterest);
     return row.quote?.openInterest != null && Number.isFinite(value) ? value : -1;
   };
-  const volume = (row: Subscription) => row.quote?.volume ?? -1n;
-  for (const row of market.snapshot.subscriptions) {
+  const volume = (row: ContractQuote) => row.quote?.volume ?? -1n;
+  for (const row of market.snapshot.quotes) {
     const key = products.get(rowKey(row));
     if (!key) continue;
     const previous = groups.get(key);

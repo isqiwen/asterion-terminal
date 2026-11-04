@@ -26,7 +26,7 @@ def market_catalog(call):
     """Market's CTP contract catalog through the Terminal relay, once it has loaded."""
     deadline = time.monotonic() + 20
     while True:
-        catalog = call("market.call", {"request": {"snapshot": {}}})["market"]["snapshot"]["catalog"]
+        catalog = call("market.call", {"request": {"getLiveSnapshot": {}}})["market"]["snapshot"]["catalog"]
         if catalog.get("phase") == "ready":
             return catalog
         assert time.monotonic() < deadline, catalog

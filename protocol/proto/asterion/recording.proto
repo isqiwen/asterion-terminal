@@ -70,7 +70,7 @@ message Minutes {
   string symbol = 3;
   repeated MinuteBar bars = 4;
 }
-// Prices are exact decimal text; absent ones are empty.
+// 价格为精确十进制文本；可选值缺失表示该分钟没有可用值。
 message MinuteBar {
   int64 start_ms = 1;
   string open = 2;
@@ -78,7 +78,7 @@ message MinuteBar {
   string low = 4;
   string close = 5;
   int64 volume = 6;
-  string average_price = 7;
-  string open_interest = 8;
+  optional string average_price = 7;
+  optional string open_interest = 8;
   bool partial = 9;
 }

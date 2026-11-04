@@ -66,7 +66,7 @@ std::future<Json> call_market(ServiceIo& io, ServiceEndpoint endpoint, Json payl
                 if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
                     throw std::invalid_argument("invalid Market request");
                 // A watch is a stream; the page reads it through market.watch.
-                if (request.has_watch())
+                if (request.has_stream_live_quotes())
                     throw std::invalid_argument("unsupported Market operation");
                 identify(request, endpoint);
                 return request;
@@ -114,7 +114,7 @@ struct MarketWatch::Impl
         while (!stopped(stop)) {
             try {
                 wire::Request request;
-                request.mutable_watch();
+                request.mutable_stream_live_quotes();
                 identify(request, endpoint);
                 std::optional<Payload> frame;
                 auto watching =
@@ -132,9 +132,9 @@ struct MarketWatch::Impl
                         // RpcClient yields one frame per poll; apply it before polling again.
                         auto value = co_await io.read<Json>([raw = std::move(*frame), &request] {
                             auto response = decode(*raw, request);
-                            if (!response.has_snapshot())
-                                throw Error(ErrorCode::unavailable, "missing market snapshot");
-                            return json_of(response.snapshot());
+                            if (!response.has_live_quotes())
+                                throw Error(ErrorCode::unavailable, "missing live quotes update");
+                            return json_of(response.live_quotes());
                         });
                         frame.reset();
                         frames.push_back(std::move(value));
@@ -171,7 +171,7 @@ std::future<std::shared_ptr<MarketWatch>> MarketWatch::open(ServiceIo& io, Servi
         [&io, endpoint = std::move(endpoint)](
             std::stop_token) mutable -> PolledTask<std::shared_ptr<MarketWatch>> {
             // A wrong address or pin is reported to the owner who asked to connect.
-            Json heartbeat{{"heartbeat", Json::object()}};
+            Json heartbeat{{"getHealth", Json::object()}};
             (void)co_await PollFuture{call_market(io, endpoint, std::move(heartbeat))};
             auto impl = co_await io.admin<std::shared_ptr<Impl>>([&] {
                 return std::make_shared<Impl>(io, std::move(endpoint));

@@ -165,7 +165,7 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
     };
     auto snapshot = [&] {
         wire::Request request;
-        request.mutable_snapshot();
+        request.mutable_get_live_snapshot();
         return call(request).snapshot();
     };
     auto wait = [&](auto condition) {
@@ -191,19 +191,17 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
     EXPECT_EQ(snapshot().catalog().phase(), "loading");
     EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
     auto ready = wait([](const auto& state) {
-        return state.catalog().phase() == "ready" && state.subscriptions_size() == 1
-            && state.subscriptions(0).has_quote();
+        return state.catalog().phase() == "ready" && state.quotes_size() == 1
+            && state.quotes(0).has_quote();
     });
-    EXPECT_EQ(ready.watchlist_size(), 0);
-    EXPECT_EQ(ready.subscriptions(0).instrument().symbol(), "rb2610");
-    EXPECT_EQ(ready.subscriptions(0).quote().last(), "3510");
+    EXPECT_EQ(ready.quotes(0).instrument().symbol(), "rb2610");
+    EXPECT_EQ(ready.quotes(0).quote().last(), "3510");
     EXPECT_EQ(ready.catalog().contracts_size(), 1);
     wire::Request watch;
-    auto* selected = watch.mutable_watch()->add_instruments();
+    auto* selected = watch.mutable_stream_live_quotes()->add_instruments();
     selected->set_venue("SHFE");
     selected->set_symbol("rb2610");
-    EXPECT_EQ(call(watch).snapshot().watchlist_size(), 1);
+    EXPECT_EQ(call(watch).live_quotes().snapshot().quotes_size(), 1);
     // Closing this stream does not change the shared catalog or collection.
-    EXPECT_EQ(snapshot().watchlist_size(), 0);
-    EXPECT_EQ(snapshot().subscriptions_size(), 1);
+    EXPECT_EQ(snapshot().quotes_size(), 1);
 }

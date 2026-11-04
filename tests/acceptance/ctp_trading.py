@@ -137,10 +137,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
 
     def market():
         """Market's current state through the Terminal relay, as ProtoJSON."""
-        return call("market.call", {"request": {"snapshot": {}}})["market"]["snapshot"]
+        return call("market.call", {"request": {"getLiveSnapshot": {}}})["market"]["snapshot"]
 
     def quote():
-        return next((sub.get("quote") for sub in market().get("subscriptions", [])
+        return next((sub.get("quote") for sub in market().get("quotes", [])
                      if sub["instrument"] == {"venue": venue, "symbol": symbol}), None)
 
     try:

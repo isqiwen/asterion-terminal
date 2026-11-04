@@ -26,13 +26,16 @@ test("nothing is shown while Tushare and the recorder agree", async () => {
   request.mockResolvedValue(create(ComparisonSchema, { days: 12, differingDays: 0 }));
   const view = render(<MinuteComparison />);
   await act(async () => {});
-  expect(request).toHaveBeenCalledWith({ case: "minuteComparison", value: {} }, "minuteComparison");
+  expect(request).toHaveBeenCalledWith(
+    { case: "getMinuteComparison", value: {} },
+    "minuteComparison",
+  );
   expect(view.container.innerHTML).toBe("");
 });
 
 test("a disagreeing contract-day opens its minutes with both sources' values", async () => {
   request.mockImplementation(async (operation: { case: string }) =>
-    operation.case === "minuteComparison"
+    operation.case === "getMinuteComparison"
       ? create(ComparisonSchema, {
           days: 12,
           differingDays: 1,
@@ -65,7 +68,7 @@ test("a disagreeing contract-day opens its minutes with both sources' values", a
     name: "SHFE/rb/2027-01 2026-10-30 不一致的分钟",
   });
   expect(request).toHaveBeenCalledWith(
-    { case: "minuteDifferences", value: { contract: "SHFE/rb/2027-01", day: "2026-10-30" } },
+    { case: "getMinuteDifferences", value: { contract: "SHFE/rb/2027-01", day: "2026-10-30" } },
     "minuteDifferences",
   );
   const [differing, missing] = within(minutes).getAllByRole("row").slice(2);

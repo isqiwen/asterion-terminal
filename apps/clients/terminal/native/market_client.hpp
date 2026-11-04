@@ -10,7 +10,7 @@ namespace asterion::terminal {
 // connection; returns the Response as ProtoJSON. Errors are thrown.
 [[nodiscard]] std::future<Json> call_market(ServiceIo&, ServiceEndpoint, Json);
 
-// The selected Market's watch stream, held for the page. Frames (Snapshot
+// The selected Market's watch stream, held for the page. Frames (LiveQuotes
 // messages as ProtoJSON) wait in order until the page takes them; a page that
 // stops taking them gets a new stream, whose first frame is complete.
 class MarketWatch

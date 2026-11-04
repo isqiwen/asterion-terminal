@@ -5,7 +5,7 @@ import { marketData } from "../../src/bridge/market-data";
 import {
   MinuteSeriesSchema,
   SnapshotSchema,
-  SubscriptionSchema,
+  ContractQuoteSchema,
   type MinuteSeries,
 } from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
@@ -20,7 +20,7 @@ vi.mock("@asterion/client-ui/IntradayChart", () => ({ IntradayChart: () => null 
 vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
 registerTerminalFeatures([feature]);
 
-const row = create(SubscriptionSchema, {
+const row = create(ContractQuoteSchema, {
   instrument: { venue: "SHFE", symbol: "rb2610" },
   state: "subscribed",
 });
@@ -29,7 +29,7 @@ const service = (instance: string): MarketView => ({
   snapshot: create(SnapshotSchema, {
     instanceId: instance,
     phase: "connected",
-    subscriptions: [row],
+    quotes: [row],
   }),
   online: true,
   ticks: [],

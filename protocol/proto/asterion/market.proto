@@ -3,64 +3,93 @@ package asterion.market.proto;
 import "asterion/recording.proto";
 import "asterion/dataset.proto";
 import "asterion/acquisition.proto";
+// Market 公共协议：Terminal 看盘与管理采集，Lab 读取固定版本的研究数据。
+// 双向固定证书 TLS；每条消息为 4 字节大端长度 + Protobuf Request/Response。
+// 除 stream_live_quotes 连续返回外，每个请求恰好返回一个结果或 error。
+// 流占用连接直到客户端关闭、服务关闭或返回 error；重连从完整快照重新开始。
+// 金额/价格为精确十进制字符串，禁止经浮点转换；optional 缺失表示未知，"0" 是已知零值。
+// *_ms / *_ns 为 Unix UTC 毫秒/纳秒；ProtoJSON 中 int64/uint64 用字符串。
+// CTP 交易日/自然日为 YYYYMMDD；仓库及采集日期为 YYYY-MM-DD（各消息注明）。
 message Empty {}
 message Instrument {
-  string venue = 1;
-  string symbol = 2;
+  string venue = 1; // SHFE / INE / DCE / CZCE / CFFEX / GFEX。
+  string symbol = 2; // 柜台原始合约代码，保留大小写，如 rb2701；不是仓库 contract_id。
 }
 message CatalogContract {
   Instrument instrument = 1;
   string product = 2;
-  string expiry = 3;
+  string expiry = 3; // CTP 到期日 YYYYMMDD。
   int32 multiplier = 4;
   string price_tick = 5;
   string name = 6;
-  string contract_id = 7;
+  string contract_id = 7; // 仓库合约 ID：EXCHANGE/product/YYYY-MM。
 }
 message CatalogState {
-  string phase = 1;
+  string phase = 1; // unconfigured / cached / loading / ready / error。
   string error_code = 2;
   string diagnostic = 3;
   string trading_day = 4;
   repeated CatalogContract contracts = 5;
 }
-// Selection belongs to this stream. Empty selects all collected contracts.
-// Change selection by opening a new watch, which starts with a full baseline.
-message Watch {
+// 仅选择本条流要接收的报价：空列表表示全部，非空最多 50 个、不重复。
+// 改变选择需重新开流；选择和断线均不改变 Market 自主采集、录制及其他客户端。
+// 首帧的 quotes 只含已采集的所选合约，catalog 始终是完整目录。
+message StreamLiveQuotes {
   repeated Instrument instruments = 1;
 }
-// Initial read: empty stream_id and after_sequence=0. Subsequent reads must
-// retain stream identity; this bounded volatile stream is not a durable archive.
+// 首次 stream_id 为空、after_sequence=0；后续保留返回的 stream_id，
+// after_sequence 取最后实际收到的 Event.sequence，空页保持原游标。
+// 有限内存中的逐条观测；旧实例的 stream_id 被拒绝，不能作为持久 Tick 历史。
 message ReadEvents {
   string stream_id = 1;
   uint64 after_sequence = 2;
-  uint32 limit = 3;
+  uint32 limit = 3; // 必填，1..1024 条事件。
 }
 message Request {
-  uint32 version = 1;
-  string service_id = 2;
-  string correlation_id = 3;
+  uint32 version = 1; // 固定 1，消息封套格式。
+  string service_id = 2; // 固定 "market-data"。
+  string correlation_id = 3; // 客户端请求 ID，1..128 字符：[A-Za-z0-9._:-]。
   oneof operation {
-    Empty snapshot = 13;
-    Watch watch = 14;
-    Empty heartbeat = 15;
-    ReadEvents events = 16;
-    MinuteRequest minutes = 18;
-    asterion.recording.proto.StatusQuery recording_status = 19;
-    asterion.recording.proto.DaysQuery recorded_days = 20;
-    asterion.recording.proto.MinutesQuery recorded_minutes = 21;
-    asterion.dataset.proto.SourcesQuery datasets = 22;
-    asterion.dataset.proto.VersionQuery dataset = 23;
-    asterion.dataset.proto.FileQuery dataset_file = 24;
-    asterion.dataset.proto.SummaryQuery dataset_summary = 25;
-    asterion.acquisition.proto.TaskQuery acquisition_task = 26;
-    asterion.acquisition.proto.TasksQuery acquisition_tasks = 27;
-    asterion.acquisition.proto.Request acquisition_start = 28;
-    asterion.acquisition.proto.TaskQuery acquisition_cancel = 29;
-    asterion.acquisition.proto.SourcesQuery acquisition_sources = 30;
-    asterion.dataset.proto.CoverageQuery dataset_coverage = 31;
-    asterion.dataset.proto.ComparisonQuery minute_comparison = 32;
-    asterion.dataset.proto.DifferencesQuery minute_differences = 33;
+    // → snapshot：一次读取全部最新报价与完整合约目录。
+    Empty get_live_snapshot = 13;
+    // → live_quotes：持续推送完整快照/增量；同一 correlation_id。
+    StreamLiveQuotes stream_live_quotes = 14;
+    // → health：服务是否响应及行情连接状态；连接成功不等于已有报价。
+    Empty get_health = 15;
+    // → events：按接收顺序读取行情源事件，可能包含乱序报价。
+    ReadEvents read_feed_events = 16;
+    // → minutes：本进程已观测到的当前交易日分钟线，末根可能尚未收盘。
+    MinuteRequest get_intraday_bars = 18;
+    // → recording_status：本次运行的录制进度、写盘与合并错误。
+    asterion.recording.proto.StatusQuery get_recording_status = 19;
+    // → recorded_days：本机录制存档的交易日列表。
+    asterion.recording.proto.DaysQuery list_recorded_days = 20;
+    // → recorded_minutes：一个交易日、一个柜台合约的已落盘分钟线。
+    asterion.recording.proto.MinutesQuery get_recorded_minutes = 21;
+    // → datasets：已有已发布版本的数据集；可读来源不等于可采集来源。
+    asterion.dataset.proto.SourcesQuery list_datasets = 22;
+    // → dataset：指定版本的分区清单；首读可选择当前版本。
+    asterion.dataset.proto.VersionQuery get_dataset_version = 23;
+    // → dataset_file：固定版本内一个分区的原始 Parquet 字节块。
+    asterion.dataset.proto.FileQuery read_dataset_file = 24;
+    // → dataset_summary：版本内各表行数与日期范围。
+    asterion.dataset.proto.SummaryQuery get_dataset_summary = 25;
+    // → acquisition_task：按客户端提交的任务 ID 查询当前/最终结果。
+    asterion.acquisition.proto.TaskQuery get_acquisition_task = 26;
+    // → acquisition_tasks：分页列举所有客户端的持久任务记录。
+    asterion.acquisition.proto.TasksQuery list_acquisition_tasks = 27;
+    // → acquisition_task：持久接纳后返回 QUEUED，完成须查询；需要管理权限。
+    asterion.acquisition.proto.Request start_acquisition = 28;
+    // → acquisition_task：请求取消后立即返回当前状态，终态须查询；需要管理权限。
+    asterion.acquisition.proto.TaskQuery cancel_acquisition = 29;
+    // → acquisition_sources：已配置的采集能力及当前证书的管理权限。
+    asterion.acquisition.proto.SourcesQuery list_acquisition_sources = 30;
+    // → dataset_coverage：固定版本按品种、月份汇总已采集日期。
+    asterion.dataset.proto.CoverageQuery get_dataset_coverage = 31;
+    // → minute_comparison：当前 Tushare 与 recorder 版本的分钟差异汇总。
+    asterion.dataset.proto.ComparisonQuery get_minute_comparison = 32;
+    // → minute_differences：当前两个来源的指定合约交易日差异明细。
+    asterion.dataset.proto.DifferencesQuery get_minute_differences = 33;
   }
 }
 message DepthLevel {
@@ -72,19 +101,19 @@ message Quote {
   optional string last = 2;
   optional string bid = 3;
   optional string ask = 4;
-  int64 bid_quantity = 5;
-  int64 ask_quantity = 6;
-  int64 volume = 7;
+  int64 bid_quantity = 5; // 手；bid 缺失时不展示。
+  int64 ask_quantity = 6; // 手；ask 缺失时不展示。
+  int64 volume = 7; // 当前交易日累计成交量，手。
   optional string previous_settlement = 8;
   optional string high = 9;
   optional string low = 10;
   optional string open_interest = 11;
   string action_day = 12;
   string trading_day = 13;
-  string update_time = 14;
-  int64 source_ms = 15;
+  string update_time = 14; // 柜台时间 HH:MM:SS，Asia/Shanghai。
+  int64 source_ms = 15; // 柜台自然日+时刻换算 UTC（含毫秒），解析不可用时为 0。
   int64 received_ms = 16;
-  // Exactly four entries on each side for levels 2..5. Missing values stay absent.
+  // 买卖第 2..5 档，固定四项；第 1 档在 bid/ask 与 bid_quantity/ask_quantity。
   repeated DepthLevel bid_levels = 17;
   repeated DepthLevel ask_levels = 18;
   optional string open = 19;
@@ -92,14 +121,15 @@ message Quote {
   optional string lower_limit = 21;
   optional string previous_close = 22;
   optional string open_interest_change = 23;
-  // Per-unit session average price (provider turnover / volume / multiplier).
+  // 当前交易日每单位均价（柜台成交额 / 成交量 / 合约乘数）。
   optional string average_price = 24;
 }
-// change_1m_percent: last price versus the latest observation at least 60 s
-// earlier in the same trading day; absent until such an observation exists.
-message Subscription {
+// 一行合约的最新状态；state 是 Market 向柜台订阅的状态，不是客户端订阅。
+// quote 缺失表示暂无报价；change_1m_percent 是相对同交易日至少 60 秒前
+// 最近一次观测的涨速（百分数，1 表示 1%），历史不足时缺失。
+message ContractQuote {
   Instrument instrument = 1;
-  string state = 2;
+  string state = 2; // pending / subscribed / error。
   int32 error_code = 3;
   Quote quote = 4;
   optional string change_1m_percent = 5;
@@ -107,9 +137,7 @@ message Subscription {
 message MinuteRequest {
   Instrument instrument = 1;
 }
-// Minute bars built by the market service from the observations it received.
-// first_observation_ms marks where this service began observing the trading
-// day; interrupted means observations were lost after that point.
+// 本进程收到的有序报价按自然分钟聚合；start_ms 是分钟起点，volume 是该分钟手数。
 message MinuteBar {
   int64 start_ms = 1;
   string open = 2;
@@ -120,6 +148,8 @@ message MinuteBar {
   optional string average_price = 7;
   optional string open_interest = 8;
 }
+// bars 按 start_ms 升序；无观测时只返回 instrument，bars 为空。
+// first_observation_ms 是开始观测的位置；interrupted 表示之后曾中断。
 message MinuteSeries {
   Instrument instrument = 1;
   string trading_day = 2;
@@ -128,41 +158,63 @@ message MinuteSeries {
   repeated MinuteBar bars = 5;
   optional string previous_settlement = 6;
 }
-// Watch sends its first catalog in full. Later frames may omit only the same
-// catalog revision within that watch connection and service instance.
-// The first watch frame and every membership reset carry all subscriptions.
-// Otherwise subscriptions_delta carries changed rows relative to base_sequence,
-// the previous frame on this connection. Unknown/missing baselines are rejected.
-// Snapshot and command responses always carry full subscriptions and catalog.
+// phase 为行情源状态：disconnected / connecting / logging_in / reconnecting /
+// connected / error / sdk_unavailable；error_code 为柜台原始错误号，0 表示无错误。
+// out_of_order 是本次进程累计收到的乱序报价数；这些报价不更新最新价及分钟线。
+// 完整状态：quotes 和 catalog 全量替换客户端当前内容。
+// sequence 是此服务实例内的状态修订号，无变化时可以重复。
 message Snapshot {
   string instance_id = 1;
   string phase = 2;
   int32 error_code = 3;
   uint64 sequence = 4;
   uint64 out_of_order = 5;
-  repeated Subscription subscriptions = 6;
+  repeated ContractQuote quotes = 6;
   CatalogState catalog = 7;
-  repeated Instrument watchlist = 8;
-  uint64 catalog_revision = 9;
-  bool catalog_omitted = 10;
-  bool subscriptions_delta = 11;
-  uint64 base_sequence = 12;
 }
+// 只在同一条流的前一帧上应用。实例或 base_sequence 不匹配时重新开流。
+// quotes 按 instrument 替换整行；行内缺失的可选字段清除旧值。
+// catalog 存在时全量替换目录，缺失时保留目录。合约集合变化时发送 snapshot。
+message QuoteDelta {
+  string instance_id = 1;
+  string phase = 2;
+  int32 error_code = 3;
+  uint64 sequence = 4;
+  uint64 out_of_order = 5;
+  repeated ContractQuote quotes = 6;
+  CatalogState catalog = 7;
+  uint64 base_sequence = 8;
+}
+// stream_live_quotes 的每一帧。首帧必为 snapshot，之后为 delta 或新的 snapshot。
+// 它合并期间的报价变化，供界面显示最新值；逐条观测用 read_feed_events。
+message LiveQuotes {
+  oneof update {
+    Snapshot snapshot = 1;
+    QuoteDelta delta = 2;
+  }
+}
+// instance_id 每次 Market 重启改变；phase 同 Snapshot，另有 initializing。
+// initialized 只表示 SDK 初始化已结束，不表示登录成功或报价新鲜。
 message Health {
   string instance_id = 1;
   string phase = 2;
   bool initialized = 3;
 }
+// code 用于程序分支：invalid_request / permission_denied / not_found / conflict /
+// resource_exhausted / unavailable / cancelled / recovery_required / operation_failed / internal_error。
+// message 给出诊断；业务失败只返回 error。写请求响应丢失时先按任务 ID 查询，勿盲目重试。
 message Error {
   string code = 1;
   string message = 2;
 }
+// 三个封套字段原样对应 Request；result 与 Request 注释中的返回类型一致。
 message Response {
   uint32 version = 1;
   string service_id = 2;
   string correlation_id = 3;
   oneof result {
     Snapshot snapshot = 10;
+    LiveQuotes live_quotes = 28;
     Health health = 11;
     Error error = 12;
     EventBatch events = 13;
@@ -183,20 +235,29 @@ message Response {
   }
 }
 
+// 行情源连接事件，只报告连接状态，不包含报价表或合约目录。
+message FeedStatus {
+  string phase = 1;
+  int32 error_code = 2;
+}
+
 message QuoteObservation {
   Quote quote = 1;
-  bool out_of_order = 2;
+  bool out_of_order = 2; // 相对已接收报价时间倒退；录制保留，实时图表不采用。
 }
 message Event {
   uint64 sequence = 1;
   int64 received_ms = 2;
-  // subscription is one acknowledgement, without a cached quote.
+  // subscription 是一次柜台订阅回执，只含 instrument/state/error_code。
   oneof observation {
-    Snapshot status = 10;
+    FeedStatus status = 10;
     QuoteObservation quote = 11;
-    Subscription subscription = 12;
+    ContractQuote subscription = 12;
   }
 }
+// 按 Event.sequence 升序。latest_sequence 是服务端最新位置，不是本页末条游标。
+// gap 表示 after_sequence 后有事件已被淘汰；本页从最早仍保留的事件开始。
+// failed 表示行情源接收曾丢失事件，服务将重启；消费者记录中断后重新连接。
 message EventBatch {
   string stream_id = 1;
   uint64 oldest_sequence = 2;
