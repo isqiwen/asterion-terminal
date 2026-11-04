@@ -32,7 +32,8 @@ protected:
         const std::string& instance,
         std::int64_t from = base,
         InstrumentId id = {"SHFE", "rb2701"},
-        const char* price = "3100.123456")
+        const char* price = "3100.123456",
+        const char* average = nullptr)
     {
         recording::Recorder recorder(root / "recordings", instance);
         IntradayBars minutes;
@@ -43,6 +44,8 @@ protected:
             q.source_ms = from + i * 60000;
             q.received_ms = q.source_ms + 5;
             q.last = Decimal::parse(price);
+            if (average)
+                q.average_price = Decimal::parse(average);
             q.volume = 9007199254740993LL + i;
             recorder.observe(q, false, minutes);
             minutes.observe(q);
@@ -267,6 +270,18 @@ TEST_F(RecordedSource, AScanFailureIsReportedAndRetriedAfterBackoff)
     finish(now + 1h);
     EXPECT_TRUE(compactor.status().error.empty());
     EXPECT_TRUE(fs::exists(root / "recordings/minutes/trading_day=20261028/SHFE.parquet"));
+}
+
+TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)
+{
+    record("average", base, {"SHFE", "rb2701"}, "3100.123456", "666.66733333");
+    ac::Manager manager(root, {{"recorder", factory()}});
+    const auto task = publish(manager, "average");
+    ASSERT_EQ(task.state(), "succeeded") << task.error();
+    wh::Store store(wh::source_directory(root, "recorder"), "recorder");
+    const auto rows = store.read(store.current(), "minutes/SHFE/2026-10-28/rb/2027-01");
+    ASSERT_FALSE(rows.empty());
+    EXPECT_EQ(std::get<std::string>(rows[0][11]), "666.667333");
 }
 
 TEST_F(RecordedSource, UnrepresentableDecimalsDoNotPublishHalfAVersion)

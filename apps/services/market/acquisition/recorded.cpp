@@ -65,6 +65,13 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
     const auto number = [](const std::string& value) -> warehouse::Cell {
         return value.empty() ? warehouse::Cell{} : warehouse::Cell{value};
     };
+    // An average is turnover over volume and the provider's multiplier, so it
+    // has more places than research keeps; prices and interest do not.
+    const auto average = [](const std::string& value) -> warehouse::Cell {
+        if (value.empty())
+            return {};
+        return quantize(Decimal::parse(value), Decimal::parse("0.000001"), Rounding::half_even);
+    };
     for (const auto& bar : bars.bars()) {
         check_stop(stop_);
         result.rows.push_back(
@@ -79,7 +86,7 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
                 number(bar.low()),
                 number(bar.close()),
                 std::to_string(bar.volume()),
-                number(bar.average_price()),
+                average(bar.average_price()),
                 number(bar.open_interest())});
     }
     // These are service observation intervals, not proof that this contract
