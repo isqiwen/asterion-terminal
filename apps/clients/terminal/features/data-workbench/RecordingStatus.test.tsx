@@ -72,7 +72,7 @@ test("status reads do not overlap, and switching or closing a Market discards pe
   select(null);
   await act(async () => replies[2]!(reply("second")));
   expect(screen.queryByText("1,234")).toBeNull();
-  expect(screen.getByText("连接远程 Market 后查看录制状态。")).toBeDefined();
+  expect(screen.getByText("连接行情服务后查看录制状态。")).toBeDefined();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(3);
 });

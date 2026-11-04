@@ -49,9 +49,9 @@ export function Coverage(context: TerminalContext) {
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   return (
-    <section className="data-page" aria-label={t("Market 数据")}>
+    <section className="data-page" aria-label={t("行情数据")}>
       <div className="panel-heading">
-        <h2>{t("Market 数据")}</h2>
+        <h2>{t("行情数据")}</h2>
         {endpoint && (
           <span className="subtle">
             {endpoint.host}:{endpoint.port}
@@ -121,7 +121,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   if (error)
     return (
       <div className="workspace-empty" role="alert">
-        <strong>{t("读取 Market 数据失败")}</strong>
+        <strong>{t("读取行情数据失败")}</strong>
         <ErrorNotice error={error} />
         <button className="primary" onClick={() => setRetry(value => value + 1)}>
           {t("重试")}
@@ -139,7 +139,7 @@ function DataPage({ context }: { context: TerminalContext }) {
             {sources.map(item => (
               <option key={item.provider} value={item.provider}>
                 {item.provider === "recorder"
-                  ? t("Market 录制")
+                  ? t("自录")
                   : item.provider === "research"
                     ? t("研究数据")
                     : item.provider}
@@ -149,12 +149,12 @@ function DataPage({ context }: { context: TerminalContext }) {
         </label>
         <p className="subtle">
           {t(
-            "各来源分别采集和保存。研究只读「研究数据」：Market 按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。",
+            "各来源分别采集和保存。研究只读「研究数据」：行情服务按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。",
           )}
         </p>
       </div>
       {!source && canManage !== null && (
-        <p className="data-card">{t("Market 尚未启用采集来源，也没有已保存的数据集。")}</p>
+        <p className="data-card">{t("行情服务尚未启用采集来源，也没有已保存的数据集。")}</p>
       )}
       {source && (
         <SourceCoverage
@@ -331,10 +331,10 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           <p className="subtle">
             {t(
               source.provider === "recorder"
-                ? "将 Market 已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。"
+                ? "将行情服务已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。"
                 : "采集按交易所保存，分钟线按合约保存；已入库分区跳过。",
             )}{" "}
-            {t("来源配置和凭据由 Market 主机管理；关闭此页面不会停止采集。")}
+            {t("来源配置和凭据由行情服务主机管理；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>

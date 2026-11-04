@@ -30,7 +30,7 @@ export function StatusIndicators({
   return (
     <>
       {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
-        <button className="status-item warning" onClick={openSources}>
+        <button className="status-item" onClick={openSources}>
           {label(t("行情"), "未设置")}
         </button>
       ) : (

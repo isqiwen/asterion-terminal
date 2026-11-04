@@ -200,7 +200,7 @@ test("recorded minutes publish through Market with a contract and explicit refre
       : current(body),
   );
   render(<Coverage {...context()} />);
-  await screen.findByRole("option", { name: "Market 录制" });
+  await screen.findByRole("option", { name: "自录" });
   const publish = screen.getByRole("button", { name: "发布录制分钟" }) as HTMLButtonElement;
   expect(publish.disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("合约（分钟线必填）"), {

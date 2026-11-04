@@ -7,7 +7,7 @@ export function MarketUnset({ openSettings }: { openSettings: (page: "sources") 
   return (
     <div className="workspace-empty">
       <strong>{t("尚未设置行情服务")}</strong>
-      <p>{t("在设置里填写 Market 的地址和证书指纹后即可使用。")}</p>
+      <p>{t("在设置里填写行情服务的地址和证书指纹后即可使用。")}</p>
       <button className="primary" onClick={() => openSettings("sources")}>
         {t("配置行情服务")}
       </button>

@@ -36,7 +36,7 @@ export function MarketSource({
   };
   return (
     <SettingsSection
-      title="Market"
+      title={t("行情服务")}
       actions={
         !editing && (
           <>
@@ -115,9 +115,9 @@ export function MarketSource({
                 />
               </label>
               <label className="settings-field">
-                {t("Market 服务证书指纹")}
+                {t("行情服务证书指纹")}
                 <input
-                  aria-label={t("Market 服务证书指纹")}
+                  aria-label={t("行情服务证书指纹")}
                   required
                   maxLength={95}
                   value={fingerprint}

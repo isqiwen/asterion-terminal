@@ -79,9 +79,9 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
   }, [address, instance, online]);
 
   return (
-    <section className="data-card recording-status" aria-label={t("Market 录制监控")}>
+    <section className="data-card recording-status" aria-label={t("录制监控")}>
       <header>
-        <h3>{t("Market 录制监控")}</h3>
+        <h3>{t("录制监控")}</h3>
         {status && (
           <span role="status" data-phase={status.phase}>
             {t(phases[status.phase] ?? status.phase)}
@@ -96,7 +96,7 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
           >
             {t("连接行情服务")}
           </button>
-          <span className="subtle">{t("连接远程 Market 后查看录制状态。")}</span>
+          <span className="subtle">{t("连接行情服务后查看录制状态。")}</span>
           <ActionError error={opened} />
         </div>
       ) : !online ? (
@@ -171,7 +171,7 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
       )}
       <p className="subtle">
         {t(
-          "录制由 Market 独立运行；关闭 Terminal 不会停止。计数仅代表当前实例，不保证历史时段完整。",
+          "录制由行情服务独立运行；关闭 Terminal 不会停止。计数仅代表当前实例，不保证历史时段完整。",
         )}
       </p>
     </section>

@@ -91,7 +91,7 @@ function mount(market: MarketView) {
   const view = render(pane(market));
   return (next: MarketView) => view.rerender(pane(next));
 }
-const note = () => screen.queryByText(/Market 服务观测/)?.textContent ?? null;
+const note = () => screen.queryByText(/行情服务观测/)?.textContent ?? null;
 
 test("a restarted market service's series is asked for afresh and a late reply is dropped", async () => {
   const select = mount(service("a"));
