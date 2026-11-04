@@ -14,8 +14,9 @@ export type {
   MinuteBar,
 } from "../src/generated/asterion/market_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
+export { protocolPeriod, type ChartPeriod } from "../src/ui/periods";
+export type { DatasetSummary as LabSummary } from "../src/generated/asterion/market_pb";
 export type {
-  Summary as LabSummary,
   RunDetail as LabRunDetail,
   RunReport as LabRunReport,
   RunSummary as LabRunSummary,

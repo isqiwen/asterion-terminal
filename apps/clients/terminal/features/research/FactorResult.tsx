@@ -24,14 +24,14 @@ export function FactorResult({ result }: { result: LabFactorResult }) {
     <div className="lab-result">
       <p className="subtle">
         {t("{count} 个品种", { count: result.symbols.length })} · {t("研究数据")}{" "}
-        <code>{result.datasetVersion.slice(0, 8)}</code>
-        {result.commit && (
+        <code>{result.pinned?.datasetVersion.slice(0, 8)}</code>
+        {result.pinned?.commit && (
           <>
             {" "}
-            · {t("代码")} <code>{result.commit.slice(0, 8)}</code>
+            · {t("代码")} <code>{result.pinned.commit.slice(0, 8)}</code>
           </>
         )}
-        {result.changes && ` · ${t("含未提交改动")}`}
+        {result.pinned?.changes && ` · ${t("含未提交改动")}`}
       </p>
       {result.skipped.length > 0 && (
         <details className="lab-section">
@@ -73,7 +73,7 @@ export function FactorResult({ result }: { result: LabFactorResult }) {
               <td className="numeric">{metric(item.deviation, false)}</td>
               <td className="numeric">{metric(item.ir, false)}</td>
               <td className="numeric">{metric(item.t, false)}</td>
-              <td className="numeric">{metric(item.positive, true)}</td>
+              <td className="numeric">{metric(item.positiveShare, true)}</td>
               <td className="numeric">{item.days}</td>
             </tr>
           ))}

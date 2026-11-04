@@ -189,13 +189,13 @@ def describe(root: Path) -> Strategies:
     reply.commit, reply.changes = current.commit, current.changes
     for name, module, error in import_modules(root):
         if error:
-            reply.errors.add(module=name, message=error)
+            reply.errors.add(module=name, traceback=error)
             continue
         for cls in defined(module):
             entry = reply.strategies.add(id=f"{name}.{cls.__name__}",
                                          description=inspect.getdoc(cls) or "")
             for parameter, value in cls.params.items():
-                item = entry.parameters.add(name=parameter, kind=KINDS[type(value)])
+                item = entry.parameters.add(name=parameter)
                 setattr(item.default, VALUE_FIELDS[type(value)], value)
     for name, module, error in import_modules(root, "factors"):
         try:
@@ -203,13 +203,13 @@ def describe(root: Path) -> Strategies:
                 raise ValueError(error)
             found = factors(module)
         except (TypeError, ValueError) as failure:
-            reply.errors.add(module=f"factors/{name}", message=str(failure))
+            reply.errors.add(module=f"factors/{name}", traceback=str(failure))
             continue
         for function_name, function, inputs, settings in found:
             entry = reply.factors.add(id=f"{name}.{function_name}",
                                       description=inspect.getdoc(function) or "", inputs=inputs)
             for parameter, value in settings.items():
-                item = entry.parameters.add(name=parameter, kind=KINDS[type(value)])
+                item = entry.parameters.add(name=parameter)
                 setattr(item.default, VALUE_FIELDS[type(value)], value)
     return reply
 

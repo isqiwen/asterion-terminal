@@ -8,7 +8,13 @@ import {
   type MessageValues,
   type TerminalContext,
 } from "../contract";
-import { defaultFactorForm, defaultText, factorRequest, type FactorForm } from "./research-lab";
+import {
+  defaultFactorForm,
+  defaultText,
+  factorRequest,
+  parameterKind,
+  type FactorForm,
+} from "./research-lab";
 import { FactorResult } from "./FactorResult";
 import { LabCentre, LabHeader, ModuleErrors, NewModule, useModules, useSource } from "./LabParts";
 
@@ -33,7 +39,7 @@ export function FactorLab(context: TerminalContext) {
     setBusy(true);
     await attempt(async () =>
       setResult(
-        await lab({ case: "factor", value: factorRequest(form, repository, factor) }, "factor"),
+        await lab({ case: "evaluateFactor", value: factorRequest(form, repository, factor) }),
       ),
     );
     setBusy(false);
@@ -135,7 +141,7 @@ export function FactorLab(context: TerminalContext) {
               {factor.parameters.map(parameter => (
                 <label key={parameter.name}>
                   <span>
-                    {parameter.name} <small>{parameter.kind}</small>
+                    {parameter.name} <small>{parameterKind(parameter)}</small>
                   </span>
                   <input
                     value={form.params[parameter.name] ?? ""}

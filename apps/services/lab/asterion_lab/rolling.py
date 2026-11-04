@@ -181,8 +181,8 @@ def main():
     request = RollingRun()
     request.ParseFromString(sys.stdin.buffer.read())
     try:
-        run(Path(sys.argv[1]), request.id, request.sweep, backtest.config_of(request.base),
-            request.training_days, request.validation_days)
+        run(Path(sys.argv[1]), request.id, request.sweep_id, backtest.config_of(request.base),
+            request.walk_forward.training_days, request.walk_forward.validation_days)
     except BaseException as error:
         print(error, file=sys.stderr)
         sys.exit(1)

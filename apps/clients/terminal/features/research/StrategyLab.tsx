@@ -13,7 +13,9 @@ import {
   costNames,
   defaultForm,
   defaultText,
+  parameterKind,
   productsOf,
+  runState,
   runRequest,
   type RunForm,
 } from "./research-lab";
@@ -59,7 +61,7 @@ export function StrategyLab(context: TerminalContext) {
 
   const readRuns = useCallback(async () => {
     try {
-      setRuns((await lab({ case: "runs", value: {} }, "runs")).runs);
+      setRuns((await lab({ case: "listRuns", value: {} })).runs);
     } catch (failure) {
       notify(failure);
     }
@@ -67,7 +69,7 @@ export function StrategyLab(context: TerminalContext) {
   useEffect(() => void readRuns(), [readRuns]);
   // Read again while something runs, or the sweep on show has runs to come.
   const running =
-    runs.some(run => run.state === "running") ||
+    runs.some(run => runState(run.state) === "running") ||
     (shown?.kind === "sweep" && sweep?.id === shown.id && sweep.active);
   useEffect(() => {
     if (!running) return;
@@ -77,13 +79,13 @@ export function StrategyLab(context: TerminalContext) {
   useEffect(() => {
     if (shown?.kind !== "sweep") return;
     let active = true;
-    void lab({ case: "sweepRuns", value: { id: shown.id } }, "sweepRuns")
+    void lab({ case: "getSweep", value: { id: shown.id } })
       .then(reply => {
         if (!active) return;
         setSweep({
-          id: reply.id,
+          id: shown.id,
           runs: [...reply.runs],
-          selected: reply.selected,
+          selected: reply.selectedId,
           active: reply.active,
         });
       })
@@ -105,28 +107,25 @@ export function StrategyLab(context: TerminalContext) {
       if (form.validation === "rolling" && !swept.length)
         throw new Error(t("滚动验证需要至少一个参数填多个值"));
       if (swept.length || form.validation === "rolling") {
-        await lab(
-          {
-            case: "sweep",
-            value: {
-              id,
-              base: run,
-              values: swept,
-              processes: Number(form.processes) || 0,
-              walkForward:
-                form.validation === "rolling"
-                  ? {
-                      trainingDays: Number(form.trainingDays),
-                      validationDays: Number(form.validationDays),
-                    }
-                  : undefined,
-            },
+        await lab({
+          case: "startSweep",
+          value: {
+            id,
+            base: run,
+            values: swept,
+            processes: Number(form.processes) || 0,
+            walkForward:
+              form.validation === "rolling"
+                ? {
+                    trainingDays: Number(form.trainingDays),
+                    validationDays: Number(form.validationDays),
+                  }
+                : undefined,
           },
-          "accepted",
-        );
+        });
         setShown({ kind: "sweep", id });
       } else {
-        await lab({ case: "backtest", value: run }, "accepted");
+        await lab({ case: "startBacktest", value: run });
         setShown({ kind: "run", id });
       }
       await readRuns();
@@ -138,9 +137,9 @@ export function StrategyLab(context: TerminalContext) {
   const rows = useMemo(() => {
     const seen = new Set<string>();
     return runs.filter(run => {
-      if (!run.sweep) return true;
-      if (seen.has(run.sweep)) return false;
-      seen.add(run.sweep);
+      if (!run.sweepId) return true;
+      if (seen.has(run.sweepId)) return false;
+      seen.add(run.sweepId);
       return true;
     });
   }, [runs]);
@@ -213,7 +212,7 @@ export function StrategyLab(context: TerminalContext) {
             <RunResult
               key={shown.id}
               id={shown.id}
-              state={runs.find(run => run.id === shown.id)?.state ?? ""}
+              state={runState(runs.find(run => run.id === shown.id)?.state ?? 0)}
             />
           )}
           {shown?.kind === "sweep" && sweep?.id === shown.id && (
@@ -273,7 +272,7 @@ export function StrategyLab(context: TerminalContext) {
               {strategy.parameters.map(parameter => (
                 <label key={parameter.name}>
                   <span>
-                    {parameter.name} <small>{parameter.kind}</small>
+                    {parameter.name} <small>{parameterKind(parameter)}</small>
                   </span>
                   <input
                     value={form.params[parameter.name] ?? ""}
@@ -398,8 +397,8 @@ export function StrategyLab(context: TerminalContext) {
           </thead>
           <tbody>
             {rows.map(run => {
-              const group = run.sweep;
-              const members = group ? runs.filter(item => item.sweep === group) : [];
+              const group = run.sweepId;
+              const members = group ? runs.filter(item => item.sweepId === group) : [];
               const current =
                 (shown?.kind === "run" && shown.id === run.id && !group) ||
                 (shown?.kind === "sweep" && shown.id === group);
@@ -411,7 +410,7 @@ export function StrategyLab(context: TerminalContext) {
                         type="checkbox"
                         aria-label={t("比较 {id}", { id: run.id })}
                         checked={compared.includes(run.id)}
-                        disabled={run.state !== "succeeded"}
+                        disabled={runState(run.state) !== "succeeded"}
                         onChange={event =>
                           setCompared(previous =>
                             event.target.checked
@@ -435,30 +434,30 @@ export function StrategyLab(context: TerminalContext) {
                     </button>
                   </td>
                   <td className="subtle">{run.strategy}</td>
-                  <td className={`lab-state ${group ? "" : run.state}`}>
+                  <td className={`lab-state ${group ? "" : runState(run.state)}`}>
                     {group
                       ? t("已完成 {done} / {count}", {
-                          done: members.filter(item => item.state === "succeeded").length,
+                          done: members.filter(item => runState(item.state) === "succeeded").length,
                           count: members.length,
                         })
-                      : t(states[run.state] ?? run.state)}
+                      : t(states[runState(run.state)] ?? runState(run.state))}
                   </td>
                   <td className={`numeric ${signed(run.metrics.total_return)}`}>
                     {group ? "" : metric(run.metrics.total_return, true)}
                   </td>
                   <td className="numeric">{group ? "" : metric(run.metrics.sharpe, false)}</td>
                   <td className="numeric">{group ? "" : metric(run.metrics.max_drawdown, true)}</td>
-                  <td className="subtle numeric-left">{started(run.startedNs)}</td>
+                  <td className="subtle numeric-left">{started(run.startedMs)}</td>
                   <td>
-                    {((run.state === "running" && !group) ||
-                      (group && members.some(item => item.state === "running"))) && (
+                    {((runState(run.state) === "running" && !group) ||
+                      (group && members.some(item => runState(item.state) === "running"))) && (
                       <button
                         className="lab-link"
                         onClick={() =>
                           void cancelled.attempt(async () => {
                             await (group
-                              ? lab({ case: "cancelSweep", value: { id: group } }, "accepted")
-                              : lab({ case: "cancelRun", value: { id: run.id } }, "accepted"));
+                              ? lab({ case: "cancelSweep", value: { id: group } })
+                              : lab({ case: "cancelRun", value: { id: run.id } }));
                             await readRuns();
                           })
                         }
@@ -478,8 +477,8 @@ export function StrategyLab(context: TerminalContext) {
 }
 
 // When a run started, as month-day and time of the viewer's clock.
-function started(ns: bigint) {
-  const time = new Date(Number(ns / 1_000_000n));
+function started(ms: bigint) {
+  const time = new Date(Number(ms));
   const two = (value: number) => String(value).padStart(2, "0");
   return `${two(time.getMonth() + 1)}-${two(time.getDate())} ${two(time.getHours())}:${two(time.getMinutes())}`;
 }

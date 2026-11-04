@@ -12,15 +12,14 @@ from decimal import Decimal
 import os
 from pathlib import Path
 import tempfile
-import time
 
-from asterion.market_pb2 import Table
-from asterion.lab_pb2 import Request, Response, RollingRun
+from asterion.common_pb2 import ErrorCode, Period, Side, Offset
+from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, NightSession, Request,
+                              Response, RollingRun, RunState)
 
 from asterion_lab import backtest, chart, dominant, repository, package
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
-from asterion_lab.version import VERSION
 from asterion_lab.market import Client, Dataset, MarketError
 
 MODULE = "lab-service"
@@ -31,10 +30,45 @@ REPORT_SECONDS = 60
 
 
 def text(value) -> str:
-    """An exact decimal without trailing zeros; empty when absent."""
-    if value is None:
-        return ""
+    """An exact decimal without trailing zeros."""
     return format(Decimal(value).normalize(), "f")
+
+
+def decimal(value):
+    """A common.Decimal, or None to leave the field absent."""
+    return None if value is None else {"text": text(value)}
+
+
+# Chart periods as chart.py names them.
+PERIODS = {Period.PERIOD_MINUTES_1: 1, Period.PERIOD_MINUTES_5: 5, Period.PERIOD_MINUTES_10: 10,
+           Period.PERIOD_MINUTES_15: 15, Period.PERIOD_MINUTES_30: 30, Period.PERIOD_MINUTES_60: 60,
+           Period.PERIOD_DAY: "day", Period.PERIOD_WEEK: "week", Period.PERIOD_MONTH: "month",
+           Period.PERIOD_QUARTER: "quarter", Period.PERIOD_YEAR: "year"}
+NIGHTS = {"held": NightSession.NIGHT_SESSION_HELD, "none": NightSession.NIGHT_SESSION_NONE,
+          "holiday_eve": NightSession.NIGHT_SESSION_HOLIDAY_EVE,
+          "unknown": NightSession.NIGHT_SESSION_UNKNOWN}
+STATES = {"running": RunState.RUN_STATE_RUNNING, "succeeded": RunState.RUN_STATE_SUCCEEDED,
+          "failed": RunState.RUN_STATE_FAILED, "stopped": RunState.RUN_STATE_STOPPED,
+          "interrupted": RunState.RUN_STATE_INTERRUPTED}
+BEIJING = datetime.timezone(datetime.timedelta(hours=8))
+
+
+def beijing_ms(stamp: str) -> int:
+    """Unix milliseconds of a "YYYY-MM-DD HH:MM" Beijing time."""
+    moment = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=BEIJING)
+    return int(moment.timestamp() * 1000)
+
+
+def error_code(name: str) -> int:
+    return ErrorCode.Value(f"ERROR_CODE_{name.upper()}") if f"ERROR_CODE_{name.upper()}" in \
+        ErrorCode.keys() else ErrorCode.ERROR_CODE_OPERATION_FAILED
+
+
+def split_product(product: str):
+    exchange, _, name = product.partition("/")
+    if not exchange or not name:
+        raise ValueError(f"a product is EXCHANGE/product: {product}")
+    return exchange, name
 
 
 @dataclass
@@ -48,13 +82,17 @@ def summary(item, row):
     """A run's state and metrics as a RunSummary."""
     item.id = row["id"]
     if row["state"]:
-        item.strategy, item.commit, item.changes = row["strategy"], row["commit"], row["changes"]
-        item.dataset_version, item.state, item.error = row["dataset_version"], row["state"], row["error"]
-        item.started_ns, item.finished_ns = row["started_ns"], row["finished_ns"] or 0
+        item.strategy = row["strategy"]
+        item.pinned.dataset_version = row["dataset_version"]
+        item.pinned.commit, item.pinned.changes = row["commit"], row["changes"]
+        item.state, item.error = STATES[row["state"]], row["error"]
+        item.started_ms = row["started_ns"] // 1_000_000
+        if row["finished_ns"]:
+            item.finished_ms = row["finished_ns"] // 1_000_000
     for name, value in row["metrics"].items():
         if value is not None:
             item.metrics[name] = value
-    item.sweep = row.get("sweep", "")
+    item.sweep_id = row.get("sweep", "")
     return item
 
 
@@ -62,7 +100,6 @@ class Service:
     def __init__(self, name: str, directory: Path, log, market=None):
         self.name = name
         self.log = log
-        self.started = time.monotonic()
         self.initialized = False
         self.directory = directory
         self.market = market
@@ -72,7 +109,7 @@ class Service:
         # Runs a stopped service left running ended with it.
         self.runs.interrupt()
         self.backtests = {}  # run id -> its child process, while it runs
-        self.waiting = collections.deque()  # (sweep, BacktestRun) not started yet
+        self.waiting = collections.deque()  # (sweep, AdmittedRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
         self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
         # Checks, version selection and child startup form one admission. Reads
@@ -80,42 +117,38 @@ class Service:
         self.admission = asyncio.Lock()
 
     async def reply(self, request: Request) -> Response:
-        response = Response(version=1, service_id=self.name, correlation_id=request.correlation_id)
+        """The result of one call, in the field of the call's name."""
+        response = Response(id=request.id)
+        call = request.WhichOneof("call")
         try:
-            if request.version != 1 or request.service_id != self.name:
-                raise ValueError("request is for another service or protocol version")
-            body = request.WhichOneof("body")
-            if body is None:
-                raise ValueError("request has no operation")
-            handler = getattr(self, f"on_{body}")
-            if body in ("backtest", "sweep", "cancel_run", "cancel_sweep"):
+            if call is None:
+                raise ValueError("request has no call")
+            handler = getattr(self, f"on_{call}")
+            result = getattr(response, call)
+            if call in ("start_backtest", "start_sweep", "cancel_run", "cancel_sweep"):
                 async with self.admission:
-                    await handler(getattr(request, body), response)
+                    await handler(getattr(request, call), result)
             else:
-                await handler(getattr(request, body), response)
+                await handler(getattr(request, call), result)
+            result.SetInParent()
         except MarketError as error:
-            response.error.code, response.error.message = error.code, str(error)
+            response.error.code, response.error.message = error_code(error.code), str(error)
         except ValueError as error:
-            response.error.code, response.error.message = "invalid_request", str(error)
+            response.error.code, response.error.message = ErrorCode.ERROR_CODE_INVALID_REQUEST, str(error)
         except Exception as error:
-            self.log.write("error", MODULE, "request.failed", operation=request.WhichOneof("body"),
-                           message=str(error))
-            response.error.code, response.error.message = "operation_failed", str(error)
+            self.log.write("error", MODULE, "request.failed", operation=call, message=str(error))
+            response.error.code = ErrorCode.ERROR_CODE_OPERATION_FAILED
+            response.error.message = str(error)
         return response
 
     async def read(self, function, *arguments):
         return await asyncio.get_running_loop().run_in_executor(self.reads, function, *arguments)
 
-    async def on_strategy_package(self, request, response):
-        response.strategy_package.CopyFrom(await self.read(package.build, request))
+    async def on_build_package(self, request, result):
+        result.CopyFrom(await self.read(package.build, request))
 
-    async def on_health(self, _, response):
-        health = response.health
-        health.instance_id = self.name
-        health.process_id = str(os.getpid())
-        health.version = VERSION
-        health.uptime_ms = int((time.monotonic() - self.started) * 1000)
-        health.initialized = self.initialized
+    async def on_get_health(self, _, result):
+        result.ready = self.initialized
 
     def dataset(self):
         return Dataset(self.directory, self.market)
@@ -131,63 +164,54 @@ class Service:
                 raise ValueError(f"research version {version.identity} has no {table} partitions")
         return version.identity
 
-    def pin_daily(self, request):
-        fixed = type(request)()
-        fixed.CopyFrom(request)
-        fixed.dataset_version = self.data_version(fixed.dataset_version, ("daily",))
-        return fixed
+    def pin_factor(self, request):
+        return AdmittedFactor(evaluation=request,
+                              dataset_version=self.data_version("", ("daily",)))
 
-    def pin_backtest(self, request):
-        fixed = type(request)()
-        fixed.CopyFrom(request)
-        tables = ("daily", "minutes") if request.minutes else ("daily",)
-        fixed.dataset_version = self.data_version(fixed.dataset_version, tables)
-        return fixed
+    def pin_backtest(self, request, version=""):
+        """The run with the research dataset version it reads."""
+        tables = ("daily",) if request.period == Period.PERIOD_DAY else ("daily", "minutes")
+        admitted = AdmittedRun(backtest=request)
+        admitted.pinned.dataset_version = self.data_version(version, tables)
+        return admitted
 
-    async def on_summary(self, request, response):
+    async def on_get_dataset_summary(self, _, result):
         def read_summary():
             if self.market is None:
                 raise ValueError("configure the remote Market address first")
             with Client(self.market.selected()) as client:
                 return client.call("get_dataset_summary", provider=Dataset.provider)
-        value = await self.read(read_summary)
-        response.summary.dataset_version = value.dataset.version
-        response.summary.created_ns = value.dataset.created_ms * 1_000_000
-        for table in value.tables:
-            name = Table.Name(table.table).removeprefix("TABLE_").lower()
-            response.summary.tables.add(table=name, rows=table.rows,
-                partitions=table.partitions, first_day=table.first_day, last_day=table.last_day)
+        result.CopyFrom(await self.read(read_summary))
 
     def chart_bars(self, request):
         exchange = request.contract.split("/")[0]
-        if request.period in chart.CALENDAR:
+        period = PERIODS.get(request.period)
+        if period is None:
+            raise ValueError("a chart needs a period")
+        if period in chart.CALENDAR:
             warehouse = self.dataset()
             version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
             rows = warehouse.query(version, """
                 select day, open, high, low, close, volume from daily
                 where contract = ? order by day""", ("daily",), (request.contract,),
                 exchange=exchange)
-            return version, chart.calendar_bars(rows, request.period)
-        if not request.period.isdigit():
-            raise ValueError(f"no chart period {request.period!r}")
+            return version, chart.calendar_bars(rows, period)
         warehouse = self.dataset()
         version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
         rows = warehouse.query(version, """
             select day, start_ms, partial, open, high, low, close, volume from minutes
             where contract = ? order by start_ms""", ("minutes",), (request.contract,),
             contract=request.contract)
-        return version, chart.minute_bars(rows, int(request.period))
+        return version, chart.minute_bars(rows, period)
 
-    async def on_chart_bars(self, request, response):
+    async def on_get_chart_bars(self, request, result):
         version, bars = await self.read(self.chart_bars, request)
-        reply = response.chart_bars
-        reply.dataset_version, reply.contract, reply.period = (
-            version.identity, request.contract, request.period)
+        result.dataset_version = version.identity
         for bar, indicator in zip(bars, chart.macd(bar["close"] for bar in bars)):
-            item = reply.bars.add(time_ms=bar["time_ms"], trading_day=bar["trading_day"].isoformat(),
-                                  partial=bar["partial"],
-                                  **{name: text(bar[name]) for name in
-                                     ("open", "high", "low", "close", "volume")})
+            item = result.bars.add(end_ms=bar["time_ms"], trading_day=bar["trading_day"].isoformat(),
+                                   partial=bar["partial"],
+                                   **{name: decimal(bar[name]) for name in
+                                      ("open", "high", "low", "close", "volume")})
             if indicator:
                 item.macd_diff, item.macd_signal, item.macd_histogram = indicator
 
@@ -206,20 +230,19 @@ class Service:
                                      ("contracts",)))
         return version, found, names
 
-    async def on_stored_contracts(self, request, response):
+    async def on_list_stored_contracts(self, request, result):
         version, found, names = await self.read(self.stored_contracts, request.contract)
-        reply = response.stored_contracts
-        reply.dataset_version = version.identity
+        result.dataset_version = version.identity
         for contract in sorted(found):
-            item = reply.contracts.add(contract=contract, name=names.get(contract) or "")
-            if "daily" in found[contract]:
-                item.daily_first, item.daily_last, item.daily_days = found[contract]["daily"]
-            if "minutes" in found[contract]:
-                item.minute_first, item.minute_last, item.minute_days = found[contract]["minutes"]
+            item = result.contracts.add(contract=contract, name=names.get(contract) or "")
+            for table, coverage in (("daily", item.daily), ("minutes", item.minutes)):
+                if table in found[contract]:
+                    coverage.first_day, coverage.last_day, coverage.days = found[contract][table]
 
     def dominant(self, request):
-        if request.adjustment not in ("none", "ratio"):
-            raise ValueError("adjustment is none or ratio")
+        if request.adjustment == Adjustment.ADJUSTMENT_UNSPECIFIED:
+            raise ValueError("a dominant series needs an adjustment")
+        exchange, product = split_product(request.product)
         warehouse = self.dataset()
         version = warehouse.current()
         # The first day's dominant month is read from the day before it.
@@ -227,40 +250,40 @@ class Service:
             select contract, day, settlement, open_interest, close, open, high, low from daily
             where exchange = ? and product = ? and day between ?::date - 31 and ?::date
             order by day""", ("daily",),
-            (request.exchange, request.product, request.begin_day, request.end_day),
-            exchange=request.exchange)
+            (exchange, product, request.first_day, request.last_day),
+            exchange=exchange)
         months = dominant.months_of([row[:5] for row in rows])
         plan = dominant.plan(months, request.traded)
         bars = {(row[0], row[1].isoformat()): row for row in rows}
         return version, months, plan, bars
 
-    async def on_dominant(self, request, response):
+    async def on_get_dominant_series(self, request, series):
         version, months, plan, bars = await self.read(self.dominant, request)
-        series = response.dominant
         series.dataset_version = version.identity
-        series.adjustment = request.adjustment
         segments = plan.segments
         for index, segment in enumerate(segments):
-            if index and segment.begin >= request.begin_day:
-                series.rolls.add(day=segment.begin, from_contract=months[segments[index - 1].month].contract,
+            if index and segment.begin >= request.first_day:
+                series.rolls.add(trading_day=segment.begin,
+                                 from_contract=months[segments[index - 1].month].contract,
                                  to_contract=months[segment.month].contract,
-                                 ratio=text(plan.ratios[index]))
+                                 ratio=decimal(plan.ratios[index]))
         current = -1
         for day in plan.days:
             while current + 1 < len(segments) and segments[current + 1].begin <= day:
                 current += 1
-            if current < 0 or day < request.begin_day:
+            if current < 0 or day < request.first_day:
                 continue
             segment = segments[current]
             contract = months[segment.month].contract
-            factor = segment.factor if request.adjustment == "ratio" else Decimal(1)
+            factor = segment.factor if request.adjustment == Adjustment.ADJUSTMENT_RATIO else Decimal(1)
             row = bars.get((contract, day))
             values = {}
             if row is not None:
                 for name, value in (("settlement", row[2]), ("close", row[4]), ("open", row[5]),
                                     ("high", row[6]), ("low", row[7])):
-                    values[name] = text(None if value is None else dominant.rounded(Decimal(value) * factor))
-            series.days.add(day=day, contract=contract, **values)
+                    if value is not None:
+                        values[name] = decimal(dominant.rounded(Decimal(value) * factor))
+            series.days.add(trading_day=day, contract=contract, **values)
 
     def open_days(self, exchange, begin, end):
         warehouse = self.dataset()
@@ -271,52 +294,50 @@ class Service:
             (exchange, begin, end), exchange=exchange)
         return [row[0] for row in rows]
 
-    async def on_sessions(self, request, response):
-        days = await self.read(self.open_days, request.exchange, request.begin_day, request.end_day)
-        reply = response.sessions
-        reply.reviewed = self.sessions.reviewed
+    async def on_get_trading_sessions(self, request, reply):
+        exchange, product = split_product(request.product)
+        days = await self.read(self.open_days, exchange, request.first_day, request.last_day)
+        reply.reviewed_day = self.sessions.reviewed
         named = set()
         for previous, trading_day in zip(days, days[1:]):
-            if trading_day.isoformat() < request.begin_day:
+            if trading_day.isoformat() < request.first_day:
                 continue
-            day = self.sessions.day(request.exchange, request.product, trading_day)
-            night = self.sessions.night(request.exchange, request.product, previous,
+            day = self.sessions.day(exchange, product, trading_day)
+            night = self.sessions.night(exchange, product, previous,
                                         holiday_between(previous, trading_day))
-            item = reply.days.add(trading_day=trading_day.isoformat(), day_known=day.known,
-                                  night_state=night.state)
+            item = reply.days.add(trading_day=trading_day.isoformat(),
+                                  night_session=NIGHTS[night.state])
             for begin, end in day.segments:
-                item.day.add(begin=begin, end=end)
+                item.day.add(start_ms=beijing_ms(begin), end_ms=beijing_ms(end))
             if night.state == "held":
-                item.night.begin, item.night.end = night.begin, night.end
-            item.sources.extend(sorted(set(day.sources) | set(night.sources)))
-            named |= set(item.sources)
+                item.night.start_ms, item.night.end_ms = beijing_ms(night.begin), beijing_ms(night.end)
+            item.source_ids.extend(sorted(set(day.sources) | set(night.sources)))
+            named |= set(item.source_ids)
         for identity in sorted(named):
             source = self.sessions.sources[identity]
             reply.sources.add(id=identity, title=source["title"], url=source["url"],
-                              published=source["published"], note=source["note"])
+                              published_day=source["published"], note=source["note"])
 
-    async def on_strategies(self, request, response):
-        response.strategies.CopyFrom(await asyncio.to_thread(repository.list_strategies,
-                                                             request.repository))
+    async def on_list_strategies(self, request, result):
+        result.CopyFrom(await asyncio.to_thread(repository.list_strategies, request.path))
 
-    async def on_source(self, request, response):
-        response.source.CopyFrom(repository.read_source(Path(request.repository), request.path))
+    async def on_read_source(self, request, result):
+        result.CopyFrom(repository.read_source(Path(request.repository), request.path))
 
-    async def on_save_source(self, request, response):
-        response.source.CopyFrom(repository.write_source(
-            Path(request.repository), request.path, request.content, request.create))
+    async def on_save_source(self, request, _):
+        repository.write_source(Path(request.source.repository), request.source.path,
+                                request.content, request.create)
 
-    async def on_delete_source(self, request, response):
+    async def on_delete_source(self, request, _):
         repository.delete_source(Path(request.repository), request.path)
-        response.source.path = request.path
 
-    async def on_factor(self, request, response):
+    async def on_evaluate_factor(self, request, result):
         """Evaluates a factor in a child process and replies with its result,
         within the time the Terminal waits for a reply."""
         root = Path(request.repository)
         if not root.is_absolute() or not root.is_dir():
             raise ValueError(f"strategy repository is not a directory: {root}")
-        request = await self.read(self.pin_daily, request)
+        request = await self.read(self.pin_factor, request)
         process = await asyncio.create_subprocess_exec(
             *repository.child("asterion_lab.factor"), str(self.directory), cwd=root,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -332,9 +353,9 @@ class Service:
         if process.returncode != 0:
             lines = error.decode(errors="replace").strip().splitlines()
             raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
-        response.factor.ParseFromString(output)
+        result.ParseFromString(output)
 
-    async def on_run_report(self, request, response):
+    async def on_get_run_report(self, request, reply):
         """QuantStats figures of a finished run, computed in a child process."""
         if not IDENTITY.fullmatch(request.id):
             raise ValueError("run id is invalid")
@@ -351,8 +372,7 @@ class Service:
             lines = error.decode(errors="replace").strip().splitlines()
             raise ValueError(lines[-1] if lines else f"QuantStats exited with {process.returncode}")
         result = json.loads(output)
-        reply = response.run_report
-        reply.id, reply.quantstats_version = request.id, result["version"]
+        reply.quantstats_version = result["version"]
         reply.figures.update(result["figures"])
 
     def check_run_id(self, identity):
@@ -364,33 +384,34 @@ class Service:
     async def checked_run(self, request):
         """A run that can start: an unused id, valid settings, a Git work tree."""
         self.check_run_id(request.id)
-        backtest.config_of(request)
+        backtest.config_of(AdmittedRun(backtest=request))
         root = Path(request.repository)
         if not root.is_absolute() or not root.is_dir():
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
 
-    def with_source(self, request, name):
-        """The request with the repository's code copied for it alone."""
-        fixed = type(request)()
-        fixed.CopyFrom(request)
+    def with_source(self, admitted, name):
+        """The run with the repository's code copied for it alone."""
         (self.directory / "sources").mkdir(exist_ok=True)
         destination = Path(tempfile.mkdtemp(prefix=f"{name}-", dir=self.directory / "sources"))
-        taken = repository.snapshot(Path(request.repository), destination)
-        fixed.source, fixed.commit, fixed.changes = str(destination), taken.commit, taken.changes
-        return fixed
+        taken = repository.snapshot(Path(admitted.backtest.repository), destination)
+        admitted.source = str(destination)
+        admitted.pinned.commit, admitted.pinned.changes = taken.commit, taken.changes
+        return admitted
 
     async def launch(self, request, module="asterion_lab.backtest", source=None):
+        """Starts the child of an AdmittedRun, or with `source` of a RollingRun."""
+        identity = request.id if source else request.backtest.id
         process = await asyncio.create_subprocess_exec(
             *repository.child(module), str(self.directory), cwd=source or request.source,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         process.stdin.write(request.SerializeToString())
         process.stdin.close()
-        self.backtests[request.id] = process
+        self.backtests[identity] = process
         started = asyncio.get_running_loop().create_future()
-        asyncio.create_task(self.watch(request.id, process, started))
-        self.log.write("info", MODULE, "backtest.started", run=request.id)
+        asyncio.create_task(self.watch(identity, process, started))
+        self.log.write("info", MODULE, "backtest.started", run=identity)
         return started
 
     async def pump(self):
@@ -406,7 +427,8 @@ class Service:
             try:
                 await self.launch(run)
             except Exception as error:
-                self.log.write("error", MODULE, "backtest.not_started", run=run.id, message=str(error))
+                self.log.write("error", MODULE, "backtest.not_started", run=run.backtest.id,
+                               message=str(error))
         for sweep, rolling in list(self.rolling.items()):
             members = {f"{sweep}-{n}" for n in range(rolling.candidates)}
             if rolling.starting or any(item[0] == sweep for item in self.waiting) \
@@ -425,17 +447,16 @@ class Service:
             finally:
                 del self.rolling[sweep]
 
-    async def on_backtest(self, request, response):
+    async def on_start_backtest(self, request, _):
         await self.checked_run(request)
-        request = await self.read(self.pin_backtest, request)
-        request = await asyncio.to_thread(self.with_source, request, f"run-{request.id}")
+        admitted = await self.read(self.pin_backtest, request)
+        admitted = await asyncio.to_thread(self.with_source, admitted, f"run-{request.id}")
         # Accepted once recorded: whoever asked can read the run at once.
-        error = await (await self.launch(request))
+        error = await (await self.launch(admitted))
         if error:
             raise ValueError(error)
-        response.accepted.SetInParent()
 
-    async def on_sweep(self, request, response):
+    async def on_start_sweep(self, request, _):
         if not IDENTITY.fullmatch(request.id) or any(item[0] == request.id for item in self.waiting):
             raise ValueError("sweep id is invalid or already used")
         names = [item.name for item in request.values]
@@ -445,22 +466,22 @@ class Service:
         if count > 10000:
             raise ValueError(f"a sweep runs at most 10000 combinations, not {count}")
         combinations = list(itertools.product(*[list(item.values) for item in request.values]))
-        backtest.config_of(request.base)
+        backtest.config_of(AdmittedRun(backtest=request.base))
         base = await self.read(self.pin_backtest, request.base)
         base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}")
         runs, planned = [], []
         for n, values in enumerate(combinations):
-            run = type(request.base)()
+            run = AdmittedRun()
             run.CopyFrom(base)
-            run.id = f"{request.id}-{n}"
+            run.backtest.id = f"{request.id}-{n}"
             for name, value in zip(names, values):
-                run.params[name].CopyFrom(value)
+                run.backtest.params[name].CopyFrom(value)
             runs.append(run)
-            planned.append((run.id, {name: getattr(value, value.WhichOneof("value"))
-                                     for name, value in zip(names, values)}))
-        await self.checked_run(runs[0])
+            planned.append((run.backtest.id, {name: getattr(value, value.WhichOneof("value"))
+                                              for name, value in zip(names, values)}))
+        await self.checked_run(runs[0].backtest)
         for run in runs[1:]:
-            self.check_run_id(run.id)
+            self.check_run_id(run.backtest.id)
             backtest.config_of(run)
         rolling = None
         if request.HasField("walk_forward"):
@@ -468,9 +489,8 @@ class Service:
                 raise ValueError("rolling validation compares two or more candidates and takes no holdout")
             if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
                 raise ValueError("rolling validation needs at least 20 training days and one validation day")
-            rolling = RollingRun(id=f"{request.id}-rolling", sweep=request.id, base=base,
-                                 training_days=request.walk_forward.training_days,
-                                 validation_days=request.walk_forward.validation_days)
+            rolling = RollingRun(id=f"{request.id}-rolling", sweep_id=request.id, base=base,
+                                 walk_forward=request.walk_forward)
             self.check_run_id(rolling.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
         if request.processes:
@@ -479,22 +499,18 @@ class Service:
             self.rolling[request.id] = Rolling(rolling, len(runs))
         self.waiting.extend((request.id, run) for run in runs)
         await self.start_waiting()
-        response.accepted.SetInParent()
 
-    async def on_cancel_sweep(self, request, response):
+    async def on_cancel_sweep(self, request, _):
         members = {row["id"] for row in await self.read(self.runs.sweep, request.id)}
         members.add(f"{request.id}-rolling")
         self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
         self.rolling.pop(request.id, None)
         for identity in members & set(self.backtests):
             self.backtests[identity].terminate()
-        response.accepted.SetInParent()
 
-    async def on_sweep_runs(self, request, response):
+    async def on_get_sweep(self, request, reply):
         rows = await self.read(self.runs.sweep, request.id)
-        reply = response.sweep_runs
-        reply.id = request.id
-        reply.waiting = sum(item[0] == request.id for item in self.waiting)
+        waiting = any(item[0] == request.id for item in self.waiting)
         best = None
         for row in rows:
             item = summary(reply.runs.add(), row)
@@ -504,14 +520,13 @@ class Service:
             sharpe = row["metrics"].get("development_sharpe")
             if sharpe is not None and (best is None or sharpe > best[1]):
                 best = (row["id"], sharpe)
-        reply.selected = best[0] if best else ""
+        reply.selected_id = best[0] if best else ""
         rolling = next((row for row in await self.read(self.runs.list)
                         if row["id"] == f"{request.id}-rolling"), None)
         if rolling:
             summary(reply.rolling, rolling)
         members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
-        reply.active = bool(reply.waiting or members & set(self.backtests)
-                            or request.id in self.rolling)
+        reply.active = bool(waiting or members & set(self.backtests) or request.id in self.rolling)
 
     async def watch(self, identity, process, started):
         """Resolves `started` with "" once the child has written its run's
@@ -547,12 +562,11 @@ class Service:
         if any(row["id"] == identity and row["state"] == "running" for row in self.runs.list()):
             self.runs.end(identity, "interrupted", "cancelled" if code < 0 else error)
 
-    async def on_cancel_run(self, request, response):
+    async def on_cancel_run(self, request, _):
         process = self.backtests.get(request.id)
         if process is None:
             raise ValueError("no such run is running")
         process.terminate()
-        response.accepted.SetInParent()
 
     def run_detail(self, identity):
         row = next((row for row in self.runs.list() if row["id"] == identity), None)
@@ -564,27 +578,27 @@ class Service:
         return row, record, {name: self.runs.table(identity, name)
                              for name in ("equity", "settlements", "fills")}
 
-    async def on_run(self, request, response):
+    async def on_get_run(self, request, reply):
         row, record, tables = await self.read(self.run_detail, request.id)
-        reply = response.run
         summary(reply.summary, row)
         reply.record = record
         if tables is None:
             return
         for point in tables["equity"].iter_rows(named=True):
-            reply.equity.add(time_ns=point["time_ns"], equity=text(point["equity"]),
+            reply.equity.add(time_ms=point["time_ns"] // 1_000_000, equity=decimal(point["equity"]),
                              settlement=point["event"] == "settlement")
         for day in tables["settlements"].iter_rows(named=True):
-            reply.days.add(trading_day=day["trading_day"].isoformat(), time_ns=day["time_ns"],
-                           equity=text(day["equity"]), balance=text(day["balance"]),
-                           fees=text(day["fees"]), margin=text(day["margin"]))
+            reply.days.add(trading_day=day["trading_day"].isoformat(),
+                           settled_ms=day["time_ns"] // 1_000_000, equity=decimal(day["equity"]), balance=decimal(day["balance"]),
+                           fees=decimal(day["fees"]), margin=decimal(day["margin"]))
         for fill in tables["fills"].iter_rows(named=True):
-            reply.fills.add(fill=fill["fill"], order=fill["order"], time_ns=fill["time_ns"],
-                            contract=fill["contract"], side=fill["side"], offset=fill["offset"],
-                            quantity=text(fill["quantity"]), price=text(fill["price"]),
-                            fee=text(fill["fee"]))
+            reply.fills.add(id=fill["fill"], order_id=fill["order"],
+                            time_ms=fill["time_ns"] // 1_000_000, contract=fill["contract"],
+                            side=Side.Value(f"SIDE_{fill['side'].upper()}"),
+                            offset=Offset.Value(f"OFFSET_{fill['offset'].upper()}"),
+                            lots=decimal(fill["quantity"]), price=decimal(fill["price"]),
+                            fee=decimal(fill["fee"]))
 
-    async def on_runs(self, _, response):
+    async def on_list_runs(self, _, result):
         for row in await self.read(self.runs.list):
-            summary(response.runs.runs.add(), row)
-        response.runs.SetInParent()
+            summary(result.runs.add(), row)

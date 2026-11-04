@@ -1,497 +1,496 @@
 syntax = "proto3";
-package asterion.lab.proto;
+package lab;
+import "asterion/common.proto";
+import "asterion/market.proto";
 import "asterion/strategy.proto";
 
-// The Python research service, supervised by Terminal.
+// Lab: research over the research dataset, started by the Terminal.
+
 message Request {
-  uint32 version = 1;
-  string service_id = 2;
-  string correlation_id = 3;
-  oneof body {
-    HealthQuery health = 10;
-    SummaryQuery summary = 15;
-    DominantQuery dominant = 18;
-    SessionsQuery sessions = 19;
-    StrategiesQuery strategies = 24;
-    BacktestRun backtest = 25;
-    RunsQuery runs = 26;
-    CancelRun cancel_run = 27;
-    Sweep sweep = 28;
-    SweepQuery sweep_runs = 29;
-    CancelSweep cancel_sweep = 30;
-    RunQuery run = 31;
-    FactorRun factor = 32;
-    ChartBarsQuery chart_bars = 33;
-    StoredContractsQuery stored_contracts = 34;
-    RunReportQuery run_report = 35;
-    asterion.strategy.proto.Build strategy_package = 36;
-    SourceQuery source = 37;
-    SourceWrite save_source = 38;
-    SourceQuery delete_source = 39;
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_health = 10;
+
+    common.Empty get_dataset_summary = 20;
+    ListStoredContracts list_stored_contracts = 21;
+    GetChartBars get_chart_bars = 22;
+    GetDominantSeries get_dominant_series = 23;
+    GetTradingSessions get_trading_sessions = 24;
+
+    Repository list_strategies = 30;
+    SourcePath read_source = 31;
+    SaveSource save_source = 32;
+    SourcePath delete_source = 33;
+    BuildPackage build_package = 34;
+
+    EvaluateFactor evaluate_factor = 40;
+    Backtest start_backtest = 41;
+    common.Empty list_runs = 42;
+    RunId get_run = 43;
+    RunId get_run_report = 44;
+    RunId cancel_run = 45;
+    Sweep start_sweep = 46;
+    RunId get_sweep = 47;
+    RunId cancel_sweep = 48;
   }
 }
-message HealthQuery {}
 
-// What the research dataset holds now.
-message SummaryQuery {}
-
-// A contract's bars for the market page's chart (asterion_lab/chart.py):
-// stored minutes gathered by `period` minutes (1, 5, 10, 15, 30 or 60), or
-// daily bars by day, week, month, quarter or year, each with MACD.
-message ChartBarsQuery {
-  string contract = 1; // EXCHANGE/product/YYYY-MM
-  string period = 3;
-  // A result chart uses the run's recorded version. Empty selects latest only
-  // for browsing historical data independently of a research result.
-  string dataset_version = 4;
-}
-// The contracts a source has stored, with the days of each table.
-// QuantStats figures of a finished run (asterion_lab/report.py).
-message RunReportQuery {
-  string id = 1;
-}
-message RunReport {
-  string id = 1;
-  string quantstats_version = 2;
-  // sortino, omega, tail_ratio, ulcer_index, value_at_risk and
-  // conditional_value_at_risk; a figure without a value is absent.
-  map<string, double> figures = 3;
-}
-message StoredContractsQuery {
-  string contract = 2; // only this one, when given
-}
-// A product's dominant series in [begin_day, end_day]. The dominant month of a
-// day has the largest open interest on the previous trading day among the
-// current month and later ones that settle that day, never moving back; a
-// change takes effect on the next trading day.
-message DominantQuery {
-  string exchange = 1;
-  string product = 2;
-  string begin_day = 3;
-  string end_day = 4;
-  // A traded series leaves a month on its last day and needs bars of the
-  // outgoing month on the roll day; one only read does not.
-  bool traded = 5;
-  // "none", or "ratio": earlier months scaled to the level of the last one.
-  string adjustment = 6;
-}
-// The trading sessions of a product on the exchange's open days in
-// [begin_day, end_day], from reviewed exchange documents.
-message SessionsQuery {
-  string exchange = 1;
-  string product = 2;
-  string begin_day = 3;
-  string end_day = 4;
-}
 message Response {
-  uint32 version = 1;
-  string service_id = 2;
-  string correlation_id = 3;
-  oneof body {
-    Health health = 10;
-    Error error = 11;
-    Accepted accepted = 12;
-    Summary summary = 14;
-    DominantSeries dominant = 17;
-    Sessions sessions = 18;
-    Strategies strategies = 24;
-    Runs runs = 25;
-    SweepRuns sweep_runs = 26;
-    RunDetail run = 27;
-    FactorResult factor = 28;
-    ChartBars chart_bars = 29;
-    StoredContracts stored_contracts = 30;
-    RunReport run_report = 31;
-    asterion.strategy.proto.Package strategy_package = 32;
-    Source source = 33;
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Health get_health = 10;
+
+    market.DatasetSummary get_dataset_summary = 20;
+    StoredContracts list_stored_contracts = 21;
+    ChartBars get_chart_bars = 22;
+    DominantSeries get_dominant_series = 23;
+    TradingSessions get_trading_sessions = 24;
+
+    Strategies list_strategies = 30;
+    Source read_source = 31;
+    common.Empty save_source = 32;
+    common.Empty delete_source = 33;
+    asterion.strategy.proto.Package build_package = 34;
+
+    FactorResult evaluate_factor = 40;
+    common.Empty start_backtest = 41;
+    Runs list_runs = 42;
+    RunDetail get_run = 43;
+    RunReport get_run_report = 44;
+    common.Empty cancel_run = 45;
+    common.Empty start_sweep = 46;
+    SweepRuns get_sweep = 47;
+    common.Empty cancel_sweep = 48;
   }
 }
-message Health {
-  // The service name it was started as; a process restart keeps it.
-  string instance_id = 1;
-  string process_id = 2;
-  string version = 3;
-  uint64 uptime_ms = 4;
-  bool initialized = 5;
-}
-message Error {
-  string code = 1;
-  string message = 2;
-}
-message Accepted {}
 
-message TableSummary {
-  string table = 1;
-  uint64 rows = 2;
-  uint32 partitions = 3;
-  string first_day = 4;
-  string last_day = 5;
+message Health {
+  bool ready = 1;
 }
-message Summary {
+
+// ---- Data
+
+// No contract lists them all.
+message ListStoredContracts {
+  string contract = 1;
+}
+
+message StoredContracts {
   string dataset_version = 1;
-  int64 created_ns = 2;
-  repeated TableSummary tables = 3;
+  repeated StoredContract contracts = 2;
 }
+
+message StoredContract {
+  string contract = 1;
+  string name = 2;
+  DayRange daily = 3;
+  DayRange minutes = 4;
+}
+
+message DayRange {
+  string first_day = 1;
+  string last_day = 2;
+  uint32 days = 3;
+}
+
+// An empty dataset version reads the current one.
+message GetChartBars {
+  string contract = 1;
+  common.Period period = 2;
+  string dataset_version = 3;
+}
+
+message ChartBars {
+  string dataset_version = 1;
+  repeated ChartBar bars = 2;
+}
+
 message ChartBar {
-  int64 time_ms = 1; // when the period ended; days at 15:00 Beijing time of the last day
-  string trading_day = 2; // the last trading day in the bar
-  bool partial = 3; // a recorded minute in it is incomplete
-  // Exact decimals as text.
-  string open = 4;
-  string high = 5;
-  string low = 6;
-  string close = 7;
-  string volume = 8;
+  // When the bar ends; a day bar ends at 15:00 Beijing time.
+  int64 end_ms = 1;
+  string trading_day = 2;
+  bool partial = 3;
+  common.Decimal open = 4;
+  common.Decimal high = 5;
+  common.Decimal low = 6;
+  common.Decimal close = 7;
+  common.Decimal volume = 8;
   // Absent for the first 33 bars.
   optional double macd_diff = 9;
   optional double macd_signal = 10;
   optional double macd_histogram = 11;
 }
-message ChartBars {
+
+enum Adjustment {
+  ADJUSTMENT_UNSPECIFIED = 0;
+  ADJUSTMENT_NONE = 1;
+  // Earlier months scaled to the level of the last one.
+  ADJUSTMENT_RATIO = 2;
+}
+
+// Traded leaves a month on its last day and includes the outgoing month's bars
+// on the roll day.
+message GetDominantSeries {
+  string product = 1;
+  string first_day = 2;
+  string last_day = 3;
+  bool traded = 4;
+  Adjustment adjustment = 5;
+}
+
+message DominantSeries {
   string dataset_version = 1;
-  string contract = 2;
-  string period = 3;
-  repeated ChartBar bars = 4;
+  repeated DominantDay days = 2;
+  repeated Roll rolls = 3;
 }
-message StoredContract {
-  string contract = 1;
-  string name = 2; // from the contract table, when it has the contract
-  string daily_first = 3;
-  string daily_last = 4;
-  uint32 daily_days = 5;
-  string minute_first = 6;
-  string minute_last = 7;
-  uint32 minute_days = 8;
-}
-message StoredContracts {
-  string dataset_version = 1;
-  repeated StoredContract contracts = 3;
-}
+
+// Prices are absent when the month did not trade or settle that day.
 message DominantDay {
-  string day = 1;
+  string trading_day = 1;
   string contract = 2;
-  // Exact decimals as text, adjusted as asked; empty when the month did not
-  // trade or settle that day.
-  string open = 3;
-  string high = 4;
-  string low = 5;
-  string close = 6;
-  string settlement = 7;
+  common.Decimal open = 3;
+  common.Decimal high = 4;
+  common.Decimal low = 5;
+  common.Decimal close = 6;
+  common.Decimal settlement = 7;
 }
+
 message Roll {
-  string day = 1;
+  string trading_day = 1;
   string from_contract = 2;
   string to_contract = 3;
   // New over old settlement on the trading day before the roll.
-  string ratio = 4;
+  common.Decimal ratio = 4;
 }
-message DominantSeries {
-  string dataset_version = 1;
-  string adjustment = 2;
-  repeated DominantDay days = 3;
-  repeated Roll rolls = 4;
+
+message GetTradingSessions {
+  string product = 1;
+  string first_day = 2;
+  string last_day = 3;
 }
-// Beijing time, "YYYY-MM-DD HH:MM".
-message SessionSegment {
-  string begin = 1;
-  string end = 2;
-}
-message SessionDay {
-  string trading_day = 1;
-  // No reviewed rule covers the day session: its times are unknown.
-  bool day_known = 2;
-  repeated SessionSegment day = 3;
-  // held; none (the product has no night session); holiday_eve (none before a
-  // statutory holiday); unknown (no reviewed rule, or a period not established).
-  string night_state = 4;
-  SessionSegment night = 5;
-  repeated string sources = 6;
-}
-message SessionSource {
-  string id = 1;
-  string title = 2;
-  string url = 3;
-  string published = 4;
-  string note = 5;
-}
-message Sessions {
-  string reviewed = 1;
+
+message TradingSessions {
+  string reviewed_day = 1;
   repeated SessionDay days = 2;
   repeated SessionSource sources = 3;
 }
 
-// The strategies of the strategy directory: Strategy subclasses in the
-// modules of its strategies/ directory, as the files are now.
-message StrategiesQuery {
-  string repository = 1; // the strategy directory
+enum NightSession {
+  NIGHT_SESSION_UNSPECIFIED = 0;
+  NIGHT_SESSION_HELD = 1;
+  NIGHT_SESSION_NONE = 2;
+  NIGHT_SESSION_HOLIDAY_EVE = 3;
+  NIGHT_SESSION_UNKNOWN = 4;
 }
-// One module of the strategy directory: strategies/<name>.py or
-// factors/<name>.py. Built-in modules are read only.
-message SourceQuery {
+
+message SessionDay {
+  string trading_day = 1;
+  // Empty when no reviewed rule covers the day session.
+  repeated TimeRange day = 2;
+  NightSession night_session = 3;
+  TimeRange night = 4;
+  repeated string source_ids = 5;
+}
+
+message TimeRange {
+  int64 start_ms = 1;
+  int64 end_ms = 2;
+}
+
+message SessionSource {
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  string published_day = 4;
+  string note = 5;
+}
+
+// ---- Strategy directory
+
+message Repository {
+  string path = 1;
+}
+
+// strategies/<name>.py or factors/<name>.py of a repository.
+message SourcePath {
   string repository = 1;
   string path = 2;
 }
-message SourceWrite {
-  string repository = 1;
-  string path = 2;
-  string content = 3;
-  bool create = 4; // refused when the module exists
+
+message SaveSource {
+  SourcePath source = 1;
+  string content = 2;
+  // Fails when the module exists.
+  bool create = 3;
 }
+
 message Source {
   string path = 1;
   string content = 2;
   bool read_only = 3;
 }
-message StrategyParameter {
-  string name = 1;
-  string kind = 2; // bool, int, float or str
-  asterion.strategy.proto.ParameterValue default = 3;
+
+message BuildPackage {
+  string repository = 1;
+  // module.Class
+  string strategy = 2;
 }
-message StrategyEntry {
-  string id = 1; // <module>.<class>
-  string description = 2; // the class's docstring
-  repeated StrategyParameter parameters = 3;
-}
-// A module that failed to import, with the end of its traceback.
-message StrategyModuleError {
-  string module = 1;
-  string message = 2;
-}
+
 message Strategies {
   string repository = 1;
   string commit = 2;
-  // Digest of what differs from the commit; empty when the work tree is clean.
+  // Digest of uncommitted changes; empty when the work tree is clean.
   string changes = 3;
   repeated StrategyEntry strategies = 4;
-  repeated StrategyModuleError errors = 5;
-  repeated FactorEntry factors = 6;
+  repeated FactorEntry factors = 5;
+  repeated ModuleError errors = 6;
 }
 
-// A factor: a public function of a module in the repository's factors/
-// directory, named <module>.<function>. Its parameters named after bar fields
-// receive them; the others are its settings, each with a default.
+message StrategyEntry {
+  // module.Class
+  string id = 1;
+  string description = 2;
+  repeated Parameter parameters = 3;
+}
+
+// module.function; inputs are the bar fields it takes, in order.
 message FactorEntry {
   string id = 1;
-  string description = 2; // the function's docstring
-  repeated string inputs = 3; // bar fields, in the function's order
-  repeated StrategyParameter parameters = 4;
+  string description = 2;
+  repeated string inputs = 3;
+  repeated Parameter parameters = 4;
 }
 
-// A factor evaluated across symbols: each day its values rank the symbols
-// against their returns over the following bars. Symbols are contracts,
-// products' dominant series or whole exchanges (every product of it).
-message FactorRun {
+// The default's type is the parameter's type.
+message Parameter {
+  string name = 1;
+  asterion.strategy.proto.ParameterValue default = 2;
+}
+
+message ModuleError {
+  string module = 1;
+  string traceback = 2;
+}
+
+// ---- Factors
+
+// Symbols are contracts, products (their dominant series) or exchanges.
+message EvaluateFactor {
   string repository = 1;
   string factor = 2;
   map<string, asterion.strategy.proto.ParameterValue> params = 3;
-  repeated string symbols = 5;
-  string begin_day = 6;
-  string end_day = 7;
-  repeated uint32 horizons = 8; // bars ahead; the first is the one groups use
-  uint32 groups = 9;
-  // Empty on a new UI request: Lab resolves it once before starting the child.
-  // An explicit identity reuses that immutable version or fails if unavailable.
-  string dataset_version = 10;
+  repeated string symbols = 4;
+  string first_day = 5;
+  string last_day = 6;
+  // Bars ahead; groups use the first.
+  repeated uint32 horizons = 7;
+  uint32 groups = 8;
 }
-// The rank correlation (IC) of the factor with returns `horizon` bars ahead,
-// over the days with at least three symbols.
+
+message FactorResult {
+  Pinned pinned = 1;
+  repeated string symbols = 2;
+  repeated Skipped skipped = 3;
+  repeated FactorHorizon horizons = 4;
+  repeated FactorDay days = 5;
+  repeated FactorGroup groups = 6;
+}
+
+message Skipped {
+  string symbol = 1;
+  string reason = 2;
+}
+
+// Rank correlation with returns `horizon` bars ahead.
 message FactorHorizon {
   uint32 horizon = 1;
   uint32 days = 2;
   optional double mean = 3;
   optional double deviation = 4;
-  optional double ir = 5; // mean / deviation
-  optional double t = 6; // ir * sqrt(days)
-  optional double positive = 7; // share of days above zero
+  optional double ir = 5;
+  optional double t = 6;
+  optional double positive_share = 7;
 }
+
 message FactorDay {
   string trading_day = 1;
-  uint32 symbols = 2; // with a factor value
-  optional double ic = 3; // at the first horizon
-  // Cumulative returns of each group, lowest factor first, and of the highest
-  // group less the lowest; absent until the first day with enough symbols.
+  uint32 symbols = 2;
+  optional double ic = 3;
+  // Cumulative returns, lowest group first.
   repeated double groups = 4;
   optional double long_short = 5;
 }
+
 message FactorGroup {
-  uint32 group = 1; // 1 holds the lowest values
-  optional double mean_return = 2; // per bar
-  optional double turnover = 3; // share of members new each day
-}
-// A product of an exchange that was left out, and why.
-message FactorSkipped {
-  string symbol = 1;
-  string reason = 2;
-}
-message FactorResult {
-  string commit = 1;
-  string changes = 2;
-  string dataset_version = 3;
-  repeated string symbols = 4; // as evaluated
-  repeated FactorSkipped skipped = 5;
-  repeated FactorHorizon horizons = 6;
-  repeated FactorDay days = 7;
-  repeated FactorGroup groups = 8;
+  // 1 holds the lowest values.
+  uint32 group = 1;
+  optional double mean_return = 2;
+  optional double turnover = 3;
 }
 
-// The costs of one product, as COSTS in asterion_lab/backtest.py names them:
-// margin_per_lot, open_fee, close_today_fee, close_yesterday_fee, margin_rate,
-// open_fee_rate, close_today_fee_rate, close_yesterday_fee_rate; exact decimals.
-message ProductCosts {
-  string product = 1; // EXCHANGE/product
-  repeated string values = 2;
+// ---- Backtests
+
+// What a run reads, fixed when Lab admits it.
+message Pinned {
+  string dataset_version = 1;
+  string commit = 2;
+  string changes = 3;
 }
-// A strategy of the repository over the research dataset's bars. A symbol is a
-// contract (EXCHANGE/product/YYYY-MM) or a product's traded dominant series
-// (EXCHANGE/product). Amounts are exact decimals. Accepted when the run has
-// started; its record says how it ends.
-message BacktestRun {
+
+message ProductCosts {
+  string product = 1;
+  common.Costs costs = 2;
+}
+
+// Symbols are contracts or products (their traded dominant series).
+message Backtest {
   string id = 1;
   string repository = 2;
-  string strategy = 3; // <module>.<class>
+  // module.Class
+  string strategy = 3;
   map<string, asterion.strategy.proto.ParameterValue> params = 4;
-  repeated string symbols = 6;
-  string begin_day = 7;
-  string end_day = 8;
-  string deposit = 9;
+  repeated string symbols = 5;
+  string first_day = 6;
+  string last_day = 7;
+  common.Period period = 8;
+  common.Decimal deposit = 9;
   repeated ProductCosts costs = 10;
   uint32 slippage_ticks = 11;
-  string max_order_lots = 12;
-  string max_gross_lots = 13;
-  uint32 max_working_orders = 14;
-  // What ctx.weights may ask for in all, gross and net, as shares of equity.
-  string max_gross_weight = 15;
-  string max_net_weight = 16;
-  // Statistics: periods in a year (0 for none) and an explicitly zero
-  // risk-free rate; without both the Sharpe ratio is absent. Days from
-  // holdout_day on are also measured apart from the days before it.
-  double annual_periods = 17;
-  bool zero_risk_free = 18;
-  string holdout_day = 19;
-  // Bars of this many minutes (1, 5, 10, 15, 30 or 60) from the stored
-  // minutes; daily bars when 0.
-  uint32 minutes = 20;
-  // The research dataset's version, resolved once at admission and shared by
-  // every candidate and rolling run of a sweep. Child processes read it,
-  // never the latest one.
-  string dataset_version = 22;
-  // Fixed at admission like the versions above: the strategy is imported from
-  // this copy of the repository's Python files, taken at this commit and changes.
-  string source = 24;
-  string commit = 25;
-  string changes = 26;
+  common.RiskLimits limits = 12;
+  // Shares of equity.
+  common.Decimal max_gross_weight = 13;
+  common.Decimal max_net_weight = 14;
+  // Without both, the Sharpe ratio is absent.
+  double periods_per_year = 15;
+  bool zero_risk_free_rate = 16;
+  // Days from here on are also measured apart.
+  string holdout_day = 17;
 }
-message RunsQuery {}
-message CancelRun {
+
+message RunId {
   string id = 1;
 }
-message RunSummary {
-  string id = 1;
-  string strategy = 2;
-  string commit = 3;
-  string changes = 4;
-  string dataset_version = 5;
-  string state = 6; // running, succeeded, failed, interrupted
-  string error = 7;
-  int64 started_ns = 8;
-  int64 finished_ns = 9;
-  // A metric without a value (a ratio of nothing) is absent.
-  map<string, double> metrics = 10;
-  // In a sweep's runs: the parameter values this run was given.
-  map<string, asterion.strategy.proto.ParameterValue> params = 11;
-  // The sweep this run is one combination of, if any.
-  string sweep = 12;
+
+// A sweep's run that has not started has no state.
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_RUNNING = 1;
+  RUN_STATE_SUCCEEDED = 2;
+  RUN_STATE_FAILED = 3;
+  RUN_STATE_STOPPED = 4;
+  RUN_STATE_INTERRUPTED = 5;
 }
+
 message Runs {
   repeated RunSummary runs = 1;
 }
 
-// The values one parameter takes in a sweep.
+message RunSummary {
+  string id = 1;
+  string strategy = 2;
+  Pinned pinned = 3;
+  RunState state = 4;
+  string error = 5;
+  int64 started_ms = 6;
+  optional int64 finished_ms = 7;
+  // A metric without a value is absent.
+  map<string, double> metrics = 8;
+  map<string, asterion.strategy.proto.ParameterValue> params = 9;
+  string sweep_id = 10;
+}
+
+message RunDetail {
+  RunSummary summary = 1;
+  // run.json as written when the run started.
+  string record = 2;
+  repeated EquityPoint equity = 3;
+  repeated RunDay days = 4;
+  repeated Fill fills = 5;
+}
+
+message EquityPoint {
+  int64 time_ms = 1;
+  common.Decimal equity = 2;
+  bool settlement = 3;
+}
+
+message RunDay {
+  string trading_day = 1;
+  common.Decimal equity = 2;
+  common.Decimal balance = 3;
+  common.Decimal fees = 4;
+  common.Decimal margin = 5;
+  int64 settled_ms = 6;
+}
+
+message Fill {
+  string id = 1;
+  string order_id = 2;
+  int64 time_ms = 3;
+  string contract = 4;
+  common.Side side = 5;
+  common.Offset offset = 6;
+  common.Decimal lots = 7;
+  common.Decimal price = 8;
+  common.Decimal fee = 9;
+}
+
+// QuantStats figures; a figure without a value is absent.
+message RunReport {
+  string quantstats_version = 1;
+  map<string, double> figures = 2;
+}
+
+// ---- Sweeps
+
+// The base run once per combination of values, each run <sweep id>-<n>.
+message Sweep {
+  string id = 1;
+  Backtest base = 2;
+  repeated ParameterValues values = 3;
+  // At once; 0 uses the processors less one.
+  uint32 processes = 4;
+  // Rolling validation once every run succeeded, as <sweep id>-rolling.
+  WalkForward walk_forward = 5;
+}
+
 message ParameterValues {
   string name = 1;
   repeated asterion.strategy.proto.ParameterValue values = 2;
 }
-// The base run once for every combination of the parameters' values, at most
-// 10000, each run its own record with id <sweep id>-<n>. At most `processes`
-// runs at once (0: the processors less one); the rest wait their turn.
-message Sweep {
-  string id = 1;
-  BacktestRun base = 2;
-  repeated ParameterValues values = 3;
-  uint32 processes = 4;
-  // Rolling validation once every run has succeeded, instead of a holdout.
-  WalkForward walk_forward = 5;
-}
-// Rounds select by the Sharpe ratio of `training_days` (at least 20) and are
-// followed for `validation_days` (at least 1), at most 100 rounds; one account
-// follows each round's choice (docs/lab.md). Its record is <sweep id>-rolling.
+
+// Each round picks by the Sharpe ratio of training_days, then follows it.
 message WalkForward {
   uint32 training_days = 1;
   uint32 validation_days = 2;
 }
-// What the service gives the child that runs a sweep's rolling validation.
-message RollingRun {
-  string id = 1;
-  string sweep = 2;
-  BacktestRun base = 3;
-  uint32 training_days = 4;
-  uint32 validation_days = 5;
-}
-message SweepQuery {
-  string id = 1;
-}
-// Runs of the sweep not started yet never start; those running end interrupted.
-message CancelSweep {
-  string id = 1;
-}
-// A sweep's runs in order. A run that has not started has no state yet, and
-// one cancelled before it started never gets one. With a holdout day,
-// `selected` names the run with the highest Sharpe ratio before the holdout,
-// the first among equals, as the old comparison chose; empty when none has one.
+
 message SweepRuns {
-  string id = 1;
-  repeated RunSummary runs = 2;
-  uint32 waiting = 3;
-  string selected = 4;
-  // The rolling validation's account, once it has started.
-  RunSummary rolling = 5;
-  // Runs of the sweep, or its rolling validation, are still to start or to end.
-  bool active = 6;
+  repeated RunSummary runs = 1;
+  // With a holdout day: the run with the best Sharpe ratio before it.
+  string selected_id = 2;
+  RunSummary rolling = 3;
+  bool active = 4;
 }
 
-// One run's record for its result page. Amounts are exact decimals as text.
-message RunQuery {
+// ---- Lab to its run processes
+
+message AdmittedRun {
+  Backtest backtest = 1;
+  Pinned pinned = 2;
+  // The copy of the repository's Python files the strategy is imported from.
+  string source = 3;
+}
+
+message RollingRun {
   string id = 1;
+  string sweep_id = 2;
+  AdmittedRun base = 3;
+  WalkForward walk_forward = 4;
 }
-message RunEquity {
-  int64 time_ns = 1;
-  string equity = 2;
-  bool settlement = 3; // a day's settlement, or the mark after a bar
-}
-message RunDay {
-  string trading_day = 1;
-  int64 time_ns = 2;
-  string equity = 3;
-  string balance = 4;
-  string fees = 5;
-  string margin = 6;
-}
-message RunFill {
-  string fill = 1;
-  string order = 2;
-  int64 time_ns = 3;
-  string contract = 4;
-  string side = 5; // buy, sell
-  string offset = 6; // open, close_today, close_yesterday
-  string quantity = 7;
-  string price = 8;
-  string fee = 9;
-}
-message RunDetail {
-  RunSummary summary = 1;
-  // run.json as written when the run started: what reproduces it.
-  string record = 2;
-  repeated RunEquity equity = 3;
-  repeated RunDay days = 4;
-  repeated RunFill fills = 5;
+
+message AdmittedFactor {
+  EvaluateFactor evaluation = 1;
+  string dataset_version = 2;
 }

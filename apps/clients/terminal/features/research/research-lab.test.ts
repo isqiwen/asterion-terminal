@@ -4,7 +4,7 @@ import {
   FactorDaySchema,
   FactorEntrySchema,
   RunDaySchema,
-  StrategyParameterSchema,
+  ParameterSchema,
 } from "../../src/generated/asterion/lab_pb";
 import { setLocale } from "../../src/i18n";
 import "./feature";
@@ -22,9 +22,8 @@ import {
 
 setLocale("zh-CN");
 const integer = (name: string, value: bigint) =>
-  create(StrategyParameterSchema, {
+  create(ParameterSchema, {
     name,
-    kind: "int",
     default: { value: { case: "integer", value } },
   });
 
@@ -56,7 +55,7 @@ test("monthly returns compound from the deposit, and a sweep grid fills by its t
     ["2026-01-30", "1020000"],
     ["2026-02-02", "1000000"],
     ["2026-02-27", "1050000"],
-  ].map(([tradingDay, equity]) => create(RunDaySchema, { tradingDay, equity }));
+  ].map(([tradingDay, equity]) => create(RunDaySchema, { tradingDay, equity: { text: equity } }));
   const months = monthlyReturns("1000000", days);
   expect(months.map(m => m.month)).toEqual(["2026-01", "2026-02"]);
   expect(months[0].value).toBeCloseTo(0.02);

@@ -23,7 +23,7 @@ The service runs each backtest in a child process:
 
     python3 -I -B -c "...; from asterion_lab.backtest import main; main()" <lab-directory>
 
-reads its BacktestRun (asterion/lab.proto) from standard input.
+reads its AdmittedRun (asterion/lab.proto) from standard input.
 """
 from dataclasses import dataclass
 import datetime
@@ -590,36 +590,46 @@ def number(name: str, text: str) -> Decimal:
     return value
 
 
-def minutes_of(value: int) -> int:
-    if value and value not in chart.MINUTES:
-        raise ValueError(f"minute periods are {', '.join(map(str, chart.MINUTES))}")
-    return value
+def minutes_of(period) -> int:
+    """Minutes of a bar of `period`; 0 for daily bars."""
+    from asterion.common_pb2 import Period
+    minutes = {Period.PERIOD_DAY: 0, Period.PERIOD_MINUTES_1: 1, Period.PERIOD_MINUTES_5: 5,
+               Period.PERIOD_MINUTES_10: 10, Period.PERIOD_MINUTES_15: 15,
+               Period.PERIOD_MINUTES_30: 30, Period.PERIOD_MINUTES_60: 60}
+    if period not in minutes:
+        raise ValueError(f"backtest bars are daily or {', '.join(map(str, chart.MINUTES))} minutes")
+    return minutes[period]
 
 
-def config_of(request) -> Config:
-    """A Config from a BacktestRun message."""
+def config_of(admitted) -> Config:
+    """A Config from an AdmittedRun message."""
+    request = admitted.backtest
     params = {name: getattr(value, value.WhichOneof("value"))
               for name, value in request.params.items() if value.WhichOneof("value")}
     costs = {}
     for item in request.costs:
-        if len(item.values) != len(COSTS):
-            raise ValueError(f"costs of {item.product} have eight values: {', '.join(COSTS)}")
-        costs[item.product] = [number(f"{item.product} {name}", value)
-                               for name, value in zip(COSTS, item.values)]
+        missing = [name for name in COSTS if not item.costs.HasField(name)]
+        if missing:
+            raise ValueError(f"costs of {item.product} need {', '.join(missing)}")
+        costs[item.product] = [number(f"{item.product} {name}", getattr(item.costs, name).text)
+                               for name in COSTS]
+    limits = request.limits
     return Config(
         repository=request.repository, strategy=request.strategy, params=params,
         symbols=tuple(request.symbols),
-        begin_day=request.begin_day, end_day=request.end_day, deposit=number("deposit", request.deposit),
+        begin_day=request.first_day, end_day=request.last_day,
+        deposit=number("deposit", request.deposit.text),
         costs=costs, slippage_ticks=request.slippage_ticks,
-        max_order_lots=number("max_order_lots", request.max_order_lots),
-        max_gross_lots=number("max_gross_lots", request.max_gross_lots),
-        max_working_orders=request.max_working_orders,
-        max_gross_weight=number("max_gross_weight", request.max_gross_weight or "0"),
-        max_net_weight=number("max_net_weight", request.max_net_weight or "0"),
-        annual_periods=request.annual_periods or None, zero_risk_free=request.zero_risk_free,
-        holdout_day=request.holdout_day, minutes=minutes_of(request.minutes),
-        dataset_version=request.dataset_version, source=request.source,
-        commit=request.commit, changes=request.changes)
+        max_order_lots=number("max_order_lots", limits.max_order_lots.text),
+        max_gross_lots=number("max_gross_lots", limits.max_gross_lots.text),
+        max_working_orders=limits.max_working_orders,
+        max_gross_weight=number("max_gross_weight", request.max_gross_weight.text or "0"),
+        max_net_weight=number("max_net_weight", request.max_net_weight.text or "0"),
+        annual_periods=request.periods_per_year or None,
+        zero_risk_free=request.zero_risk_free_rate,
+        holdout_day=request.holdout_day, minutes=minutes_of(request.period),
+        dataset_version=admitted.pinned.dataset_version, source=admitted.source,
+        commit=admitted.pinned.commit, changes=admitted.pinned.changes)
 
 
 def watch_parent():
@@ -640,13 +650,13 @@ def watch_parent():
 
 
 def main():
-    from asterion.lab_pb2 import BacktestRun
+    from asterion.lab_pb2 import AdmittedRun
 
     watch_parent()
-    request = BacktestRun()
+    request = AdmittedRun()
     request.ParseFromString(sys.stdin.buffer.read())
     try:
-        run(Path(sys.argv[1]), request.id, config_of(request),
+        run(Path(sys.argv[1]), request.backtest.id, config_of(request),
             lambda: print("started", flush=True))
     except BaseException as error:
         print(error, file=sys.stderr)

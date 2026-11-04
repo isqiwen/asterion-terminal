@@ -2,9 +2,11 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
 import { lab } from "../contract";
+import { Period } from "../../src/generated/asterion/common_pb";
 import {
   ChartBarsSchema,
   RunDetailSchema,
+  RunState,
   RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
 import { RunComparison, RunResult } from "./ResearchResult";
@@ -25,7 +27,7 @@ test("status refreshes preserve a pending comparison of the same two runs", asyn
   const request = vi.mocked(lab);
   request.mockImplementation(async operation => {
     await pending;
-    if (operation?.case !== "run") throw new Error("expected run read");
+    if (operation?.case !== "getRun") throw new Error("expected run read");
     return create(RunDetailSchema, {
       summary: create(RunSummarySchema, { id: operation.value.id }),
       record: JSON.stringify({ costs: { deposit: "1000000" } }),
@@ -45,18 +47,20 @@ test("status refreshes preserve a pending comparison of the same two runs", asyn
 });
 
 test.each([
-  { period: "day", datasetVersion: "a".repeat(64) },
-  { period: "5", datasetVersion: "a".repeat(64) },
+  { period: Period.DAY, datasetVersion: "a".repeat(64) },
+  { period: Period.MINUTES_5, datasetVersion: "a".repeat(64) },
 ])("the result chart reads the run's research version for $period bars", async expected => {
   const request = vi.mocked(lab);
   request.mockReset();
   request.mockImplementation(async operation => {
-    if (operation?.case === "chartBars")
+    if (operation?.case === "getChartBars")
       return create(ChartBarsSchema, { datasetVersion: "another-version" }) as never;
-    if (operation?.case !== "run") throw new Error("expected run read");
+    if (operation?.case !== "getRun") throw new Error("expected run read");
     return create(RunDetailSchema, {
-      summary: { id: "pinned", state: "succeeded" },
-      fills: [{ contract: "SHFE/rb/2026-05", timeNs: 1n, quantity: "1", price: "3000" }],
+      summary: { id: "pinned", state: RunState.SUCCEEDED },
+      fills: [
+        { contract: "SHFE/rb/2026-05", timeMs: 1n, lots: { text: "1" }, price: { text: "3000" } },
+      ],
       record: JSON.stringify({
         strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
         costs: { deposit: "1000000" },
@@ -66,20 +70,17 @@ test.each([
           symbols: ["SHFE/rb/2026-05"],
           begin_day: "2026-01-05",
           end_day: "2026-02-13",
-          bars: { period: expected.period === "day" ? "day" : "5m" },
+          bars: { period: expected.period === Period.DAY ? "day" : "5m" },
         },
       }),
     }) as never;
   });
   render(<RunResult id="pinned" state="succeeded" />);
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith(
-      {
-        case: "chartBars",
-        value: { contract: "SHFE/rb/2026-05", ...expected },
-      },
-      "chartBars",
-    ),
+    expect(request).toHaveBeenCalledWith({
+      case: "getChartBars",
+      value: { contract: "SHFE/rb/2026-05", ...expected },
+    }),
   );
   expect(await screen.findByText("返回的 K 线与运行使用的数据版本不一致。")).toBeDefined();
 });
@@ -88,11 +89,11 @@ test("a minute run says which bars it left out for an incomplete minute", async 
   const request = vi.mocked(lab);
   request.mockReset();
   request.mockImplementation(async operation => {
-    if (operation?.case === "chartBars")
+    if (operation?.case === "getChartBars")
       return create(ChartBarsSchema, { datasetVersion: "a".repeat(64) }) as never;
-    if (operation?.case !== "run") throw new Error("expected run read");
+    if (operation?.case !== "getRun") throw new Error("expected run read");
     return create(RunDetailSchema, {
-      summary: { id: "partial", state: "succeeded" },
+      summary: { id: "partial", state: RunState.SUCCEEDED },
       record: JSON.stringify({
         strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
         costs: { deposit: "1000000" },

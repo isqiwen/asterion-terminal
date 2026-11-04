@@ -17,7 +17,9 @@ sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
 from asterion import common_pb2 as common, market_pb2 as market
+from asterion.common_pb2 import Period
 from asterion.market_pb2 import Request as MarketRequest, Response as MarketResponse
+from asterion_lab.backtest import COSTS
 from asterion_lab.market import Client, Dataset, Market, MarketError
 from asterion_lab.service import Service
 from asterion_lab.runs import Runs
@@ -218,15 +220,15 @@ class RemoteResearch(unittest.TestCase):
         writer.put_rows('minutes/SHFE/2026-01-05/rb/2026-05', 'minutes', [], days=['2026-01-05'])
         version = writer.commit().identity
         service = Service('lab', self.lab, Log(), self.market)
-        run = self.base().backtest
-        run.minutes = 1
+        run = self.base().start_backtest
+        run.period = Period.PERIOD_MINUTES_1
         origin = self.market.selected()
         try:
             with patch.object(self.market, 'selected', side_effect=[origin, AssertionError('selection read twice')]):
                 pinned = service.pin_backtest(run)
-            self.assertEqual(pinned.dataset_version, version)
+            self.assertEqual(pinned.pinned.dataset_version, version)
             self.settings.unlink()
-            self.assertEqual(service.pin_backtest(pinned), pinned)
+            self.assertEqual(service.pin_backtest(run, version), pinned)
         finally:
             service.reads.shutdown(wait=True)
 
@@ -297,16 +299,20 @@ class RemoteResearch(unittest.TestCase):
             client.call('get_dataset_version', dataset=dict(provider='research'))
 
     def base(self):
-        request = Request(version=1, service_id='lab')
-        run = request.backtest
+        request = Request(id=1)
+        run = request.start_backtest
         run.repository, run.strategy = str(self.repository), 'ma_cross.MaCross'
         run.symbols.append('SHFE/rb/2026-05')
         run.params['fast'].integer, run.params['slow'].integer = 2, 4
-        run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
-        run.deposit, run.max_order_lots, run.max_gross_lots = '1000000', '10', '10'
-        run.max_working_orders = 10
-        run.annual_periods, run.zero_risk_free = 252, True
-        run.costs.add(product='SHFE/rb', values=['0', '3', '3', '3', '0.1', '0', '0', '0'])
+        run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+        run.period = Period.PERIOD_DAY
+        run.deposit.text = '1000000'
+        run.limits.max_order_lots.text = run.limits.max_gross_lots.text = '10'
+        run.limits.max_working_orders = 10
+        run.periods_per_year, run.zero_risk_free_rate = 252, True
+        costs = run.costs.add(product='SHFE/rb').costs
+        for name, value in zip(COSTS, ['0', '3', '3', '3', '0.1', '0', '0', '0']):
+            getattr(costs, name).text = value
         return request
 
     def test_real_children_sweeps_rolling_factors_and_charts_read_the_admitted_version(self):
@@ -314,7 +320,7 @@ class RemoteResearch(unittest.TestCase):
             service = Service('lab', self.lab, Log(), self.market)
             try:
                 request = self.base()
-                request.backtest.id = 'single'
+                request.start_backtest.id = 'single'
                 # Pin at admission, then publish before the child downloads its first file.
                 launch = service.launch
                 async def changed(*args, **kwargs):
@@ -322,45 +328,48 @@ class RemoteResearch(unittest.TestCase):
                     return await launch(*args, **kwargs)
                 service.launch = changed
                 answer = await service.reply(request)
-                self.assertEqual(answer.WhichOneof('body'), 'accepted', answer)
+                self.assertEqual(answer.WhichOneof('result'), 'start_backtest', answer)
                 await self.finished(service)
                 record = Runs(self.lab).record('single')
                 self.assertEqual(record['data']['dataset_version'], self.original.identity)
                 self.assertEqual(Runs(self.lab).list()[0]['state'], 'succeeded')
                 self.research.write_text(self.original.identity)
-                sweep = Request(version=1, service_id='lab')
-                sweep.sweep.id, sweep.sweep.processes = 'scan', 1
-                sweep.sweep.base.CopyFrom(self.base().backtest)
-                sweep.sweep.values.add(name='fast').values.add(integer=2)
-                sweep.sweep.values[0].values.add(integer=3)
-                sweep.sweep.walk_forward.training_days = 20
-                sweep.sweep.walk_forward.validation_days = 5
+                sweep = Request(id=1)
+                sweep.start_sweep.id, sweep.start_sweep.processes = 'scan', 1
+                sweep.start_sweep.base.CopyFrom(self.base().start_backtest)
+                sweep.start_sweep.values.add(name='fast').values.add(integer=2)
+                sweep.start_sweep.values[0].values.add(integer=3)
+                sweep.start_sweep.walk_forward.training_days = 20
+                sweep.start_sweep.walk_forward.validation_days = 5
                 answer = await service.reply(sweep)
-                self.assertEqual(answer.WhichOneof('body'), 'accepted', answer)
+                self.assertEqual(answer.WhichOneof('result'), 'start_sweep', answer)
                 await self.finished(service)
                 rows = Runs(self.lab).list()
                 self.assertEqual(len(rows), 4)
                 self.assertEqual({row['state'] for row in rows}, {'succeeded'}, rows)
                 self.assertEqual({row['dataset_version'] for row in rows}, {self.original.identity})
-                factor = Request(version=1, service_id='lab')
-                run = factor.factor
+                # A factor reads the version current when it is admitted.
+                self.research.write_text(self.original.identity)
+                factor = Request(id=1)
+                run = factor.evaluate_factor
                 run.repository, run.factor = str(self.repository), 'price.momentum'
-                run.dataset_version = self.original.identity
                 run.params['lookback'].integer = 2
                 run.symbols.extend(['SHFE/rb/2026-05', 'SHFE/rb/2026-10', 'SHFE/rb'])
-                run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+                run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
                 run.horizons.extend([1, 3])
                 run.groups = 3
                 answer = await service.reply(factor)
-                self.assertEqual(answer.WhichOneof('body'), 'factor', answer)
-                self.assertEqual(answer.factor.dataset_version, self.original.identity)
-                query = Request(version=1, service_id='lab', chart_bars=dict(
-                    dataset_version=self.original.identity, contract='SHFE/rb/2026-05', period='day'))
+                self.assertEqual(answer.WhichOneof('result'), 'evaluate_factor', answer)
+                self.assertEqual(answer.evaluate_factor.pinned.dataset_version, self.original.identity)
+                query = Request(id=1, get_chart_bars=dict(
+                    dataset_version=self.original.identity, contract='SHFE/rb/2026-05',
+                    period=Period.PERIOD_DAY))
                 answer = await service.reply(query)
-                self.assertEqual(answer.WhichOneof('body'), 'chart_bars', answer)
-                self.assertEqual(len(answer.chart_bars.bars), 30)
-                query.chart_bars.dataset_version = ''
-                self.assertLess(len((await service.reply(query)).chart_bars.bars), 30)
+                self.assertEqual(answer.WhichOneof('result'), 'get_chart_bars', answer)
+                self.assertEqual(len(answer.get_chart_bars.bars), 30)
+                self.publish_incomplete()
+                query.get_chart_bars.dataset_version = ''
+                self.assertLess(len((await service.reply(query)).get_chart_bars.bars), 30)
             finally:
                 for process in service.backtests.values():
                     process.terminate()

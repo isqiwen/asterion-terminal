@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ErrorCode, type Error as Error_ } from "../generated/asterion/common_pb";
 import { getLocale, localizeText, translate, useLocale } from "./index";
 export type DisplayError = string | Error;
 export class BackendError extends Error {
@@ -8,6 +9,13 @@ export class BackendError extends Error {
   ) {
     super(diagnostic);
   }
+}
+// A service's common.Error as a BackendError; codes are ErrorCode's names in lower case.
+export function remoteError(error: Error_) {
+  return new BackendError(
+    ErrorCode[error.code].replace(/^ERROR_CODE_/, "").toLowerCase(),
+    error.message,
+  );
 }
 const errors: Record<string, string> = {
   invalid_request: "请求无效，请检查输入",

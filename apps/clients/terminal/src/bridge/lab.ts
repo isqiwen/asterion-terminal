@@ -3,13 +3,13 @@
 // development server) carries the bytes; it owns the connection.
 import { create, fromBinary, toBinary, type MessageInitShape } from "@bufbuild/protobuf";
 import { RequestSchema, ResponseSchema, type Response } from "../generated/asterion/lab_pb";
-import { BackendError } from "../i18n/errors";
+import { BackendError, remoteError } from "../i18n/errors";
 import { desktop, nativeDesktop } from "./desktop";
 
-type RequestBody = MessageInitShape<typeof RequestSchema>["body"];
-type ReplyBody = Response["body"];
-type Reply<C> = Extract<ReplyBody, { case: C }> extends { value: infer V } ? V : never;
-let sequence = 0;
+type Call = NonNullable<MessageInitShape<typeof RequestSchema>["call"]>;
+type Result = Response["result"];
+type Reply<C> = Extract<Result, { case: C }> extends { value: infer V } ? V : never;
+let sequence = 0n;
 
 async function carry(payload: Uint8Array): Promise<Uint8Array> {
   if (nativeDesktop) return await desktop().lab(payload);
@@ -25,19 +25,18 @@ async function carry(payload: Uint8Array): Promise<Uint8Array> {
   throw new BackendError("unavailable", "Lab service requires the desktop application");
 }
 
-// The reply of one request, or a BackendError with the service's code.
-export async function lab<C extends NonNullable<ReplyBody["case"]>>(
-  body: RequestBody,
-  expected: C,
+// The result of one call: Lab answers each call in the field of the same name,
+// or with an error, raised as a BackendError with its code.
+export async function lab<C extends NonNullable<Call["case"]>>(
+  operation: Extract<Call, { case: C }>,
 ): Promise<Reply<C>> {
-  const correlationId = `ui.${Date.now()}.${++sequence}`;
-  const request = create(RequestSchema, { version: 1, serviceId: "lab", correlationId, body });
+  const id = ++sequence;
+  const request = create(RequestSchema, { id, call: operation });
   const reply = fromBinary(ResponseSchema, await carry(toBinary(RequestSchema, request)));
-  if (reply.correlationId !== correlationId)
+  if (reply.id !== id)
     throw new BackendError("operation_failed", "Lab service reply identity mismatch");
-  if (reply.body.case === "error")
-    throw new BackendError(reply.body.value.code, reply.body.value.message);
-  if (reply.body.case !== expected)
+  if (reply.result.case === "error") throw remoteError(reply.result.value);
+  if (reply.result.case !== (operation as { case: C }).case)
     throw new BackendError("operation_failed", "Lab service replied with another operation");
-  return reply.body.value as Reply<C>;
+  return reply.result.value as Reply<C>;
 }

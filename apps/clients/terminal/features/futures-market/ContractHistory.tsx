@@ -6,11 +6,13 @@ import { useEffect, useState } from "react";
 import { PriceChart } from "@asterion/client-ui/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import {
+  protocolPeriod,
   translate,
   lab,
   useWorkspaceDraft,
   ErrorNotice,
   asDisplayError,
+  type ChartPeriod,
   type DisplayError,
   type LabChartBars,
   type LabStoredContract,
@@ -18,7 +20,7 @@ import {
 } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
-type Period = number | "day" | "week" | "month" | "quarter" | "year";
+type Period = ChartPeriod;
 const minutePeriods = [1, 5, 10, 15, 30, 60];
 const calendarPeriods = [
   ["day", "日K"],
@@ -74,7 +76,7 @@ export function ContractHistory({
   useEffect(() => {
     if (!contractId) return;
     let active = true;
-    void lab({ case: "storedContracts", value: { contract: contractId } }, "storedContracts")
+    void lab({ case: "listStoredContracts", value: { contract: contractId } })
       .then(
         reply => active && setStored({ key: storedKey, contract: reply.contracts[0], error: "" }),
       )
@@ -84,8 +86,8 @@ export function ContractHistory({
     };
   }, [contractId, storedKey]);
   const known = stored?.key === storedKey ? stored : undefined;
-  const hasDays = !!known?.contract?.dailyDays;
-  const hasMinutes = !!known?.contract?.minuteDays;
+  const hasDays = !!known?.contract?.daily?.days;
+  const hasMinutes = !!known?.contract?.minutes?.days;
   const [period, setPeriod] = useWorkspaceDraft<Period | null>(`${preferenceKey}.period`, null);
   const initialPeriod = !known
     ? undefined
@@ -110,13 +112,10 @@ export function ContractHistory({
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
     let active = true;
-    void lab(
-      {
-        case: "chartBars",
-        value: { contract: contractId, period: String(activePeriod) },
-      },
-      "chartBars",
-    )
+    void lab({
+      case: "getChartBars",
+      value: { contract: contractId, period: protocolPeriod(activePeriod) },
+    })
       .then(bars => active && setDrawn({ key: barsKey, bars, error: "" }))
       .catch(reason => active && setDrawn({ key: barsKey, error: asDisplayError(reason) }));
     return () => {
@@ -132,12 +131,12 @@ export function ContractHistory({
   const setEnd = (value: number) => setPaging({ key: barsKey, end: value });
   const shown = all.slice(begin, end);
   const candles = shown.map(bar => ({
-    timestamp_ns: String(BigInt(bar.timeMs) * 1_000_000n),
-    open: bar.open,
-    high: bar.high,
-    low: bar.low,
-    close: bar.close,
-    volume: bar.volume,
+    timestamp_ns: String(bar.endMs * 1_000_000n),
+    open: bar.open?.text ?? "",
+    high: bar.high?.text ?? "",
+    low: bar.low?.text ?? "",
+    close: bar.close?.text ?? "",
+    volume: bar.volume?.text ?? "",
   }));
   // Days are labelled 15:00 Beijing time, the same date in UTC.
   const formatTime = (ns: string) => (daily ? dailyChartDate(ns) : timestamp(ns));
@@ -146,7 +145,10 @@ export function ContractHistory({
     ? averagePeriods.map((value, index) => ({
         label: `MA${value}`,
         color: colors[index],
-        values: movingAverage(all, value).slice(begin, end),
+        values: movingAverage(
+          all.map(bar => ({ close: bar.close?.text ?? "" })),
+          value,
+        ).slice(begin, end),
       }))
     : [];
   const error = known?.error || current?.error;
@@ -263,8 +265,8 @@ export function ContractHistory({
             formatAxisTime={daily ? formatTime : ns => chartTime(ns, true)}
             describe={index => (
               <>
-                {formatTime(candles[index].timestamp_ns)} · O {shown[index].open} · H{" "}
-                {shown[index].high} · L {shown[index].low} · C {shown[index].close}
+                {formatTime(candles[index].timestamp_ns)} · O {candles[index].open} · H{" "}
+                {candles[index].high} · L {candles[index].low} · C {candles[index].close}
               </>
             )}
           />

@@ -17,7 +17,7 @@ ones, which is also when a strategy could act on it.
 Each day, the symbols with a value are ranked against their returns from that
 close to the close `horizon` bars later (Spearman's rank correlation, the IC),
 and split into `groups` equal groups by value, whose next-bar returns are
-averaged. The child reads a FactorRun on standard input and writes a
+averaged. The child reads an AdmittedFactor on standard input and writes a
 FactorResult to standard output:
 
     python3 -I -B -c "...; from asterion_lab.factor import main; main()" <lab-directory>
@@ -215,7 +215,9 @@ def settings_of(request, defaults: dict) -> dict:
     return settings
 
 
-def run(directory: Path, request, reply):
+def run(directory: Path, admitted, reply):
+    """Evaluates an AdmittedFactor into a FactorResult."""
+    request = admitted.evaluation
     if not request.horizons or any(h < 1 for h in request.horizons) \
             or len(set(request.horizons)) != len(request.horizons):
         raise ValueError("horizons are distinct whole numbers of bars, at least one")
@@ -227,26 +229,25 @@ def run(directory: Path, request, reply):
     revision = repository.revision(root)
     function, inputs, defaults = repository.factor(root, request.factor)
     settings = settings_of(request, defaults)
-    if not request.dataset_version:
-        raise ValueError("research inputs must name the admitted dataset version")
-    data = Data(Dataset(directory), request.begin_day, request.end_day,
-                version=request.dataset_version)
+    data = Data(Dataset(directory), request.first_day, request.last_day,
+                version=admitted.dataset_version)
     symbols, skipped = symbols_of(data, list(request.symbols))
     if not symbols:
         raise ValueError("no symbol has daily bars in the range")
     result = evaluate(values(function, inputs, settings,
                              {symbol: bars(data, symbol) for symbol in symbols}),
                       list(request.horizons), request.groups)
-    reply.commit, reply.changes = revision.commit, revision.changes
-    reply.dataset_version = data.version.identity
+    reply.pinned.commit, reply.pinned.changes = revision.commit, revision.changes
+    reply.pinned.dataset_version = data.version.identity
     reply.symbols.extend(symbols)
     for symbol, reason in skipped:
         reply.skipped.add(symbol=symbol, reason=reason)
     for item in result["horizons"]:
         entry = reply.horizons.add(horizon=item["horizon"], days=item["days"])
-        for name in ("mean", "deviation", "ir", "t", "positive"):
+        for name, field in (("mean", "mean"), ("deviation", "deviation"), ("ir", "ir"),
+                            ("t", "t"), ("positive", "positive_share")):
             if item[name] is not None:
-                setattr(entry, name, item[name])
+                setattr(entry, field, item[name])
     for item in result["days"]:
         entry = reply.days.add(trading_day=item["day"], symbols=item["symbols"],
                                groups=item["groups"])
@@ -262,7 +263,7 @@ def run(directory: Path, request, reply):
 
 
 def main():
-    from asterion.lab_pb2 import FactorResult, FactorRun
+    from asterion.lab_pb2 import AdmittedFactor, FactorResult
 
     from asterion_lab.backtest import watch_parent
 
@@ -270,7 +271,7 @@ def main():
     # What factor code prints goes to standard error; standard output carries the reply.
     output = os.fdopen(os.dup(1), "wb")
     os.dup2(2, 1)
-    request, reply = FactorRun(), FactorResult()
+    request, reply = AdmittedFactor(), FactorResult()
     request.ParseFromString(sys.stdin.buffer.read())
     try:
         run(Path(sys.argv[1]), request, reply)

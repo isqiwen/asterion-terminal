@@ -33,7 +33,7 @@ const labAnswers = (built: () => Promise<typeof code>) =>
   vi
     .mocked(lab)
     .mockImplementation((async (operation: { case: string }) =>
-      operation.case === "strategies"
+      operation.case === "listStrategies"
         ? create(StrategiesSchema, { strategies: [{ id: "rule.Example" }] })
         : built()) as never);
 const choose = async () => {
@@ -74,10 +74,10 @@ test("the prepared files are reviewed and published only to the selected account
   render(<StrategyPackages account="account-a" repository="/strategies" />);
   await choose();
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
-  expect(lab).toHaveBeenCalledWith(
-    { case: "strategyPackage", value: { repository: "/strategies", strategy: "rule.Example" } },
-    "strategyPackage",
-  );
+  expect(lab).toHaveBeenCalledWith({
+    case: "buildPackage",
+    value: { repository: "/strategies", strategy: "rule.Example" },
+  });
   expect(screen.getByText("rule.py")).toBeDefined();
   expect(writes()).toEqual([]);
   await act(async () => fireEvent.click(screen.getByText("发布到此交易主机")));

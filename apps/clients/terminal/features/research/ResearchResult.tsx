@@ -4,6 +4,7 @@ import {
   ErrorNotice,
   asDisplayError,
   lab,
+  protocolPeriod,
   translate,
   type DisplayError,
   type LabChartBars,
@@ -12,7 +13,8 @@ import {
   type LabRunSummary,
   type MessageValues,
 } from "../contract";
-import { heatmap, monthlyReturns, parameterText } from "./research-lab";
+import { Offset, Side } from "../../src/generated/asterion/common_pb";
+import { heatmap, monthlyReturns, parameterText, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -98,7 +100,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     let active = true;
     setDetail(null);
     setError("");
-    void lab({ case: "run", value: { id } }, "run")
+    void lab({ case: "getRun", value: { id } })
       .then(reply => {
         if (!active) return;
         setDetail(reply);
@@ -116,19 +118,16 @@ export function RunResult({ id, state }: { id: string; state: string }) {
     if (!contract || !record) return;
     // The bars the run read: days, or minutes of its period.
     const bars = record.data.bars;
-    const minutes = bars.period === "day" ? "" : String(bars.period).replace("m", "");
+    const minutes = bars.period === "day" ? 0 : Number(String(bars.period).replace("m", ""));
     const datasetVersion = record.data.dataset_version;
     if (!datasetVersion) {
       setError(asDisplayError(new Error(t("运行记录缺少数据版本，无法读取对应 K 线。"))));
       return;
     }
-    void lab(
-      {
-        case: "chartBars",
-        value: { contract, period: minutes || "day", datasetVersion },
-      },
-      "chartBars",
-    )
+    void lab({
+      case: "getChartBars",
+      value: { contract, period: protocolPeriod(minutes || "day"), datasetVersion },
+    })
       .then(reply => {
         if (!active) return;
         if (reply.datasetVersion !== datasetVersion)
@@ -146,11 +145,11 @@ export function RunResult({ id, state }: { id: string; state: string }) {
   if (error) return <ErrorNotice error={error} />;
   if (!detail || !record) return <p className="subtle">{t("正在读取结果…")}</p>;
   const summary = detail.summary!;
-  if (summary.state !== "succeeded")
+  if (runState(summary.state) !== "succeeded")
     return (
       <div className="lab-result">
-        <p role={summary.state === "failed" ? "alert" : undefined}>
-          {t(states[summary.state] ?? "未开始")}
+        <p role={runState(summary.state) === "failed" ? "alert" : undefined}>
+          {t(states[runState(summary.state)] ?? "未开始")}
           {summary.error ? ` · ${summary.error}` : ""}
         </p>
         <RunDetails record={detail.record} />
@@ -159,24 +158,22 @@ export function RunResult({ id, state }: { id: string; state: string }) {
   const contracts = [...new Set(detail.fills.map(fill => fill.contract))];
   const daily = record.data.bars.period === "day";
   const candles: Candle[] = bars.map(bar => ({
-    timestamp_ns: String(BigInt(bar.timeMs) * 1_000_000n),
-    open: bar.open,
-    high: bar.high,
-    low: bar.low,
-    close: bar.close,
-    volume: bar.volume || "0",
+    timestamp_ns: String(bar.endMs * 1_000_000n),
+    open: bar.open?.text ?? "",
+    high: bar.high?.text ?? "",
+    low: bar.low?.text ?? "",
+    close: bar.close?.text ?? "",
+    volume: bar.volume?.text ?? "0",
   }));
   const trades: TradeMark[] = detail.fills
     .filter(fill => fill.contract === contract)
     .map(fill => ({
       // A day's fills sit on its bar; a minute fill on the bar that ends at its time.
       index: bars.findIndex(bar =>
-        daily
-          ? bar.tradingDay === day(fill.timeNs)
-          : BigInt(bar.timeMs) * 1_000_000n === fill.timeNs,
+        daily ? bar.tradingDay === day(fill.timeMs * 1_000_000n) : bar.endMs === fill.timeMs,
       ),
-      side: fill.side === "buy" ? ("buy" as const) : ("sell" as const),
-      text: `${fill.side === "buy" ? t("买") : t("卖")} ${Number(fill.quantity)}@${Number(fill.price)}`,
+      side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
+      text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
     }));
   const months = monthlyReturns(record.costs.deposit, detail.days);
   const holdout = record.statistics?.holdout_day as string | undefined;
@@ -211,8 +208,8 @@ export function RunResult({ id, state }: { id: string; state: string }) {
         series={{
           kind: "line",
           points: detail.days.map(item => ({
-            timestamp_ns: String(item.timeNs),
-            price: item.equity,
+            timestamp_ns: String(item.settledMs * 1_000_000n),
+            price: item.equity?.text ?? "",
           })),
         }}
         label={t("权益（逐日结算）")}
@@ -220,7 +217,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
         showVolume={false}
         fillArea
         formatTime={value => day(BigInt(value))}
-        describe={index => `${detail.days[index].tradingDay} · ${detail.days[index].equity}`}
+        describe={index => `${detail.days[index].tradingDay} · ${detail.days[index].equity?.text}`}
       />
       {contracts.length > 0 && (
         <>
@@ -240,7 +237,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
               trades={trades.filter(trade => trade.index >= 0)}
               formatTime={value => (daily ? day(BigInt(value)) : minute(BigInt(value)))}
               describe={index =>
-                `${daily ? bars[index].tradingDay : minute(BigInt(bars[index].timeMs) * 1_000_000n)} · ${bars[index].open} ${bars[index].high} ${bars[index].low} ${bars[index].close}`
+                `${daily ? bars[index].tradingDay : minute(bars[index].endMs * 1_000_000n)} · ${bars[index].open?.text} ${bars[index].high?.text} ${bars[index].low?.text} ${bars[index].close?.text}`
               }
             />
           )}
@@ -268,14 +265,14 @@ export function RunResult({ id, state }: { id: string; state: string }) {
             </thead>
             <tbody>
               {detail.fills.map(fill => (
-                <tr key={fill.fill}>
-                  <td>{day(fill.timeNs)}</td>
+                <tr key={fill.id}>
+                  <td>{day(fill.timeMs * 1_000_000n)}</td>
                   <td>{fill.contract}</td>
-                  <td>{fill.side === "buy" ? t("买") : t("卖")}</td>
-                  <td>{t(offsets[fill.offset] ?? fill.offset)}</td>
-                  <td>{fill.quantity}</td>
-                  <td>{fill.price}</td>
-                  <td>{fill.fee}</td>
+                  <td>{fill.side === Side.BUY ? t("买") : t("卖")}</td>
+                  <td>{t(offsets[Offset[fill.offset].toLowerCase()] ?? Offset[fill.offset])}</td>
+                  <td>{fill.lots?.text}</td>
+                  <td>{fill.price?.text}</td>
+                  <td>{fill.fee?.text}</td>
                 </tr>
               ))}
             </tbody>
@@ -305,7 +302,7 @@ function QuantStats({ id }: { id: string }) {
   useEffect(() => {
     if (!asked) return;
     let active = true;
-    void lab({ case: "runReport", value: { id } }, "runReport")
+    void lab({ case: "getRunReport", value: { id } })
       .then(reply => active && setReport(reply))
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
@@ -386,7 +383,7 @@ export function RunComparison({ ids: [firstId, secondId] }: { ids: readonly [str
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void Promise.all([firstId, secondId].map(id => lab({ case: "run", value: { id } }, "run")))
+    void Promise.all([firstId, secondId].map(id => lab({ case: "getRun", value: { id } })))
       .then(replies => active && setDetails(replies))
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
@@ -396,7 +393,7 @@ export function RunComparison({ ids: [firstId, secondId] }: { ids: readonly [str
   if (error) return <ErrorNotice error={error} />;
   if (details.length !== 2) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, second] = details;
-  const other = new Map(second.days.map(item => [item.tradingDay, Number(item.equity)]));
+  const other = new Map(second.days.map(item => [item.tradingDay, Number(item.equity?.text)]));
   const base = (detail: LabRunDetail) => Number(JSON.parse(detail.record).costs.deposit);
   return (
     <div className="lab-result">
@@ -426,8 +423,8 @@ export function RunComparison({ ids: [firstId, secondId] }: { ids: readonly [str
         series={{
           kind: "line",
           points: first.days.map(item => ({
-            timestamp_ns: String(item.timeNs),
-            price: String(Number(item.equity) / base(first)),
+            timestamp_ns: String(item.settledMs * 1_000_000n),
+            price: String(Number(item.equity?.text) / base(first)),
           })),
         }}
         overlays={[
@@ -471,7 +468,7 @@ export function SweepResult({
   );
   const rows = runs.map(run => ({
     id: run.id,
-    state: run.state,
+    state: runState(run.state),
     params: Object.fromEntries(names.map(name => [name, parameterText(run.params[name])])),
     metric: run.metrics[measure] ?? null,
   }));

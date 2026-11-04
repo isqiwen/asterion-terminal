@@ -24,7 +24,7 @@ export function useModules(repository: string) {
   const read = useCallback(async () => {
     if (!repository) return;
     try {
-      setModules(await lab({ case: "strategies", value: { repository } }, "strategies"));
+      setModules(await lab({ case: "listStrategies", value: { path: repository } }));
     } catch (failure) {
       notify(failure);
     }
@@ -52,7 +52,7 @@ export function LabHeader({
   useEffect(() => {
     let active = true;
     setSummary(null);
-    void lab({ case: "summary", value: {} }, "summary")
+    void lab({ case: "getDatasetSummary", value: {} })
       .then(value => active && setSummary(value))
       .catch(failure => active && notify(failure));
     return () => {
@@ -64,7 +64,7 @@ export function LabHeader({
       {modules?.commit && <code className="lab-chip">{modules.commit.slice(0, 8)}</code>}
       {modules?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
       <button className="lab-chip" onClick={() => context.navigate("workspace.coverage")}>
-        {t("研究数据")} · <code>{summary?.datasetVersion.slice(0, 8) || t("无数据")}</code>
+        {t("研究数据")} · <code>{summary?.dataset?.version.slice(0, 8) || t("无数据")}</code>
       </button>
       <span className="lab-spacer" />
       <button className="lab-link" onClick={refresh}>
@@ -100,13 +100,14 @@ export function NewModule({
         event.preventDefault();
         const path = `${folder}/${name}.py`;
         void attempt(async () => {
-          await lab(
-            {
-              case: "saveSource",
-              value: { repository, path, content: moduleTemplate(folder, name), create: true },
+          await lab({
+            case: "saveSource",
+            value: {
+              source: { repository, path },
+              content: moduleTemplate(folder, name),
+              create: true,
             },
-            "source",
-          );
+          });
           setNaming(false);
           setName("");
           created(path);
@@ -157,7 +158,7 @@ export function ModuleErrors({
         <summary>
           {item.module}.py · {t("导入失败")}
         </summary>
-        <pre>{item.message}</pre>
+        <pre>{item.traceback}</pre>
         <button
           className="lab-link"
           onClick={() =>

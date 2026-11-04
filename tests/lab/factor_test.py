@@ -120,11 +120,11 @@ class Repository(unittest.TestCase):
                                            "price.reversal", "price.volatility"])
         momentum = entries["price.momentum"]
         self.assertEqual(list(momentum.inputs), ["close"])
-        self.assertEqual([(item.name, item.kind, item.default.integer)
-                          for item in momentum.parameters], [("lookback", "int", 20)])
+        self.assertEqual([(item.name, item.default.integer) for item in momentum.parameters],
+                         [("lookback", 20)])
         (error,) = listed.errors
         self.assertEqual(error.module, "factors/broken")
-        self.assertIn("parameter window is no bar field", error.message)
+        self.assertIn("parameter window is no bar field", error.traceback)
 
     def test_the_service_evaluates_a_factor_on_what_a_strategy_sees(self):
         class Log:
@@ -133,17 +133,17 @@ class Repository(unittest.TestCase):
 
         async def scenario():
             service = Service("lab", self.directory, Log())
-            request = Request(version=1, service_id="lab")
-            run = request.factor
+            request = Request(id=1)
+            run = request.evaluate_factor
             run.repository, run.factor = str(self.repository), "price.momentum"
             run.params["lookback"].integer = 2
             run.symbols.extend(["SHFE/rb/2026-05", "SHFE/rb/2026-10", "SHFE/rb"])
-            run.begin_day, run.end_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             run.horizons.extend([1, 3])
             run.groups = 3
             reply = await service.reply(request)
-            self.assertEqual(reply.WhichOneof("body"), "factor", reply)
-            result = reply.factor
+            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
+            result = reply.evaluate_factor
             self.assertEqual(list(result.symbols), list(run.symbols))
             self.assertEqual([item.horizon for item in result.horizons], [1, 3])
             self.assertEqual(len(result.days), len(DAYS))
@@ -158,20 +158,10 @@ class Repository(unittest.TestCase):
             self.assertIn("lookback is at least one bar", failed.error.message)
             run.params.clear()
             run.symbols[:] = ["SHFE"]
-            exchange = (await service.reply(request)).factor
+            exchange = (await service.reply(request)).evaluate_factor
             self.assertEqual(list(exchange.symbols), ["SHFE/rb"])
-            # Re-reading the returned identity must not use a newly acquired dataset.
-            run.dataset_version = exchange.dataset_version
-            writer = Warehouse(self.directory).writer()
-            writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
-            self.assertNotEqual(writer.commit().identity, exchange.dataset_version)
-            repeated = await service.reply(request)
-            self.assertEqual(repeated.WhichOneof("body"), "factor", repeated)
-            self.assertEqual(repeated.factor, exchange)
-            run.dataset_version = "a" * 64
-            missing = await service.reply(request)
-            self.assertEqual(missing.error.code, "invalid_request")
-            self.assertIn("unreadable dataset version", missing.error.message)
+            self.assertEqual(exchange.pinned.dataset_version,
+                             Warehouse(self.directory).current().identity)
 
         asyncio.run(scenario())
 

@@ -15,6 +15,7 @@ import unittest
 
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1)]
 import polars as pl  # noqa: E402
+from asterion.common_pb2 import ErrorCode  # noqa: E402
 from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import repository  # noqa: E402
 from asterion_lab.runs import TABLES, Plan, Runs  # noqa: E402
@@ -193,13 +194,12 @@ class Repository(unittest.TestCase):
                           "momentum_rank.MomentumRank", "noisy.Noisy", "reversion.Reversion"])
         strategies = {entry.id: entry for entry in listed.strategies}
         self.assertTrue(strategies["ma_cross.MaCross"].description.startswith("Long while the mean"))
-        self.assertEqual([(item.name, item.kind, item.default.WhichOneof("value"))
+        self.assertEqual([(item.name, item.default.WhichOneof("value"))
                           for item in strategies["noisy.Noisy"].parameters],
-                         [("lots", "int", "integer"), ("scale", "float", "number"),
-                          ("tag", "str", "text"), ("on", "bool", "flag")])
+                         [("lots", "integer"), ("scale", "number"), ("tag", "text"), ("on", "flag")])
         self.assertEqual(strategies["noisy.Noisy"].parameters[0].default.integer, 3)
         self.assertEqual([error.module for error in listed.errors], ["broken"])
-        self.assertIn("missing_package", listed.errors[0].message)
+        self.assertIn("missing_package", listed.errors[0].traceback)
 
     def test_uncommitted_changes_are_named(self):
         (self.root / "helpers.py").write_text("LOTS = 4\n")
@@ -281,13 +281,13 @@ class Repository(unittest.TestCase):
                 pass
 
         service = Service("lab", Path(self.temporary.name), Log())
-        request = Request(version=1, service_id="lab")
-        request.strategies.repository = str(self.root)
+        request = Request(id=1)
+        request.list_strategies.path = str(self.root)
         response = asyncio.run(service.reply(request))
-        self.assertEqual(len(response.strategies.strategies), 6, response)
-        request.strategies.repository = str(Path(self.temporary.name) / "missing")
+        self.assertEqual(len(response.list_strategies.strategies), 6, response)
+        request.list_strategies.path = str(Path(self.temporary.name) / "missing")
         response = asyncio.run(service.reply(request))
-        self.assertEqual(response.error.code, "invalid_request")
+        self.assertEqual(response.error.code, ErrorCode.ERROR_CODE_INVALID_REQUEST)
 
 
 def empty_tables():

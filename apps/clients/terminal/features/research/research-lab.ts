@@ -2,14 +2,15 @@
 // form, the request for a run, a sweep or a factor's evaluation, and figures
 // read from a run record.
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import { translate, type MessageValues } from "../contract";
+import { protocolPeriod, translate, type MessageValues } from "../contract";
+import { RunState } from "../../src/generated/asterion/lab_pb";
 import type {
-  BacktestRunSchema,
+  BacktestSchema,
+  EvaluateFactorSchema,
   FactorDay,
   FactorEntry,
-  FactorRunSchema,
+  Parameter,
   RunDay,
-  StrategyParameter,
 } from "../../src/generated/asterion/lab_pb";
 
 import type { ParameterValueSchema } from "../../src/generated/asterion/strategy_pb";
@@ -17,8 +18,32 @@ import type { ParameterValueSchema } from "../../src/generated/asterion/strategy
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 type ValueInit = MessageInitShape<typeof ParameterValueSchema>;
-export type RunInit = MessageInitShape<typeof BacktestRunSchema>;
-export type FactorInit = MessageInitShape<typeof FactorRunSchema>;
+export type RunInit = MessageInitShape<typeof BacktestSchema>;
+export type FactorInit = MessageInitShape<typeof EvaluateFactorSchema>;
+// common.Costs fields in the order of costNames.
+const costFields = [
+  "marginPerLot",
+  "openFee",
+  "closeTodayFee",
+  "closeYesterdayFee",
+  "marginRate",
+  "openFeeRate",
+  "closeTodayFeeRate",
+  "closeYesterdayFeeRate",
+] as const;
+const decimal = (text: string) => ({ text });
+
+// A run's state as the pages name it: running, succeeded, failed, stopped or
+// interrupted; empty for a sweep's run that has not started.
+export const runState = (state: RunState) =>
+  state === RunState.UNSPECIFIED ? "" : RunState[state].toLowerCase();
+
+// A parameter's type, as its default value shows it.
+export function parameterKind(parameter: Parameter) {
+  return ({ flag: "bool", integer: "int", number: "float", text: "str" } as Record<string, string>)[
+    parameter.default?.value.case ?? "text"
+  ]!;
+}
 
 // The eight cost values of a product, in the lab's order.
 export const costNames = [
@@ -95,7 +120,7 @@ export function productsOf(text: string) {
 
 // One field's values: comma-separated, each of the parameter's kind. More
 // than one makes the run a sweep.
-export function parameterValues(parameter: StrategyParameter, text: string): ValueInit[] {
+export function parameterValues(parameter: Parameter, text: string): ValueInit[] {
   const items = text
     .split(/[,，]/)
     .map(item => item.trim())
@@ -103,7 +128,7 @@ export function parameterValues(parameter: StrategyParameter, text: string): Val
   const name = parameter.name;
   if (!items.length) throw new Error(t("参数 {name} 没有值", { name }));
   return items.map(item => {
-    switch (parameter.kind) {
+    switch (parameterKind(parameter)) {
       case "int":
         if (!/^-?\d+$/.test(item))
           throw new Error(t("参数 {name} 的值 {item} 不是整数", { name, item }));
@@ -124,7 +149,7 @@ export function parameterValues(parameter: StrategyParameter, text: string): Val
   });
 }
 
-export function defaultText(parameter: StrategyParameter) {
+export function defaultText(parameter: Parameter) {
   const value = parameter.default?.value;
   return value?.case === undefined ? "" : String(value.value);
 }
@@ -139,7 +164,7 @@ export function runRequest(
   form: RunForm,
   repository: string,
   strategy: string,
-  parameters: readonly StrategyParameter[],
+  parameters: readonly Parameter[],
   id: string,
 ) {
   const symbols = symbolsOf(form.symbols);
@@ -160,23 +185,30 @@ export function runRequest(
     strategy,
     params,
     symbols,
-    beginDay: form.begin,
-    endDay: form.end,
-    deposit: form.deposit,
-    costs: productsOf(form.symbols).map(product => ({
-      product,
-      values: form.costs[product] ?? costNames.map(() => ""),
-    })),
+    firstDay: form.begin,
+    lastDay: form.end,
+    period: protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)),
+    deposit: decimal(form.deposit),
+    costs: productsOf(form.symbols).map(product => {
+      const values = form.costs[product] ?? costNames.map(() => "");
+      return {
+        product,
+        costs: Object.fromEntries(
+          costFields.map((field, index) => [field, decimal(values[index]!)]),
+        ),
+      };
+    }),
     slippageTicks: Number(form.slippage),
-    maxOrderLots: form.maxOrderLots,
-    maxGrossLots: form.maxGrossLots,
-    maxWorkingOrders: Number(form.maxWorkingOrders),
-    maxGrossWeight: form.maxGrossWeight,
-    maxNetWeight: form.maxNetWeight,
-    annualPeriods: Number(form.annualPeriods) || 0,
-    zeroRiskFree: form.zeroRiskFree,
+    limits: {
+      maxOrderLots: decimal(form.maxOrderLots),
+      maxGrossLots: decimal(form.maxGrossLots),
+      maxWorkingOrders: Number(form.maxWorkingOrders),
+    },
+    maxGrossWeight: decimal(form.maxGrossWeight),
+    maxNetWeight: decimal(form.maxNetWeight),
+    periodsPerYear: Number(form.annualPeriods) || 0,
+    zeroRiskFreeRate: form.zeroRiskFree,
     holdoutDay: form.validation === "holdout" ? form.holdoutDay : "",
-    minutes: Number(form.minutes),
   };
   return { run, swept };
 }
@@ -189,7 +221,7 @@ export function monthlyReturns(deposit: string, days: readonly RunDay[]) {
   for (let i = 0; i < days.length; i++) {
     const month = days[i].tradingDay.slice(0, 7);
     if (i + 1 < days.length && days[i + 1].tradingDay.slice(0, 7) === month) continue;
-    const closing = Number(days[i].equity);
+    const closing = Number(days[i].equity?.text);
     months.push({ month, value: closing / opening - 1 });
     opening = closing;
   }
@@ -266,8 +298,8 @@ export function factorRequest(form: FactorForm, repository: string, factor: Fact
     factor: factor.id,
     params,
     symbols,
-    beginDay: form.begin,
-    endDay: form.end,
+    firstDay: form.begin,
+    lastDay: form.end,
     horizons,
     groups,
   };

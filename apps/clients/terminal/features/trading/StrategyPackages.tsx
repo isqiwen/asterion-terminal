@@ -89,7 +89,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
   useEffect(() => {
     if (!repository) return;
     let current = true;
-    void lab({ case: "strategies", value: { repository } }, "strategies").then(
+    void lab({ case: "listStrategies", value: { path: repository } }).then(
       listed => current && setStrategies(listed.strategies.map(item => item.id)),
       reason => current && notify(reason),
     );
@@ -189,10 +189,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
             onClick={() =>
               void perform(async () => {
                 setPreparation(undefined);
-                const value = await lab(
-                  { case: "strategyPackage", value: { repository, strategy } },
-                  "strategyPackage",
-                );
+                const value = await lab({ case: "buildPackage", value: { repository, strategy } });
                 setPreparation({ repository, value });
               })
             }

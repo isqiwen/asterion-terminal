@@ -36,15 +36,15 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   } | null>(null);
   useEffect(() => {
     let active = true;
-    void lab({ case: "storedContracts", value: {} }, "storedContracts")
+    void lab({ case: "listStoredContracts", value: {} })
       .then(reply => {
         // Contracts with minutes first, then by identity.
         const items = reply.contracts
-          .map(({ contract, name, dailyDays, minuteDays }) => ({
+          .map(({ contract, name, daily, minutes }) => ({
             contract,
             name,
-            dailyDays,
-            minuteDays,
+            dailyDays: daily?.days ?? 0,
+            minuteDays: minutes?.days ?? 0,
           }))
           .sort(
             (a, b) =>

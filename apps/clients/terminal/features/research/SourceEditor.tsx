@@ -35,7 +35,7 @@ export function SourceEditor({
   useEffect(() => {
     let active = true;
     void attempt(async () => {
-      const source = await lab({ case: "source", value: { repository, path } }, "source");
+      const source = await lab({ case: "readSource", value: { repository, path } });
       if (!active || !host.current) return;
       setReadOnly(source.readOnly);
       setDirty(false);
@@ -62,14 +62,14 @@ export function SourceEditor({
   const save = () =>
     attempt(async () => {
       const content = view.current!.state.doc.toString();
-      await lab({ case: "saveSource", value: { repository, path, content } }, "source");
+      await lab({ case: "saveSource", value: { source: { repository, path }, content } });
       setDirty(false);
       changed();
     });
   const remove = async () => {
     if (!window.confirm(t("删除这个模块？删除后不能恢复。"))) return;
     await attempt(async () => {
-      await lab({ case: "deleteSource", value: { repository, path } }, "source");
+      await lab({ case: "deleteSource", value: { repository, path } });
       deleted();
     });
   };

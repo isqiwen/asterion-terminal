@@ -1,6 +1,7 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
-import { RequestSchema, ResponseSchema } from "../generated/asterion/lab_pb";
+import { ErrorCode } from "../generated/asterion/common_pb";
+import { RequestSchema, ResponseSchema, RunState } from "../generated/asterion/lab_pb";
 import { BackendError } from "../i18n/errors";
 import { lab } from "./lab";
 
@@ -19,18 +20,19 @@ afterEach(() => vi.unstubAllGlobals());
 
 test("a request is encoded with the generated types and its reply decoded", async () => {
   serve(request => {
-    expect(request).toMatchObject({ version: 1, serviceId: "lab", body: { case: "runs" } });
+    expect(request).toMatchObject({ call: { case: "listRuns" } });
     return toBinary(
       ResponseSchema,
       create(ResponseSchema, {
-        version: 1,
-        serviceId: "lab",
-        correlationId: request.correlationId,
-        body: { case: "runs", value: { runs: [{ id: "research-1", state: "running" }] } },
+        id: request.id,
+        result: {
+          case: "listRuns",
+          value: { runs: [{ id: "research-1", state: RunState.RUNNING }] },
+        },
       }),
     );
   });
-  const runs = await lab({ case: "runs", value: {} }, "runs");
+  const runs = await lab({ case: "listRuns", value: {} });
   expect(runs.runs.map(run => run.id)).toEqual(["research-1"]);
 });
 
@@ -39,24 +41,17 @@ test("a service error and a reply to another request are errors", async () => {
     toBinary(
       ResponseSchema,
       create(ResponseSchema, {
-        version: 1,
-        serviceId: "lab",
-        correlationId: request.correlationId,
-        body: {
+        id: request.id,
+        result: {
           case: "error",
-          value: { code: "invalid_request", message: "Market settings missing" },
+          value: { code: ErrorCode.INVALID_REQUEST, message: "Market settings missing" },
         },
       }),
     ),
   );
-  await expect(lab({ case: "summary", value: {} }, "summary")).rejects.toMatchObject({
+  await expect(lab({ case: "getDatasetSummary", value: {} })).rejects.toMatchObject({
     code: "invalid_request",
   });
-  serve(() =>
-    toBinary(
-      ResponseSchema,
-      create(ResponseSchema, { version: 1, serviceId: "lab", correlationId: "another" }),
-    ),
-  );
-  await expect(lab({ case: "summary", value: {} }, "summary")).rejects.toBeInstanceOf(BackendError);
+  serve(() => toBinary(ResponseSchema, create(ResponseSchema, { id: 0n })));
+  await expect(lab({ case: "getDatasetSummary", value: {} })).rejects.toBeInstanceOf(BackendError);
 });

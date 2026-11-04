@@ -3,7 +3,6 @@
 #include <asterion/base/error.hpp>
 #include <asterion/base/id.hpp>
 #include <asterion/lab.pb.h>
-#include <asterion/protocol/trading.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/environment.hpp>
 #include <asterion/system/ipc/rpc_client.hpp>
@@ -36,25 +35,18 @@ std::string utf8(const fs::path& path)
 bool heartbeat(const std::string& endpoint)
 {
     ipc::RpcClient channel(endpoint, 1, PayloadBudget{256 * 1024}, 64 * 1024);
-    const auto correlation = "health." + unique_process_id();
-    lab::proto::Request ping;
-    ping.set_version(1);
-    ping.set_service_id("lab");
-    ping.set_correlation_id(correlation);
-    ping.mutable_health();
+    ::lab::Request ping;
+    ping.set_id(1);
+    ping.mutable_get_health();
     auto pending = channel.request(ping.SerializeAsString(), 1500ms);
     while (pending.wait_for(0ms) != std::future_status::ready) {
         channel.poll();
         std::this_thread::sleep_for(1ms);
     }
-    lab::proto::Response reply;
-    if (!reply.ParseFromString(*pending.get()))
+    ::lab::Response reply;
+    if (!reply.ParseFromString(*pending.get()) || !reply.has_get_health())
         throw std::runtime_error("invalid lab health");
-    protocol::validate_message(reply);
-    if (reply.version() != 1 || reply.service_id() != "lab" || reply.correlation_id() != correlation
-        || !reply.has_health() || reply.health().instance_id() != "lab")
-        throw std::runtime_error("lab health identity mismatch");
-    return reply.health().initialized();
+    return reply.get_health().ready();
 }
 
 } // namespace

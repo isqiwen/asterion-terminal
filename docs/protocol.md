@@ -1,6 +1,6 @@
 # 通信协议设计
 
-本文规定 Terminal、Lab、Market 和 Trading 之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
+本文规定 Terminal、Lab、Market 和 Trading 之间消息的格式和命名规则，并列出各服务提供的操作。Trading 和策略进程的协议还在迁移到这些规则。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
 
 ## 1. 传输
 
@@ -131,6 +131,30 @@ sequenceDiagram
 
 客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 Market 发送新的 `full`。
 
-## 8. 演进
+## 8. Lab
+
+定义在 [lab.proto](../protocol/proto/asterion/lab.proto)。行为说明见 [Lab](lab.md)。Lab 只接受本机 Terminal 的连接。
+
+| 操作 | 参数 | 结果 |
+| --- | --- | --- |
+| `get_health` | — | 是否已启动完成；Terminal 守护进程用它判断 Lab 是否可用 |
+| `get_dataset_summary` | — | 研究数据当前版本的摘要，与 Market 的 `DatasetSummary` 相同 |
+| `list_stored_contracts` | 合约，不填表示全部 | 每个合约的日线和分钟线范围 |
+| `get_chart_bars` | 合约、周期、版本 | K 线与 MACD |
+| `get_dominant_series` | 品种、起止日、是否按交易换月、复权方式 | 主力连续的逐日价格和换月 |
+| `get_trading_sessions` | 品种、起止日 | 每个交易日的日盘、夜盘时段和依据 |
+| `list_strategies` | 策略目录 | 策略、因子、导入失败的模块 |
+| `read_source` / `save_source` / `delete_source` | 模块路径 | 模块内容 / — / — |
+| `build_package` | 策略目录与策略 | 发布到 Trading 的策略包 |
+| `evaluate_factor` | 因子、参数、品种、起止日、持有期、分组 | 因子评估结果 |
+| `start_backtest` | 回测设置 | —，接受即已记录 |
+| `list_runs` / `get_run` / `get_run_report` | — / 运行 ID / 运行 ID | 运行列表 / 运行详情 / QuantStats 指标 |
+| `cancel_run` | 运行 ID | — |
+| `start_sweep` / `get_sweep` / `cancel_sweep` | 扫描设置 / 扫描 ID / 扫描 ID | — / 扫描的各次运行 / — |
+
+- 回测和因子评估在接受时由 Lab 选定研究数据版本和代码提交，结果里的 `pinned` 写明这三项。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
+- Lab 交给子进程的是 `AdmittedRun`、`RollingRun` 和 `AdmittedFactor`：界面的请求加上 Lab 选定的版本和代码副本。它们也定义在 lab.proto 里，但只在 Lab 内部使用。
+
+## 9. 演进
 
 项目未发布，协议只有当前一版：改字段时同时修改所有服务和客户端，删掉的字段不保留编号。持久化的 Protobuf 文件（采集任务、目录缓存）格式随协议一起变化，旧文件按无效文件处理。
