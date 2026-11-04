@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActionError,
   notify,
   lab,
+  useActionError,
   translate,
   type LabRunSummary,
   type MessageValues,
@@ -52,6 +54,8 @@ export function StrategyLab(context: TerminalContext) {
   const source = useSource(shown);
   const [compared, setCompared] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const submitted = useActionError();
+  const cancelled = useActionError();
 
   const readRuns = useCallback(async () => {
     try {
@@ -95,7 +99,7 @@ export function StrategyLab(context: TerminalContext) {
   const submit = async () => {
     if (!strategy) return;
     setBusy(true);
-    try {
+    await submitted.attempt(async () => {
       const id = identity(strategy.id);
       const { run, swept } = runRequest(form, repository, strategy.id, strategy.parameters, id);
       if (form.validation === "rolling" && !swept.length)
@@ -126,11 +130,8 @@ export function StrategyLab(context: TerminalContext) {
         setShown({ kind: "run", id });
       }
       await readRuns();
-    } catch (failure) {
-      notify(failure);
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
   };
 
   // A sweep's runs show as one row.
@@ -364,6 +365,7 @@ export function StrategyLab(context: TerminalContext) {
               >
                 {t("运行")}
               </button>
+              <ActionError error={submitted.error} />
             </footer>
           </>
         )}
@@ -379,6 +381,7 @@ export function StrategyLab(context: TerminalContext) {
             {t("比较所选两次")}
           </button>
         </header>
+        <ActionError error={cancelled.error} />
         <table className="lab-table">
           <thead>
             <tr>
@@ -452,13 +455,12 @@ export function StrategyLab(context: TerminalContext) {
                       <button
                         className="lab-link"
                         onClick={() =>
-                          void (
-                            group
+                          void cancelled.attempt(async () => {
+                            await (group
                               ? lab({ case: "cancelSweep", value: { id: group } }, "accepted")
-                              : lab({ case: "cancelRun", value: { id: run.id } }, "accepted")
-                          )
-                            .then(readRuns)
-                            .catch(failure => notify(failure))
+                              : lab({ case: "cancelRun", value: { id: run.id } }, "accepted"));
+                            await readRuns();
+                          })
                         }
                       >
                         {t("取消")}

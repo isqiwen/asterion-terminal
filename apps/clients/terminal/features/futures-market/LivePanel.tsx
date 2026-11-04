@@ -2,12 +2,13 @@ import { MarketBoard } from "./MarketBoard";
 import { useMarket } from "../../src/host/market";
 import { useState } from "react";
 import {
+  ActionError,
   ErrorNotice,
   BackendError,
   translate,
+  useActionError,
   type MessageValues,
   type TerminalContext,
-  notify,
 } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
@@ -19,9 +20,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const watched = endpoint?.instruments ?? [];
-  const phase = market ? (market.online ? market.snapshot.phase : "unreachable") : "closed";
+  const phase = market?.online ? market.snapshot.phase : "unreachable";
   const phases: Record<string, string> = {
-    closed: t("尚未连接行情服务"),
     disconnected: t("服务尚未连接柜台"),
     connecting: t("连接中"),
     logging_in: t("登录中"),
@@ -31,13 +31,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     error: t("连接失败"),
     unreachable: t("行情服务失联"),
   };
-  async function run(action: () => Promise<void>) {
-    try {
-      await action();
-    } catch (reason) {
-      notify(reason, { namespace: "asterion.terminal.futures-market" });
-    }
-  }
+  const { error, attempt } = useActionError();
+  const failed = <ActionError error={error} namespace="asterion.terminal.futures-market" />;
   async function select(instruments: { venue: string; symbol: string }[]) {
     if (
       instruments.length > 50 ||
@@ -55,18 +50,16 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <h2>{t("实时行情")}</h2>
           <span role="status">{phases[phase] ?? phase}</span>
           <span className="panel-spacer" />
+          <span className="subtle">{endpoint && `${endpoint.host}:${endpoint.port}`}</span>
           <button
-            disabled={context.busy || (!market && !endpoint)}
-            onClick={() => void run(() => context.trade(market ? "market.close" : "market.open"))}
+            disabled={context.busy}
+            title={t("关闭此连接不影响服务录制或其他客户端。")}
+            onClick={() => void attempt(() => context.trade("market.close"))}
           >
-            {t(market ? "关闭行情连接" : "连接行情服务")}
+            {t("关闭行情连接")}
           </button>
         </div>
-        <p role="status" aria-label={t("行情来源")} className="market-source">
-          {endpoint ? `${endpoint.host}:${endpoint.port}` : t("尚未填写行情服务地址。")}{" "}
-          <button onClick={() => context.openSettings("sources")}>{t("配置行情服务")}</button>
-        </p>
-        <p className="subtle">{t("关闭此连接不影响服务录制或其他客户端。")}</p>
+        {failed}
         {!!market?.snapshot.errorCode && (
           <p role="alert">
             {t("行情连接异常，请检查配置或服务时段。")} CTP {market.snapshot.errorCode}
@@ -88,7 +81,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
             className="market-watchlist"
             onSubmit={event => {
               event.preventDefault();
-              void run(() => select([...watched, { venue, symbol: symbol.trim() }]));
+              void attempt(() => select([...watched, { venue, symbol: symbol.trim() }]));
             }}
           >
             <label>
@@ -123,7 +116,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                   disabled={context.busy}
                   aria-label={t("移除 {symbol}", { symbol: item.symbol })}
                   onClick={() =>
-                    void run(() =>
+                    void attempt(() =>
                       select(
                         watched.filter(
                           other => other.venue !== item.venue || other.symbol !== item.symbol,
@@ -152,14 +145,29 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     <section className="live-market" aria-label={t("实时期货行情")}>
       {market ? (
         <MarketBoard market={market} context={context} toolbar={toolbar} />
+      ) : endpoint ? (
+        <div className="workspace-empty">
+          <strong>{t("尚未连接行情服务")}</strong>
+          <p>
+            {endpoint.host}:{endpoint.port}
+          </p>
+          <button
+            className="primary"
+            disabled={context.busy}
+            onClick={() => void attempt(() => context.trade("market.open"))}
+          >
+            {t("连接行情服务")}
+          </button>
+          {failed}
+        </div>
       ) : (
-        <>
-          {toolbar}
-          <div className="workspace-empty">
-            <strong>{t("尚无订阅行情")}</strong>
-            <p>{t("连接远程行情服务以查看市场。")}</p>
-          </div>
-        </>
+        <div className="workspace-empty">
+          <strong>{t("尚未设置行情服务")}</strong>
+          <p>{t("在设置里填写 Market 的地址和证书指纹后，这里显示实时行情。")}</p>
+          <button className="primary" onClick={() => context.openSettings("sources")}>
+            {t("配置行情服务")}
+          </button>
+        </div>
       )}
     </section>
   );

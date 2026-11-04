@@ -392,6 +392,12 @@
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
+/* Why the user's last action failed, under the control they used. */
+.action-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
 .workspace-empty {
   flex: 1;
   min-height: 120px;

@@ -5,7 +5,7 @@ import {
   type Instance,
   type State,
 } from "../../src/generated/asterion/strategy_pb";
-import { notify } from "../contract";
+import { ActionError, useActionError } from "../contract";
 import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
 import { environmentName, t } from "./live-shared";
 import {
@@ -42,6 +42,7 @@ export function StrategyInstance({
   busy: boolean;
   start: (configuration: Instance) => Promise<boolean>;
 }) {
+  const { error, attempt } = useActionError();
   const [id, setId] = useState("");
   const [packageKey, setPackage] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -138,7 +139,7 @@ export function StrategyInstance({
           onSubmit={event => {
             event.preventDefault();
             if (!usable) return;
-            try {
+            void attempt(async () => {
               const installed = state.packages.find(
                 item => `${item.name}/${item.version}` === packageKey,
               );
@@ -162,9 +163,7 @@ export function StrategyInstance({
                     : undefined,
                 }),
               });
-            } catch (reason) {
-              notify(reason, { namespace: "asterion.terminal.trading" });
-            }
+            });
           }}
         >
           <fieldset disabled={busy || !usable}>
@@ -351,6 +350,7 @@ export function StrategyInstance({
             <button type="submit" disabled={!usable || busy}>
               {t("核对启动配置")}
             </button>
+            <ActionError error={error} namespace="asterion.terminal.trading" />
           </fieldset>
         </form>
       )}

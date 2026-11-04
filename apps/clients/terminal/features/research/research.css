@@ -793,11 +793,9 @@ label.lab-inline {
   flex-wrap: wrap;
   gap: 6px;
 }
-.lab-new-module-error {
+.lab-new-module .action-error {
   flex-basis: 100%;
   margin: 0;
-  color: var(--danger);
-  font-size: 12px;
 }
 .lab-new-module input {
   min-width: 0;

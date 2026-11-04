@@ -4,7 +4,7 @@ import type { Snapshot } from "../bridge/client";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { SettingsSection } from "./Section";
 import { kindLabels, serviceStatus, t } from "./service-state";
-import { notify } from "../host/notifications";
+import { ActionError, useActionError } from "../host/action-error";
 type Action = "stop" | "restart";
 type Pending = { service: string; action: Action };
 const actionLabels: Record<Action, string> = { stop: "停止服务", restart: "重启服务" };
@@ -22,13 +22,8 @@ export function Connections({
   const [pending, setPending] = useState<Pending | null>(null);
   const node = snapshot?.nodes.find(n => n.id === "local");
   const services = node?.health?.services ?? [];
-  async function run(...args: CommandCall) {
-    try {
-      await trade(...args);
-    } catch (reason) {
-      notify(reason);
-    }
-  }
+  const { error, attempt } = useActionError();
+  const run = (...args: CommandCall) => attempt(() => trade(...args));
   const changed = !services.some(s => s.id === pending?.service);
   return (
     <>
@@ -114,6 +109,7 @@ export function Connections({
             <p className="settings-hint">{t("尚无本机服务；使用相应功能时自动启动。")}</p>
           )}
         </div>
+        <ActionError error={error} />
       </SettingsSection>
       {pending && (
         <ServiceActionDialog
@@ -126,7 +122,6 @@ export function Connections({
           onConfirm={() =>
             void (async () => {
               if (changed) return;
-              // A failure is reported in the notification area, which the dialog would cover.
               await run("node.action", { service: pending.service, action: pending.action });
               setPending(null);
             })()

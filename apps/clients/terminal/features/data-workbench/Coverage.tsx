@@ -13,7 +13,8 @@ import {
   type MarketSource,
   type MessageValues,
   type TerminalContext,
-  notify,
+  ActionError,
+  useActionError,
 } from "../contract";
 
 const t = (key: string, values?: MessageValues) =>
@@ -157,6 +158,8 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   const [end, setEnd] = useState(() => day(-1));
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState("");
+  const started = useActionError();
+  const cancelled = useActionError();
   const mounted = useRef(false);
   const pending = useRef(false);
 
@@ -229,7 +232,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     setSubmitting(true);
     const id = `${provider}-${crypto.randomUUID()}`;
     setSubmitted(id);
-    try {
+    await started.attempt(async () => {
       await marketData(
         {
           case: "acquisitionStart",
@@ -247,20 +250,14 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
         "acquisitionTask",
       );
       await refresh();
-    } catch (failure) {
-      notify(failure);
-    } finally {
-      if (mounted.current) setSubmitting(false);
-    }
+    });
+    if (mounted.current) setSubmitting(false);
   };
-  const cancel = async (id: string) => {
-    try {
+  const cancel = (id: string) =>
+    cancelled.attempt(async () => {
       await marketData({ case: "acquisitionCancel", value: { id } }, "acquisitionTask");
       await refresh();
-    } catch (failure) {
-      notify(failure);
-    }
-  };
+    });
   const months = useMemo(
     () => [...new Set(coverage.flatMap(item => item.months.map(m => m.month)))].sort(),
     [coverage],
@@ -382,6 +379,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           >
             {t(source.provider === "recorder" ? "发布录制分钟" : "开始采集")}
           </button>
+          <ActionError error={started.error} />
           {submitted && (
             <p>
               {t("本次提交任务")}: <code>{submitted}</code>
@@ -389,6 +387,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           )}
         </section>
       )}
+      <ActionError error={cancelled.error} />
       {tasks.length > 0 && (
         <table aria-label={t("采集任务")}>
           <thead>

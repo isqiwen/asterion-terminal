@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { InstanceStatus, Package, State } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
-import { BackendError, ErrorNotice, asDisplayError, type DisplayError, notify } from "../contract";
+import {
+  ActionError,
+  BackendError,
+  ErrorNotice,
+  asDisplayError,
+  useActionError,
+  type DisplayError,
+  notify,
+} from "../contract";
 import { t } from "./live-shared";
 import { StrategyInstance, type StrategyAccount } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -102,6 +110,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     };
   }, [refresh]);
 
+  const { error, attempt } = useActionError();
   async function mutate(operation: Operation) {
     const stop = operation.case === "stop";
     const pending = stop ? stopPending : commandPending;
@@ -110,33 +119,22 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     pending.current = true;
     (stop ? setStopping : setBusy)(true);
     const current = ++sequence.current;
-    try {
+    const done = await attempt(async () => {
       const next = await strategyRequest(account, operation);
       if (active.current && current === sequence.current) accept(next);
-      return true;
-    } catch (reason) {
-      if (active.current && current === sequence.current) {
-        notify(reason, { namespace: "asterion.terminal.trading" });
-        setFresh(false);
-      }
-      return false;
-    } finally {
-      pending.current = false;
-      if (active.current) (stop ? setStopping : setBusy)(false);
-    }
+    });
+    if (!done && active.current && current === sequence.current) setFresh(false);
+    pending.current = false;
+    if (active.current) (stop ? setStopping : setBusy)(false);
+    return done;
   }
   async function perform(action: () => Promise<void>) {
     if (preparing.current || commandPending.current) return;
     preparing.current = true;
     setBusy(true);
-    try {
-      await action();
-    } catch (reason) {
-      notify(reason, { namespace: "asterion.terminal.trading" });
-    } finally {
-      preparing.current = false;
-      setBusy(false);
-    }
+    await attempt(action);
+    preparing.current = false;
+    setBusy(false);
   }
   return (
     <section className="account-setup" aria-label={t("策略包")}>
@@ -163,6 +161,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
           <ErrorNotice error={readError} namespace="asterion.terminal.trading" />
         </p>
       )}
+      <ActionError error={error} namespace="asterion.terminal.trading" />
       {!repository ? (
         <p>{t("Terminal 没有策略目录：从项目启动时是项目里的 research/。")}</p>
       ) : (

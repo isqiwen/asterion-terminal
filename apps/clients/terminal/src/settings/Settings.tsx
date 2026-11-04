@@ -14,7 +14,6 @@ import { TradingConnections } from "./TradingConnections";
 import { MarketSource } from "./MarketSource";
 import { Connections } from "./Connections";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
-import { notify } from "../host/notifications";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
@@ -39,6 +38,7 @@ export function Settings({
   trade: CommandHandler;
 }) {
   const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [unsaved, setUnsaved] = useState(false);
   useEffect(() => {
     const select = (event: StorageEvent) => {
       if (event.key === categoryKey && event.newValue) {
@@ -97,14 +97,20 @@ export function Settings({
                   onChange={e => {
                     try {
                       setLocale(e.target.value as "zh-CN" | "en-US");
+                      setUnsaved(false);
                     } catch {
-                      notify(t("保存失败，请检查本机存储权限。"));
+                      setUnsaved(true);
                     }
                   }}
                 >
                   <option value="zh-CN">简体中文</option>
                   <option value="en-US">English</option>
                 </select>
+                {unsaved && (
+                  <span className="action-error" role="alert">
+                    {t("保存失败，请检查本机存储权限。")}
+                  </span>
+                )}
               </label>
               <label className="settings-field">
                 {t("显示密度")}

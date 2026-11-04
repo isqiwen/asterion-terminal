@@ -1,7 +1,8 @@
 import { useState } from "react";
 import {
-  notify,
+  ActionError,
   lab,
+  useActionError,
   translate,
   type LabFactorResult,
   type MessageValues,
@@ -22,6 +23,7 @@ export function FactorLab(context: TerminalContext) {
   const [form, setForm] = useState<FactorForm>(defaultFactorForm);
   const [result, setResult] = useState<LabFactorResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const { error, attempt } = useActionError();
   const source = useSource(result);
 
   const factor = modules?.factors.find(item => item.id === chosen);
@@ -29,15 +31,12 @@ export function FactorLab(context: TerminalContext) {
   const evaluate = async () => {
     if (!factor) return;
     setBusy(true);
-    try {
+    await attempt(async () =>
       setResult(
         await lab({ case: "factor", value: factorRequest(form, repository, factor) }, "factor"),
-      );
-    } catch (failure) {
-      notify(failure);
-    } finally {
-      setBusy(false);
-    }
+      ),
+    );
+    setBusy(false);
   };
   const field = (label: string, key: "begin" | "end" | "horizons" | "groups", props = {}) => (
     <label>
@@ -158,6 +157,7 @@ export function FactorLab(context: TerminalContext) {
               >
                 {busy ? t("正在评价…") : t("评价")}
               </button>
+              <ActionError error={error} />
             </footer>
           </>
         )}

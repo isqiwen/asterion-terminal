@@ -1,5 +1,5 @@
 import type { MarketView } from "../../src/host/market";
-import { translate, type TerminalContext, notify } from "../contract";
+import { ActionError, translate, useActionError, type TerminalContext } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 // Adds the contract to the watchlist or removes it, wherever the contract is
@@ -18,6 +18,7 @@ export function WatchlistToggle({
   const same = (id: { venue: string; symbol: string }) =>
     id.venue === row.venue && id.symbol === row.symbol;
   const present = ids.some(same);
+  const { error, attempt } = useActionError();
   return (
     <>
       <button
@@ -25,20 +26,19 @@ export function WatchlistToggle({
         aria-pressed={present}
         title={row.symbol}
         disabled={context.busy || !market.online || market.snapshot.phase !== "connected"}
-        onClick={() => {
-          context
-            .trade("market.watchlist", {
+        onClick={() =>
+          void attempt(() =>
+            context.trade("market.watchlist", {
               instruments: present
                 ? ids.filter(id => !same(id))
                 : [...ids, { venue: row.venue, symbol: row.symbol }],
-            })
-            .catch((reason: unknown) =>
-              notify(reason, { namespace: "asterion.terminal.futures-market" }),
-            );
-        }}
+            }),
+          )
+        }
       >
         {t(present ? "移出自选" : "加入自选")}
       </button>
+      <ActionError error={error} namespace="asterion.terminal.futures-market" />
     </>
   );
 }

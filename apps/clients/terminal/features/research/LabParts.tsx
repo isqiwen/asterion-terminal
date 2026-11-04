@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   notify,
-  ErrorNotice,
-  asDisplayError,
-  type DisplayError,
+  ActionError,
+  useActionError,
   lab,
   translate,
   type LabStrategies,
@@ -87,7 +86,7 @@ export function NewModule({
 }) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
-  const [refused, setRefused] = useState<DisplayError>("");
+  const { error, attempt, clear } = useActionError();
   if (!naming)
     return (
       <button className="lab-link" onClick={() => setNaming(true)}>
@@ -100,21 +99,18 @@ export function NewModule({
       onSubmit={event => {
         event.preventDefault();
         const path = `${folder}/${name}.py`;
-        void lab(
-          {
-            case: "saveSource",
-            value: { repository, path, content: moduleTemplate(folder, name), create: true },
-          },
-          "source",
-        ).then(
-          () => {
-            setNaming(false);
-            setName("");
-            setRefused("");
-            created(path);
-          },
-          reason => setRefused(asDisplayError(reason)),
-        );
+        void attempt(async () => {
+          await lab(
+            {
+              case: "saveSource",
+              value: { repository, path, content: moduleTemplate(folder, name), create: true },
+            },
+            "source",
+          );
+          setNaming(false);
+          setName("");
+          created(path);
+        });
       }}
     >
       <input
@@ -129,14 +125,16 @@ export function NewModule({
       <button className="primary" type="submit">
         {t("创建")}
       </button>
-      <button type="button" onClick={() => setNaming(false)}>
+      <button
+        type="button"
+        onClick={() => {
+          setNaming(false);
+          clear();
+        }}
+      >
         {t("取消")}
       </button>
-      {refused && (
-        <p className="lab-new-module-error" role="alert">
-          <ErrorNotice error={refused} />
-        </p>
-      )}
+      <ActionError error={error} />
     </form>
   );
 }

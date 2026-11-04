@@ -3,7 +3,7 @@ import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
-import { notify } from "../host/notifications";
+import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 export function MarketSource({
@@ -24,15 +24,8 @@ export function MarketSource({
   const [clearing, setClearing] = useState(false);
   // What the form's input was refused for, shown above its buttons.
   const [refused, setRefused] = useState<DisplayError>("");
-  const run = async (...args: CommandCall) => {
-    try {
-      await trade(...args);
-      return true;
-    } catch (reason) {
-      notify(reason);
-      return false;
-    }
-  };
+  const { error, attempt } = useActionError();
+  const run = (...args: CommandCall) => attempt(() => trade(...args));
   const edit = () => {
     setHost(endpoint?.host ?? "");
     setPort(String(endpoint?.port ?? 7450));
@@ -65,6 +58,7 @@ export function MarketSource({
           {t("生成本机证书")}
         </button>
       )}
+      <ActionError error={error} />
       {saved && "error" in saved && (
         <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
       )}

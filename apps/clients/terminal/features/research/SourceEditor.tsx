@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { python } from "@codemirror/lang-python";
-import { lab, notify, translate } from "../contract";
+import { ActionError, lab, translate, useActionError } from "../contract";
 
 const t = (key: string) => translate("asterion.terminal.research", key);
 
@@ -31,53 +31,47 @@ export function SourceEditor({
   const view = useRef<EditorView | null>(null);
   const [readOnly, setReadOnly] = useState(true);
   const [dirty, setDirty] = useState(false);
+  const { error, attempt } = useActionError();
   useEffect(() => {
     let active = true;
-    void lab({ case: "source", value: { repository, path } }, "source").then(
-      source => {
-        if (!active || !host.current) return;
-        setReadOnly(source.readOnly);
-        setDirty(false);
-        view.current = new EditorView({
-          parent: host.current,
-          state: EditorState.create({
-            doc: source.content,
-            extensions: [
-              basicSetup,
-              python(),
-              theme,
-              EditorState.readOnly.of(source.readOnly),
-              EditorView.updateListener.of(update => update.docChanged && setDirty(true)),
-            ],
-          }),
-        });
-      },
-      reason => active && notify(reason),
-    );
+    void attempt(async () => {
+      const source = await lab({ case: "source", value: { repository, path } }, "source");
+      if (!active || !host.current) return;
+      setReadOnly(source.readOnly);
+      setDirty(false);
+      view.current = new EditorView({
+        parent: host.current,
+        state: EditorState.create({
+          doc: source.content,
+          extensions: [
+            basicSetup,
+            python(),
+            theme,
+            EditorState.readOnly.of(source.readOnly),
+            EditorView.updateListener.of(update => update.docChanged && setDirty(true)),
+          ],
+        }),
+      });
+    });
     return () => {
       active = false;
       view.current?.destroy();
       view.current = null;
     };
-  }, [repository, path]);
-  const save = async () => {
-    try {
+  }, [repository, path, attempt]);
+  const save = () =>
+    attempt(async () => {
       const content = view.current!.state.doc.toString();
       await lab({ case: "saveSource", value: { repository, path, content } }, "source");
       setDirty(false);
       changed();
-    } catch (reason) {
-      notify(reason);
-    }
-  };
+    });
   const remove = async () => {
     if (!window.confirm(t("删除这个模块？删除后不能恢复。"))) return;
-    try {
+    await attempt(async () => {
       await lab({ case: "deleteSource", value: { repository, path } }, "source");
       deleted();
-    } catch (reason) {
-      notify(reason);
-    }
+    });
   };
   return (
     <section className="lab-source" aria-label={path}>
@@ -94,6 +88,7 @@ export function SourceEditor({
           </>
         )}
       </header>
+      <ActionError error={error} />
       <div className="lab-source-editor" ref={host} />
     </section>
   );

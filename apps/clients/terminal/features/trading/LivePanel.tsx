@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { ErrorNotice, useWorkspaceDraft, type TerminalContext, notify } from "../contract";
+import {
+  ActionError,
+  ErrorNotice,
+  useActionError,
+  useWorkspaceDraft,
+  type TerminalContext,
+} from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
@@ -20,21 +26,18 @@ export function LivePanel(context: TerminalContext) {
   const [chosen, setChosen] = useWorkspaceDraft("live-account", "");
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
   const [busy, setBusy] = useState(false);
+  const { error, attempt, clear } = useActionError();
   // Requests always carry the account they were issued for. A cancel and a
   // revoke take something back, so they do not wait for another request.
   const runFor =
     (id: string, hold: boolean): Run =>
     async (operation, fields) => {
       if (hold) setBusy(true);
-      try {
-        await send(id, typeof operation === "function" ? operation() : operation, fields);
-        return true;
-      } catch (reason) {
-        notify(reason, { namespace: "asterion.terminal.trading" });
-        return false;
-      } finally {
-        if (hold) setBusy(false);
-      }
+      const done = await attempt(() =>
+        send(id, typeof operation === "function" ? operation() : operation, fields),
+      );
+      if (hold) setBusy(false);
+      return done;
     };
   const state = (view: TradingView | undefined) => {
     if (!view) return "读取中";
@@ -66,6 +69,7 @@ export function LivePanel(context: TerminalContext) {
                 aria-current={item.id === account?.id ? "true" : undefined}
                 onClick={() => {
                   setChosen(item.id);
+                  clear();
                 }}
               >
                 <strong>{item.name}</strong>
@@ -78,6 +82,7 @@ export function LivePanel(context: TerminalContext) {
           </nav>
           {account && (
             <div className="ctp-account-panel" key={`${account.id}:${account.revision}`}>
+              <ActionError error={error} namespace="asterion.terminal.trading" />
               <StrategyPackages
                 account={account.id}
                 repository={repository}

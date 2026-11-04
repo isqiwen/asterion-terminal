@@ -1,22 +1,17 @@
 import { desktop, nativeDesktop } from "../../bridge/desktop";
 import { translate, useLocale } from "../../i18n";
-import { notify } from "../notifications";
+import { ActionError, useActionError } from "../action-error";
 
 export function LocalLogsButton() {
   useLocale();
+  const { error, attempt } = useActionError();
   if (!nativeDesktop) return null;
-  const open = async () => {
-    try {
-      await desktop().openLogs();
-    } catch (failure) {
-      notify(failure);
-    }
-  };
   return (
     <span>
-      <button type="button" onClick={() => void open()}>
+      <button type="button" onClick={() => void attempt(() => desktop().openLogs())}>
         {translate("host", "打开本机日志目录")}
       </button>
+      <ActionError error={error} />
     </span>
   );
 }
