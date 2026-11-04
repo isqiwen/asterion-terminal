@@ -60,7 +60,6 @@ const snapshot: Snapshot = {
   trading_connections: [
     {
       id: "account",
-      name: "测试账户",
       host: "127.0.0.1",
       port: 7460,
       instance: "account-b",
@@ -139,7 +138,7 @@ test("a buy order names the account, the reviewed policy and exact decimals", as
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3561.5" },
   });
-  fireEvent.click(button("买入 测试账户"));
+  fireEvent.click(button("买入 account-b"));
   expect(commands()).toEqual([
     [
       "account",
@@ -169,7 +168,7 @@ test("a buy order names the account, the reviewed policy and exact decimals", as
 test("an account without a policy offers to open trading in the service's environment", async () => {
   read = () => create(ResponseSchema, { account, result: { case: "uninitialized", value: {} } });
   show("create");
-  expect(await screen.findByText("开通交易：测试账户")).toBeTruthy();
+  expect(await screen.findByText("开通交易：account-b")).toBeTruthy();
   expect(screen.getAllByText("CTP 仿真").length).toBeGreaterThan(0);
 });
 

@@ -10,7 +10,6 @@ export type CommandParams = {
   "runtime.python.install": Record<string, never>;
   "trading.connections.save": {
     id: string;
-    name: string;
     host: string;
     port: number;
     instance: string;

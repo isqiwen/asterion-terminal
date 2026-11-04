@@ -75,7 +75,7 @@ export function LivePanel(context: TerminalContext) {
                   clear();
                 }}
               >
-                <strong>{item.name}</strong>
+                <strong>{item.instance}</strong>
                 <span className="subtle">{t(state(views[item.id]))}</span>
               </button>
             ))}
@@ -100,7 +100,7 @@ export function LivePanel(context: TerminalContext) {
                 ) : view?.account && view.initialized === false ? (
                   <div className="account-setup">
                     <div className="workflow-heading">
-                      <h3>{t("开通交易：{name}", { name: account.name })}</h3>
+                      <h3>{t("开通交易：{name}", { name: account.instance })}</h3>
                     </div>
                     <CreateLive
                       account={account}
@@ -113,7 +113,7 @@ export function LivePanel(context: TerminalContext) {
                 ) : (
                   <div className="workflow-empty">
                     <p>
-                      {account.name} · {account.host}:{account.port} · {account.instance}
+                      {account.instance} · {account.host}:{account.port}
                     </p>
                     {view?.failed ? (
                       <p className="alert" role="alert">

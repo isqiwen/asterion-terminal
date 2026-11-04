@@ -6,7 +6,7 @@ import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
 const t = (key: string) => translate("host", key);
-const blank = { name: "", host: "", port: "7460", instance: "", fingerprint: "" };
+const blank = { host: "", port: "7460", instance: "", fingerprint: "" };
 
 export function TradingConnections({
   snapshot,
@@ -41,10 +41,14 @@ export function TradingConnections({
       >
         <div className="settings-list">
           {entries.map(entry => (
-            <section className="settings-item" key={entry.id} aria-label={entry.name}>
+            <section
+              className="settings-item"
+              key={entry.id}
+              aria-label={"error" in entry ? entry.id : entry.instance}
+            >
               <div className="settings-item-row">
                 <div>
-                  <h3>{entry.name}</h3>
+                  <h3>{"error" in entry ? entry.id : entry.instance}</h3>
                   {"error" in entry ? (
                     <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
                   ) : (
@@ -113,7 +117,6 @@ export function TradingConnections({
                 await trade("trading.connections.save", {
                   id: editing?.id ?? `trading-${crypto.randomUUID()}`,
                   revision: editing?.revision ?? "",
-                  name: draft.name.trim(),
                   host: draft.host.trim(),
                   port: Number(draft.port),
                   instance: draft.instance.trim(),
@@ -129,7 +132,6 @@ export function TradingConnections({
             <fieldset disabled={busy} className="futures-fields">
               {(
                 [
-                  ["name", "连接名称", ""],
                   ["host", "主机地址", "192.168.1.30"],
                   ["port", "端口", ""],
                   ["instance", "账户", "simnow"],

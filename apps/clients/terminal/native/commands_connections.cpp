@@ -65,7 +65,7 @@ void Application::Impl::register_connection_commands()
         co_return Response{json{{"trading", std::move(reply)}}};
     });
     command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"id", "name", "host", "port", "instance", "fingerprint", "revision"});
+        fields(p, {"id", "host", "port", "instance", "fingerprint", "revision"});
         co_await settings<void>([&] {
             trading_connections.save(p, text(p, "revision", true));
         });

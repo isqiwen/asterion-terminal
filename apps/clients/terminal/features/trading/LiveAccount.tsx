@@ -108,7 +108,7 @@ export function LiveAccount({
     <>
       <div className="ctp-identity">
         <strong>
-          {account.name} · {broker.brokerId} · {broker.userId}
+          {account.instance} · {broker.brokerId} · {broker.userId}
         </strong>
         <strong>
           {t(
@@ -301,7 +301,7 @@ export function LiveAccount({
           live={live}
           snapshot={snapshot}
           busy={busy}
-          accountName={account.name}
+          accountName={account.instance}
           run={run}
           onSent={() => setActivity("orders")}
         />

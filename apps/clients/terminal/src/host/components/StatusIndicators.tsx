@@ -1,4 +1,4 @@
-import type { Snapshot } from "../../bridge/client";
+import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { translate, useLocale } from "../../i18n";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
@@ -25,7 +25,9 @@ export function StatusIndicators({
   const lab = snapshot.nodes
     .find(node => node.id === "local")
     ?.health?.services.find(service => service.kind === "lab");
-  const connections = (snapshot.trading_connections ?? []).filter(item => !("error" in item));
+  const connections = (snapshot.trading_connections ?? []).filter(
+    (item): item is TradingConnection => !("error" in item),
+  );
   const label = (name: string, state: string) => `● ${name}${state && ` ${t(state)}`}`;
   return (
     <>
@@ -75,7 +77,7 @@ export function StatusIndicators({
                   : ["", "未就绪"];
         return (
           <button key={connection.id} className={`status-item ${tone}`} onClick={openTrading}>
-            {label(`${t("交易")}·${connection.name}`, state)}
+            {label(`${t("交易")}·${connection.instance}`, state)}
           </button>
         );
       })}

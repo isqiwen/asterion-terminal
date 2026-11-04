@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
             port = host.account(name, terminals=[fingerprint], user="000001" if name == "account" else "000002")
             (host.root / "test-credentials" / name / "auth_code").write_text(AUTH)
             children[name] = host.start(name)
-            call(process, "trading.connections.save", dict(id=name, name=name, revision="",
+            call(process, "trading.connections.save", dict(id=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         call(process, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
         call(process, "market.open")

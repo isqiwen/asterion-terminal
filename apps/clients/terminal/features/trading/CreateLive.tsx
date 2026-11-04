@@ -43,7 +43,7 @@ export function CreateLive({
     <>
       <div className="inline-row">
         <p role="status" aria-label={t("CTP 账户")}>
-          {`${account.name} · ${configuration.accountId} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
+          {`${account.instance} · ${configuration.accountId} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
         </p>
         <button type="button" onClick={() => openSettings("trading")}>
           {t("管理交易连接")}
@@ -169,14 +169,14 @@ export function CreateLive({
               <dl>
                 <dt>{t("CTP 账户")}</dt>
                 <dd>
-                  <strong>{account.name}</strong>
+                  <strong>{account.instance}</strong>
                   <span>
                     {broker.brokerId} · {broker.userId}
                   </span>
                   <span>{broker.front}</span>
                 </dd>
                 <dt>{t("交易服务连接")}</dt>
-                <dd>{account.name}</dd>
+                <dd>{account.instance}</dd>
                 <dt>{t("柜台环境")}</dt>
                 <dd>{environment}</dd>
                 <dt>{t("可交易合约")}</dt>

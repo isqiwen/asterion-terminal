@@ -43,7 +43,6 @@ export const test = base.extend<{
       const connection = "live-account";
       await rpc(request, "trading.connections.save", {
         id: connection,
-        name: "live-account",
         revision: "",
         ...(await next()),
       });

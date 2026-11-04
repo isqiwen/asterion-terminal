@@ -16,7 +16,6 @@ test("saves a direct pinned trading destination", async () => {
   render(<TradingConnections snapshot={readySnapshot()} busy={false} trade={trade} />);
   fireEvent.click(screen.getByRole("button", { name: "添加交易连接" }));
   for (const [label, value] of [
-    ["连接名称", "SimNow"],
     ["主机地址", "127.0.0.1"],
     ["端口", "7461"],
     ["账户", "simnow"],
@@ -28,7 +27,6 @@ test("saves a direct pinned trading destination", async () => {
     expect(trade).toHaveBeenCalledWith(
       "trading.connections.save",
       expect.objectContaining({
-        name: "SimNow",
         host: "127.0.0.1",
         port: 7461,
         instance: "simnow",

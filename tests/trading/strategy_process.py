@@ -138,7 +138,7 @@ def main():
             fingerprint = terminal_call(terminal, 'runtime.snapshot')['client_fingerprint']
             port = host.account('account', terminals=[fingerprint, host.terminal], user='strategy')
             process = host.start('account')
-            terminal_call(terminal, 'trading.connections.save', dict(id='remote', name='Test Trading',
+            terminal_call(terminal, 'trading.connections.save', dict(id='remote',
                 revision='', host='127.0.0.1', port=port, instance='account', fingerprint=host.server))
             repo = root / 'repository'
             repo.mkdir()

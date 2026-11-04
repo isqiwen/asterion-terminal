@@ -22,8 +22,8 @@ test(
     // Both accounts are listed; each has its own state and panel.
     const list = panel.getByRole("navigation", { name: "CTP 账户" });
     await expect(list.getByRole("button", { name: /^other-account/ })).toHaveCount(0);
-    await list.getByRole("button", { name: /^live-account/ }).click();
-    await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("live-account");
+    await list.getByRole("button", { name: /^fixture/ }).click();
+    await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("fixture");
     await expect(panel.getByLabel("添加合约", { exact: true })).toBeVisible();
 
     for (const [label, value] of [
@@ -55,7 +55,7 @@ test(
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
     await expect(order).toHaveCount(0);
     await expect(
-      page.locator(".status-bar").getByRole("button", { name: "● 交易·live-account", exact: true }),
+      page.locator(".status-bar").getByRole("button", { name: "● 交易·fixture", exact: true }),
     ).toBeVisible();
     // The broker reports the account's own rates.
     await panel.getByRole("button", { name: "费率", exact: true }).click();
@@ -72,7 +72,7 @@ test(
 
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");
-    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
+    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
     // A refused order says why in the account panel, where it was sent from.
     const refused = panel.locator(".action-error");
     await expect(refused).toBeVisible();
@@ -80,10 +80,10 @@ test(
       panel.getByRole("table", { includeHidden: true, name: "CTP 委托记录" }).locator("tbody tr"),
     ).toHaveCount(0);
     await order.getByLabel("限价", { exact: true }).fill("3600");
-    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
+    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
     await expect(refused).toContainText("限价偏离最新价超过本会话的上限，委托未发送。");
     await order.getByLabel("限价", { exact: true }).fill("3500.5");
-    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
+    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
     await expect(
       panel.getByRole("table", { includeHidden: true, name: "CTP 成交" }).locator("tbody tr"),
     ).toHaveCount(1, {
@@ -97,12 +97,12 @@ test(
     await expect(
       page
         .locator(".status-bar")
-        .getByRole("button", { name: "● 交易·live-account 已授权", exact: true }),
+        .getByRole("button", { name: "● 交易·fixture 已授权", exact: true }),
     ).toBeVisible();
     await openView(page, "research");
     await page
       .locator(".status-bar")
-      .getByRole("button", { name: "● 交易·live-account 已授权", exact: true })
+      .getByRole("button", { name: "● 交易·fixture 已授权", exact: true })
       .click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪");
 
@@ -119,7 +119,7 @@ test(
 
     // A reopened Terminal reads the account again without logging in.
     await page.reload();
-    await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未连接", {
+    await expect(list.getByRole("button", { name: /^fixture/ })).toContainText("未连接", {
       timeout: 30000,
     });
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");

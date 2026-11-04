@@ -18,10 +18,9 @@ test("行情, 研究 and each trading connection each have their own indicator",
   snapshot.trading_connections = [
     {
       id: "sim",
-      name: "仿真",
       host: "h",
       port: 7460,
-      instance: "i",
+      instance: "simnow",
       fingerprint: "f",
       revision: "r",
     },
@@ -29,7 +28,7 @@ test("行情, 研究 and each trading connection each have their own indicator",
   const view = render(show(snapshot));
   expect(screen.getByText("● 行情 未连接")).toBeTruthy();
   expect(screen.getByText("● 研究").className).toContain("good");
-  expect(screen.getByRole("button", { name: "● 交易·仿真 连接中" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "● 交易·simnow 连接中" })).toBeTruthy();
 
   localService(snapshot, "lab").state = "restarting";
   view.rerender(show(structuredClone(snapshot)));

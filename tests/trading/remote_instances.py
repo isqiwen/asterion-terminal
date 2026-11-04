@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         for name in ("real", "simulation"):
             port = host.account(name, terminals=[fingerprint], environment=name, user="000001" if name == "real" else "000002")
             children[name] = host.start(name)
-            call(terminal, "trading.connections.save", dict(id=name, name=name, revision="",
+            call(terminal, "trading.connections.save", dict(id=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
         create = account_policy(market_catalog(lambda *a: call(terminal, *a)))
         # A mistyped server pin cannot reach the account.

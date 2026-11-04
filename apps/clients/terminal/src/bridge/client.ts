@@ -62,10 +62,9 @@ export type NodeStatus = {
     }[];
   };
 };
-export type UnreadableCtpConnection = { id: string; name: string; error: "unreadable" };
+export type UnreadableCtpConnection = { id: string; error: "unreadable" };
 export type TradingConnection = {
   id: string;
-  name: string;
   host: string;
   port: number;
   instance: string;

@@ -14,16 +14,14 @@ namespace {
 
 void validate(const Json& value)
 {
-    require_fields(value, {"id", "name", "host", "port", "instance", "fingerprint", "revision"});
+    require_fields(value, {"id", "host", "port", "instance", "fingerprint", "revision"});
     validate_id(value.at("id").get<std::string>());
     validate_id(value.at("instance").get<std::string>());
-    for (const auto* field : {"name", "host"}) {
-        const auto text = value.at(field).get<std::string>();
-        if (text.empty() || text.size() > 253 || std::ranges::any_of(text, [](unsigned char c) {
-                return c < 32 || c == 127;
-            }))
-            throw std::invalid_argument("invalid trading connection name or address");
-    }
+    const auto host = value.at("host").get<std::string>();
+    if (host.empty() || host.size() > 253 || std::ranges::any_of(host, [](unsigned char c) {
+            return c < 32 || c == 127;
+        }))
+        throw std::invalid_argument("invalid trading connection address");
     const auto& port = value.at("port");
     if (!port.is_number_unsigned() || port.get<unsigned long long>() < 1
         || port.get<unsigned long long>() > 65535)
@@ -70,11 +68,11 @@ Json TradingConnections::snapshot() const
         try {
             result.push_back(get(id));
         } catch (const std::exception&) {
-            result.push_back({{"id", id}, {"name", id}, {"error", "unreadable"}});
+            result.push_back({{"id", id}, {"error", "unreadable"}});
         }
     }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-        return a.at("name") < b.at("name");
+        return a.value("instance", "") < b.value("instance", "");
     });
     return result;
 }
@@ -91,7 +89,7 @@ void TradingConnections::save(Json value, const std::string& revision)
     const auto current = fs::exists(file) ? get(value.at("id")) : Json(nullptr);
     if ((current.is_null() ? "" : current.at("revision").get<std::string>()) != revision)
         throw Error(ErrorCode::conflict, "trading connection changed; inspect again");
-    // Two labels must not create two independent bindings to the same instance.
+    // Two connections must not create two independent bindings to the same instance.
     for (const auto& other : snapshot()) {
         if (other.contains("error") || other.at("id") == value.at("id"))
             continue;
