@@ -37,13 +37,11 @@ export function SetupGate({ children }: { children: ReactNode }) {
   const enter = () => {
     if (started.current) return;
     started.current = true;
-    void startUp()
-      .then(() => {
-        setLeaving(true);
-        // The screen's fade-out, startup.css .leaving.
-        return new Promise(resolve => setTimeout(resolve, 380));
-      })
-      .then(() => setEntered(true));
+    void startUp().then(() => {
+      // The workbench renders under the screen while it fades, startup.css .leaving.
+      setLeaving(true);
+      setTimeout(() => setEntered(true), 700);
+    });
   };
   const read = async (install: boolean) => {
     const reply = await request(install ? "runtime.python.install" : "runtime.python.status");
@@ -86,7 +84,13 @@ export function SetupGate({ children }: { children: ReactNode }) {
     }
   };
   if (entered) return children;
-  if ((!runtime || runtime.state === "ready") && !error) return <StartupScreen leaving={leaving} />;
+  if ((!runtime || runtime.state === "ready") && !error)
+    return (
+      <>
+        {leaving && children}
+        <StartupScreen leaving={leaving} />
+      </>
+    );
   const failed = runtime?.state === "failed";
   const total = (runtime?.modules ?? []).reduce((sum, module) => sum + module.size, 0);
   return (
