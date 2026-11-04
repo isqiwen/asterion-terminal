@@ -68,7 +68,7 @@ Json contract(
 
 struct Vendor
 {
-    std::vector<std::string> calls;
+    std::vector<std::string> calls, days;
     std::string close = "1.5e3", amount = "1234567890123456.123456";
     std::set<std::string> empty;
     Json minutes = Json::array();
@@ -130,6 +130,7 @@ struct Vendor
         }
         if (api == "fut_daily") {
             const auto day = p.at("trade_date").get<std::string>();
+            days.push_back(day);
             if (empty.contains(day))
                 return table(daily_fields, Json::array());
             const auto code = p.at("exchange") == "CZCE" ? "AP1003.ZCE" : "RB2605.SHF";
@@ -374,6 +375,25 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     ASSERT_FALSE(page.next_id().empty());
     query.set_after_id(page.next_id());
     EXPECT_NE(restarted.list(query).tasks(0).request().id(), page.tasks(0).request().id());
+}
+
+TEST_F(Acquisition, AProviderIsNotAskedForToday)
+{
+    // A provider's day so far would be stored as the whole day.
+    auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    const auto today = std::chrono::floor<std::chrono::days>(
+        std::chrono::system_clock::now() + std::chrono::hours(8));
+    auto through_today = request("through-today");
+    through_today.set_begin_day(ac::day_text(today - std::chrono::days(7)));
+    through_today.set_end_day(ac::day_text(today));
+    manager.submit(through_today);
+    ASSERT_EQ(finished(manager, "through-today").state(), "succeeded");
+    auto compact = ac::day_text(today);
+    std::erase(compact, '-');
+    EXPECT_FALSE(vendor->days.empty());
+    EXPECT_EQ(std::count(vendor->days.begin(), vendor->days.end(), compact), 0);
 }
 
 TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)

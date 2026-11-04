@@ -39,6 +39,14 @@ class Source
 public:
     virtual ~Source() = default;
     virtual bool supports(std::string_view table, std::string_view exchange) const = 0;
+
+    // Whether a day still trading can be taken: only a source that marks what
+    // it did not see as partial, so the day is not stored as complete.
+    virtual bool marks_partial_days() const
+    {
+        return false;
+    }
+
     virtual Rows calendar(const std::string& exchange, int year);
     virtual Rows contracts(const std::string& exchange);
     virtual Rows daily(const std::string& exchange, const std::string& day);

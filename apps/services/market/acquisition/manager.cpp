@@ -336,8 +336,12 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
     // Provider trading dates use Beijing's civil day, independent of host TZ.
     const auto today = std::chrono::floor<std::chrono::days>(
         std::chrono::system_clock::now() + std::chrono::hours(8));
+    // A provider's day so far would be stored as the whole day and never taken
+    // again: other sources stop at yesterday.
     const auto first = day_of(request.begin_day()),
-               last = std::min(day_of(request.end_day()), today);
+               last = std::min(
+                   day_of(request.end_day()),
+                   source.marks_partial_days() ? today : today - std::chrono::days{1});
     if (last < first)
         return;
     auto writer = store.writer();
