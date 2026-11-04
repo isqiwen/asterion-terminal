@@ -48,14 +48,7 @@ test("data sources configure one remote Market without counter credentials", asy
   snapshot.market_endpoint = null;
   const trade = vi.fn().mockResolvedValue(undefined);
   render(
-    <Settings
-      snapshot={snapshot}
-      refresh={() => {}}
-      error=""
-      busy={false}
-      trade={trade}
-      initialPage="sources"
-    />,
+    <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="sources" />,
   );
   expect(screen.getByRole("heading", { name: "Market", level: 2 })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "历史数据供应商" })).toBeNull();

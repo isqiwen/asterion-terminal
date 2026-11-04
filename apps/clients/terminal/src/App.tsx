@@ -270,7 +270,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           initialPage={settingsPage(new URLSearchParams(location.search).get("category"))}
           trade={trade}
           snapshot={snapshot}
-          refresh={() => void refresh()}
           error={error}
           busy={busy}
         />

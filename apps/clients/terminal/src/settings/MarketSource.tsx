@@ -71,11 +71,7 @@ export function MarketSource({
             </div>
             <ActionError error={error} />
           </div>
-        ) : (
-          !(saved && "error" in saved) && (
-            <p className="settings-hint">{t("尚未填写行情服务地址。")}</p>
-          )
-        ))}
+        ) : null)}
       {editing && (
         <form
           onSubmit={async event => {

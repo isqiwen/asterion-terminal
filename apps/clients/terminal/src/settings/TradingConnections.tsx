@@ -39,7 +39,6 @@ export function TradingConnections({
           </button>
         }
       >
-        {!entries.length && <p className="settings-hint">{t("还没有交易连接。")}</p>}
         <div className="settings-list">
           {entries.map(entry => (
             <section className="settings-item" key={entry.id} aria-label={entry.name}>

@@ -25,7 +25,6 @@ const pages: [SettingsPage, string, IconName][] = [
 ];
 export function Settings({
   snapshot,
-  refresh,
   error,
   busy,
   trade,
@@ -33,7 +32,6 @@ export function Settings({
 }: {
   initialPage?: SettingsPage;
   snapshot: Snapshot | null;
-  refresh: () => void;
   error: DisplayError;
   busy: boolean;
   trade: CommandHandler;
@@ -149,30 +147,18 @@ export function Settings({
           </SettingsSection>
         )}
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "sources" && (
-          <>
-            <MarketSource snapshot={snapshot} busy={busy} trade={trade} />
-          </>
-        )}
+        {page === "sources" && <MarketSource snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "about" && (
-          <SettingsSection title="Asterion Terminal" description={`${t("版本")} ${version}`}>
-            <p className="settings-hint">{t("新版本通过安装包更新。")}</p>
-            <ClientFingerprint value={snapshot?.client_fingerprint} />
-            <details>
-              <summary>{t("诊断信息")}</summary>
-              <dl>
-                <dt>{t("核心")}</dt>
-                <dd>{error ? t("连接失败") : (snapshot?.core ?? t("未连接"))}</dd>
-                <dt>{t("桌面外壳")}</dt>
-                <dd>Electron · React / TypeScript</dd>
-              </dl>
-            </details>
-            <div className="settings-actions">
-              <button disabled={busy} onClick={refresh}>
-                {t("重新检测")}
-              </button>
-            </div>
+          <SettingsSection title="Asterion Terminal">
+            <dl className="settings-facts">
+              <dt>{t("版本")}</dt>
+              <dd>{version}</dd>
+              <dt title={t("在 Market 和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
+              <dd>
+                <ClientFingerprint value={snapshot?.client_fingerprint} />
+              </dd>
+            </dl>
           </SettingsSection>
         )}
         <footer className="settings-footer">

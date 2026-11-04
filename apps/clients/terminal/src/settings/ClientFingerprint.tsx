@@ -2,13 +2,12 @@ import { useState } from "react";
 import { translate } from "../i18n";
 const t = (key: string) => translate("host", key);
 
-// The one certificate fingerprint this Terminal is known by on Market and trading hosts.
+// This Terminal's certificate fingerprint, selectable, with a copy button.
 export function ClientFingerprint({ value }: { value?: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
   return (
-    <p className="settings-hint client-fingerprint" title={t("在 Market 和交易主机登记这个指纹")}>
-      {t("本机证书指纹")}
+    <span className="client-fingerprint">
       <code>{value}</code>
       <button
         type="button"
@@ -16,6 +15,6 @@ export function ClientFingerprint({ value }: { value?: string }) {
       >
         {t(copied ? "已复制" : "复制")}
       </button>
-    </p>
+    </span>
   );
 }
