@@ -527,14 +527,8 @@
   margin: 0;
   color: var(--text);
 }
-/* The fingerprint takes a row of its own so its 64 digits fit on one line. */
-.settings-facts .wide {
-  grid-column: 1 / -1;
-}
-.settings-facts dd.wide {
-  margin-top: -6px;
-}
-/* One click selects the whole fingerprint for copying. */
+/* One click selects the whole fingerprint for copying; the settings window is
+   wide enough for its 64 digits beside the label. */
 .client-fingerprint {
   font-family: var(--font-terminal);
   font-size: 12px;

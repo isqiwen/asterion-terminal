@@ -8,7 +8,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await page.getByLabel("搜索历史合约").fill("rb17");
   const settings = await openSettingsWindow(page);
-  await settings.setViewportSize({ width: 760, height: 540 });
+  await settings.setViewportSize({ width: 820, height: 540 });
   await expect(settings.getByRole("heading", { name: "偏好设置", exact: true })).toBeVisible();
   await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb17");
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");

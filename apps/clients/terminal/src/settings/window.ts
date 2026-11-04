@@ -22,7 +22,7 @@ export async function openSettings(page?: SettingsPage) {
   popup = window.open(
     `/?screen=settings&category=${selected}`,
     "asterion-settings",
-    `popup,width=760,height=540,left=${Math.round(window.screenX + (window.outerWidth - 760) / 2)},top=${Math.round(window.screenY + (window.outerHeight - 540) / 2)}`,
+    `popup,width=820,height=540,left=${Math.round(window.screenX + (window.outerWidth - 820) / 2)},top=${Math.round(window.screenY + (window.outerHeight - 540) / 2)}`,
   );
   if (!popup) throw new Error("Settings window was blocked");
 }

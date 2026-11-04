@@ -149,10 +149,8 @@ export function Settings({
             <dl className="settings-facts">
               <dt>{t("版本")}</dt>
               <dd>{version}</dd>
-              <dt className="wide" title={t("在行情服务和交易主机登记这个指纹")}>
-                {t("本机证书指纹")}
-              </dt>
-              <dd className="wide">
+              <dt title={t("在行情服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
+              <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
               </dd>
             </dl>

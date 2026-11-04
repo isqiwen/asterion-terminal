@@ -161,7 +161,7 @@ async function openSettings(category) {
     // A dialog-sized window over the main one, even when that is full screen.
     fullscreenable: false,
     maximizable: false,
-    width: 760,
+    width: 820,
     height: 540,
     minWidth: 640,
     minHeight: 440,
