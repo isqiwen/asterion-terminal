@@ -52,6 +52,8 @@ std::uint64_t count(duckdb::Connection& connection, const std::vector<fs::path>&
 
 // Deletes the originals the journal names and gives the merged files their
 // names. Every step can be repeated, so an interrupted completion is resumed.
+// A merged file that was itself an original is replaced by the rename, never
+// deleted: a completion stopped after renaming must not delete the result.
 void complete(const fs::path& folder)
 {
     const auto journal = folder / journal_name;
@@ -60,14 +62,22 @@ void complete(const fs::path& folder)
     std::ifstream input(journal, std::ios::binary);
     const std::string raw{std::istreambuf_iterator<char>(input), {}};
     const auto document = parse_json(raw, 1024 * 1024);
-    for (const auto& name : document.at("remove"))
-        fs::remove(folder / fs::path(name.get<std::string>()).filename());
+    std::set<std::string> results;
     for (const auto& exchange : document.at("merged")) {
         const auto name = exchange.get<std::string>();
         if (!exchanges.contains(name))
             throw Error(ErrorCode::invalid_request, "invalid merge journal " + journal.string());
-        if (fs::exists(folder / (name + merged_suffix)))
-            fs::rename(folder / (name + merged_suffix), folder / (name + ".parquet"));
+        results.insert(name + ".parquet");
+    }
+    for (const auto& entry : document.at("remove")) {
+        const auto name = fs::path(entry.get<std::string>()).filename();
+        if (!results.contains(name.string()))
+            fs::remove(folder / name);
+    }
+    for (const auto& name : results) {
+        const auto exchange = fs::path(name).stem().string();
+        if (fs::exists(folder / (exchange + merged_suffix)))
+            fs::rename(folder / (exchange + merged_suffix), folder / name);
     }
     sync_directory(folder);
     fs::remove(journal);

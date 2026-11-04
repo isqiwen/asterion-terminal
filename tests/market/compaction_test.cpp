@@ -153,6 +153,43 @@ TEST(Merge, AMergeStoppedAfterItsJournalIsCompletedAndOneStoppedBeforeLeavesTheO
     EXPECT_EQ(rows(folder2), 3);
 }
 
+TEST(Merge, ASecondMergeStoppedAfterItsRenameKeepsTheMergedFile)
+{
+    Folder folder;
+    record(folder.path, "a", base, 3);
+    recording::compact_day(folder.path, "20261028");
+    record(folder.path, "late", base + 200'000, 2);
+    const auto ticks = folder.path / "ticks/trading_day=20261028";
+    const auto total = rows(ticks);
+    // The state a second merge leaves when it stops after renaming: the merged
+    // files hold every row, the originals are gone and the journal names them all.
+    const auto originals = names(ticks);
+    {
+        parquet::Engine engine;
+        for (const auto* venue : {"DCE", "SHFE"})
+            engine.run(
+                "COPY (SELECT * FROM read_parquet(" + parquet::literal(ticks / "*.parquet")
+                + ") WHERE venue = '" + venue + "') TO "
+                + parquet::literal(ticks / (std::string(venue) + ".parquet.merging"))
+                + " (FORMAT parquet)");
+    }
+    std::string journal = R"({"remove":[)";
+    for (const auto& name : originals) {
+        journal += (journal.back() == '[' ? "\"" : ",\"") + name + "\"";
+        fs::remove(ticks / name);
+    }
+    journal += R"(],"merged":["DCE","SHFE"]})";
+    write_file_durably(ticks / "compaction.json", journal);
+    for (const auto* venue : {"DCE", "SHFE"})
+        fs::rename(
+            ticks / (std::string(venue) + ".parquet.merging"),
+            ticks / (std::string(venue) + ".parquet"));
+
+    recording::finish_compactions(folder.path);
+    EXPECT_EQ(names(ticks), (std::vector<std::string>{"DCE.parquet", "SHFE.parquet"}));
+    EXPECT_EQ(rows(ticks), total);
+}
+
 TEST(Merge, OnlyTheLatestTickDaysAreKeptAndMinutesAndSegmentsStay)
 {
     Folder folder;
