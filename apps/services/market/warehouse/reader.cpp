@@ -140,23 +140,30 @@ wire::Summary Reader::summary(const wire::SummaryQuery& query) const
         auto* item = result.add_tables();
         item->set_table(table);
         std::string files;
+        // Partitions name the days they hold; only those that do not are read.
+        std::set<std::string> days;
         for (const auto& [key, part] : version.partitions) {
             if (!key.starts_with(std::string(table) + '/'))
                 continue;
-            files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
             item->set_partitions(item->partitions() + 1);
             item->set_rows(item->rows() + part.rows);
+            if (part.days.empty())
+                files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+            days.insert(part.days.begin(), part.days.end());
         }
-        if (files.empty())
-            continue;
-        parquet::Engine engine;
-        const std::string day = std::string_view(table) == "contracts" ? "list_date" : "day";
-        const auto dates = engine.run(
-            "SELECT min(" + day + "), max(" + day + ") FROM read_parquet([" + files + "])");
-        if (!dates->GetValue(0, 0).IsNull())
-            item->set_first_day(dates->GetValue(0, 0).ToString());
-        if (!dates->GetValue(1, 0).IsNull())
-            item->set_last_day(dates->GetValue(1, 0).ToString());
+        if (!files.empty()) {
+            parquet::Engine engine;
+            const std::string day = std::string_view(table) == "contracts" ? "list_date" : "day";
+            const auto dates = engine.run(
+                "SELECT min(" + day + "), max(" + day + ") FROM read_parquet([" + files + "])");
+            for (const auto column : {0, 1})
+                if (!dates->GetValue(column, 0).IsNull())
+                    days.insert(dates->GetValue(column, 0).ToString());
+        }
+        if (!days.empty()) {
+            item->set_first_day(*days.begin());
+            item->set_last_day(*days.rbegin());
+        }
     }
     return result;
 }
