@@ -1,13 +1,10 @@
-import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
-test("each service has its own indicator; Lab appears once it is used", async ({ page }) => {
+test("the startup screen gives way to the workbench with Lab already running", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("main", { name: "正在启动" })).toBeVisible();
   const bar = page.locator(".status-bar");
-  await expect(bar.getByText(/^● 行情/)).toBeVisible({ timeout: 60000 });
-  await expect(bar.getByText(/^● 研究/)).toHaveCount(0);
-  await openView(page, "market");
-  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await expect(bar.getByText("● 研究", { exact: true })).toBeVisible({ timeout: 60000 });
+  await expect(bar.getByText(/^● 行情/)).toBeVisible();
   await page.screenshot({ path: "apps/clients/terminal/test-results/status-bar-services.png" });
 });
 

@@ -3,9 +3,9 @@ import { translate, useLocale } from "../../i18n";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 
-// One indicator per service, in the sidebar's order: 行情 (Market), 研究 (Lab,
-// once it has been used) and 交易 (each trading connection). The dot's colour
-// is the state; a word follows only when something is not normal.
+// One indicator per service, in the sidebar's order: 行情 (Market), 研究 (Lab)
+// and 交易 (each trading connection). The dot's colour is the state; a word
+// follows only when something is not normal.
 export function StatusIndicators({
   snapshot,
   openSources,

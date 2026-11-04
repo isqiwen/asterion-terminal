@@ -187,5 +187,6 @@
   "停滞": "stalled",
   "需恢复": "needs recovery",
   "行情服务": "Market",
-  "交易服务证书指纹": "Trading service certificate fingerprint"
+  "交易服务证书指纹": "Trading service certificate fingerprint",
+  "正在启动": "Starting"
 }

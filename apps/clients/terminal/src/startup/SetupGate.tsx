@@ -11,28 +11,47 @@ import "./setup.css";
 
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
 
-// What the Terminal opens in the background once the workbench is open: the
-// saved remote Market. Where it does not come up, its own page says so.
-async function restore() {
+// What starts behind the startup screen: Lab and the saved Market. Either may
+// fail; the status bar and its pages say so once the workbench is open. The
+// screen stays long enough for its animation to read.
+async function startUp() {
   const status = await request("runtime.snapshot");
-  if (status.market_endpoint && "host" in status.market_endpoint)
-    await request("market.open").catch(() => {});
+  await Promise.allSettled([
+    request("lab.endpoint"),
+    status.market_endpoint && "host" in status.market_endpoint ? request("market.open") : null,
+    new Promise(resolve => setTimeout(resolve, 1200)),
+  ]);
 }
 
-// The first launch installs the Python runtime, one row per module; every
-// later launch opens the workbench at once.
+function StartupScreen() {
+  return (
+    <WindowFrame title="Asterion Terminal">
+      <main className="startup-screen" aria-label={t("正在启动")} aria-busy="true">
+        <div className="startup-mark">
+          <BrandMark size={56} />
+        </div>
+        <h1>ASTERION TERMINAL</h1>
+        <div className="setup-track indeterminate">
+          <i />
+        </div>
+      </main>
+    </WindowFrame>
+  );
+}
+
+// Every launch shows the startup screen while Lab and Market start; the first
+// launch installs the Python runtime first, one row per module.
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
   const [runtime, setRuntime] = useState<PythonRuntime | null>(null);
   const [entered, setEntered] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const restored = useRef(false);
+  const started = useRef(false);
   const enter = () => {
-    setEntered(true);
-    if (restored.current) return;
-    restored.current = true;
-    void restore();
+    if (started.current) return;
+    started.current = true;
+    void startUp().then(() => setEntered(true));
   };
   const read = async (install: boolean) => {
     const reply = await request(install ? "runtime.python.install" : "runtime.python.status");
@@ -75,8 +94,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
     }
   };
   if (entered) return children;
-  // Nothing to show until the Terminal says whether a runtime is installed.
-  if (!runtime && !error) return null;
+  if ((!runtime || runtime.state === "ready") && !error) return <StartupScreen />;
   const failed = runtime?.state === "failed";
   const total = (runtime?.modules ?? []).reduce((sum, module) => sum + module.size, 0);
   return (

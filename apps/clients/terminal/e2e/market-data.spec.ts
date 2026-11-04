@@ -4,7 +4,6 @@ import { join, resolve } from "node:path";
 import { openView } from "./navigation-helper";
 import { rpc } from "./rpc-fixture";
 import { test, expect } from "./test";
-import type { NodeStatus } from "../src/bridge/client";
 
 // Only the independently supervised test Market gets this fixture. Lab's
 // directory stays absent: data browsing must work without starting Python.
@@ -40,13 +39,7 @@ test(
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "开始采集", exact: true })).toHaveCount(0);
-      const snapshot = await rpc(page.request, "runtime.snapshot");
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
-      expect(
-        (snapshot.nodes as NodeStatus[])
-          .flatMap(node => node.health?.services ?? [])
-          .some(service => service.kind === "lab"),
-      ).toBe(false);
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });
     }

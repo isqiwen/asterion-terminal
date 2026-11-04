@@ -54,40 +54,42 @@ export function Workbench({
   }, []);
   return (
     <div className="terminal">
-      <aside
-        className={`activity-rail ${collapsed ? "collapsed" : "expanded"}`}
-        aria-keyshortcuts="Meta+B Control+B"
-      >
-        <div className="rail-brand" title={`Asterion Terminal · ${t("切换导航")} · ⌘B / Ctrl+B`}>
-          <BrandMark size={20} />
+      <div className="terminal-main">
+        <aside
+          className={`activity-rail ${collapsed ? "collapsed" : "expanded"}`}
+          aria-keyshortcuts="Meta+B Control+B"
+        >
+          <div className="rail-brand" title={`Asterion Terminal · ${t("切换导航")} · ⌘B / Ctrl+B`}>
+            <BrandMark size={20} />
+          </div>
+          <nav aria-label={t("业务工作区")} className="workspace-tabs">
+            {navigation.map(item => (
+              <button
+                key={item.id}
+                disabled={item.disabled}
+                aria-current={item.active ? "page" : undefined}
+                className={item.active ? "active" : ""}
+                onClick={item.select}
+                title={`${item.title}${item.shortcut ? ` · ${item.shortcut}` : ""}`}
+                aria-label={item.title}
+              >
+                <span aria-hidden="true">{item.icon}</span>
+                <span className="nav-label">{item.title}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="rail-actions">{rail}</div>
+        </aside>
+        <div className="terminal-content">
+          <header className="workbench-header" hidden={!showToolbar}>
+            <h1 className="sr-only">{title}</h1>
+            <div className="workbench-context">{toolbar}</div>
+          </header>
+          {notices}
+          {body}
         </div>
-        <nav aria-label={t("业务工作区")} className="workspace-tabs">
-          {navigation.map(item => (
-            <button
-              key={item.id}
-              disabled={item.disabled}
-              aria-current={item.active ? "page" : undefined}
-              className={item.active ? "active" : ""}
-              onClick={item.select}
-              title={`${item.title}${item.shortcut ? ` · ${item.shortcut}` : ""}`}
-              aria-label={item.title}
-            >
-              <span aria-hidden="true">{item.icon}</span>
-              <span className="nav-label">{item.title}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="rail-actions">{rail}</div>
-      </aside>
-      <div className="terminal-content">
-        <header className="workbench-header" hidden={!showToolbar}>
-          <h1 className="sr-only">{title}</h1>
-          <div className="workbench-context">{toolbar}</div>
-        </header>
-        {notices}
-        {body}
-        <footer className="status-bar">{status}</footer>
       </div>
+      <footer className="status-bar">{status}</footer>
     </div>
   );
 }

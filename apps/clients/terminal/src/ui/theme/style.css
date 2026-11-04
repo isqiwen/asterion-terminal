@@ -968,8 +968,13 @@ tbody tr:hover {
 
 /* Compact desktop navigation and market workspace. */
 .terminal {
-  flex-direction: row;
   background: var(--panel);
+}
+/* The rail and the workspace, above a status bar as wide as the window. */
+.terminal-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 .terminal-content {
   display: flex;
