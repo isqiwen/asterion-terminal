@@ -13,6 +13,7 @@ import { savePreferences, usePreferences } from "../ui/preferences";
 import { TradingConnections } from "./TradingConnections";
 import { MarketSource } from "./MarketSource";
 import { Connections } from "./Connections";
+import { ClientFingerprint } from "./ClientFingerprint";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
@@ -157,6 +158,7 @@ export function Settings({
         {page === "about" && (
           <SettingsSection title="Asterion Terminal" description={`${t("版本")} ${version}`}>
             <p className="settings-hint">{t("新版本通过安装包更新。")}</p>
+            <ClientFingerprint value={snapshot?.client_fingerprint} />
             <details>
               <summary>{t("诊断信息")}</summary>
               <dl>

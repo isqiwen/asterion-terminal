@@ -5,7 +5,6 @@ import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
-import { ClientFingerprint } from "./ClientFingerprint";
 const t = (key: string) => translate("host", key);
 const blank = { name: "", host: "", port: "7460", instance: "", fingerprint: "" };
 
@@ -40,7 +39,6 @@ export function TradingConnections({
           </button>
         }
       >
-        <ClientFingerprint value={snapshot?.client_fingerprint} />
         {!entries.length && <p className="settings-hint">{t("还没有交易连接。")}</p>}
         <div className="settings-list">
           {entries.map(entry => (

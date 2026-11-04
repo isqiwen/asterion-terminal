@@ -3,7 +3,6 @@ import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
-import { ClientFingerprint } from "./ClientFingerprint";
 import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
@@ -46,7 +45,6 @@ export function MarketSource({
         )
       }
     >
-      <ClientFingerprint value={snapshot?.client_fingerprint} />
       {saved && "error" in saved && (
         <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
       )}

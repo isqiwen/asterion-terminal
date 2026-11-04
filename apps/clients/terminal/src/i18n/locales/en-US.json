@@ -248,5 +248,5 @@
   "复制": "Copy",
   "交易主机": "Trading hosts",
   "本机证书指纹": "Certificate fingerprint",
-  "Market 和交易主机登记同一个指纹": "Market and trading hosts register this same fingerprint"
+  "在 Market 和交易主机登记这个指纹": "Register this fingerprint on Market and trading hosts"
 }
