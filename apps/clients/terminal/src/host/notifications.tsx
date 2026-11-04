@@ -69,14 +69,14 @@ function useEntries() {
   );
 }
 
-// The status bar shows the latest message and how many are unread; opened, it
-// lists them all. An unread trading error stays highlighted until then.
+// The status bar shows the latest message and how many are unread, or just
+// "通知" when there is none; opened, it lists them all and opens the log
+// directory. An unread trading error stays highlighted until then.
 export function NotificationCenter() {
   useLocale();
   const all = useEntries();
   const [open, setOpen] = useState(false);
   const latest = all.at(-1);
-  if (!latest && !open) return null;
   const unread = all.filter(entry => entry.id > seen);
   const urgent = unread.some(entry => entry.source === "交易" && entry.severity === "error");
   const toggle = () => {
@@ -123,7 +123,7 @@ export function NotificationCenter() {
           )}
         </section>
       )}
-      {latest && (
+      {latest ? (
         <button
           type="button"
           className={`notification-latest ${latest.severity}${urgent ? " urgent" : ""}`}
@@ -132,6 +132,10 @@ export function NotificationCenter() {
         >
           <span className="notification-text">{errorSummary(latest.error, latest.namespace)}</span>
           {unread.length > 0 && <span className="notification-count">{unread.length}</span>}
+        </button>
+      ) : (
+        <button type="button" className="notification-none" aria-expanded={open} onClick={toggle}>
+          {translate("host", "通知")}
         </button>
       )}
     </div>

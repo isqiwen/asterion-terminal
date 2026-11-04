@@ -18,6 +18,9 @@
   border-radius: 50%;
   background: var(--danger);
 }
+.notification-none {
+  color: var(--muted);
+}
 .notification-latest.warning::before {
   background: var(--warning);
 }

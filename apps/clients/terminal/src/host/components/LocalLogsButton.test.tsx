@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { LocalLogsButton } from "./LocalLogsButton";
 import { NotificationCenter } from "../notifications";
 
 const { openLogs } = vi.hoisted(() => ({ openLogs: vi.fn() }));
@@ -9,14 +8,11 @@ vi.mock("../../bridge/desktop", () => ({
   desktop: () => ({ openLogs }),
 }));
 
-test("opens the native-owned logs directory and reports an OS open failure", async () => {
+test("the notification centre opens the logs directory even with no messages", async () => {
   openLogs.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Permission denied"));
-  render(
-    <>
-      <LocalLogsButton />
-      <NotificationCenter />
-    </>,
-  );
+  render(<NotificationCenter />);
+  fireEvent.click(screen.getByRole("button", { name: "通知" }));
+  expect(screen.getByText("没有消息")).toBeDefined();
   const button = screen.getByRole("button", { name: "打开本机日志目录" });
   fireEvent.click(button);
   await waitFor(() => expect(openLogs).toHaveBeenCalledWith());
