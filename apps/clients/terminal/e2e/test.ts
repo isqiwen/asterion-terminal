@@ -57,15 +57,8 @@ export const test = base.extend<{
         });
         await call("market.open");
         for (const deadline = Date.now() + 60000; ;) {
-          const services = (await call("runtime.snapshot")).nodes.flatMap(
-            (node: { health?: { services: { health: string }[] } }) => node.health?.services ?? [],
-          );
-          if (
-            services.every((service: { health: string }) =>
-              ["ready", "awaiting_input"].includes(service.health),
-            )
-          )
-            break;
+          const { lab } = await call("runtime.snapshot");
+          if (!lab || lab.state === "ready") break;
           if (Date.now() > deadline) throw new Error("services did not become healthy after reset");
           await new Promise(resolve => setTimeout(resolve, 300));
         }

@@ -50,7 +50,6 @@
   "account state changed before durable grant completed": "持久提交期间账户状态已改变，未启用交易授权",
   "an order is awaiting SDK completion": "已有委托正在等待 SDK 调用完成。",
   "another market operation is in progress; retry after it completes": "另一项行情操作正在进行，请在完成后重试",
-  "another node operation is in progress; retry after it completes": "另一个节点操作正在进行，请在完成后重试。",
   "authorization names a different account": "授权确认的账户与本会话不一致。",
   "authorize live trading for this account first": "请先授权此账户进行实盘交易。",
   "slippage reaches a contract's lowest price": "滑点不小于合约出现过的最低价，卖出成交将没有价格；请调小滑点。",
@@ -257,5 +256,6 @@
   "a module of this name already exists": "已经有同名的模块，换一个名字。",
   "a built-in module cannot be changed": "内置模块不能修改。",
   "a built-in module cannot be deleted": "内置模块不能删除。",
-  "invalid module name": "模块名只能用字母、数字和下划线，并且不能以数字开头。"
+  "invalid module name": "模块名只能用字母、数字和下划线，并且不能以数字开头。",
+  "Market is already connecting; retry after it completes": "行情服务正在连接，请在完成后重试。"
 }

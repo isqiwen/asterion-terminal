@@ -1,8 +1,7 @@
-#include "node_paths.hpp"
+#include "program_paths.hpp"
 #include "application_environment.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
-#include <asterion/system/process/artifact.hpp>
 #include <fstream>
 #include <set>
 
@@ -18,30 +17,24 @@ fs::path environment(const char* name)
 
 } // namespace
 
-fs::path node_configuration_templates()
+fs::path configuration_templates()
 {
     return application_directory() / "config";
 }
 
-void install_node_configuration(const fs::path& root, const fs::path& source)
+void install_configuration(const fs::path& root, const fs::path& source)
 {
-    // The local services seed their own configuration when first started.
-    const std::pair<const char*, const char*> files[] = {
-        {"terminal", "logging.json"},
-    };
-    for (const auto& [program, name] : files) {
-        const auto destination = root / program / "config";
-        create_directories_durably(destination);
-        const auto file = destination / name;
-        if (fs::exists(file) || fs::is_symlink(file))
-            continue;
-        std::ifstream input(source / name, std::ios::binary);
-        if (!input)
-            throw std::runtime_error(
-                "cannot read node configuration template: " + (source / name).string());
-        const std::string contents{std::istreambuf_iterator<char>(input), {}};
-        replace_file_durably(file, contents);
-    }
+    // Lab seeds its own when it first starts.
+    const auto destination = root / "terminal" / "config";
+    create_directories_durably(destination);
+    const auto file = destination / "logging.json";
+    if (fs::exists(file) || fs::is_symlink(file))
+        return;
+    std::ifstream input(source / "logging.json", std::ios::binary);
+    if (!input)
+        throw std::runtime_error(
+            "cannot read configuration default: " + (source / "logging.json").string());
+    replace_file_durably(file, std::string{std::istreambuf_iterator<char>(input), {}});
 }
 
 fs::path asterion_root()
@@ -100,22 +93,6 @@ void sync_builtin_research(const fs::path& builtin, const fs::path& research)
                 && !writable(entry.path()))
                 fs::remove(entry.path());
     }
-}
-
-void link_node_program(const fs::path& source, const fs::path& installed)
-{
-    if (!source.is_absolute() || !installed.is_absolute() || source == installed)
-        throw std::invalid_argument("invalid program link");
-    create_directories_durably(installed.parent_path());
-    if (fs::is_symlink(installed)) {
-        if (fs::read_symlink(installed) == source)
-            return;
-    } else if (fs::exists(installed))
-        throw std::runtime_error("an installed program is in the way: " + installed.string());
-    const auto temporary = installed.parent_path() / ("link-" + unique_process_id());
-    fs::create_symlink(source, temporary);
-    fs::rename(temporary, installed);
-    sync_directory(installed.parent_path());
 }
 
 } // namespace asterion::terminal

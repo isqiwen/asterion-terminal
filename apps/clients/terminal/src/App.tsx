@@ -62,32 +62,25 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const route = currentRoute(navigation);
   const view = route.view;
   const viewsRef = useRef<HTMLElement>(null);
-  // A ready local service that exits, lost log lines and a failed background
+  // Lab leaving the ready state, lost log lines and a failed background
   // refresh are reported when they begin.
-  const reported = useRef<{ ready: Record<string, boolean>; logs: number; refresh: boolean }>({
-    ready: {},
-    logs: 0,
-    refresh: false,
-  });
+  const reported = useRef({ lab: false, logs: 0, refresh: false });
   useEffect(() => {
     // The main window reports them; the settings window reads the same snapshot.
     if (settingsWindow || !snapshot) return;
     const before = reported.current;
-    const local = snapshot.nodes.find(node => node.id === "local")?.health?.services ?? [];
-    for (const service of local) {
-      if (before.ready[service.id] && service.state !== "running")
-        notify(new BackendError("service_restarted", `${service.id}: ${service.error}`), {
-          severity: "warning",
-        });
-      before.ready[service.id] = service.state === "running" && service.health === "ready";
-    }
+    const lab = snapshot.lab?.state === "ready";
+    if (before.lab && !lab)
+      notify(new BackendError("service_restarted", `lab: ${snapshot.lab?.error}`), {
+        severity: "warning",
+      });
     const { log_failures: logs, refresh_failed: refresh } = snapshot.diagnostics;
     if (logs > before.logs)
       notify("本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。", {
         severity: "warning",
       });
     if (refresh && !before.refresh) notify("后台状态刷新失败，当前显示为最近成功读取的状态。");
-    reported.current = { ...before, logs, refresh: !!refresh };
+    reported.current = { lab, logs, refresh: !!refresh };
   }, [snapshot, settingsWindow]);
   useEffect(() => {
     viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
@@ -169,7 +162,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
-  const polling = !!snapshot?.nodes?.length;
+  const polling = !!snapshot;
   const pollInFlight = useRef(false);
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged

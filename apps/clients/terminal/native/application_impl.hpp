@@ -5,8 +5,8 @@
 #include <asterion/futures/account.hpp>
 #include <asterion/futures/history_identity.hpp>
 #include "market_client.hpp"
-#include "local_services.hpp"
-#include "node_paths.hpp"
+#include "lab_supervisor.hpp"
+#include "program_paths.hpp"
 #include "trading_connections.hpp"
 #include "market_endpoint.hpp"
 #include "python_runtime.hpp"
@@ -102,8 +102,7 @@ struct Application::Impl
         return python_runtime.python();
     }
 
-    // The local business services; the Terminal starts and supervises them.
-    LocalServices services{[this] {
+    LabSupervisor lab{[this] {
         return python();
     }};
     // UI commands belong to this Native boundary; registration is constructor-only.
@@ -121,17 +120,18 @@ struct Application::Impl
         co_return co_await work();
     }
 
-    bool management_busy = false, market_busy = false;
+    bool connecting = false, market_busy = false;
 
+    // One Market connection is opened at a time.
     template <class T, class F>
-    PolledTask<T> manage(F work)
+    PolledTask<T> connect(F work)
     {
-        if (management_busy)
+        if (connecting)
             throw Error(
                 ErrorCode::conflict,
-                "another node operation is in progress; retry after it completes");
-        management_busy = true;
-        ResetFlag reset{management_busy};
+                "Market is already connecting; retry after it completes");
+        connecting = true;
+        ResetFlag reset{connecting};
         co_return co_await work();
     }
 
@@ -180,7 +180,7 @@ struct Application::Impl
     struct Publication
     {
         json metadata;
-        std::vector<NodeSnapshot> nodes;
+        json lab;
         Settings settings;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;

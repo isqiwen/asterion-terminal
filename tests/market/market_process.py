@@ -46,7 +46,6 @@ try:
     assert frame['subscriptions'][0]['quote']['last']=='3510'
     state=call(process,'runtime.snapshot')
     assert 'market' not in state
-    assert all(service['kind']!='market' for node in state['nodes'] for service in (node.get('health') or {}).get('services',[])), state['nodes']
     selected=[dict(venue='SHFE',symbol='rb2610')]
     state=call(process,'market.watchlist',dict(instruments=selected))
     assert state['market_endpoint']['instruments']==selected

@@ -182,7 +182,7 @@ Application::Impl::Publication Application::Impl::capture()
 {
     Publication next;
     next.settings = settings_view;
-    next.nodes = {services.view()};
+    next.lab = lab.view();
     next.metadata = {
         {"protocol", 1},
         {"product", "Asterion Terminal"},
@@ -223,15 +223,13 @@ Application::Impl::Publication Application::Impl::capture()
 
 bool Application::Impl::Publication::same_state(const Publication& other) const
 {
-    return metadata == other.metadata && nodes == other.nodes && settings == other.settings;
+    return metadata == other.metadata && lab == other.lab && settings == other.settings;
 }
 
 json Application::Impl::Publication::render() const
 {
     auto result = metadata;
-    auto& nodes_view = result["nodes"] = json::array();
-    for (const auto& node : nodes)
-        nodes_view.push_back(node_snapshot_json(node));
+    result["lab"] = lab;
     result["trading_connections"] = settings->trading;
     result["client_fingerprint"] = settings->client_fingerprint;
     result["market_endpoint"] = settings->market_endpoint;
@@ -405,7 +403,7 @@ Application::Application()
         throw std::invalid_argument("invalid Asterion root directory");
     create_directories_durably(terminal / "data");
     // Its logging configuration before its first record; never overwritten.
-    install_node_configuration(root, node_configuration_templates());
+    install_configuration(root, configuration_templates());
     log::init(terminal, "terminal");
     installation_use_ =
         std::make_unique<FileLock>(terminal / "data", "terminal.lock", FileLock::Access::shared);

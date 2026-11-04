@@ -10,7 +10,6 @@ struct ServiceEndpoint
     std::string host, session;
     std::uint16_t port;
     std::string endpoint{};
-    std::string node_id{"local"}, owner_node_id{};
     ipc::TlsIdentity tls{};
 };
 

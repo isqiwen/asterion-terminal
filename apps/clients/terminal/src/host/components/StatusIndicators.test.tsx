@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { localService, readySnapshot } from "../../testing/core";
+import { readySnapshot } from "../../testing/core";
 import { StatusIndicators } from "./StatusIndicators";
 
 const show = (snapshot = readySnapshot(), openSources = vi.fn()) => (
@@ -14,7 +14,6 @@ const show = (snapshot = readySnapshot(), openSources = vi.fn()) => (
 
 test("行情, 研究 and each trading connection each have their own indicator", () => {
   const snapshot = readySnapshot();
-  localService(snapshot, "lab").health = "ready";
   snapshot.trading_connections = [
     {
       id: "sim",
@@ -30,7 +29,7 @@ test("行情, 研究 and each trading connection each have their own indicator",
   expect(screen.getByText("● 研究").className).toContain("good");
   expect(screen.getByRole("button", { name: "● 交易·simnow 连接中" })).toBeTruthy();
 
-  localService(snapshot, "lab").state = "restarting";
+  snapshot.lab = { ...snapshot.lab!, state: "restarting" };
   view.rerender(show(structuredClone(snapshot)));
   expect(screen.getByText("● 研究 重启中").className).toContain("bad");
 });

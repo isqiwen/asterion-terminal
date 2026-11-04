@@ -30,7 +30,7 @@ void Application::Impl::register_lab_commands()
     // the page.
     command("lab.endpoint", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
-        const auto address = co_await PollFuture{services.serving(node::proto::LAB)};
+        const auto address = co_await PollFuture{lab.serving()};
         auto result = snapshot();
         result.values["lab_endpoint"] = {
             {"endpoint", address.endpoint},

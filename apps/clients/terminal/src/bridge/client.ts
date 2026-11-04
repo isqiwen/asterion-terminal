@@ -16,51 +16,12 @@ export type FuturesContract = {
 };
 export type { TerminalCommand, CommandParams, CommandCall, CommandHandler } from "./commands";
 import type { TerminalCommand, CommandCall } from "./commands";
-export type ProgressObservation = {
-  observed: boolean;
-  pending: boolean;
-  age_ms: number;
-};
-export type ExecutionHealth = {
-  io: ProgressObservation;
-  state: ProgressObservation;
-  persistence: ProgressObservation;
-  initialization: ProgressObservation;
-  command: ProgressObservation;
-  business_ready: boolean;
-};
-export type NodeStatus = {
-  id: string;
-  host: string;
-  port: number;
-  state: "online" | "unreachable";
-  last_heartbeat_ms: number;
-  latency_ms: number;
+// Lab as the Terminal runs it; it restarts by itself until it runs again.
+export type LabStatus = {
+  state: "starting" | "ready" | "unresponsive" | "restarting";
+  pid: number;
+  restarts: number;
   error: string;
-  health: null | {
-    instance_id: string;
-    phase: "initializing" | "ready" | "recovery_required";
-    failure: null | { code: string; message: string };
-    execution: ExecutionHealth;
-    pid: number;
-    os: string;
-    arch: string;
-    version: string;
-    uptime_ms: number;
-    services: {
-      kind: "lab";
-      id: string;
-      state: string;
-      pid: number;
-      restarts: number;
-      error: string;
-      health: string;
-      execution: ExecutionHealth | null;
-      last_heartbeat_ms: number;
-      endpoint: string;
-      directory: string;
-    }[];
-  };
 };
 export type UnreadableCtpConnection = { id: string; error: "unreadable" };
 export type TradingConnection = {
@@ -103,7 +64,8 @@ export type Snapshot = {
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
-  nodes: NodeStatus[];
+  // Null until Lab was first started.
+  lab: LabStatus | null;
   protocol: 1;
   product: string;
   core: string;

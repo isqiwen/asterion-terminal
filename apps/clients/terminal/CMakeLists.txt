@@ -4,7 +4,7 @@ add_library(asterion_terminal_settings STATIC
   native/market_endpoint.cpp
 )
 target_include_directories(asterion_terminal_settings PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_settings PUBLIC asterion_node_control)
+target_link_libraries(asterion_terminal_settings PUBLIC asterion_system)
 asterion_target_defaults(asterion_terminal_settings)
 
 add_library(asterion_terminal_application STATIC
@@ -15,12 +15,13 @@ add_library(asterion_terminal_application STATIC
   native/commands_market.cpp
   native/commands_lab.cpp
   native/trading_client.cpp
-  native/local_services.cpp
-  native/local_service_health.cpp
+  native/lab_supervisor.cpp
+  native/program_paths.cpp
+  native/service_io.cpp
 )
 target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
-target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_settings asterion_node_control asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
+target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_settings asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
 asterion_target_defaults(asterion_terminal_application)

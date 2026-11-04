@@ -4,10 +4,10 @@
 
 ## 本机 Lab
 
-Lab 是 Terminal 的子进程（`apps/clients/terminal/native/local_services.*`）：
+Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`）：
 
-- 第一次用到时启动，运行意图保存在 `terminal/data/services/lab.json`，下次启动 Terminal 时恢复。
-- 进程退出或心跳连续 3 次失败时重启，最多 3 次；使用者停止的不会被拉起。
+- 每次启动 Terminal 时在启动画面里启动，没有启停按钮。
+- 进程退出或心跳连续 3 次失败后每 5 秒重启一次，直到恢复。
 - Lab 以 `--owner-pid` 观察 Terminal，Terminal 退出（包括被强制结束）后随之退出。关闭 Terminal 不会停止 Market 或 Trading。
 - Lab 用第一次启动时安装的 Python 运行时以 `python3 -I -B -m asterion_lab` 运行；开发和测试用 `ASTERION_PYTHON` 指定解释器。
 - 一个根目录同时只能有一个 Terminal（`terminal/data/services.lock`）。

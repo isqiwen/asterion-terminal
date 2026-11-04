@@ -50,7 +50,6 @@
   "account state changed before durable grant completed": "account state changed before durable grant completed",
   "an order is awaiting SDK completion": "An order is awaiting SDK completion.",
   "another market operation is in progress; retry after it completes": "another market operation is in progress; retry after it completes",
-  "another node operation is in progress; retry after it completes": "another node operation is in progress; retry after it completes",
   "authorization names a different account": "authorization names a different account",
   "authorize live trading for this account first": "authorize live trading for this account first",
   "slippage reaches a contract's lowest price": "slippage reaches a contract's lowest price",
@@ -257,5 +256,6 @@
   "a module of this name already exists": "A module of this name exists; choose another name.",
   "a built-in module cannot be changed": "A built-in module cannot be changed.",
   "a built-in module cannot be deleted": "A built-in module cannot be deleted.",
-  "invalid module name": "A module name uses letters, digits and underscores, and does not start with a digit."
+  "invalid module name": "A module name uses letters, digits and underscores, and does not start with a digit.",
+  "Market is already connecting; retry after it completes": "Market is already connecting; retry after it completes"
 }

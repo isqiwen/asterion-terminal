@@ -17,8 +17,6 @@ PolledTask<ServiceEndpoint> Application::Impl::market_address()
         "market-data",
         saved.at("port").get<std::uint16_t>(),
         {},
-        "",
-        "",
         tls
     };
 }
@@ -40,7 +38,7 @@ void Application::Impl::register_market_commands()
     command("market.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
         const auto address = co_await market_address();
-        auto next = co_await manage<std::shared_ptr<MarketWatch>>(
+        auto next = co_await connect<std::shared_ptr<MarketWatch>>(
             [this, address]() -> PolledTask<std::shared_ptr<MarketWatch>> {
                 co_return co_await PollFuture{MarketWatch::open(service_io, address)};
             });

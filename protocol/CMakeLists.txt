@@ -3,7 +3,7 @@ set(ASTERION_PROTO_GEN ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${ASTERION_PROTO_GEN})
 set(ASTERION_PROTO_SOURCES)
 file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/*.proto)
-foreach(schema health domain trading node market lab recording dataset acquisition strategy)
+foreach(schema health domain trading market lab recording dataset acquisition strategy)
   add_custom_command(
     OUTPUT ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.h
     COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto

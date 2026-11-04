@@ -65,17 +65,7 @@ test("a service failure remains visible from every workspace", async ({ page }) 
     if (request.method !== "runtime.snapshot" || !issues) return route.continue();
     const response = await route.fetch({ postData: { ...request, params: {} } });
     const data = await response.json();
-    const local = data.result.nodes.find((node: { id: string }) => node.id === "local");
-    local.health.services = [
-      {
-        ...local.health.services[0],
-        id: "lab",
-        kind: "lab",
-        state: "restarting",
-        health: "offline",
-        error: "Test-only service failure",
-      },
-    ];
+    data.result.lab = { state: "restarting", pid: 0, restarts: 1, error: "Test-only failure" };
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");

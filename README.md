@@ -56,8 +56,7 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | `apps/services/lab/` | Python 研究服务与 C++ 回测扩展 |
 | `apps/services/trading/` | 独立账户进程、内置风控与交易主机策略运行器 |
 | `protocol/` | Protobuf 契约与边界校验 |
-| `apps/common/control/` | Terminal 与安装器共用的路径及状态序列化 |
-| `apps/clients/` | Terminal 桌面端与安装器；Terminal 的 `features/` 是内置界面功能 |
+| `apps/clients/terminal/` | Terminal 桌面端：`src/`、`features/` 是界面，`native/` 是 C++ 原生层（Lab 看护、行情与交易连接） |
 | `bindings/` | C ABI 与 Node-API |
 | `config/` | 本机服务的默认配置 |
 | `tests/` | C++ 与进程测试 |

@@ -22,9 +22,7 @@ export function StatusIndicators({
   const market = useMarket();
   const accounts = useTradingAccounts().views;
   if (!snapshot) return null;
-  const lab = snapshot.nodes
-    .find(node => node.id === "local")
-    ?.health?.services.find(service => service.kind === "lab");
+  const lab = snapshot.lab;
   const connections = (snapshot.trading_connections ?? []).filter(
     (item): item is TradingConnection => !("error" in item),
   );
@@ -43,14 +41,12 @@ export function StatusIndicators({
       {lab &&
         (() => {
           // Lab restarts by itself while the Terminal runs; this only says where it is.
-          const [tone, state] =
-            lab.state !== "running"
-              ? ["bad", "重启中"]
-              : lab.health === "starting"
-                ? ["", "启动中"]
-                : ["ready", "awaiting_input"].includes(lab.health)
-                  ? ["good", ""]
-                  : ["bad", "异常"];
+          const [tone, state] = {
+            ready: ["good", ""],
+            starting: ["", "启动中"],
+            unresponsive: ["bad", "异常"],
+            restarting: ["bad", "重启中"],
+          }[lab.state];
           return (
             <span className={`status-item ${tone}`} title={lab.error || undefined}>
               {label(t("研究"), state)}

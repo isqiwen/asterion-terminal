@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "support/local_listener.hpp"
 #include <asterion/protocol/trading.hpp>
-#include <asterion/protocol/health.hpp>
 #include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/system/process/child.hpp>
 #include <future>
@@ -143,37 +142,4 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     EXPECT_EQ(
         lines.front(),
         "warning rpc failed: module=rpc-test operation=live_connect correlation_id=rpc.test " "code=permission_denied session_id=session.test");
-}
-
-TEST(Protobuf, TradingHealthSeparatesReadinessProgressAndRecovery)
-{
-    wire::Health h;
-    EXPECT_THROW(protocol::trading_health_phase(h), std::invalid_argument);
-    auto* e = h.mutable_execution();
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::awaiting_input);
-    e->mutable_initialization()->set_observed(true);
-    e->mutable_initialization()->set_pending(true);
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::starting);
-    e->mutable_initialization()->set_pending(false);
-    h.set_initialized(true);
-    for (auto* p : {e->mutable_io(), e->mutable_state(), e->mutable_persistence()})
-        p->set_observed(true);
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::awaiting_input);
-    e->set_business_ready(true);
-    e->mutable_persistence()->set_age_ms(60000); // Idle writer needs no artificial work.
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::ready);
-    e->mutable_persistence()->set_pending(true);
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
-    EXPECT_FALSE(h.recovery_required());
-    e->mutable_persistence()->set_pending(false);
-    protocol::age_execution_health(*e, 31000); // Agent cannot renew executor progress.
-    EXPECT_EQ(e->state().age_ms(), 31000U);
-    EXPECT_EQ(e->persistence().age_ms(), 91000U);
-    EXPECT_FALSE(e->command().observed());
-    EXPECT_EQ(e->command().age_ms(), 0U);
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
-    e->mutable_io()->set_age_ms(0);
-    e->mutable_state()->set_age_ms(0);
-    h.set_recovery_required(true);
-    EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
 }

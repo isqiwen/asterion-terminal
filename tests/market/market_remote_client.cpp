@@ -22,8 +22,6 @@ int main(int argc, char** argv)
             "market-data",
             static_cast<std::uint16_t>(std::stoi(argv[1])),
             {},
-            "",
-            "",
             identity
         };
         asterion::terminal::ServiceIo io;
