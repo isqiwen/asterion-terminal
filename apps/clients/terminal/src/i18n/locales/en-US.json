@@ -186,6 +186,5 @@
   "已授权": "authorized",
   "需要恢复": "needs recovery",
   "连接中": "connecting",
-  "处理停滞": "stalled",
-  "本机日志": "Local logs"
+  "处理停滞": "stalled"
 }

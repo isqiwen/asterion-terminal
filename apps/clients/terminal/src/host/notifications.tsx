@@ -8,6 +8,7 @@ import {
   errorSummary,
   type DisplayError,
 } from "../i18n/errors";
+import { LocalLogsButton } from "./components/LocalLogsButton";
 import "./notifications.css";
 
 type Severity = "error" | "warning";
@@ -89,6 +90,7 @@ export function NotificationCenter() {
           <header>
             <strong>{translate("host", "通知")}</strong>
             <span className="panel-spacer" />
+            <LocalLogsButton />
             <button
               type="button"
               disabled={!all.length}
