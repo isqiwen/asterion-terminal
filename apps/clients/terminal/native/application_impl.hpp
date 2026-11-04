@@ -140,7 +140,7 @@ struct Application::Impl
     struct SettingsView
     {
         json trading = json::array();
-        std::string trading_fingerprint;
+        std::string client_fingerprint;
         json market_endpoint = nullptr;
         bool operator==(const SettingsView&) const = default;
     };

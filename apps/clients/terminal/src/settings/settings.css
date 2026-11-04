@@ -206,14 +206,6 @@
   font-size: 11px;
   overflow-wrap: anywhere;
 }
-.settings-fingerprint {
-  display: block;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--canvas);
-  color: var(--text);
-}
 /* An item card inside a section, such as one account. */
 .settings-section .settings-card {
   background: var(--canvas);
@@ -507,4 +499,22 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* The client fingerprint: one line, selectable, with its copy button. */
+.client-fingerprint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.client-fingerprint code {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.client-fingerprint button {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
 }

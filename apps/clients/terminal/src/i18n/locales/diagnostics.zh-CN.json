@@ -236,7 +236,6 @@
   "trading connection changed; inspect again": "交易连接已更改，请刷新后重试。",
   "trading endpoint already has a connection": "此地址和端口已存在交易连接。",
   "trading connection is unavailable": "交易连接不可用。",
-  "prepare the Terminal certificate first": "请先生成本机客户端证书。",
   "invalid trading server fingerprint": "交易服务端证书指纹无效。",
   "invalid trading connection name or address": "交易连接名称或地址无效。",
   "trading connection port must be in 1-65535": "交易连接端口必须在 1 到 65535 之间。",

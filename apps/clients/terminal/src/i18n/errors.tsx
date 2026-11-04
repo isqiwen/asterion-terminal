@@ -188,8 +188,8 @@ export function CopyDiagnostic({ diagnostic }: { diagnostic: string }) {
   );
 }
 
-// An error kept beside what it concerns: an input, or a trading state that
-// must stay in view. Other failures go to the notification area (notify).
+// An error kept beside what it concerns: an input, an action, or a state that
+// must stay in view. Events nobody asked for go to the notification area (notify).
 export function ErrorNotice({
   error,
   namespace = "host",

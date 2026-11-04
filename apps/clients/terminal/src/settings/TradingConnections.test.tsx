@@ -11,11 +11,9 @@ HTMLDialogElement.prototype.close = function () {
   this.removeAttribute("open");
 };
 
-test("generates identity explicitly and saves a direct pinned trading destination", async () => {
+test("saves a direct pinned trading destination", async () => {
   const trade = vi.fn().mockResolvedValue(undefined);
   render(<TradingConnections snapshot={readySnapshot()} busy={false} trade={trade} />);
-  fireEvent.click(screen.getByRole("button", { name: "生成客户端证书" }));
-  await waitFor(() => expect(trade).toHaveBeenCalledWith("trading.identity.prepare", {}));
   fireEvent.click(screen.getByRole("button", { name: "添加交易连接" }));
   for (const [label, value] of [
     ["连接名称", "SimNow"],

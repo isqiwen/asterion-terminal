@@ -158,8 +158,6 @@ TradingEndpoint TradingConnections::endpoint(const std::string& id) const
 
 ipc::TlsIdentity TradingConnections::tls(const std::string& server_fingerprint) const
 {
-    if (fingerprint().empty())
-        throw std::invalid_argument("prepare the Terminal certificate first");
     return {
         (data_ / "tls/client.crt").string(),
         (data_ / "tls/client.key").string(),

@@ -18,7 +18,7 @@ export const test = base.extend<{
   tradingHost: async ({ request, isolatedNode, strategyRuntime }, runTest) => {
     void isolatedNode;
     test.skip(process.platform !== "linux", "Trading services run on Linux only");
-    const snapshot = await rpc(request, "trading.identity.prepare");
+    const snapshot = await rpc(request, "runtime.snapshot");
     const root = await mkdtemp(join(tmpdir(), "asterion-trading-ui-"));
     const build = process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../../build/Debug");
     const child = spawn(
@@ -27,7 +27,7 @@ export const test = base.extend<{
         resolve(__dirname, "../../../../tests/support/trading_peer.py"),
         root,
         build,
-        snapshot.trading_fingerprint,
+        snapshot.client_fingerprint,
         strategyRuntime ? "strategy" : "account",
       ],
       { stdio: ["pipe", "pipe", "inherit"] },

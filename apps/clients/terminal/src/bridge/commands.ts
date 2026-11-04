@@ -8,7 +8,6 @@ export type CommandParams = {
   "runtime.snapshot": Record<string, never>;
   "runtime.python.status": Record<string, never>;
   "runtime.python.install": Record<string, never>;
-  "trading.identity.prepare": Record<string, never>;
   "trading.connections.save": {
     id: string;
     name: string;

@@ -5,6 +5,7 @@ import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
+import { ClientFingerprint } from "./ClientFingerprint";
 const t = (key: string) => translate("host", key);
 const blank = { name: "", host: "", port: "7460", instance: "", fingerprint: "" };
 
@@ -32,37 +33,6 @@ export function TradingConnections({
   return (
     <>
       <SettingsSection
-        title={t("本机客户端证书")}
-        description={t("交易主机只接受登记过的证书。把本机指纹填入交易主机配置；私钥保留在本机。")}
-        actions={
-          !snapshot?.trading_fingerprint && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={async () => {
-                try {
-                  await trade("trading.identity.prepare", {});
-                  setError("");
-                } catch (failure) {
-                  setError(asDisplayError(failure));
-                }
-              }}
-            >
-              {t("生成客户端证书")}
-            </button>
-          )
-        }
-      >
-        {snapshot?.trading_fingerprint ? (
-          <label className="settings-field">
-            {t("本机客户端证书指纹")}
-            <code className="settings-fingerprint">{snapshot.trading_fingerprint}</code>
-          </label>
-        ) : (
-          <p className="settings-hint">{t("尚未生成。生成后才能连接交易主机。")}</p>
-        )}
-      </SettingsSection>
-      <SettingsSection
         title={t("交易服务连接")}
         description={t(
           "每条连接对应交易主机上的一个账户实例，账户与凭据在交易主机上配置。填入交易主机的地址、实例名和它的证书指纹。",
@@ -73,6 +43,7 @@ export function TradingConnections({
           </button>
         }
       >
+        <ClientFingerprint value={snapshot?.client_fingerprint} />
         {!entries.length && <p className="settings-hint">{t("还没有交易连接。")}</p>}
         <div className="settings-list">
           {entries.map(entry => (

@@ -3,6 +3,7 @@ import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
+import { ClientFingerprint } from "./ClientFingerprint";
 import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
@@ -48,17 +49,7 @@ export function MarketSource({
         )
       }
     >
-      <p className="settings-hint">
-        {t("在 Market 主机登记本机证书指纹，并授予只读或采集管理权限。")}
-      </p>
-      {snapshot?.trading_fingerprint ? (
-        <code>{snapshot.trading_fingerprint}</code>
-      ) : (
-        <button disabled={busy} onClick={() => run("trading.identity.prepare", {})}>
-          {t("生成本机证书")}
-        </button>
-      )}
-      <ActionError error={error} />
+      <ClientFingerprint value={snapshot?.client_fingerprint} />
       {saved && "error" in saved && (
         <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
       )}
@@ -83,6 +74,7 @@ export function MarketSource({
                 {t(clearing ? "确认清除" : "清除")}
               </button>
             </div>
+            <ActionError error={error} />
           </div>
         ) : (
           !(saved && "error" in saved) && (

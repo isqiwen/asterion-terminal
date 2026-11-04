@@ -588,11 +588,11 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
 
     testing_support::MarketHost host(root);
     terminal::Application app;
-    const auto identity = app.dispatch(request("trading.identity.prepare"));
+    const auto identity = app.dispatch(request("runtime.snapshot"));
     std::ifstream input(root / "config/market.json");
     auto config = Json::parse(input);
     config["clients"].push_back(
-        {{"fingerprint", identity.at("trading_fingerprint")}, {"role", "read"}});
+        {{"fingerprint", identity.at("client_fingerprint")}, {"role", "read"}});
     config["acquisition"]["exchanges"] = {"SHFE", "GFEX"};
     replace_file_durably(root / "config/market.json", config.dump());
     host.start();

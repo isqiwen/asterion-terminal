@@ -150,9 +150,12 @@ Application::Impl::Impl()
     register_market_commands();
     register_lab_commands();
     log::info("terminal started");
+    // The one client certificate Market, Lab and Trading hosts register.
     initialization = service_io
                          .submit<void>([this](std::stop_token) {
-                             return settings<void>([] {});
+                             return settings<void>([this] {
+                                 trading_connections.prepare_identity();
+                             });
                          })
                          .share();
     refresher = service_io.submit<void>(
@@ -231,7 +234,7 @@ json Application::Impl::Publication::render() const
     for (const auto& node : nodes)
         nodes_view.push_back(node_snapshot_json(node));
     result["trading_connections"] = settings->trading;
-    result["trading_fingerprint"] = settings->trading_fingerprint;
+    result["client_fingerprint"] = settings->client_fingerprint;
     result["market_endpoint"] = settings->market_endpoint;
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;

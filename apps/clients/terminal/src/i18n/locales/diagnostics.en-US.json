@@ -236,7 +236,6 @@
   "trading connection changed; inspect again": "trading connection changed; inspect again",
   "trading endpoint already has a connection": "trading endpoint already has a connection",
   "trading connection is unavailable": "trading connection is unavailable",
-  "prepare the Terminal certificate first": "prepare the Terminal certificate first",
   "invalid trading server fingerprint": "invalid trading server fingerprint",
   "invalid trading connection name or address": "invalid trading connection name or address",
   "trading connection port must be in 1-65535": "trading connection port must be in 1-65535",

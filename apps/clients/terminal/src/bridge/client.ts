@@ -88,7 +88,7 @@ export type PythonRuntime = {
 };
 export type Snapshot = {
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
-  trading_fingerprint?: string;
+  client_fingerprint?: string;
   // The saved Market host, or a mark that its settings file is unreadable.
   market_endpoint?:
     | null

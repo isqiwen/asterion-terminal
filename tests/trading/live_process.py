@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         str(build / "libasterion_test_ctp_trader.so")))
     children = {}
     try:
-        fingerprint = call(process, "trading.identity.prepare")["trading_fingerprint"]
+        fingerprint = call(process, "runtime.snapshot")["client_fingerprint"]
         for name in ("account", "second"):
             port = host.account(name, terminals=[fingerprint], user="000001" if name == "account" else "000002")
             (host.root / "test-credentials" / name / "auth_code").write_text(AUTH)

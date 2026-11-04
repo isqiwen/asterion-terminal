@@ -135,7 +135,7 @@ def main():
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         process = None
         try:
-            fingerprint = terminal_call(terminal, 'trading.identity.prepare')['trading_fingerprint']
+            fingerprint = terminal_call(terminal, 'runtime.snapshot')['client_fingerprint']
             port = host.account('account', terminals=[fingerprint, host.terminal], user='strategy')
             process = host.start('account')
             terminal_call(terminal, 'trading.connections.save', dict(id='remote', name='Test Trading',

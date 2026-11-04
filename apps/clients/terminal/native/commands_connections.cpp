@@ -50,7 +50,6 @@ void Application::Impl::register_connection_commands()
         fields(p, {"account", "request"});
         const auto id = text(p, "account");
         const auto selected = co_await settings<std::pair<TradingEndpoint, std::string>>([&] {
-            trading_connections.prepare_identity();
             return std::pair{
                 trading_connections.endpoint(id),
                 trading_connections.get(id).at("revision").get<std::string>()
@@ -64,13 +63,6 @@ void Application::Impl::register_connection_commands()
                     "trading connection changed; inspect the original host before retrying");
         });
         co_return Response{json{{"trading", std::move(reply)}}};
-    });
-    command("trading.identity.prepare", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {});
-        co_await settings<void>([&] {
-            trading_connections.prepare_identity();
-        });
-        co_return snapshot();
     });
     command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "name", "host", "port", "instance", "fingerprint", "revision"});

@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         terminal = launch()
         call(terminal, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=market_tls.fingerprint(tls)))
         call(terminal, "market.open")
-        fingerprint = call(terminal, "trading.identity.prepare")["trading_fingerprint"]
+        fingerprint = call(terminal, "runtime.snapshot")["client_fingerprint"]
         for name in ("real", "simulation"):
             port = host.account(name, terminals=[fingerprint], environment=name, user="000001" if name == "real" else "000002")
             children[name] = host.start(name)
