@@ -249,6 +249,9 @@ export default defineConfig({
       "@asterion/terminal": resolve(root, "apps/clients/terminal/src"),
     },
   },
+  // The desktop app loads one bundle from disk behind its startup screen, so
+  // every workspace is ready on first click.
+  build: { chunkSizeWarningLimit: 2048 },
   server: {
     host: "127.0.0.1",
     port,

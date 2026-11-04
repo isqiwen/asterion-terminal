@@ -12,7 +12,7 @@ import { useLocale } from "./i18n";
 import { SetupGate } from "./startup/SetupGate";
 import { TradingAccountsProvider } from "./host/trading-accounts";
 import { MarketProvider } from "./host/market";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WindowFrame } from "@asterion/workbench/components/WindowFrame";
 import { Workbench } from "@asterion/workbench/workspace/Workbench";
 import { usePreferences } from "./ui/preferences";
@@ -315,13 +315,11 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     </nav>
                   )}
                   <main className="terminal-business">
-                    <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                      {Panel && currentFeature && (
-                        <WorkspaceDraftScope store={drafts} namespace={current!.id}>
-                          <Panel {...panelContext} />
-                        </WorkspaceDraftScope>
-                      )}
-                    </Suspense>
+                    {Panel && currentFeature && (
+                      <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                        <Panel {...panelContext} />
+                      </WorkspaceDraftScope>
+                    )}
                   </main>
                 </div>
               }

@@ -4,12 +4,9 @@ const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
-import { lazy } from "react";
 import type { TerminalFeature } from "../contract";
-const Panel = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
-const Contract = lazy(() =>
-  import("./QuoteWorkspaces").then(module => ({ default: module.ContractWorkspace })),
-);
+import { Workspace as Panel } from "./Workspace";
+import { ContractWorkspace as Contract } from "./QuoteWorkspaces";
 
 export const feature: TerminalFeature = {
   id: "asterion.terminal.futures-market",

@@ -51,7 +51,6 @@
   "本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。": "Log writes failed during this run. Diagnostics may be incomplete. Check free space and permissions for the log directory.",
   "权限不足": "Permission denied.",
   "核心": "Core",
-  "正在加载工作区…": "Loading workspace…",
   "正在启动本机 C++ 核心…": "Starting the local C++ core…",
   "正在处理…": "Working…",
   "每手保证金": "Margin per Lot",
