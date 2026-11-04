@@ -9,7 +9,7 @@ target_link_libraries(asterion_market_warehouse PUBLIC asterion_protocol PRIVATE
 asterion_target_defaults(asterion_market_warehouse)
 find_package(ZLIB CONFIG REQUIRED)
 add_library(asterion_market_acquisition STATIC
-  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/recorded.cpp acquisition/exchanges.cpp acquisition/manager.cpp)
+  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/recorded.cpp acquisition/recorded_publication.cpp acquisition/exchanges.cpp acquisition/manager.cpp)
 target_link_libraries(asterion_market_acquisition PUBLIC asterion_market_warehouse asterion_market_recording PRIVATE httplib::httplib Iconv::Iconv ZLIB::ZLIB)
 asterion_target_defaults(asterion_market_acquisition)
 add_library(asterion_market_settings STATIC settings.cpp)

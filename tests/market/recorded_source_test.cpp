@@ -1,4 +1,5 @@
 #include "acquisition/recorded.hpp"
+#include "acquisition/recorded_publication.hpp"
 #include "acquisition/manager.hpp"
 #include "recording/recorder.hpp"
 #include "recording/compaction.hpp"
@@ -282,6 +283,55 @@ TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)
     const auto rows = store.read(store.current(), "minutes/SHFE/2026-10-28/rb/2027-01");
     ASSERT_FALSE(rows.empty());
     EXPECT_EQ(std::get<std::string>(rows[0][11]), "666.667333");
+}
+
+TEST_F(RecordedSource, AMergedDayStaysPendingAcrossARestartUntilItsPublicationSucceeds)
+{
+    record("first");
+    ac::Manager manager(root, {{"recorder", factory()}});
+    const auto file = root / "unpublished.json";
+    const auto settle = [&](ac::RecordedPublication& queue) {
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            queue.poll(std::chrono::steady_clock::now());
+            const auto tasks = manager.list({});
+            if (!tasks.tasks().empty() && tasks.tasks(0).state() != "queued"
+                && tasks.tasks(0).state() != "running")
+                break;
+            ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+            std::this_thread::sleep_for(5ms);
+        }
+        queue.poll(std::chrono::steady_clock::now());
+    };
+    {
+        ac::RecordedPublication queue(file, manager);
+        queue.add("20261028");
+    }
+    // A restart before the publication keeps the day.
+    ac::RecordedPublication queue(file, manager);
+    EXPECT_EQ(queue.pending(), std::set<std::string>{"20261028"});
+    settle(queue);
+    EXPECT_TRUE(queue.pending().empty());
+    wh::Store store(wh::source_directory(root, "recorder"), "recorder");
+    EXPECT_FALSE(store.read(store.current(), "minutes/SHFE/2026-10-28/rb/2027-01").empty());
+
+    // A failed publication keeps the day for a later attempt.
+    record("too-precise", base + 300000, {"SHFE", "rb2701"}, "3100.12345678");
+    ac::RecordedPublication retry(root / "retry.json", manager);
+    retry.add("20261028");
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    for (;;) {
+        retry.poll(std::chrono::steady_clock::now());
+        const auto tasks = manager.list({});
+        if (std::any_of(tasks.tasks().begin(), tasks.tasks().end(), [](const auto& task) {
+                return task.state() == "failed";
+            }))
+            break;
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(5ms);
+    }
+    retry.poll(std::chrono::steady_clock::now());
+    EXPECT_EQ(retry.pending(), std::set<std::string>{"20261028"});
 }
 
 TEST_F(RecordedSource, UnrepresentableDecimalsDoNotPublishHalfAVersion)

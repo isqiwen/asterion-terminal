@@ -11,6 +11,7 @@
 #include "acquisition/tushare.hpp"
 #include "acquisition/exchanges.hpp"
 #include "acquisition/recorded.hpp"
+#include "acquisition/recorded_publication.hpp"
 #include <asterion/futures/intraday_bars.hpp>
 #include <asterion/base/bounded_queue.hpp>
 #include <asterion/protocol/market.hpp>
@@ -61,10 +62,9 @@ struct State
     Clock::time_point next_login{}, next_catalog{}, quiet_since = Clock::now();
     recording::Compactor compactor;
     acquisition::Manager& acquisitions;
-    // Merged trading days (YYYYMMDD) whose recorded minutes are still to be
-    // published; tried again each minute while acquisition is busy.
-    std::set<std::string> unpublished;
-    Clock::time_point next_publish{};
+    // Every contract's minutes of a merged day go to the recorder source, and
+    // so to research. A merge after late quotes publishes the day again.
+    acquisition::RecordedPublication publication;
 
     State(
         const Session::Configuration& config,
@@ -78,7 +78,8 @@ struct State
           catalog(sdk_owner),
           settings(config.settings),
           compactor(directory / "recordings", std::move(archive), config.settings.tick_days),
-          acquisitions(manager)
+          acquisitions(manager),
+          publication(directory / "recordings" / "unpublished.json", manager)
     {
         catalog.persist_to(directory / "ctp-catalog.pb");
         {
@@ -196,34 +197,8 @@ struct State
             const auto now = Clock::now();
             if (const auto day = compactor
                     .poll(now - quiet_since >= 30min, now, std::chrono::system_clock::now()))
-                unpublished.insert(*day);
-            publish_recorded(now);
-        }
-    }
-
-    // Every contract's minutes of a merged day go to the recorder source, and
-    // so to research. A merge after late quotes publishes the day again.
-    void publish_recorded(Clock::time_point now)
-    {
-        if (unpublished.empty() || now < next_publish)
-            return;
-        next_publish = now + 1min;
-        const auto day = *unpublished.begin();
-        asterion::acquisition::proto::Request request;
-        request.set_id("recorded-" + day + "-" + unique_process_id().substr(0, 8));
-        request.set_provider("recorder");
-        request.set_table("minutes");
-        request.set_begin_day(day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6));
-        request.set_end_day(request.begin_day());
-        request.set_refresh(true);
-        try {
-            acquisitions.submit(request);
-            unpublished.erase(day);
-        } catch (const Error& error) {
-            // Another task of the recorder, or both workers, are busy.
-            if (error.code() != ErrorCode::conflict
-                && error.code() != ErrorCode::resource_exhausted)
-                throw;
+                publication.add(*day);
+            publication.poll(now);
         }
     }
 
