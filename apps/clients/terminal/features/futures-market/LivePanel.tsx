@@ -1,4 +1,5 @@
 import { MarketBoard } from "./MarketBoard";
+import { MarketUnavailable } from "./MarketUnavailable";
 import { useMarket } from "../../src/host/market";
 import { useState } from "react";
 import {
@@ -145,29 +146,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     <section className="live-market" aria-label={t("实时期货行情")}>
       {market ? (
         <MarketBoard market={market} context={context} toolbar={toolbar} />
-      ) : endpoint ? (
-        <div className="workspace-empty">
-          <strong>{t("尚未连接行情服务")}</strong>
-          <p>
-            {endpoint.host}:{endpoint.port}
-          </p>
-          <button
-            className="primary"
-            disabled={context.busy}
-            onClick={() => void attempt(() => context.trade("market.open"))}
-          >
-            {t("连接行情服务")}
-          </button>
-          {failed}
-        </div>
       ) : (
-        <div className="workspace-empty">
-          <strong>{t("尚未设置行情服务")}</strong>
-          <p>{t("在设置里填写 Market 的地址和证书指纹后，这里显示实时行情。")}</p>
-          <button className="primary" onClick={() => context.openSettings("sources")}>
-            {t("配置行情服务")}
-          </button>
-        </div>
+        <MarketUnavailable context={context} />
       )}
     </section>
   );

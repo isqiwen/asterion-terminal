@@ -13,7 +13,6 @@
   "行情连接异常，请检查配置或服务时段。": "Market connection failed. Check configuration or service hours.",
   "详情": "Details",
   "密码": "Password",
-  "连接行情": "Connect Feed",
   "交易所": "Exchange",
   "实际合约": "Dated Contract",
   "添加自选": "Add to Watchlist",

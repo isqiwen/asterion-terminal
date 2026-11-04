@@ -8,6 +8,7 @@ import { quoteChange, quoteStatus } from "./QuoteTable";
 import { ContractHistory } from "./ContractHistory";
 import { QuoteChart } from "./QuoteChart";
 import { WatchlistToggle } from "./WatchlistToggle";
+import { MarketUnavailable } from "./MarketUnavailable";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // A row of these lists: Market's row with its identity and display name.
@@ -93,6 +94,7 @@ export function ContractWorkspace(context: TerminalContext) {
   const bid = q?.bid != null ? Number(q.bidQuantity) : 0,
     ask = q?.ask != null ? Number(q.askQuantity) : 0;
   const total = bid + ask;
+  if (!market) return <MarketUnavailable context={context} />;
   return (
     <section className="contract-workspace" aria-label={t("合约")}>
       <aside className="contract-watchlist" aria-label={t(query ? "搜索结果" : "自选")}>
@@ -176,8 +178,6 @@ export function ContractWorkspace(context: TerminalContext) {
                 <p>{t("没有匹配的合约")}</p>
                 <button onClick={() => setSearch("")}>{t("清除搜索")}</button>
               </>
-            ) : !market ? (
-              <button onClick={() => context.navigate("workspace.market")}>{t("连接行情")}</button>
             ) : (
               <p>{t("还没有自选合约。在市场页选中合约，点图表标题旁的“加入自选”。")}</p>
             )}
@@ -186,7 +186,7 @@ export function ContractWorkspace(context: TerminalContext) {
       </aside>
       <div className="contract-center">
         <section className="contract-chart-panel">
-          {active && market ? (
+          {active ? (
             <>
               <QuoteHeader row={active} market={market} />
               <nav className="quote-tabs" aria-label={t("图表类型")}>
@@ -233,7 +233,7 @@ export function ContractWorkspace(context: TerminalContext) {
         </section>
       </div>
       <aside className="contract-right" aria-label={t("合约详情")}>
-        {active && market ? (
+        {active ? (
           <>
             <section className="contract-summary">
               <QuoteHeader
