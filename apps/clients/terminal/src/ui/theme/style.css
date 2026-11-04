@@ -1517,6 +1517,15 @@ tbody tr:hover {
 .service-failed {
   color: var(--danger);
 }
+.service-status-row span:has(button) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.service-status-row button {
+  min-height: 22px;
+  padding: 0 8px;
+}
 
 /* Shared interaction states follow component styles so transparent controls respond too. */
 button:enabled:not([aria-disabled="true"]):hover,

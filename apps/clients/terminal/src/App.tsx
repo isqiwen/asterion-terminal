@@ -352,7 +352,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     busy={busy}
                     checkedAt={checkedAt}
                     refresh={() => void refresh()}
-                    settings={() => showSettings("connections")}
+                    trade={trade}
+                    settings={() => showSettings("trading")}
                   />
                   {snapshot &&
                     !(snapshot.market_endpoint && "host" in snapshot.market_endpoint) && (

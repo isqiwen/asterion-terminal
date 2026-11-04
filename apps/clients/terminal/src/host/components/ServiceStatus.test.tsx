@@ -8,13 +8,14 @@ import { localHealth, readySnapshot } from "../../testing/core";
 import { TradingAccountsProvider } from "../trading-accounts";
 import { ServiceStatus } from "./ServiceStatus";
 
-const show = (snapshot: Snapshot) => (
+const show = (snapshot: Snapshot, trade = vi.fn()) => (
   <ServiceStatus
     snapshot={snapshot}
     failed={false}
     busy={false}
     checkedAt={null}
     refresh={() => {}}
+    trade={trade}
     settings={() => {}}
   />
 );
@@ -40,6 +41,21 @@ test("a service that has just started reads as starting, not as a fault", () => 
   view.rerender(report("unresponsive"));
   expect(indicator().textContent).toBe("● 服务异常");
   expect(indicator().className).toBe("bad");
+});
+
+test("a failed Lab can be restarted from the status bar; a ready one offers nothing", () => {
+  const snapshot = readySnapshot();
+  const lab = localHealth(snapshot).services.find(service => service.id === "lab")!;
+  lab.health = "ready";
+  const trade = vi.fn().mockResolvedValue(undefined);
+  const view = render(show(snapshot, trade));
+  fireEvent.click(indicator());
+  const panel = screen.getByRole("region", { name: "服务连接详情" });
+  expect(within(panel).queryByRole("button", { name: "重启" })).toBeNull();
+  lab.state = "failed";
+  view.rerender(show(structuredClone(snapshot), trade));
+  fireEvent.click(within(panel).getByRole("button", { name: "重启" }));
+  expect(trade).toHaveBeenCalledWith("node.action", { service: "lab", action: "restart" });
 });
 
 test("log loss stays visible while a failed background refresh can recover", () => {

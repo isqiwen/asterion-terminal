@@ -6,6 +6,8 @@ import type { Health } from "../../generated/asterion/trading_pb";
 import type { Progress } from "../../generated/asterion/health_pb";
 import { useTradingAccounts } from "../trading-accounts";
 import { LocalLogsButton } from "./LocalLogsButton";
+import { ActionError, useActionError } from "../action-error";
+import type { CommandHandler } from "../../bridge/commands";
 const t = (key: string) => translate("host", key);
 const progress = (p: Progress | undefined) => ({
   observed: !!p?.observed,
@@ -109,6 +111,7 @@ export function ServiceStatus({
   busy,
   checkedAt,
   refresh,
+  trade,
   settings,
 }: {
   snapshot: Snapshot | null;
@@ -116,6 +119,7 @@ export function ServiceStatus({
   busy: boolean;
   checkedAt: number | null;
   refresh: () => void;
+  trade: CommandHandler;
   settings: () => void;
 }) {
   const { locale } = useLocale();
@@ -147,6 +151,10 @@ export function ServiceStatus({
   // shown as starting, not as an error.
   const starting = (s: { state: string; health: string }) =>
     ["running", "starting"].includes(s.state) && s.health === "starting";
+  const faulty = (s: { state: string; health: string; error?: string }) =>
+    !starting(s) &&
+    (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health));
+  const { error, attempt } = useActionError();
   const services = snapshot?.nodes.flatMap(n => n.health?.services ?? []) ?? [];
   const trading = Object.entries(useTradingAccounts().views).map(
     ([id, view]) => [id, view, view.health && tradingHealth(view.health)] as const,
@@ -158,12 +166,7 @@ export function ServiceStatus({
         n.state !== "online" ||
         !n.health ||
         n.health.phase === "recovery_required" ||
-        n.health.services.some(
-          s =>
-            s.desired_running &&
-            !starting(s) &&
-            (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health)),
-        ),
+        n.health.services.some(s => s.desired_running && faulty(s)),
     );
   const warming =
     !unhealthy &&
@@ -257,9 +260,22 @@ export function ServiceStatus({
                           ? "已停止"
                           : (health[service.health] ?? "待确认"),
                     )}
+                    {(!service.desired_running || faulty(service)) && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void attempt(() =>
+                            trade("node.action", { service: service.id, action: "restart" }),
+                          )
+                        }
+                      >
+                        {t("重启")}
+                      </button>
+                    )}
                   </span>
                 </div>
               ))}
+              <ActionError error={error} />
               {node.health && (
                 <details className="service-connection-details">
                   <summary>{t("连接详情")}</summary>

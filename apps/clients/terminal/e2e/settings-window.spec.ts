@@ -2,37 +2,6 @@ import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
-test("opening connection settings does not start a local service", async ({ page }) => {
-  await page.goto("/");
-  const settings = await openSettingsWindow(page);
-  const commands: string[] = [];
-  await settings.route("**/__asterion/api", route => {
-    const { method } = route.request().postDataJSON();
-    if (method !== "runtime.snapshot") {
-      commands.push(method);
-      return route.fulfill({
-        json: {
-          error: {
-            code: "conflict",
-            message: "another Terminal operation is in progress; retry after it completes",
-          },
-        },
-      });
-    }
-    return route.continue();
-  });
-  for (let visit = 0; visit < 2; visit++) {
-    await settings.getByRole("button", { name: "本机服务", exact: true }).click();
-    await expect(settings.getByRole("list", { name: "服务列表" })).toContainText(
-      "尚无本机服务；使用相应功能时自动启动。",
-    );
-    await expect(settings.getByRole("alert")).toHaveCount(0);
-    await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
-  }
-  expect(commands).toEqual([]);
-  await closeSettingsWindow(settings);
-});
-
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
   await openView(page, "market");
@@ -57,7 +26,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await settings.getByLabel("Language").selectOption("zh-CN");
   await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
   await page.getByRole("button", { name: "连接设置", exact: true }).click();
-  await expect(settings.getByRole("heading", { name: "本机服务", exact: true })).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
   expect(page.context().pages()).toHaveLength(2);
   await settings.screenshot({
     path: "apps/clients/terminal/test-results/settings-connections.png",
@@ -68,7 +37,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await closeSettingsWindow(settings);
   await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb19");
   const reopened = await openSettingsWindow(page);
-  await expect(reopened.getByRole("heading", { name: "本机服务", exact: true })).toBeVisible();
+  await expect(reopened.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });
   expect(await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
     true,

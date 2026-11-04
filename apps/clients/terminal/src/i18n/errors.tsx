@@ -13,7 +13,7 @@ const errors: Record<string, string> = {
   invalid_request: "请求无效，请检查输入",
   unavailable: "服务暂不可用",
   service_restarted: "Lab 意外退出，已自动重启。",
-  service_failed: "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。",
+  service_failed: "Lab 连续启动失败，已停止重启；点状态栏的“服务”重启它。",
   strategy_instance: "策略实例失败或放弃了一个批次，详情见交易页的实例事件。",
   market_unconfigured: "还没有设置 Market：在 设置 → 数据源 里填写它的地址和证书指纹。",
   conflict: "操作与当前状态冲突",

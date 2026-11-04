@@ -38,7 +38,7 @@ test("compact footer exposes services and navigation", async ({ page }) => {
     page,
     panel.getByRole("button", { name: "连接设置", exact: true }),
   );
-  await expect(page.getByRole("list", { name: "服务列表", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
 });
 
 test("revisioned polls accept unchanged replies from an idle core", async ({ page }) => {

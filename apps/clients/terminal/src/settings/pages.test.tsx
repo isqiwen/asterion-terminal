@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { localService, readySnapshot } from "../testing/core";
-import { Connections } from "./Connections";
+import { readySnapshot } from "../testing/core";
 
 import { Settings } from "./Settings";
 
@@ -12,22 +11,6 @@ HTMLDialogElement.prototype.showModal = function () {
 HTMLDialogElement.prototype.close = function () {
   this.removeAttribute("open");
 };
-
-test("local services name what a state means and confirm before stopping", async () => {
-  const snapshot = readySnapshot();
-  localService(snapshot, "lab").health = "ready";
-  const trade = vi.fn().mockResolvedValue(undefined);
-  render(<Connections snapshot={snapshot} busy={false} trade={trade} />);
-  const market = screen.getByRole("listitem", { name: "lab" });
-  expect(market.textContent).not.toContain("未登录行情");
-  expect(market.textContent).not.toContain("当前使用");
-  fireEvent.click(within(market).getByRole("button", { name: "停止" }));
-  expect(trade).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "确认操作" }));
-  await waitFor(() =>
-    expect(trade).toHaveBeenCalledWith("node.action", { service: "lab", action: "stop" }),
-  );
-});
 
 test("every settings page has its title, and trading connections have their own page", () => {
   const props = {

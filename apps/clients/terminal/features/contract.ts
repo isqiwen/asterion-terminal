@@ -50,7 +50,7 @@ export type TerminalContext = {
     id: string,
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
-  openSettings: (page?: "preferences" | "connections" | "trading" | "sources") => void;
+  openSettings: (page?: "preferences" | "trading" | "sources") => void;
   trade: CommandHandler;
 };
 // Built-in application features share the typed application context.

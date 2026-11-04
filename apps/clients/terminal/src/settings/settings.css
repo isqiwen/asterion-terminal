@@ -218,6 +218,24 @@
 }
 .settings-content button {
   white-space: normal;
+  padding-inline: 14px;
+  background: var(--raised);
+  color: var(--text-strong);
+}
+/* A card's main action is the one solid button. */
+.settings-content button.primary,
+.settings-content button.primary:enabled:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--canvas);
+  font-weight: 500;
+}
+/* The second click of a delete or clear. */
+.settings-content button.danger,
+.settings-content button.danger:enabled:hover {
+  background: var(--danger-surface);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .settings-table {

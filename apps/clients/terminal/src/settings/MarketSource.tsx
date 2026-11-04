@@ -39,22 +39,8 @@ export function MarketSource({
       title="Market"
       actions={
         !editing && (
-          <button disabled={busy} onClick={edit}>
-            {t(endpoint ? "修改地址" : "填写地址")}
-          </button>
-        )
-      }
-    >
-      {saved && "error" in saved && (
-        <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
-      )}
-      {!editing &&
-        (endpoint ? (
-          <div className="settings-item-row">
-            <p className="settings-hint">
-              {t("地址")} <code>{`${endpoint.host}:${endpoint.port}`}</code>
-            </p>
-            <div className="settings-actions">
+          <>
+            {endpoint && (
               <button
                 className={clearing ? "danger" : undefined}
                 disabled={busy}
@@ -68,10 +54,25 @@ export function MarketSource({
               >
                 {t(clearing ? "确认清除" : "清除")}
               </button>
-            </div>
-            <ActionError error={error} />
-          </div>
-        ) : null)}
+            )}
+            <button className="primary" disabled={busy} onClick={edit}>
+              {t(endpoint ? "修改地址" : "填写地址")}
+            </button>
+          </>
+        )
+      }
+    >
+      {saved && "error" in saved && (
+        <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
+      )}
+      {!editing && endpoint && (
+        <>
+          <p className="settings-hint">
+            {t("地址")} <code>{`${endpoint.host}:${endpoint.port}`}</code>
+          </p>
+          <ActionError error={error} />
+        </>
+      )}
       {editing && (
         <form
           onSubmit={async event => {
