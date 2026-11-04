@@ -218,6 +218,7 @@ gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVER
   DISCOVERY_TIMEOUT 30
   PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
 # desktop: the Electron host
+add_test(NAME desktop_python_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/python_runtime.py)
 find_program(ASTERION_TEST_NODE node REQUIRED)
 add_test(NAME lab_channel COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/lab_channel.cjs")
 if(ASTERION_NODE_HEADERS)

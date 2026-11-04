@@ -273,9 +273,10 @@ def main():
     stage_native_resources(ROOT / "build" / configuration, native)
     if arguments.prepare_python:
         python_runtime.prepare(ROOT / "build" / configuration)
+    else:
+        python_runtime.ensure(ROOT / "build" / configuration)
     # Development runs on the prepared runtime; a package ships the manifest
     # its first launch installs from.
-    python_runtime.verify()
     runtime_manifest.verify()
     run(["pnpm", "build"])
     # Loading and calling the compiled addon is part of desktop:check.

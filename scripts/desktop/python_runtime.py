@@ -46,7 +46,14 @@ def library_directories(directory=DESTINATION):
     return [directory / "lib", *sorted((directory / SITE).glob("*.libs"))]
 
 
-def verify(directory=DESTINATION):
+def source_path(build):
+    return "".join(f"{path}\n" for path in (
+        PROJECT, ROOT / "apps/services/common/python",
+        build / "generated-python", build / "engine-python"))
+
+
+def verify(directory=DESTINATION, build=None):
+    build = build or Path(os.environ.get("ASTERION_CPP_BUILD", ROOT / "build/Debug"))
     if not (directory / "manifest.json").is_file():
         raise ValueError("Python runtime missing; run pnpm prepare:python")
     manifest = json.loads((directory / "manifest.json").read_text())
@@ -54,6 +61,20 @@ def verify(directory=DESTINATION):
         raise ValueError("Python runtime is built for another platform; run pnpm prepare:python")
     if not executable(directory).is_file() or not os.access(executable(directory), os.X_OK):
         raise ValueError("Bundled Python is not executable")
+    if manifest["python"] != PYTHON:
+        raise ValueError("Python runtime needs updating")
+    if (directory / SITE / "asterion-source.pth").read_text() != source_path(build):
+        raise ValueError("Python runtime does not use the current project and build")
+    if (directory / "uv.lock").read_bytes() != (PROJECT / "uv.lock").read_bytes():
+        raise ValueError("Python runtime dependencies need updating")
+
+
+def ensure(build):
+    try:
+        verify(DESTINATION, build)
+    except (FileNotFoundError, ValueError):
+        print("Preparing Python runtime for the current project and dependencies", flush=True)
+        prepare(build)
 
 
 def application_code(build: Path, target: Path):
@@ -118,9 +139,8 @@ def prepare(build=None):
         # Polars needs one CPU runtime: the compatible one, not the default AVX2 build.
         run(["uv", "pip", "uninstall", "--python", python, "polars-runtime-32"])
         site = prepared / SITE
-        sources = [PROJECT, ROOT / "apps/services/common/python",
-                   build / "generated-python", build / "engine-python"]
-        (site / "asterion-source.pth").write_text("".join(f"{path}\n" for path in sources))
+        (site / "asterion-source.pth").write_text(source_path(build))
+        shutil.copyfile(PROJECT / "uv.lock", prepared / "uv.lock")
         # Installed command scripts name the staging interpreter, and nothing
         # installs packages into a prepared runtime: keep the interpreter only.
         for path in (prepared / "bin").iterdir():
@@ -132,7 +152,7 @@ def prepare(build=None):
             shutil.rmtree(path)
         (prepared / "manifest.json").write_text(json.dumps(
             {"platform": [sys.platform, platform.machine()], "python": PYTHON}, indent=2) + "\n")
-        verify(prepared)
+        verify(prepared, build)
         # The relocated runtime imports Terminal's Python code without a system Python.
         run([python, "-I", "-B", "-c", "import asterion_engine, asterion_lab.__main__"])
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
