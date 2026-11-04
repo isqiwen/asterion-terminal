@@ -75,7 +75,7 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(board.getByRole("button", { name: "i2701", exact: true })).toHaveCount(0);
   await expect(detail).toContainText("rb2610");
   await expect(detail.locator(".quote-pane-status").first()).toHaveText("等待首笔");
-  await openView(page, "watchlist");
+  await openView(page, "contract");
   await openView(page, "market");
   await expect(categories.getByRole("button", { name: "上期所", exact: true })).toHaveAttribute(
     "aria-pressed",

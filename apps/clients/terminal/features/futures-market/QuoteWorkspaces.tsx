@@ -1,8 +1,8 @@
-import { recordQuoteVisit, useRecentQuotes } from "./recent-quotes";
+import { selectQuote, useSelectedQuote } from "./selected-quote";
 import { contractName } from "./contract-name";
 import type { Subscription } from "../../src/generated/asterion/market_pb";
 import { rowKey, useMarket, type MarketView } from "../../src/host/market";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { quoteChange, quoteStatus } from "./QuoteTable";
 import { ContractHistory } from "./ContractHistory";
@@ -10,37 +10,6 @@ import { QuoteChart } from "./QuoteChart";
 import { WatchlistToggle } from "./WatchlistToggle";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-const fields = [
-  "代码",
-  "名称",
-  "涨幅%",
-  "现价",
-  "涨跌",
-  "主力净额",
-  "主力净量",
-  "量比",
-  "1分钟涨速",
-  "成交额",
-  "振幅%",
-  "最高",
-  "最低",
-  "开盘",
-  "昨收",
-  "外盘",
-  "内盘",
-];
-const sortableFields = new Set([
-  "代码",
-  "名称",
-  "涨幅%",
-  "现价",
-  "涨跌",
-  "最高",
-  "最低",
-  "开盘",
-  "昨收",
-  "振幅%",
-]);
 // A row of these lists: Market's row with its identity and display name.
 type QuoteRow = Subscription & { venue: string; symbol: string; displayName?: string };
 const quoteId = (row: QuoteRow) => rowKey(row);
@@ -95,262 +64,29 @@ function QuoteHeader({
     </header>
   );
 }
-function useQuotes(context: TerminalContext, watchlistOnly = false) {
-  const [selected = ""] = useRecentQuotes();
+// One contract in depth. The list on the left is the watchlist, or while
+// searching, every contract that matches.
+export function ContractWorkspace(context: TerminalContext) {
+  const selected = useSelectedQuote();
   const [search, setSearch] = useWorkspaceDraft("quote-search", "");
   useEffect(() => {
-    if (context.workspacePage) {
-      recordQuoteVisit(context.workspacePage);
-    }
+    if (context.workspacePage) selectQuote(context.workspacePage);
   }, [context.workspacePage]);
   const market = useMarket();
   const saved = context.snapshot?.market_endpoint;
   const watchlist = saved && "instruments" in saved ? saved.instruments : [];
-  const rows = (market?.snapshot.subscriptions ?? [])
-    .map(row => ({
-      ...row,
-      venue: row.instrument!.venue,
-      symbol: row.instrument!.symbol,
-      displayName: contractName(row.instrument!, market?.snapshot.catalog),
-    }))
-    .filter(
-      row =>
-        !watchlistOnly || watchlist.some(id => id.venue === row.venue && id.symbol === row.symbol),
-    )
-    .filter(row =>
-      `${quoteId(row)} ${row.displayName ?? ""}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
-    );
-  const active = rows.find(row => quoteId(row) === (selected || context.workspacePage)) ?? rows[0];
-  return {
-    market,
-    rows,
-    active,
-    filtering: search.trim().length > 0,
-    clearSearch: () => setSearch(""),
-    select: (id: string) => {
-      recordQuoteVisit(id);
-    },
-  };
-}
-export function WatchlistWorkspace(context: TerminalContext) {
-  const [recent, setRecent] = useState(false);
-  const {
-    market,
-    rows,
-    active: selectedRow,
-    select,
-    filtering,
-    clearSearch,
-  } = useQuotes(context, !recent);
-  const visited = useRecentQuotes();
-  const [recentOrder, setRecentOrder] = useState<readonly string[]>([]);
-  const [sort, setSort] = useWorkspaceDraft(recent ? "recent-quotes-sort" : "watchlist-sort", {
-    name: "",
-    descending: true,
-  });
-  const pick = (row: QuoteRow) => {
-    select(quoteId(row));
-  };
-  const visible = (
-    recent ? recentOrder.flatMap(id => rows.filter(row => quoteId(row) === id)) : [...rows]
-  ).sort((a, b) => {
-    if (!sort.name) return 0;
-    const left = cell(a, sort.name),
-      right = cell(b, sort.name);
-    if (left === "—") return right === "—" ? 0 : 1;
-    if (right === "—") return -1;
-    const order = ["代码", "名称"].includes(sort.name)
-      ? left.localeCompare(right)
-      : parseFloat(left) - parseFloat(right);
-    return order * (sort.descending ? -1 : 1);
-  });
+  const rows: QuoteRow[] = (market?.snapshot.subscriptions ?? []).map(row => ({
+    ...row,
+    venue: row.instrument!.venue,
+    symbol: row.instrument!.symbol,
+    displayName: contractName(row.instrument!, market?.snapshot.catalog),
+  }));
+  const query = search.trim().toLowerCase();
+  const listed = query
+    ? rows.filter(row => `${quoteId(row)} ${row.displayName ?? ""}`.toLowerCase().includes(query))
+    : rows.filter(row => watchlist.some(id => id.venue === row.venue && id.symbol === row.symbol));
   const active =
-    visible.find(row => selectedRow && quoteId(row) === quoteId(selectedRow)) ?? visible[0];
-  return (
-    <section className="watchlist-workspace" aria-label={t("自选")}>
-      <div className="watchlist-sheet">
-        <nav className="quote-tabs" aria-label={t("自选视图")}>
-          {[false, true].map(value => (
-            <button
-              key={String(value)}
-              aria-pressed={recent === value}
-              onClick={() => {
-                setRecentOrder(visited);
-                setRecent(value);
-              }}
-            >
-              {t(value ? "最近浏览" : "自选")}
-            </button>
-          ))}
-          <button
-            className="quote-settings"
-            onClick={() => context.navigate("workspace.market", { marketMode: "live" })}
-          >
-            {t("去市场添加自选")}
-          </button>
-        </nav>
-        <div className="quote-group-strip">{t("期货自选")}</div>
-        <div className="watchlist-table-scroll">
-          <table className="watchlist-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                {fields.map(name => (
-                  <th
-                    key={name}
-                    aria-sort={
-                      sort.name === name
-                        ? sort.descending
-                          ? "descending"
-                          : "ascending"
-                        : undefined
-                    }
-                  >
-                    <button
-                      disabled={!sortableFields.has(name)}
-                      onClick={() =>
-                        setSort({ name, descending: sort.name === name ? !sort.descending : true })
-                      }
-                    >
-                      <span>{t(name)}</span>
-                    </button>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row, index) => (
-                <tr
-                  key={quoteId(row)}
-                  data-selected={active && quoteId(active) === quoteId(row)}
-                  onClick={event => {
-                    pick(row);
-                    event.currentTarget
-                      .querySelector<HTMLButtonElement>("td > button")
-                      ?.focus({ preventScroll: true });
-                  }}
-                  onDoubleClick={() =>
-                    context.navigate("workspace.contract", { page: quoteId(row) })
-                  }
-                >
-                  <td>{index + 1}</td>
-                  {fields.map((name, column) => (
-                    <td
-                      key={name}
-                      data-tone={
-                        column < 2 ? "symbol" : cell(row, name) === "—" ? undefined : tone(row)
-                      }
-                    >
-                      {column === 0 ? (
-                        <button
-                          aria-pressed={active && quoteId(active) === quoteId(row)}
-                          onKeyDown={event => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              context.navigate("workspace.contract", { page: quoteId(row) });
-                              return;
-                            }
-                            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-                              event.preventDefault();
-                              const next =
-                                visible[
-                                  event.key === "Home"
-                                    ? 0
-                                    : event.key === "End"
-                                      ? visible.length - 1
-                                      : Math.max(
-                                          0,
-                                          Math.min(
-                                            visible.length - 1,
-                                            index + (event.key === "ArrowDown" ? 1 : -1),
-                                          ),
-                                        )
-                                ];
-                              if (next) {
-                                pick(next);
-                                const buttons = event.currentTarget
-                                  .closest("tbody")
-                                  ?.querySelectorAll<HTMLButtonElement>("td > button");
-                                buttons?.[visible.indexOf(next)]?.focus();
-                              }
-                            }
-                          }}
-                        >
-                          {cell(row, name)}
-                        </button>
-                      ) : (
-                        <span title={cell(row, name)}>{cell(row, name)}</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!visible.length && (
-          <div className="quote-empty" role="status">
-            <p>
-              {t(
-                filtering
-                  ? "没有匹配的自选合约"
-                  : recent
-                    ? "尚无最近浏览合约"
-                    : market?.snapshot.phase !== "connected"
-                      ? "实时行情未连接，自选合约没有报价。"
-                      : "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。",
-              )}
-            </p>
-            {filtering && <button onClick={clearSearch}>{t("清除搜索")}</button>}
-            {!filtering && !recent && (
-              <button
-                className="primary"
-                onClick={() => context.navigate("workspace.market", { marketMode: "live" })}
-              >
-                {t(market?.snapshot.phase !== "connected" ? "连接行情" : "去市场添加自选")}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      <aside className="watchlist-charts" aria-label={t("自选合约图表")}>
-        {active && market ? (
-          <>
-            <div className="watchlist-chart-pane">
-              <QuoteHeader
-                row={active}
-                market={market}
-                actions={<WatchlistToggle context={context} market={market} row={active} />}
-              />
-              <ContractHistory
-                key={`upper:${quoteId(active)}`}
-                venue={active.venue}
-                symbol={active.symbol}
-                context={context}
-              />
-            </div>
-            <div className="watchlist-chart-pane">
-              <QuoteHeader row={active} market={market} />
-              <ContractHistory
-                key={`lower:${quoteId(active)}`}
-                venue={active.venue}
-                symbol={active.symbol}
-                context={context}
-                preferLongest
-              />
-            </div>
-          </>
-        ) : (
-          <p className="quote-empty">{t("选择合约查看图表")}</p>
-        )}
-      </aside>
-    </section>
-  );
-}
-export function ContractWorkspace(context: TerminalContext) {
-  const { market, rows, active, select, filtering, clearSearch } = useQuotes(context);
+    rows.find(row => quoteId(row) === (selected || context.workspacePage)) ?? listed[0];
   const [chart, setChart] = useWorkspaceDraft("contract-chart", "live");
   const historyAvailable = market?.online && market.snapshot.phase === "connected";
   const q = active?.quote;
@@ -359,11 +95,8 @@ export function ContractWorkspace(context: TerminalContext) {
   const total = bid + ask;
   return (
     <section className="contract-workspace" aria-label={t("合约")}>
-      <aside className="contract-watchlist" aria-label={t("自选列表")}>
-        <header>
-          {t("自选列表")}
-          <button onClick={() => context.navigate("workspace.watchlist")}>{t("全部自选")}</button>
-        </header>
+      <aside className="contract-watchlist" aria-label={t(query ? "搜索结果" : "自选")}>
+        <header>{t(query ? "搜索结果" : "自选")}</header>
         <div className="contract-list-heading">
           <span>{t("名称")}</span>
           <span>{t("趋势")}</span>
@@ -372,7 +105,7 @@ export function ContractWorkspace(context: TerminalContext) {
           <span>{t("成交量")}</span>
           <span>{t("现价")}</span>
         </div>
-        {rows.map((row, index) => {
+        {listed.map((row, index) => {
           const points = historyAvailable
             ? market.ticks
                 .filter(p => p.venue === row.venue && p.symbol === row.symbol)
@@ -386,7 +119,7 @@ export function ContractWorkspace(context: TerminalContext) {
               className="contract-list-row"
               key={quoteId(row)}
               aria-pressed={active && quoteId(row) === quoteId(active)}
-              onClick={() => select(quoteId(row))}
+              onClick={() => selectQuote(quoteId(row))}
               onKeyDown={event => {
                 if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
@@ -394,12 +127,12 @@ export function ContractWorkspace(context: TerminalContext) {
                   event.key === "Home"
                     ? 0
                     : event.key === "End"
-                      ? rows.length - 1
+                      ? listed.length - 1
                       : Math.max(
                           0,
-                          Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
+                          Math.min(listed.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
                         );
-                select(quoteId(rows[nextIndex]));
+                selectQuote(quoteId(listed[nextIndex]));
                 const next =
                   event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
                     ".contract-list-row",
@@ -436,15 +169,20 @@ export function ContractWorkspace(context: TerminalContext) {
             </button>
           );
         })}
-        {!rows.length &&
-          (filtering ? (
-            <div className="quote-empty" role="status">
-              <p>{t("没有匹配的自选合约")}</p>
-              <button onClick={clearSearch}>{t("清除搜索")}</button>
-            </div>
-          ) : (
-            <button onClick={() => context.navigate("workspace.market")}>{t("连接行情")}</button>
-          ))}
+        {!listed.length && (
+          <div className="quote-empty" role="status">
+            {query ? (
+              <>
+                <p>{t("没有匹配的合约")}</p>
+                <button onClick={() => setSearch("")}>{t("清除搜索")}</button>
+              </>
+            ) : !market ? (
+              <button onClick={() => context.navigate("workspace.market")}>{t("连接行情")}</button>
+            ) : (
+              <p>{t("还没有自选合约。在市场页选中合约，点图表标题旁的“加入自选”。")}</p>
+            )}
+          </div>
+        )}
       </aside>
       <div className="contract-center">
         <section className="contract-chart-panel">
@@ -487,7 +225,7 @@ export function ContractWorkspace(context: TerminalContext) {
                 <button
                   key={quoteId(row)}
                   aria-pressed={quoteId(row) === quoteId(active)}
-                  onClick={() => select(quoteId(row))}
+                  onClick={() => selectQuote(quoteId(row))}
                 >
                   {row.symbol}
                 </button>

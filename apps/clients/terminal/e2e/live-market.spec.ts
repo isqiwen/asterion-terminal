@@ -18,8 +18,11 @@ test(
     expect((await saved()).instruments).toEqual([]);
     await expect(panel.locator('input[type="password"]')).toHaveCount(0);
     await panel.getByRole("button", { name: "加入自选", exact: true }).click();
-    await openView(page, "watchlist");
-    await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(1);
+    await page
+      .getByRole("navigation", { name: "期货分类" })
+      .getByRole("button", { name: "自选", exact: true })
+      .click();
+    await expect(panel.getByRole("button", { name: "rb2610", exact: true })).toBeVisible();
     await rpc(page.request, "market.close");
     expect(await watch()).toBeNull();
     await rpc(page.request, "market.open");

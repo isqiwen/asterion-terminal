@@ -26,18 +26,17 @@ test("product catalog has the required modules and places every contributed view
 test("first launch opens data and module switching retains each view's location", () => {
   let state = initialNavigation();
   expect(currentRoute(state).view).toBe("workspace.coverage");
-  state = selectView(state, "workspace.watchlist");
+  state = selectView(state, "workspace.contract");
   state = selectModule(state, "research");
   expect(currentRoute(state).view).toBe("workspace.lab-strategies");
   state = selectModule(state, "market");
-  expect(currentRoute(state).view).toBe("workspace.watchlist");
+  expect(currentRoute(state).view).toBe("workspace.contract");
 });
 
-test("market, watchlist and contract routes retain independent parameters", () => {
+test("market and contract routes retain independent parameters", () => {
   let state = selectView(initialNavigation(), "workspace.market", { marketMode: "history" });
   state = selectView(state, "workspace.contract", { params: { symbol: "rb2610" } });
-  state = selectView(state, "workspace.watchlist");
-  expect(currentRoute(state).options).toEqual({});
+  expect(currentRoute(state).options).toEqual({ params: { symbol: "rb2610" } });
   state = selectView(state, "workspace.market");
   expect(currentRoute(state).options.marketMode).toBe("history");
   expect(() => selectView(state, "unknown")).toThrow("Unknown view");

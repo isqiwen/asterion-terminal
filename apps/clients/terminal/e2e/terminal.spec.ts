@@ -23,9 +23,9 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await expect(page.getByRole("region", { name: "远程行情服务", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Tushare", exact: true })).toHaveCount(0);
   page = await closeSettingsWindow(page);
-  await openView(page, "watchlist");
+  await openView(page, "contract");
   await expect(
-    page.locator(".module-views").getByRole("button", { name: "自选", exact: true }),
+    page.locator(".module-views").getByRole("button", { name: "合约", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await page.screenshot({ path: join(__dirname, "../test-results/workbench.png") });
 });

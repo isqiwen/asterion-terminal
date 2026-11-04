@@ -14,7 +14,7 @@ test("product navigation and header search replace duplicate workspace tabs with
   const modeBox = await modes.boundingBox();
   expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(modeBox!.y);
   await search.fill("rb26");
-  await openView(page, "watchlist");
+  await openView(page, "contract");
   await expect(search).toHaveCount(0);
   await openView(page, "market");
   await expect(search).toHaveValue("rb26");

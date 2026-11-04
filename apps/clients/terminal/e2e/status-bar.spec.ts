@@ -31,7 +31,7 @@ test("compact footer exposes services and navigation", async ({ page }) => {
   await expect(panel).toHaveCount(0);
   await expect(service).toBeFocused();
   await service.click();
-  await openView(page, "watchlist");
+  await openView(page, "contract");
   await expect(panel).toHaveCount(0);
   await service.click();
   page = await openSettingsWindow(

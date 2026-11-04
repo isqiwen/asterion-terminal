@@ -7,9 +7,6 @@ import en from "./locales/en-US.json";
 import { lazy } from "react";
 import type { TerminalFeature } from "../contract";
 const Panel = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
-const Watchlist = lazy(() =>
-  import("./QuoteWorkspaces").then(module => ({ default: module.WatchlistWorkspace })),
-);
 const Contract = lazy(() =>
   import("./QuoteWorkspaces").then(module => ({ default: module.ContractWorkspace })),
 );
@@ -27,16 +24,6 @@ export const feature: TerminalFeature = {
 
       component: context => <Panel {...context} />,
       headerTools: HeaderSearch,
-    },
-    {
-      id: "workspace.watchlist",
-      hideToolbar: true,
-      get title() {
-        return t("自选");
-      },
-
-      component: context => <Watchlist {...context} />,
-      headerTools: context => <HeaderSearch {...context} target="workspace.watchlist" />,
     },
     {
       id: "workspace.contract",

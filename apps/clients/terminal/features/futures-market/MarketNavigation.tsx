@@ -2,8 +2,9 @@ import { translate, useWorkspaceDraft, type TerminalContext } from "../contract"
 import { MarketModes } from "./Navigation";
 import { useEffect, useRef } from "react";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
-// Only categories with a connected source: CTP futures, overall, dominant and by exchange.
+// The watchlist, then categories with a connected source: overall, dominant and by exchange.
 export const futuresSections = [
+  "自选",
   "期货全景",
   "主力合约",
   "中金所",

@@ -1,5 +1,5 @@
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
-import { recordQuoteVisit, useRecentQuotes } from "./recent-quotes";
+import { selectQuote, useSelectedQuote } from "./selected-quote";
 import { productOverview } from "./product-overview";
 import { contractName, productLabel } from "./contract-name";
 import { QuotePane } from "./QuotePane";
@@ -33,7 +33,11 @@ export function MarketBoard({
   const visibleColumns = columns.filter(item => item.visible).map(item => item.column);
   const [scope, setScope] = useWorkspaceDraft("market-scope", "products");
   const [venue] = useWorkspaceDraft("market-venue", "");
-  const [selected = ""] = useRecentQuotes();
+  const [section] = useWorkspaceDraft("market-section", "期货全景");
+  const saved = context.snapshot?.market_endpoint;
+  const watchlist =
+    section === "自选" && saved && "instruments" in saved ? saved.instruments : null;
+  const selected = useSelectedQuote();
   const [search] = useWorkspaceDraft("quote-search", "");
   const [menuOpen] = useWorkspaceDraft("market-menu", false);
   const [sort, setSort] = useWorkspaceDraft<{
@@ -55,8 +59,16 @@ export function MarketBoard({
   const filter = venue;
   const query = search.trim().toUpperCase();
   // Without a catalog there is no product identity; list subscribed months.
-  const overview = scope === "products" && !query && !!catalog?.contracts.length;
-  const candidates = overview ? productOverview(market) : subscriptions;
+  const overview = !watchlist && scope === "products" && !query && !!catalog?.contracts.length;
+  const candidates = watchlist
+    ? subscriptions.filter(row =>
+        watchlist.some(
+          id => id.venue === row.instrument!.venue && id.symbol === row.instrument!.symbol,
+        ),
+      )
+    : overview
+      ? productOverview(market)
+      : subscriptions;
   const rows = candidates.filter(
     row =>
       (!filter || venueOf(row) === filter) &&
@@ -145,9 +157,9 @@ export function MarketBoard({
       market={market}
       rows={groupRows}
       selected={active ? rowKey(active) : undefined}
-      onSelect={id => recordQuoteVisit(id)}
+      onSelect={selectQuote}
       onOpen={id => {
-        recordQuoteVisit(id);
+        selectQuote(id);
         context.navigate("workspace.contract", { page: id });
       }}
       sort={sort}
@@ -165,7 +177,7 @@ export function MarketBoard({
         const next = orderedRows[Math.max(0, Math.min(orderedRows.length - 1, index + direction))];
         if (next) {
           const id = rowKey(next);
-          if (id !== selected) recordQuoteVisit(id);
+          if (id !== selected) selectQuote(id);
           Array.from(board.current?.querySelectorAll<HTMLButtonElement>(".quote-select") ?? [])
             .find(button => button.dataset.quoteId === id)
             ?.focus();
@@ -203,7 +215,13 @@ export function MarketBoard({
         {inlineToolbar && toolbar}
         {!rows.length && (
           <p className="market-search-empty" role="status">
-            {t(subscriptions.length ? "没有匹配的市场合约" : "尚无订阅行情")}
+            {t(
+              watchlist && !query
+                ? "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。"
+                : subscriptions.length
+                  ? "没有匹配的市场合约"
+                  : "尚无订阅行情",
+            )}
           </p>
         )}
         <div
