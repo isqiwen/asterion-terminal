@@ -199,7 +199,6 @@
   "当前目录没有这个合约的月份": "The catalogue does not name this contract's month",
   "该月份合约尚无已采集历史数据": "No historical data has been acquired for this contract",
   "尚无已采集的历史合约": "No historical contract has been acquired yet",
-  "请在数据页采集历史数据。": "Acquire historical data on the Data page.",
   "远程行情服务": "Remote Market service",
   "行情服务设置文件无法读取，已保留原文件供检查。": "The Market settings file cannot be read. The original file has been preserved.",
   "尚未连接行情服务": "Market connection closed",
@@ -215,10 +214,12 @@
   "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。": "Up to 512 recent quotes across contracts, taken from the market frames sent every 0.25 s; not a full intraday series, individual trades, or minute candles.",
   "研究数据 · 历史数据 · 非实时": "Research dataset · historical · not live",
   "尚未设置行情服务": "Market service not set",
-  "在设置里填写 Market 的地址和证书指纹后，这里显示实时行情。": "Enter the Market address and certificate fingerprint in Settings to see live quotes here.",
   "搜索合约": "Search contracts",
   "搜索结果": "Search results",
   "没有匹配的合约": "No matching contracts",
   "还没有自选合约。在市场页选中合约，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract on the Market page and click “Add to watchlist” next to the chart title.",
-  "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract and click “Add to watchlist” next to the chart title."
+  "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract and click “Add to watchlist” next to the chart title.",
+  "读取历史合约失败": "Could not read historical contracts",
+  "在数据页采集日线或分钟线后，这里可以查看历史 K 线。": "Acquire daily or minute bars on the Data page to view historical charts here.",
+  "在设置里填写 Market 的地址和证书指纹后，这里显示行情。": "Enter the Market address and certificate fingerprint in Settings to see quotes here."
 }

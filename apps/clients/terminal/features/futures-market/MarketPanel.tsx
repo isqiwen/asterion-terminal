@@ -11,6 +11,7 @@ import {
 } from "../contract";
 import { ContractHistory } from "./ContractHistory";
 import { identityName } from "./contract-name";
+import { MarketUnavailable } from "./MarketUnavailable";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 
@@ -64,14 +65,35 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   );
   const visible = matched.slice(0, shownAtOnce);
   const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
+  if (!address) return <MarketUnavailable context={context} />;
+  if (!current)
+    return (
+      <div className="workspace-empty">
+        <p>{t("读取中")}</p>
+      </div>
+    );
+  if (current.error)
+    return (
+      <div className="workspace-empty" role="alert">
+        <strong>{t("读取历史合约失败")}</strong>
+        <ErrorNotice error={current.error} />
+      </div>
+    );
+  if (!items.length)
+    return (
+      <div className="workspace-empty">
+        <strong>{t("尚无已采集的历史合约")}</strong>
+        <p>{t("在数据页采集日线或分钟线后，这里可以查看历史 K 线。")}</p>
+        <button className="primary" onClick={() => context.navigate("workspace.coverage")}>
+          {t("采集历史数据")}
+        </button>
+      </div>
+    );
   return (
     <section className="history-market-board" aria-label={t("历史行情")}>
       <div className="history-market-contracts">
         <header>
           <strong>{t("历史合约")}</strong>
-          <button onClick={() => context.navigate("workspace.coverage")}>
-            {t("采集历史数据")}
-          </button>
         </header>
         <input
           type="search"
@@ -108,7 +130,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
               }}
             >
               <span>{nameFor(item)}</span>
-              <small>{item.contract}</small>
+              {nameFor(item) !== item.contract && <small>{item.contract}</small>}
               <small>
                 {[
                   item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",
@@ -120,20 +142,12 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
             </button>
           ))}
         </div>
-        {current?.error && (
-          <p role="alert">
-            <ErrorNotice error={current.error} />
-          </p>
-        )}
         {matched.length > visible.length && (
           <p className="subtle">
             {t("另有 {count} 个合约，请用搜索缩小范围", {
               count: matched.length - visible.length,
             })}
           </p>
-        )}
-        {current && !visible.length && (
-          <p role="status">{t(items.length ? "没有匹配的历史合约" : "尚无已采集的历史合约")}</p>
         )}
       </div>
       <div className="history-market-detail">
@@ -146,9 +160,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
             context={context}
           />
         ) : (
-          <div className="market-chart-empty">
-            <p>{t(current ? "请在数据页采集历史数据。" : "读取中")}</p>
-          </div>
+          <p className="market-chart-empty">{t("没有匹配的历史合约")}</p>
         )}
       </div>
     </section>

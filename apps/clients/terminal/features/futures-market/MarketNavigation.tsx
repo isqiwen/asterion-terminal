@@ -1,5 +1,6 @@
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { MarketModes } from "./Navigation";
+import { useMarket } from "../../src/host/market";
 import { useEffect, useRef } from "react";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // The watchlist, then categories with a connected source: overall, dominant and by exchange.
@@ -49,41 +50,48 @@ export function MarketNavigation({ context }: { context: TerminalContext }) {
   const [, setVenue] = useWorkspaceDraft("market-venue", "");
   const [, setScope] = useWorkspaceDraft("market-scope", "products");
   const [, setSearch] = useWorkspaceDraft("quote-search", "");
+  // Categories and the settings menu act on the live board only.
+  const market = useMarket();
+  const board = context.marketMode !== "history" && !!market;
   return (
     <div className="market-navigation">
-      <nav className="market-sections" aria-label={t("期货分类")}>
-        {futuresSections.map(value => (
-          <button
-            key={value}
-            aria-pressed={section === value}
-            onClick={() => {
-              setSection(value);
-              setVenue(sectionVenues[value] ?? "");
-              setScope(sectionVenues[value] ? "months" : "products");
-              setSearch("");
-            }}
-          >
-            {t(value)}
-          </button>
-        ))}
-      </nav>
+      {board && (
+        <nav className="market-sections" aria-label={t("期货分类")}>
+          {futuresSections.map(value => (
+            <button
+              key={value}
+              aria-pressed={section === value}
+              onClick={() => {
+                setSection(value);
+                setVenue(sectionVenues[value] ?? "");
+                setScope(sectionVenues[value] ? "months" : "products");
+                setSearch("");
+              }}
+            >
+              {t(value)}
+            </button>
+          ))}
+        </nav>
+      )}
       <MarketModes {...context} />
-      <div className="market-menu-anchor" ref={menu}>
-        <button
-          className="market-menu-button"
-          aria-label={t("行情设置")}
-          title={t("行情设置")}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          ⋯
-        </button>
-        {menuOpen && (
-          <div className="market-menu" role="dialog" aria-label={t("行情设置")}>
-            <div id="market-menu-slot" />
-          </div>
-        )}
-      </div>
+      {board && (
+        <div className="market-menu-anchor" ref={menu}>
+          <button
+            className="market-menu-button"
+            aria-label={t("行情设置")}
+            title={t("行情设置")}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            ⋯
+          </button>
+          {menuOpen && (
+            <div className="market-menu" role="dialog" aria-label={t("行情设置")}>
+              <div id="market-menu-slot" />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

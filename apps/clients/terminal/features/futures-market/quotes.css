@@ -571,10 +571,6 @@
   gap: 8px;
   font-size: 12px;
 }
-.history-market-contracts header button {
-  font-size: 12px;
-  padding: 3px 6px;
-}
 .history-market-contracts > input {
   width: 100%;
   min-width: 0;
@@ -859,6 +855,7 @@
   position: relative;
   display: flex;
   align-items: center;
+  min-height: 35px;
   background: var(--canvas);
 }
 .market-navigation .market-sections {
@@ -1116,6 +1113,7 @@
   display: none;
 }
 .market-navigation .market-modes {
+  margin-left: auto;
   padding: 0 8px;
   gap: 0;
   border: 0;
