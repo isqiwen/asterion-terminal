@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import type { LiveSnapshot } from "../../src/generated/asterion/trading_pb";
+import { catalogName } from "../contract";
 import {
   command,
   key as contractKey,
@@ -115,7 +116,7 @@ export function AccountPolicyEditor({
                 .filter(item => !contracts.includes(listedKey(item)))
                 .map(item => (
                   <option key={listedKey(item)} value={listedKey(item)}>
-                    {listedKey(item)} · {item.name}
+                    {[listedKey(item), catalogName(item)].filter(Boolean).join(" · ")}
                   </option>
                 ))}
             </select>

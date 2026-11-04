@@ -1,14 +1,19 @@
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
 import { selectQuote, useSelectedQuote } from "./selected-quote";
 import { productOverview } from "./product-overview";
-import { contractName, productLabel } from "./contract-name";
 import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Subscription } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
-import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
+import {
+  contractName,
+  productLabel,
+  translate,
+  useWorkspaceDraft,
+  type TerminalContext,
+} from "../contract";
 import { QuoteTable, quoteChange } from "./QuoteTable";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 const venueNames: Record<string, string> = {

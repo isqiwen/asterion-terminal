@@ -29,9 +29,7 @@ test("language switches every workspace, preserves preferences and survives relo
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: workspace, exact: true }),
     ).toHaveAttribute("aria-current", "page");
-    // Contract names are the exchange's own, from market data.
-    const text = (await page.locator("body").innerText()).replaceAll("螺纹钢", "");
-    expect(text).not.toMatch(/\p{Script=Han}/u);
+    await expect(page.locator("body")).not.toContainText(/\p{Script=Han}/u);
   }
   for (const label of await page.locator(".activity-rail .nav-label").all()) {
     expect(

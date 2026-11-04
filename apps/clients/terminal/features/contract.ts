@@ -34,6 +34,7 @@ export { MarketUnset } from "../src/host/components/MarketUnset";
 export type { DisplayError } from "../src/i18n/errors";
 import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";
+export { catalogName, contractName, identityName, productLabel } from "../src/ui/contract-names";
 export type { MessageValues, LanguageResources } from "../src/i18n";
 import type { Snapshot } from "../src/bridge/client";
 import type { ComponentType } from "react";

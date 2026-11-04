@@ -1,9 +1,8 @@
 import { selectQuote, useSelectedQuote } from "./selected-quote";
-import { contractName } from "./contract-name";
 import type { Subscription } from "../../src/generated/asterion/market_pb";
 import { rowKey, useMarket, type MarketView } from "../../src/host/market";
 import { useEffect, type ReactNode } from "react";
-import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
+import { contractName, translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { quoteChange, quoteStatus } from "./QuoteTable";
 import { ContractHistory } from "./ContractHistory";
 import { QuoteChart } from "./QuoteChart";

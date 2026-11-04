@@ -1,7 +1,7 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
-import { useWorkspaceDraft, type TerminalContext } from "../contract";
+import { catalogName, useWorkspaceDraft, type TerminalContext } from "../contract";
 import type { TradingConnection } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
 import type { TradingAccount } from "../../src/generated/asterion/trading_pb";
@@ -96,7 +96,7 @@ export function CreateLive({
                   <datalist id="live-catalog">
                     {listed.map(item => (
                       <option key={listedKey(item)} value={listedKey(item)}>
-                        {item.name}
+                        {catalogName(item)}
                       </option>
                     ))}
                   </datalist>

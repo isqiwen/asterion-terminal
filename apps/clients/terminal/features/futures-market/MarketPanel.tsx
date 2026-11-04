@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   MarketUnset,
+  identityName,
   translate,
   lab,
   useWorkspaceDraft,
@@ -11,7 +12,6 @@ import {
   type TerminalContext,
 } from "../contract";
 import { ContractHistory } from "./ContractHistory";
-import { identityName } from "./contract-name";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 
@@ -59,7 +59,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   }, [address]);
   const current = stored?.address === address ? stored : null;
   const items = current?.items ?? [];
-  const nameFor = (item: Stored) => item.name || identityName(item.contract) || item.contract;
+  const nameFor = (item: Stored) => identityName(item.contract, item.name) || item.contract;
   const matched = items.filter(item =>
     `${item.contract} ${nameFor(item)}`.toUpperCase().includes(search.trim().toUpperCase()),
   );
