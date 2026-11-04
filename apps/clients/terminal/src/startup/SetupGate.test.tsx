@@ -25,7 +25,7 @@ test("the startup screen starts Lab and Market, then opens the workbench", async
   }));
   start();
   expect(screen.getByRole("main", { name: "正在启动" })).toBeTruthy();
-  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 3000 });
+  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
   const methods = calls.map(call => call.method);
   expect(methods).toEqual(expect.arrayContaining(["lab.endpoint", "market.open"]));
   expect(methods).not.toContain("runtime.python.install");
@@ -60,7 +60,7 @@ test("the first launch installs the runtime, one row per module, then enters", a
   start();
   await screen.findByRole("progressbar", { name: "核心" });
   expect(screen.getByText(/第一次启动/).textContent).toContain("0 MB");
-  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 3000 });
+  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
   expect(calls.map(call => call.method)).toContain("runtime.python.install");
 });
 
@@ -80,5 +80,5 @@ test("a failed install says why and retries", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("cannot download core");
   expect(workbench()).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
-  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 3000 });
+  await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
 });

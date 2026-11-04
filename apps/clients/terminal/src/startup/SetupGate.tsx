@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
 import { LocalLogsButton } from "../host/components/LocalLogsButton";
 import { request, type PythonRuntime } from "../bridge/client";
+import { StartupScreen } from "./StartupScreen";
 import "./setup.css";
 
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
@@ -19,24 +20,8 @@ async function startUp() {
   await Promise.allSettled([
     request("lab.endpoint"),
     status.market_endpoint && "host" in status.market_endpoint ? request("market.open") : null,
-    new Promise(resolve => setTimeout(resolve, 1200)),
+    new Promise(resolve => setTimeout(resolve, 2000)),
   ]);
-}
-
-function StartupScreen() {
-  return (
-    <WindowFrame title="Asterion Terminal">
-      <main className="startup-screen" aria-label={t("正在启动")} aria-busy="true">
-        <div className="startup-mark">
-          <BrandMark size={56} />
-        </div>
-        <h1>ASTERION TERMINAL</h1>
-        <div className="setup-track indeterminate">
-          <i />
-        </div>
-      </main>
-    </WindowFrame>
-  );
 }
 
 // Every launch shows the startup screen while Lab and Market start; the first
@@ -46,12 +31,19 @@ export function SetupGate({ children }: { children: ReactNode }) {
   const language = locale === "zh-CN" ? "zh" : "en";
   const [runtime, setRuntime] = useState<PythonRuntime | null>(null);
   const [entered, setEntered] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<DisplayError>("");
   const started = useRef(false);
   const enter = () => {
     if (started.current) return;
     started.current = true;
-    void startUp().then(() => setEntered(true));
+    void startUp()
+      .then(() => {
+        setLeaving(true);
+        // The screen's fade-out, startup.css .leaving.
+        return new Promise(resolve => setTimeout(resolve, 380));
+      })
+      .then(() => setEntered(true));
   };
   const read = async (install: boolean) => {
     const reply = await request(install ? "runtime.python.install" : "runtime.python.status");
@@ -94,7 +86,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
     }
   };
   if (entered) return children;
-  if ((!runtime || runtime.state === "ready") && !error) return <StartupScreen />;
+  if ((!runtime || runtime.state === "ready") && !error) return <StartupScreen leaving={leaving} />;
   const failed = runtime?.state === "failed";
   const total = (runtime?.modules ?? []).reduce((sum, module) => sum + module.size, 0);
   return (
