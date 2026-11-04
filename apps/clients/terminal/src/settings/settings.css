@@ -517,21 +517,9 @@
   margin: 0;
   color: var(--text);
 }
-/* The client fingerprint, selectable, with its copy button. */
+/* One click selects the whole fingerprint for copying. */
 .client-fingerprint {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.client-fingerprint code {
-  min-width: 0;
   color: var(--text);
   overflow-wrap: anywhere;
   user-select: all;
-}
-.client-fingerprint button {
-  flex-shrink: 0;
-  min-height: 22px;
-  padding: 0 8px;
-  font-size: 12px;
 }

@@ -39,7 +39,7 @@ export function MarketSource({
       title="Market"
       actions={
         !editing && (
-          <button className={endpoint ? undefined : "primary"} disabled={busy} onClick={edit}>
+          <button disabled={busy} onClick={edit}>
             {t(endpoint ? "修改地址" : "填写地址")}
           </button>
         )

@@ -65,7 +65,6 @@ export function Connections({
                     </>
                   ) : (
                     <button
-                      className="primary"
                       disabled={busy}
                       onClick={() =>
                         void run("node.action", { service: service.id, action: "start" })

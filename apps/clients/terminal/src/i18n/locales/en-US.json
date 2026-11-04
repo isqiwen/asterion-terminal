@@ -239,7 +239,6 @@
   "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。": "Lab failed to start repeatedly and is no longer restarted; check and restart it in Settings → Local services.",
   "尚未设置行情服务": "Market service not set",
   "在设置里填写 Market 的地址和证书指纹后即可使用。": "Enter the Market address and certificate fingerprint in Settings to use this page.",
-  "复制": "Copy",
   "交易主机": "Trading hosts",
   "本机证书指纹": "Certificate fingerprint",
   "在 Market 和交易主机登记这个指纹": "Register this fingerprint on Market and trading hosts"
