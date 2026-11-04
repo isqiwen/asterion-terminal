@@ -73,11 +73,10 @@ const Kind& service_named(const std::string& service)
 struct Record
 {
     wire::ServiceKind kind;
-    bool desired = false;
 
     Json json() const
     {
-        return {{"kind", kind_of(kind).name}, {"desired", desired}};
+        return {{"kind", kind_of(kind).name}};
     }
 };
 
@@ -138,7 +137,7 @@ struct LocalServices::Impl
         replace_file_durably(record_file(service), record.json().dump());
     }
 
-    // Reads the run intent of a service, a file named by the service.
+    // Reads a registered service, a file named by the service.
     Record load(const Kind& kind, const fs::path& file) const
     {
         std::ifstream input(file, std::ios::binary);
@@ -147,7 +146,7 @@ struct LocalServices::Impl
             const auto value = parse_json(raw, 65536);
             if (value.at("kind").get<std::string>() != kind.name)
                 throw std::invalid_argument("service name and kind differ");
-            return Record{kind.kind, value.at("desired").get<bool>()};
+            return Record{kind.kind};
         } catch (const std::exception& error) {
             throw std::invalid_argument(
                 "invalid local service record " + file.string() + ": " + error.what());
@@ -249,7 +248,7 @@ struct LocalServices::Impl
         if (service.process && service.process->exited()) {
             log::warn("service {} exited: exit_code={}", name, service.process->exit_code());
             service.process.reset();
-            service.error = "process exited; awaiting bounded restart";
+            service.error = "process exited; restarting";
         }
         if (service.process && Clock::now() >= service.probe) {
             service.probe = Clock::now() + 5s;
@@ -294,9 +293,8 @@ struct LocalServices::Impl
                 }
             }
         }
-        if (service.record.desired && !service.process && service.restarts < 3
-            && Clock::now() >= service.retry)
-            // The first start of a service that should run is not a restart.
+        if (!service.process && Clock::now() >= service.retry)
+            // The first start of a registered service is not a restart.
             start(name, service, service.retry != Clock::time_point{});
     }
 
@@ -346,15 +344,10 @@ struct LocalServices::Impl
             auto* item = status->add_services();
             item->set_id(name);
             item->set_kind(service.record.kind);
-            item->set_desired_running(service.record.desired);
             item->set_restarts(service.restarts);
             item->set_error(service.error);
             const bool running = service.process != nullptr;
-            item->set_state(
-                running                       ? "running"
-                    : !service.record.desired ? "stopped"
-                    : service.restarts >= 3   ? "failed"
-                                              : "restarting");
+            item->set_state(running ? "running" : "restarting");
             item->set_pid(running ? service.process->id() : 0);
             item->set_health(
                 std::string(
@@ -535,17 +528,11 @@ std::future<ServiceEndpoint> LocalServices::Impl::launch(wire::ServiceKind kind,
             const auto& item = kind_of(kind);
             auto found = impl.services.find(item.service);
             if (found == impl.services.end()) {
-                Record record{kind, true};
+                Record record{kind};
                 impl.save(item.service, record);
                 found = impl.services.emplace(item.service, Service{std::move(record)}).first;
             }
             auto& service = found->second;
-            if (!service.record.desired) {
-                auto next = service.record;
-                next.desired = true;
-                impl.save(item.service, next);
-                service.record = std::move(next);
-            }
             if (!service.process) {
                 service.restarts = 0;
                 impl.start(item.service, service, false);
@@ -571,32 +558,6 @@ std::future<ServiceEndpoint> LocalServices::endpoint(std::string service, wire::
 {
     return impl_->post<ServiceEndpoint>([this, service = std::move(service), kind] {
         return impl_->endpoint(service, kind);
-    });
-}
-
-std::future<void> LocalServices::act(std::string name, std::string action)
-{
-    return impl_->post<void>([this, name = std::move(name), action = std::move(action)] {
-        auto& impl = *impl_;
-        const auto found = impl.services.find(name);
-        if (found == impl.services.end())
-            throw Error(ErrorCode::not_found, "no such local service: " + name);
-        if (action != "start" && action != "stop" && action != "restart")
-            throw std::invalid_argument("unknown service action");
-        auto& service = found->second;
-        auto next = service.record;
-        next.desired = action != "stop";
-        impl.save(name, next);
-        service.record = std::move(next);
-        if (action == "stop") {
-            impl.stop(service);
-            service.error.clear();
-        } else if (action == "restart" || !service.process) {
-            service.restarts = 0;
-            impl.stop(service);
-            impl.start(name, service, false);
-        }
-        impl.publish();
     });
 }
 

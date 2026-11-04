@@ -61,7 +61,7 @@ flowchart TB
 ## 进程与安装目录
 
 - 本机用 Unix socket；Market 和 Trading 用双向固定证书指纹 TLS，Market 按客户端证书区分只读和采集管理权限。
-- Lab 是 Terminal 的子进程：退出或心跳失败时最多重启 3 次，使用者停止的不会被拉起；Terminal 退出（包括被强制结束）后 Lab 随之退出。一个根目录同时只能有一个 Terminal。
+- Lab 是 Terminal 的子进程，没有启停按钮：退出或心跳失败后每 5 秒重启一次，直到恢复；Terminal 退出（包括被强制结束）后 Lab 随之退出。一个根目录同时只能有一个 Terminal。
 - 每个程序有自己的安装目录：
 
 ```

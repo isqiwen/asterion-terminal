@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
 import { TradingConnections } from "./TradingConnections";
 import { MarketSource } from "./MarketSource";
+import { LocalLogsButton } from "../host/components/LocalLogsButton";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
@@ -153,6 +154,10 @@ export function Settings({
               <dt title={t("在 Market 和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
               <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
+              </dd>
+              <dt>{t("本机日志")}</dt>
+              <dd>
+                <LocalLogsButton />
               </dd>
             </dl>
           </SettingsSection>

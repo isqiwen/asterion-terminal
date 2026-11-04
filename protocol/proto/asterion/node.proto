@@ -11,7 +11,6 @@ enum ServiceKind {
 message Service {
   string id = 1;
   string state = 4;
-  bool desired_running = 5;
   uint64 pid = 6;
   uint32 restarts = 7;
   string error = 8;

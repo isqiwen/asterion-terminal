@@ -116,12 +116,6 @@ html[lang="en-US"] .activity-rail.expanded {
 .status-bar button {
   min-height: 24px;
 }
-.service-status-panel {
-  background: var(--raised);
-  border-radius: var(--panel-radius);
-  padding: 16px;
-  box-shadow: 0 16px 48px #0006;
-}
 .terminal-tasks {
   height: 170px;
   background: var(--panel);
@@ -249,7 +243,4 @@ html[lang="en-US"] .activity-rail.expanded {
 .module-views [aria-current="page"] {
   color: var(--text-strong);
   border-bottom-color: var(--accent);
-}
-.status-bar .status-warning {
-  color: var(--warning);
 }

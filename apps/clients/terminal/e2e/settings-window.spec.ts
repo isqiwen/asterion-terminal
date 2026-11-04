@@ -24,8 +24,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
-  await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
-  await page.getByRole("button", { name: "连接设置", exact: true }).click();
+  await settings.getByRole("button", { name: "交易连接", exact: true }).click();
   await expect(settings.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
   expect(page.context().pages()).toHaveLength(2);
   await settings.screenshot({

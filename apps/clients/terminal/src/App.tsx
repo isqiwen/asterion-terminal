@@ -2,7 +2,7 @@ import type { CommandCall } from "./bridge/commands";
 import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
-import { ServiceStatus } from "./host/components/ServiceStatus";
+import { StatusIndicators } from "./host/components/StatusIndicators";
 import { NotificationCenter, notify } from "./host/notifications";
 import { BackendError } from "./i18n/errors";
 import { ErrorNotice, asDisplayError, type DisplayError } from "./i18n/errors";
@@ -10,7 +10,7 @@ import { translate, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useLocale } from "./i18n";
 import { SetupGate } from "./startup/SetupGate";
-import { TradingAccountsProvider, useTradingAccounts } from "./host/trading-accounts";
+import { TradingAccountsProvider } from "./host/trading-accounts";
 import { MarketProvider } from "./host/market";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { WindowFrame } from "@asterion/workbench/components/WindowFrame";
@@ -36,23 +36,6 @@ import "./settings/settings.css";
 import "./ui/workflows.css";
 // One line for every CTP account: how many may send orders, how many are
 // connected read-only, and how many need attention.
-function LiveSummary() {
-  const entries = Object.values(useTradingAccounts().views);
-  if (!entries.length) return t("尚未打开交易账户");
-  let authorized = 0,
-    ready = 0,
-    other = 0;
-  for (const { live, failed } of entries) {
-    if (failed || live?.phase !== "ready") other++;
-    else if (live.authorization) authorized++;
-    else ready++;
-  }
-  return t("CTP：{authorized} 个已授权 · {ready} 个只读 · {other} 个未就绪", {
-    authorized,
-    ready,
-    other,
-  });
-}
 export function Terminal() {
   return new URLSearchParams(location.search).get("screen") === "settings" ? (
     <TerminalWorkbench settingsWindow />
@@ -63,7 +46,7 @@ export function Terminal() {
   );
 }
 function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolean }) {
-  const { locale } = useLocale();
+  useLocale();
   usePreferences();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [drafts] = useState(createWorkspaceDrafts);
@@ -79,22 +62,32 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const route = currentRoute(navigation);
   const view = route.view;
   const viewsRef = useRef<HTMLElement>(null);
-  // A local service that restarts by itself, or gives up, is reported when it happens.
-  const services = useRef<Record<string, { restarts: number; state: string }>>({});
+  // A ready local service that exits, lost log lines and a failed background
+  // refresh are reported when they begin.
+  const reported = useRef<{ ready: Record<string, boolean>; logs: number; refresh: boolean }>({
+    ready: {},
+    logs: 0,
+    refresh: false,
+  });
   useEffect(() => {
     // The main window reports them; the settings window reads the same snapshot.
-    if (settingsWindow) return;
-    const local = snapshot?.nodes.find(node => node.id === "local")?.health?.services ?? [];
+    if (settingsWindow || !snapshot) return;
+    const before = reported.current;
+    const local = snapshot.nodes.find(node => node.id === "local")?.health?.services ?? [];
     for (const service of local) {
-      const before = services.current[service.id];
-      if (before && service.restarts > before.restarts)
+      if (before.ready[service.id] && service.state !== "running")
         notify(new BackendError("service_restarted", `${service.id}: ${service.error}`), {
           severity: "warning",
         });
-      if (before && service.state === "failed" && before.state !== "failed")
-        notify(new BackendError("service_failed", `${service.id}: ${service.error}`));
-      services.current[service.id] = { restarts: service.restarts, state: service.state };
+      before.ready[service.id] = service.state === "running" && service.health === "ready";
     }
+    const { log_failures: logs, refresh_failed: refresh } = snapshot.diagnostics;
+    if (logs > before.logs)
+      notify("本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。", {
+        severity: "warning",
+      });
+    if (refresh && !before.refresh) notify("后台状态刷新失败，当前显示为最近成功读取的状态。");
+    reported.current = { ...before, logs, refresh: !!refresh };
   }, [snapshot, settingsWindow]);
   useEffect(() => {
     viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
@@ -115,7 +108,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
   // Commands in flight. A cancel, a strategy stop or a revoke may run beside
   // another command.
@@ -128,7 +120,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     setSnapshot(next);
     setError("");
     revision.current = next.revision;
-    setCheckedAt(next.refreshed_at_ms ?? Date.now());
   }, []);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
@@ -195,10 +186,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
         const next = await pollSnapshot(revision.current ?? 0);
         if (cancelled || current !== generation.current || next.revision < (revision.current ?? 0))
           return;
-        if ("unchanged" in next) {
-          setError("");
-          setCheckedAt(next.refreshed_at_ms);
-        } else accept(next);
+        if ("unchanged" in next) setError("");
+        else accept(next);
       } catch (reason) {
         if (!cancelled && current === generation.current) setError(asDisplayError(reason));
       } finally {
@@ -346,36 +335,14 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
 
               status={
                 <>
-                  <ServiceStatus
+                  <StatusIndicators
                     snapshot={snapshot}
-                    failed={!!error}
-                    busy={busy}
-                    checkedAt={checkedAt}
-                    refresh={() => void refresh()}
-                    trade={trade}
-                    settings={() => showSettings("trading")}
+                    openSources={() => showSettings("sources")}
+                    openTrading={() => context.navigate("workspace.trading")}
                   />
-                  {snapshot &&
-                    !(snapshot.market_endpoint && "host" in snapshot.market_endpoint) && (
-                      <button className="status-warning" onClick={() => showSettings("sources")}>
-                        {t("Market 未设置")}
-                      </button>
-                    )}
                   <span className="panel-spacer" />
                   <NotificationCenter />
-                  <span className="status-updated">
-                    {error
-                      ? t("状态待确认")
-                      : checkedAt
-                        ? t("状态读取于 {p0}", {
-                            p0: new Date(checkedAt).toLocaleTimeString(locale),
-                          })
-                        : t("正在读取状态…")}
-                  </span>
-                  <span className="status-divider" />
-                  <button onClick={() => context.navigate("workspace.trading")}>
-                    <LiveSummary />
-                  </button>
+                  {error && <span className="status-updated">{t("状态待确认")}</span>}
                 </>
               }
             />

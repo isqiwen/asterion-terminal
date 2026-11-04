@@ -1,5 +1,5 @@
 import { openView } from "./navigation-helper";
-import { liveAccount, rpc, trading } from "./rpc-fixture";
+import { liveAccount, rpc } from "./rpc-fixture";
 import { test, expect } from "./trading-fixture";
 import { join } from "node:path";
 
@@ -53,25 +53,9 @@ test(
     await expect(panel.getByLabel("交易密码", { exact: true })).toHaveCount(0);
     await expect(panel.getByLabel("授权码", { exact: true })).toHaveCount(0);
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
-    const instance = (await trading(page.request, account, { heartbeat: {} })).health.instanceId;
-    await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
-    const services = page.getByRole("region", { name: "服务连接详情" });
-    await services.getByText("连接详情", { exact: true }).last().click();
-    const tradingHealth = services
-      .locator("details code")
-      .filter({ hasText: instance })
-      .locator("../..");
-    await expect(tradingHealth.getByText("状态推进", { exact: true })).toBeVisible();
-    // Agent probes the service every 5 s; the Native node observer independently
-    // reads Agent every 5 s. The account view can become ready before both hops.
-    await expect(tradingHealth.getByText("业务就绪", { exact: true }).locator("..")).toContainText(
-      "已就绪",
-      { timeout: 15000 },
-    );
-    await page.keyboard.press("Escape");
     await expect(order).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "CTP：0 个已授权 · 1 个只读 · 0 个未就绪", exact: true }),
+      page.locator(".status-bar").getByRole("button", { name: "● live-account", exact: true }),
     ).toBeVisible();
     // The broker reports the account's own rates.
     await panel.getByRole("button", { name: "费率", exact: true }).click();
@@ -111,11 +95,14 @@ test(
     const filled = await liveAccount(page.request, account);
     expect(filled.orders.some((order: { status: string }) => order.status === "filled")).toBe(true);
     await expect(
-      page.getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true }),
+      page
+        .locator(".status-bar")
+        .getByRole("button", { name: "● live-account 已授权", exact: true }),
     ).toBeVisible();
     await openView(page, "research");
     await page
-      .getByRole("button", { name: "CTP：1 个已授权 · 0 个只读 · 0 个未就绪", exact: true })
+      .locator(".status-bar")
+      .getByRole("button", { name: "● live-account 已授权", exact: true })
       .click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪");
 

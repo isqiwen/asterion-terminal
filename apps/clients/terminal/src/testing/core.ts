@@ -34,7 +34,6 @@ const service = (id: string, kind: Service["kind"]): Service => ({
   kind,
   id,
   state: "running",
-  desired_running: true,
   pid: 1,
   restarts: 0,
   error: "",

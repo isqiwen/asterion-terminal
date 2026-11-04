@@ -14,7 +14,8 @@ import type {
   Response,
   TradingAccount,
 } from "../generated/asterion/trading_pb";
-import { asDisplayError, type DisplayError } from "../i18n/errors";
+import type { Progress } from "../generated/asterion/health_pb";
+import { BackendError, asDisplayError, type DisplayError } from "../i18n/errors";
 import { notify } from "./notifications";
 
 // What Terminal last read from one account's Trading service.
@@ -24,7 +25,6 @@ export type TradingView = {
   live?: LiveSnapshot;
   initialized?: boolean;
   health?: Health;
-  checkedAtMs?: number;
   // The last read failed; the fields above are what was read before.
   failed?: DisplayError;
 };
@@ -33,11 +33,26 @@ export type TradingAccounts = {
   send: (account: string, operation: TradingOperation, fields?: TradingFields) => Promise<Response>;
 };
 
+// Some part of the Trading service's work has not advanced for 30 seconds.
+export function stalled(health: Health | undefined) {
+  const e = health?.execution;
+  const late = (p: Progress | undefined, periodic: boolean) =>
+    !!p?.observed && Number(p.ageMs) > 30000 && (periodic || p.pending);
+  return (
+    !!e &&
+    (late(e.io, true) ||
+      late(e.state, true) ||
+      late(e.persistence, false) ||
+      late(e.initialization, false) ||
+      late(e.command, false))
+  );
+}
+
 const Accounts = createContext<TradingAccounts>({ views: {}, send: tradingRequest });
 export const useTradingAccounts = () => useContext(Accounts);
 
 function merge(view: TradingView, response: Response): TradingView {
-  const next = { ...view, account: response.account, failed: undefined, checkedAtMs: Date.now() };
+  const next = { ...view, account: response.account, failed: undefined };
   switch (response.result.case) {
     case "live":
       return { ...next, live: response.result.value, initialized: true };
@@ -71,8 +86,10 @@ export function TradingAccountsProvider({
   useEffect(() => {
     if (!active || !key) return;
     const reading = new Set<string>();
-    // Accounts whose last read failed: a loss is reported once, when it begins.
+    // Accounts whose last read failed or whose work stalled: each is reported
+    // once, when it begins.
     const failing = new Set<string>();
+    const stalling = new Set<string>();
     let ticks = 0;
     let stopped = false;
     const read = async (id: string, health: boolean) => {
@@ -81,7 +98,15 @@ export function TradingAccountsProvider({
       const command = commands.current[id];
       try {
         const responses = [await tradingRequest(id, { case: "attach", value: {} })];
-        if (health) responses.push(await tradingRequest(id, { case: "heartbeat", value: {} }));
+        if (health) {
+          const beat = await tradingRequest(id, { case: "heartbeat", value: {} });
+          responses.push(beat);
+          if (beat.result.case !== "health" || !stalled(beat.result.value)) stalling.delete(id);
+          else if (!stalling.has(id)) {
+            stalling.add(id);
+            notify(new BackendError("trading_stalled", id));
+          }
+        }
         if (!stopped && command === commands.current[id]) accept(id, responses);
         failing.delete(id);
       } catch (reason) {

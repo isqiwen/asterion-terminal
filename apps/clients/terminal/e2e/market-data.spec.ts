@@ -45,7 +45,7 @@ test(
       expect(
         (snapshot.nodes as NodeStatus[])
           .flatMap(node => node.health?.services ?? [])
-          .some(service => service.kind === "lab" && service.desired_running),
+          .some(service => service.kind === "lab"),
       ).toBe(false);
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });

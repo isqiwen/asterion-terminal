@@ -2,9 +2,8 @@
 
 Runs under support/isolated_node.py with ASTERION_PYTHON naming the prepared
 runtime's interpreter. The Terminal starts the lab as its child, probes its
-health, restarts it after it is killed and leaves it stopped when asked to
-stop it. The lab exits with the Terminal, and the next Terminal starts a
-service that should run.
+health and restarts it after it is killed. The lab exits with the Terminal,
+and the next Terminal starts it again.
 """
 import json
 import os
@@ -66,7 +65,7 @@ process = launch()
 try:
     call(process, "lab.endpoint")
     first = wait(process, ready)
-    assert first["kind"] == "lab" and first["desired_running"] and first["restarts"] == 0, first
+    assert first["kind"] == "lab" and first["restarts"] == 0, first
     assert first["endpoint"].endswith("lab.sock"), first
     # The lab logs in its own installation, <root>/lab/logs.
     logs = root / "lab" / "logs"
@@ -78,35 +77,17 @@ try:
     os.kill(first["pid"], signal.SIGKILL)
     second = wait(process, lambda s: ready(s) and s["pid"] != first["pid"])
     assert second["restarts"] >= 1, second
-
-    # A service the user stopped stays stopped.
-    call(process, "node.action", {"service": "lab", "action": "stop"})
-    stopped = wait(process, lambda s: s["state"] == "stopped" and not s["desired_running"])
-    time.sleep(2)
-    assert lab(process)["state"] == "stopped", lab(process)
-    assert gone(second["pid"]), "the stopped lab process is still running"
-
-    call(process, "node.action", {"service": "lab", "action": "start"})
-    third = wait(process, ready)
 finally:
     close(process)
 # The lab watches the Terminal's process and exits with it, even when the
 # Terminal is killed.
-assert gone(third["pid"]), "the lab outlived the Terminal"
+assert gone(second["pid"]), "the lab outlived the Terminal"
 
-# The next Terminal starts what should run; a first start is not a restart.
+# The next Terminal starts the lab again; a first start is not a restart.
 process = launch()
 try:
-    fourth = wait(process, ready)
-    assert fourth["pid"] != third["pid"] and fourth["restarts"] == 0, fourth
-    call(process, "node.action", {"service": "lab", "action": "stop"})
-    wait(process, lambda s: s["state"] == "stopped")
+    third = wait(process, ready)
+    assert third["pid"] != second["pid"] and third["restarts"] == 0, third
 finally:
     close(process)
-process = launch()
-try:
-    time.sleep(2)
-    assert lab(process)["state"] == "stopped", lab(process)
-finally:
-    close(process)
-print("lab service started, restarted, stopped and tied to the Terminal's lifetime")
+print("lab service started, restarted and tied to the Terminal's lifetime")

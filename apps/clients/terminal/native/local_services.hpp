@@ -17,11 +17,10 @@ namespace asterion::terminal {
 //
 // Each service is installed in <root>/<program>/ (node_paths.hpp): bin/ holds a
 // symbolic link to the program inside the application, data/<service>/ its
-// data. What runs is kept in <root>/terminal/data/services/<service>.json
-// (kind and whether it should run); a service that
-// should run is started when the Terminal starts. A process that exits or
-// stops answering its heartbeat is restarted, at most three times; a stopped
-// service is never started by itself. Every service watches the Terminal's
+// data. A service is registered on first use in
+// <root>/terminal/data/services/<service>.json and started whenever the Terminal
+// starts. A process that exits or stops answering its heartbeat is restarted
+// every five seconds until it runs again. Every service watches the Terminal's
 // process (--owner-pid) and exits with it; the destructor stops them.
 //
 // One Terminal owns a root: a second one fails, naming the lock.
@@ -36,7 +35,7 @@ public:
 
     // The one local node: its identity, the services and their health.
     NodeSnapshot view() const;
-    // Registers the kind's service when absent, marks it to run, starts it and
+    // Registers the kind's service when absent, starts it and
     // returns its endpoint once its process runs. The service clients wait for
     // their service themselves.
     std::future<ServiceEndpoint> start(node::proto::ServiceKind kind);
@@ -46,8 +45,6 @@ public:
     std::future<ServiceEndpoint> serving(node::proto::ServiceKind kind);
     // A running service's endpoint.
     std::future<ServiceEndpoint> endpoint(std::string service, node::proto::ServiceKind kind);
-    // start, stop or restart; a stop is kept across Terminal restarts.
-    std::future<void> act(std::string service, std::string action);
 
 private:
     struct Impl;

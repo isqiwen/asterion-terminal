@@ -106,79 +106,20 @@
   color: var(--accent);
   border-color: var(--accent);
 }
-/* Compact host status and anchored service details, shared by all workspaces. */
+/* One indicator per service, shared by all workspaces. */
 .status-bar {
   position: relative;
   min-height: 26px;
 }
 .status-bar > button,
-.service-status > button {
+.status-bar > .status-item {
   border: 0;
   padding: 2px 5px;
   background: transparent;
   font-size: inherit;
 }
-.service-status-panel {
-  position: absolute;
-  bottom: calc(100% + 5px);
-  left: 8px;
-  width: min(370px, calc(100vw - 115px));
-  max-height: min(460px, 65vh);
-  overflow: auto;
-  z-index: 50;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  box-shadow: 0 8px 30px var(--overlay);
-  padding: 12px;
-  color: var(--text);
-  font-size: 12px;
-}
-.service-status-panel header,
-.service-status-panel footer,
-.service-status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.service-status-panel header {
-  margin-bottom: 10px;
-}
-.service-status-panel footer {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-  margin-top: 10px;
-}
-.service-status-row {
-  padding: 7px 0;
-}
-.service-status-row small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 3px;
-}
-.service-status-node {
-  border-top: 1px solid var(--line);
-  margin-top: 5px;
-}
-@media (max-width: 850px) {
-  .status-updated {
-    display: none;
-  }
-}
-.service-connection-details {
-  margin-top: 8px;
-  color: var(--muted);
-}
-.service-connection-details summary {
-  cursor: pointer;
-  font-size: 12px;
-}
-.service-connection-details code {
-  overflow-wrap: anywhere;
-  max-width: 60%;
-  font-size: 10px;
+.status-bar .warning {
+  color: var(--warning);
 }
 .settings-window {
   min-height: 0;

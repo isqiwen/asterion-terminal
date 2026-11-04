@@ -66,26 +66,29 @@ test("a service failure remains visible from every workspace", async ({ page }) 
     const response = await route.fetch({ postData: { ...request, params: {} } });
     const data = await response.json();
     const local = data.result.nodes.find((node: { id: string }) => node.id === "local");
-    local.health.services[0] = {
-      ...local.health.services[0],
-      desired_running: true,
-      state: "stopped",
-      health: "unavailable",
-      error: "Test-only service failure",
-    };
+    local.health.services = [
+      {
+        ...local.health.services[0],
+        id: "lab",
+        kind: "lab",
+        state: "restarting",
+        health: "offline",
+        error: "Test-only service failure",
+      },
+    ];
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "业务工作区" })).toBeVisible();
   issues = true;
   const footer = page.locator(".status-bar");
-  await expect(footer).toContainText("服务异常");
+  await expect(footer).toContainText("Lab 重启中");
   await openView(page, "research");
-  await expect(footer).toContainText("服务异常");
+  await expect(footer).toContainText("Lab 重启中");
   await openView(page, "market");
-  await expect(footer).toContainText("服务异常");
+  await expect(footer).toContainText("Lab 重启中");
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-issues.png" });
   issues = false;
-  await expect(footer).not.toContainText("服务异常");
+  await expect(footer).not.toContainText("Lab 重启中");
   await page.unrouteAll({ behavior: "wait" });
 });

@@ -58,13 +58,11 @@ export const test = base.extend<{
         await call("market.open");
         for (const deadline = Date.now() + 60000; ;) {
           const services = (await call("runtime.snapshot")).nodes.flatMap(
-            (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>
-              node.health?.services ?? [],
+            (node: { health?: { services: { health: string }[] } }) => node.health?.services ?? [],
           );
           if (
-            services.every(
-              (service: { desired_running: boolean; health: string }) =>
-                !service.desired_running || ["ready", "awaiting_input"].includes(service.health),
+            services.every((service: { health: string }) =>
+              ["ready", "awaiting_input"].includes(service.health),
             )
           )
             break;

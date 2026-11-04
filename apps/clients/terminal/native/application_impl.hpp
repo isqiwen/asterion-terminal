@@ -199,7 +199,6 @@ struct Application::Impl
     PolledTask<void> settings_loop(std::stop_token stop);
     PolledTask<Response> dispatch(const json& request);
     // Commands are registered once during construction, before dispatch is possible.
-    void register_node_commands();
     void register_connection_commands();
     void register_market_commands();
     void register_lab_commands();

@@ -51,7 +51,6 @@ export type NodeStatus = {
       kind: "lab";
       id: string;
       state: string;
-      desired_running: boolean;
       pid: number;
       restarts: number;
       error: string;

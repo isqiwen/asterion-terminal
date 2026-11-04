@@ -145,7 +145,6 @@ Application::Impl::Impl()
     command("runtime.snapshot", [this](const json&) -> PolledTask<Response> {
         co_return snapshot();
     });
-    register_node_commands();
     register_connection_commands();
     register_market_commands();
     register_lab_commands();

@@ -40,7 +40,6 @@ Json node_snapshot_json(const NodeSnapshot& snapshot)
                 {{"id", s.id()},
                     {"kind", service_kind_name(s.kind())},
                     {"state", s.state()},
-                    {"desired_running", s.desired_running()},
                     {"pid", s.pid()},
                     {"restarts", s.restarts()},
                     {"error", s.error()},

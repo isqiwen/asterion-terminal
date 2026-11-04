@@ -29,7 +29,7 @@ test(
     const folder = await mkdtemp(join(tmpdir(), "asterion-contract-"));
     try {
       await page.goto("/");
-      await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      await expect(page.locator(".status-bar .status-item").first()).toBeVisible({
         timeout: 60000,
       });
       const started = await call(page.request, "runtime.snapshot");
