@@ -207,19 +207,16 @@
   "初始化中": "Initializing",
   "关闭行情连接": "Close Market connection",
   "连接行情服务": "Connect to Market",
-  "配置行情服务": "Configure Market",
   "关闭此连接不影响服务录制或其他客户端。": "Closing this connection does not affect recording or other clients.",
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",
   "Market 服务观测": "Observed by Market",
   "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。": "Up to 512 recent quotes across contracts, taken from the market frames sent every 0.25 s; not a full intraday series, individual trades, or minute candles.",
   "研究数据 · 历史数据 · 非实时": "Research dataset · historical · not live",
-  "尚未设置行情服务": "Market service not set",
   "搜索合约": "Search contracts",
   "搜索结果": "Search results",
   "没有匹配的合约": "No matching contracts",
   "还没有自选合约。在市场页选中合约，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract on the Market page and click “Add to watchlist” next to the chart title.",
   "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract and click “Add to watchlist” next to the chart title.",
   "读取历史合约失败": "Could not read historical contracts",
-  "在数据页采集日线或分钟线后，这里可以查看历史 K 线。": "Acquire daily or minute bars on the Data page to view historical charts here.",
-  "在设置里填写 Market 的地址和证书指纹后，这里显示行情。": "Enter the Market address and certificate fingerprint in Settings to see quotes here."
+  "在数据页采集日线或分钟线后，这里可以查看历史 K 线。": "Acquire daily or minute bars on the Data page to view historical charts here."
 }

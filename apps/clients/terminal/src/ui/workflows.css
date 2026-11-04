@@ -108,6 +108,26 @@
   background: var(--accent-surface);
   color: var(--accent);
 }
+.ctp-account-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.ctp-strategies {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px var(--space-page);
+}
+.ctp-strategies > * {
+  margin: 0;
+}
+.ctp-strategies .workflow-heading {
+  margin: 0;
+}
+.ctp-strategies ul {
+  padding-left: 18px;
+}
 .ctp-account-panel {
   min-width: 0;
   border: 1px solid var(--line);

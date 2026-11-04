@@ -137,7 +137,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
     setBusy(false);
   }
   return (
-    <section className="account-setup" aria-label={t("策略包")}>
+    <section className="ctp-strategies" aria-label={t("策略包")}>
       <div className="workflow-heading">
         <h3>{t("策略包")}</h3>
         <button disabled={reading || busy || stopping} onClick={() => void refresh()}>
@@ -165,7 +165,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
       {!repository ? (
         <p>{t("Terminal 没有策略目录：从项目启动时是项目里的 research/。")}</p>
       ) : (
-        <>
+        <div>
           <label>
             {t("策略")}
             <select
@@ -199,7 +199,7 @@ function AccountStrategies({ account, repository, live, connected = false }: Pro
           >
             {t("准备策略包")}
           </button>
-        </>
+        </div>
       )}
       {prepared?.manifest && (
         <div>

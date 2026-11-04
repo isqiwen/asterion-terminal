@@ -182,7 +182,6 @@
   "保存连接": "Save connection",
   "CTP 行情账户": "CTP market-data accounts",
   "未配置风控": "Risk policy not configured",
-  "还没有交易连接，请先添加交易服务连接。": "Add a trading service connection to begin.",
   "账户信息来自交易服务配置，只能在交易主机上设置。": "Account details come from the trading service configuration and are set on the trading host.",
   "账户与柜台环境由交易服务配置，Terminal 只配置风控。": "The trading service configures the account and environment. Terminal configures the risk policy.",
   "重复或无效的界面功能: {p0}": "Duplicate or invalid UI feature: {p0}",
@@ -253,5 +252,7 @@
   "策略实例失败或放弃了一个批次，详情见交易页的实例事件。": "A strategy instance failed or dropped a batch; see its events on the trading page.",
   "行情连接中断，正在重连。": "The market connection dropped; reconnecting.",
   "Lab 意外退出，已自动重启。": "Lab exited unexpectedly and was restarted.",
-  "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。": "Lab failed to start repeatedly and is no longer restarted; check and restart it in Settings → Local services."
+  "Lab 连续启动失败，已停止重启；在 设置 → 本机服务 里查看并重新启动。": "Lab failed to start repeatedly and is no longer restarted; check and restart it in Settings → Local services.",
+  "尚未设置行情服务": "Market service not set",
+  "在设置里填写 Market 的地址和证书指纹后即可使用。": "Enter the Market address and certificate fingerprint in Settings to use this page."
 }

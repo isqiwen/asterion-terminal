@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  MarketUnset,
   translate,
   lab,
   useWorkspaceDraft,
@@ -11,7 +12,6 @@ import {
 } from "../contract";
 import { ContractHistory } from "./ContractHistory";
 import { identityName } from "./contract-name";
-import { MarketUnavailable } from "./MarketUnavailable";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 
@@ -65,7 +65,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   );
   const visible = matched.slice(0, shownAtOnce);
   const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
-  if (!address) return <MarketUnavailable context={context} />;
+  if (!address) return <MarketUnset openSettings={context.openSettings} />;
   if (!current)
     return (
       <div className="workspace-empty">

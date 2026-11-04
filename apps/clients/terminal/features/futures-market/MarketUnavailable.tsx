@@ -1,5 +1,6 @@
 import {
   ActionError,
+  MarketUnset,
   translate,
   useActionError,
   type MessageValues,
@@ -13,16 +14,7 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const { error, attempt } = useActionError();
-  if (!endpoint)
-    return (
-      <div className="workspace-empty">
-        <strong>{t("尚未设置行情服务")}</strong>
-        <p>{t("在设置里填写 Market 的地址和证书指纹后，这里显示行情。")}</p>
-        <button className="primary" onClick={() => context.openSettings("sources")}>
-          {t("配置行情服务")}
-        </button>
-      </div>
-    );
+  if (!endpoint) return <MarketUnset openSettings={context.openSettings} />;
   return (
     <div className="workspace-empty">
       <strong>{t("尚未连接行情服务")}</strong>

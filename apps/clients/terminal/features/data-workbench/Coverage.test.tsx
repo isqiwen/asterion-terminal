@@ -14,7 +14,14 @@ vi.mock("../contract", async importOriginal => ({
 // The comparison has its own test.
 vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
 afterEach(() => vi.restoreAllMocks());
-const context = () => ({ trade: vi.fn(), query: vi.fn() }) as unknown as TerminalContext;
+const context = () =>
+  ({
+    trade: vi.fn(),
+    query: vi.fn(),
+    snapshot: {
+      market_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
+    },
+  }) as unknown as TerminalContext;
 const source = (provider: string, tables = ["daily"]) => ({
   provider,
   tables,

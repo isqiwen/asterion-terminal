@@ -1,19 +1,108 @@
-.data-coverage section {
-  margin-bottom: 1.5rem;
+/* The data page: a heading, then one card per concern, top to bottom. */
+.data-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
 }
-.data-coverage label {
-  margin-right: 0.75rem;
+.data-body {
+  width: 100%;
+  max-width: 1160px;
+  box-sizing: border-box;
+}
+.data-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--grid);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  min-width: 0;
+}
+.data-card > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+.data-page .data-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.data-card > header code {
+  color: var(--muted);
+}
+.data-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 24px;
+}
+.data-source .subtle {
+  flex: 1;
+  min-width: 260px;
+  max-width: 640px;
+}
+.data-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.data-table th {
+  color: var(--muted);
+  font-weight: 400;
+  text-align: left;
+}
+.data-table :is(th, td) {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+.data-table .numeric {
+  text-align: right;
+}
+.data-table td[data-state="failed"] {
+  color: var(--danger);
+}
+.data-table td[data-state="running"] {
+  color: var(--accent);
+}
+
+.recording-status [data-phase] {
+  color: var(--muted);
+  font-size: 12px;
+}
+.recording-status [data-phase="connected"] {
+  color: var(--success);
 }
 .recording-status dl {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.75rem 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px 24px;
+  margin: 0;
 }
 .recording-status dt {
   color: var(--muted);
+  font-size: 12px;
 }
 .recording-status dd {
-  margin: 0.25rem 0 0;
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -26,10 +115,10 @@
   text-align: center;
 }
 .coverage-matrix td[data-share="full"] {
-  background: color-mix(in srgb, var(--positive, #2e7d32) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 35%, transparent);
 }
 .coverage-matrix td[data-share="partial"] {
-  background: color-mix(in srgb, var(--warning, #b26a00) 30%, transparent);
+  background: color-mix(in srgb, var(--warning) 30%, transparent);
 }
 
 /* A value the other minute source does not share. */

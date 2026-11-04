@@ -35,15 +35,17 @@ export function MinuteComparison() {
   }, [retry]);
   if (!result?.differingDays) return null;
   return (
-    <section aria-label={t("Tushare 与自录分钟线对比")}>
-      <h3>{t("Tushare 与自录分钟线对比")}</h3>
+    <section className="data-card" aria-label={t("Tushare 与自录分钟线对比")}>
+      <header>
+        <h3>{t("Tushare 与自录分钟线对比")}</h3>
+      </header>
       <p>
         {t("两个来源都有的合约交易日 {days} 个，其中 {differing} 个不一致。", {
           days: result.days,
           differing: result.differingDays,
         })}
       </p>
-      <table aria-label={t("分钟线不一致的合约交易日")}>
+      <table className="data-table" aria-label={t("分钟线不一致的合约交易日")}>
         <thead>
           <tr>
             {["合约", "交易日", "对比分钟", "不一致", "仅 Tushare", "仅自录", "自录不完整"].map(
@@ -104,7 +106,10 @@ function Minutes({ contract, day }: { contract: string; day: string }) {
       </td>
     ));
   return (
-    <table aria-label={t("{contract} {day} 不一致的分钟", { contract, day })}>
+    <table
+      className="data-table"
+      aria-label={t("{contract} {day} 不一致的分钟", { contract, day })}
+    >
       <thead>
         <tr>
           <th rowSpan={2}>{t("时间")}</th>

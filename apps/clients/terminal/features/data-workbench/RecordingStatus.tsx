@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import type { Status } from "../../src/generated/asterion/recording_pb";
 import { useMarket } from "../../src/host/market";
 import {
+  ActionError,
   ErrorNotice,
+  useActionError,
   asDisplayError,
   getLocale,
   marketData,
@@ -41,6 +43,7 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
   const address = saved && "host" in saved ? `${saved.host}:${saved.port}` : "";
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<DisplayError>("");
+  const { error: opened, attempt } = useActionError();
   useEffect(() => {
     setStatus(null);
     setError("");
@@ -76,24 +79,34 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
   }, [address, instance, online]);
 
   return (
-    <section className="recording-status" aria-label={t("Market 录制监控")}>
-      <h3>{t("Market 录制监控")}</h3>
+    <section className="data-card recording-status" aria-label={t("Market 录制监控")}>
+      <header>
+        <h3>{t("Market 录制监控")}</h3>
+        {status && (
+          <span role="status" data-phase={status.phase}>
+            {t(phases[status.phase] ?? status.phase)}
+          </span>
+        )}
+      </header>
       {!market ? (
-        <p>
-          {t("连接远程 Market 后查看录制状态。")}{" "}
-          <button onClick={() => context.navigate("workspace.market", { marketMode: "live" })}>
-            {t("打开实时行情")}
+        <div className="data-actions">
+          <button
+            disabled={context.busy}
+            onClick={() => void attempt(() => context.trade("market.open"))}
+          >
+            {t("连接行情服务")}
           </button>
-        </p>
+          <span className="subtle">{t("连接远程 Market 后查看录制状态。")}</span>
+          <ActionError error={opened} />
+        </div>
       ) : !online ? (
         <p role="status">{t("行情服务失联，录制状态未知。")}</p>
       ) : error ? (
         <ErrorNotice error={error} />
       ) : !status ? (
-        <p>{t("读取中")}</p>
+        <p className="subtle">{t("读取中")}</p>
       ) : (
         <>
-          <p role="status">{t(phases[status.phase] ?? status.phase)}</p>
           <dl>
             <div>
               <dt>{t("交易日")}</dt>

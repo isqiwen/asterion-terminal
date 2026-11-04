@@ -112,7 +112,6 @@
   "录制状态不属于当前行情服务": "Recording status belongs to another Market instance",
   "Market 录制监控": "Market recording monitor",
   "连接远程 Market 后查看录制状态。": "Connect to remote Market to view its recording status.",
-  "打开实时行情": "Open live market",
   "行情服务失联，录制状态未知。": "Market is unreachable; recording status is unknown.",
   "订阅合约": "Subscribed contracts",
   "本次启动写入 Tick": "Ticks written since startup",
@@ -127,8 +126,6 @@
   "正在合并交易日": "Merging trading day",
   "历史文件合并失败": "Historical file merge failed",
   "录制由 Market 独立运行；关闭 Terminal 不会停止。计数仅代表当前实例，不保证历史时段完整。": "Market records independently and continues after Terminal closes. Counts cover this instance only and do not establish historical completeness.",
-  "刷新来源": "Refresh sources",
-  "刷新数据与任务": "Refresh data and tasks",
   "等待采集": "Queued",
   "来源配置和凭据由 Market 主机管理；关闭此页面不会停止采集。": "Sources and credentials are managed on the Market host. Closing this page does not stop acquisition.",
   "当前连接只有读取权限，不能启动或取消采集。": "This connection is read-only. It cannot start or cancel acquisitions.",
@@ -154,5 +151,8 @@
   "重新对比": "Compare again",
   "{contract} {day} 不一致的分钟": "Differing minutes of {contract} on {day}",
   "时间": "Time",
-  "自录": "Recorded"
+  "自录": "Recorded",
+  "Market 数据": "Market data",
+  "读取 Market 数据失败": "Could not read Market data",
+  "连接行情服务": "Connect to Market"
 }

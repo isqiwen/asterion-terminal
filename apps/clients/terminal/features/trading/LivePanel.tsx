@@ -56,9 +56,12 @@ export function LivePanel(context: TerminalContext) {
         <small>{t("柜台仿真 / 真实资金")}</small>
       </div>
       {!accounts.length ? (
-        <div className="workflow-empty">
-          <p>{t("还没有交易连接，请先添加交易服务连接。")}</p>
-          <button onClick={() => context.openSettings("trading")}>{t("管理交易连接")}</button>
+        <div className="workspace-empty">
+          <strong>{t("还没有交易连接")}</strong>
+          <p>{t("在设置里添加交易主机后，这里显示账户、委托和策略。")}</p>
+          <button className="primary" onClick={() => context.openSettings("trading")}>
+            {t("管理交易连接")}
+          </button>
         </div>
       ) : (
         <div className="ctp-accounts">
@@ -81,51 +84,55 @@ export function LivePanel(context: TerminalContext) {
             </button>
           </nav>
           {account && (
-            <div className="ctp-account-panel" key={`${account.id}:${account.revision}`}>
-              <ActionError error={error} namespace="asterion.terminal.trading" />
-              <StrategyPackages
-                account={account.id}
-                repository={repository}
-                live={view?.live}
-                connected={!!view && !view.failed}
-              />
-              {view?.live ? (
-                <LiveAccount
-                  account={account}
-                  live={view.live}
-                  stale={!!view.failed || view.live.recoveryRequired}
-                  snapshot={snapshot}
-                  busy={busy}
-                  run={runFor(account.id, true)}
-                  control={runFor(account.id, false)}
-                />
-              ) : view?.account && view.initialized === false ? (
-                <div className="account-setup">
-                  <div className="workflow-heading">
-                    <h3>{t("开通交易：{name}", { name: account.name })}</h3>
-                  </div>
-                  <CreateLive
+            <div className="ctp-account-column" key={`${account.id}:${account.revision}`}>
+              <div className="ctp-account-panel">
+                <ActionError error={error} namespace="asterion.terminal.trading" />
+                {view?.live ? (
+                  <LiveAccount
                     account={account}
-                    configuration={view.account}
+                    live={view.live}
+                    stale={!!view.failed || view.live.recoveryRequired}
+                    snapshot={snapshot}
                     busy={busy}
                     run={runFor(account.id, true)}
-                    openSettings={context.openSettings}
+                    control={runFor(account.id, false)}
                   />
-                </div>
-              ) : (
-                <div className="workflow-empty">
-                  <p>
-                    {account.name} · {account.host}:{account.port} · {account.instance}
-                  </p>
-                  {view?.failed ? (
-                    <p className="alert" role="alert">
-                      <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
+                ) : view?.account && view.initialized === false ? (
+                  <div className="account-setup">
+                    <div className="workflow-heading">
+                      <h3>{t("开通交易：{name}", { name: account.name })}</h3>
+                    </div>
+                    <CreateLive
+                      account={account}
+                      configuration={view.account}
+                      busy={busy}
+                      run={runFor(account.id, true)}
+                      openSettings={context.openSettings}
+                    />
+                  </div>
+                ) : (
+                  <div className="workflow-empty">
+                    <p>
+                      {account.name} · {account.host}:{account.port} · {account.instance}
                     </p>
-                  ) : (
-                    <p role="status">{t("正在读取交易服务…")}</p>
-                  )}
-                </div>
-              )}
+                    {view?.failed ? (
+                      <p className="alert" role="alert">
+                        <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
+                      </p>
+                    ) : (
+                      <p role="status">{t("正在读取交易服务…")}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="ctp-account-panel">
+                <StrategyPackages
+                  account={account.id}
+                  repository={repository}
+                  live={view?.live}
+                  connected={!!view && !view.failed}
+                />
+              </div>
             </div>
           )}
         </div>
