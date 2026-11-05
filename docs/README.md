@@ -20,10 +20,3 @@
 | Trading | [交易与风控](trading/README.md) → [架构与通信图解](trading/architecture.md) → [部署与运行](trading/deployment.md) |
 | Lab | [策略、因子与回测](lab/README.md) → [架构与通信图解](lab/architecture.md) → [部署与运行](lab/deployment.md) |
 | Terminal | [界面与交互](terminal/README.md) → [架构与通信图解](terminal/architecture.md) → [部署与运行](terminal/deployment.md) |
-
-约定：
-
-- 应用文档放在对应应用目录；跨应用的产品、计划、架构、协议和开发部署文档留在根目录，联合验收放在 `acceptance/`。
-- 产品说明定义目标，交易规则定义下单必须遵守的规则，开发计划定义顺序和状态；主题文档描述当前代码。
-- 主题文档跟代码走：替换或删除代码的同一提交里更新或删除对应文档，不保留旧版本或归档副本。
-- 过程记录写在提交说明里，不写进文档。

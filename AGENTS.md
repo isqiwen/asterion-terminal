@@ -5,7 +5,7 @@ Rules for anyone, human or AI, who changes this repository. Keep this file short
 ## Product and plan
 
 - One product: a futures quant Terminal for one person, on macOS (Apple Silicon) and Linux x86_64. Market and Trading are Linux services that serve it. No web, mobile, notebook, standalone CLI or Windows clients.
-- What the product is: [docs/product.md](docs/product.md). What to build, in what order, and when it is done: [docs/plan.md](docs/plan.md). Take the next open work package from its order table and do only that.
+- What the product is: [docs/product.md](docs/product.md). What to build, in what order, and when it is done: [docs/plan.md](docs/plan.md).
 - Trading rules: [docs/safety.md](docs/safety.md). Read them before changing anything that can send or cancel an order. Never remove code that enforces one of them.
 - A phase is done only when it has worked for real, on real data or the CTP simulation counter. Passing fixture tests is necessary, not sufficient.
 - The project is unreleased. Keep one current implementation: no legacy interfaces, aliases, migrations, version counters or backup copies. Git holds history.
@@ -32,8 +32,9 @@ Write the smallest change that does the job, in plain code a reader understands 
 - **Let errors propagate**: catch only where you can do something useful (show the user, release a resource, keep a service running). No catch-and-rethrow with a new message.
 - **No new machinery unless the work package asks for it**: state machines, generation counters, permits, budgets, extra threads, queues, registries, caches or digests.
 - **Comments** only when the reason is not obvious, one line. Never restate the code, list what it does not do, or narrate history.
-- **Tests**: one test per behaviour a user would notice, at the lowest layer that shows it. No tests for guards, impossible states or private helpers.
-- **Docs** (Chinese): application docs live in `docs/<app>/`; shared docs stay in `docs/`, indexed by [docs/README.md](docs/README.md). They say what the user can do and see, plus design decisions with a one-line reason. No thread counts, queue sizes or other details the code already shows; no "this does not prove or guarantee" disclaimers; say each thing once. Update a doc in the commit that changes its behaviour. Process notes go in commit messages, not docs.
+- **Tests**: one test per behaviour a user would notice, at the lowest layer that shows it. No tests for guards, impossible states or private helpers. Keep module tests and fixtures under `tests/<module>/`; keep UI component tests beside their source. Reserve E2E for behaviour that crosses real services, with one `@journey` scenario per capability.
+- **Docs** (Chinese): application docs live in `docs/<app>/`, shared docs in `docs/`, joint acceptance in `docs/acceptance/`; [docs/README.md](docs/README.md) is the reading index. Product docs define goals, the plan defines sequence and status, and topic docs describe current behaviour and design decisions with a one-line reason. No thread counts, queue sizes or other details the code already shows; no "this does not prove or guarantee" disclaimers; say each thing once.
+- Keep contributor and documentation-maintenance rules here, not in reader-facing docs. Update or remove affected prose and diagrams in the same commit as the implementation; keep no historical copies. Process notes and completed-work details belong in commit messages.
 - **Before finishing**, reread your diff and delete every line that neither changes behaviour nor helps a reader. A fix is usually a few lines; if yours is not, say why in the commit message.
 - Older code here is often more defensive than these rules. Do not copy that style. Simplify what you touch within the work package, but never weaken a rule in `docs/safety.md`.
 
@@ -66,8 +67,11 @@ targets = size_targets(equity, weights);
 
 ## Workflow
 
+- Take the first unfinished work package whose dependencies are complete and which needs no user action; do only its scope. Record unrelated findings in the plan’s pending questions.
 - Work on `main`. Commit each finished work package, or a coherent step of one; never push unless asked.
 - Commit subjects start with the work package ID, for example `M3.7: ...`. When a work package is done, update its row in the order table of `docs/plan.md`.
+- Run the work package’s completion checks; report any that could not run and why.
+- Protocol changes update all callers and generated bindings together. Regenerate from `.proto`; never edit generated files by hand.
 - Build and test:
   - C++: `cmake --build --preset conan-debug`, then `ctest --preset conan-debug -j 6` (run long suites in the background). `-L unit` runs only in-memory tests (about 20 s); `-L process` the rest.
   - Lab Python tests are registered only after `pnpm prepare:python`.

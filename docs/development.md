@@ -58,14 +58,13 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 | `cmake --build --preset conan-debug` | 只重建 C++ |
 | `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `asterion-trading-setup.sh` 和 `asterion-market-setup.sh`，输出到 `build/linux-bundles/` |
 
-- CMake 目标写在各模块自己的 `CMakeLists.txt`；目标、程序和库名用下划线（目标 `asterion_market` 生成同名程序）。
 - 公共告警设置由 `asterion_target_defaults(target)` 在目标所在目录调用。测试集中登记在 `tests/CMakeLists.txt`。
 - 平台只支持 macOS armv8 和 Linux x86_64。主机程序的基线是 Ubuntu 24.04（glibc 2.39、GCC 13.3）。
 - 排查正在运行的桌面时，先确认 Electron 加载的是哪个目录的原生模块；单独重编 C++ 不会替换已加载的模块，要重启 `pnpm desktop`。
 
 ## 协议代码生成
 
-消息定义集中在 `protocol/proto/asterion/`，生成文件不手工修改：
+消息定义集中在 `protocol/proto/asterion/`，各语言绑定的生成方式如下：
 
 | 语言 | 工具与入口 | 输出位置 |
 | --- | --- | --- |
@@ -73,7 +72,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 | Python | 同一 `protoc`，CMake 构建时调用 `--python_out` | `<构建目录>/generated-python/asterion/` |
 | TypeScript | pnpm 安装的 Buf 与 `protoc-gen-es`，执行 `pnpm generate:protocol` | `apps/clients/terminal/src/generated/`，提交到 Git |
 
-C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLists.txt)，TypeScript 的规则在 [buf.gen.yaml](../protocol/buf.gen.yaml)。修改 `.proto` 后重新构建并生成 TypeScript，同时更新调用方与[通信协议](protocol.md)。
+C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLists.txt)，TypeScript 的规则在 [buf.gen.yaml](../protocol/buf.gen.yaml)。修改 `.proto` 后重新构建并生成 TypeScript，消息格式见[通信协议](protocol.md)。
 
 ## 代码排版
 
@@ -87,11 +86,11 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 | `pnpm test:unit` | 界面单元和组件测试（Vitest） |
 | `pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json`、`pnpm lint` | 类型检查、ESLint |
 | `ASTERION_CPP_BUILD="$PWD/build/Debug" pnpm test:desktop` | Electron 宿主测试 |
-| `pnpm run test:e2e:journeys` | 关键端到端链路，日常改动后跑 |
+| `pnpm run test:e2e:journeys` | 关键端到端链路 |
 | `pnpm run test:e2e [spec...]` | 全部端到端测试 |
 
-- 测试按被测模块放在 `tests/<模块>/`，夹具跟着它替代的东西放。Lab 的 Python 测试要先运行 `pnpm prepare:python` 才会登记。
-- 新测试放在能证明行为的最低一层：C++ 测试是主体；组件测试用 `src/testing/core.ts` 代替界面访问核心的通道；端到端只保留必须穿过真实服务的链路，标 `@journey` 的每项能力一条。
+- 模块测试位于 `tests/<模块>/`，组件测试位于对应源码旁。Lab 的 Python 测试要先运行 `pnpm prepare:python` 才会登记。
+- 组件测试用 `src/testing/core.ts` 提供核心通道替身；`@journey` 标记关键端到端场景。
 - 端到端测试只能用 `pnpm run test:e2e`：它用临时根目录、测试凭据和测试 CTP SDK；直接运行 `playwright test` 会操作本机正在使用的服务。首次运行先 `pnpm exec playwright install chromium`；运行前确认 1423 端口空闲。需要 Electron 窗口的测试要有图形会话（无显示器时用 `xvfb-run -a`）。
 - macOS 上 CTest 用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。
 - 主机安装包的隔离测试：`python3 tests/market/package_test.py <market 安装包>`、`python3 tests/trading/package_test.py <trading 安装包>`，在断网的 Ubuntu 24.04 容器里安装、升级并运行。

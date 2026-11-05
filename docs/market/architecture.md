@@ -203,7 +203,7 @@ sequenceDiagram
 
 录制自动发布复用上述采集路径：`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办并延后再试，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
 
-`research` 的选择规则只维护在[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
+`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
 
 ## 生命周期与错误边界
 
@@ -230,4 +230,4 @@ sequenceDiagram
 | 7 | [store.cpp](../../apps/services/market/warehouse/store.cpp)、[research.cpp](../../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
 | 8 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
 
-改动后的行为验证从 [tests/market](../../tests/market) 对应测试开始；跨客户端与重启行为看 [concurrency_process.py](../../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../../tests/acceptance/ctp_market.py)。协议或上述所有权发生变化时，同步更新对应图与说明。
+模块测试见 [tests/market](../../tests/market)；跨客户端与重启行为看 [concurrency_process.py](../../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../../tests/acceptance/ctp_market.py)。
