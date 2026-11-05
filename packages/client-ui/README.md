@@ -1,4 +1,4 @@
-# Client UI
+# 共享图表组件
 
 Terminal 使用的图表组件：`PriceChart`（折线、K 线、均线、MACD、成交量）与 `IntradayChart`（分时）。
 

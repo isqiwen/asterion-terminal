@@ -7,7 +7,7 @@
 Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`）：
 
 - 每次启动 Terminal 时在启动画面里启动，没有启停按钮。
-- 进程退出或心跳连续 3 次失败后每 5 秒重启一次，直到恢复。
+- 进程退出或持续心跳失败后自动重启，直到恢复。
 - Lab 以 `--owner-pid` 观察 Terminal，Terminal 退出（包括被强制结束）后随之退出。关闭 Terminal 不会停止 Market 或 Trading。
 - Lab 用第一次启动时安装的 Python 运行时以 `python3 -I -B -m asterion_lab` 运行；开发和测试用 `ASTERION_PYTHON` 指定解释器。
 - 一个根目录同时只能有一个 Terminal（`terminal/data/services.lock`）。
@@ -24,7 +24,7 @@ Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`�
 - 本机：Unix socket，位于每次运行私有的 `/tmp/ast-<实例>/`。
 - Market 和 Trading：TLS，双方各用自签证书，只接受事先登记的对方证书指纹（SHA-256），同一台机器上也一样。
 - 断线后重新连接并读取服务端的状态；交易命令不自动重发。
-- Terminal 定时发送心跳，超过 15 秒未确认就显示失联；“服务 → 连接详情”分别显示进程、传输和业务是否正常。
+- 状态栏显示 Market、Lab 和各 Trading 连接的状态；读取中断或服务处理停滞进入通知中心，账户页保留最后一次读取的状态并标记失联。
 
 ## 桌面安装与升级
 
@@ -45,11 +45,9 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 
 ## 运行日志
 
-每个程序的日志在自己安装目录的 `logs/` 下，按日分文件，默认保留 30 天。日志配置是各自的 `config/logging.json`：
-
-各程序的完整默认文件见[配置文件](configuration.md)。
+每个程序默认在安装目录的 `logs/` 下按日写入日志，保留 30 天。输出由各自的 `config/logging.json` 配置，完整默认文件见[配置文件](configuration.md)。
 
 - `level` 可为 debug、info、warning、error；`file.path` 相对 `bin/`，可用 `{program}` 和 `{pid}`；控制台和文件可分别设置 `pattern`。默认 `[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v` 输出带方括号的时间、时区、级别、程序名和调用处文件名/行号，最后是消息。`%s` 是文件名，`%#` 是行号；时区偏移用于对齐不同主机的日志。C++ 使用 spdlog 格式，Lab 支持这里列出的格式符。
 - 配置有缺键、多余键或无效值时程序启动失败并报告文件和键；没有这个文件时只写到标准错误。修改后重启生效。
 - 日志是自由文本，密码、令牌、授权码和凭据不得写进日志。
-- 桌面可以从启动错误区或“连接详情”打开本机根目录；交易和录制主机的日志留在各自机器上。
+- 桌面通过通知中心的“打开本机日志目录”打开本机程序根目录，再进入对应程序的 `logs/`。Market 和 Trading 的日志保存在各自服务主机。

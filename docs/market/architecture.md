@@ -35,7 +35,7 @@ flowchart LR
 
 ## 核心类关系
 
-Market 进程里有三条执行路径：RPC 主机的 I/O 线程收发帧；行情线程拥有 `Live` 和 `Recording`；读取线程池读仓库、管理采集任务。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
+RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；后台读取路径访问仓库并管理采集任务。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
 
 ```mermaid
 classDiagram
@@ -93,11 +93,11 @@ classDiagram
 | 调用 | 路径 | 权限 |
 | --- | --- | --- |
 | `get_status`、`get_board`、`get_minutes` | 行情线程 | `read` |
-| `stream_quotes` | 行情线程每 250ms 产出一帧 | `read` |
+| `stream_quotes` | 行情执行路径持续生成报价帧 | `read` |
 | `start_acquisition`、`cancel_acquisition` | 读取线程池 | `manage` |
 | 其余调用 | 读取线程池 | `read` |
 
-采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。两个 `Reader` 分别读录制归档和正式仓库，不要混淆。
+采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。`recording::Reader` 读取录制归档，`warehouse::Reader` 读取正式仓库。
 
 ```mermaid
 classDiagram
@@ -139,7 +139,7 @@ classDiagram
 
 服务启动时自行登录、读取目录缓存并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
 
-行情线程每 10ms 按固定顺序走一轮：
+行情执行路径按以下固定顺序处理事件：
 
 ```mermaid
 sequenceDiagram
@@ -156,7 +156,7 @@ sequenceDiagram
         Live->>Recording: observe(事件)
         Live->>Live: apply(事件)：更新分钟线
     end
-    Note over Recording: 3. maintain()：落盘、盘后合并、发布
+    Note over Recording: 3. maintain()：写入、盘后合并、发布
     Note over Live: 4. 回答排队的 get_status / get_board / get_minutes
     Live->>Stream: 5. 到期的报价流放入下一帧
     Client->>RPC: Request.stream_quotes
@@ -211,9 +211,9 @@ sequenceDiagram
 | --- | --- |
 | 客户端关闭 | 释放该连接与它的报价流；服务仍录制，已接纳的采集继续，见 `market.cpp` |
 | 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `Live::apply()`、`Recording::observe()` |
-| SDK 入口丢事件 | 结束本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `Market` 的行情线程 |
+| SDK 事件队列溢出 | 终止本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `Market` 的行情线程 |
 | 磁盘积压 | 录制丢弃积压区间并报告丢失计数，行情继续，见 `Recorder::flush()` |
-| 交易日结束 | 收尾分钟落盘、盘后合并、提交发布待办，见 `Recorder`、`Compactor`、`RecordedPublication` |
+| 交易日结束 | 最后一根分钟线写入、盘后合并、提交发布待办，见 `Recorder`、`Compactor`、`RecordedPublication` |
 | 服务正常停止 | 报价流发出最后一帧、结束后台资源、写完录制缓冲，见 `main.cpp` 与 `Recording` 析构 |
 | 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，见 `Market`、`Manager` |
 

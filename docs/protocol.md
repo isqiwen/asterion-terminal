@@ -15,7 +15,7 @@
 
 ## 2. 消息封套
 
-每个服务有一个 `Request` 和一个 `Response`：
+Market、Lab 和 Trading 的 RPC 使用各自的 `Request` 和 `Response`：
 
 ```proto
 message Request {
@@ -50,7 +50,7 @@ message Response {
 | 日期 | `_day` 结尾，`YYYY-MM-DD` | `trading_day`、`first_day` |
 | 手数 | `lots` 或 `_lots` 结尾 | `max_order_lots` |
 
-注释只写名字说不清的原因，每处一行，用英文，和代码一致。
+字段格式和约束以 `.proto` 注释及服务端输入校验为准。
 
 ## 4. 公共类型
 
@@ -66,9 +66,11 @@ message Response {
 | `Side`、`Offset` | 买卖方向与开平 |
 | `Costs`、`RiskLimits` | 每手保证金与手续费、按名义金额的费率；单笔与总手数和在途委托上限 |
 
-所有价格、数量和金额都用 `Decimal`，不经过浮点数。成交量用 `int64`，因为柜台给出的就是整数手。理由：一种写法贯穿所有服务，日志和 ProtoJSON 里也能直接读出数值。
+价格、金额和可带小数的数量使用 `Decimal`；整数手数、成交量和计数使用协议声明的整数类型。统计指标和图表指标可以使用浮点数，不能用于权威账本计算。
 
 ## 5. 错误
+
+下表省略枚举值的 `ERROR_CODE_` 前缀，实际字段使用 `.proto` 中的完整名称。
 
 | `ErrorCode` | 含义 | 调用方怎么做 |
 | --- | --- | --- |
@@ -87,7 +89,7 @@ message Response {
 
 ## 6. 分页和流
 
-- **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。只有数量没有上限的列表才分页：版本的分区、版本历史和采集任务。
+- **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。版本分区、版本历史和采集任务使用游标分页；`get_table_rows` 使用 `offset` 和回复中的 `total` 读取参考表。
 - **流**：只有 `stream_quotes` 连续回复，同一个 `id` 返回多帧，直到连接关闭。第一帧是 `full`，之后是 `changed` 或新的 `full`。断线后重新开流，首帧又是 `full`。理由：TCP 保证顺序不丢帧，所以帧上不需要序号。
 
 ## 7. Market
@@ -141,7 +143,7 @@ sequenceDiagram
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_health` | — | 是否已启动完成；Terminal 守护进程用它判断 Lab 是否可用 |
+| `get_health` | — | 是否已启动完成；Terminal 的 Lab 看护模块用它判断服务是否可用 |
 | `get_dataset_summary` | — | 研究数据当前版本的摘要，与 Market 的 `DatasetSummary` 相同 |
 | `list_stored_contracts` | 合约，不填表示全部 | 每个合约的日线和分钟线范围 |
 | `get_chart_bars` | 合约、周期、版本 | K 线与 MACD |
@@ -156,7 +158,7 @@ sequenceDiagram
 | `cancel_run` | 运行 ID | — |
 | `start_sweep` / `get_sweep` / `cancel_sweep` | 扫描设置 / 扫描 ID / 扫描 ID | — / 扫描的各次运行 / — |
 
-- 回测和因子评估在接受时由 Lab 选定研究数据版本和代码提交，结果里的 `pinned` 写明这三项。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
+- 回测和因子评估在接受时由 Lab 固定研究数据版本和代码副本；结果中的 `pinned` 记录数据版本、代码提交和未提交改动摘要。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
 - Lab 交给子进程的是 `AdmittedRun`、`RollingRun` 和 `AdmittedFactor`：界面的请求加上 Lab 选定的版本和代码副本。它们也定义在 lab.proto 里，但只在 Lab 内部使用。
 
 ## 9. Trading
@@ -177,9 +179,9 @@ sequenceDiagram
 | `stop_strategy` / `flatten_strategy` | 实例 ID | `Strategies` |
 | `pause_strategy` | 实例 ID、是否暂停 | `Strategies` |
 
-- `Account` 是主机配置的账户和柜台（不含密码和认证码），`session` 是开通后的账户状态：政策及其版本、柜台连接状态、授权时间、资金、持仓、委托、成交、未确认委托、费率和账本用量。账户相关的操作都返回整个 `Account`。理由：页面每次拿到的都是同一份完整状态，不需要合并局部回复。
+- `Account` 是主机配置的账户和柜台（不含密码和授权码），`session` 是开通后的账户状态：政策及其版本、柜台连接状态、授权时间、资金、持仓、委托、成交、未确认委托、费率和账本用量。账户相关的操作都返回整个 `Account`。理由：页面每次拿到的都是同一份完整状态，不需要合并局部回复。
 - 会改变交易状态的操作都放在 `Command` 里：下单、撤单、授权、撤销授权、确认未回报委托、修改政策。`Command` 带 `account_id` 和 `policy_revision`，与当前账户或政策不符时返回 `CONFLICT`。理由：用户核对的是哪个账户、哪版政策，执行的就只能是它。
-- 每个 `request_id` 只执行一次，重复使用返回 `CONFLICT`。回复丢失时先 `get_account` 读取结果，不重发。
+- 已写入交易记录的 `request_id` 不可复用，重复使用返回 `CONFLICT`。回复丢失时先 `get_account` 读取结果，不重发。
 - `authorized_ms` 存在表示已授权。授权在撤销、修改政策或 Trading 重启后失效。
 - 策略实例的状态依次为 `STARTING`、`WARMING`、`READY`，结束于 `STOPPED`、`FAILED` 或 `INTERRUPTED`。
 
@@ -193,7 +195,7 @@ sequenceDiagram
     participant Child as 策略进程
     Trading->>Child: load(Instance)
     Child-->>Trading: load
-    loop 每根完整 K 线
+    loop 每组已结束的 K 线
         Trading->>Child: bars(Bars)
         Child-->>Trading: bars(Decision)
     end
@@ -210,4 +212,4 @@ Lab 打包策略时也使用 `strategy.Package` 和 `strategy.ParameterValue`。
 
 ## 11. 演进
 
-项目未发布，协议只有当前一版：改字段时同时修改所有服务和客户端，删掉的字段不保留编号。持久化的 Protobuf 文件（采集任务、目录缓存）格式随协议一起变化，旧文件按无效文件处理。
+项目尚未发布，服务和客户端维护同一套协议；字段变更须同步更新所有调用方和生成代码。采集任务、目录缓存等持久化 Protobuf 文件也受影响，当前不提供旧格式迁移。

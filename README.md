@@ -4,20 +4,19 @@
 C++20 核心与独立服务进程，Electron + React 界面。目标是用 Python 写策略，同一份策略在回测、仿真柜台和实盘上运行，
 见[产品说明](docs/product.md)。
 
-## 目标架构
+## 架构
 
-远程 Market 是一个纯 C++ 服务进程，统一实时行情、录制、历史采集与正式仓库读写，使用有界线程和队列处理并发；
+远程 Market 是一个纯 C++ 服务进程，统一实时行情、录制、历史采集与正式仓库读写；
 本机 Lab 用 Python 做研究并按版本读取 Market；Terminal 发布策略代码包；Trading 在交易主机直接连接行情与柜台，
-策略从启动后收到的完整 K 线现场预热。关闭 Terminal 不影响已授权交易。进程与数据归属已落实，策略目标接入账户执行正在开发，见[架构](docs/architecture.md)。
+策略使用 Trading 自行聚合的 K 线现场预热。关闭 Terminal 不影响已授权交易。策略目标经账户统一执行路径处理，见[架构](docs/architecture.md)。
 
 ## 当前能力
 
 - **行情**：CTP 实时行情、合约目录、自选、五档、分时与分钟 K 线。
 - **历史数据**：Market C++ 采集 Tushare 日线、分钟线、合约与日历，以及交易所日线和结算参数；录制分钟可发布为固定研究版本。部分在线来源待验收。
-- **研究**：用户仓库里的 Python 策略与因子；日线/分钟线回测、参数扫描、滚动验证、因子评价、图表与研究记录。
-- **策略部署**：Terminal 发布小型源码包；Trading 从主机离线运行时加载、现场预热，目标经账户的唯一执行路径报单；真实柜台验收待完成。
+- **研究**：固定策略目录中的 Python 策略与因子；日线/分钟线回测、参数扫描、滚动验证、因子评价、图表与研究记录。
+- **策略部署**：Terminal 发布小型源码包；Trading 从主机离线运行时加载、现场预热，目标经账户的唯一执行路径报单。
 - **交易**：CTP 账户（柜台仿真或实盘）：授权、合约白名单、限额与价格风控、先记录后发送、断线不重发。
-  当前实现的真实仿真柜台验收尚未完成，不能沿用被替换实现的验收结论。
 - **部署**：Market（行情与录制）和 Trading 在 Linux 独立部署；Terminal 只看护本机 Lab。历史采集与仓库由 Market C++ 管理，Lab 只读固定版本并缓存；录制分钟可由 Market 发布为固定研究版本。
 
 能力边界与已知限制见[现状](docs/status.md)，先做什么见[开发计划](docs/plan.md)。
@@ -32,14 +31,14 @@ conan profile detect --exist-ok
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
 pnpm install --frozen-lockfile
 pnpm exec install-electron
-pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建并启动；之后用 pnpm desktop
+pnpm desktop                       # 自动准备 Python 运行时、构建并启动
 ```
 
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm desktop` | 构建 Debug 并启动桌面端 |
 | `pnpm desktop:check` | 构建并检查桌面链路，不打开窗口 |
-| `pnpm desktop:build` | 生成发行安装包（macOS `.dmg`，Linux `.tar.gz`） |
+| `pnpm desktop:build` | 生成发行安装包（macOS `.dmg`，Linux `.deb`） |
 | `ctest --preset conan-debug -j 6` | C++ 测试 |
 | `pnpm test:unit` | 界面单元与组件测试 |
 | `pnpm run test:e2e:journeys` | 隔离环境下的关键端到端链路 |
@@ -58,7 +57,7 @@ pnpm desktop --prepare-python      # 首次：准备 Python 运行时、构建�
 | `protocol/` | Protobuf 契约与边界校验 |
 | `apps/clients/terminal/` | Terminal 桌面端：`src/`、`features/` 是界面，`native/` 是 C++ 原生层（Lab 看护、行情与交易连接） |
 | `bindings/` | C ABI 与 Node-API |
-| `config/` | 本机服务的默认配置 |
+| 各子项目的 `config/` | 默认配置和部署配置示例，见[配置文件](docs/configuration.md) |
 | `tests/` | C++ 与进程测试 |
 
 ## 文档

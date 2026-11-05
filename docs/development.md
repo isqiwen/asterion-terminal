@@ -6,7 +6,7 @@
 - Node.js 22+、pnpm 10、Python 3、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
 - clang-format 23.1.1（与 CI 相同；其他版本排版结果不同）。
 - 可选：Docker 或 OrbStack，用于构建 Market 和 Trading 主机的安装脚本。Linux 上当前用户要能不经 `sudo` 运行 `docker`（加入 `docker` 组后重新登录，此前可用 `sg docker -c '<命令>'`）。
-- Linux 桌面需要图形会话。Electron 沙箱需要非特权用户命名空间：Ubuntu 24.04 起要放开 AppArmor 限制（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox`。从 VS Code（deb 安装）的终端启动不受此限制。
+- Linux 桌面需要图形会话。Electron 沙箱需要非特权用户命名空间：Ubuntu 24.04 起要放开 AppArmor 限制（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox`。具体权限取决于系统的 AppArmor 配置。
 
 首次准备：
 
@@ -61,8 +61,19 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 - CMake 目标写在各模块自己的 `CMakeLists.txt`；目标、程序和库名用下划线（目标 `asterion_market` 生成同名程序）。
 - 公共告警设置由 `asterion_target_defaults(target)` 在目标所在目录调用。测试集中登记在 `tests/CMakeLists.txt`。
 - 平台只支持 macOS armv8 和 Linux x86_64。主机程序的基线是 Ubuntu 24.04（glibc 2.39、GCC 13.3）。
-- 界面的 Protobuf 类型由 `pnpm generate:protocol` 生成到 `apps/clients/terminal/src/generated/` 并提交；修改 proto 后重新生成。
 - 排查正在运行的桌面时，先确认 Electron 加载的是哪个目录的原生模块；单独重编 C++ 不会替换已加载的模块，要重启 `pnpm desktop`。
+
+## 协议代码生成
+
+消息定义集中在 `protocol/proto/asterion/`，生成文件不手工修改：
+
+| 语言 | 工具与入口 | 输出位置 |
+| --- | --- | --- |
+| C++ | Conan 提供的 `protobuf::protoc`，CMake 构建时调用 `--cpp_out` | `<构建目录>/generated/asterion/` |
+| Python | 同一 `protoc`，CMake 构建时调用 `--python_out` | `<构建目录>/generated-python/asterion/` |
+| TypeScript | pnpm 安装的 Buf 与 `protoc-gen-es`，执行 `pnpm generate:protocol` | `apps/clients/terminal/src/generated/`，提交到 Git |
+
+C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLists.txt)，TypeScript 的规则在 [buf.gen.yaml](../protocol/buf.gen.yaml)。修改 `.proto` 后重新构建并生成 TypeScript，同时更新调用方与[通信协议](protocol.md)。
 
 ## 代码排版
 
@@ -72,8 +83,8 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 | 命令 | 内容 |
 | --- | --- |
-| `ctest --preset conan-debug -j 6` | C++ 单元测试和进程测试（约 5–10 分钟）；`-L unit` 只跑内存中的测试（约 20 秒），`-L process` 跑其余 |
-| `pnpm test:unit` | 界面单元和组件测试（Vitest），几秒 |
+| `ctest --preset conan-debug -j 6` | C++ 单元测试和进程测试；`-L unit` 筛选单元测试，`-L process` 筛选进程测试 |
+| `pnpm test:unit` | 界面单元和组件测试（Vitest） |
 | `pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json`、`pnpm lint` | 类型检查、ESLint |
 | `ASTERION_CPP_BUILD="$PWD/build/Debug" pnpm test:desktop` | Electron 宿主测试 |
 | `pnpm run test:e2e:journeys` | 关键端到端链路，日常改动后跑 |
@@ -84,7 +95,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 - 端到端测试只能用 `pnpm run test:e2e`：它用临时根目录、测试凭据和测试 CTP SDK；直接运行 `playwright test` 会操作本机正在使用的服务。首次运行先 `pnpm exec playwright install chromium`；运行前确认 1423 端口空闲。需要 Electron 窗口的测试要有图形会话（无显示器时用 `xvfb-run -a`）。
 - macOS 上 CTest 用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。
 - 主机安装包的隔离测试：`python3 tests/market/package_test.py <market 安装包>`、`python3 tests/trading/package_test.py <trading 安装包>`，在断网的 Ubuntu 24.04 容器里安装、升级并运行。
-- 真实柜台的验收见 [CTP 仿真验收](acceptance/ctp-simulation.md)；测试 SDK 只证明软件逻辑，不证明柜台行为。
+- 真实柜台的验收见 [CTP 仿真验收](acceptance/ctp-simulation.md)。
 
 ## 本机数据目录
 
@@ -100,7 +111,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 - 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 Market 和 Trading 连接与客户端证书。
 - 策略目录固定，不能更换。每次 Lab 启动时，内置的策略和因子复制进去并设为只读：新版本替换它们，不再自带的删掉；同名的用户模块不动。
-- `ASTERION_ROOT` 只用于临时测试目录，同时要用独立的 `--user-data-dir`。
+- 隔离测试通过 `ASTERION_ROOT` 指定临时目录，同时使用独立的 `--user-data-dir`。
 - 关闭开发窗口或按 Ctrl+C 会停止本机 Lab；Market 和 Trading 不受影响。
 
 ## 发行
@@ -122,5 +133,5 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 - 服务忽略 `SIGPIPE`；`SIGINT` / `SIGTERM` 请求正常停止。
 - 每个程序写自己安装目录下的 `logs/`，按程序、日期分文件，见[运行日志](services.md#运行日志)。Terminal 日志记录每条命令的名称、`trace_id`、耗时和结果；服务日志用同一 `trace_id` 关联请求。交易日志在委托写入记录后记下 `order_id` 等标识。
-- 日志写入失败时在标准错误输出固定的 `logging.failed` 诊断，Terminal 的服务详情显示本次运行发生过日志丢失。
-- 桌面的启动错误区和服务连接详情可以打开本机根目录。
+- 日志写入失败时在标准错误输出固定的 `logging.failed` 诊断，Terminal 通知中心报告日志写入故障。
+- 本机日志入口见[运行日志](services.md#运行日志)。
