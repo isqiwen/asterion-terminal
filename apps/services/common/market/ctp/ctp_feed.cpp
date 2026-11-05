@@ -187,54 +187,13 @@ struct Feed::Impl final
     Configuration config;
     using Factory = CThostFtdcMdApi* (*)(const char*, bool, bool);
     LiveMarketSnapshot state;
-    const std::string stream_id = unique_process_id();
-    const std::size_t event_capacity;
-    std::deque<MarketEvent> events;
-    std::size_t retained_rows = 0;
+    // What changed since the owner's last poll, in order.
+    std::vector<FeedEvent> events;
 
-    static std::size_t event_rows(const MarketEvent& event)
-    {
-        const auto* status = std::get_if<LiveMarketSnapshot>(&event.value);
-        return 1 + (status ? status->subscriptions.size() : 0);
-    }
-
-    std::uint64_t event_sequence = 0;
-    bool event_failed = false;
-
-    void record(MarketEvent event) noexcept
-    {
-        if (event_failed)
-            return;
-        try {
-            if (event_sequence == std::numeric_limits<std::uint64_t>::max())
-                throw std::overflow_error("market event sequence exhausted");
-            event.sequence = event_sequence + 1;
-            const auto rows = event_rows(event);
-            events.push_back(std::move(event));
-            retained_rows += rows;
-            ++event_sequence;
-            // Full-market status snapshots are larger than individual quotes.
-            // Bound retained rows as well as event count; normal gap reporting applies.
-            while (events.size() > event_capacity || retained_rows > 65536) {
-                retained_rows -= event_rows(events.front());
-                events.pop_front();
-            }
-        } catch (...) {
-            event_failed = true;
-        }
-    }
-
-    void record_status(std::int64_t received_ms = now_ms()) noexcept
+    void record_status()
     {
         std::fill(subscription_revisions.begin(), subscription_revisions.end(), state.sequence);
-        try {
-            auto status = state;
-            for (auto& subscription : status.subscriptions)
-                subscription.quote.reset();
-            record({0, received_ms, std::move(status)});
-        } catch (...) {
-            event_failed = true;
-        }
+        events.push_back(FeedStatus{state.phase, state.error_code});
     }
 
     std::vector<InstrumentId> wanted;
@@ -385,19 +344,14 @@ struct Feed::Impl final
     std::unique_ptr<SdkState> sdk_state = std::make_unique<SdkState>();
     std::future<void> pending;
 
-    explicit Impl(
+    Impl(
         ThreadPool& owner,
         const std::filesystem::path& path,
-        const std::filesystem::path& directory,
-        std::size_t capacity)
+        const std::filesystem::path& directory)
         : library_path(path),
           flow(directory),
-          event_capacity(capacity),
           sdk_owner(owner)
-    {
-        if (!capacity || capacity > 65536)
-            throw std::invalid_argument("market event capacity must be 1..65536");
-    }
+    {}
 
     ~Impl()
     {
@@ -583,7 +537,7 @@ struct Feed::Impl final
             depth_level(tick->AskPrice5, tick->AskVolume5)
         };
         const bool out_of_order = s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
-        record({0, q.received_ms, MarketQuoteObservation{q, out_of_order}});
+        events.push_back(MarketQuoteObservation{q, out_of_order});
         if (out_of_order) {
             ++state.out_of_order;
             ++state.sequence;
@@ -643,10 +597,8 @@ struct Feed::Impl final
                             value.code ? SubscriptionState::error : SubscriptionState::subscribed;
                         ++state.sequence;
                         subscription_revisions[found->second] = state.sequence;
-                        record(
-                            {0,
-                                event.received_ms,
-                                MarketSubscription{sub.instrument, sub.state, sub.error_code, {}}});
+                        events.push_back(
+                            MarketSubscription{sub.instrument, sub.state, sub.error_code, {}});
                         return;
                     } else if constexpr (std::is_same_v<T, Failure>) {
                         if (value.code) {
@@ -662,47 +614,44 @@ struct Feed::Impl final
                         ++state.sequence;
                     }
                     if (state.sequence != before)
-                        record_status(event.received_ms);
+                        record_status();
                 }
             },
             event.value);
     }
 
-    void poll()
+    FeedEvents poll()
     {
-        if (!closing && (ingress_failed || event_failed)) {
-            event_failed = true;
-            if (state.phase != MarketPhase::error || state.error_code != -1000) {
-                state.phase = MarketPhase::error;
-                state.error_code = -1000;
-                ++state.sequence;
-            }
-            ingress_failed = true;
+        if (!closing && ingress_failed
+            && (state.phase != MarketPhase::error || state.error_code != -1000)) {
+            state.phase = MarketPhase::error;
+            state.error_code = -1000;
+            ++state.sequence;
         }
         for (unsigned i = 0; i < 1024; ++i) {
             auto event = incoming.try_pop();
             if (!event)
                 break;
-            if (!closing && !event_failed && !ingress_failed && event->generation == generation)
+            if (!closing && !ingress_failed && event->generation == generation)
                 apply(*event);
         }
-        if (pending.valid()) {
-            if (pending.wait_for(std::chrono::milliseconds{0}) != std::future_status::ready)
-                return;
-            pending.get();
+        if (!pending.valid()
+            || pending.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
+            if (pending.valid())
+                pending.get();
+            pending = sdk_owner.submit([this](std::stop_token stop) {
+                advance_sdk(stop);
+            });
         }
-        pending = sdk_owner.submit([this](std::stop_token stop) {
-            advance_sdk(stop);
-        });
+        return {std::exchange(events, {}), ingress_failed};
     }
 };
 
 Feed::Feed(
     ThreadPool& sdk_owner,
     const std::filesystem::path& library,
-    const std::filesystem::path& flow,
-    std::size_t event_capacity)
-    : impl_(std::make_unique<Impl>(sdk_owner, library, flow, event_capacity))
+    const std::filesystem::path& flow)
+    : impl_(std::make_unique<Impl>(sdk_owner, library, flow))
 {}
 
 Feed::~Feed() = default;
@@ -735,7 +684,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids)
     copy(check.Password, config.password);
     std::memset(check.Password, 0, sizeof(check.Password));
     start();
-    if (impl_->event_failed || impl_->ingress_failed)
+    if (impl_->ingress_failed)
         throw Error(ErrorCode::unavailable, "market event stream failed; restart market service");
     if (!impl_->closing && impl_->state.phase != MarketPhase::error)
         throw Error(ErrorCode::conflict, "disconnect current market session first");
@@ -806,33 +755,9 @@ MarketPhase Feed::phase() const
     return impl_->state.phase;
 }
 
-MarketEventBatch
-Feed::events_after(const std::string& stream_id, std::uint64_t cursor, std::size_t limit) const
+FeedEvents Feed::poll()
 {
-    if (!limit || limit > 1024 || cursor > impl_->event_sequence
-        || (stream_id.empty() ? cursor != 0 : stream_id != impl_->stream_id))
-        throw std::invalid_argument("invalid market event cursor or limit");
-    MarketEventBatch batch;
-    batch.stream_id = impl_->stream_id;
-    batch.latest_sequence = impl_->event_sequence;
-    batch.oldest_sequence = impl_->events.empty() ? 0 : impl_->events.front().sequence;
-    batch.gap = batch.oldest_sequence > 0 && cursor < batch.oldest_sequence - 1;
-    batch.failed = impl_->event_failed;
-    // The deque retains a contiguous suffix of sequence numbers. Seeking by
-    // offset avoids scanning every retained observation on each incremental read.
-    const auto offset = batch.oldest_sequence && cursor >= batch.oldest_sequence
-        ? static_cast<std::size_t>(cursor - batch.oldest_sequence + 1)
-        : 0;
-    const auto count = std::min(limit, impl_->events.size() - offset);
-    batch.events.reserve(count);
-    for (std::size_t i = 0; i < count; ++i)
-        batch.events.push_back(impl_->events[offset + i]);
-    return batch;
-}
-
-void Feed::poll()
-{
-    impl_->poll();
+    return impl_->poll();
 }
 
 void Feed::disconnect()

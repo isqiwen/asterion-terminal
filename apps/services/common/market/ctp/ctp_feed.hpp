@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <variant>
 
 namespace asterion::ctp {
 
@@ -22,6 +23,22 @@ std::int64_t source_time(const std::string& day, const std::string& time, int mi
 std::optional<Decimal>
 average_price(double value, const std::string& venue, std::optional<int> multiplier);
 
+// A change of the connection, in its place among the quotes.
+struct FeedStatus
+{
+    MarketPhase phase = MarketPhase::disconnected;
+    int error_code = 0;
+};
+
+using FeedEvent = std::variant<FeedStatus, MarketQuoteObservation, MarketSubscription>;
+
+struct FeedEvents
+{
+    std::vector<FeedEvent> events;
+    // SDK callbacks were dropped: the stream is incomplete and never recovers in place.
+    bool failed = false;
+};
+
 class Feed final
 {
 public:
@@ -29,15 +46,15 @@ public:
     Feed(
         ThreadPool& sdk_owner,
         const std::filesystem::path& library,
-        const std::filesystem::path& flow,
-        std::size_t event_capacity = 4096);
+        const std::filesystem::path& flow);
     ~Feed();
     void start();
     void stop() noexcept;
     void connect(Configuration config, const std::vector<InstrumentId>& instruments);
-    // All public state operations belong to one owner. SDK callbacks only enqueue
-    // owned provider observations; poll applies at most 1,024 per turn.
-    void poll();
+    // All public state operations belong to one owner. SDK callbacks only enqueue;
+    // poll applies at most 1,024 of them and returns every change since the last
+    // poll, in order.
+    FeedEvents poll();
     void subscribe(const std::vector<InstrumentId>& instruments);
     // Contract multipliers from the trading catalog; required to normalize
     // non-CZCE average prices. Unknown contracts report no average price.
@@ -46,8 +63,6 @@ public:
         std::optional<std::uint64_t> after = {},
         std::span<const InstrumentId> forced = {}) const;
     MarketPhase phase() const;
-    MarketEventBatch
-    events_after(const std::string& stream_id, std::uint64_t cursor, std::size_t limit) const;
     void disconnect();
 
 private:

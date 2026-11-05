@@ -160,8 +160,6 @@ struct StrategyHost::State
     StrategyAuthorityPtr authority;
     std::map<InstrumentId, MarketQuote> quotes;
     std::future<void> execution;
-    std::string stream;
-    std::uint64_t cursor = 0;
     bool connected = false, online = false;
     std::chrono::steady_clock::time_point connect_deadline;
 
@@ -356,13 +354,11 @@ struct StrategyHost::State
                 for (const auto& event : account->take_strategy_events(authority).get())
                     record_event(event);
             }
-            feed->poll();
-            const auto batch = feed->events_after(stream, cursor, 1024);
-            if (batch.gap || batch.failed)
+            const auto update = feed->poll();
+            if (update.failed)
                 throw std::runtime_error("strategy market stream lost observations");
-            for (const auto& event : batch.events) {
-                cursor = event.sequence;
-                if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
+            for (const auto& event : update.events) {
+                if (const auto* status = std::get_if<ctp::FeedStatus>(&event)) {
                     // CTP reconnects by itself; the window continues across the gap.
                     if (status->phase == MarketPhase::error)
                         throw std::runtime_error("strategy market connection failed");
@@ -374,11 +370,10 @@ struct StrategyHost::State
                         online = false;
                         record_event("market disconnected");
                     }
-                } else if (const auto* subscription =
-                               std::get_if<MarketSubscription>(&event.value)) {
+                } else if (const auto* subscription = std::get_if<MarketSubscription>(&event)) {
                     if (subscription->state == SubscriptionState::error)
                         throw std::runtime_error("strategy contract subscription rejected");
-                } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
+                } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event)) {
                     if (quote->out_of_order)
                         continue;
                     const auto& observed = quote->quote;
@@ -390,7 +385,6 @@ struct StrategyHost::State
                         decide(input);
                 }
             }
-            stream = batch.stream_id;
             if (!connected && std::chrono::steady_clock::now() >= connect_deadline)
                 throw std::runtime_error("strategy market login timed out");
             // Process all queued feed faults before admitting another leg. SDK
@@ -582,8 +576,6 @@ struct StrategyHost::State
                 sdk_owner,
                 installation / "lib/ctp-md.so",
                 root / "ctp-flow");
-            cursor = 0;
-            stream.clear();
             connected = online = false;
             connect_deadline = std::chrono::steady_clock::now() + 30s;
             feed->connect(market, contracts);

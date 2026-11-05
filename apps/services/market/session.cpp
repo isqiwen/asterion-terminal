@@ -49,8 +49,6 @@ struct State
     CatalogJob catalog;
     std::uint64_t applied_catalog = 0;
     IntradayBars intraday;
-    std::string stream;
-    std::uint64_t event_cursor = 0;
     const Settings settings;
     std::unique_ptr<recording::Recorder> recorder;
     const std::int64_t started_ms = now_ms();
@@ -137,8 +135,6 @@ struct State
 
     void advance()
     {
-        if (feed)
-            feed->poll();
         catalog.poll();
         advance_login();
         const auto [catalog_revision, catalog_state] = catalog.snapshot();
@@ -160,24 +156,16 @@ struct State
         }
         if (!feed)
             return;
-        // Bounded work per turn. Client traffic cannot prevent event consumption,
-        // and a continuous provider stream cannot starve admitted commands.
-        const auto batch = feed->events_after(stream, event_cursor, 1024);
-        if (batch.gap || batch.failed) {
-            intraday.interrupt();
-            if (recorder)
-                recorder->interrupt(batch.failed ? "feed_failed" : "events_lost");
-        }
-        for (const auto& event : batch.events) {
-            event_cursor = event.sequence;
-            if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
+        const auto update = feed->poll();
+        for (const auto& event : update.events) {
+            if (const auto* status = std::get_if<ctp::FeedStatus>(&event)) {
                 feed_error = status->error_code;
                 if (status->phase != MarketPhase::connected) {
                     intraday.interrupt();
                     if (recorder)
                         recorder->interrupt(market_phase_name(status->phase));
                 }
-            } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value)) {
+            } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event)) {
                 last_quote_ms = quote->quote.received_ms;
                 out_of_order += quote->out_of_order;
                 quiet_since = Clock::now();
@@ -187,11 +175,13 @@ struct State
                     intraday.observe(quote->quote);
             }
         }
-        stream = batch.stream_id;
         // A feed that lost provider events never recovers in place: exit, and
         // systemd starts a complete stream again.
-        if (batch.failed)
+        if (update.failed) {
+            intraday.interrupt();
+            recorder->interrupt("feed_failed");
             throw std::runtime_error("market feed lost provider events");
+        }
         if (recorder) {
             recorder->poll(now_ms(), intraday);
             const auto now = Clock::now();

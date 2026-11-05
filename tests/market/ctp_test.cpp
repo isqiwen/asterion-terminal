@@ -97,11 +97,18 @@ struct CtpDirectory
     }
 };
 
-bool wait_quotes(asterion::ctp::Feed& feed, std::uint64_t rejected)
+// Polls until `rejected` quotes arrived out of order; what each poll returned
+// is appended to `seen`.
+bool wait_quotes(
+    asterion::ctp::Feed& feed,
+    std::uint64_t rejected,
+    std::vector<asterion::ctp::FeedEvent>* seen = nullptr)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-        feed.poll();
+        auto update = feed.poll();
+        if (seen)
+            seen->insert(seen->end(), update.events.begin(), update.events.end());
         if (feed.snapshot().out_of_order >= rejected)
             return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -203,40 +210,32 @@ TEST(CtpEvents, CallbackOverflowFailsTheStreamInsteadOfPublishingASilentGap)
         ASSERT_LT(std::chrono::steady_clock::now(), deadline);
         std::this_thread::sleep_for(1ms);
     }
-    feed.poll();
+    EXPECT_TRUE(feed.poll().failed);
     EXPECT_EQ(feed.phase(), asterion::MarketPhase::error);
-    EXPECT_TRUE(feed.events_after("", 0, 1024).failed);
     EXPECT_THROW(feed.connect({"tcp://localhost:12345", "test", "steady", "test-only"}, {}), Error);
     feed.disconnect();
-    feed.poll();
+    EXPECT_TRUE(feed.poll().failed);
     EXPECT_EQ(feed.phase(), asterion::MarketPhase::disconnected);
-    EXPECT_TRUE(feed.events_after("", 0, 1024).failed);
 }
 
 TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
 {
     CtpDirectory directory;
     asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
-    auto initial = feed.events_after("", 0, 100);
-    EXPECT_FALSE(initial.stream_id.empty());
-    EXPECT_TRUE(initial.events.empty());
+    EXPECT_TRUE(feed.poll().events.empty());
     connect_fixture(feed);
-    ASSERT_TRUE(wait_quotes(feed, 2));
+    std::vector<asterion::ctp::FeedEvent> seen;
+    ASSERT_TRUE(wait_quotes(feed, 2, &seen));
     feed.disconnect();
-    const auto batch = feed.events_after(initial.stream_id, 0, 100);
-    ASSERT_FALSE(batch.gap);
-    ASSERT_FALSE(batch.failed);
+    const auto last = feed.poll();
+    ASSERT_FALSE(last.failed);
+    seen.insert(seen.end(), last.events.begin(), last.events.end());
     std::vector<asterion::MarketQuoteObservation> quotes;
     bool reconnecting = false, reconnected = false;
-    std::uint64_t sequence = 0;
-    for (const auto& event : batch.events) {
-        EXPECT_EQ(event.sequence, ++sequence);
-        EXPECT_GT(event.received_ms, 0);
-        if (const auto* q = std::get_if<asterion::MarketQuoteObservation>(&event.value)) {
+    for (const auto& event : seen) {
+        if (const auto* q = std::get_if<asterion::MarketQuoteObservation>(&event)) {
             quotes.push_back(*q);
-        } else if (const auto* status = std::get_if<asterion::LiveMarketSnapshot>(&event.value)) {
-            for (const auto& subscription : status->subscriptions)
-                EXPECT_FALSE(subscription.quote);
+        } else if (const auto* status = std::get_if<asterion::ctp::FeedStatus>(&event)) {
             if (status->phase == asterion::MarketPhase::reconnecting) {
                 reconnecting = true;
                 EXPECT_EQ(status->error_code, 4097);
@@ -244,7 +243,7 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
             if (reconnecting && status->phase == asterion::MarketPhase::connected)
                 reconnected = true;
         } else {
-            const auto& subscription = std::get<asterion::MarketSubscription>(event.value);
+            const auto& subscription = std::get<asterion::MarketSubscription>(event);
             EXPECT_FALSE(subscription.quote);
             EXPECT_EQ(subscription.state, asterion::SubscriptionState::subscribed);
         }
@@ -269,46 +268,6 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
     EXPECT_EQ(quotes[1].quote.volume, 5);
     EXPECT_TRUE(reconnected);
     EXPECT_EQ(feed.snapshot().subscriptions[0].quote->last->str(), "3510");
-    EXPECT_EQ(batch.latest_sequence, sequence);
-    // Reads never acknowledge or remove records; a failed durable write can
-    // retry.
-    const auto retry = feed.events_after(batch.stream_id, 0, 100);
-    EXPECT_EQ(retry.events.size(), batch.events.size());
-    const auto tail = feed.events_after(batch.stream_id, sequence, 100);
-    EXPECT_TRUE(tail.events.empty());
-    EXPECT_FALSE(tail.gap);
-    const auto page = feed.events_after(batch.stream_id, 2, 1);
-    ASSERT_EQ(page.events.size(), 1U);
-    EXPECT_EQ(page.events[0].sequence, 3U);
-}
-
-TEST(CtpEvents, OverflowAndWrongStreamCannotLookComplete)
-{
-    CtpDirectory directory;
-    asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path, 2);
-    connect_fixture(feed);
-    ASSERT_TRUE(wait_quotes(feed, 1));
-    feed.disconnect();
-    const auto batch = feed.events_after("", 0, 10);
-    EXPECT_TRUE(batch.gap);
-    EXPECT_FALSE(batch.failed);
-    ASSERT_EQ(batch.events.size(), 2U);
-    EXPECT_EQ(batch.events.front().sequence, batch.oldest_sequence);
-    EXPECT_EQ(batch.events.back().sequence, batch.latest_sequence);
-    EXPECT_FALSE(feed.events_after(batch.stream_id, batch.oldest_sequence - 1, 10).gap);
-    EXPECT_THROW(feed.events_after("another-feed", 0, 10), std::invalid_argument);
-    EXPECT_THROW(feed.events_after("", 1, 10), std::invalid_argument);
-    EXPECT_THROW(
-        feed.events_after(batch.stream_id, batch.latest_sequence + 1, 10),
-        std::invalid_argument);
-    EXPECT_THROW(feed.events_after(batch.stream_id, 0, 0), std::invalid_argument);
-    EXPECT_THROW(feed.events_after(batch.stream_id, 0, 1025), std::invalid_argument);
-    asterion::ctp::Feed other(directory.sdk, ASTERION_TEST_CTP, directory.path / "other");
-    EXPECT_NE(other.events_after("", 0, 1).stream_id, batch.stream_id);
-    EXPECT_THROW(other.events_after(batch.stream_id, 0, 10), std::invalid_argument);
-    EXPECT_THROW(
-        (asterion::ctp::Feed(directory.sdk, ASTERION_TEST_CTP, directory.path, 0)),
-        std::invalid_argument);
 }
 
 TEST(CtpEvents, SubscriptionReorderingAndVenueReplacementKeepQuotesBoundToExactContracts)
@@ -352,7 +311,7 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
 {
     using namespace asterion;
     CtpDirectory directory;
-    ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path, 65536);
+    ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
     constexpr std::size_t count = 20000;
     std::vector<InstrumentId> contracts;
     for (std::size_t i = 0; i < count; ++i)
@@ -363,8 +322,22 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
     const auto began = std::chrono::steady_clock::now();
     feed.connect({"tcp://localhost:12345", "test", "steady", "test-only"}, contracts);
     const auto deadline = began + testing_support::bound(std::chrono::seconds(30));
+    std::size_t acknowledgements = 0, quotes = 0;
+    const auto count_events = [&] {
+        const auto update = feed.poll();
+        EXPECT_FALSE(update.failed);
+        for (const auto& event : update.events) {
+            if (const auto* subscription = std::get_if<MarketSubscription>(&event)) {
+                ++acknowledgements;
+                EXPECT_FALSE(subscription->quote);
+            } else if (std::holds_alternative<MarketQuoteObservation>(event)) {
+                ++quotes;
+            }
+        }
+        return update.events.size();
+    };
     for (;;) {
-        feed.poll();
+        count_events();
         const auto state = feed.snapshot();
         if (state.out_of_order == count) {
             ASSERT_EQ(state.subscriptions.size(), count);
@@ -380,26 +353,8 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - began)
                              .count();
-    std::string stream;
-    std::uint64_t cursor = 0;
-    std::size_t acknowledgements = 0, quotes = 0;
-    for (;;) {
-        const auto batch = feed.events_after(stream, cursor, 1024);
-        ASSERT_FALSE(batch.failed);
-        for (const auto& event : batch.events) {
-            if (const auto* subscription = std::get_if<MarketSubscription>(&event.value)) {
-                ++acknowledgements;
-                EXPECT_FALSE(subscription->quote);
-            } else if (std::holds_alternative<MarketQuoteObservation>(event.value)) {
-                ++quotes;
-            }
-            cursor = event.sequence;
-        }
-        stream = batch.stream_id;
-        if (cursor == batch.latest_sequence)
-            break;
-        ASSERT_FALSE(batch.events.empty());
-    }
+    while (count_events())
+        ;
     EXPECT_EQ(acknowledgements, count);
     EXPECT_EQ(quotes, count * 2);
     RecordProperty("contracts", static_cast<int>(count));
@@ -744,10 +699,10 @@ TEST(CtpPublication, StreamSendsChangedRowsAfterAFullFrameAndStartsOverOnReconne
     RecordProperty("ten_update_frame_bytes", std::to_string(bytes));
 }
 
-TEST(CtpEvents, FullMarketSubscriptionsAreBatchedAndRetentionRemainsBounded)
+TEST(CtpEvents, FullMarketSubscriptionsAreBatched)
 {
     CtpDirectory directory;
-    asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path, 65536);
+    asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
     std::vector<asterion::InstrumentId> instruments;
     for (int i = 1000; i < 1300; ++i)
         instruments.push_back({"SHFE", "rb" + std::to_string(i)});
@@ -770,34 +725,4 @@ TEST(CtpEvents, FullMarketSubscriptionsAreBatchedAndRetentionRemainsBounded)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     ASSERT_TRUE(complete);
-    const auto events = feed.events_after("", 0, 1024);
-    EXPECT_FALSE(events.failed);
-    EXPECT_FALSE(events.gap);
-    EXPECT_EQ(events.oldest_sequence, 1U);
-    std::size_t retained_rows = 0;
-    for (const auto& event : events.events) {
-        const auto* status = std::get_if<asterion::LiveMarketSnapshot>(&event.value);
-        retained_rows += 1 + (status ? status->subscriptions.size() : 0);
-    }
-    EXPECT_LE(retained_rows, 65536U);
-    feed.disconnect();
-    const auto retained = feed.events_after(events.stream_id, 0, 1024);
-    for (const std::size_t page_size : {1U, 17U, 1024U}) {
-        auto cursor = retained.oldest_sequence - 1;
-        std::size_t index = 0;
-        for (;;) {
-            const auto page = feed.events_after(retained.stream_id, cursor, page_size);
-            ASSERT_FALSE(page.gap);
-            ASSERT_LE(page.events.size(), page_size);
-            if (page.events.empty())
-                break;
-            for (const auto& event : page.events) {
-                ASSERT_LT(index, retained.events.size());
-                EXPECT_EQ(event.sequence, retained.events[index++].sequence);
-                cursor = event.sequence;
-            }
-        }
-        EXPECT_EQ(index, retained.events.size());
-        EXPECT_EQ(cursor, retained.latest_sequence);
-    }
 }

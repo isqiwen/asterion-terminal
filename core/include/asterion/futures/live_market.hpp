@@ -4,7 +4,6 @@
 #include <span>
 #include <string_view>
 #include <array>
-#include <variant>
 #include <vector>
 
 namespace asterion {
@@ -97,31 +96,12 @@ struct LiveMarketSnapshot
     std::vector<MarketSubscription> subscriptions;
 };
 
-// Ordered, normalized provider observations, distinct from coalesced UI state.
-// Session status events carry subscriptions without cached quotes. Individual
-// subscription acknowledgements carry only their changed subscription, also
-// without a quote. Volume is cumulative provider volume, not trade quantity.
+// Every quote as the provider delivered it, before the latest-quote board
+// coalesces them. Volume is cumulative provider volume, not trade quantity.
 struct MarketQuoteObservation
 {
     MarketQuote quote;
     bool out_of_order = false;
-};
-
-struct MarketEvent
-{
-    std::uint64_t sequence = 0;
-    std::int64_t received_ms = 0;
-    std::variant<LiveMarketSnapshot, MarketQuoteObservation, MarketSubscription> value;
-};
-
-struct MarketEventBatch
-{
-    std::string stream_id;
-    std::uint64_t oldest_sequence = 0, latest_sequence = 0;
-    // A gap means records after the requested cursor have been evicted. A failed
-    // stream is permanently incomplete even if its retained prefix is readable.
-    bool gap = false, failed = false;
-    std::vector<MarketEvent> events;
 };
 
 } // namespace asterion
