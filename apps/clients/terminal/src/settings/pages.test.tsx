@@ -21,23 +21,21 @@ test("every settings page has its title, and trading connections have their own 
     trade: vi.fn().mockResolvedValue(undefined),
   };
   render(<Settings {...props} initialPage="trading" />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("交易连接");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("交易服务");
   expect(screen.getByRole("button", { name: "添加交易连接" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "CTP 行情账户" })).toBeNull();
 });
 
-test("data sources configure one remote Market without counter credentials", async () => {
+test("the Market page configures one remote Market without counter credentials", async () => {
   const snapshot = readySnapshot();
   snapshot.market_endpoint = null;
   const trade = vi.fn().mockResolvedValue(undefined);
-  render(
-    <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="sources" />,
-  );
-  expect(screen.getByRole("heading", { name: "行情服务", level: 2 })).toBeTruthy();
+  render(<Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="market" />);
+  expect(screen.getByRole("heading", { name: "行情服务", level: 1 })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "历史数据供应商" })).toBeNull();
   expect(screen.queryByRole("button", { name: "CTP 行情账户" })).toBeNull();
-  const market = screen.getByRole("region", { name: "行情服务" });
-  fireEvent.click(within(market).getByRole("button", { name: "设置连接" }));
+  const market = screen.getByRole("region", { name: "连接" });
+  fireEvent.click(within(market).getByRole("button", { name: "添加行情连接" }));
   fireEvent.change(within(market).getByLabelText("主机地址"), {
     target: { value: " 192.168.1.20 " },
   });

@@ -9,12 +9,12 @@ import { BrokerState } from "../../generated/asterion/trading_pb";
 // follows only when something is not normal.
 export function StatusIndicators({
   snapshot,
-  openSources,
+  openMarketSettings,
   openTradingSettings,
   openTrading,
 }: {
   snapshot: Snapshot | null;
-  openSources: () => void;
+  openMarketSettings: () => void;
   openTradingSettings: () => void;
   openTrading: () => void;
 }) {
@@ -31,7 +31,7 @@ export function StatusIndicators({
   return (
     <>
       {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
-        <button className="status-item" onClick={openSources}>
+        <button className="status-item" onClick={openMarketSettings}>
           {label(t("行情"), "未设置")}
         </button>
       ) : (

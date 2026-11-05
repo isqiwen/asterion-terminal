@@ -32,7 +32,7 @@ export function TradingConnections({
   return (
     <>
       <SettingsSection
-        title={t("交易主机")}
+        title={t("连接")}
         actions={
           <button className="primary" disabled={busy} onClick={() => edit(null)}>
             {t("添加交易连接")}

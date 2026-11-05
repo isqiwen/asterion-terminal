@@ -19,8 +19,8 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await openView(page, "coverage");
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   page = await openSettingsWindow(page);
-  await page.getByRole("button", { name: "数据源", exact: true }).click();
-  await expect(page.getByRole("region", { name: "行情服务", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "行情服务", exact: true }).click();
+  await expect(page.getByRole("region", { name: "连接", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Tushare", exact: true })).toHaveCount(0);
   page = await closeSettingsWindow(page);
   await openView(page, "contract");

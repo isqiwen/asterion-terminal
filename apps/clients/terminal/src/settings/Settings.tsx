@@ -15,8 +15,8 @@ import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
-  ["trading", "交易连接", "trading"],
-  ["sources", "数据源", "data"],
+  ["market", "行情服务", "data"],
+  ["trading", "交易服务", "trading"],
   ["about", "关于", "info"],
 ];
 export function Settings({
@@ -143,7 +143,7 @@ export function Settings({
           </SettingsSection>
         )}
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "sources" && <MarketSource snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "market" && <MarketSource snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "about" && (
           <SettingsSection title="Asterion Terminal">
             <dl className="settings-facts">

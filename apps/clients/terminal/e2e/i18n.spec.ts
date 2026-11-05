@@ -15,10 +15,11 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-settings.png" });
-  await page.getByRole("button", { name: "Trading connections", exact: true }).click();
+  await page.getByRole("button", { name: "Trading", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Trading", level: 1 })).toBeVisible();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
-  await page.getByRole("button", { name: "Data Source", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Market", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Market", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Market", level: 1 })).toBeVisible();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
   page = await closeSettingsWindow(page);
   for (const workspace of ["Market", "Research", "Trading", "Data"]) {

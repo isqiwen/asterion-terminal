@@ -36,7 +36,7 @@ export function MarketSource({
   };
   return (
     <SettingsSection
-      title={t("行情服务")}
+      title={t("连接")}
       actions={
         !editing && (
           <>
@@ -56,7 +56,7 @@ export function MarketSource({
               </button>
             )}
             <button className="primary" disabled={busy} onClick={edit}>
-              {t(endpoint ? "编辑连接" : "设置连接")}
+              {t(endpoint ? "编辑行情连接" : "添加行情连接")}
             </button>
           </>
         )

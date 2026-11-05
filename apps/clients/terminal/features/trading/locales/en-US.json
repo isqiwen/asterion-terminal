@@ -259,5 +259,5 @@
   "选择策略": "Choose a strategy",
   "Terminal 没有策略目录：从项目启动时是项目里的 research/。": "The Terminal has no strategy directory: run from the project, it is research/ of the project.",
   "还没有交易连接": "No trading connections yet",
-  "在设置里添加交易主机后，这里显示账户、委托和策略。": "Add a trading host in Settings to see accounts, orders and strategies here."
+  "在设置里添加交易连接后，这里显示账户、委托和策略。": "Add a trading connection in Settings to see accounts, orders and strategies here."
 }

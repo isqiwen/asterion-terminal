@@ -60,7 +60,7 @@ export function LivePanel(context: TerminalContext) {
       {!accounts.length ? (
         <div className="workspace-empty">
           <strong>{t("还没有交易连接")}</strong>
-          <p>{t("在设置里添加交易主机后，这里显示账户、委托和策略。")}</p>
+          <p>{t("在设置里添加交易连接后，这里显示账户、委托和策略。")}</p>
           <button className="primary" onClick={() => context.openSettings("trading")}>
             {t("管理交易连接")}
           </button>

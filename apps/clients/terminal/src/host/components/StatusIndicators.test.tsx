@@ -3,10 +3,10 @@ import { expect, test, vi } from "vitest";
 import { readySnapshot } from "../../testing/core";
 import { StatusIndicators } from "./StatusIndicators";
 
-const show = (snapshot = readySnapshot(), openSources = vi.fn()) => (
+const show = (snapshot = readySnapshot(), openMarketSettings = vi.fn()) => (
   <StatusIndicators
     snapshot={snapshot}
-    openSources={openSources}
+    openMarketSettings={openMarketSettings}
     openTradingSettings={() => {}}
     openTrading={() => {}}
   />
@@ -37,9 +37,9 @@ test("行情, 研究 and each trading connection each have their own indicator",
 test("an unset Market opens its settings; no trading connection says so", () => {
   const snapshot = readySnapshot();
   snapshot.market_endpoint = null;
-  const openSources = vi.fn();
-  render(show(snapshot, openSources));
+  const openMarketSettings = vi.fn();
+  render(show(snapshot, openMarketSettings));
   fireEvent.click(screen.getByRole("button", { name: "● 行情 未设置" }));
-  expect(openSources).toHaveBeenCalled();
+  expect(openMarketSettings).toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "● 交易 未设置" })).toBeTruthy();
 });

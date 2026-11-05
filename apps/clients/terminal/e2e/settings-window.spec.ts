@@ -24,8 +24,8 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
-  await settings.getByRole("button", { name: "交易连接", exact: true }).click();
-  await expect(settings.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
+  await settings.getByRole("button", { name: "交易服务", exact: true }).click();
+  await expect(settings.getByRole("heading", { name: "交易服务", exact: true })).toBeVisible();
   expect(page.context().pages()).toHaveLength(2);
   await settings.screenshot({
     path: "apps/clients/terminal/test-results/settings-connections.png",
@@ -36,7 +36,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await closeSettingsWindow(settings);
   await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb19");
   const reopened = await openSettingsWindow(page);
-  await expect(reopened.getByRole("heading", { name: "交易连接", exact: true })).toBeVisible();
+  await expect(reopened.getByRole("heading", { name: "交易服务", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });
   expect(await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
     true,
