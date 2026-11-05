@@ -65,7 +65,8 @@ protected:
         request.set_id(id);
         request.set_provider("recorder");
         request.set_table(::market::TABLE_MINUTES);
-        request.set_contract(contract);
+        if (!contract.empty())
+            request.add_contracts(contract);
         request.set_first_day("2026-10-28");
         request.set_last_day("2026-10-29");
         request.set_refetch(refresh);

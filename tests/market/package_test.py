@@ -103,7 +103,7 @@ def main():
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):
             rpc(tls, port, 'start_acquisition', 'manager', id='recorded-release', provider='recorder',
-                table=market.TABLE_MINUTES, contract='SHFE/rb/2027-01', first_day='2026-10-28',
+                table=market.TABLE_MINUTES, contracts=['SHFE/rb/2027-01'], first_day='2026-10-28',
                 last_day='2026-10-28')
             deadline = time.monotonic() + 30
             while True:

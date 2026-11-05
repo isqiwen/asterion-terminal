@@ -380,7 +380,9 @@ message StartAcquisition {
   string first_day = 4;
   string last_day = 5;
   repeated string exchanges = 6;
-  string contract = 7;
+  // Minutes only: EXCHANGE/product/YYYY-MM each; none means every contract
+  // the source holds on those days.
+  repeated string contracts = 7;
   bool refetch = 8;
 }
 

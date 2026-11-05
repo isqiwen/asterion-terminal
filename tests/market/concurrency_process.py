@@ -78,7 +78,7 @@ def main():
                 # The native publication runs while readers and the live watch proceed;
                 # its submitting connection closes immediately after acceptance.
                 call('start_acquisition', role='manager', id='publish', provider='recorder',
-                     table=market.TABLE_MINUTES, contract='SHFE/rb/2026-10',
+                     table=market.TABLE_MINUTES, contracts=['SHFE/rb/2026-10'],
                      first_day=(date.fromisoformat(trading_day) - timedelta(days=30)).isoformat(),
                      last_day=trading_day)
                 with ThreadPoolExecutor(max_workers=1) as readers:
@@ -110,7 +110,7 @@ def main():
         with running_market(root, port) as process:
             assert call('get_status').started_ms != initial.started_ms
             call('start_acquisition', role='manager', id='interrupted', provider='recorder',
-                 table=market.TABLE_MINUTES, contract='SHFE/rb/2026-10',
+                 table=market.TABLE_MINUTES, contracts=['SHFE/rb/2026-10'],
                  first_day='1990-01-01', last_day=trading_day)
             progress = until(lambda: call('get_acquisition_task', id='interrupted'),
                              lambda t: t.state == market.TASK_STATE_RUNNING and t.items_done > 0)

@@ -131,3 +131,22 @@
   color: var(--warning);
   font-weight: 600;
 }
+
+/* A coverage cell that fills the acquisition form with its month. */
+.coverage-matrix td > button {
+  all: unset;
+  display: block;
+  width: 100%;
+  cursor: pointer;
+}
+.coverage-matrix td > button:hover,
+.coverage-matrix td > button:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.contract-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-height: 10rem;
+  overflow: auto;
+}

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
 import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/market_pb";
@@ -9,7 +9,8 @@ const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
   marketData: request,
-  translate: (_namespace: string, key: string) => key,
+  translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
+    key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
 // The comparison has its own test.
 vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
@@ -182,9 +183,8 @@ test("recorded minutes publish through Market with a contract and explicit refre
   await screen.findByRole("option", { name: "自录" });
   const publish = screen.getByRole("button", { name: "发布录制分钟" }) as HTMLButtonElement;
   expect(publish.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("合约（分钟线必填）"), {
-    target: { value: "SHFE/rb/2027-01" },
-  });
+  fireEvent.change(screen.getByLabelText("其他合约"), { target: { value: "SHFE/rb/2027-01" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
   fireEvent.click(screen.getByLabelText("重新发布已有分区，保留旧数据集版本"));
   fireEvent.click(publish);
   await waitFor(() =>
@@ -194,10 +194,88 @@ test("recorded minutes publish through Market with a contract and explicit refre
         value: expect.objectContaining({
           provider: "recorder",
           table: Table.MINUTES,
-          contract: "SHFE/rb/2027-01",
+          contracts: ["SHFE/rb/2027-01"],
           refetch: true,
         }),
       }),
     ),
+  );
+});
+
+// A tushare source with daily and minute bars, and what it already holds.
+function serveCoverage() {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "listSources":
+        return { sources: [source("tushare", [Table.DAILY, Table.MINUTES])], canManage: true };
+      case "listDatasets":
+        return { datasets: [] };
+      case "getDatasetSummary":
+        return { dataset: { version: "v" }, tables: [] };
+      case "getDatasetCoverage":
+        return {
+          products: [
+            { product: "SHFE/rb", months: [{ month: "2026-09", days: 10, openDays: 21 }] },
+          ],
+          contracts: [
+            { contract: "SHFE/cu/2026-12", months: [{ month: "2026-10", days: 3 }] },
+            { contract: "SHFE/rb/2027-01", months: [{ month: "2026-10", days: 3 }] },
+            { contract: "SHFE/rb/2027-02", months: [{ month: "2026-10", days: 3 }] },
+          ],
+        };
+      case "listAcquisitionTasks":
+        return { tasks: [], nextId: "" };
+      default:
+        return {};
+    }
+  });
+}
+const submitted = () =>
+  request.mock.calls.map(([body]) => body).find(body => body.case === "startAcquisition")?.value;
+
+test("a minute acquisition covers every contract chosen for a product", async () => {
+  serveCoverage();
+  render(<Coverage {...context()} />);
+  await screen.findByRole("table", { name: "分钟线覆盖" });
+  fireEvent.change(screen.getByLabelText("表"), { target: { value: String(Table.MINUTES) } });
+  const picker = screen.getByRole("group", { name: "合约（分钟线必填）" });
+  fireEvent.change(within(picker).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "选中本品种全部合约" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  await waitFor(() =>
+    expect(submitted()).toMatchObject({
+      table: Table.MINUTES,
+      exchanges: [],
+      contracts: ["SHFE/rb/2027-01", "SHFE/rb/2027-02"],
+    }),
+  );
+});
+
+test("a coverage gap fills the acquisition with its month", async () => {
+  serveCoverage();
+  render(<Coverage {...context()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb 2026-09" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  await waitFor(() =>
+    expect(submitted()).toMatchObject({
+      table: Table.DAILY,
+      exchanges: ["SHFE"],
+      contracts: [],
+      firstDay: "2026-09-01",
+      lastDay: "2026-09-30",
+    }),
+  );
+  request.mockClear();
+  const minutes = screen.getByRole("region", { name: "分钟线覆盖" });
+  fireEvent.change(within(minutes).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
+  fireEvent.click(within(minutes).getByRole("button", { name: "补采 SHFE/rb/2027-01 2026-10" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  await waitFor(() =>
+    expect(submitted()).toMatchObject({
+      table: Table.MINUTES,
+      contracts: ["SHFE/rb/2027-01"],
+      firstDay: "2026-10-01",
+      lastDay: "2026-10-31",
+    }),
   );
 });

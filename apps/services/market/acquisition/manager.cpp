@@ -46,18 +46,25 @@ void validate(wire::StartAcquisition& request)
         throw std::invalid_argument("acquisition needs a range of days from 1990 on");
     if (request.table() == wire::TABLE_OBSERVATIONS)
         throw std::invalid_argument("acquisition table is not implemented");
-    if (table(request) == "minutes" && request.contract().empty()) {
+    if (table(request) == "minutes" && request.contracts().empty()) {
         // Every contract the source holds on those days.
         if (request.exchanges_size())
             throw std::invalid_argument("a minute acquisition of every contract names no exchange");
     } else if (table(request) == "minutes") {
-        require_contract(request.contract());
-        const auto exchange = request.contract().substr(0, request.contract().find('/'));
+        std::set<std::string> contracts, exchanges;
+        for (const auto& contract : request.contracts()) {
+            require_contract(contract);
+            if (!contracts.insert(contract).second)
+                throw std::invalid_argument("duplicate acquisition contract");
+            exchanges.insert(contract.substr(0, contract.find('/')));
+        }
         if (request.exchanges().empty())
-            request.add_exchanges(exchange);
-        if (request.exchanges_size() != 1 || request.exchanges(0) != exchange)
-            throw std::invalid_argument("minute acquisition needs its contract's exchange only");
-    } else if (!request.contract().empty())
+            for (const auto& exchange : exchanges)
+                request.add_exchanges(exchange);
+        if (std::set<std::string>(request.exchanges().begin(), request.exchanges().end())
+            != exchanges)
+            throw std::invalid_argument("minute acquisition names its contracts' exchanges only");
+    } else if (!request.contracts().empty())
         throw std::invalid_argument("a contract filter is only supported for minutes");
     std::set<std::string> seen;
     for (const auto& exchange : request.exchanges()) {
@@ -236,13 +243,13 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
                     task.set_state(wire::TASK_STATE_FAILED);
                     *task.mutable_error() = protocol::error(error);
                     log::error(
-                        "acquisition {} failed: provider={} table={} days={}..{} contract={}: {}",
+                        "acquisition {} failed: provider={} table={} days={}..{} contracts={}: {}",
                         request.id(),
                         request.provider(),
                         table(request),
                         request.first_day(),
                         request.last_day(),
-                        request.contract(),
+                        request.contracts_size(),
                         error.what());
                 }
                 if (source)
@@ -368,9 +375,16 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         || !source.supports("calendar", request.exchanges(0))) {
         // Exchange, day and, for minutes, contract of each partition.
         std::vector<std::tuple<std::string, std::string, std::string>> plan;
-        if (table(request) == "minutes" && request.contract().empty())
+        if (table(request) == "minutes" && request.contracts().empty())
             for (auto day = first; day <= last; day += std::chrono::days(1))
                 for (const auto& contract : source.minute_contracts(day_text(day)))
+                    plan.emplace_back(
+                        contract.substr(0, contract.find('/')),
+                        day_text(day),
+                        contract);
+        else if (table(request) == "minutes")
+            for (const auto& contract : request.contracts())
+                for (auto day = first; day <= last; day += std::chrono::days(1))
                     plan.emplace_back(
                         contract.substr(0, contract.find('/')),
                         day_text(day),
@@ -378,9 +392,8 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         else
             for (const auto& exchange : request.exchanges())
                 for (auto day = first; day <= last; day += std::chrono::days(1)) {
-                    const auto weekday = std::chrono::weekday(day).iso_encoding();
-                    if (table(request) == "minutes" || weekday < 6)
-                        plan.emplace_back(exchange, day_text(day), request.contract());
+                    if (std::chrono::weekday(day).iso_encoding() < 6)
+                        plan.emplace_back(exchange, day_text(day), "");
                 }
         task.set_items(plan.size());
         publish(task, active);

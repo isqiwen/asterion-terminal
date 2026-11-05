@@ -123,7 +123,7 @@ class RemoteResearch(unittest.TestCase):
                 return MarketResponse.FromString(read(int.from_bytes(read(4), 'big')))
         def publish(identity, refresh=False):
             values = dict(id=identity, provider='recorder', table=market.TABLE_MINUTES,
-                contract='SHFE/rb/2027-01', first_day='2026-10-28', last_day='2026-10-28',
+                contracts=['SHFE/rb/2027-01'], first_day='2026-10-28', last_day='2026-10-28',
                 refetch=refresh)
             self.assertEqual(rpc('start_acquisition', **values).error.code,
                              common.ERROR_CODE_PERMISSION_DENIED)

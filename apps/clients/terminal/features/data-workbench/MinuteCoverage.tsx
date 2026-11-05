@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { translate, type MarketCoverage, type MessageValues } from "../contract";
+import { productOf } from "./ContractPicker";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
-// EXCHANGE/product/YYYY-MM → EXCHANGE/product
-const productOf = (contract: string) => contract.slice(0, contract.lastIndexOf("/"));
 
 // Trading days with minutes, per contract of one product and month. In the
 // research dataset, a month with days taken from the recorder is marked.
-export function MinuteCoverage({ contracts }: { contracts: MarketCoverage["contracts"] }) {
+// With `onFill`, every cell offers to acquire that contract's month.
+export function MinuteCoverage({
+  contracts,
+  onFill,
+}: {
+  contracts: MarketCoverage["contracts"];
+  onFill?: (contract: string, month: string) => void;
+}) {
   const products = [...new Set(contracts.map(item => productOf(item.contract)))].sort();
   const [chosen, setChosen] = useState("");
   const product = products.includes(chosen) ? chosen : (products[0] ?? "");
@@ -63,7 +69,20 @@ export function MinuteCoverage({ contracts }: { contracts: MarketCoverage["contr
                                 : t("无数据")
                             }
                           >
-                            {cell?.days ?? ""}
+                            {onFill ? (
+                              <button
+                                type="button"
+                                aria-label={t("补采 {target} {month}", {
+                                  target: item.contract,
+                                  month,
+                                })}
+                                onClick={() => onFill(item.contract, month)}
+                              >
+                                {cell?.days ?? "+"}
+                              </button>
+                            ) : (
+                              (cell?.days ?? "")
+                            )}
                           </td>
                         );
                       })}

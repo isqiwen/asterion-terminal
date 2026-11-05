@@ -1,7 +1,9 @@
 import { Table, TaskState } from "../../src/generated/asterion/market_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinuteComparison } from "./MinuteComparison";
+import { ContractPicker } from "./ContractPicker";
 import { MinuteCoverage } from "./MinuteCoverage";
+import { useMarket } from "../../src/host/market";
 import { RecordingStatus } from "./RecordingStatus";
 import {
   ErrorNotice,
@@ -32,6 +34,12 @@ const states: Record<number, string> = {
 };
 const activeTask = (task: MarketTask) => [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+// A month's days up to yesterday: providers only hold finished trading days.
+const monthRange = (month: string) => {
+  const [year, number] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(year!, number!, 0)).toISOString().slice(0, 10);
+  return [`${month}-01`, last < day(-1) ? last : day(-1)] as const;
+};
 const tables: Partial<Record<Table, string>> = {
   [Table.DAILY]: "日线",
   [Table.CALENDAR]: "交易日历",
@@ -164,7 +172,8 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   const provider = source.provider;
   const [table, setTable] = useState(source.tables[0] ?? Table.UNSPECIFIED);
   const [exchange, setExchange] = useState(source.exchanges[0] ?? "");
-  const [contract, setContract] = useState("");
+  const [contracts, setContracts] = useState<string[]>([]);
+  const catalog = useMarket()?.board.catalog?.contracts;
   const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<MarketSummary | null>(null);
   const [coverage, setCoverage] = useState<MarketCoverage>();
@@ -223,6 +232,34 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     };
   }, [refresh]);
   const running = tasks.some(activeTask);
+  // Contracts a minute task can choose from: those Market lists now and those
+  // this source already holds minutes of.
+  const known = useMemo(
+    () => [
+      ...new Set([
+        ...(catalog ?? []).map(item => item.contract),
+        ...(coverage?.contracts ?? []).map(item => item.contract),
+      ]),
+    ],
+    [catalog, coverage],
+  );
+  const form = useRef<HTMLElement>(null);
+  const fillsDaily = canManage && source.tables.includes(Table.DAILY);
+  // Fills the form with one coverage gap; stored partitions are skipped, so the
+  // whole month can be asked for.
+  const fill = (
+    next: Table,
+    month: string,
+    target: { exchange?: string; contracts?: string[] },
+  ) => {
+    const [first, last] = monthRange(month);
+    setTable(next);
+    if (target.exchange) setExchange(target.exchange);
+    if (target.contracts) setContracts(target.contracts);
+    setBegin(first);
+    setEnd(last);
+    form.current?.scrollIntoView({ block: "nearest" });
+  };
   const acquire = async () => {
     setSubmitting(true);
     const id = `${provider}-${crypto.randomUUID()}`;
@@ -235,8 +272,9 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           provider,
           table,
           refetch: replace,
-          exchanges: [exchange],
-          contract: table === Table.MINUTES ? contract : "",
+          // A minute task's exchanges follow from its contracts.
+          exchanges: table === Table.MINUTES ? [] : [exchange],
+          contracts: table === Table.MINUTES ? contracts : [],
           firstDay: begin,
           lastDay: end,
         },
@@ -292,6 +330,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       </section>
       {source.tables.length > 0 && (
         <section
+          ref={form}
           className="data-card"
           aria-label={t(source.provider === "recorder" ? "发布录制分钟" : "采集")}
         >
@@ -317,28 +356,14 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 ))}
               </select>
             </label>
-            <label>
-              {t("交易所")}
-              <select
-                value={exchange}
-                onChange={event => {
-                  setExchange(event.target.value);
-                  setContract("");
-                }}
-              >
-                {source.exchanges.map(item => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            {table === Table.MINUTES && (
+            {table !== Table.MINUTES && (
               <label>
-                {t("合约（分钟线必填）")}
-                <input
-                  value={contract}
-                  placeholder="SHFE/rb/2027-01"
-                  onChange={event => setContract(event.target.value)}
-                />
+                {t("交易所")}
+                <select value={exchange} onChange={event => setExchange(event.target.value)}>
+                  {source.exchanges.map(item => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
               </label>
             )}
             <label>
@@ -350,6 +375,9 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
               <input type="date" value={end} onChange={event => setEnd(event.target.value)} />
             </label>
           </div>
+          {table === Table.MINUTES && (
+            <ContractPicker known={known} value={contracts} onChange={setContracts} />
+          )}
           <label>
             <input
               type="checkbox"
@@ -373,9 +401,8 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 !begin ||
                 !end ||
                 begin > end ||
-                !exchange ||
                 !table ||
-                (table === Table.MINUTES && !contract)
+                (table === Table.MINUTES ? !contracts.length : !exchange)
               }
               onClick={() => void acquire()}
             >
@@ -478,7 +505,26 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                             data-share={cell ? (share >= 1 ? "full" : "partial") : "none"}
                             title={cell ? `${cell.days} / ${cell.openDays || "?"}` : t("无数据")}
                           >
-                            {cell ? cell.days : ""}
+                            {fillsDaily && share < 1 ? (
+                              <button
+                                type="button"
+                                aria-label={t("补采 {target} {month}", {
+                                  target: product.product,
+                                  month,
+                                })}
+                                onClick={() =>
+                                  fill(Table.DAILY, month, {
+                                    exchange: product.product.split("/")[0]!,
+                                  })
+                                }
+                              >
+                                {cell ? cell.days : "+"}
+                              </button>
+                            ) : cell ? (
+                              cell.days
+                            ) : (
+                              ""
+                            )}
                           </td>
                         );
                       })}
@@ -492,7 +538,14 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           <p className="subtle">{t("仓库里还没有日线。")}</p>
         )}
       </section>
-      <MinuteCoverage contracts={coverage?.contracts ?? []} />
+      <MinuteCoverage
+        contracts={coverage?.contracts ?? []}
+        onFill={
+          canManage && source.tables.includes(Table.MINUTES)
+            ? (contract, month) => fill(Table.MINUTES, month, { contracts: [contract] })
+            : undefined
+        }
+      />
     </>
   );
 }

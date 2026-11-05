@@ -545,7 +545,7 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("minutes");
     task.set_table(::market::TABLE_MINUTES);
-    task.set_contract("SHFE/rb/2026-05");
+    task.add_contracts("SHFE/rb/2026-05");
     task.set_first_day("2026-01-05");
     task.set_last_day("2026-01-07");
     manager.submit(task);
@@ -567,7 +567,7 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     manager.submit(task);
     EXPECT_EQ(finished(manager, "repeat").state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(vendor->minute_offsets.size(), 1);
-    task.set_contract("");
+    task.clear_contracts();
     task.set_id("no-contract");
     EXPECT_THROW(manager.submit(task), std::invalid_argument);
 }
@@ -588,7 +588,7 @@ TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("year");
     task.set_table(::market::TABLE_MINUTES);
-    task.set_contract("SHFE/rb/2026-05");
+    task.add_contracts("SHFE/rb/2026-05");
     task.set_first_day("2025-05-19");
     task.set_last_day("2026-05-15");
     manager.submit(task);
