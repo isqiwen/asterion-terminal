@@ -152,7 +152,6 @@
   "初始化中": "Initializing",
   "关闭行情连接": "Close Market connection",
   "连接行情服务": "Connect to Market",
-  "管理行情连接": "Manage market connection",
   "关闭此连接不影响服务录制或其他客户端。": "Closing this connection does not affect recording or other clients.",
   "连接远程行情服务以查看市场。": "Connect to the remote Market service to view quotes.",
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",

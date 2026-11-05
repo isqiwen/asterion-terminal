@@ -21,8 +21,7 @@ export function CreateLive({
   configuration,
   busy,
   run,
-  openSettings,
-}: Pick<TerminalContext, "busy" | "openSettings"> & {
+}: Pick<TerminalContext, "busy"> & {
   account: TradingConnection;
   configuration: Account;
   run: Run;
@@ -42,14 +41,9 @@ export function CreateLive({
   const listed = catalog?.status?.state === CatalogState.READY ? catalog.contracts : [];
   return (
     <>
-      <div className="inline-row">
-        <p role="status" aria-label={t("CTP 账户")}>
-          {`${account.instance} · ${configuration.id} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
-        </p>
-        <button type="button" onClick={() => openSettings("trading")}>
-          {t("管理交易连接")}
-        </button>
-      </div>
+      <p role="status" aria-label={t("CTP 账户")}>
+        {`${account.instance} · ${configuration.id} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
+      </p>
       <p className="subtle">{t("账户信息来自交易服务配置，只能在交易主机上设置。")}</p>
       <p className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</p>
       <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />

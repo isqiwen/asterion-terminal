@@ -97,12 +97,6 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ctp-account-list .ctp-account-manage {
-  justify-items: center;
-  border-style: dashed;
-  color: var(--muted);
-  font-size: 12px;
-}
 .ctp-account-list button[aria-current="true"] {
   border-color: var(--accent-line);
   background: var(--accent-surface);

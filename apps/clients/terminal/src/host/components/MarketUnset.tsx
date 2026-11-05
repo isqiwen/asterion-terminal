@@ -9,7 +9,7 @@ export function MarketUnset({ openSettings }: { openSettings: (page: "market") =
       <strong>{t("尚未设置行情服务")}</strong>
       <p>{t("在设置里填写行情服务的地址和证书指纹后即可使用。")}</p>
       <button className="primary" onClick={() => openSettings("market")}>
-        {t("管理行情连接")}
+        {t("添加行情连接")}
       </button>
     </div>
   );

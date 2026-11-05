@@ -62,7 +62,7 @@ export function LivePanel(context: TerminalContext) {
           <strong>{t("还没有交易连接")}</strong>
           <p>{t("在设置里添加交易连接后，这里显示账户、委托和策略。")}</p>
           <button className="primary" onClick={() => context.openSettings("trading")}>
-            {t("管理交易连接")}
+            {t("添加交易连接")}
           </button>
         </div>
       ) : (
@@ -81,9 +81,6 @@ export function LivePanel(context: TerminalContext) {
                 <span className="subtle">{t(state(views[item.id]))}</span>
               </button>
             ))}
-            <button className="ctp-account-manage" onClick={() => context.openSettings("trading")}>
-              {t("管理交易连接")}
-            </button>
           </nav>
           {account && (
             <div className="ctp-account-column" key={`${account.id}:${account.revision}`}>
@@ -109,7 +106,6 @@ export function LivePanel(context: TerminalContext) {
                       configuration={view.account}
                       busy={busy}
                       run={runFor(account.id, true)}
-                      openSettings={context.openSettings}
                     />
                   </div>
                 ) : (
