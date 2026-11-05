@@ -237,6 +237,35 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHas
     EXPECT_EQ(reader.read(research, recorded_only).size(), 3U) << "earlier versions are unchanged";
 }
 
+TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonthAndMarksRecordedDays)
+{
+    const auto store = [&](const char* provider) {
+        return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
+    };
+    auto tushare = store("tushare"), recorder = store("recorder");
+    publish(*tushare, "minutes/SHFE/2026-09-30/rb/2027-01", 2);
+    publish(*tushare, "minutes/SHFE/2026-10-29/rb/2027-01", 2);
+    publish(*recorder, "minutes/SHFE/2026-10-30/rb/2027-01", 2);
+    publish(*recorder, "minutes/SHFE/2026-10-30/cu/2026-12", 2);
+    wh::Store composed(wh::source_directory(root, "research"), "research");
+    wire::DatasetRef query;
+    query.set_provider("research");
+    query.set_version(wh::compose_research(root, composed).identity);
+    const auto coverage = wh::Reader(root).coverage(query);
+    ASSERT_EQ(coverage.contracts_size(), 2);
+    EXPECT_EQ(coverage.contracts(0).contract(), "SHFE/cu/2026-12");
+    EXPECT_EQ(coverage.contracts(0).months(0).recorded_days(), 1);
+    const auto& rb = coverage.contracts(1);
+    EXPECT_EQ(rb.contract(), "SHFE/rb/2027-01");
+    ASSERT_EQ(rb.months_size(), 2);
+    EXPECT_EQ(rb.months(0).month(), "2026-09");
+    EXPECT_EQ(rb.months(0).days(), 1);
+    EXPECT_EQ(rb.months(0).recorded_days(), 0);
+    EXPECT_EQ(rb.months(1).month(), "2026-10");
+    EXPECT_EQ(rb.months(1).days(), 2);
+    EXPECT_EQ(rb.months(1).recorded_days(), 1);
+}
+
 TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
 {
     const auto minute = [](std::int64_t start, const char* close, bool partial) {

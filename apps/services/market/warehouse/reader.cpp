@@ -4,6 +4,8 @@
 #include <asterion/base/error.hpp>
 #include <algorithm>
 #include <fstream>
+#include <map>
+#include <sstream>
 #include <set>
 
 namespace asterion::market_data::warehouse {
@@ -164,13 +166,33 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     const auto store = open_store(directory_, query);
     const auto version = store.version(query.version());
     wire::DatasetCoverage result;
+    // minutes/<exchange>/<day>/<product>/<month>
+    std::map<std::string, std::map<std::string, wire::MinuteMonth>> minutes;
     std::string daily, calendar;
     for (const auto& [key, part] : version.partitions) {
+        if (key.starts_with("minutes/")) {
+            std::istringstream fields(key);
+            std::string table, exchange, day, product, delivery;
+            for (auto* field : {&table, &exchange, &day, &product, &delivery})
+                std::getline(fields, *field, '/');
+            auto& month = minutes[exchange + '/' + product + '/' + delivery][day.substr(0, 7)];
+            month.set_days(month.days() + 1);
+            month.set_recorded_days(month.recorded_days() + (part.source == "recorder"));
+            continue;
+        }
         auto* files = key.starts_with("daily/") ? &daily
             : key.starts_with("calendar/")      ? &calendar
                                                 : nullptr;
         if (files)
             *files += (files->empty() ? "" : ",") + parquet::literal(store.file(version, key));
+    }
+    for (auto& [contract, months] : minutes) {
+        auto* item = result.add_contracts();
+        item->set_contract(contract);
+        for (auto& [name, month] : months) {
+            month.set_month(name);
+            *item->add_months() = std::move(month);
+        }
     }
     if (daily.empty())
         return result;

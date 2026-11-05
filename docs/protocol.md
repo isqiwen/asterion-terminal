@@ -104,7 +104,7 @@ message Response {
 | `get_dataset_version` | 来源与版本、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 来源与版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
 | `get_dataset_summary` | 来源与版本 | 各表的分区数、行数和日期范围 |
-| `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数 |
+| `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数，研究数据集另给其中取自自录的天数 |
 | `compare_minutes` | — | Tushare 与自录当前版本分钟线的差异汇总 |
 | `get_minute_differences` | 合约、交易日 | 两个来源不一致的每一分钟 |
 | `list_sources` | — | 可采集的来源、表、交易所，及当前证书能否管理 |

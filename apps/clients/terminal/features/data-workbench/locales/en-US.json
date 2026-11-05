@@ -151,5 +151,9 @@
   "时间": "Time",
   "行情数据": "Market data",
   "读取行情数据失败": "Could not read Market data",
-  "连接行情服务": "Connect to Market"
+  "连接行情服务": "Connect to Market",
+  "分钟线覆盖": "Minute bar coverage",
+  "每格为该合约当月有分钟线的交易日数；标出的格子含自录的天数。": "Each cell is the number of trading days in the month with minutes for the contract; marked cells include recorded days.",
+  "{days} 天，其中自录 {recorded} 天": "{days} days, {recorded} of them recorded",
+  "仓库里还没有分钟线。": "The warehouse holds no minute bars yet."
 }

@@ -292,7 +292,10 @@ message TableSummary {
 }
 
 message DatasetCoverage {
+  // Daily bars.
   repeated ProductCoverage products = 1;
+  // Minute bars, from the version's partition list.
+  repeated ContractCoverage contracts = 2;
 }
 
 message ProductCoverage {
@@ -304,6 +307,20 @@ message MonthCoverage {
   string month = 1;
   uint32 days = 2;
   uint32 open_days = 3;
+}
+
+message ContractCoverage {
+  // EXCHANGE/product/YYYY-MM
+  string contract = 1;
+  repeated MinuteMonth months = 2;
+}
+
+// Trading days with minutes in one month.
+message MinuteMonth {
+  string month = 1;
+  uint32 days = 2;
+  // In the research dataset: the days taken from the recorder.
+  uint32 recorded_days = 3;
 }
 
 // Tushare and recorded minutes, both from their current versions.

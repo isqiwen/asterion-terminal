@@ -1,6 +1,7 @@
 import { Table, TaskState } from "../../src/generated/asterion/market_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinuteComparison } from "./MinuteComparison";
+import { MinuteCoverage } from "./MinuteCoverage";
 import { RecordingStatus } from "./RecordingStatus";
 import {
   ErrorNotice,
@@ -166,7 +167,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
   const [contract, setContract] = useState("");
   const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<MarketSummary | null>(null);
-  const [coverage, setCoverage] = useState<MarketCoverage["products"]>([]);
+  const [coverage, setCoverage] = useState<MarketCoverage>();
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
   const [begin, setBegin] = useState(() => day(-30));
@@ -184,9 +185,9 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     try {
       const nextSummary = await marketData({ case: "getDatasetSummary", value: { provider } });
       const version = nextSummary.dataset?.version;
-      const products = version
-        ? (await marketData({ case: "getDatasetCoverage", value: { provider, version } })).products
-        : [];
+      const nextCoverage = version
+        ? await marketData({ case: "getDatasetCoverage", value: { provider, version } })
+        : undefined;
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
@@ -196,7 +197,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       } while (afterId && mounted.current);
       if (!mounted.current) return;
       setSummary(nextSummary);
-      setCoverage(products);
+      setCoverage(nextCoverage);
       setTasks(
         nextTasks.sort((a, b) =>
           a.startedMs > b.startedMs ? -1 : a.startedMs < b.startedMs ? 1 : 0,
@@ -249,9 +250,10 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
       await marketData({ case: "cancelAcquisition", value: { id } });
       await refresh();
     });
+  const daily = useMemo(() => coverage?.products ?? [], [coverage]);
   const months = useMemo(
-    () => [...new Set(coverage.flatMap(item => item.months.map(m => m.month)))].sort(),
-    [coverage],
+    () => [...new Set(daily.flatMap(item => item.months.map(m => m.month)))].sort(),
+    [daily],
   );
   return (
     <>
@@ -450,7 +452,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
             {t("每格为该来源已存日线的天数；没有交易日历时，完整性未知。")}
           </span>
         </header>
-        {coverage.length ? (
+        {daily.length ? (
           <div className="coverage-matrix">
             <table className="data-table">
               <thead>
@@ -462,7 +464,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
                 </tr>
               </thead>
               <tbody>
-                {coverage.map(product => {
+                {daily.map(product => {
                   const byMonth = new Map(product.months.map(m => [m.month, m]));
                   return (
                     <tr key={product.product}>
@@ -490,6 +492,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           <p className="subtle">{t("仓库里还没有日线。")}</p>
         )}
       </section>
+      <MinuteCoverage contracts={coverage?.contracts ?? []} />
     </>
   );
 }
