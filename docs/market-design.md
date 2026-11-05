@@ -29,59 +29,73 @@ flowchart LR
 ```
 
 - 实时报价快照供界面展示，有序行情事件供聚合和录制，避免界面合并报价时丢掉录制输入。
-- 行情状态由 `State` 顺序更新；SDK 回调只交付事件，SDK 调用和释放交给其执行器，避免柜台调用拖住状态处理。
+- 行情状态只由行情线程更新；SDK 回调只把事件放进队列，SDK 调用和释放交给其执行器，避免柜台调用拖住行情线程。
 - 历史读取、采集、录制写入和合并通过各自的后台执行路径完成。录制与仓库使用不同的 Parquet 执行通道，避免历史查询占住录制写入。
 - 合并替换录制文件时与录制历史读取互斥；固定仓库版本引用不可变文件，因此后续合并不会改变研究已选的数据。
 
 ## 核心类关系
 
-实心菱形表示拥有，箭头表示使用或调用。`State` 是 `session.cpp` 内部类型，由 `Loop` 的运行过程创建；`WatchCursor` 属于一条连接的待回复对象，只由行情状态路径更新。
+Market 进程里有三条执行路径：RPC 主机的 I/O 线程收发帧；行情线程拥有 `Live` 和 `Recording`；读取线程池读仓库、管理采集任务。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
 
 ```mermaid
 classDiagram
     class RpcHost {
         run()
     }
-    class Session {
-        request()
+    class Market {
+        serve()
+        drain()
         stop()
-        stopped()
     }
-    class Loop
-    class State {
-        advance()
-        process()
-        live_quotes()
+    class Live {
+        maintain()
+        poll()
+        apply()
+        frame()
+        status()
+    }
+    class Recording {
+        observe()
+        maintain()
+        status()
     }
     class Feed {
         connect()
         subscribe()
         poll()
-        events_after()
         snapshot()
     }
-    class CatalogJob
-    class CatalogQuery
+    class Catalog {
+        refresh()
+        poll()
+    }
     class IntradayBars
     class Recorder
     class Compactor
     class RecordedPublication
     class Manager
-    class WatchCursor
-    RpcHost ..> Session : 主程序转交请求
-    Session *-- Loop
-    Loop ..> State : 创建并驱动
-    Loop *-- Manager
-    State *-- Feed
-    State *-- CatalogJob
-    CatalogJob *-- CatalogQuery : 查询期间
-    State *-- IntradayBars
-    State *-- Recorder
-    State *-- Compactor
-    State *-- RecordedPublication
+    class QuoteStream
+    RpcHost ..> Market : 每个请求帧
+    Market *-- Live : 行情线程
+    Market *-- Recording : 行情线程
+    Market *-- Manager
+    Market *-- QuoteStream : 每条报价流
+    Live *-- Feed
+    Live *-- Catalog
+    Live *-- IntradayBars
+    Recording *-- Recorder
+    Recording *-- Compactor
+    Recording *-- RecordedPublication
+    Recording ..> IntradayBars : 只读
     RecordedPublication --> Manager
-    State ..> WatchCursor : 发布增量帧
 ```
+
+| 调用 | 路径 | 权限 |
+| --- | --- | --- |
+| `get_status`、`get_board`、`get_minutes` | 行情线程 | `read` |
+| `stream_quotes` | 行情线程每 250ms 产出一帧 | `read` |
+| `start_acquisition`、`cancel_acquisition` | 读取线程池 | `manage` |
+| 其余调用 | 读取线程池 | `read` |
 
 采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。两个 `Reader` 分别读录制归档和正式仓库，不要混淆。
 
@@ -123,46 +137,45 @@ classDiagram
 
 ## 实时通信时序
 
-服务启动时自行登录、加载缓存目录并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
+服务启动时自行登录、读取目录缓存并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
+
+行情线程每 10ms 按固定顺序走一轮：
 
 ```mermaid
 sequenceDiagram
     participant SDK as CTP SDK
-    participant Feed
-    participant State
-    participant Bars as IntradayBars
-    participant Recorder
+    participant Live
+    participant Recording
+    participant Stream as QuoteStream
     participant RPC as RpcHost
     participant Client as Terminal 原生层
-    SDK->>Feed: 报价回调入队
-    State->>Feed: poll()，转换回调事件
-    State->>Feed: events_after(已消费位置)
-    Feed-->>State: 有序事件与缺口状态
-    State->>Recorder: observe(报价，乱序标记，旧分钟序列)
-    opt 报价有序
-        State->>Bars: observe(报价)
+    SDK->>Live: 回调入队
+    Note over Live: 1. maintain()：登录重试、目录刷新、订阅
+    Live->>Live: 2. poll()：取走本轮的连接变化和报价
+    loop 每个事件
+        Live->>Recording: observe(事件)
+        Live->>Live: apply(事件)：更新分钟线
     end
-    State->>Recorder: poll()，安排落盘
-    Client->>RPC: 双向 TLS，Request.stream_quotes
-    RPC->>State: 经 Session 转交请求与连接游标
-    State-->>RPC: 全部所选行与目录
+    Note over Recording: 3. maintain()：落盘、盘后合并、发布
+    Note over Live: 4. 回答排队的 get_status / get_board / get_minutes
+    Live->>Stream: 5. 到期的报价流放入下一帧
+    Client->>RPC: Request.stream_quotes
     RPC-->>Client: Response.stream_quotes.full
-    loop 同一条报价流连接
-        RPC->>State: 按连接游标请求下一帧
-        State-->>RPC: 变化的行、变化后的目录
+    loop 同一条连接
+        RPC->>Stream: 取走下一帧
         RPC-->>Client: Response.stream_quotes.changed
     end
-    Note over Client,State: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
+    Note over Client,Stream: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
 ```
 
-`Recorder::observe()` 在分钟聚合前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
+`Recording::observe()` 在 `Live::apply()` 之前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
 
 ## 采集、发布与固定版本读取
 
 ```mermaid
 sequenceDiagram
     participant Client as Terminal / Lab
-    participant RPC as RpcHost / Session
+    participant RPC as RpcHost / Market
     participant Manager
     participant Source
     participant Writer
@@ -196,22 +209,22 @@ sequenceDiagram
 
 | 情况 | 行为与代码入口 |
 | --- | --- |
-| 客户端关闭 | 释放该连接与报价流游标；服务仍录制，已接纳的采集继续，见 `main.cpp` |
-| 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `State::advance()` |
-| SDK 入口丢事件 | 结束本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `State::advance()` |
+| 客户端关闭 | 释放该连接与它的报价流；服务仍录制，已接纳的采集继续，见 `market.cpp` |
+| 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `Live::apply()`、`Recording::observe()` |
+| SDK 入口丢事件 | 结束本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `Market` 的行情线程 |
 | 磁盘积压 | 录制丢弃积压区间并报告丢失计数，行情继续，见 `Recorder::flush()` |
 | 交易日结束 | 收尾分钟落盘、盘后合并、提交发布待办，见 `Recorder`、`Compactor`、`RecordedPublication` |
-| 服务正常停止 | 停止接纳、结束后台资源、写完录制缓冲，见 `main.cpp` 与 `State` 析构 |
-| 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，见 `Session::Loop`、`Manager` |
+| 服务正常停止 | 报价流发出最后一帧、结束后台资源、写完录制缓冲，见 `main.cpp` 与 `Recording` 析构 |
+| 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，见 `Market`、`Manager` |
 
 ## 代码阅读路线
 
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
 | 1 | [main.cpp](../apps/services/market/main.cpp)、[settings.cpp](../apps/services/market/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
-| 2 | [session.cpp](../apps/services/market/session.cpp) | 请求分流、状态所有权与各模块衔接 |
-| 3 | [ctp_feed.cpp](../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog_job.hpp](../apps/services/market/catalog_job.hpp) | 回调与状态分离、目录刷新、全市场订阅 |
-| 4 | [intraday_bars.cpp](../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../apps/services/market/recording/recorder.cpp) | 累计成交量、分钟完整性、录制观测段 |
+| 2 | [market.cpp](../apps/services/market/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
+| 3 | [live.cpp](../apps/services/market/live.cpp)、[ctp_feed.cpp](../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../apps/services/market/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
+| 4 | [recording.cpp](../apps/services/market/recording.cpp)、[intraday_bars.cpp](../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性、盘后合并的时机 |
 | 5 | [compaction.cpp](../apps/services/market/recording/compaction.cpp)、[recorded_publication.cpp](../apps/services/market/acquisition/recorded_publication.cpp) | 归档替换与发布恢复 |
 | 6 | [manager.cpp](../apps/services/market/acquisition/manager.cpp)、[source.hpp](../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
 | 7 | [store.cpp](../apps/services/market/warehouse/store.cpp)、[research.cpp](../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
