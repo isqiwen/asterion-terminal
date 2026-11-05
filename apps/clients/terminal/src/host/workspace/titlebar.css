@@ -28,28 +28,6 @@
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px);
   -webkit-app-region: drag;
 }
-.terminal-titlebar > * {
-  -webkit-app-region: no-drag;
-}
-#terminal-header-tools {
-  min-width: 0;
-  flex: 0 1 220px;
-  -webkit-app-region: no-drag;
-}
-.terminal-contract-search {
-  width: 100%;
-  min-width: 0;
-  height: 22px;
-  min-height: 22px;
-  box-sizing: border-box;
-  border: 1px solid var(--line);
-  border-radius: var(--control-radius);
-  padding: 2px 8px;
-  background: var(--panel);
-  color: var(--text-strong);
-  font-size: 12px;
-  -webkit-app-region: no-drag;
-}
 .terminal-titlebar::before {
   content: "ASTERION TERMINAL";
   position: absolute;
@@ -81,9 +59,4 @@
   letter-spacing: 0.42em;
   color: var(--subtle);
   font-weight: 500;
-}
-.terminal-contract-search:focus-visible {
-  outline: none;
-  border-color: var(--accent-line);
-  box-shadow: var(--accent-glow);
 }

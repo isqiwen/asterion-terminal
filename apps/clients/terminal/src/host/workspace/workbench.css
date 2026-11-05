@@ -216,14 +216,45 @@ html[lang="en-US"] .activity-rail.expanded {
   flex-direction: column;
   overflow: hidden;
 }
-/* One row of views per module: quiet text tabs, the current one underlined. */
-.module-views {
+/* One row per module: quiet text tabs, the current one underlined, and the
+   view's own tools at the right end. */
+.module-header {
   display: flex;
   flex: none;
-  gap: 2px;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
   padding: 0 var(--space-page);
-  overflow-x: auto;
   border-bottom: 1px solid var(--line);
+}
+.module-views {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+}
+.module-tools {
+  flex: 0 1 240px;
+  min-width: 0;
+  margin-left: auto;
+}
+.terminal-contract-search {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 2px 8px;
+  background: var(--panel);
+  color: var(--text-strong);
+  font-size: 12px;
+}
+.terminal-contract-search:focus-visible {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: var(--accent-glow);
 }
 .module-views button {
   flex-shrink: 0;

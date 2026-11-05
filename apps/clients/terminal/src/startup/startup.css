@@ -14,7 +14,7 @@
   gap: 26px;
   background:
     radial-gradient(circle at 50% 44%, rgb(56 214 242 / 10%), transparent 38%), var(--canvas);
-  transition: opacity 650ms ease-in-out;
+  transition: opacity 900ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* The star rushes forward as the screen dissolves into the workbench. */
 .startup-screen.leaving {
@@ -23,17 +23,44 @@
 }
 .startup-screen > * {
   transition:
-    transform 650ms cubic-bezier(0.5, 0, 0.75, 0),
-    filter 650ms ease-in,
-    opacity 450ms ease-in;
+    transform 900ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 900ms ease-out,
+    opacity 500ms ease-out;
 }
 .startup-screen.leaving > .startup-mark {
-  transform: scale(2.4);
-  filter: blur(3px);
+  transform: scale(1.6);
+  filter: blur(2px);
+  opacity: 0;
 }
 .startup-screen.leaving > :not(.startup-mark) {
   opacity: 0;
   transform: translateY(10px);
+}
+/* The workbench beneath the opaque screen, which settles into place as the
+   screen fades off it; fading both at once would dim the window in between.
+   Once entered it has no transform, so fixed popovers stay put. */
+.startup-stage {
+  position: relative;
+  height: 100%;
+}
+.startup-workbench {
+  height: 100%;
+}
+/* The screen's frame contains its fixed layout, so the frame itself covers the stage. */
+.startup-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+}
+/* Only the screen's own background fades; the frame's would stay opaque. */
+.startup-cover > .window-frame {
+  background: none;
+}
+.startup-workbench.beneath {
+  transform: scale(0.985);
+}
+.startup-workbench.leaving {
+  transition: transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 /* A faint starfield drifting upward. */
 .startup-screen::before {
@@ -200,6 +227,11 @@
   .startup-screen *,
   .startup-screen::before {
     animation: none !important;
+  }
+  .startup-screen,
+  .startup-screen > *,
+  .startup-workbench.leaving {
+    transition-duration: 1ms;
   }
   .startup-star,
   .startup-ring {

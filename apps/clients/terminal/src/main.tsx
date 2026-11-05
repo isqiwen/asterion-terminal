@@ -12,9 +12,7 @@ if (nativeDesktop) {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <div className="terminal-shell">
-      <header className="terminal-titlebar">
-        <div id="terminal-header-tools" />
-      </header>
+      <header className="terminal-titlebar" />
       <div className="terminal-shell-content">
         <Terminal />
       </div>

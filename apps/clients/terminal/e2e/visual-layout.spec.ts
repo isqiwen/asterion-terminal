@@ -30,6 +30,8 @@ for (const locale of ["zh-CN", "en-US"]) {
     await page.addInitScript(locale => localStorage.setItem("asterion.locale", locale), locale);
     await page.goto("/");
     await expect(page.locator(".activity-rail")).toBeVisible();
+    // The workbench is in the page while the startup screen still fades over it.
+    await expect(page.getByRole("main", { name: /^(正在启动|Starting)$/ })).toHaveCount(0);
     const entries = page.locator(".workspace-tabs").getByRole("button");
     // Use the host's semantic nav container; titles remain plugin-owned and localized.
     for (const width of [1440, 800]) {

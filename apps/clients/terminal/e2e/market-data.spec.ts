@@ -35,7 +35,9 @@ test(
       await expect(page.getByRole("button", { name: "发布录制分钟", exact: true })).toBeDisabled();
       await expect(page.getByRole("heading", { name: "发布录制分钟", exact: true })).toBeVisible();
       await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("research");
-      await expect(page.locator(`code[title="${version}"]`)).toBeVisible();
+      await expect(
+        page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),
+      ).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "开始采集", exact: true })).toHaveCount(0);

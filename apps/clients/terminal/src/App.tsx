@@ -1,5 +1,4 @@
 import type { CommandCall } from "./bridge/commands";
-import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
 import { StatusIndicators } from "./host/components/StatusIndicators";
@@ -50,8 +49,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   usePreferences();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [drafts] = useState(createWorkspaceDrafts);
-  const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => setHeaderTarget(document.getElementById("terminal-header-tools")), []);
   const [navigation, setNavigation] = useState(() => {
     try {
       return initialNavigation(JSON.parse(localStorage.getItem("asterion.navigation") ?? "null"));
@@ -238,15 +235,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
     >
-      {!settingsWindow &&
-        headerTarget &&
-        HeaderTools &&
-        createPortal(
-          <WorkspaceDraftScope store={drafts} namespace={current!.id}>
-            <HeaderTools {...panelContext} />
-          </WorkspaceDraftScope>,
-          headerTarget,
-        )}
       {settingsWindow ? (
         <Settings
           initialPage={settingsPage(new URLSearchParams(location.search).get("category"))}
@@ -301,18 +289,29 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               }
               body={
                 <div className="module-workspace">
-                  {route.module.views.length > 1 && (
-                    <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
-                      {route.module.views.map(id => (
-                        <button
-                          key={id}
-                          aria-current={view === id ? "page" : undefined}
-                          onClick={() => context.navigate(id)}
-                        >
-                          {workspaces.find(item => item.id === id)!.title}
-                        </button>
-                      ))}
-                    </nav>
+                  {(route.module.views.length > 1 || HeaderTools) && (
+                    <div className="module-header">
+                      {route.module.views.length > 1 && (
+                        <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+                          {route.module.views.map(id => (
+                            <button
+                              key={id}
+                              aria-current={view === id ? "page" : undefined}
+                              onClick={() => context.navigate(id)}
+                            >
+                              {workspaces.find(item => item.id === id)!.title}
+                            </button>
+                          ))}
+                        </nav>
+                      )}
+                      {HeaderTools && (
+                        <div className="module-tools">
+                          <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                            <HeaderTools {...panelContext} />
+                          </WorkspaceDraftScope>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <main className="terminal-business">
                     {Panel && currentFeature && (
