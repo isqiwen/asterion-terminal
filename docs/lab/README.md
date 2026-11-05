@@ -2,6 +2,8 @@
 
 Lab 是 Terminal 启动和看护的本机 Python 服务，负责策略、因子、回测、参数扫描、滚动验证和研究记录。它只读 Market 的固定数据版本，不采集数据，也不运行实盘策略。关闭 Terminal 会结束 Lab，不影响 Market 和 Trading。
 
+内部设计与通信时序见[开发者导读](architecture.md)，运行环境及目录见[部署与运行](deployment.md)。
+
 Lab 用保存在本机的 Market 地址和客户端证书直连 Market；没有配置时数据请求失败，已有研究结果仍可查看。界面用 `protocol/proto/asterion/lab.proto` 的消息经本机 Unix socket 请求 Lab。
 
 ## 固定数据版本
@@ -99,11 +101,6 @@ def momentum(close, lookback: int = 20):
 
 ## 运行记录
 
-```
-runs/<运行>/run.json        策略、提交号与改动摘要、参数、研究数据集版本、品种与区间、费用和风控参数
-runs/<运行>/<表>.parquet    equity、orders、fills、positions、settlements
-runs.sqlite                 每次运行的状态和指标
-sources/                    接纳时复制的策略代码
-```
+运行索引、结果表和源码副本的保存位置见[本机目录](deployment.md#本机目录)。运行详情保留数据版本、参数与代码来源。
 
 一次运行完成后，研究页可以展开 QuantStats 指标（索提诺、Omega、溃疡指数、VaR 等），限时 60 秒。

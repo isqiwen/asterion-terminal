@@ -22,7 +22,7 @@
 5. 等待 **已就绪**，核对资金、持仓和账户费率。保持未授权，完成核对后确认账户并点击 **允许发送委托**，按下表验收。
 
 Market 与 Trading 由 systemd 独立启动。关闭 Terminal 或客户端连接不会停止服务，也不会自动撤权、撤单或平仓。
-重连读取原服务状态；Trading 重启后须重新授权。主机安装见[Market](../market/deployment.md)与[Trading](../trading/README.md)。
+重连读取原服务状态；Trading 重启后须重新授权。主机安装见[Market](../market/deployment.md)与[Trading](../trading/deployment.md)。
 
 只读行情脚本要求全部合约收到报价，关闭并重新连接后服务实例仍相同，随后清理隔离 Terminal；不停止 Market。
 报告含服务地址，分享前须脱敏，不包含柜台密码。

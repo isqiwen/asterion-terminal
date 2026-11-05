@@ -9,9 +9,9 @@
 | Terminal → Market、Lab → Market | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；Market 按客户端证书授予 `read` 或 `manage` 权限 |
 | Terminal → Trading | TCP + TLS 1.3 双向认证 | 同上；交易主机登记 Terminal 的证书 |
 | Terminal → Lab | 本机 Unix 套接字 | 套接字目录只有当前用户可读写 |
-| Trading → 策略进程 | 子进程标准输入输出 | 由 Trading 启动的子进程 |
+| Trading → 策略进程 | 本机私有 Unix 套接字 | 由 Trading 启动的子进程 |
 
-每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 页面通过原生层发送消息，私钥只在原生层。
+每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 的 Market、Trading 请求经原生层发送，TLS 私钥不进入页面；Lab 请求由 Electron 主进程通过本机套接字转发。
 
 ## 2. 消息封套
 
@@ -187,7 +187,7 @@ sequenceDiagram
 
 ## 10. 策略进程
 
-定义在 [strategy.proto](../protocol/proto/asterion/strategy.proto)。Trading 为每个策略实例启动一个 Python 子进程，经标准输入输出交换 `strategy.Request` 和 `strategy.Response`，一问一答，没有 `id`。理由：管道只有一个调用方，回复按顺序对应请求。
+定义在 [strategy.proto](../protocol/proto/asterion/strategy.proto)。Trading 为每个策略实例启动一个 Python 子进程，经私有 Unix 套接字交换 `strategy.Request` 和 `strategy.Response`，一问一答，没有 `id`。理由：连接只有一个调用方，回复按顺序对应请求。
 
 ```mermaid
 sequenceDiagram
