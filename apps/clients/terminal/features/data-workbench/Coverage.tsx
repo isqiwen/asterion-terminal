@@ -2,6 +2,7 @@ import { Table, TaskState } from "../../src/generated/asterion/market_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MinuteComparison } from "./MinuteComparison";
 import { ContractPicker } from "./ContractPicker";
+import { DatasetHistory, changeText } from "./DatasetHistory";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
 import { RecordingStatus } from "./RecordingStatus";
@@ -11,6 +12,7 @@ import {
   marketData,
   translate,
   type DisplayError,
+  type MarketChange,
   type MarketCoverage,
   type MarketSummary,
   type MarketTask,
@@ -78,9 +80,14 @@ export function Coverage(context: TerminalContext) {
   );
 }
 
+// Another page can open a source's version: params `provider` and `version`.
 function DataPage({ context }: { context: TerminalContext }) {
+  const opened = context.workspaceParams;
   const [sources, setSources] = useState<Source[]>([]);
-  const [provider, setProvider] = useState("");
+  const [provider, setProvider] = useState(opened?.provider ?? "");
+  useEffect(() => {
+    if (opened?.provider) setProvider(opened.provider);
+  }, [opened?.provider, opened?.version]);
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [retry, setRetry] = useState(0);
@@ -159,17 +166,30 @@ function DataPage({ context }: { context: TerminalContext }) {
       )}
       {source && (
         <SourceCoverage
-          key={`${provider}/${source.tables.join()}/${source.exchanges.join()}`}
+          key={`${provider}/${source.tables.join()}/${source.exchanges.join()}/${opened?.version}`}
           source={source}
           canManage={canManage === true}
+          opened={opened?.provider === provider ? (opened.version ?? "") : ""}
         />
       )}
     </div>
   );
 }
 
-function SourceCoverage({ source, canManage }: { source: Source; canManage: boolean }) {
+function SourceCoverage({
+  source,
+  canManage,
+  opened,
+}: {
+  source: Source;
+  canManage: boolean;
+  opened: string;
+}) {
   const provider = source.provider;
+  // The version shown; empty for the current one.
+  const [viewed, setViewed] = useState(opened);
+  const [latest, setLatest] = useState("");
+  const [change, setChange] = useState<MarketChange>();
   const [table, setTable] = useState(source.tables[0] ?? Table.UNSPECIFIED);
   const [exchange, setExchange] = useState(source.exchanges[0] ?? "");
   const [contracts, setContracts] = useState<string[]>([]);
@@ -192,7 +212,12 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     if (pending.current) return;
     pending.current = true;
     try {
-      const nextSummary = await marketData({ case: "getDatasetSummary", value: { provider } });
+      const stored = await marketData({ case: "listDatasets", value: {} });
+      const nextLatest = stored.datasets.find(item => item.provider === provider)?.version ?? "";
+      const nextSummary = await marketData({
+        case: "getDatasetSummary",
+        value: { provider, version: viewed },
+      });
       const version = nextSummary.dataset?.version;
       const nextCoverage = version
         ? await marketData({ case: "getDatasetCoverage", value: { provider, version } })
@@ -205,6 +230,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
         afterId = page.nextId;
       } while (afterId && mounted.current);
       if (!mounted.current) return;
+      setLatest(nextLatest);
       setSummary(nextSummary);
       setCoverage(nextCoverage);
       setTasks(
@@ -218,7 +244,21 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
     } finally {
       pending.current = false;
     }
-  }, [provider]);
+  }, [provider, viewed]);
+  useEffect(() => {
+    let active = true;
+    setChange(undefined);
+    if (viewed && latest && viewed !== latest)
+      void marketData({
+        case: "compareDatasetVersions",
+        value: { provider, version: latest, base: viewed },
+      })
+        .then(next => active && setChange(next))
+        .catch(reason => active && setError(asDisplayError(reason)));
+    return () => {
+      active = false;
+    };
+  }, [provider, viewed, latest]);
   useEffect(() => {
     mounted.current = true;
     void refresh();
@@ -303,6 +343,15 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           )}
         </header>
         <ErrorNotice error={error} />
+        {viewed && viewed !== latest && (
+          <p role="status">
+            {t("正在查看旧版本。当前版本与它相比：")}
+            {change ? changeText(change) : t("读取中")}{" "}
+            <button type="button" onClick={() => setViewed("")}>
+              {t("回到当前版本")}
+            </button>
+          </p>
+        )}
         {summary?.dataset?.version ? (
           <table className="data-table">
             <thead>
@@ -328,6 +377,7 @@ function SourceCoverage({ source, canManage }: { source: Source; canManage: bool
           <p className="subtle">{t("仓库里还没有数据。")}</p>
         )}
       </section>
+      <DatasetHistory provider={provider} latest={latest} viewed={viewed} onView={setViewed} />
       {source.tables.length > 0 && (
         <section
           ref={form}

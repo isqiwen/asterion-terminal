@@ -9,6 +9,7 @@ export type {
   AcquisitionTask as MarketTask,
   DatasetSummary as MarketSummary,
   DatasetCoverage as MarketCoverage,
+  DatasetChange as MarketChange,
   MinuteComparison as MinuteComparisonResult,
   MinuteDifferences,
   MinuteBar,

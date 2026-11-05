@@ -19,6 +19,8 @@ public:
     ::market::DatasetFile file(const ::market::ReadDatasetFile&) const;
     ::market::DatasetSummary summary(const ::market::DatasetRef&) const;
     ::market::DatasetCoverage coverage(const ::market::DatasetRef&) const;
+    ::market::DatasetVersions versions(const ::market::ListDatasetVersions&) const;
+    ::market::DatasetChange change(const ::market::CompareDatasetVersions&) const;
 
 private:
     std::filesystem::path directory_;

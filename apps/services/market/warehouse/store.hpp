@@ -47,6 +47,20 @@ struct Version
     std::map<std::string, Partition> partitions;
 };
 
+// A version without its partitions: what it follows and its shards' digests.
+struct VersionHead
+{
+    std::string identity, parent;
+    std::int64_t created_ns = 0;
+    std::map<std::string, std::string> shards;
+};
+
+// Partitions one version adds to another, replaces in it and removes from it.
+struct Change
+{
+    std::uint32_t added = 0, replaced = 0, removed = 0;
+};
+
 class Writer;
 
 // The same on-disk contract used by research: immutable partition files,
@@ -61,7 +75,12 @@ class Store
 public:
     Store(std::filesystem::path directory, std::string provider);
     Version current() const;
+    // Empty before the first commit.
+    std::string current_identity() const;
     Version version(std::string_view identity) const;
+    VersionHead head(std::string_view identity) const;
+    // Only shards whose digests differ are read.
+    Change compare(const VersionHead& version, const VersionHead& base) const;
     std::filesystem::path file(const Version&, std::string_view key) const;
     std::vector<Row> read(const Version&, std::string_view key) const;
 
@@ -79,6 +98,9 @@ public:
 
 private:
     friend class Writer;
+    std::map<std::string, Partition>
+    shard(const std::string& name, const std::string& digest) const;
+
     std::filesystem::path root_;
     std::string provider_;
     std::mutex writes_;

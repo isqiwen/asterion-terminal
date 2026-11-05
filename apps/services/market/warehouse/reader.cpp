@@ -24,6 +24,21 @@ Store open_store(const fs::path& directory, const wire::DatasetRef& ref)
     return Store(source_directory(directory, ref.provider()), ref.provider());
 }
 
+wire::DatasetChange
+change_of(const Store& store, const VersionHead& version, const VersionHead& base)
+{
+    const auto counts = store.compare(version, base);
+    wire::DatasetChange out;
+    out.mutable_dataset()->set_provider(store.provider());
+    out.mutable_dataset()->set_version(version.identity);
+    out.mutable_dataset()->set_created_ms(version.created_ns / 1'000'000);
+    out.set_base(base.identity);
+    out.set_added(counts.added);
+    out.set_replaced(counts.replaced);
+    out.set_removed(counts.removed);
+    return out;
+}
+
 wire::Dataset dataset_of(const Version& version)
 {
     wire::Dataset out;
@@ -158,6 +173,33 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
         }
     }
     return result;
+}
+
+wire::DatasetVersions Reader::versions(const wire::ListDatasetVersions& query) const
+{
+    require_provider(query.provider());
+    const Store store(source_directory(directory_, query.provider()), query.provider());
+    auto next = query.after_version().empty() ? store.current_identity()
+                                              : store.head(query.after_version()).parent;
+    wire::DatasetVersions result;
+    while (!next.empty() && result.versions_size() < 20) {
+        const auto version = store.head(next);
+        *result.add_versions() = change_of(
+            store,
+            version,
+            version.parent.empty() ? VersionHead{} : store.head(version.parent));
+        next = version.parent;
+    }
+    if (!next.empty())
+        result.set_next_version(result.versions().rbegin()->dataset().version());
+    return result;
+}
+
+wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) const
+{
+    require_provider(query.provider());
+    const Store store(source_directory(directory_, query.provider()), query.provider());
+    return change_of(store, store.head(query.version()), store.head(query.base()));
 }
 
 wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const

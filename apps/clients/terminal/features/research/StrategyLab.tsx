@@ -213,6 +213,11 @@ export function StrategyLab(context: TerminalContext) {
               key={shown.id}
               id={shown.id}
               state={runState(runs.find(run => run.id === shown.id)?.state ?? 0)}
+              openVersion={version =>
+                context.navigate("workspace.coverage", {
+                  params: { provider: "research", version },
+                })
+              }
             />
           )}
           {shown?.kind === "sweep" && sweep?.id === shown.id && (

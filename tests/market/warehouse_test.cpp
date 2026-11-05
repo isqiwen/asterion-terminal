@@ -266,6 +266,48 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonthAndMarksRecordedDay
     EXPECT_EQ(rb.months(1).recorded_days(), 1);
 }
 
+TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
+{
+    wh::Store store(root, "tushare");
+    const auto commit = [&](bool clear, std::vector<std::pair<std::string, std::size_t>> parts) {
+        auto writer = store.writer();
+        if (clear)
+            writer.clear();
+        for (const auto& [key, count] : parts)
+            writer.put(key, std::vector<wh::Row>(count, row("daily")));
+        return writer.commit().identity;
+    };
+    const auto first = commit(false, {{"daily/SHFE/2026-09", 1}, {"daily/SHFE/2026-10", 1}});
+    const auto second = commit(false, {{"daily/SHFE/2026-10", 2}, {"daily/DCE/2026-10", 1}});
+    const auto third = commit(true, {{"daily/SHFE/2026-09", 1}});
+    wh::Reader reader(root);
+    wire::ListDatasetVersions query;
+    query.set_provider("tushare");
+    const auto listed = reader.versions(query);
+    ASSERT_EQ(listed.versions_size(), 3);
+    EXPECT_TRUE(listed.next_version().empty());
+    const auto& newest = listed.versions(0);
+    EXPECT_EQ(newest.dataset().version(), third);
+    EXPECT_EQ(newest.base(), second);
+    EXPECT_EQ(newest.removed(), 2);
+    const auto& middle = listed.versions(1);
+    EXPECT_EQ(middle.added(), 1);
+    EXPECT_EQ(middle.replaced(), 1);
+    EXPECT_EQ(middle.removed(), 0);
+    EXPECT_EQ(listed.versions(2).added(), 2);
+    EXPECT_TRUE(listed.versions(2).base().empty());
+    query.set_after_version(third);
+    EXPECT_EQ(reader.versions(query).versions(0).dataset().version(), second);
+    wire::CompareDatasetVersions compare;
+    compare.set_provider("tushare");
+    compare.set_version(second);
+    compare.set_base(first);
+    const auto change = reader.change(compare);
+    EXPECT_EQ(change.added(), 1);
+    EXPECT_EQ(change.replaced(), 1);
+    EXPECT_EQ(change.removed(), 0);
+}
+
 TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
 {
     const auto minute = [](std::int64_t start, const char* close, bool partial) {

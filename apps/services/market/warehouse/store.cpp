@@ -288,17 +288,23 @@ Store::Store(fs::path directory, std::string provider)
         throw std::invalid_argument("warehouse requires an absolute directory");
 }
 
-Version Store::current() const
+std::string Store::current_identity() const
 {
     if (!fs::exists(root_ / "current"))
-        return {{}, provider_, {}, 0, {}};
+        return {};
     auto identity = read_text(root_, root_ / "current", 65);
     if (identity.ends_with('\n'))
         identity.pop_back();
-    return version(identity);
+    return identity;
 }
 
-Version Store::version(std::string_view identity) const
+Version Store::current() const
+{
+    const auto identity = current_identity();
+    return identity.empty() ? Version{{}, provider_, {}, 0, {}} : version(identity);
+}
+
+VersionHead Store::head(std::string_view identity) const
 {
     require_identity(identity);
     const auto path = root_ / "versions" / (std::string(identity) + ".json");
@@ -306,32 +312,76 @@ Version Store::version(std::string_view identity) const
     if (doc.at("format") != 2 || doc.at("provider") != provider_)
         throw std::runtime_error(
             "dataset manifest has a different format or provider: " + path.string());
-    Version
-        result{std::string(identity), provider_, {}, doc.at("created_ns").get<std::int64_t>(), {}};
+    VersionHead result{std::string(identity), {}, doc.at("created_ns").get<std::int64_t>(), {}};
     if (!doc.at("parent").is_null())
         result.parent = doc.at("parent").get<std::string>();
-    for (const auto& [name, digest] : doc.at("shards").items()) {
-        const auto shard = digest.get<std::string>();
-        require_identity(shard);
-        const auto content = read_text(root_, root_ / "shards" / (shard + ".json"), manifest_limit);
-        if (sha256_bytes(content) != shard)
-            throw std::runtime_error("dataset shard differs from its name: " + shard);
-        const auto partitions = Json::parse(content);
-        for (const auto& [key, item] : partitions.items()) {
-            if (shard_of(key) != name)
-                throw std::runtime_error("dataset shard holds another shard's partition");
-            result.partitions.emplace(
-                key,
-                Partition{
-                    item.at("file").get<std::string>(),
-                    item.at("sha256").get<std::string>(),
-                    item.at("rows").get<std::uint64_t>(),
-                    item.value("days", std::vector<std::string>{}),
-                    item.value("source", std::string{})
-                });
-        }
+    for (const auto& [name, digest] : doc.at("shards").items())
+        result.shards.emplace(name, digest.get<std::string>());
+    return result;
+}
+
+std::map<std::string, Partition>
+Store::shard(const std::string& name, const std::string& digest) const
+{
+    require_identity(digest);
+    const auto content = read_text(root_, root_ / "shards" / (digest + ".json"), manifest_limit);
+    if (sha256_bytes(content) != digest)
+        throw std::runtime_error("dataset shard differs from its name: " + digest);
+    const auto partitions = Json::parse(content);
+    std::map<std::string, Partition> result;
+    for (const auto& [key, item] : partitions.items()) {
+        if (shard_of(key) != name)
+            throw std::runtime_error("dataset shard holds another shard's partition");
+        result.emplace(
+            key,
+            Partition{
+                item.at("file").get<std::string>(),
+                item.at("sha256").get<std::string>(),
+                item.at("rows").get<std::uint64_t>(),
+                item.value("days", std::vector<std::string>{}),
+                item.value("source", std::string{})
+            });
     }
     return result;
+}
+
+Version Store::version(std::string_view identity) const
+{
+    const auto top = head(identity);
+    Version result{top.identity, provider_, top.parent, top.created_ns, {}};
+    for (const auto& [name, digest] : top.shards)
+        result.partitions.merge(shard(name, digest));
+    return result;
+}
+
+Change Store::compare(const VersionHead& version, const VersionHead& base) const
+{
+    const auto load = [&](const VersionHead& side, const std::string& name) {
+        const auto found = side.shards.find(name);
+        return found == side.shards.end() ? std::map<std::string, Partition>{}
+                                          : shard(name, found->second);
+    };
+    std::set<std::string> changed;
+    for (const auto& [name, digest] : version.shards)
+        if (!base.shards.contains(name) || base.shards.at(name) != digest)
+            changed.insert(name);
+    for (const auto& [name, digest] : base.shards)
+        if (!version.shards.contains(name))
+            changed.insert(name);
+    Change change;
+    for (const auto& name : changed) {
+        const auto now = load(version, name), before = load(base, name);
+        for (const auto& [key, part] : now) {
+            const auto old = before.find(key);
+            if (old == before.end())
+                ++change.added;
+            else if (old->second.sha256 != part.sha256)
+                ++change.replaced;
+        }
+        for (const auto& [key, part] : before)
+            change.removed += !now.contains(key);
+    }
+    return change;
 }
 
 fs::path Store::file(const Version& version, std::string_view key) const

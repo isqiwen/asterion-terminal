@@ -91,7 +91,16 @@ function Figures({ summary, prefix = "" }: { summary: LabRunSummary; prefix?: st
 // One run's result: its figures, equity, trades on the bars, months and what
 // reproduces it. Read again when `state`, the run's state in the list of
 // runs, changes, so a running run shows its result once it has ended.
-export function RunResult({ id, state }: { id: string; state: string }) {
+// `openVersion` shows a research dataset version on the data page.
+export function RunResult({
+  id,
+  state,
+  openVersion,
+}: {
+  id: string;
+  state: string;
+  openVersion?: (version: string) => void;
+}) {
   const [detail, setDetail] = useState<LabRunDetail | null>(null);
   const [contract, setContract] = useState("");
   const [bars, setBars] = useState<LabChartBars["bars"][number][]>([]);
@@ -152,7 +161,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
           {t(states[runState(summary.state)] ?? "未开始")}
           {summary.error ? ` · ${summary.error}` : ""}
         </p>
-        <RunDetails record={detail.record} />
+        <RunDetails record={detail.record} openVersion={openVersion} />
       </div>
     );
   const contracts = [...new Set(detail.fills.map(fill => fill.contract))];
@@ -280,7 +289,7 @@ export function RunResult({ id, state }: { id: string; state: string }) {
         </div>
       </details>
       <QuantStats id={id} />
-      <RunDetails record={detail.record} />
+      <RunDetails record={detail.record} openVersion={openVersion} />
     </div>
   );
 }
@@ -349,7 +358,13 @@ export const states: Record<string, string> = {
 };
 
 // What reproduces the run: strategy version, data, engine, costs and limits.
-function RunDetails({ record }: { record: string }) {
+function RunDetails({
+  record,
+  openVersion,
+}: {
+  record: string;
+  openVersion?: (version: string) => void;
+}) {
   const value = JSON.parse(record);
   return (
     <details className="lab-details">
@@ -364,8 +379,19 @@ function RunDetails({ record }: { record: string }) {
         </dd>
         <dt>{t("数据")}</dt>
         <dd>
-          {t("研究数据")} · <code>{value.data.dataset_version.slice(0, 12)}</code> ·{" "}
-          {value.data.symbols.join(", ")} · {value.data.begin_day} → {value.data.end_day}
+          {t("研究数据")} ·{" "}
+          {openVersion ? (
+            <button
+              type="button"
+              className="lab-link"
+              onClick={() => openVersion(value.data.dataset_version)}
+            >
+              <code>{value.data.dataset_version.slice(0, 12)}</code>
+            </button>
+          ) : (
+            <code>{value.data.dataset_version.slice(0, 12)}</code>
+          )}{" "}
+          · {value.data.symbols.join(", ")} · {value.data.begin_day} → {value.data.end_day}
         </dd>
         <dt>{t("引擎")}</dt>
         <dd>{value.engine.version}</dd>

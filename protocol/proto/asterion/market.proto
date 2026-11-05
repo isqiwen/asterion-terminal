@@ -19,6 +19,8 @@ message Request {
     DatasetRef get_dataset_coverage = 24;
     common.Empty compare_minutes = 25;
     GetMinuteDifferences get_minute_differences = 26;
+    ListDatasetVersions list_dataset_versions = 27;
+    CompareDatasetVersions compare_dataset_versions = 28;
 
     common.Empty list_sources = 30;
     StartAcquisition start_acquisition = 31;
@@ -44,6 +46,8 @@ message Response {
     DatasetCoverage get_dataset_coverage = 24;
     MinuteComparison compare_minutes = 25;
     MinuteDifferences get_minute_differences = 26;
+    DatasetVersions list_dataset_versions = 27;
+    DatasetChange compare_dataset_versions = 28;
 
     Sources list_sources = 30;
     AcquisitionTask start_acquisition = 31;
@@ -289,6 +293,36 @@ message TableSummary {
   uint64 rows = 3;
   string first_day = 4;
   string last_day = 5;
+}
+
+// A source's versions, newest first: from the current one, or after
+// `after_version` when paging.
+message ListDatasetVersions {
+  string provider = 1;
+  string after_version = 2;
+}
+
+message DatasetVersions {
+  // Each compared with its parent.
+  repeated DatasetChange versions = 1;
+  // Empty on the last page.
+  string next_version = 2;
+}
+
+message CompareDatasetVersions {
+  string provider = 1;
+  string version = 2;
+  string base = 3;
+}
+
+// The partitions `dataset` adds to `base`, replaces in it and removes from it.
+message DatasetChange {
+  Dataset dataset = 1;
+  // Empty for a source's first version.
+  string base = 2;
+  uint32 added = 3;
+  uint32 replaced = 4;
+  uint32 removed = 5;
 }
 
 message DatasetCoverage {

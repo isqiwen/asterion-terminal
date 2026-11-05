@@ -87,7 +87,7 @@ message Response {
 
 ## 6. 分页和流
 
-- **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。只有数量没有上限的列表才分页：版本的分区和采集任务。
+- **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。只有数量没有上限的列表才分页：版本的分区、版本历史和采集任务。
 - **流**：只有 `stream_quotes` 连续回复，同一个 `id` 返回多帧，直到连接关闭。第一帧是 `full`，之后是 `changed` 或新的 `full`。断线后重新开流，首帧又是 `full`。理由：TCP 保证顺序不丢帧，所以帧上不需要序号。
 
 ## 7. Market
@@ -104,6 +104,8 @@ message Response {
 | `get_dataset_version` | 来源与版本、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 来源与版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
 | `get_dataset_summary` | 来源与版本 | 各表的分区数、行数和日期范围 |
+| `list_dataset_versions` | 来源、分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
+| `compare_dataset_versions` | 来源、两个版本 | 前者相比后者新增、替换、删除的分区数 |
 | `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数，研究数据集另给其中取自自录的天数 |
 | `compare_minutes` | — | Tushare 与自录当前版本分钟线的差异汇总 |
 | `get_minute_differences` | 合约、交易日 | 两个来源不一致的每一分钟 |

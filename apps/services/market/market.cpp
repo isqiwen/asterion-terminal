@@ -234,6 +234,14 @@ void answer_reader(
             *response.mutable_get_minute_differences() =
                 warehouse::minute_differences(directory, request.get_minute_differences());
             break;
+        case wire::Request::kListDatasetVersions:
+            *response.mutable_list_dataset_versions() =
+                datasets.versions(request.list_dataset_versions());
+            break;
+        case wire::Request::kCompareDatasetVersions:
+            *response.mutable_compare_dataset_versions() =
+                datasets.change(request.compare_dataset_versions());
+            break;
         case wire::Request::kListSources:
             *response.mutable_list_sources() = tasks.sources();
             response.mutable_list_sources()->set_can_manage(can_manage);

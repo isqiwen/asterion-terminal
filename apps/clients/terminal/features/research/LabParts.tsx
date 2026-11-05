@@ -63,7 +63,10 @@ export function LabHeader({
     <header className="lab-header">
       {modules?.commit && <code className="lab-chip">{modules.commit.slice(0, 8)}</code>}
       {modules?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
-      <button className="lab-chip" onClick={() => context.navigate("workspace.coverage")}>
+      <button
+        className="lab-chip"
+        onClick={() => context.navigate("workspace.coverage", { params: { provider: "research" } })}
+      >
         {t("研究数据")} · <code>{summary?.dataset?.version.slice(0, 8) || t("无数据")}</code>
       </button>
       <span className="lab-spacer" />
