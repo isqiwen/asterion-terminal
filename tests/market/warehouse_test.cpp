@@ -308,6 +308,50 @@ TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
     EXPECT_EQ(change.removed(), 0);
 }
 
+TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
+{
+    wh::Store store(root, "tushare");
+    const auto with = [](const char* table, std::size_t column, wh::Cell value) {
+        auto out = row(table);
+        out[column] = std::move(value);
+        return out;
+    };
+    {
+        auto writer = store.writer();
+        writer.put(
+            "contracts/SHFE",
+            std::vector<wh::Row>{
+                with("contracts", 1, std::string("SHFE/rb/2027-01")),
+                with("contracts", 1, std::string("SHFE/cu/2026-12"))
+            });
+        writer.put("contracts/DCE", std::vector<wh::Row>{with("contracts", 0, std::string("DCE"))});
+        writer.put(
+            "calendar/SHFE/2026",
+            std::vector<wh::Row>{
+                with("calendar", 1, std::string("2026-10-29")),
+                with("calendar", 1, std::string("2026-10-30"))
+            });
+        writer.commit();
+    }
+    wh::Reader reader(root);
+    wire::GetTableRows query;
+    query.mutable_dataset()->set_provider("tushare");
+    query.set_table(wire::TABLE_CONTRACTS);
+    query.set_exchange("SHFE");
+    const auto contracts = reader.rows(query);
+    EXPECT_EQ(contracts.columns(1), "contract");
+    ASSERT_EQ(contracts.total(), 2);
+    EXPECT_EQ(contracts.rows(0).values(1), "SHFE/cu/2026-12");
+    query.set_table(wire::TABLE_CALENDAR);
+    query.set_first_day("2026-10-30");
+    query.set_last_day("2026-12-31");
+    const auto calendar = reader.rows(query);
+    ASSERT_EQ(calendar.total(), 1);
+    EXPECT_EQ(calendar.rows(0).values(1), "2026-10-30");
+    query.set_table(wire::TABLE_MINUTES);
+    EXPECT_THROW(reader.rows(query), std::invalid_argument);
+}
+
 TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
 {
     const auto minute = [](std::int64_t start, const char* close, bool partial) {

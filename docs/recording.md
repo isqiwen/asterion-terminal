@@ -64,7 +64,12 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 
 ## 读取录制
 
-同一个 TLS 端口提供：`recording_status`（连接、目录、订阅数、写入和丢失计数、磁盘余量、合并状态）、`recorded_days`（每个交易日的文件和段）、`recorded_minutes`（一个合约一个交易日的分钟线）。
+Market 的 TLS 端口上（见[通信协议](protocol.md#7-market)）：
+
+- `get_status` 的 `recording`：交易日、写入和丢失计数、磁盘余量、合并状态。
+- `list_recorded_days`：一段日期内每个交易日的观测段，直接读录制目录，包括还没发布的当天。
+- `get_minutes`：本交易日一个合约的分钟线，来自 Market 内存。
+- 更早的分钟线和观测段：读 `recorder` 来源或研究数据集的固定版本，按分区下载（`get_dataset_version`、`read_dataset_file`）。
 
 ## 发布研究版本
 

@@ -36,6 +36,23 @@ Reader::Reader(fs::path recordings)
       database_(open_database("256 MiB"))
 {}
 
+std::vector<std::string> Reader::days(const std::string& first, const std::string& last) const
+{
+    std::vector<std::string> out;
+    if (!fs::exists(root_ / "segments"))
+        return out;
+    for (const auto& entry : fs::directory_iterator(root_ / "segments")) {
+        const auto name = entry.path().filename().string();
+        if (!name.starts_with("trading_day="))
+            continue;
+        const auto day = name.substr(12);
+        if (day >= first && day <= last)
+            out.push_back(day);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 std::vector<Reader::Segment> Reader::segments(const std::string& day)
 {
     require_trading_day(day);

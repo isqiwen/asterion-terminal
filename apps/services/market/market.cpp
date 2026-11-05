@@ -5,6 +5,7 @@
 #include "acquisition/recorded.hpp"
 #include "acquisition/tushare.hpp"
 #include "recording/compaction.hpp"
+#include "recording/reader.hpp"
 #include "warehouse/reader.hpp"
 #include "warehouse/research.hpp"
 #include <asterion/base/bounded_queue.hpp>
@@ -200,10 +201,43 @@ void answer_live(
     }
 }
 
+// Days arrive as YYYY-MM-DD; the archive names them YYYYMMDD.
+wire::RecordedDays recorded_days(
+    const std::filesystem::path& recordings,
+    std::shared_mutex& archive,
+    const wire::ListRecordedDays& query)
+{
+    warehouse::require_day(query.first_day());
+    warehouse::require_day(query.last_day());
+    const auto compact = [](std::string day) {
+        std::erase(day, '-');
+        return day;
+    };
+    // A merge replaces archive files; read between merges.
+    std::shared_lock lock(archive);
+    recording::Reader reader(recordings);
+    wire::RecordedDays result;
+    for (const auto& day : reader.days(compact(query.first_day()), compact(query.last_day()))) {
+        auto* out = result.add_days();
+        out->set_trading_day(protocol::iso_day(day));
+        for (const auto& segment : reader.segments(day)) {
+            auto* item = out->add_segments();
+            item->set_instance(segment.instance);
+            item->set_number(segment.number);
+            item->set_first_received_ms(segment.first_received_ms);
+            item->set_last_received_ms(segment.last_received_ms);
+            item->set_ticks(segment.ticks);
+            item->set_end(segment.end);
+        }
+    }
+    return result;
+}
+
 void answer_reader(
     const wire::Request& request,
     wire::Response& response,
     const std::filesystem::path& directory,
+    std::shared_mutex& archive,
     acquisition::Manager& tasks,
     bool can_manage)
 {
@@ -233,6 +267,13 @@ void answer_reader(
         case wire::Request::kGetMinuteDifferences:
             *response.mutable_get_minute_differences() =
                 warehouse::minute_differences(directory, request.get_minute_differences());
+            break;
+        case wire::Request::kGetTableRows:
+            *response.mutable_get_table_rows() = datasets.rows(request.get_table_rows());
+            break;
+        case wire::Request::kListRecordedDays:
+            *response.mutable_list_recorded_days() =
+                recorded_days(directory / "recordings", archive, request.list_recorded_days());
             break;
         case wire::Request::kListDatasetVersions:
             *response.mutable_list_dataset_versions() =
@@ -413,7 +454,7 @@ struct Market::Running
         auto result = promise->get_future();
         readers.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
-                answer_reader(request, out, settings.directory, acquisitions, can_manage);
+                answer_reader(request, out, settings.directory, *archive, acquisitions, can_manage);
             })));
             service::wake_io_owner();
         });

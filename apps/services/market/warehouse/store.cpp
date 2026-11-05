@@ -117,21 +117,6 @@ duckdb::LogicalType logical(Kind kind)
     throw std::logic_error("unknown warehouse column kind");
 }
 
-void require_day(std::string_view day)
-{
-    static const std::regex syntax(R"(\d{4}-\d{2}-\d{2})");
-    const std::string value(day);
-    if (!std::regex_match(value, syntax))
-        throw std::invalid_argument("warehouse date must be YYYY-MM-DD");
-    const std::chrono::year_month_day date{
-        std::chrono::year(std::stoi(value.substr(0, 4))),
-        std::chrono::month(std::stoul(value.substr(5, 2))),
-        std::chrono::day(std::stoul(value.substr(8, 2)))
-    };
-    if (!date.ok() || date.year() == std::chrono::year(0))
-        throw std::invalid_argument("invalid warehouse date");
-}
-
 duckdb::Value value(const Column& column, const Cell& cell)
 {
     const auto type = logical(column.kind);
@@ -229,6 +214,21 @@ Json entry(const Partition& part)
 }
 
 } // namespace
+
+void require_day(std::string_view day)
+{
+    static const std::regex syntax(R"(\d{4}-\d{2}-\d{2})");
+    const std::string value(day);
+    if (!std::regex_match(value, syntax))
+        throw std::invalid_argument("warehouse date must be YYYY-MM-DD");
+    const std::chrono::year_month_day date{
+        std::chrono::year(std::stoi(value.substr(0, 4))),
+        std::chrono::month(std::stoul(value.substr(5, 2))),
+        std::chrono::day(std::stoul(value.substr(8, 2)))
+    };
+    if (!date.ok() || date.year() == std::chrono::year(0))
+        throw std::invalid_argument("invalid warehouse date");
+}
 
 std::span<const Column> columns(std::string_view table)
 {

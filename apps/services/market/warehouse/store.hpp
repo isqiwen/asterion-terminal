@@ -135,6 +135,7 @@ private:
 void require_provider(std::string_view provider);
 void require_identity(std::string_view identity);
 void require_key(std::string_view key);
+void require_day(std::string_view day);
 std::filesystem::path source_directory(const std::filesystem::path&, std::string_view provider);
 
 } // namespace asterion::market_data::warehouse

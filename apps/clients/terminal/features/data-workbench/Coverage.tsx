@@ -5,7 +5,9 @@ import { ContractPicker } from "./ContractPicker";
 import { DatasetHistory, changeText } from "./DatasetHistory";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
+import { RecordedDays } from "./RecordedDays";
 import { RecordingStatus } from "./RecordingStatus";
+import { ReferenceTables, referenceTables } from "./ReferenceTables";
 import {
   ErrorNotice,
   asDisplayError,
@@ -51,6 +53,8 @@ const tables: Partial<Record<Table, string>> = {
   [Table.OBSERVATIONS]: "观测区间",
 };
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
+// Sources such as research list no exchanges of their own.
+const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 type Source = Pick<MarketSource, "provider" | "tables" | "exchanges">;
 
 // Every read and acquisition goes to the saved remote Market. Browsing a
@@ -139,6 +143,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   return (
     <div className="page-body data-body">
       <RecordingStatus context={context} />
+      <RecordedDays />
       <MinuteComparison />
       <div className="data-source">
         <label>
@@ -272,6 +277,10 @@ function SourceCoverage({
     };
   }, [refresh]);
   const running = tasks.some(activeTask);
+  // The reference tables this version holds rows of.
+  const stored = referenceTables.filter(table =>
+    summary?.tables.some(item => item.table === table && item.rows > 0n),
+  );
   // Contracts a minute task can choose from: those Market lists now and those
   // this source already holds minutes of.
   const known = useMemo(
@@ -588,6 +597,15 @@ function SourceCoverage({
           <p className="subtle">{t("仓库里还没有日线。")}</p>
         )}
       </section>
+      {stored.length > 0 && (
+        <ReferenceTables
+          key={summary!.dataset!.version}
+          provider={provider}
+          version={summary!.dataset!.version}
+          tables={stored}
+          exchanges={source.exchanges.length ? source.exchanges : exchanges}
+        />
+      )}
       <MinuteCoverage
         contracts={coverage?.contracts ?? []}
         onFill={

@@ -202,6 +202,60 @@ wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) co
     return change_of(store, store.head(query.version()), store.head(query.base()));
 }
 
+wire::TableRows Reader::rows(const wire::GetTableRows& query) const
+{
+    const auto table = protocol::table_name(query.table());
+    if (table != "contracts" && table != "calendar" && table != "settlement")
+        throw std::invalid_argument("only contracts, calendar and settlement can be browsed");
+    const bool dated = table != "contracts";
+    if (dated) {
+        require_day(query.first_day());
+        require_day(query.last_day());
+    }
+    const auto store = open_store(directory_, query.dataset());
+    const auto version = selected(store, query.dataset().version());
+    wire::TableRows result;
+    for (const auto& column : columns(table))
+        result.add_columns(column.name);
+    // contracts/<exchange>, calendar/<exchange>/<year>, settlement/<exchange>/<day>
+    const auto prefix = table + '/' + query.exchange();
+    std::string files;
+    for (const auto& [key, part] : version.partitions) {
+        if (key != prefix && !key.starts_with(prefix + '/'))
+            continue;
+        const auto period = key.substr(std::min(key.size(), prefix.size() + 1));
+        if (dated
+            && (period < query.first_day().substr(0, period.size())
+                || period > query.last_day().substr(0, period.size())))
+            continue;
+        files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+    }
+    if (files.empty())
+        return result;
+    parquet::Engine engine;
+    engine.run(
+        "CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files
+        + "])"
+        // Both days were validated as YYYY-MM-DD.
+        + (dated ? " WHERE day BETWEEN DATE '" + query.first_day() + "' AND DATE '"
+                    + query.last_day() + "'"
+                 : std::string{}));
+    result.set_total(
+        engine.run("SELECT count(*) FROM t")->GetValue(0, 0).GetValue<std::uint32_t>());
+    const auto rows = engine.run(
+        std::string("SELECT * FROM t ORDER BY ") + (dated ? "day, " : "")
+        + (table == "calendar" ? "exchange" : "contract") + " LIMIT 100 OFFSET "
+        + std::to_string(query.offset()));
+    for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
+        auto* out = result.add_rows();
+        for (duckdb::idx_t column = 0; column < rows->ColumnCount(); ++column) {
+            const auto value = rows->GetValue(column, row);
+            out->add_values(value.IsNull() ? std::string{} : value.ToString());
+        }
+    }
+    return result;
+}
+
 wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
 {
     require_identity(query.version());

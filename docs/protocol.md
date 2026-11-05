@@ -100,10 +100,12 @@ message Response {
 | `get_board` | — | 当前全部合约行与完整目录，与报价流首帧相同 |
 | `stream_quotes` | 要看的合约，不填表示全部，最多 50 个 | 连续的 `QuoteFrame` |
 | `get_minutes` | `Instrument` | 本进程观测到的当前交易日分钟线 |
+| `list_recorded_days` | 起止日 | 每个交易日自录的观测段：开始和结束时间、Tick 数、结束原因 |
 | `list_datasets` | — | 每个来源的当前版本 |
 | `get_dataset_version` | 来源与版本、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 来源与版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
 | `get_dataset_summary` | 来源与版本 | 各表的分区数、行数和日期范围 |
+| `get_table_rows` | 来源与版本、合约表/交易日历/结算参数、交易所、日期范围、偏移 | 一页至多 100 行，值都是文本，另给总行数 |
 | `list_dataset_versions` | 来源、分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
 | `compare_dataset_versions` | 来源、两个版本 | 前者相比后者新增、替换、删除的分区数 |
 | `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数，研究数据集另给其中取自自录的天数 |

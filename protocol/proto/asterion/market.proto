@@ -11,6 +11,7 @@ message Request {
     StreamQuotes stream_quotes = 11;
     common.Instrument get_minutes = 12;
     common.Empty get_board = 13;
+    ListRecordedDays list_recorded_days = 14;
 
     common.Empty list_datasets = 20;
     GetDatasetVersion get_dataset_version = 21;
@@ -21,6 +22,7 @@ message Request {
     GetMinuteDifferences get_minute_differences = 26;
     ListDatasetVersions list_dataset_versions = 27;
     CompareDatasetVersions compare_dataset_versions = 28;
+    GetTableRows get_table_rows = 29;
 
     common.Empty list_sources = 30;
     StartAcquisition start_acquisition = 31;
@@ -38,6 +40,7 @@ message Response {
     QuoteFrame stream_quotes = 11;
     Minutes get_minutes = 12;
     Board get_board = 13;
+    RecordedDays list_recorded_days = 14;
 
     Datasets list_datasets = 20;
     DatasetVersion get_dataset_version = 21;
@@ -48,6 +51,7 @@ message Response {
     MinuteDifferences get_minute_differences = 26;
     DatasetVersions list_dataset_versions = 27;
     DatasetChange compare_dataset_versions = 28;
+    TableRows get_table_rows = 29;
 
     Sources list_sources = 30;
     AcquisitionTask start_acquisition = 31;
@@ -323,6 +327,55 @@ message DatasetChange {
   uint32 added = 3;
   uint32 replaced = 4;
   uint32 removed = 5;
+}
+
+// A page of a reference table: contracts, calendar or settlement, of one
+// exchange. Calendar and settlement rows are limited to the days given.
+message GetTableRows {
+  DatasetRef dataset = 1;
+  Table table = 2;
+  string exchange = 3;
+  string first_day = 4;
+  string last_day = 5;
+  uint32 offset = 6;
+}
+
+message TableRows {
+  repeated string columns = 1;
+  // At most 100, as text; an absent value is empty.
+  repeated TableRow rows = 2;
+  uint32 total = 3;
+}
+
+message TableRow {
+  repeated string values = 1;
+}
+
+// The recorder's observation segments, per trading day, from its archive.
+message ListRecordedDays {
+  string first_day = 1;
+  string last_day = 2;
+}
+
+message RecordedDays {
+  repeated RecordedDay days = 1;
+}
+
+message RecordedDay {
+  string trading_day = 1;
+  // In the order they started; the time between two is a gap.
+  repeated ObservedSegment segments = 2;
+}
+
+// One stretch of uninterrupted observation by one Market process.
+message ObservedSegment {
+  string instance = 1;
+  uint64 number = 2;
+  int64 first_received_ms = 3;
+  int64 last_received_ms = 4;
+  uint64 ticks = 5;
+  // Why observation stopped; empty when the process stopped before it could say.
+  string end = 6;
 }
 
 message DatasetCoverage {

@@ -22,6 +22,8 @@ public:
 
     explicit Reader(std::filesystem::path recordings);
     std::vector<Segment> segments(const std::string& trading_day);
+    // The trading days from `first` to `last` (YYYYMMDD) that have segments.
+    std::vector<std::string> days(const std::string& first, const std::string& last) const;
     std::vector<MinuteBar> minutes(const std::string& trading_day, const InstrumentId& id);
     // The instruments with recorded minutes on a trading day (YYYYMMDD).
     std::vector<InstrumentId> instruments(const std::string& trading_day);

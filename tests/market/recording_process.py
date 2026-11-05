@@ -95,7 +95,7 @@ def ask(port, number, body=b"", magic=b"ASTR", rejected=False, role="reader"):
 
 
 # Field numbers of market.proto.
-ERROR, GET_STATUS, STREAM_QUOTES, GET_MINUTES = 2, 10, 11, 12
+ERROR, GET_STATUS, STREAM_QUOTES, GET_MINUTES, LIST_RECORDED_DAYS = 2, 10, 11, 12, 14
 GET_DATASET_VERSION, START_ACQUISITION, GET_ACQUISITION_TASK = 21, 31, 32
 FEED_CONNECTED, CATALOG_LOADING, CATALOG_READY, CATALOG_FAILED = 5, 2, 4, 5
 INVALID_REQUEST, TABLE_MINUTES, TASK_SUCCEEDED = 1, 4, 3
@@ -300,6 +300,11 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         status = wait_for(second, second_endpoint,
                           lambda s: 8 in s and text(decode(s[8][0]), 1), "nothing recorded after restart")
         trading_day = text(decode(status[8][0]), 1)
+        # Each process left its own observation segment of the day.
+        day = trading_day.encode()
+        recorded = ask(second_endpoint, LIST_RECORDED_DAYS, field(1, day) + field(2, day))
+        observed = decode(recorded[1][0])
+        assert text(observed, 1) == trading_day and len(observed[2]) >= 2, observed
         partitions = publish_recorded(second_endpoint, trading_day)
         minutes = [p for p in partitions if text(p, 1).startswith("minutes/SHFE/")]
         segments = [p for p in partitions if text(p, 1).startswith("observations/SHFE/")]

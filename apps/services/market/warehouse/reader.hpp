@@ -21,6 +21,7 @@ public:
     ::market::DatasetCoverage coverage(const ::market::DatasetRef&) const;
     ::market::DatasetVersions versions(const ::market::ListDatasetVersions&) const;
     ::market::DatasetChange change(const ::market::CompareDatasetVersions&) const;
+    ::market::TableRows rows(const ::market::GetTableRows&) const;
 
 private:
     std::filesystem::path directory_;
