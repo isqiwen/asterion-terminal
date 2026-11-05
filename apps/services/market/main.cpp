@@ -13,11 +13,10 @@ int main(int argc, char** argv)
 {
     CLI::App app{"Asterion market-data and acquisition host"};
     app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-    std::string installation;
-    app.add_option("--installation", installation)->required()->check(CLI::ExistingDirectory);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
+        const auto installation = asterion::installation_directory();
         asterion::log::init();
         const auto settings =
             market_data::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));

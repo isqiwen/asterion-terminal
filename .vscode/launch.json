@@ -4,6 +4,24 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Market: debug installation",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${input:serviceInstallation}/bin/asterion_market",
+      "args": [],
+      "cwd": "${input:serviceInstallation}",
+      "linux": { "MIMode": "gdb" }
+    },
+    {
+      "name": "Trading: debug installation",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${input:serviceInstallation}/bin/asterion_trading",
+      "args": ["--account", "${input:tradingAccount}"],
+      "cwd": "${input:serviceInstallation}",
+      "linux": { "MIMode": "gdb" }
+    },
+    {
       "name": "C++: debug test",
       "type": "cppdbg",
       "request": "launch",
@@ -59,6 +77,16 @@
     }
   ],
   "inputs": [
+    {
+      "id": "serviceInstallation",
+      "type": "promptString",
+      "description": "Prepared local service installation (bin, config, lib, logs)"
+    },
+    {
+      "id": "tradingAccount",
+      "type": "promptString",
+      "description": "Trading account name from config/accounts/<account>.json"
+    },
     {
       "id": "gtestFilter",
       "type": "promptString",

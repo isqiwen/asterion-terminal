@@ -200,7 +200,6 @@ def start(root, port, user="fixture"):
         "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
                     "broker": "test", "user": user, "app_id": "app"}}))
     command = [str(root / "bin" / executable)]
-    command += ["--installation", str(root)]
     return subprocess.Popen(command, env=env, stderr=subprocess.PIPE, text=True)
 
 

@@ -188,7 +188,7 @@ set_tests_properties(lab_service PROPERTIES TIMEOUT 90
 asterion_unit_tests(asterion_performance_tests core/performance_test.cpp Asterion::Futures)
 
 # node: service command lines and graceful stops
-add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading>)
+add_test(NAME cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion_trading> $<TARGET_FILE:asterion_market>)
 set_tests_properties(cli_contract PROPERTIES TIMEOUT 45)
 add_executable(asterion_test_certificates node/tls_certificates.cpp)
 target_include_directories(asterion_test_certificates PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

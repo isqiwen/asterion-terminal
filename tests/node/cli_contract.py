@@ -19,5 +19,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-trading-", ignore_cleanup_erro
                             capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and "config/accounts/missing.json" in result.stderr, result
     assert sorted(p.name for p in Path(folder).iterdir()) == [".program.lock", "bin"], list(Path(folder).iterdir())
+with tempfile.TemporaryDirectory(prefix="asterion-market-") as folder:
+    root = Path(folder)
+    (root / "bin").mkdir()
+    (root / "bin/asterion_market").symlink_to(Path(sys.argv[3]).resolve())
+    result = subprocess.run([str(root / "bin/asterion_market")],
+                            cwd="/", capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0 and str(root / "config/market.json") in result.stderr, result
 print("CLI11 help, version, invalid arguments and trading without its account configuration verified")
 

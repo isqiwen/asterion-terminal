@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory() as folder:
         '--name=asterion.ctp.password=fixture-password', '--name=asterion.ctp.auth_code=fixture-auth', '--name=asterion.market.tushare.token=fixture-token']
     unit = (host.units / 'asterion-market.service').read_text()
     for line in ('User=tester', 'Restart=always', 'StartLimitIntervalSec=0',
-                 'ImportCredential=asterion.ctp.*', f'ExecStart={host.root}/bin/asterion_market --installation {host.root}',
+                 'ImportCredential=asterion.ctp.*', f'ExecStart={host.root}/bin/asterion_market',
                  f'ReadWritePaths={host.root}/logs {host.root}/data'):
         assert line + '\n' in unit, line
     assert any(call.startswith('chown tester: ') for call in calls), calls

@@ -50,7 +50,7 @@ def market_host(build, root, *, vendor=False, exchanges=(), user="steady"):
 def running_market(root, port):
     """Restart an existing isolated installation; the caller may test abrupt exits."""
     log = (root/'stderr').open('a')
-    process = subprocess.Popen([root/'bin/asterion_market','--installation',root],
+    process = subprocess.Popen([root/'bin/asterion_market'],
         env=dict(os.environ,CREDENTIALS_DIRECTORY=str(root/'credentials')),stdout=subprocess.DEVNULL,stderr=log)
     try:
         for _ in range(200):

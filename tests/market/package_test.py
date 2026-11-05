@@ -60,7 +60,7 @@ def running(root, port):
                'ubuntu:24.04', 'sh', '-ec',
                'if command -v python || command -v python3; then exit 1; fi; '
                '/market/bin/asterion_market --version; '
-               'exec /market/bin/asterion_market --installation /market']
+               'exec /market/bin/asterion_market']
     with (root / 'container.log').open('w') as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
         try:

@@ -36,8 +36,9 @@ struct MarketHost
         if (!bound)
             throw std::runtime_error("cannot bind Market test port");
         port = ntohs(address.sin_port);
-        for (const auto* name : {"config", "data", "lib", "credentials"})
+        for (const auto* name : {"bin", "config", "data", "lib", "credentials"})
             std::filesystem::create_directories(root / name);
+        std::filesystem::create_symlink(ASTERION_MARKET_PATH, root / "bin/asterion_market");
         std::filesystem::create_symlink(ASTERION_TEST_CTP, root / "lib/ctp-md.so");
         std::filesystem::create_symlink(ASTERION_TEST_CTP_TRADER, root / "lib/ctp-trader.so");
         std::filesystem::create_directories(root / "config/tls");
@@ -75,9 +76,7 @@ struct MarketHost
             "/usr/bin/env",
             std::vector<std::string>{
                 "CREDENTIALS_DIRECTORY=" + (root / "credentials").string(),
-                ASTERION_MARKET_PATH,
-                "--installation",
-                root.string()
+                (root / "bin/asterion_market").string()
             });
     }
 

@@ -295,7 +295,7 @@ StartLimitIntervalSec=0
 User=$ACCOUNT
 UMask=0077
 # It finds config/, lib/ and logs/ beside its bin/; config/market.json names its data.
-ExecStart=$ROOT/bin/asterion_market --installation $ROOT
+ExecStart=$ROOT/bin/asterion_market
 ReadWritePaths=$ROOT/logs $(current data)
 # The counter password and authentication code, decrypted at start.
 ImportCredential=asterion.ctp.*

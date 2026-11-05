@@ -28,6 +28,12 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 
 Code Spell Checker 使用根目录的 `cspell.json`；项目名、交易所和供应商缩写放在 `words` 中，生成代码和依赖不做拼写检查。
 
+Market 和 Trading 从启动路径的 `bin/` 上级确定安装目录，配置、库和日志共用这个目录，不接受 `--installation`。Trading 仍用 `--account` 选择账户。
+
+Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug installation`，输入已准备的开发安装目录；其中配置、证书和真实供应商库按服务安装规则准备。将该目录的 `bin/asterion_market` 或 `bin/asterion_trading` 链接到本地 Debug 构建产物，程序仍以启动链接所在目录定位配置。不要直接选择 `build/Debug` 中的服务程序运行。
+
+真实凭据由 systemd 提供，普通 VS Code 启动不会自动获得它们；有真实凭据的服务通过 systemd 启动后，使用 `C++: attach to process` 调试。隔离测试自行准备临时安装目录和测试凭据。
+
 ### Python 运行时
 
 - Terminal 用一份可重定位的 CPython 3.12，锁定的依赖直接装进它的 `site-packages`，不建虚拟环境，也不需要系统 Python。
