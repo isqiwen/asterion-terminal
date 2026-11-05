@@ -227,10 +227,12 @@ app.on("window-all-closed", () => app.quit());
 app
   .whenReady()
   .then(async () => {
-    session.defaultSession.setPermissionRequestHandler((_web, _permission, callback) =>
-      callback(false),
+    // Only writing to the clipboard, for "copy diagnostic"; reading it stays denied.
+    const allowed = permission => permission === "clipboard-sanitized-write";
+    session.defaultSession.setPermissionRequestHandler((_web, permission, callback) =>
+      callback(allowed(permission)),
     );
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionCheckHandler((_web, permission) => allowed(permission));
     protocol.handle("asterion", request => {
       const url = new URL(request.url);
       if (url.host !== "app" || !["GET", "HEAD"].includes(request.method))

@@ -183,15 +183,20 @@ export function errorDiagnostic(error: DisplayError, namespace = "host") {
 
 // Copies an error's diagnostic for a report; it is never shown on a page.
 export function CopyDiagnostic({ diagnostic }: { diagnostic: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"" | "copied" | "failed">("");
   if (!diagnostic) return null;
   return (
     <button
       type="button"
       className="copy-diagnostic"
-      onClick={() => void navigator.clipboard.writeText(diagnostic).then(() => setCopied(true))}
+      onClick={() =>
+        void navigator.clipboard.writeText(diagnostic).then(
+          () => setState("copied"),
+          () => setState("failed"),
+        )
+      }
     >
-      {translate("host", copied ? "已复制" : "复制诊断")}
+      {translate("host", { copied: "已复制", failed: "复制失败", "": "复制诊断" }[state])}
     </button>
   );
 }

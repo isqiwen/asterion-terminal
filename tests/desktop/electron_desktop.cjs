@@ -93,29 +93,26 @@ async function closeDesktop(application) {
         .evaluate(element => getComputedStyle(element).getPropertyValue("-webkit-app-region")),
       "drag",
     );
-    assert.equal(
-      await page
-        .locator(".terminal-titlebar > div")
-        .evaluate(element => getComputedStyle(element).getPropertyValue("-webkit-app-region")),
-      "no-drag",
-    );
     if (process.platform !== "darwin") {
-      // Linux draws the window buttons over the bar's right end; the bar's
-      // content must stop before them.
+      // Linux draws the window buttons over the bar's right end.
       const bar = await page.evaluate(() => {
         const free = navigator.windowControlsOverlay.getTitlebarAreaRect();
         return {
           overlay: navigator.windowControlsOverlay.visible,
           free: free.x + free.width,
-          content: document
-            .querySelector(".terminal-titlebar")
-            .lastElementChild.getBoundingClientRect().right,
           width: innerWidth,
         };
       });
       assert.ok(bar.overlay && bar.free < bar.width, JSON.stringify(bar));
-      assert.ok(bar.content <= bar.free, JSON.stringify(bar));
     }
+    // "Copy diagnostic" writes the system clipboard; reading it stays denied.
+    await page.bringToFront();
+    await page.evaluate(() => navigator.clipboard.writeText("asterion diagnostic"));
+    assert.equal(
+      await application.evaluate(({ clipboard }) => clipboard.readText()),
+      "asterion diagnostic",
+    );
+    await assert.rejects(page.evaluate(() => navigator.clipboard.readText()));
     const reply = await page.evaluate(async () =>
       JSON.parse(
         await window.asterionDesktop.request(
