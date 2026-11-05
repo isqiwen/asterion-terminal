@@ -86,20 +86,24 @@ TEST_F(Installation, ConsoleAndFileHaveTheirOwnSwitchLevelAndPattern)
         "[debug] recorder catalog read: contracts=1234\n" "[error] recorder write failed: disk full\n");
 }
 
-TEST_F(Installation, TheDefaultPatternIsLocalTimeLevelAndProgram)
+TEST_F(Installation, TheDefaultPatternIncludesTheCallSite)
 {
     configure(R"({"console":{"enabled":false,"level":"info"},
         "file":{"enabled":true,"level":"info","path":"../logs/{program}.log","retention_days":30}})");
     log::init(root, "market");
-    log::info("market started");
+    const auto source_line = std::source_location::current().line() + 1;
+    log::info("market {}", "started");
     log::debug("not written at info");
     const auto line = read(root / "logs" / ("market_" + today() + ".log"));
     EXPECT_TRUE(
         std::regex_match(
             line,
             std::regex(
-                R"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2} info market market started\n)")))
+                R"(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}\] \[info\] \[market\] \[logger_test\.cpp:\d+\] market started\n)")))
         << line;
+    EXPECT_NE(
+        line.find("[logger_test.cpp:" + std::to_string(source_line) + "]"),
+        std::string::npos);
 }
 
 TEST_F(Installation, OldDailyFilesGoWhenTheLogOpensAndOtherFilesStay)
@@ -173,7 +177,8 @@ TEST_F(Installation, WithoutAConfigurationRecordsGoToStandardError)
     testing::internal::CaptureStderr();
     log::info("no configuration: {}", 1);
     const auto output = testing::internal::GetCapturedStderr();
-    EXPECT_NE(output.find(" info test no configuration: 1\n"), std::string::npos) << output;
+    EXPECT_NE(output.find("[info] [test] [logger_test.cpp:"), std::string::npos) << output;
+    EXPECT_TRUE(output.ends_with(" no configuration: 1\n")) << output;
     EXPECT_EQ(log::file(root, "test", 1), fs::path{});
 }
 

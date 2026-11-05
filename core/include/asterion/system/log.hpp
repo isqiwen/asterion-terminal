@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <string_view>
+#include <source_location>
+#include <type_traits>
 
 namespace asterion {
 
@@ -27,7 +29,7 @@ std::filesystem::path installation_directory();
 //             "path": "../logs/{program}-{pid}.log", "retention_days": 30}}
 //
 // Levels are debug, info, warning or error. A pattern (spdlog syntax, optional)
-// defaults to "%Y-%m-%d %H:%M:%S.%e %z %l %n %v", %n being the program. The
+// defaults to "[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v", %n being the program. The
 // file path, relative to the program's bin/ or absolute, may use {program}
 // and {pid}; files are split by local day ("<stem>_YYYY-MM-DD.log") and those
 // older than retention_days are removed when the log opens. Without the file
@@ -60,42 +62,58 @@ std::filesystem::path
 file(const std::filesystem::path& installation, std::string_view program, std::uint64_t pid);
 
 bool enabled(Level level) noexcept;
-void write(Level level, std::string_view message) noexcept;
+void write(
+    Level level,
+    std::string_view message,
+    std::source_location location = std::source_location::current()) noexcept;
 // Records that could not be formatted or written in this process.
 std::uint64_t failures() noexcept;
 
 template <class... Args>
-void emit(Level level, fmt::format_string<Args...> format, Args&&... args) noexcept
+struct Format
+{
+    fmt::format_string<Args...> text;
+    std::source_location location;
+
+    template <class T>
+    consteval Format(const T& value, std::source_location source = std::source_location::current())
+        : text(value),
+          location(source)
+    {}
+};
+
+template <class... Args>
+void emit(Level level, Format<std::type_identity_t<Args>...> format, Args&&... args) noexcept
 {
     if (!enabled(level))
         return;
     try {
-        write(level, fmt::format(format, std::forward<Args>(args)...));
+        write(level, fmt::format(format.text, std::forward<Args>(args)...), format.location);
     } catch (...) {
-        write(Level::error, "a log record could not be formatted");
+        write(Level::error, "a log record could not be formatted", format.location);
     }
 }
 
 template <class... Args>
-void debug(fmt::format_string<Args...> format, Args&&... args) noexcept
+void debug(Format<std::type_identity_t<Args>...> format, Args&&... args) noexcept
 {
     emit(Level::debug, format, std::forward<Args>(args)...);
 }
 
 template <class... Args>
-void info(fmt::format_string<Args...> format, Args&&... args) noexcept
+void info(Format<std::type_identity_t<Args>...> format, Args&&... args) noexcept
 {
     emit(Level::info, format, std::forward<Args>(args)...);
 }
 
 template <class... Args>
-void warn(fmt::format_string<Args...> format, Args&&... args) noexcept
+void warn(Format<std::type_identity_t<Args>...> format, Args&&... args) noexcept
 {
     emit(Level::warning, format, std::forward<Args>(args)...);
 }
 
 template <class... Args>
-void error(fmt::format_string<Args...> format, Args&&... args) noexcept
+void error(Format<std::type_identity_t<Args>...> format, Args&&... args) noexcept
 {
     emit(Level::error, format, std::forward<Args>(args)...);
 }

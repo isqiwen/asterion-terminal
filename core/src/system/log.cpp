@@ -25,7 +25,7 @@ namespace asterion {
 namespace {
 
 namespace fs = std::filesystem;
-constexpr auto default_pattern = "%Y-%m-%d %H:%M:%S.%e %z %l %n %v";
+constexpr auto default_pattern = "[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v";
 
 // argv[0] as the program was started, before any symbolic link is resolved.
 std::string started_as()
@@ -268,7 +268,11 @@ std::shared_ptr<spdlog::logger> logger()
                 program_name(),
                 std::make_shared<spdlog::sinks::stderr_sink_mt>());
             current->set_pattern(default_pattern);
-            current->error("{}", error.what());
+            current->log(
+                spdlog::source_loc{__FILE__, __LINE__, __func__},
+                spdlog::level::err,
+                "{}",
+                error.what());
         }
     }
     return current;
@@ -313,10 +317,18 @@ bool enabled(Level level) noexcept
     }
 }
 
-void write(Level level, std::string_view message) noexcept
+void write(Level level, std::string_view message, std::source_location location) noexcept
 {
     try {
-        logger()->log(native(level), "{}", message);
+        logger()->log(
+            spdlog::source_loc{
+                location.file_name(),
+                static_cast<int>(location.line()),
+                location.function_name()
+            },
+            native(level),
+            "{}",
+            message);
     } catch (...) {
         ++failed;
     }

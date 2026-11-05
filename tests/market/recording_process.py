@@ -333,7 +333,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
     assert flooded.returncode != 0, flooded.returncode
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert " info asterion_market " in logs, logs  # one text line per record
+    assert "[info] [asterion_market] [" in logs, logs  # one text line per record
     assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
         assert secret not in logs and secret not in second.stderr.read()

@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 LEVELS = {"debug": 10, "info": 20, "warning": 30, "error": 40}
-DEFAULT_PATTERN = "%Y-%m-%d %H:%M:%S.%e %z %l %n %v"
+DEFAULT_PATTERN = "[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v"
 DAILY = re.compile(r".+_(\d{4})-(\d{2})-(\d{2})\.log")
 
 
@@ -70,13 +70,13 @@ def read_settings(file: Path):
     return outputs["console"], outputs["file"], path, days
 
 
-def render(pattern: str, level: str, program: str, message: str) -> str:
+def render(pattern: str, level: str, program: str, message: str, filename: str, line: int) -> str:
     now = datetime.datetime.now().astimezone()
     zone = now.strftime("%z")
     tokens = {"Y": now.strftime("%Y"), "m": now.strftime("%m"), "d": now.strftime("%d"),
               "H": now.strftime("%H"), "M": now.strftime("%M"), "S": now.strftime("%S"),
               "e": f"{now.microsecond // 1000:03d}", "z": f"{zone[:3]}:{zone[3:]}",
-              "l": level, "n": program, "v": message, "%": "%"}
+              "l": level, "n": program, "v": message, "s": Path(filename).name, "#": str(line), "%": "%"}
     return re.sub(r"%(.)", lambda match: tokens.get(match[1], match[0]), pattern)
 
 
@@ -98,16 +98,19 @@ class ProcessLog:
             remove_expired(self.base.parent, days)
 
     def write(self, level: str, module: str, event: str, **fields):
+        caller = sys._getframe(1)
+        filename, line = caller.f_code.co_filename, caller.f_lineno
+        del caller
         message = f"{module} {event}" + "".join(f" {key}={describe(value)}"
                                                 for key, value in fields.items())
         if self.console.enabled and LEVELS[level] >= self.console.threshold:
-            print(render(self.console.pattern, level, self.program, message), file=sys.stderr,
+            print(render(self.console.pattern, level, self.program, message, filename, line), file=sys.stderr,
                   flush=True)
         if self.base and LEVELS[level] >= self.file.threshold:
             day = datetime.date.today().isoformat()
             path = self.base.with_name(f"{self.base.stem}_{day}{self.base.suffix}")
             with path.open("a", encoding="utf-8") as stream:
-                stream.write(render(self.file.pattern, level, self.program, message) + "\n")
+                stream.write(render(self.file.pattern, level, self.program, message, filename, line) + "\n")
 
 
 def describe(value) -> str:

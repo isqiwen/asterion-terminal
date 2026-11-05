@@ -67,7 +67,7 @@ try:
     logs = root / "lab" / "logs"
     started = [line for path in logs.glob(f"asterion_lab-{first['pid']}_*.log")
                for line in path.read_text().splitlines()]
-    assert any(" asterion_lab lab-service service.started " in line for line in started), started
+    assert any("[asterion_lab] [__main__.py:" in line and " lab-service service.started " in line for line in started), started
 
     # A process that dies is started again.
     os.kill(first["pid"], signal.SIGKILL)
