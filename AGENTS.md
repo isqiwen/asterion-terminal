@@ -33,7 +33,7 @@ Write the smallest change that does the job, in plain code a reader understands 
 - **No new machinery unless the work package asks for it**: state machines, generation counters, permits, budgets, extra threads, queues, registries, caches or digests.
 - **Comments** only when the reason is not obvious, one line. Never restate the code, list what it does not do, or narrate history.
 - **Tests**: one test per behaviour a user would notice, at the lowest layer that shows it. No tests for guards, impossible states or private helpers.
-- **Docs** (Chinese, in `docs/`) say what the user can do and see, plus design decisions with a one-line reason. No thread counts, queue sizes or other details the code already shows; no "this does not prove or guarantee" disclaimers; say each thing once. Update a doc in the commit that changes its behaviour. Process notes go in commit messages, not docs.
+- **Docs** (Chinese): application docs live in `docs/<app>/`; shared docs stay in `docs/`, indexed by [docs/README.md](docs/README.md). They say what the user can do and see, plus design decisions with a one-line reason. No thread counts, queue sizes or other details the code already shows; no "this does not prove or guarantee" disclaimers; say each thing once. Update a doc in the commit that changes its behaviour. Process notes go in commit messages, not docs.
 - **Before finishing**, reread your diff and delete every line that neither changes behaviour nor helps a reader. A fix is usually a few lines; if yours is not, say why in the commit message.
 - Older code here is often more defensive than these rules. Do not copy that style. Simplify what you touch within the work package, but never weaken a rule in `docs/safety.md`.
 

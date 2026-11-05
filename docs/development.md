@@ -109,8 +109,8 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 | 发布包 | 构建 | 安装 |
 | --- | --- | --- |
-| Market：`asterion-market-setup.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash asterion-market-setup.sh`，见[录制与部署](recording.md) |
-| Trading：`asterion-trading-setup.sh` | 同上 | Trading 主机上 `sudo bash asterion-trading-setup.sh`，见[交易](trading.md#账户与部署) |
+| Market：`asterion-market-setup.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash asterion-market-setup.sh`，见[录制与部署](market/deployment.md) |
+| Trading：`asterion-trading-setup.sh` | 同上 | Trading 主机上 `sudo bash asterion-trading-setup.sh`，见[交易](trading/README.md#账户与部署) |
 | Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
 
 - Terminal 升级就是装新版本，卸载就是删除应用（Linux 用 `sudo apt remove asterion-terminal`）。用户资料在程序根目录，第一次启动时由 Terminal 创建，卸载时保留。

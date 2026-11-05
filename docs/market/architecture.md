@@ -1,6 +1,6 @@
 # Market 开发者导读
 
-先读[功能与协议](market.md)，再按本文的图找到代码入口；安装和数据目录见[录制与部署](recording.md)，产品边界见[总体架构](architecture.md)。图中的类名对应当前 C++ 实现，省略私有辅助类和字段。
+先读[功能与协议](README.md)，再按本文的图找到代码入口；安装和数据目录见[录制与部署](deployment.md)，产品边界见[总体架构](../architecture.md)。图中的类名对应当前 C++ 实现，省略私有辅助类和字段。
 
 ## 服务边界与数据流
 
@@ -203,7 +203,7 @@ sequenceDiagram
 
 录制自动发布复用上述采集路径：`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办并延后再试，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
 
-`research` 的选择规则只维护在[功能文档](market.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
+`research` 的选择规则只维护在[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
 
 ## 生命周期与错误边界
 
@@ -221,13 +221,13 @@ sequenceDiagram
 
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
-| 1 | [main.cpp](../apps/services/market/main.cpp)、[settings.cpp](../apps/services/market/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
-| 2 | [market.cpp](../apps/services/market/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
-| 3 | [live.cpp](../apps/services/market/live.cpp)、[ctp_feed.cpp](../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../apps/services/market/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
-| 4 | [recording.cpp](../apps/services/market/recording.cpp)、[intraday_bars.cpp](../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性、盘后合并的时机 |
-| 5 | [compaction.cpp](../apps/services/market/recording/compaction.cpp)、[recorded_publication.cpp](../apps/services/market/acquisition/recorded_publication.cpp) | 归档替换与发布恢复 |
-| 6 | [manager.cpp](../apps/services/market/acquisition/manager.cpp)、[source.hpp](../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
-| 7 | [store.cpp](../apps/services/market/warehouse/store.cpp)、[research.cpp](../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
-| 8 | [通信协议](protocol.md)、[market.proto](../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
+| 1 | [main.cpp](../../apps/services/market/main.cpp)、[settings.cpp](../../apps/services/market/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
+| 2 | [market.cpp](../../apps/services/market/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
+| 3 | [live.cpp](../../apps/services/market/live.cpp)、[ctp_feed.cpp](../../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../../apps/services/market/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
+| 4 | [recording.cpp](../../apps/services/market/recording.cpp)、[intraday_bars.cpp](../../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性、盘后合并的时机 |
+| 5 | [compaction.cpp](../../apps/services/market/recording/compaction.cpp)、[recorded_publication.cpp](../../apps/services/market/acquisition/recorded_publication.cpp) | 归档替换与发布恢复 |
+| 6 | [manager.cpp](../../apps/services/market/acquisition/manager.cpp)、[source.hpp](../../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
+| 7 | [store.cpp](../../apps/services/market/warehouse/store.cpp)、[research.cpp](../../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
+| 8 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
 
-改动后的行为验证从 [tests/market](../tests/market) 对应测试开始；跨客户端与重启行为看 [concurrency_process.py](../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../tests/acceptance/ctp_market.py)。协议或上述所有权发生变化时，同步更新对应图与说明。
+改动后的行为验证从 [tests/market](../../tests/market) 对应测试开始；跨客户端与重启行为看 [concurrency_process.py](../../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../../tests/acceptance/ctp_market.py)。协议或上述所有权发生变化时，同步更新对应图与说明。

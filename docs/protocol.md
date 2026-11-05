@@ -92,7 +92,7 @@ message Response {
 
 ## 7. Market
 
-定义在 [market.proto](../protocol/proto/asterion/market.proto)。行为说明见 [Market](market.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
+定义在 [market.proto](../protocol/proto/asterion/market.proto)。行为说明见 [Market](market/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
@@ -137,7 +137,7 @@ sequenceDiagram
 
 ## 8. Lab
 
-定义在 [lab.proto](../protocol/proto/asterion/lab.proto)。行为说明见 [Lab](lab.md)。Lab 只接受本机 Terminal 的连接。
+定义在 [lab.proto](../protocol/proto/asterion/lab.proto)。行为说明见 [Lab](lab/README.md)。Lab 只接受本机 Terminal 的连接。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
@@ -161,7 +161,7 @@ sequenceDiagram
 
 ## 9. Trading
 
-定义在 [trading.proto](../protocol/proto/asterion/trading.proto)。行为说明见 [交易](trading.md)，交易规则见 [交易安全](safety.md)。一个 Trading 进程只管一个 CTP 账户。
+定义在 [trading.proto](../protocol/proto/asterion/trading.proto)。行为说明见 [交易](trading/README.md)，交易规则见 [交易安全](safety.md)。一个 Trading 进程只管一个 CTP 账户。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |

@@ -1,8 +1,8 @@
 # Market 行情与数据服务
 
-`asterion_market` 是 Linux 上的一个 C++ 服务，负责 CTP 实时行情、全市场录制、历史数据采集和带版本的正式仓库。多个 Terminal 和 Lab 共享它的数据。安装、配置和录制文件见[Market 录制与部署](recording.md)。
+`asterion_market` 是 Linux 上的一个 C++ 服务，负责 CTP 实时行情、全市场录制、历史数据采集和带版本的正式仓库。多个 Terminal 和 Lab 共享它的数据。安装、配置和录制文件见[Market 录制与部署](deployment.md)。
 
-开发者从[Market 架构与通信图解](market-design.md)开始：模块边界、核心类关系、实时通信、采集发布和代码阅读路线。
+开发者从[Market 架构与通信图解](architecture.md)开始：模块边界、核心类关系、实时通信、采集发布和代码阅读路线。
 
 ## 实时行情
 
@@ -14,11 +14,11 @@
 
 ## 仓库与固定版本
 
-`apps/services/market/warehouse/` 保存六种表：日线、交易日历、合约、分钟线、结算参数和观测段。价格和数量为 `DECIMAL(28,6)`，写入拒绝需要舍入的数值。Tushare 仓库在数据目录（见[配置](recording.md#配置)）的 `warehouse/`，其他来源在 `sources/<来源>/warehouse/`，来源之间不混用。
+`apps/services/market/warehouse/` 保存六种表：日线、交易日历、合约、分钟线、结算参数和观测段。价格和数量为 `DECIMAL(28,6)`，写入拒绝需要舍入的数值。Tushare 仓库在数据目录（见[配置](deployment.md#配置)）的 `warehouse/`，其他来源在 `sources/<来源>/warehouse/`，来源之间不混用。
 
 - **研究数据集**（来源 `research`）：研究只读这一份。每当有来源提交新版本以及启动时，Market 按规则重新合成：合约表、交易日历、日线来自 Tushare；结算参数来自交易所；每个合约每个交易日的分钟线（连同观测段）Tushare 有就用 Tushare，没有才用自录。每个分区整块来自一个来源，清单记录来源（`source`）；文件以硬链接引用来源的文件，不另占空间。来源没有变化时不产生新版本。理由：Tushare 历史完整、各交易所口径一致，自录只补 Tushare 没有的日子。
 - 写入先完成分区文件，再发布不可变的版本清单，最后切换 `current`。旧版本的文件不改不删，所以读取一个固定版本不受之后的采集影响。版本清单只列分片（每个表、交易所、月份一片，`shards/<sha256>.json`，按内容命名），一次提交只写它改动的月份，清单不随历史增长。
-- 只读请求见[通信协议](protocol.md#7-market)：版本、文件、摘要、覆盖和两个来源的分钟对比。
+- 只读请求见[通信协议](../protocol.md#7-market)：版本、文件、摘要、覆盖和两个来源的分钟对比。
 - 第一次查询可以不指定版本，之后的分页和下载必须带回同一版本；指定的版本不存在就失败，不改读最新版本。
 - 分区记录的日期只说明那天采集过，不证明盘中数据完整。
 
@@ -31,7 +31,7 @@
 | `tushare` | 合约表、交易日历、日线、单合约 1 分钟线（[`fut_basic`](https://tushare.pro/document/2?doc_id=135)、[`fut_trade_cal`](https://tushare.pro/document/2?doc_id=467)、[`fut_daily`](https://tushare.pro/document/2?doc_id=138)、[`ft_mins`](https://tushare.pro/document/2?doc_id=313)） |
 | `shfe`、`ine`、`czce` | 各自交易所的日线和结算参数 |
 | `dce`、`cffex`、`gfex` | 各自交易所的日线 |
-| `recorder` | 本机录制的分钟线发布为固定研究版本，见[录制](recording.md#发布研究版本) |
+| `recorder` | 本机录制的分钟线发布为固定研究版本，见[录制](deployment.md#发布研究版本) |
 
 - 供应商和交易所只采到昨天：当天的数据要等交易日结束才完整，存进去就会被当成整天，之后补采也会跳过。只有 `recorder` 能发布当天，它把没观测到的部分标成 `partial`。
 - 一个来源的缺口不用其他来源填补。数字保留原始十进制文本；没有成交时开高低保持缺失；接口返回行数达到上限时拒绝入库，避免截断。
@@ -47,12 +47,12 @@
 - Terminal 在 `terminal/data/market.json` 保存地址、服务端指纹和自选（最多 50 个合约），私钥在 `terminal/data/tls/client.key`。修改地址或自选不影响服务和其他客户端。
 - 数据页直接读取 Market 的来源、覆盖和所选来源的采集任务（新的在前，先读一页，需要时再往前翻），每 3 秒刷新；只读客户端也能看到其他客户端提交的任务。读取、采集和取消都不自动重发。
 - 数据页的“录制监控”显示交易日、订阅数、写入计数、丢失行数、磁盘余量和错误；连不上时显示未知。
-- Lab 用同一份客户端证书读取固定版本，见 [Lab](lab.md#固定数据版本)。
+- Lab 用同一份客户端证书读取固定版本，见 [Lab](../lab/README.md#固定数据版本)。
 - 分时图按 `apps/clients/terminal/config/futures-sessions.json` 的交易时段排横轴；没有列出的品种只按已观测的分钟排列。
 
 ## 从协议开始接入
 
-消息格式、命名规则和全部操作见[通信协议](protocol.md)。
+消息格式、命名规则和全部操作见[通信协议](../protocol.md)。
 
 - 看盘用 `stream_quotes`：首帧 `full` 替换全部内容，之后的 `changed` 按合约替换整行，带目录时替换目录；断线后重新开流。一次性读取用 `get_board`。
 - 启动采集用 `start_acquisition`，记住自己生成的任务 ID；返回只表示已接纳，查询 `get_acquisition_task` 才能知道结果。回复丢失时先按 ID 查询，重复提交同一 ID 返回冲突。

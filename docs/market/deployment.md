@@ -57,7 +57,7 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
         └── gfex/warehouse/     # 各交易所独立的正式仓库
 ```
 
-`recordings/` 是录制归档，`warehouse/` 是已发布的固定版本；自录数据如何进入 `recorder` 和 `research` 见[发布研究版本](#发布研究版本)。每份正式仓库包含 Parquet 分区文件、`versions/` 版本清单、`shards/` 清单分片和记录当前版本标识的 `current` 文件，版本规则见 [Market 仓库与固定版本](market.md#仓库与固定版本)。
+`recordings/` 是录制归档，`warehouse/` 是已发布的固定版本；自录数据如何进入 `recorder` 和 `research` 见[发布研究版本](#发布研究版本)。每份正式仓库包含 Parquet 分区文件、`versions/` 版本清单、`shards/` 清单分片和记录当前版本标识的 `current` 文件，版本规则见 [Market 仓库与固定版本](README.md#仓库与固定版本)。
 
 安装目录之外的文件：
 
@@ -97,7 +97,7 @@ CTP 密码、授权码和 Tushare token 由 `systemd-creds` 加密保存，不�
 ## 运行
 
 - systemd 直接启动 `/opt/asterion/market/bin/asterion_market`，程序自动定位旁边的配置和库，不需要传入 `--installation`。
-- 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹与权限配置见 [Terminal 和 Lab 的连接](market.md#terminal-和-lab-的连接)。
+- 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹与权限配置见 [Terminal 和 Lab 的连接](README.md#terminal-和-lab-的连接)。
 - 启动后立即登录 CTP，不等客户端。行情登录被拒时每分钟重试一次（只涉及行情，不涉及交易）。
 - 收到 SIGTERM 时写完缓冲的报价和分钟线再退出（最多 20 秒）。原始行情队列写满时进程退出，由 systemd 重启。
 
@@ -122,7 +122,7 @@ recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
 
 ## 读取录制
 
-Market 的 TLS 端口上（见[通信协议](protocol.md#7-market)）：
+Market 的 TLS 端口上（见[通信协议](../protocol.md#7-market)）：
 
 - `get_status` 的 `recording`：交易日、写入和丢失计数、磁盘余量、合并状态。
 - `list_recorded_days`：一段日期内每个交易日的观测段，直接读录制目录，包括还没发布的当天。
@@ -131,7 +131,7 @@ Market 的 TLS 端口上（见[通信协议](protocol.md#7-market)）：
 
 ## 发布研究版本
 
-每个交易日合并完成后，Market 自动把当天全部合约的录制分钟线和对应观测段提交为 `recorder` 来源的新版本，再合成研究数据集（见 [Market](market.md#仓库与固定版本)）：Tushare 没有的合约交易日就用这些录制数据。待发布的交易日记在 `recordings/unpublished.json`，发布成功后才移除，所以重启后会接着发布；采集正忙时每分钟重试，发布失败时每小时重试，原因写进主机日志。收盘后迟到的报价再次合并时，这一天会重新发布。
+每个交易日合并完成后，Market 自动把当天全部合约的录制分钟线和对应观测段提交为 `recorder` 来源的新版本，再合成研究数据集（见 [Market](README.md#仓库与固定版本)）：Tushare 没有的合约交易日就用这些录制数据。待发布的交易日记在 `recordings/unpublished.json`，发布成功后才移除，所以重启后会接着发布；采集正忙时每分钟重试，发布失败时每小时重试，原因写进主机日志。收盘后迟到的报价再次合并时，这一天会重新发布。
 
 - 也可以在 Terminal「数据 → 数据覆盖」选择「自录」，按合约和交易日范围手动发布或重新发布（需要 `manage` 权限）。
 - 柜台给出的交易日、`partial` 标记和缺失字段原样保留，不补缺口。

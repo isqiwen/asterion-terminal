@@ -56,7 +56,7 @@
 | 30 | M3.34 | Market 开发者导读 | 完成：架构图、核心 UML 类图、实时与采集通信时序、生命周期和代码阅读路线 | M3.33 |
 | 31 | M3.35 | Market 通信协议自解释 | 完成：动词式请求、显式完整快照/增量、任务枚举与字段契约已贯通 Market、Terminal、Lab；真实联调纳入 M3.6 | M3.34 |
 | 32 | M3.36 | 通信协议重新设计 | 完成：[通信协议](protocol.md) | M3.35 |
-| 33 | M3.37 | Market 结构简化 | 完成：一张调用路径表；行情线程按固定顺序走一轮（`Live`、`Recording`）；行情回调单队列；见 [Market 开发者导读](market-design.md) | M3.36 |
+| 33 | M3.37 | Market 结构简化 | 完成：一张调用路径表；行情线程按固定顺序走一轮（`Live`、`Recording`）；行情回调单队列；见 [Market 开发者导读](market/architecture.md) | M3.36 |
 | 34 | M3.38 | VS Code 导航与项目词典 | 完成：仓库级 clangd 编译数据库配置、索引刷新任务和项目拼写词典；语言服务器定义跳转验证通过 | |
 | 35 | M3.39 | 服务自动定位安装目录 | 完成：Market 移除 `--installation`，与 Trading 共用启动路径定位规则；安装脚本、隔离测试和 VS Code 调试入口已同步 | |
 | 36 | M3.40 | 配置归属子项目 | 完成：配置移入各子项目；日志默认文件含 pattern 并用于安装；部署生成的配置另留展示示例，示例不打包 | |
@@ -70,11 +70,12 @@
 | 44 | M3.48 | CI 格式与桌面验收修复 | 完成：桌面验收按现有市场分类、研究策略列表和设置页操作；协议代码通过格式检查 | |
 | 45 | M3.49 | 行情搜索框位置与启动过渡 | 完成：合约搜索移到视图标签行右端；启动画面覆盖在已画好的工作台上淡出，工作台不再挂载两次 | |
 | 46 | M3.50 | Market 部署目录说明 | 完成：说明程序、配置、数据、凭据和 systemd 的部署位置及运行方式 | |
-| 47 | M3.6 | 两周仿真浸泡 | 待做（使用者） | M3.3、M3.9、M3.10、M3.19 |
-| 48 | M4.0a | 研究与实盘的数据口径 | 完成：主力连续按当时复权，追加之后的数据不改变之前的 K 线；分钟回测排除含不完整分钟的 K 线并在结果页列出；Trading 日线与回测同样标在交易日 15:00 | |
-| 49 | M4.0b | 实盘换月 | 待做 | M3.6、M4.0a |
-| 50 | M4.1–M4.4 | 多因子组合 | 未开始 | M4.0b |
-| 51 | M5 | 小资金实盘 | 未开始 | M4.4 |
+| 47 | M3.52 | 文档按应用归档 | 完成：Market、Trading、Lab、Terminal 分目录，统一导航并更新相对链接与代码引用 | |
+| 48 | M3.6 | 两周仿真浸泡 | 待做（使用者） | M3.3、M3.9、M3.10、M3.19 |
+| 49 | M4.0a | 研究与实盘的数据口径 | 完成：主力连续按当时复权，追加之后的数据不改变之前的 K 线；分钟回测排除含不完整分钟的 K 线并在结果页列出；Trading 日线与回测同样标在交易日 15:00 | |
+| 50 | M4.0b | 实盘换月 | 待做 | M3.6、M4.0a |
+| 51 | M4.1–M4.4 | 多因子组合 | 未开始 | M4.0b |
+| 52 | M5 | 小资金实盘 | 未开始 | M4.4 |
 
 ## 第 3 阶段：让策略在仿真柜台上稳定运行
 
@@ -121,7 +122,7 @@
 4. 热重启：启动实例时可以指定一个已结束的旧实例，要求包名、版本、合约、周期和参数都相同。新实例先把旧实例记录里的 K 线按原顺序交给策略（只更新状态，不执行目标），然后接实时行情。新实例用新的 ID，它的记录也包含这些重放的 K 线，所以可以被再次热重启。授权规则不变：Trading 重启后要重新授权。
 5. 以下情况仍然结束实例：策略代码异常、超时或返回无效结果；策略子进程退出；柜台拒绝策略委托；交易记录写入失败；使用者停止。
 
-改动范围：`apps/services/trading/` 下的 `strategy_host.cpp`、`strategy_bars.cpp`、`strategy_execution.cpp`、`python/strategy_runner.py`；`protocol/proto/asterion/strategy.proto`（启动参数加旧实例 ID）；交易页 `features/trading/StrategyInstance.tsx`（“从上次记录恢复”）；`docs/trading.md`、`docs/architecture.md`、`docs/product.md` 中关于现场预热的描述。
+改动范围：`apps/services/trading/` 下的 `strategy_host.cpp`、`strategy_bars.cpp`、`strategy_execution.cpp`、`python/strategy_runner.py`；`protocol/proto/asterion/strategy.proto`（启动参数加旧实例 ID）；交易页 `features/trading/StrategyInstance.tsx`（“从上次记录恢复”）；`docs/trading/README.md`、`docs/architecture.md`、`docs/product.md` 中关于现场预热的描述。
 
 完成标准：
 - 用测试 SDK 的隔离测试覆盖：断线重连后实例继续，K 线不重复、不倒退；批次超时后实例继续，下一批正常下单；未授权时目标不执行，实例继续；Trading 重启后热重启，之后同样的 K 线得到与不重启时相同的目标。
@@ -181,8 +182,8 @@
 目标：文档只写使用者能做什么、看到什么，以及关键设计取舍（附一句理由）。删掉实现细节（线程数、队列容量、代次、许可、额度）、“不代表 / 不能证明 / 仍待验收”之类的重复声明和过时内容。
 
 改动：
-- 行数目标：`trading.md` ≤ 150，`development.md` ≤ 150，`lab.md` ≤ 120，`architecture.md` ≤ 100，`market.md` ≤ 100，`recording.md` ≤ 80，`services.md` ≤ 80，`terminal.md` ≤ 80，`status.md` ≤ 40。
-- 修正已知过时内容：`services.md` 的“当前目标不产生订单”；`terminal.md` 的 Tushare Token 设置项；`development.md` 说 Secret Service 用来记住行情与数据源凭据；`dominant.py`、`backtest.py` 注释中引用的已删除 Data 服务。
+- 行数目标：`trading/README.md` ≤ 150，`development.md` ≤ 150，`lab/README.md` ≤ 120，`architecture.md` ≤ 100，`market/README.md` ≤ 100，`market/deployment.md` ≤ 80，`services.md` ≤ 80，`terminal/README.md` ≤ 80，`status.md` ≤ 40。
+- 修正已知过时内容：`services.md` 的“当前目标不产生订单”；`terminal/README.md` 的 Tushare Token 设置项；`development.md` 说 Secret Service 用来记住行情与数据源凭据；`dominant.py`、`backtest.py` 注释中引用的已删除 Data 服务。
 - 删掉没有调用方的旧代码。先用 `git grep` 确认，例如为已删除的 Data 服务保留的 `DataCredentials`。
 
 完成标准：
@@ -299,7 +300,7 @@
 
 问题：录制监控只有本次启动的计数；每个交易日的观测区间、断线和丢失行已存在 `observations` 表里却不显示。合约表、交易日历和结算参数只能看到行数。
 
-改动：数据页按交易日列出自录的观测区间、中断原因和缺口；可以浏览所选来源的合约表、交易日历和结算参数（按交易所和日期筛选，分页）。[录制](recording.md)的“读取录制”一节改为现有调用（`get_status`、`get_minutes`、按分区读取 `recorder` 版本），去掉已不存在的 `recording_status`、`recorded_days`、`recorded_minutes`。
+改动：数据页按交易日列出自录的观测区间、中断原因和缺口；可以浏览所选来源的合约表、交易日历和结算参数（按交易所和日期筛选，分页）。[录制](market/deployment.md)的“读取录制”一节改为现有调用（`get_status`、`get_minutes`、按分区读取 `recorder` 版本），去掉已不存在的 `recording_status`、`recorded_days`、`recorded_minutes`。
 
 完成标准：组件测试覆盖“一个交易日的两段观测和其间的缺口”和“合约表按交易所筛选”。
 
