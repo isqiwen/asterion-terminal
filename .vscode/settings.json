@@ -1,7 +1,7 @@
 {
   // C++: clangd is the language server and reads the compile database that the
   // desktop build writes; the C/C++ extension is only the debugger.
-  "clangd.arguments": ["--compile-commands-dir=build/Debug", "--header-insertion=never"],
+  "clangd.arguments": ["--background-index", "--header-insertion=never"],
   "C_Cpp.intelliSenseEngine": "disabled",
   // CI checks C++ formatting with a pinned clang-format; an editor's own
   // version can format differently. `pnpm run format` is the reference.

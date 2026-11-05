@@ -20,6 +20,14 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 
 拉取更新后：Conan 报 `ctp/…` 不在缓存时重新运行 `python3 scripts/prepare_ctp.py`；前端依赖变化后 `pnpm install --frozen-lockfile`；Lab 的 Python 代码、Protobuf 或回测引擎变化后重新运行 `pnpm desktop`。Conan 依赖变化（例如报 pybind11 找不到）时，按 `.github/workflows/ci.yml` 的 `conan install` 命令重装。
 
+### VS Code
+
+打开仓库根目录，安装工作区推荐扩展。C++ 跳转和补全由 clangd 提供，C/C++ 扩展用于调试；系统需要可执行的 `clangd`。
+
+首次运行 `pnpm desktop:check` 生成编译数据库和 Protobuf 头文件。新增 C++ 源文件或修改 CMake 后，运行任务 `C++: refresh code index`。`.clangd` 从仓库根目录定位 `build/Debug`，使头文件和源文件使用实际构建参数。没有跳转时，在命令面板运行 `clangd: Restart language server`；找不到该命令时，先启用 clangd 扩展并运行 `Developer: Reload Window`。
+
+Code Spell Checker 使用根目录的 `cspell.json`；项目名、交易所和供应商缩写放在 `words` 中，生成代码和依赖不做拼写检查。
+
 ### Python 运行时
 
 - Terminal 用一份可重定位的 CPython 3.12，锁定的依赖直接装进它的 `site-packages`，不建虚拟环境，也不需要系统 Python。

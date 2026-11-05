@@ -3,6 +3,7 @@
     "llvm-vs-code-extensions.vscode-clangd",
     "ms-vscode.cpptools",
     "ms-vscode.cmake-tools",
+    "streetsidesoftware.code-spell-checker",
     "esbenp.prettier-vscode",
     "dbaeumer.vscode-eslint",
     "editorconfig.editorconfig"

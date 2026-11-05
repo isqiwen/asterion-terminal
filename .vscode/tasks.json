@@ -3,6 +3,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "C++: refresh code index",
+      "detail": "Refresh compile_commands.json after changing CMake targets or source files",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--preset", "conan-debug", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
       "label": "Prepare dependencies",
       "detail": "First on a new machine: Conan profile, CTP SDK, pnpm packages, Electron runtime",
       "type": "shell",
