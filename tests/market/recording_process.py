@@ -188,7 +188,7 @@ def install(root):
     install_program(market, root / "bin" / executable)
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
-    shutil.copy2(Path(__file__).parents[2] / "config/logging.json", root / "config/logging.json")
+    shutil.copy2(Path(__file__).parents[2] / "apps/services/market/config/logging.json", root / "config/logging.json")
 
 
 def start(root, port, user="fixture"):

@@ -46,6 +46,8 @@ def release(folder, version):
     shutil.copy2(setup, top / 'bin/setup.sh')
     for library in ('ctp-md.so', 'ctp-trader.so'):
         (top / 'lib' / library).write_text(version)
+    (top / 'config').mkdir()
+    shutil.copy2(setup.parent.parent / 'config/logging.json', top / 'config/logging.json')
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-market')
@@ -106,7 +108,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_market').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
-    assert json.loads((host.root / 'config/logging.json').read_text())['file']['retention_days'] == 30
+    assert (host.root / 'config/logging.json').read_bytes() == (setup.parent.parent / 'config/logging.json').read_bytes()
     assert host.settings() == {**shipped, 'port': 7451, 'data': str(host.root / 'data'),
                                'recording': {'tick_days': 30},
                                'counter': {**shipped['counter'], 'user': '273005'}}

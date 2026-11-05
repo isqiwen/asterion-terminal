@@ -44,23 +44,6 @@ declare -Ar DEFAULTS=(
     [market_front]=''
 )
 
-logging_settings() {
-    cat <<'JSON'
-{
-  "console": {
-    "enabled": false,
-    "level": "info"
-  },
-  "file": {
-    "enabled": true,
-    "level": "info",
-    "path": "../logs/{program}.log",
-    "retention_days": 30
-  }
-}
-JSON
-}
-
 NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
 
 fail() {
@@ -365,7 +348,7 @@ install_once() {
     if [[ ! -f $ROOT/config/logging.json ]]; then
         local logging
         stage logging "$ROOT/config/logging.json"
-        logging_settings >"$logging"
+        cat "$1/config/logging.json" >"$logging"
         chown "$ACCOUNT:" "$logging"
         mv -f "$logging" "$ROOT/config/logging.json"
     fi

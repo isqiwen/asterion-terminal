@@ -93,7 +93,7 @@ struct LabSupervisor::Impl
         for (const auto* part : {"config", "logs", "data"})
             create_directories_durably(folder / part);
         if (const auto logging = folder / "config" / "logging.json"; !fs::exists(logging)) {
-            const auto source = configuration_templates() / "logging.json";
+            const auto source = configuration_templates() / "lab-logging.json";
             std::ifstream input(source, std::ios::binary);
             if (!input)
                 throw std::runtime_error("cannot read configuration default: " + source.string());

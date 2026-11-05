@@ -20,7 +20,7 @@ asterion_target_defaults(asterion_trading)
 add_subdirectory(ctp)
 
 # The release for a trading host: one self-extracting script, setup.sh with
-# the installation (bin/ lib/ runtime/) appended as a tar.gz after a line
+# the installation (bin/ lib/ runtime/ config/) appended as a tar.gz after a line
 # "__ARCHIVE__". Built only when asked for: cmake --build … --target asterion_trading_setup
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(runtime ${CMAKE_CURRENT_BINARY_DIR}/runtime/python)
@@ -37,7 +37,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(layout ${stage}/asterion-trading)
   add_custom_command(OUTPUT ${release}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${stage}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/bin ${layout}/lib
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/bin ${layout}/lib ${layout}/config
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json ${layout}/config/
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_trading> ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${layout}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ctp-trader.so ${CMAKE_BINARY_DIR}/ctp-md.so ${layout}/lib/
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/lib/strategy/asterion
@@ -47,7 +48,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E chdir ${stage} ${CMAKE_COMMAND} -E tar czf payload.tar.gz asterion-trading
     COMMAND sh -c "{ cat \"$1\"; echo __ARCHIVE__; cat \"$2\"; } > \"$3\" && chmod 755 \"$3\"" setup
       ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${stage}/payload.tar.gz ${release}
-    DEPENDS asterion_trading asterion_python_protocol ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json asterion_trading asterion_python_protocol ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh
       ${runtime_ready} ${runtime}/bin/python3
       ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py
       ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py

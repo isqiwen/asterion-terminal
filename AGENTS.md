@@ -19,7 +19,7 @@ Rules for anyone, human or AI, who changes this repository. Keep this file short
 - **Terminal** (`apps/clients/terminal/`): Electron + React UI (`src/`, `features/`) with a C++ native layer (`native/`). It starts only Lab. Pages build and read the generated Protobuf types; the native layer only holds the TLS connections and relays them.
 - `core/`: `asterion_base` → `asterion_system` → `asterion_futures`; dependencies point down. Shared service code lives in `apps/services/common/`; the strategy API is `apps/services/common/python/asterion_strategy.py`.
 - IPC is Protobuf from `protocol/proto/`: Unix sockets locally, mutual TLS with pinned certificates to Market and Trading.
-- Services only read configuration; missing or invalid configuration fails with its path. Defaults live in `config/` and in each service's setup script. Credentials live only in systemd encrypted credentials on the service host.
+- Services only read configuration; missing or invalid configuration fails with its path. Defaults live in each subproject's `config/`. Settings generated during deployment or by the UI have `*.example.json` files there; examples are not installed. Credentials live only in systemd encrypted credentials on the service host.
 
 Details: [docs/architecture.md](docs/architecture.md).
 

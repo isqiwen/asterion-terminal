@@ -32,7 +32,7 @@ def market_host(build, root, *, vendor=False, exchanges=(), user="steady"):
     for installed, fixture, real in [('ctp-md', 'libasterion_test_ctp', 'ctp-md'),
                                      ('ctp-trader', 'libasterion_test_ctp_trader', 'ctp-trader')]:
         shutil.copy2(build / ((real if vendor else fixture) + suffix), root / 'lib' / (installed+'.so'))
-    shutil.copy2(Path(__file__).parents[2] / 'config/logging.json', root/'config/logging.json')
+    shutil.copy2(Path(__file__).parents[2] / 'apps/services/market/config/logging.json', root/'config/logging.json')
     with socket.socket() as probe:
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
     tls = market_tls.prepare(root)

@@ -52,24 +52,6 @@ declare -Ar DEFAULTS=(
     [counter.app_id]='simnow_client_test'
 )
 
-logging_settings() {
-    cat <<'JSON'
-{
-  "console": {
-    "enabled": false,
-    "level": "info"
-  },
-  "file": {
-    "enabled": true,
-    "level": "info",
-    "path": "../logs/{program}.log",
-    "retention_days": 30
-  }
-}
-JSON
-}
-
-
 fail() {
     echo "setup: $*" >&2
     exit 1
@@ -339,7 +321,7 @@ install_once() {
     if [[ ! -f $ROOT/config/logging.json ]]; then
         local logging
         stage logging "$ROOT/config/logging.json"
-        logging_settings >"$logging"
+        cat "$1/config/logging.json" >"$logging"
         chown "$ACCOUNT:" "$logging"
         mv -f "$logging" "$ROOT/config/logging.json"
     fi

@@ -1,0 +1,14 @@
+{
+  "console": {
+    "enabled": false,
+    "level": "info",
+    "pattern": "%Y-%m-%d %H:%M:%S.%e %z %l %n %v"
+  },
+  "file": {
+    "enabled": true,
+    "level": "info",
+    "path": "../logs/{program}.log",
+    "retention_days": 30,
+    "pattern": "%Y-%m-%d %H:%M:%S.%e %z %l %n %v"
+  }
+}

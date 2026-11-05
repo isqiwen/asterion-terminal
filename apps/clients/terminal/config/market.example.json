@@ -1,0 +1,11 @@
+{
+  "host": "market.example.invalid",
+  "port": 7450,
+  "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "instruments": [
+    {
+      "exchange": "SHFE",
+      "symbol": "rb2701"
+    }
+  ]
+}

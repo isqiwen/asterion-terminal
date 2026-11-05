@@ -1,3 +1,5 @@
+configure_file(config/logging.json ${CMAKE_BINARY_DIR}/config/logging.json COPYONLY)
+
 # Saved Market and Trading connections and the strategy repository setting.
 add_library(asterion_terminal_settings STATIC
   native/trading_connections.cpp

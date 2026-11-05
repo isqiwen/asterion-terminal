@@ -1,6 +1,6 @@
 import type { IntradaySlot } from "@asterion/client-ui/IntradayChart";
 import type { MinuteBar, Minutes } from "../../src/generated/asterion/market_pb";
-import sessionFile from "../../../../../config/futures-sessions.json";
+import sessionFile from "../../config/futures-sessions.json";
 
 // Display layout only: the reviewed session reference places observed minutes
 // on the trading-day axis. Unknown products fall back to observed minutes.

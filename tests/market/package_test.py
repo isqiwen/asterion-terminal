@@ -98,7 +98,7 @@ def main():
             data='/market/data', recording=dict(tick_days=30), clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
             counter=dict(market_front='tcp://127.0.0.1:1', trade_front='tcp://127.0.0.1:1',
                          broker='fixture', user='fixture', app_id='fixture'))))
-        shutil.copy2(Path(__file__).parents[2] / 'config/logging.json', root / 'config/logging.json')
+        shutil.copy2(Path(__file__).parents[2] / 'apps/services/market/config/logging.json', root / 'config/logging.json')
         for name in ('password', 'auth_code'):
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):

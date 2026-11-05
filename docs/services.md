@@ -47,14 +47,9 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 
 每个程序的日志在自己安装目录的 `logs/` 下，按日分文件，默认保留 30 天。日志配置是各自的 `config/logging.json`：
 
-```json
-{
-  "console": {"enabled": false, "level": "info"},
-  "file": {"enabled": true, "level": "info", "path": "../logs/{program}-{pid}.log", "retention_days": 30}
-}
-```
+各程序的完整默认文件见[配置文件](configuration.md)。
 
-- `level` 可为 debug、info、warning、error；`file.path` 相对 `bin/`，可用 `{program}` 和 `{pid}`；`pattern` 是 spdlog 格式。
+- `level` 可为 debug、info、warning、error；`file.path` 相对 `bin/`，可用 `{program}` 和 `{pid}`；控制台和文件可分别设置 `pattern`。默认 `%Y-%m-%d %H:%M:%S.%e %z %l %n %v` 依次输出日期、时间（毫秒）、时区、级别、程序名和消息；C++ 使用 spdlog 格式，Lab 支持这里列出的格式符。
 - 配置有缺键、多余键或无效值时程序启动失败并报告文件和键；没有这个文件时只写到标准错误。修改后重启生效。
 - 日志是自由文本，密码、令牌、授权码和凭据不得写进日志。
 - 桌面可以从启动错误区或“连接详情”打开本机根目录；交易和录制主机的日志留在各自机器上。

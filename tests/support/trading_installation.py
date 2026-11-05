@@ -51,7 +51,7 @@ class Installation:
             os.symlink(os.path.abspath(target), self.root / path)
         link(programs.trading, "bin/asterion_trading")
         link(programs.ctp_trader, "lib/ctp-trader.so")
-        shutil.copy2(REPOSITORY / "config/logging.json", self.root / "config/logging.json")
+        shutil.copy2(REPOSITORY / "apps/services/trading/config/logging.json", self.root / "config/logging.json")
         self.keys = self.root / "test-identities"
         self.keys.mkdir()
         found = identities(os.path.abspath(programs.certificates), self.keys, "server", "terminal", "stranger")

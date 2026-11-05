@@ -42,6 +42,10 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 - Lab 以 `python3 -I -B -m asterion_lab` 运行，不读用户的 Python 环境。
 - Trading 的策略运行时是另一份：构建时按 `apps/services/trading/uv.lock` 准备，随 Trading 安装包发布。
 
+## 配置
+
+各程序的默认配置和展示示例放在所属子项目的 `config/`；文件用途、运行路径和参数见[配置文件](configuration.md)。
+
 ## 构建
 
 | 命令 | 说明 |

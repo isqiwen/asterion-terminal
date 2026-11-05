@@ -8,9 +8,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(
 endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-# Ship the maintained defaults verbatim; services never create their own policy.
-configure_file(config/logging.json config/logging.json COPYONLY)
-
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(CTest)
