@@ -61,6 +61,7 @@ targets = size_targets(equity, weights);
 - CMake targets live in their module's `CMakeLists.txt`; names use underscores. Dependencies are locked with Conan and pnpm.
 - Format with `pnpm run format` (clang-format 23.1.1 and Prettier).
 - UI text goes through `src/i18n`; Chinese and English change together.
+- Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
 - Market and historical data come from real providers; fixtures are only for tests.
 
 ## Workflow
