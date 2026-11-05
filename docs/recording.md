@@ -4,7 +4,7 @@
 
 ## 安装
 
-Market 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/market/`。发布物是一个自解压脚本 `asterion-market-setup.sh`（CMake 目标 `asterion_market_setup`；本地用 `scripts/services/build_linux_services.sh` 构建，输出到 `build/linux-bundles/`），只含服务程序、安装脚本和两个 CTP 库，主机不需要 Python。
+Market 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/market/`。发布物是一个自解压脚本 `asterion-market-setup.sh`（CMake 目标 `asterion_market_setup`；本地用 `scripts/services/build_linux_services.sh` 构建，输出到 `build/linux-bundles/`），包含服务程序、安装脚本、默认日志配置和两个 CTP 库；服务运行不依赖 Python，安装脚本使用主机的 Python 3 处理配置。
 
 ```sh
 sudo bash asterion-market-setup.sh         # 第一次：安装并配置；以后：升级
@@ -12,9 +12,66 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 ```
 
 - 安装时写入并启用 `asterion-market.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/market/data`，可以放到单独的磁盘）、Tick 保留的交易日数（默认 30）、行情和交易前置、经纪公司代码、投资者代码、AppID（回车保留当前值），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 CTP 密码、授权码和 Tushare token。秘密用 `systemd-creds` 加密到 `/etc/credstore.encrypted/`，不写入任何明文文件。
+- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/market/data`，可以放到单独的磁盘）、Tick 保留的交易日数（默认 30）、行情和交易前置、经纪公司代码、投资者代码、AppID（回车保留当前值），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 CTP 密码、授权码和 Tushare token。凭据的保存位置见下方目录结构。
 - 升级只替换程序和库，保留配置、TLS 身份、仓库、采集任务和录制文件。交易时段内（北京时间工作日 08:45–15:30、20:45–次日 02:45）不重启正在运行的服务，改为收盘后由定时器重启。
 - 安装时生成服务端证书，脚本显示它的指纹，供 Terminal 登记。权限修改在重启后生效。
+
+## 部署目录
+
+默认布局如下；数据目录中的文件按录制、采集和发布进度生成。`market.json` 的 `data` 可以指向独立磁盘，程序、配置和日志仍留在安装目录。
+
+```text
+/opt/asterion/market/
+├── bin/
+│   ├── asterion_market          # 服务程序
+│   └── setup.sh                 # 修改配置；升级使用新的发布安装包
+├── lib/
+│   ├── ctp-md.so                # CTP 行情接口
+│   └── ctp-trader.so            # 查询合约目录等柜台信息
+├── config/
+│   ├── market.json             # 安装时生成的非秘密配置
+│   ├── logging.json            # 日志输出、格式和保留期限
+│   └── tls/
+│       ├── server.crt          # 服务端证书
+│       └── server.key          # 服务端私钥
+├── logs/                       # 默认按日保存服务日志
+└── data/                       # 可通过配置改到其他绝对路径
+    ├── market.lock             # 同一份数据只允许一个 Market 进程
+    ├── ctp-catalog.pb          # 合约目录缓存
+    ├── acquisition/
+    │   └── <任务ID>.pb         # 采集请求、进度和结果
+    ├── recordings/             # 原始录制归档
+    │   ├── ticks/
+    │   ├── minutes/
+    │   ├── segments/           # 连续观测段与中断原因
+    │   └── unpublished.json    # 等待发布的交易日
+    ├── warehouse/              # Tushare 正式仓库
+    └── sources/
+        ├── recorder/warehouse/ # 自录发布后的正式仓库
+        ├── research/warehouse/ # 合成研究数据集
+        ├── shfe/warehouse/
+        ├── ine/warehouse/
+        ├── czce/warehouse/
+        ├── dce/warehouse/
+        ├── cffex/warehouse/
+        └── gfex/warehouse/     # 各交易所独立的正式仓库
+```
+
+`recordings/` 是录制归档，`warehouse/` 是已发布的固定版本；自录数据如何进入 `recorder` 和 `research` 见[发布研究版本](#发布研究版本)。每份正式仓库包含 Parquet 分区文件、`versions/` 版本清单、`shards/` 清单分片和记录当前版本标识的 `current` 文件，版本规则见 [Market 仓库与固定版本](market.md#仓库与固定版本)。
+
+安装目录之外的文件：
+
+```text
+/etc/systemd/system/
+└── asterion-market.service
+
+/etc/credstore.encrypted/
+├── asterion.ctp.password
+├── asterion.ctp.auth_code          # 配置授权码时生成
+└── asterion.market.tushare.token   # 配置 Tushare token 时生成
+```
+
+CTP 密码、授权码和 Tushare token 由 `systemd-creds` 加密保存，不写入 `market.json`。systemd 启动服务时提供解密后的凭据目录，程序通过 `CREDENTIALS_DIRECTORY` 读取；TLS 私钥单独保存在 `config/tls/server.key`。
 
 ## 配置
 
@@ -35,11 +92,12 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 - `data` 是仓库、录制、采集任务和合约目录缓存所在的目录，必须是绝对路径。改目录请用 `setup.sh`：它创建新目录并允许服务写入；旧目录里的数据不搬动，要继续使用就先停服务再自己移过去。
 - `tushare` 为 `null` 时不采集 Tushare，否则为 `{"requests_per_minute": 100}`，token 来自主机凭据 `asterion.market.tushare.token`。
 - 缺少配置、TLS 文件或已启用来源的凭据时拒绝启动，并报告路径；多出不认识的键同样拒绝。
-- 数据目录下的 `market.lock` 保证同一份数据只有一个 Market 进程。
-- 日志在 `logs/asterion_market_YYYY-MM-DD.log`，可用 `journalctl -u asterion-market -f` 查看。
+- 默认日志在 `logs/asterion_market_YYYY-MM-DD.log`，保留 30 天；输出方式由 `config/logging.json` 控制。默认关闭控制台日志，`journalctl -u asterion-market -f` 用于查看服务启停和标准输出、错误，业务日志应读取日志文件。
 
 ## 运行
 
+- systemd 直接启动 `/opt/asterion/market/bin/asterion_market`，程序自动定位旁边的配置和库，不需要传入 `--installation`。
+- 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹与权限配置见 [Terminal 和 Lab 的连接](market.md#terminal-和-lab-的连接)。
 - 启动后立即登录 CTP，不等客户端。行情登录被拒时每分钟重试一次（只涉及行情，不涉及交易）。
 - 收到 SIGTERM 时写完缓冲的报价和分钟线再退出（最多 20 秒）。原始行情队列写满时进程退出，由 systemd 重启。
 
