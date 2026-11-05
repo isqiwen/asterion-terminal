@@ -56,7 +56,7 @@ export function MarketSource({
               </button>
             )}
             <button className="primary" disabled={busy} onClick={edit}>
-              {t(endpoint ? "修改地址" : "填写地址")}
+              {t(endpoint ? "编辑连接" : "设置连接")}
             </button>
           </>
         )
@@ -134,7 +134,7 @@ export function MarketSource({
               <button type="button" onClick={() => setEditing(false)}>
                 {t("取消")}
               </button>
-              <button className="primary">{t("保存地址")}</button>
+              <button className="primary">{t("保存连接")}</button>
             </div>
           </fieldset>
         </form>

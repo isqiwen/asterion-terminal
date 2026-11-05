@@ -37,14 +37,14 @@ test("data sources configure one remote Market without counter credentials", asy
   expect(screen.queryByRole("heading", { name: "历史数据供应商" })).toBeNull();
   expect(screen.queryByRole("button", { name: "CTP 行情账户" })).toBeNull();
   const market = screen.getByRole("region", { name: "行情服务" });
-  fireEvent.click(within(market).getByRole("button", { name: "填写地址" }));
+  fireEvent.click(within(market).getByRole("button", { name: "设置连接" }));
   fireEvent.change(within(market).getByLabelText("主机地址"), {
     target: { value: " 192.168.1.20 " },
   });
   fireEvent.change(within(market).getByLabelText("行情服务证书指纹"), {
     target: { value: "a".repeat(64) },
   });
-  fireEvent.click(within(market).getByRole("button", { name: "保存地址" }));
+  fireEvent.click(within(market).getByRole("button", { name: "保存连接" }));
   await waitFor(() =>
     expect(trade).toHaveBeenCalledWith("market.endpoint.save", {
       host: "192.168.1.20",
