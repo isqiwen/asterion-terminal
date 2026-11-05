@@ -148,7 +148,10 @@ def main():
         with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
             archive.extractall(folder, filter='data')
         root = folder / 'asterion-trading'
-        assert {p.name for p in root.iterdir()} == {'bin', 'lib', 'runtime'}
+        assert {p.name for p in root.iterdir()} == {'bin', 'lib', 'runtime', 'config'}
+        assert {p.name for p in (root / 'config').iterdir()} == {'logging.json'}
+        default = Path(__file__).parents[2] / 'apps/services/trading/config/logging.json'
+        assert (root / 'config/logging.json').read_bytes() == default.read_bytes()
         assert not list(root.rglob('*asterion_lab*'))
         assert not list(root.rglob('pip'))
         subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--read-only',

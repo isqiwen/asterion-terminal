@@ -10,7 +10,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -31,9 +30,13 @@ def unpack(bundle, root):
     with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
         files = {item.name for item in archive if item.isfile()}
         assert files == {'asterion-market/bin/asterion_market', 'asterion-market/bin/setup.sh',
-                         'asterion-market/lib/ctp-md.so', 'asterion-market/lib/ctp-trader.so'}, files
+                         'asterion-market/lib/ctp-md.so', 'asterion-market/lib/ctp-trader.so',
+                         'asterion-market/config/logging.json'}, files
         archive.extractall(root, filter='data')
-    return root / 'asterion-market'
+    root = root / 'asterion-market'
+    default = Path(__file__).parents[2] / 'apps/services/market/config/logging.json'
+    assert (root / 'config/logging.json').read_bytes() == default.read_bytes()
+    return root
 
 
 def record(root):
@@ -86,7 +89,7 @@ def running(root, port):
 def main():
     with tempfile.TemporaryDirectory(prefix='ast-market-package-') as folder:
         root = unpack(sys.argv[1], Path(folder))
-        for name in ('config', 'credentials', 'logs'):
+        for name in ('credentials', 'logs'):
             (root / name).mkdir()
         record(root)
         tls = market_tls.prepare(root)
@@ -98,7 +101,6 @@ def main():
             data='/market/data', recording=dict(tick_days=30), clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
             counter=dict(market_front='tcp://127.0.0.1:1', trade_front='tcp://127.0.0.1:1',
                          broker='fixture', user='fixture', app_id='fixture'))))
-        shutil.copy2(Path(__file__).parents[2] / 'apps/services/market/config/logging.json', root / 'config/logging.json')
         for name in ('password', 'auth_code'):
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):
