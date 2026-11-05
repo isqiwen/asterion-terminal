@@ -19,7 +19,15 @@ type Entry = {
   severity: Severity;
   error: DisplayError;
   namespace: string;
+  // The same message repeated in a row is one entry.
+  count: number;
 };
+const identity = (error: DisplayError) =>
+  error instanceof BackendError
+    ? `${error.code}: ${error.diagnostic}`
+    : error instanceof Error
+      ? error.message
+      : error;
 
 // Where a message comes from, by the namespace its text is translated in.
 const sources: Record<string, string> = {
@@ -44,17 +52,27 @@ const publish = () => {
 // Reports an error or a warning of this Terminal run to the notification
 // centre in the status bar. Nothing is kept beyond the run.
 export function notify(error: unknown, options: { namespace?: string; severity?: Severity } = {}) {
-  // A missing Market is a state the status bar shows, not an event.
-  if (error instanceof BackendError && error.code === "market_unconfigured") return;
   const namespace = options.namespace ?? "host";
-  entries.push({
-    id: ++next,
-    at: new Date(),
-    source: sources[namespace] ?? "Terminal",
-    severity: options.severity ?? "error",
-    error: asDisplayError(error),
-    namespace,
-  });
+  const severity = options.severity ?? "error";
+  const shown = asDisplayError(error);
+  const last = entries.at(-1);
+  if (
+    last &&
+    last.namespace === namespace &&
+    last.severity === severity &&
+    identity(last.error) === identity(shown)
+  )
+    entries[entries.length - 1] = { ...last, id: ++next, at: new Date(), count: last.count + 1 };
+  else
+    entries.push({
+      id: ++next,
+      at: new Date(),
+      source: sources[namespace] ?? "Terminal",
+      severity,
+      error: shown,
+      namespace,
+      count: 1,
+    });
   entries.splice(0, Math.max(0, entries.length - KEPT));
   publish();
 }
@@ -113,6 +131,7 @@ export function NotificationCenter() {
                   <span className="notification-source">{translate("host", entry.source)}</span>
                   <span className="notification-text">
                     {errorSummary(entry.error, entry.namespace)}
+                    {entry.count > 1 && ` ×${entry.count}`}
                   </span>
                   <CopyDiagnostic diagnostic={errorDiagnostic(entry.error, entry.namespace)} />
                 </li>

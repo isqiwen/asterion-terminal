@@ -257,5 +257,6 @@
   "a built-in module cannot be changed": "A built-in module cannot be changed.",
   "a built-in module cannot be deleted": "A built-in module cannot be deleted.",
   "invalid module name": "A module name uses letters, digits and underscores, and does not start with a digit.",
-  "Market is already connecting; retry after it completes": "Market is already connecting; retry after it completes"
+  "Market is already connecting; retry after it completes": "Market is already connecting; retry after it completes",
+  "no Market is configured": "No Market is set: enter its address and certificate fingerprint in Settings → Data Source."
 }

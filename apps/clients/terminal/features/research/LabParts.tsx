@@ -52,6 +52,8 @@ export function LabHeader({
   useEffect(() => {
     let active = true;
     setSummary(null);
+    // Without a Market there is no research data to read; the chip says so.
+    if (!address) return;
     void lab({ case: "getDatasetSummary", value: {} })
       .then(value => active && setSummary(value))
       .catch(failure => active && notify(failure));
@@ -67,7 +69,12 @@ export function LabHeader({
         className="lab-chip"
         onClick={() => context.navigate("workspace.coverage", { params: { provider: "research" } })}
       >
-        {t("研究数据")} · <code>{summary?.dataset?.version.slice(0, 8) || t("无数据")}</code>
+        {t("研究数据")} ·{" "}
+        {address ? (
+          <code>{summary?.dataset?.version.slice(0, 8) || t("无数据")}</code>
+        ) : (
+          t("未设置")
+        )}
       </button>
       <span className="lab-spacer" />
       <button className="lab-link" onClick={refresh}>

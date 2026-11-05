@@ -160,7 +160,6 @@
   "连接远程行情服务以查看市场。": "Connect to the remote Market service to view quotes.",
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",
   "行情服务证书指纹": "Market server certificate fingerprint",
-  "还没有设置行情服务：在 设置 → 数据源 里填写它的地址和证书指纹。": "No Market is set: enter its address and certificate fingerprint in Settings → Data Source.",
   "复制诊断": "Copy diagnostic",
   "已复制": "Copied",
   "通知": "Notifications",

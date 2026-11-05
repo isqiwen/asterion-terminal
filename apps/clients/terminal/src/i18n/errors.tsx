@@ -23,7 +23,6 @@ const errors: Record<string, string> = {
   service_restarted: "Lab 意外退出，已自动重启。",
   trading_stalled: "交易服务有一部分处理超过 30 秒没有进展，请查看交易主机的日志。",
   strategy_instance: "策略实例失败或放弃了一个批次，详情见交易页的实例事件。",
-  market_unconfigured: "还没有设置行情服务：在 设置 → 数据源 里填写它的地址和证书指纹。",
   conflict: "操作与当前状态冲突",
   permission_denied: "权限不足",
   resource_exhausted: "资源不足",

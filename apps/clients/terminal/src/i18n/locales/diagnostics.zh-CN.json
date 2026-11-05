@@ -257,5 +257,6 @@
   "a built-in module cannot be changed": "内置模块不能修改。",
   "a built-in module cannot be deleted": "内置模块不能删除。",
   "invalid module name": "模块名只能用字母、数字和下划线，并且不能以数字开头。",
-  "Market is already connecting; retry after it completes": "行情服务正在连接，请在完成后重试。"
+  "Market is already connecting; retry after it completes": "行情服务正在连接，请在完成后重试。",
+  "no Market is configured": "还没有设置行情服务：在 设置 → 数据源 里填写它的地址和证书指纹。"
 }
