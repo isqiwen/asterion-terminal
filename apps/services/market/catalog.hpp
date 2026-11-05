@@ -11,9 +11,10 @@
 
 namespace asterion::market_data {
 
-// State publication belongs to the market owner. Provider steps and cache I/O
-// share its single SDK executor; only one step per operation can be outstanding.
-class CatalogJob
+// The CTP contract catalog: the cached copy at start, then each refresh's
+// result. Queries run on the SDK executor, one at a time; the market owner
+// polls for their results.
+class Catalog
 {
     using State = ::market::Catalog;
 
@@ -21,7 +22,6 @@ class CatalogJob
     {
         std::filesystem::path file, library, flow;
         ctp::CatalogConfiguration config;
-        bool load_cache = false;
         std::stop_source stop;
         std::unique_ptr<ctp::CatalogQuery> query;
         std::optional<State> result;
@@ -29,25 +29,6 @@ class CatalogJob
         void advance()
         {
             try {
-                if (load_cache) {
-                    State cached;
-                    cached.mutable_status()->set_state(::market::CATALOG_STATE_NONE);
-                    const auto status = std::filesystem::symlink_status(file);
-                    if (status.type() != std::filesystem::file_type::not_found) {
-                        if (!std::filesystem::is_regular_file(status)
-                            || std::filesystem::file_size(file) > 64 * 1024 * 1024)
-                            throw Error(ErrorCode::invalid_request, "invalid cached CTP catalog");
-                        std::ifstream input(file, std::ios::binary);
-                        if (!cached.ParseFromIstream(&input)
-                            || cached.status().state() != ::market::CATALOG_STATE_READY
-                            || cached.contracts_size() > 20000)
-                            throw Error(ErrorCode::invalid_request, "invalid cached CTP catalog");
-                        protocol::validate_message(cached);
-                        cached.mutable_status()->set_state(::market::CATALOG_STATE_CACHED);
-                    }
-                    result = std::move(cached);
-                    return;
-                }
                 if (stop.stop_requested())
                     throw Error(ErrorCode::cancelled, "CTP catalog cancelled");
                 if (!query)
@@ -92,11 +73,33 @@ class CatalogJob
     };
 
 public:
-    explicit CatalogJob(ThreadPool& sdk_owner)
-        : sdk_owner_(sdk_owner)
-    {}
+    // Starts from the copy saved by the last successful query, if there is one;
+    // a damaged copy is reported as a failed catalog until the next refresh.
+    Catalog(ThreadPool& sdk_owner, std::filesystem::path file)
+        : sdk_owner_(sdk_owner),
+          file_(std::move(file))
+    {
+        if (!std::filesystem::exists(file_))
+            return;
+        State cached;
+        std::ifstream input(file_, std::ios::binary);
+        if (std::filesystem::is_regular_file(file_)
+            && std::filesystem::file_size(file_) <= 64 * 1024 * 1024
+            && cached.ParseFromIstream(&input)
+            && cached.status().state() == ::market::CATALOG_STATE_READY
+            && cached.contracts_size() <= 20000) {
+            cached.mutable_status()->set_state(::market::CATALOG_STATE_CACHED);
+            cached_ = cached;
+            publish(std::move(cached));
+        } else {
+            State failed;
+            failed.mutable_status()->set_state(::market::CATALOG_STATE_FAILED);
+            failed.mutable_status()->set_error("invalid cached CTP catalog");
+            publish(std::move(failed));
+        }
+    }
 
-    ~CatalogJob()
+    ~Catalog()
     {
         if (operation_)
             operation_->stop.request_stop();
@@ -109,23 +112,11 @@ public:
             .get();
     }
 
-    void persist_to(std::filesystem::path file)
-    {
-        file_ = std::move(file);
-        operation_ = std::make_unique<Operation>();
-        operation_->file = file_;
-        operation_->load_cache = true;
-        schedule();
-    }
-
-    void start(
+    void refresh(
         const std::filesystem::path& library,
         const std::filesystem::path& flow,
         ctp::CatalogConfiguration config)
     {
-        poll();
-        if (operation_)
-            throw Error(ErrorCode::conflict, "CTP catalog query is already running");
         operation_ = std::make_unique<Operation>();
         operation_->file = file_;
         operation_->library = library;
@@ -162,19 +153,20 @@ public:
         publish(std::move(result));
     }
 
-    bool initializing() const
-    {
-        return operation_ && operation_->load_cache;
-    }
-
     bool running() const
     {
         return bool(operation_);
     }
 
-    std::pair<std::uint64_t, const State&> snapshot() const
+    const State& state() const
     {
-        return {revision_, state_};
+        return state_;
+    }
+
+    // Changes with every published state.
+    std::uint64_t revision() const
+    {
+        return revision_;
     }
 
 private:
@@ -197,8 +189,8 @@ private:
         state.mutable_status()->set_state(::market::CATALOG_STATE_NONE);
         return state;
     }();
-    State cached_;
     std::filesystem::path file_;
+    State cached_;
     std::uint64_t revision_ = 0;
     std::unique_ptr<Operation> operation_;
     std::future<void> pending_;

@@ -15,7 +15,7 @@ asterion_target_defaults(asterion_market_acquisition)
 add_library(asterion_market_settings STATIC settings.cpp)
 target_link_libraries(asterion_market_settings PUBLIC asterion_ctp)
 asterion_target_defaults(asterion_market_settings)
-add_executable(asterion_market main.cpp session.cpp)
+add_executable(asterion_market main.cpp market.cpp live.cpp recording.cpp)
 target_link_libraries(asterion_market PRIVATE asterion_market_settings asterion_market_acquisition CLI11::CLI11)
 asterion_target_defaults(asterion_market)
 
