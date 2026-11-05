@@ -114,7 +114,7 @@ message Response {
 | `list_sources` | — | 可采集的来源、表、交易所，及当前证书能否管理 |
 | `start_acquisition` | 任务参数（`manage`） | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |
-| `list_acquisition_tasks` | 分页游标 | 一页任务 |
+| `list_acquisition_tasks` | 来源（不填为全部）、分页游标 | 一页任务，新的在前，每页 20 个 |
 | `cancel_acquisition` | 任务 ID（`manage`） | 取消请求发出时的任务现状 |
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。

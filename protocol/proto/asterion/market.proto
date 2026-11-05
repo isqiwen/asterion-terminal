@@ -501,11 +501,15 @@ message AcquisitionTask {
   optional int64 finished_ms = 10;
 }
 
+// Newest first; 20 a page.
 message ListAcquisitionTasks {
   string after_id = 1;
+  // Empty for every source.
+  string provider = 2;
 }
 
 message AcquisitionTasks {
   repeated AcquisitionTask tasks = 1;
+  // Empty on the last page.
   string next_id = 2;
 }

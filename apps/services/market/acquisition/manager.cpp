@@ -286,29 +286,38 @@ wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) co
 {
     if (!query.after_id().empty())
         require_id(query.after_id());
-    const std::size_t limit = 128;
+    if (!query.provider().empty())
+        warehouse::require_provider(query.provider());
     std::lock_guard lock(mutex_);
-    std::set<std::string> ids;
+    for (const auto& [id, active] : active_)
+        if (active->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            active->finished.get();
+    std::vector<wire::AcquisitionTask> tasks;
     for (const auto& entry : fs::directory_iterator(directory_)) {
         if (entry.path().extension() != ".pb")
             continue;
-        const auto id = entry.path().stem().string();
-        if (id > query.after_id())
-            ids.insert(id);
-        if (ids.size() > limit + 1)
-            ids.erase(std::prev(ids.end()));
+        auto task = load(entry.path());
+        if (query.provider().empty() || task.request().provider() == query.provider())
+            tasks.push_back(std::move(task));
+    }
+    std::sort(tasks.begin(), tasks.end(), [](const auto& a, const auto& b) {
+        return a.started_ms() != b.started_ms() ? a.started_ms() > b.started_ms()
+                                                : a.request().id() < b.request().id();
+    });
+    auto from = tasks.begin();
+    if (!query.after_id().empty()) {
+        from = std::find_if(tasks.begin(), tasks.end(), [&](const auto& task) {
+            return task.request().id() == query.after_id();
+        });
+        if (from == tasks.end())
+            throw Error(ErrorCode::not_found, "acquisition task not found");
+        ++from;
     }
     wire::AcquisitionTasks result;
-    for (const auto& id : ids) {
-        if (result.tasks_size() == static_cast<int>(limit)) {
-            result.set_next_id(result.tasks(result.tasks_size() - 1).request().id());
-            break;
-        }
-        if (const auto at = active_.find(id); at != active_.end()
-            && at->second->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            at->second->finished.get();
-        *result.add_tasks() = load(directory_ / (id + ".pb"));
-    }
+    for (; from != tasks.end() && result.tasks_size() < 20; ++from)
+        *result.add_tasks() = *from;
+    if (from != tasks.end())
+        result.set_next_id(result.tasks(result.tasks_size() - 1).request().id());
     return result;
 }
 

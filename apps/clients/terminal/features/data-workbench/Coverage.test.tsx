@@ -40,7 +40,7 @@ const task = (id: string, provider: string) =>
     items: 1n,
   });
 function serve(canManage = true) {
-  request.mockImplementation(async (body: { case: string }) => {
+  request.mockImplementation(async (body: { case: string; value: { provider?: string } }) => {
     switch (body.case) {
       case "listSources":
         return { sources: [source("tushare"), source("shfe", [Table.SETTLEMENT])], canManage };
@@ -49,7 +49,10 @@ function serve(canManage = true) {
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":
-        return { tasks: [task("first", "tushare")], nextId: "" };
+        return {
+          tasks: body.value.provider === "tushare" ? [task("first", "tushare")] : [],
+          nextId: "",
+        };
       default:
         return {};
     }
@@ -160,7 +163,10 @@ test("polls shared tasks even when this client has no active acquisition", async
   render(<Coverage {...context()} />);
   await screen.findByRole("button", { name: "开始采集" });
   await waitFor(() =>
-    expect(request).toHaveBeenCalledWith({ case: "listAcquisitionTasks", value: { afterId: "" } }),
+    expect(request).toHaveBeenCalledWith({
+      case: "listAcquisitionTasks",
+      value: { provider: "shfe", afterId: "" },
+    }),
   );
   remote = true;
   await act(async () => {
@@ -283,4 +289,37 @@ test("a coverage gap fills the acquisition with its month", async () => {
       lastDay: "2026-10-31",
     }),
   );
+});
+
+test("each refresh reads one page of the source's tasks; earlier ones are read on request", async () => {
+  const page = Array.from({ length: 20 }, (_, i) => task(`task-${i}`, "tushare"));
+  request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
+    switch (body.case) {
+      case "listSources":
+        return { sources: [source("tushare")], canManage: false };
+      case "listDatasets":
+        return { datasets: [] };
+      case "getDatasetSummary":
+        return { tables: [] };
+      case "listAcquisitionTasks":
+        return body.value.afterId
+          ? { tasks: [task("oldest", "tushare")], nextId: "" }
+          : { tasks: page, nextId: "task-19" };
+      default:
+        return {};
+    }
+  });
+  render(<Coverage {...context()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "更早的任务" }));
+  const reads = () =>
+    request.mock.calls.filter(([body]) => body.case === "listAcquisitionTasks").map(([b]) => b);
+  expect(reads()).toEqual([
+    { case: "listAcquisitionTasks", value: { provider: "tushare", afterId: "" } },
+  ]);
+  await screen.findByText("oldest");
+  expect(reads().at(-1)).toEqual({
+    case: "listAcquisitionTasks",
+    value: { provider: "tushare", afterId: "task-19" },
+  });
+  expect(screen.queryByRole("button", { name: "更早的任务" })).toBeNull();
 });

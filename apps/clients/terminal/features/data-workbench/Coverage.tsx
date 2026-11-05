@@ -212,6 +212,9 @@ function SourceCoverage({
   const cancelled = useActionError();
   const mounted = useRef(false);
   const pending = useRef(false);
+  // Tasks to show: one page, more on request.
+  const shown = useRef(20);
+  const [older, setOlder] = useState(false);
 
   const refresh = useCallback(async () => {
     if (pending.current) return;
@@ -227,22 +230,23 @@ function SourceCoverage({
       const nextCoverage = version
         ? await marketData({ case: "getDatasetCoverage", value: { provider, version } })
         : undefined;
+      // Market lists this source's tasks newest first; read as many pages as shown.
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
-        const page = await marketData({ case: "listAcquisitionTasks", value: { afterId } });
-        nextTasks.push(...page.tasks.filter(task => task.request?.provider === provider));
+        const page = await marketData({
+          case: "listAcquisitionTasks",
+          value: { provider, afterId },
+        });
+        nextTasks.push(...page.tasks);
         afterId = page.nextId;
-      } while (afterId && mounted.current);
+      } while (afterId && nextTasks.length < shown.current && mounted.current);
       if (!mounted.current) return;
+      setOlder(afterId !== "");
       setLatest(nextLatest);
       setSummary(nextSummary);
       setCoverage(nextCoverage);
-      setTasks(
-        nextTasks.sort((a, b) =>
-          a.startedMs > b.startedMs ? -1 : a.startedMs < b.startedMs ? 1 : 0,
-        ),
-      );
+      setTasks(nextTasks);
       setError("");
     } catch (failure) {
       if (mounted.current) setError(asDisplayError(failure));
@@ -529,6 +533,17 @@ function SourceCoverage({
               ))}
             </tbody>
           </table>
+          {older && (
+            <button
+              type="button"
+              onClick={() => {
+                shown.current += 20;
+                void refresh();
+              }}
+            >
+              {t("更早的任务")}
+            </button>
+          )}
         </section>
       )}
       <section className="data-card" aria-label={t("日线覆盖")}>

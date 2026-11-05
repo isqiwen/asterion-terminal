@@ -189,5 +189,6 @@
   "上一页": "Previous",
   "下一页": "Next",
   "第 {first}–{last} 行，共 {total} 行": "Rows {first}–{last} of {total}",
-  "所选范围内没有数据。": "No rows in the chosen range."
+  "所选范围内没有数据。": "No rows in the chosen range.",
+  "更早的任务": "Earlier tasks"
 }

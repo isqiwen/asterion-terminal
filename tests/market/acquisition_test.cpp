@@ -373,8 +373,16 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     const auto page = restarted.list(query);
     ASSERT_EQ(page.tasks_size(), 3);
     EXPECT_TRUE(page.next_id().empty());
+    // Newest first.
+    EXPECT_EQ(page.tasks(0).request().id(), "refresh");
+    EXPECT_EQ(page.tasks(2).request().id(), "first");
     query.set_after_id(page.tasks(0).request().id());
     EXPECT_EQ(restarted.list(query).tasks(0).request().id(), page.tasks(1).request().id());
+    query.clear_after_id();
+    query.set_provider("tushare");
+    EXPECT_EQ(restarted.list(query).tasks_size(), 3);
+    query.set_provider("shfe");
+    EXPECT_EQ(restarted.list(query).tasks_size(), 0);
 }
 
 TEST_F(Acquisition, AProviderIsNotAskedForToday)
