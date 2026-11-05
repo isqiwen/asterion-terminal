@@ -43,7 +43,7 @@ void raise(const ::common::Error& error)
     const auto code = static_cast<int>(error.code()) - 1;
     throw Error(
         code < 0 || code >= static_cast<int>(error_codes.size()) ? ErrorCode::operation_failed
-                                                                  : error_codes[code],
+                                                                 : error_codes[code],
         error.message());
 }
 

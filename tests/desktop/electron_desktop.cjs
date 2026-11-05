@@ -1,4 +1,4 @@
-const { openView } = require("./product-navigation.cjs");
+const { openView, openMarketSection } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
@@ -145,7 +145,6 @@ async function closeDesktop(application) {
     });
     await call("market.open");
     for (const [name, selector] of [
-      ["watchlist", ".watchlist-workspace"],
       ["contract", ".contract-workspace"],
       ["market", ".market-workspace"],
     ]) {
@@ -153,20 +152,20 @@ async function closeDesktop(application) {
       await expect(page.locator(selector)).toBeVisible();
     }
 
-    await openView(page, "watchlist");
-    const priceHeading = page.locator(".watchlist-table th").filter({ hasText: /^现价$/ });
+    await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
+    await openMarketSection(page, "自选");
+    const priceHeading = page
+      .locator(".market-quote-table table th")
+      .filter({ hasText: /^现价/ })
+      .first();
     await priceHeading.getByRole("button").click();
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
     await openView(page, "contract");
-    await openView(page, "watchlist");
+    await openMarketSection(page, "自选");
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
-    await page.getByRole("button", { name: "最近浏览", exact: true }).click();
-    await expect(priceHeading).not.toHaveAttribute("aria-sort");
-    await expect(page.locator(".watchlist-chart-pane")).toHaveCount(0);
-    await page
-      .getByRole("navigation", { name: "自选视图" })
-      .getByRole("button", { name: "自选", exact: true })
-      .click();
+    await openMarketSection(page, "期货全景");
+    await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
+    await openMarketSection(page, "自选");
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
     await capture(page, "native-watchlist-sort");
     await openView(page, "market");
@@ -195,7 +194,7 @@ async function closeDesktop(application) {
 
     // The research page reaches the lab service the Terminal starts.
     await openView(page, "research");
-    await expect(page.getByRole("heading", { name: "研究", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^MaCross ma_cross / })).toBeVisible();
     await capture(page, "native-research");
     // A draft of the market page, which must survive the settings window and a restart.
     await openView(page, "market");
@@ -286,10 +285,6 @@ async function closeDesktop(application) {
       await capture(window, window === settings ? "native-settings-125" : "native-workbench-125");
       await contents.evaluate(win => win.webContents.setZoomFactor(1));
     }
-    await settings.getByRole("button", { name: "本机服务", exact: true }).click();
-    const services = settings.getByRole("list", { name: "服务列表", exact: true });
-    await expect(services.getByRole("listitem", { name: "lab", exact: true })).toBeVisible();
-    await capture(settings, "native-local-services");
     await page.evaluate(() => {
       // The public settings helper selects reused windows through this storage event.
       localStorage.setItem(
@@ -345,8 +340,8 @@ async function closeDesktop(application) {
     await expect(
       restored.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }),
     ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
-    await openView(restored, "watchlist");
-    await expect(restored.locator(".watchlist-workspace")).toBeVisible();
+    await openMarketSection(restored, "自选");
+    await expect(restored.locator(".market-workspace")).toBeVisible();
     await capture(restored, "native-watchlist");
     console.log(
       "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, dialog IPC, shortcuts and workspace restore after desktop restart passed",

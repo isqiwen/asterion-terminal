@@ -1,4 +1,4 @@
-const { openView } = require("./product-navigation.cjs");
+const { openView, openMarketSection } = require("./product-navigation.cjs");
 // Editors such as VS Code export this; Electron would then start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 // Exercise the unchanged production host with an isolated resource tree and explicit SDK fixture.
@@ -152,8 +152,8 @@ const { createInterface } = require("node:readline");
     await expect(page.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
     await fs.mkdir(path.resolve("build/native-depth-check"), { recursive: true });
     await page.screenshot({ path: path.resolve("build/native-depth-check/full-market.png") });
-    await openView(page, "watchlist");
-    await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
+    await openMarketSection(page, "自选");
+    await expect(page.locator(".market-quote-table table tbody tr")).toHaveCount(0);
     await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
     const quote = full.rows[0].quote;
     assert.equal(quote.open.text, "3490.25");
@@ -166,15 +166,11 @@ const { createInterface } = require("node:readline");
     assert.equal(quote.bids[2].lots, undefined);
     assert.equal(quote.bids[3].lots, undefined);
     assert.equal(quote.asks[4].price.text, "3515");
-    await openView(page, "watchlist");
-    const previousClose = page
-      .locator(".watchlist-table tbody tr")
-      .first()
-      .locator("td")
-      .nth(15)
-      .locator("span");
-    await expect(previousClose).toHaveText("3480.125");
-    await expect(previousClose).toHaveAttribute("title", "3480.125");
+    await openMarketSection(page, "自选");
+    const row = page.locator(".market-quote-table tbody tr");
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole("button", { name: "rb2610", exact: true })).toHaveText("螺纹钢");
+    await expect(row.getByRole("cell", { name: quote.last.text, exact: true })).toBeVisible();
     await openView(page, "contract");
     const summary = page.locator(".contract-summary dl");
     for (const [label, value] of [

@@ -3,7 +3,6 @@ async function openView(page, view) {
     research: ["研究"],
     coverage: ["数据"],
     market: ["行情", "市场"],
-    watchlist: ["行情", "自选"],
     contract: ["行情", "合约"],
   };
   const [module, title] = destinations[view];
@@ -17,4 +16,12 @@ async function openView(page, view) {
       .getByRole("button", { name: title, exact: true })
       .click();
 }
-module.exports = { openView };
+async function openMarketSection(page, section) {
+  await openView(page, "market");
+  await page.getByRole("tab", { name: "实时行情", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "期货分类", exact: true })
+    .getByRole("button", { name: section, exact: true })
+    .click();
+}
+module.exports = { openView, openMarketSection };
