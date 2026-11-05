@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant Client as Terminal / Lab
+    participant RPC as RpcHost / Session
+    participant Manager
+    participant Source
+    participant Writer
+    participant Research as compose_research
+    Client->>RPC: start_acquisition
+    RPC->>RPC: 由已验证证书检查 manage 权限
+    RPC->>Manager: submit(request)
+    Manager->>Manager: 持久化 QUEUED 任务
+    Manager-->>Client: 经 RPC 返回已接纳任务
+    Manager->>Source: 后台读取供应商或自录数据
+    Source-->>Manager: 标准化行与观测段
+    Manager->>Writer: put() / merge_days()
+    Manager->>Writer: commit()
+    Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
+    Manager->>Research: 合成 research
+    Research->>Research: 持有研究写锁，读取来源版本并发布
+    Manager->>Manager: 持久化任务进度或完成状态
+    Client->>RPC: get_dataset_version(research，当前版本)
+    RPC-->>Client: 固定版本 ID、分区与摘要
+    loop 分页与文件下载
+        Client->>RPC: get_dataset_version / read_dataset_file，携带同一版本 ID
+        RPC-->>Client: 该版本的元数据或 Parquet 字节块
+    end

@@ -1,0 +1,43 @@
+classDiagram
+    class RpcHost {
+        run()
+    }
+    class Session {
+        request()
+        stop()
+        stopped()
+    }
+    class Loop
+    class State {
+        advance()
+        process()
+        live_quotes()
+    }
+    class Feed {
+        connect()
+        subscribe()
+        poll()
+        events_after()
+        snapshot()
+    }
+    class CatalogJob
+    class CatalogQuery
+    class IntradayBars
+    class Recorder
+    class Compactor
+    class RecordedPublication
+    class Manager
+    class WatchCursor
+    RpcHost ..> Session : 主程序转交请求
+    Session *-- Loop
+    Loop ..> State : 创建并驱动
+    Loop *-- Manager
+    State *-- Feed
+    State *-- CatalogJob
+    CatalogJob *-- CatalogQuery : 查询期间
+    State *-- IntradayBars
+    State *-- Recorder
+    State *-- Compactor
+    State *-- RecordedPublication
+    RecordedPublication --> Manager
+    State ..> WatchCursor : 发布增量帧

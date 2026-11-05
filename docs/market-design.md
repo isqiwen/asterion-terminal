@@ -6,27 +6,9 @@
 
 Market 是由 systemd 看护的 Linux C++ 进程，拥有共享行情、录制文件、采集任务和正式仓库。Terminal 与 Lab 是客户端；Trading 独立连接柜台，不经过 Market 获取策略行情。理由：研究和看盘的生命周期不影响交易执行。
 
-```mermaid
-flowchart LR
-    CTP[CTP 行情与合约目录] --> Live[实时状态与分钟聚合]
-    subgraph Market[Market 进程]
-        RPC[TLS / Protobuf RPC]
-        Live --> Record[录制]
-        Record --> Archive[录制 Parquet]
-        Archive --> Merge[盘后合并]
-        Merge --> Publish[自录发布待办]
-        Publish --> Acquire[采集管理]
-        Archive --> Acquire
-        Acquire --> Store[来源仓库]
-        Store --> Research[research 固定版本]
-        Live --> RPC
-        Research --> RPC
-        RPC --> Acquire
-    end
-    Provider[Tushare / 交易所] --> Acquire
-    Terminal[Terminal] <-->|请求与报价流| RPC
-    Lab[Lab] <-->|固定版本读取| RPC
-```
+![Market 服务边界与数据流](diagrams/market/architecture.png)
+
+[Mermaid 图源](diagrams/market/architecture.mmd)
 
 - 实时报价快照供界面展示，有序行情事件供聚合和录制，避免界面合并报价时丢掉录制输入。
 - 行情状态由 `State` 顺序更新；SDK 回调只交付事件，SDK 调用和释放交给其执行器，避免柜台调用拖住状态处理。
@@ -37,156 +19,31 @@ flowchart LR
 
 实心菱形表示拥有，箭头表示使用或调用。`State` 是 `session.cpp` 内部类型，由 `Loop` 的运行过程创建；`WatchCursor` 属于一条连接的待回复对象，只由行情状态路径更新。
 
-```mermaid
-classDiagram
-    class RpcHost {
-        run()
-    }
-    class Session {
-        request()
-        stop()
-        stopped()
-    }
-    class Loop
-    class State {
-        advance()
-        process()
-        live_quotes()
-    }
-    class Feed {
-        connect()
-        subscribe()
-        poll()
-        events_after()
-        snapshot()
-    }
-    class CatalogJob
-    class CatalogQuery
-    class IntradayBars
-    class Recorder
-    class Compactor
-    class RecordedPublication
-    class Manager
-    class WatchCursor
-    RpcHost ..> Session : 主程序转交请求
-    Session *-- Loop
-    Loop ..> State : 创建并驱动
-    Loop *-- Manager
-    State *-- Feed
-    State *-- CatalogJob
-    CatalogJob *-- CatalogQuery : 查询期间
-    State *-- IntradayBars
-    State *-- Recorder
-    State *-- Compactor
-    State *-- RecordedPublication
-    RecordedPublication --> Manager
-    State ..> WatchCursor : 发布增量帧
-```
+![Market 实时状态核心类关系](diagrams/market/runtime-classes.png)
+
+[Mermaid 图源](diagrams/market/runtime-classes.mmd)
 
 采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。两个 `Reader` 分别读录制归档和正式仓库，不要混淆。
 
-```mermaid
-classDiagram
-    class Manager
-    class Source {
-        <<abstract>>
-        supports()
-        daily()
-        minutes()
-    }
-    class Tushare
-    class Exchange
-    class Recorded
-    class RecordingReader[recording::Reader]
-    class WarehouseReader[warehouse::Reader]
-    class Store {
-        current()
-        version()
-        writer()
-    }
-    class Writer {
-        put()
-        merge_days()
-        adopt()
-        commit()
-    }
-    Source <|-- Tushare
-    Source <|-- Exchange
-    Source <|-- Recorded
-    Manager ..> Source : 为任务创建
-    Manager *-- Store : 来源与 research
-    Manager ..> Writer
-    Recorded ..> RecordingReader
-    WarehouseReader ..> Store
-    Writer --> Store : 锁定写入并发布
-```
+![Market 采集与仓库类关系](diagrams/market/warehouse-classes.png)
+
+[Mermaid 图源](diagrams/market/warehouse-classes.mmd)
 
 ## 实时通信时序
 
 服务启动时自行登录、加载缓存目录并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
 
-```mermaid
-sequenceDiagram
-    participant SDK as CTP SDK
-    participant Feed
-    participant State
-    participant Bars as IntradayBars
-    participant Recorder
-    participant RPC as RpcHost
-    participant Client as Terminal 原生层
-    SDK->>Feed: 报价回调入队
-    State->>Feed: poll()，转换回调事件
-    State->>Feed: events_after(已消费位置)
-    Feed-->>State: 有序事件与缺口状态
-    State->>Recorder: observe(报价，乱序标记，旧分钟序列)
-    opt 报价有序
-        State->>Bars: observe(报价)
-    end
-    State->>Recorder: poll()，安排落盘
-    Client->>RPC: 双向 TLS，Request.stream_quotes
-    RPC->>State: 经 Session 转交请求与连接游标
-    State-->>RPC: 全部所选行与目录
-    RPC-->>Client: Response.stream_quotes.full
-    loop 同一条报价流连接
-        RPC->>State: 按连接游标请求下一帧
-        State-->>RPC: 变化的行、变化后的目录
-        RPC-->>Client: Response.stream_quotes.changed
-    end
-    Note over Client,State: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
-```
+![Market 实时通信时序](diagrams/market/live-sequence.png)
+
+[Mermaid 图源](diagrams/market/live-sequence.mmd)
 
 `Recorder::observe()` 在分钟聚合前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
 
 ## 采集、发布与固定版本读取
 
-```mermaid
-sequenceDiagram
-    participant Client as Terminal / Lab
-    participant RPC as RpcHost / Session
-    participant Manager
-    participant Source
-    participant Writer
-    participant Research as compose_research
-    Client->>RPC: start_acquisition
-    RPC->>RPC: 由已验证证书检查 manage 权限
-    RPC->>Manager: submit(request)
-    Manager->>Manager: 持久化 QUEUED 任务
-    Manager-->>Client: 经 RPC 返回已接纳任务
-    Manager->>Source: 后台读取供应商或自录数据
-    Source-->>Manager: 标准化行与观测段
-    Manager->>Writer: put() / merge_days()
-    Manager->>Writer: commit()
-    Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
-    Manager->>Research: 合成 research
-    Research->>Research: 持有研究写锁，读取来源版本并发布
-    Manager->>Manager: 持久化任务进度或完成状态
-    Client->>RPC: get_dataset_version(research，当前版本)
-    RPC-->>Client: 固定版本 ID、分区与摘要
-    loop 分页与文件下载
-        Client->>RPC: get_dataset_version / read_dataset_file，携带同一版本 ID
-        RPC-->>Client: 该版本的元数据或 Parquet 字节块
-    end
-```
+![Market 采集发布与固定版本读取时序](diagrams/market/acquisition-sequence.png)
+
+[Mermaid 图源](diagrams/market/acquisition-sequence.mmd)
 
 录制自动发布复用上述采集路径：`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办并延后再试，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
 

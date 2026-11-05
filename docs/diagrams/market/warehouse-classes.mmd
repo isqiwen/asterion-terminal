@@ -1,0 +1,33 @@
+classDiagram
+    class Manager
+    class Source {
+        <<abstract>>
+        supports()
+        daily()
+        minutes()
+    }
+    class Tushare
+    class Exchange
+    class Recorded
+    class RecordingReader["recording::Reader"]
+    class WarehouseReader["warehouse::Reader"]
+    class Store {
+        current()
+        version()
+        writer()
+    }
+    class Writer {
+        put()
+        merge_days()
+        adopt()
+        commit()
+    }
+    Source <|-- Tushare
+    Source <|-- Exchange
+    Source <|-- Recorded
+    Manager ..> Source : 为任务创建
+    Manager *-- Store : 来源与 research
+    Manager ..> Writer
+    Recorded ..> RecordingReader
+    WarehouseReader ..> Store
+    Writer --> Store : 锁定写入并发布

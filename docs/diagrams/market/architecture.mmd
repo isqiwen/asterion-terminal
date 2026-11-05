@@ -1,0 +1,19 @@
+flowchart LR
+    CTP[CTP 行情与合约目录] --> Live[实时状态与分钟聚合]
+    subgraph Market[Market 进程]
+        RPC[TLS / Protobuf RPC]
+        Live --> Record[录制]
+        Record --> Archive[录制 Parquet]
+        Archive --> Merge[盘后合并]
+        Merge --> Publish[自录发布待办]
+        Publish --> Acquire[采集管理]
+        Archive --> Acquire
+        Acquire --> Store[来源仓库]
+        Store --> Research[research 固定版本]
+        Live --> RPC
+        Research --> RPC
+        RPC --> Acquire
+    end
+    Provider[Tushare / 交易所] --> Acquire
+    Terminal[Terminal] <-->|请求与报价流| RPC
+    Lab[Lab] <-->|固定版本读取| RPC
