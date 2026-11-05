@@ -129,8 +129,6 @@ TEST(Recorder, TheLastMinuteIsWrittenWhenItsTradingDayEndsWhileRecordingContinue
     constexpr std::int64_t day = 1'793'164'800'000; // 2026-10-28 13:20 Beijing.
     const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
     const auto bars = [&] {
-        if (!fs::exists(root / "minutes"))
-            return std::string{};
         return query(
             "SELECT (start_ms - " + std::to_string(day)
             + ") // 60000, close, partial FROM read_parquet('"
@@ -146,12 +144,15 @@ TEST(Recorder, TheLastMinuteIsWrittenWhenItsTradingDayEndsWhileRecordingContinue
         }
         // 15:31 Beijing: the day has ended and the last bar will not change.
         const auto closed = day + (2 * 60 + 11) * 60000;
+        recorder.poll(closed, minutes);
         const auto deadline = std::chrono::steady_clock::now() + 5s;
-        for (int step = 0; bars() != "0 3100.00000000 false\n1 3101.00000000 false\n"; ++step) {
-            ASSERT_LT(std::chrono::steady_clock::now(), deadline) << bars();
-            recorder.poll(closed + step * 30000, minutes);
+        while (recorder.status().rows != 2) {
+            ASSERT_LT(std::chrono::steady_clock::now(), deadline) << recorder.status().error;
+            recorder.poll(closed + 30000, minutes);
+            ASSERT_TRUE(recorder.status().error.empty()) << recorder.status().error;
             std::this_thread::sleep_for(10ms);
         }
+        EXPECT_EQ(bars(), "0 3100.00000000 false\n1 3101.00000000 false\n");
         recorder.close("stopped", closed + 600000, minutes);
     }
     EXPECT_EQ(bars(), "0 3100.00000000 false\n1 3101.00000000 false\n");
