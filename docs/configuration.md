@@ -6,8 +6,6 @@
 | --- | --- | --- |
 | Terminal | [logging.json](../apps/clients/terminal/config/logging.json) | 桌面打包，首次启动写入 `terminal/config/logging.json` |
 | Terminal | [futures-sessions.json](../apps/clients/terminal/config/futures-sessions.json) | 界面构建时导入，用于分时图横轴 |
-| Terminal | [market.example.json](../apps/clients/terminal/config/market.example.json) | 展示界面保存的 `terminal/data/market.json` |
-| Terminal | [trading-connection.example.json](../apps/clients/terminal/config/trading-connection.example.json) | 展示界面保存的 `terminal/data/trading-connections/<id>.json` |
 | Lab | [logging.json](../apps/services/lab/config/logging.json) | 桌面携带为 `config/lab-logging.json`，首次启动写入 `lab/config/logging.json` |
 | Market | [market.example.json](../apps/services/market/config/market.example.json) | 展示安装脚本生成的 `config/market.json` |
 | Market | [logging.json](../apps/services/market/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
@@ -44,9 +42,5 @@ Lab 的研究任务通过通信协议提交，没有单独的研究或任务配�
 文件名决定 `--account` 的账户实例名。密码和授权码由 systemd 以 `password`、`auth_code` 提供；风控政策和交易授权通过 Terminal 管理，不写在账户配置中。
 
 ## Terminal
-
-Market 连接的 `host`、`port`、`fingerprint` 指定服务地址和证书指纹；`instruments` 是自选合约列表，每项含 `exchange`、`symbol`。
-
-Trading 连接的 `id` 是本地连接标识，`instance` 是远端账户实例名；`host`、`port`、`fingerprint` 指定远端服务。`revision` 是程序保存时生成的字符串，用于检测并发修改。
 
 交易时段表的 `day_sessions`、`night_sessions` 定义时段，`products` 将交易所品种映射到时段，`utc_offset` 指定时区；`source` 记录来源和核对日期，`version` 标识文件格式。

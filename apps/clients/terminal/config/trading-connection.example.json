@@ -1,8 +1,0 @@
-{
-  "id": "simulation",
-  "host": "trading.example.invalid",
-  "port": 7460,
-  "instance": "simulation",
-  "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "revision": "example-revision"
-}
