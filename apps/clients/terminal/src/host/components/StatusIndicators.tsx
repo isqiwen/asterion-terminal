@@ -4,9 +4,6 @@ import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { BrokerState } from "../../generated/asterion/trading_pb";
 
-// One indicator per service, in the sidebar's order: 行情 (Market), 研究 (Lab)
-// and 交易 (each trading connection). The dot's colour is the state; a word
-// follows only when something is not normal.
 export function StatusIndicators({
   snapshot,
   openMarketSettings,
@@ -30,15 +27,6 @@ export function StatusIndicators({
   const label = (name: string, state: string) => `● ${name}${state && ` ${t(state)}`}`;
   return (
     <>
-      {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
-        <button className="status-item" onClick={openMarketSettings}>
-          {label(t("行情"), "未设置")}
-        </button>
-      ) : (
-        <span className={`status-item ${market ? (market.online ? "good" : "bad") : ""}`}>
-          {label(t("行情"), !market ? "未连接" : market.online ? "" : "中断")}
-        </span>
-      )}
       {lab &&
         (() => {
           // Lab restarts by itself while the Terminal runs; this only says where it is.
@@ -54,6 +42,15 @@ export function StatusIndicators({
             </span>
           );
         })()}
+      {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
+        <button className="status-item" onClick={openMarketSettings}>
+          {label(t("行情"), "未设置")}
+        </button>
+      ) : (
+        <span className={`status-item ${market ? (market.online ? "good" : "bad") : ""}`}>
+          {label(t("行情"), !market ? "未连接" : market.online ? "" : "中断")}
+        </span>
+      )}
       {!connections.length && (
         <button className="status-item" onClick={openTradingSettings}>
           {label(t("交易"), "未设置")}

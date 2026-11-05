@@ -12,7 +12,7 @@ const show = (snapshot = readySnapshot(), openMarketSettings = vi.fn()) => (
   />
 );
 
-test("行情, 研究 and each trading connection each have their own indicator", () => {
+test("indicators show research first, then market and each trading connection", () => {
   const snapshot = readySnapshot();
   snapshot.trading_connections = [
     {
@@ -25,7 +25,11 @@ test("行情, 研究 and each trading connection each have their own indicator",
     },
   ];
   const view = render(show(snapshot));
-  expect(screen.getByText("● 行情 未连接")).toBeTruthy();
+  expect([...view.container.children].map(item => item.textContent)).toEqual([
+    "● 研究",
+    "● 行情 未连接",
+    "● 交易·simnow 连接中",
+  ]);
   expect(screen.getByText("● 研究").className).toContain("good");
   expect(screen.getByRole("button", { name: "● 交易·simnow 连接中" })).toBeTruthy();
 
