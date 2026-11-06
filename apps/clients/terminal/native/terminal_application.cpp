@@ -1,3 +1,4 @@
+#include <asterion/version.hpp>
 #include "application_impl.hpp"
 #include "application_environment.hpp"
 #include <asterion/system/durable_file.hpp>
@@ -211,7 +212,9 @@ Application::Impl::Publication Application::Impl::capture()
                 return policies;
             }()},
         {"diagnostics",
-            {{"succeeded", succeeded},
+            {{"version", build::version},
+                {"commit", build::commit},
+                {"succeeded", succeeded},
                 {"log_directory", asterion_root().string()},
                 {"failed", failed},
                 {"log_failures", log::failures()},

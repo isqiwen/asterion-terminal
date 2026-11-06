@@ -75,6 +75,8 @@ export type Snapshot = {
   // yesterday's positions.
   close_policies: Record<string, "explicit_buckets" | "today_first" | "yesterday_first">;
   diagnostics: {
+    version: string;
+    commit: string;
     log_directory: string;
     succeeded: number;
     failed: number;

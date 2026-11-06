@@ -20,7 +20,7 @@ from asterion.lab_pb2 import Request
 from asterion_lab.log import ProcessLog
 from asterion_lab.service import MODULE, Service
 from asterion_lab.market import Market
-from asterion_lab.version import VERSION
+from asterion_lab.version import VERSION, COMMIT
 
 MAX_REQUEST = 1024 * 1024
 
@@ -57,7 +57,7 @@ async def run(service: Service, owner: int, endpoints):
         servers.append(await asyncio.start_unix_server(
             lambda reader, writer: connection(service, reader, writer), path=endpoint))
     service.initialized = True
-    service.log.write("info", MODULE, "service.started", version=VERSION)
+    service.log.write("info", MODULE, "service.started", version=VERSION, commit=COMMIT)
 
     async def watch_owner():
         # The Terminal's death ends its services; nothing else would stop this one.
@@ -81,7 +81,7 @@ async def run(service: Service, owner: int, endpoints):
 def main():
     parser = argparse.ArgumentParser(prog="asterion_lab", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--version", action="version", version=f"asterion_lab {VERSION}")
+    parser.add_argument("--version", action="version", version=f"asterion_lab {VERSION} ({COMMIT})")
     parser.add_argument("--owner-pid", type=int, required=True)
     parser.add_argument("--session", required=True)
     parser.add_argument("--directory", required=True)

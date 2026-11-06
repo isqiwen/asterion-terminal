@@ -1,3 +1,4 @@
+#include <asterion/version.hpp>
 #include "live.hpp"
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
@@ -117,7 +118,7 @@ wire::Feed Live::feed_state() const
 
 void Live::status(wire::Status& out) const
 {
-    out.set_version("0.1.0");
+    out.set_version(asterion::build::description);
     out.set_started_ms(started_ms_);
     *out.mutable_feed() = feed_state();
     *out.mutable_catalog() = catalog_.state().status();

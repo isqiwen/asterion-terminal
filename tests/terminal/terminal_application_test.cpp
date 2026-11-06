@@ -12,6 +12,7 @@
 #include <asio.hpp>
 #include <latch>
 #include <gtest/gtest.h>
+#include <asterion/version.hpp>
 #include <regex>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/base_sink.h>
@@ -186,6 +187,8 @@ TEST(TerminalCommands, TracesContainOnlyMetadata)
     EXPECT_TRUE(lines[1].starts_with("terminal.unknown failed: ")) << lines[1];
     EXPECT_TRUE(app.dispatch(request("market.endpoint.clear")).at("market_endpoint").is_null());
     const auto diagnostics = app.dispatch(request("runtime.snapshot")).at("diagnostics");
+    EXPECT_EQ(diagnostics.at("version"), build::version);
+    EXPECT_EQ(diagnostics.at("commit"), build::commit);
     EXPECT_EQ(diagnostics.at("succeeded"), 2);
     EXPECT_EQ(diagnostics.at("failed"), 2);
     EXPECT_EQ(current_trace_id(), outer);

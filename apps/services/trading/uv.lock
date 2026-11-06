@@ -10,7 +10,7 @@ supported-markers = [
 
 [[package]]
 name = "asterion-trading-runtime"
-version = "0.1.0"
+version = "0"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },

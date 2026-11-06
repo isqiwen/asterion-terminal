@@ -23,7 +23,7 @@ import time
 import polars as pl
 
 from asterion_lab.repository import Revision
-from asterion_lab.version import VERSION
+from asterion_lab.version import VERSION, COMMIT
 from asterion_lab.warehouse import write_durably
 
 AMOUNT = pl.Decimal(19, 8)
@@ -106,7 +106,7 @@ class Runs:
                   "data": {"dataset_version": plan.dataset_version,
                            "symbols": list(plan.symbols), "begin_day": plan.begin_day,
                            "end_day": plan.end_day, "bars": plan.bars},
-                  "engine": {"version": VERSION},
+                  "engine": {"version": VERSION, "commit": COMMIT},
                   "costs": plan.costs, "risk": plan.risk, "statistics": plan.statistics}
         write_durably(directory / "run.json",
                       json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")

@@ -1,3 +1,4 @@
+from pathlib import Path
 from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
@@ -5,12 +6,14 @@ from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
 
 class Asterion(ConanFile):
     name = "asterion"
-    version = "0.1.0"
     settings = "os", "compiler", "build_type", "arch"
     generators = "CMakeDeps"
     requires = "ctp/6.7.7", "zlib/1.3.1", "nlohmann_json/3.12.0", "spdlog/1.17.0", "cli11/2.6.0", "protobuf/5.29.3", "openssl/3.6.2", "asio/1.30.2", "cpp-httplib/0.47.0", "sqlite3/3.53.4", "duckdb/1.4.3", "pybind11/3.0.1"
     options = {"with_tests": [True, False]}
     default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False, "sqlite3/*:threadsafe": 2, "duckdb/*:with_threads": True}
+
+    def set_version(self):
+        self.version = (Path(self.recipe_folder) / "VERSION").read_text().strip()
 
     def validate(self):
         target = (str(self.settings.os), str(self.settings.arch))

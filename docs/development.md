@@ -136,3 +136,9 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 - 每个程序写自己安装目录下的 `logs/`，按程序、日期分文件，见[运行日志](services.md#运行日志)。Terminal 日志记录每条命令的名称、`trace_id`、耗时和结果；服务日志用同一 `trace_id` 关联请求。交易日志在委托写入记录后记下 `order_id` 等标识。
 - 日志写入失败时在标准错误输出固定的 `logging.failed` 诊断，Terminal 通知中心报告日志写入故障。
 - 本机日志入口见[运行日志](services.md#运行日志)。
+
+## 产品版本
+
+根目录 `VERSION` 是唯一产品版本来源，四个安装包共用该版本。CMake 生成 C++ 版本信息和 `product.json`，桌面打包与 Lab 运行时读取生成结果；Conan 直接读取 `VERSION`。每次构建更新 Git 短提交号，服务 `--version`、Terminal 诊断快照和 Lab 运行记录带上提交号，安装包版本保持纯产品版本。
+
+Lab 与 Trading 的 `pyproject.toml` 只声明运行时依赖，不发布 Python 包，其虚拟项目版本固定为 `0`，不代表产品版本。修改产品版本只需更新 `VERSION` 后重新构建、打包。

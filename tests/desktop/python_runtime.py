@@ -51,11 +51,22 @@ class Startup(unittest.TestCase):
                     prepare.assert_called_once_with(self.build)
                 runtime.verify(self.destination, self.build)
 
-    def test_source_changes_do_not_reinstall_dependencies(self):
+    def test_source_and_version_changes_refresh_the_package_without_reinstalling_dependencies(self):
         self.prepare(self.build)
-        (self.project / "repository.py").write_text("# changed source\n")
-        with patch.object(runtime, "prepare") as prepare:
-            runtime.ensure(self.build)
+        source = self.project / "asterion_lab"
+        source.mkdir()
+        (self.build / "generated-python/asterion").mkdir(parents=True)
+        destination = self.build / "runtime"
+        with patch.object(runtime, "prepare") as prepare, patch.object(runtime.runtime_manifest, "DESTINATION", destination):
+            for version, commit in (("1.2.3", "abc123"), ("1.2.4", "def456")):
+                (source / "repository.py").write_text(f"# {commit}\n")
+                (self.build / "product.json").write_text(json.dumps({"version": version, "commit": commit}))
+                runtime.ensure(self.build)
+                packaged = destination / "app/asterion_lab"
+                self.assertEqual((packaged / "repository.py").read_text(), f"# {commit}\n")
+                values = {}
+                exec((packaged / "version.py").read_text(), values)
+                self.assertEqual((values["VERSION"], values["COMMIT"]), (version, commit))
             prepare.assert_not_called()
 
 

@@ -2,7 +2,7 @@ import type { CommandHandler } from "../bridge/commands";
 import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
 import { SettingsSection } from "./Section";
-import { version } from "../../electron/package.json";
+import version from "../../../../../VERSION?raw";
 import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from "./window";
 import { ErrorNotice, type DisplayError } from "../i18n/errors";
 import { translate, useLocale, type MessageValues } from "../i18n";
@@ -148,7 +148,10 @@ export function Settings({
           <SettingsSection title="Asterion Terminal">
             <dl className="settings-facts">
               <dt>{t("版本")}</dt>
-              <dd>{version}</dd>
+              <dd>
+                {version.trim()}
+                {snapshot && ` (${snapshot.diagnostics.commit})`}
+              </dd>
               <dt title={t("在行情服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
               <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>

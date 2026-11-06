@@ -75,20 +75,27 @@ def ensure(build):
     except (FileNotFoundError, ValueError):
         print("Preparing Python runtime for the current project and dependencies", flush=True)
         prepare(build)
+    else:
+        application_code(build, runtime_manifest.DESTINATION / "app")
 
 
 def application_code(build: Path, target: Path):
     """The Terminal's own Python code: lab, its protocol types and the
     backtest engine built for this interpreter."""
-    target.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(build / "generated-python/asterion", target / "asterion")
-    for engine in (build / "engine-python").glob("asterion_engine.*"):
-        shutil.copy2(engine, target / engine.name)
-    shutil.copytree(PROJECT / "asterion_lab", target / "asterion_lab",
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy2(ROOT / "apps/services/common/python/asterion_strategy.py", target)
-    version = json.loads((build / "product.json").read_text())["version"]
-    (target / "asterion_lab/version.py").write_text(f"VERSION = {version!r}\n")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".application-", dir=target.parent) as temporary:
+        prepared = Path(temporary) / "app"
+        prepared.mkdir()
+        shutil.copytree(build / "generated-python/asterion", prepared / "asterion")
+        for engine in (build / "engine-python").glob("asterion_engine.*"):
+            shutil.copy2(engine, prepared / engine.name)
+        shutil.copytree(PROJECT / "asterion_lab", prepared / "asterion_lab",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(ROOT / "apps/services/common/python/asterion_strategy.py", prepared)
+        product = json.loads((build / "product.json").read_text())
+        (prepared / "asterion_lab/version.py").write_text(
+            f"VERSION = {product['version']!r}\nCOMMIT = {product['commit']!r}\n")
+        publish_tree(prepared, target)
 
 
 def prepare(build=None):

@@ -1,3 +1,4 @@
+#include <asterion/version.hpp>
 #include "market.hpp"
 #include <asterion/system/environment.hpp>
 #include <CLI/CLI.hpp>
@@ -12,7 +13,9 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv)
 {
     CLI::App app{"Asterion market-data and acquisition host"};
-    app.set_version_flag("--version", "Asterion Market Data 0.1.0");
+    app.set_version_flag(
+        "--version",
+        std::string("Asterion Market Data ") + asterion::build::description);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {

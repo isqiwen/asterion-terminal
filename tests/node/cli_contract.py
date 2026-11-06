@@ -6,10 +6,13 @@ import subprocess
 import sys
 import tempfile
 
+product = json.loads((Path(sys.argv[1]).parent / "product.json").read_text())
 for binary in sys.argv[1:]:
     for option in ("--help", "--version"):
         result = subprocess.run([binary, option], capture_output=True, text=True, timeout=10)
         assert result.returncode == 0 and result.stdout, (binary, option, result)
+        if option == "--version":
+            assert f"{product['version']} ({product['commit']})" in result.stdout, result.stdout
     result = subprocess.run([binary, "--not-an-option"], capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and result.stderr, binary
 with tempfile.TemporaryDirectory(prefix="asterion-trading-", ignore_cleanup_errors=True) as folder:

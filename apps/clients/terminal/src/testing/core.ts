@@ -36,6 +36,8 @@ export function readySnapshot(): Snapshot {
     asset: "futures",
     close_policies: {},
     diagnostics: {
+      version: "test",
+      commit: "test",
       log_directory: "/test-node/logs",
       succeeded: 0,
       failed: 0,

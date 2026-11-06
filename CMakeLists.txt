@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
-project(Asterion VERSION 0.1.0 LANGUAGES CXX)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" ASTERION_VERSION LIMIT_COUNT 1)
+project(Asterion VERSION ${ASTERION_VERSION} LANGUAGES CXX)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+set(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}")
+include(cmake/ProductVersion.cmake)
+add_custom_target(asterion_build_version
+  COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DOUTPUT=${OUTPUT} -P ${ROOT}/cmake/ProductVersion.cmake
+  BYPRODUCTS ${OUTPUT}/generated/asterion/version.hpp ${OUTPUT}/product.json
+  VERBATIM)
 if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Darwin|Linux)$")
   message(FATAL_ERROR "Asterion supports macOS and Linux x86_64 only")
 endif()

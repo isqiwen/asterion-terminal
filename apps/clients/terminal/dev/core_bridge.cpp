@@ -1,3 +1,4 @@
+#include <asterion/version.hpp>
 #include "terminal_application.hpp"
 #include <asterion/base/serialization.hpp>
 #include <CLI/CLI.hpp>
@@ -39,7 +40,9 @@ std::string call(asterion::terminal::Application& runtime, std::string request)
 int main(int argc, char** argv)
 {
     CLI::App app{"Terminal development transport; JSON lines on stdin/stdout"};
-    app.set_version_flag("--version", "Asterion Terminal bridge 0.1.0");
+    app.set_version_flag(
+        "--version",
+        std::string("Asterion Terminal bridge ") + asterion::build::description);
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {

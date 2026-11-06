@@ -1,3 +1,4 @@
+#include <asterion/version.hpp>
 #include <asterion/system/log.hpp>
 #include "live_session.hpp"
 #include "settings.hpp"
@@ -21,7 +22,9 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv)
 {
     CLI::App app{"Asterion CTP account service (one execution owner per account)"};
-    app.set_version_flag("--version", "Asterion Trading 0.1.0");
+    app.set_version_flag(
+        "--version",
+        std::string("Asterion Trading ") + asterion::build::description);
     std::string account_name;
     app.add_option("--account", account_name, "The account instance to run")->required();
     argv = app.ensure_utf8(argv);

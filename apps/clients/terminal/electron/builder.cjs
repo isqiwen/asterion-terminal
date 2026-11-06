@@ -1,4 +1,7 @@
 const path = require("node:path");
+const fs = require("node:fs");
+const build = process.env.ASTERION_CPP_BUILD || path.resolve("build/Release");
+const product = JSON.parse(fs.readFileSync(path.join(build, "product.json"), "utf8"));
 const packageMode = process.env.ASTERION_PACKAGE_MODE;
 if (!["release", "test"].includes(packageMode))
   throw new Error("Use desktop.py build or package-test to select a package purpose");
@@ -21,6 +24,7 @@ const nativeFiles = [
 ];
 module.exports = {
   appId: "me.asterion.terminal",
+  extraMetadata: { version: product.version, buildCommit: product.commit },
   productName: "Asterion Terminal",
   executableName: "asterion_terminal",
   directories: {

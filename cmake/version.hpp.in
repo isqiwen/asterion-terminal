@@ -1,0 +1,7 @@
+#pragma once
+
+namespace asterion::build {
+inline constexpr char version[] = "@ASTERION_VERSION@";
+inline constexpr char commit[] = "@ASTERION_COMMIT@";
+inline constexpr char description[] = "@ASTERION_VERSION@ (@ASTERION_COMMIT@)";
+}

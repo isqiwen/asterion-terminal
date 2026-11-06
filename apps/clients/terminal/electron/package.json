@@ -1,6 +1,5 @@
 {
   "name": "asterion-terminal",
-  "version": "0.1.0",
   "description": "Asterion quantitative trading terminal",
   "author": "Asterion",
   "private": true,

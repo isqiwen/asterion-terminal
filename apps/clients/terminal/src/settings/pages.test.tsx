@@ -3,6 +3,7 @@ import { expect, test, vi } from "vitest";
 import { readySnapshot } from "../testing/core";
 
 import { Settings } from "./Settings";
+import version from "../../../../../VERSION?raw";
 
 // jsdom does not implement the browser's dialog methods.
 HTMLDialogElement.prototype.showModal = function () {
@@ -50,4 +51,13 @@ test("the Market page configures one remote Market without counter credentials",
       fingerprint: "a".repeat(64),
     }),
   );
+});
+
+test("about identifies the product version and native build commit", () => {
+  const snapshot = readySnapshot();
+  snapshot.diagnostics.commit = "abc123456789";
+  render(
+    <Settings snapshot={snapshot} error="" busy={false} trade={vi.fn()} initialPage="about" />,
+  );
+  expect(screen.getByText(`${version.trim()} (abc123456789)`)).toBeTruthy();
 });
