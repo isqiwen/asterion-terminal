@@ -1,4 +1,4 @@
-name: Core services and Terminal
+name: Asterion CI
 on: [push, pull_request]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -8,7 +8,8 @@ concurrency:
 env:
   MACOSX_DEPLOYMENT_TARGET: "13.0"
 jobs:
-  style:
+  source-checks:
+    name: Source checks
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -32,65 +33,8 @@ jobs:
         run: pnpm lint
       - name: TypeScript unit and component tests
         run: pnpm test:unit
-  linux-hosts:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            arch: x86_64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - &conan-cache
-        name: Cache Conan packages
-        id: conan-cache
-        uses: actions/cache@v5
-        with:
-          path: ${{ runner.temp }}/conan-packages.tgz
-          key: conan-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageVersion }}-${{ github.job }}-${{ hashFiles('conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py', '.github/workflows/ci.yml') }}
-      - &conan-restore
-        name: Restore Conan packages
-        if: steps.conan-cache.outputs.cache-hit == 'true'
-        run: conan cache restore "${{ runner.temp }}/conan-packages.tgz"
-      - run: conan profile detect
-      - run: python scripts/prepare_ctp.py
-      - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
-      - &conan-save
-        name: Prepare Conan cache
-        if: steps.conan-cache.outputs.cache-hit != 'true'
-        run: conan cache save '*:*' --no-source -cc core:compresslevel=1 --file "${{ runner.temp }}/conan-packages.tgz"
-      - run: cmake --preset conan-release
-      # The trading and Market hosts' own releases, one self-extracting
-      # script each.
-      - run: cmake --build build/Release --target asterion_trading_setup
-      - name: Verify the trading service
-        run: |
-          ./build/Release/asterion_trading --version
-          ldd build/Release/asterion_trading
-      - name: Offline Trading runtime and strategy limits
-        run: python tests/trading/package_test.py build/Release/asterion-trading-setup.sh
-      - uses: actions/upload-artifact@v6
-        with:
-          name: trading-linux-${{ matrix.arch }}
-          if-no-files-found: error
-          path: build/Release/asterion-trading-setup.sh
-      - run: cmake --build build/Release --target asterion_market_setup
-      - name: Verify Market
-        run: |
-          ./build/Release/asterion_market --version
-          ldd build/Release/asterion_market
-      - uses: actions/upload-artifact@v6
-        with:
-          name: market-linux-${{ matrix.arch }}
-          if-no-files-found: error
-          path: build/Release/asterion-market-setup.sh
-
-  terminal:
+  release-macos:
+    name: Release / macOS
     runs-on: macos-latest
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Release
@@ -106,15 +50,27 @@ jobs:
         with:
           version: "10.32.1"
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - *conan-cache
-      - *conan-restore
+      - &conan-cache
+        name: Cache Conan packages
+        id: conan-cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/conan-packages.tgz
+          key: conan-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageVersion }}-${{ github.job }}-${{ hashFiles('conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py', '.github/workflows/ci.yml') }}
+      - &conan-restore
+        name: Restore Conan packages
+        if: steps.conan-cache.outputs.cache-hit == 'true'
+        run: conan cache restore "${{ runner.temp }}/conan-packages.tgz"
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron
       - name: Build acceptance installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
-      - *conan-save
+      - &conan-save
+        name: Prepare Conan cache
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: conan cache save '*:*' --no-source -cc core:compresslevel=1 --file "${{ runner.temp }}/conan-packages.tgz"
       - run: ctest --preset conan-release --output-on-failure
         env:
           ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
@@ -134,7 +90,8 @@ jobs:
 
   # The whole browser suite runs on the macOS job. Only the @trading tests run
   # here, because the trading service runs on Linux only and they skip elsewhere.
-  terminal-linux:
+  release-linux:
+    name: Release / Linux
     runs-on: ubuntu-24.04
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Release
@@ -173,10 +130,30 @@ jobs:
         run: |
           cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
           taskset -c "$cpu" ctest --preset conan-release --output-on-failure -j 1 --repeat until-fail:5 -R '^(market_recording_process|market_process)$'
-      - name: Market release without a Python runtime
+      - name: Build service installers
+        run: cmake --build build/Release --target asterion_trading_setup asterion_market_setup
+      - name: Verify service executables
         run: |
-          cmake --build build/Release --target asterion_market_setup
-          build/electron-resources/python/bin/python3 tests/market/package_test.py build/Release/asterion-market-setup.sh
+          ./build/Release/asterion_trading --version
+          ldd build/Release/asterion_trading
+          ./build/Release/asterion_market --version
+          ldd build/Release/asterion_market
+      - name: Offline Trading runtime and strategy limits
+        run: python tests/trading/package_test.py build/Release/asterion-trading-setup.sh
+      - name: Market release without a Python runtime
+        run: build/electron-resources/python/bin/python3 tests/market/package_test.py build/Release/asterion-market-setup.sh
+      - name: Upload Trading installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: trading-linux-x86_64
+          if-no-files-found: error
+          path: build/Release/asterion-trading-setup.sh
+      - name: Upload Market installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: market-linux-x86_64
+          if-no-files-found: error
+          path: build/Release/asterion-market-setup.sh
       - run: pnpm exec playwright install --with-deps chromium
       - name: Trading browser tests
         run: pnpm run test:e2e --grep @trading
@@ -194,14 +171,17 @@ jobs:
           if-no-files-found: error
           path: build/desktop-test/*.deb
 
-  core-sanitizers:
+  sanitizers:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - name: ASan + UBSan / Linux
+            os: ubuntu-24.04
             sanitizer: address,undefined
-          - os: macos-latest
+          - name: TSan / macOS
+            os: macos-latest
             sanitizer: thread
     runs-on: ${{ matrix.os }}
     steps:
