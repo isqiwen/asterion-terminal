@@ -47,6 +47,7 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
         ├── ctp/warehouse/      # 合约快照入库后的正式仓库
         ├── research/warehouse/ # 合成研究数据集
         ├── gtja/warehouse/     # 期货公司报表的历史报价单位
+        ├── sina/warehouse/     # 新浪财经补缺的行情
         ├── shfe/warehouse/
         ├── ine/warehouse/
         ├── czce/warehouse/

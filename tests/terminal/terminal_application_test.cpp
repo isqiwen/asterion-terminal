@@ -608,7 +608,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_FALSE(options.value("canManage", false));
     EXPECT_EQ(
         options.at("tables"),
-        Json::array({"TABLE_DAILY", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
+        Json::array({"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
     EXPECT_EQ(options.at("exchanges").size(), 6);
     EXPECT_TRUE(second.get().at("market").contains("getDatasetVersion"));
     try {

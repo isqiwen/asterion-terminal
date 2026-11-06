@@ -3,6 +3,7 @@
 #include "acquisition/exchanges.hpp"
 #include "acquisition/guotai.hpp"
 #include "acquisition/catalog_source.hpp"
+#include "acquisition/sina.hpp"
 #include "acquisition/snapshot_intake.hpp"
 #include "acquisition/tushare.hpp"
 #include "warehouse/composer.hpp"
@@ -177,6 +178,15 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
         };
         if (exchange != "CZCE")
             reference_exchanges.push_back(exchange);
+    }
+    if (!settings.exchanges.empty()) {
+        // Sina answers by contract and is known to block heavy use.
+        auto budget = std::make_shared<acquisition::Budget>(60);
+        result["sina"] = [exchanges = settings.exchanges,
+                             root = settings.directory / "catalog",
+                             budget](std::stop_token stop) {
+            return std::make_unique<acquisition::Sina>(exchanges, root, budget, stop);
+        };
     }
     if (!reference_exchanges.empty())
         result["gtja"] = [reference_exchanges](std::stop_token stop) {

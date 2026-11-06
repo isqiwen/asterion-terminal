@@ -5,7 +5,7 @@ asterion_target_defaults(asterion_market_warehouse)
 find_package(ZLIB CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 add_library(asterion_market_acquisition STATIC
-  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/catalog_source.cpp acquisition/snapshot_intake.cpp acquisition/exchanges.cpp acquisition/guotai.cpp acquisition/manager.cpp)
+  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/catalog_source.cpp acquisition/sina.cpp acquisition/snapshot_intake.cpp acquisition/exchanges.cpp acquisition/guotai.cpp acquisition/manager.cpp)
 target_link_libraries(asterion_market_acquisition PUBLIC asterion_market_warehouse PRIVATE httplib::httplib Iconv::Iconv ZLIB::ZLIB tinyxml2::tinyxml2)
 asterion_target_defaults(asterion_market_acquisition)
 add_library(asterion_market_settings STATIC settings.cpp)

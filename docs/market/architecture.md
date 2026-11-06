@@ -12,7 +12,7 @@ flowchart LR
     Live --> Terminal[Terminal]
     Live --> Snapshot[每日合约快照]
     Snapshot --> Ingest[入库]
-    Provider[Tushare / 交易所 / 期货公司] --> Ingest
+    Provider[Tushare / 交易所 / 期货公司 / 新浪财经] --> Ingest
     Ingest --> Sources[来源仓库]
     Sources --> Compose[合成]
     Compose --> Research[research]
@@ -100,6 +100,7 @@ classDiagram
     class Exchange
     class Guotai
     class CatalogSource
+    class Sina
     class Store {
         current()
         version()
@@ -115,6 +116,7 @@ classDiagram
     Source <|-- Exchange
     Source <|-- Guotai
     Source <|-- CatalogSource
+    Source <|-- Sina
     Manager ..> Source : 为任务创建
     Manager *-- Store : 各来源
     Manager ..> Writer

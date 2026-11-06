@@ -105,7 +105,7 @@ target_compile_definitions(asterion_warehouse_tests PRIVATE
   ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
 add_dependencies(asterion_warehouse_tests asterion_test_ctp asterion_test_ctp_trader asterion_market)
 asterion_unit_tests(asterion_acquisition_tests market/acquisition_test.cpp asterion_market_acquisition)
-target_sources(asterion_acquisition_tests PRIVATE market/exchange_source_test.cpp market/guotai_source_test.cpp market/catalog_source_test.cpp)
+target_sources(asterion_acquisition_tests PRIVATE market/exchange_source_test.cpp market/guotai_source_test.cpp market/catalog_source_test.cpp market/sina_source_test.cpp)
 target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_EXCHANGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/market/fixtures")
 target_compile_definitions(asterion_acquisition_tests PRIVATE
   ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
