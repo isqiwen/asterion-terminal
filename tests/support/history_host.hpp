@@ -54,7 +54,6 @@ struct HistoryHost
             {"clients",
                 {{{"fingerprint", reader_pin}, {"role", "read"}},
                     {{"fingerprint", manager_pin}, {"role", "manage"}}}},
-            {"snapshots", (root / "data/catalog").string()},
             {"acquisition", {{"exchanges", nlohmann::json::array()}, {"tushare", nullptr}}}
         };
         replace_file_durably(root / "config/history.json", config.dump());

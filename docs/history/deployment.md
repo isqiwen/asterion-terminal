@@ -12,7 +12,7 @@ sudo /opt/asterion/history/bin/setup.sh     # 只修改配置
 ```
 
 - 安装时写入并启用 `asterion-history.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/history/data`，可以放到单独的磁盘）、Quotes 合约快照目录（默认 `/opt/asterion/quotes/data/catalog`），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 Tushare token。
+- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/history/data`，可以放到单独的磁盘），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 Tushare token。
 - 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，随时可以重启，不影响行情和交易。
 - 安装时生成服务端证书，脚本显示它的指纹，供 Terminal 登记。权限修改在重启后生效。
 
@@ -38,7 +38,6 @@ sudo /opt/asterion/history/bin/setup.sh     # 只修改配置
     │   └── <任务ID>.pb         # 采集请求、进度和结果
     ├── warehouse/              # Tushare 正式仓库
     └── sources/
-        ├── ctp/warehouse/      # 合约快照入库后的正式仓库
         ├── research/warehouse/ # 合成研究数据集
         ├── gtja/warehouse/     # 期货公司报表的历史报价单位
         ├── sina/warehouse/     # 新浪财经补缺的行情
@@ -73,14 +72,12 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `history.json`。syst
   "bind": "0.0.0.0",
   "port": 7450,
   "data": "/opt/asterion/history/data",
-  "snapshots": "/opt/asterion/quotes/data/catalog",
   "clients": [{"fingerprint": "<客户端证书的 SHA-256 指纹>", "role": "manage"}],
   "acquisition": {"exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"], "tushare": null}
 }
 ```
 
 - `data` 是仓库和采集任务所在的目录，必须是绝对路径。改目录请用 `setup.sh`：它创建新目录并允许服务写入；旧目录里的数据不搬动，要继续使用就先停服务再自己移过去。
-- `snapshots` 是 Quotes 留下合约快照的目录，必须是绝对路径。目录还不存在时，只是没有快照可入库。
 - `tushare` 为 `null` 时不采集 Tushare，否则为 `{"requests_per_minute": 100}`，token 来自主机凭据 `asterion.history.tushare.token`。
 - `exchanges` 启用对应交易所的公开来源及[历史报价单位](README.md#历史最小变动价位)来源；非郑商所品种自动启用 `gtja`，无需额外凭据。
 - 缺少配置、TLS 文件或已启用来源的凭据时拒绝启动，并报告路径；多出不认识的键同样拒绝。
@@ -91,7 +88,3 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `history.json`。syst
 - systemd 直接启动 `/opt/asterion/history/bin/asterion_history`，程序自动定位旁边的配置，不需要传入 `--installation`。
 - 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹与权限配置见 [Terminal 和 Lab 的连接](README.md#terminal-和-lab-的连接)。
 - 收到 SIGTERM 后停止接收，结束后台任务再退出。
-
-## 合约快照
-
-[Quotes](../quotes/README.md) 按交易日把合约目录保存到 `snapshots` 目录。交易日结束后，History 自动把快照入库到 `ctp` 来源，作为当天的历史报价单位，不依赖外部来源；失败时这一天每小时重试，原因写进主机日志。

@@ -180,7 +180,7 @@ configure() {
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
-    data=$(ask data "Data directory (contract snapshots)" '^/[^[:space:]]*$')
+    data=$(ask data "Data directory" '^/[^[:space:]]*$')
     echo "Use a CTP account of its own for quotes, never a live trading account."
     market_front=$(ask counter.market_front "Market data front" "$front")
     trade_front=$(ask counter.trade_front "Trading front" "$front")

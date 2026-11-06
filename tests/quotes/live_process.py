@@ -190,7 +190,7 @@ def install(root):
         install_program(Path(market).parent / "asterion_crash_reporter", root / "bin/asterion_crash_reporter")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
-    shutil.copy2(Path(__file__).parents[2] / "apps/services/history/config/logging.json", root / "config/logging.json")
+    shutil.copy2(Path(__file__).parents[2] / "apps/services/quotes/config/logging.json", root / "config/logging.json")
 
 
 def start(root, port, user="fixture"):
@@ -277,22 +277,19 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         first.wait(timeout=30)
     assert first.returncode == 0, first.stderr.read()
 
-    # The day's contract catalog is kept for its price ticks.
-    assert list((root / "data/catalog").glob("*.pb"))
-
     # A connection that outlasts a trading day reads the catalog for the new day.
     endpoint = free_port()
     continuing = start(root, endpoint, "next-day")
     try:
-        snapshots = root / "data/catalog"
+        cache = root / "data/ctp-catalog.pb"
         begun = time.time_ns()
         deadline = time.monotonic() + 40
         reads = set()
         while len(reads) < 2:
             assert continuing.poll() is None, continuing.stderr.read()
             assert time.monotonic() < deadline, reads
-            reads |= {snapshot.stat().st_mtime_ns for snapshot in snapshots.glob("*.pb")
-                      if snapshot.stat().st_mtime_ns > begun}
+            if cache.exists() and cache.stat().st_mtime_ns > begun:
+                reads.add(cache.stat().st_mtime_ns)
             time.sleep(.05)
     finally:
         continuing.send_signal(signal.SIGTERM)

@@ -22,7 +22,9 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).parents[1] / 'support'))
 import history_tls
 from history_wire import rpc
-from asterion import history_pb2 as market, quotes_pb2
+from asterion import history_pb2 as market
+sys.path[:0] = [str(Path(__file__).parents[1] / 'lab'), str(Path(__file__).parents[2] / 'apps/services/lab')]
+from warehouse_writer import Warehouse
 
 
 def unpack(bundle, root):
@@ -38,13 +40,12 @@ def unpack(bundle, root):
     return root
 
 
-def snapshot(root):
-    (root / 'data/catalog').mkdir(parents=True)
-    catalog = quotes_pb2.Catalog()
-    item = catalog.contracts.add()
-    item.contract = 'SHFE/rb/2027-01'
-    item.price_tick.text = '1'
-    (root / 'data/catalog/20261028.pb').write_bytes(catalog.SerializeToString())
+def publish(root):
+    writer = Warehouse(root / 'data').writer()
+    writer.put_rows('price_ticks/SHFE', 'price_ticks', [dict(
+        exchange='SHFE', product='rb', contract='SHFE/rb/2027-01', effective_from='2026-10-28',
+        effective_until='2026-10-29', price_tick='1', source_url='fixture')])
+    return writer.commit().identity
 
 
 @contextmanager
@@ -85,21 +86,16 @@ def main():
         root = unpack(sys.argv[1], Path(folder))
         for name in ('credentials', 'logs'):
             (root / name).mkdir()
-        snapshot(root)
+        fixed = publish(root)
         tls = history_tls.prepare(root)
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
         # The container mounts the installation at /market.
         (root / 'config/history.json').write_text(json.dumps(dict(bind='127.0.0.1', port=port,
-            data='/market/data', snapshots='/market/data/catalog', clients=history_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None))))
+            data='/market/data', clients=history_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None))))
         with running(root, port):
-            dataset = dict()
-            deadline = time.monotonic() + 30
-            while not rpc(tls, port, 'get_dataset_version', dataset=dataset).partitions:
-                assert time.monotonic() < deadline
-                time.sleep(.05)
-            dataset['version'] = rpc(tls, port, 'get_dataset_version', dataset=dataset).dataset.version
+            dataset = dict(version=fixed)
             def published():
                 manifest = rpc(tls, port, 'get_dataset_version', dataset=dataset)
                 partition, = manifest.partitions
@@ -113,7 +109,7 @@ def main():
         unpack(sys.argv[1], Path(folder))
         with running(root, port):
             assert published() == before
-    print('Pure C++ release: snapshot intake, fixed reads and restart passed without Python')
+    print('Pure C++ release: fixed reads and restart passed without Python')
 
 
 if __name__ == '__main__':

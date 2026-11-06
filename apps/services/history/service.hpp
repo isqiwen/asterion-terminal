@@ -6,9 +6,8 @@
 
 namespace asterion::history {
 
-// The History service: intake that takes each day's contract snapshot from disk,
-// the composer that keeps the dataset current, and the readers that serve it
-// and its acquisition tasks.
+// The History service: the composer that keeps the dataset current, and the
+// readers that serve it and its acquisition tasks.
 class HistoryService
 {
 public:

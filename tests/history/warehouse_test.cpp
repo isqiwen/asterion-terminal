@@ -197,14 +197,14 @@ TEST_F(Warehouse, RefusesLossyInputAndDoesNotPublishIt)
     EXPECT_EQ(values->GetValue(1, 0).ToString(), "1.000000");
 }
 
-TEST_F(Warehouse, ResearchTakesTushareFirstAndTheDaysOwnPriceTicks)
+TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
 {
     const auto store = [&](const char* provider) {
         return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
     };
     const std::string mine = "minutes/SHFE/2026-10-29/rb/2027-01";
     const std::string tick = "price_ticks/SHFE/2026-10-30";
-    auto tushare = store("tushare"), shfe = store("shfe"), gtja = store("gtja"), ctp = store("ctp");
+    auto tushare = store("tushare"), shfe = store("shfe"), gtja = store("gtja");
     publish(*tushare, "daily/SHFE/2026-10");
     publish(*tushare, "contracts/SHFE");
     publish(*tushare, mine, 2);
@@ -212,7 +212,6 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndTheDaysOwnPriceTicks)
     publish(*shfe, "daily/SHFE/2026-10-30");
     publish(*gtja, tick, 2);
     publish(*gtja, "price_ticks/SHFE/2026-10-29");
-    publish(*ctp, tick, 3);
     wh::Store composed(wh::source_directory(root, "research"), "research");
     const auto research = wh::compose_research(root, composed);
     std::map<std::string, std::string> sources;
@@ -226,12 +225,12 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndTheDaysOwnPriceTicks)
             {"daily/SHFE/2026-10-30", "shfe"},
             {mine, "tushare"},
             {"price_ticks/SHFE/2026-10-29", "gtja"},
-            {tick, "ctp"},
+            {tick, "gtja"},
             {"settlement/SHFE/2026-10-30", "shfe"}
         }));
     // Files are linked, not copied.
     const wh::Store reader(wh::source_directory(root, "research"), "research");
-    EXPECT_TRUE(fs::equivalent(reader.file(research, tick), ctp->file(ctp->current(), tick)));
+    EXPECT_TRUE(fs::equivalent(reader.file(research, tick), gtja->file(gtja->current(), tick)));
     EXPECT_EQ(reader.read(research, mine).size(), 2U);
     EXPECT_EQ(wh::compose_research(root, composed).identity, research.identity);
     publish(*tushare, mine, 4);

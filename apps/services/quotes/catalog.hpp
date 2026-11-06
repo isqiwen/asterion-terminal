@@ -20,7 +20,7 @@ class Catalog
 
     struct Operation
     {
-        std::filesystem::path file, snapshots, library, flow;
+        std::filesystem::path file, library, flow;
         ctp::CatalogConfiguration config;
         std::stop_source stop;
         std::unique_ptr<ctp::CatalogQuery> query;
@@ -49,16 +49,12 @@ class Catalog
                     item->set_multiplier(entry.multiplier);
                     *item->mutable_price_tick() = protocol::decimal(entry.price_tick);
                 }
-                // Keep the live result if the cache or the day's record cannot be written.
+                // Keep the live result if the optional offline cache cannot be written.
                 if (!stop.stop_requested() && !file.empty()) {
                     try {
                         replace_file_durably(file, ready.SerializeAsString());
-                        create_directories_durably(snapshots);
-                        replace_file_durably(
-                            snapshots / (catalog->trading_day + ".pb"),
-                            ready.SerializeAsString());
                     } catch (const std::exception&) {
-                        log::warn("the contract catalog could not be saved");
+                        log::warn("the contract catalog cache could not be written");
                     }
                 }
                 result = std::move(ready);
@@ -79,11 +75,9 @@ class Catalog
 public:
     // Starts from the copy saved by the last successful query, if there is one;
     // a damaged copy is reported as a failed catalog until the next refresh.
-    // Each query's result is also kept under `snapshots`, one file per trading day.
-    Catalog(ThreadPool& sdk_owner, std::filesystem::path file, std::filesystem::path snapshots)
+    Catalog(ThreadPool& sdk_owner, std::filesystem::path file)
         : sdk_owner_(sdk_owner),
-          file_(std::move(file)),
-          snapshots_(std::move(snapshots))
+          file_(std::move(file))
     {
         if (!std::filesystem::exists(file_))
             return;
@@ -125,7 +119,6 @@ public:
     {
         operation_ = std::make_unique<Operation>();
         operation_->file = file_;
-        operation_->snapshots = snapshots_;
         operation_->library = library;
         operation_->flow = flow;
         operation_->config = std::move(config);
@@ -196,7 +189,7 @@ private:
         state.mutable_status()->set_state(::quotes::CATALOG_STATE_NONE);
         return state;
     }();
-    std::filesystem::path file_, snapshots_;
+    std::filesystem::path file_;
     State cached_;
     std::uint64_t revision_ = 0;
     std::unique_ptr<Operation> operation_;

@@ -25,7 +25,7 @@ Live::Live(const Settings& settings)
     : settings_(settings),
       started_ms_(now_ms()),
       feed_(sdk_, settings.ctp_library, settings.directory / "ctp-flow"),
-      catalog_(sdk_, settings.directory / "ctp-catalog.pb", settings.directory / "catalog")
+      catalog_(sdk_, settings.directory / "ctp-catalog.pb")
 {
     login();
 }
@@ -106,8 +106,7 @@ void Live::apply(const ctp::FeedEvent& event)
         phase_ = status->phase;
     } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event)) {
         last_quote_ms_ = quote->quote.received_ms;
-        // A connection can outlast a trading day: its contracts and their
-        // parameters are read for the new day too.
+        // A connection can outlast a trading day: new contracts are read for the new day.
         if (quote->quote.trading_day > trading_day_) {
             refresh_wanted_ = refresh_wanted_ || !trading_day_.empty();
             trading_day_ = quote->quote.trading_day;

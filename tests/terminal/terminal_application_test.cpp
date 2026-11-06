@@ -626,7 +626,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_EQ(
         options.at("tables"),
         Json::array({"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
-    EXPECT_EQ(options.at("exchanges").size(), 6);
+    EXPECT_EQ(options.at("exchanges"), Json::array({"GFEX", "SHFE"}));
     EXPECT_TRUE(second.get().at("history").contains("getDatasetVersion"));
     try {
         app.dispatch(call(

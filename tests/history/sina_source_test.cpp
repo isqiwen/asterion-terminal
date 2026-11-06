@@ -1,7 +1,6 @@
 #include "acquisition/manager.hpp"
 #include "acquisition/sina.hpp"
 #include "warehouse/research.hpp"
-#include <asterion/quotes.pb.h>
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <cstdlib>
@@ -12,6 +11,7 @@ namespace {
 
 using namespace asterion;
 namespace ac = asterion::history::acquisition;
+namespace wh = asterion::history::warehouse;
 namespace fs = std::filesystem;
 
 class SinaSource : public testing::Test
@@ -28,13 +28,22 @@ protected:
         fs::remove_all(root, ignored);
     }
 
-    void snapshot(const std::string& day, const std::vector<std::string>& contracts)
+    // Tushare's contract table: a contract listed through the given days.
+    void listed(const std::string& exchange, const std::vector<std::string>& contracts)
     {
-        ::quotes::Catalog catalog;
-        for (const auto& contract : contracts)
-            catalog.add_contracts()->set_contract(contract);
-        fs::create_directories(root);
-        std::ofstream(root / (day + ".pb"), std::ios::binary) << catalog.SerializeAsString();
+        wh::Store store(wh::source_directory(root, "tushare"), "tushare");
+        std::vector<wh::Row> rows;
+        for (const auto& contract : contracts) {
+            wh::Row row(wh::columns("contracts").size());
+            row[0] = exchange;
+            row[1] = contract;
+            row[6] = std::string("2026-01-01");
+            row[7] = std::string("2026-12-31");
+            rows.push_back(std::move(row));
+        }
+        auto writer = store.writer();
+        writer.put("contracts/" + exchange, rows);
+        writer.commit();
     }
 
     ac::Sina source()
@@ -51,15 +60,17 @@ protected:
     }
 };
 
-TEST_F(SinaSource, ADaysDailyBarsCoverThatDaysSnapshotAndOtherwiseStayMissing)
+TEST_F(SinaSource, ADaysDailyBarsCoverTheContractsListedThatDayAndOtherwiseStayMissing)
 {
     body =
         R"(var _x=([{"d":"2026-11-02","o":"3254.000","h":"3266.000","l":"3234.000",)" R"("c":"3242.000","v":"377","p":"321","s":"3246.000"}]))";
     auto sina = source();
     EXPECT_TRUE(sina.daily("SHFE", "2026-11-02").empty());
-    EXPECT_TRUE(asked.empty()) << "without a snapshot the day would look whole";
-    snapshot("20261102", {"SHFE/rb/2027-01", "CZCE/ap/2027-01"});
-    const auto rows = sina.daily("SHFE", "2026-11-02");
+    EXPECT_TRUE(asked.empty()) << "without a contract table the day would look whole";
+    listed("SHFE", {"SHFE/rb/2027-01"});
+    listed("CZCE", {"CZCE/ap/2027-01"});
+    auto fresh = source();
+    const auto rows = fresh.daily("SHFE", "2026-11-02");
     ASSERT_EQ(rows.size(), 1);
     EXPECT_EQ(std::get<std::string>(rows[0][2]), "SHFE/rb/2027-01");
     EXPECT_EQ(std::get<std::string>(rows[0][7]), "3242.000");
@@ -69,7 +80,7 @@ TEST_F(SinaSource, ADaysDailyBarsCoverThatDaysSnapshotAndOtherwiseStayMissing)
     EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][12]));
     ASSERT_EQ(asked.size(), 1);
     EXPECT_NE(asked[0].find("symbol=RB2701"), std::string::npos);
-    sina.daily("CZCE", "2026-11-02");
+    fresh.daily("CZCE", "2026-11-02");
     EXPECT_NE(asked[1].find("symbol=AP2701"), std::string::npos);
 }
 
@@ -130,10 +141,8 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
     ASSERT_FALSE(minutes.empty());
     std::cout << contract << " " << day << ": " << minutes.size() << " minutes, first close "
               << std::get<std::string>(minutes[0][9]) << "\n";
-    auto compact = std::string(day);
-    std::erase(compact, '-');
-    snapshot(compact, {contract});
     const auto exchange = std::string(contract).substr(0, std::string(contract).find('/'));
+    listed(exchange, {contract});
     const auto bars = sina.daily(exchange, day);
     ASSERT_EQ(bars.size(), 1);
     std::cout << "daily close " << std::get<std::string>(bars[0][7]) << " settle "

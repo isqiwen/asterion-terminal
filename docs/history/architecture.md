@@ -4,12 +4,11 @@
 
 ## 服务边界与数据流
 
-History 是由 systemd 看护的 Linux C++ 进程，拥有采集任务和正式仓库。Terminal 与 Lab 是客户端；实时行情在 [Quotes](../quotes/README.md)，Trading 独立连接柜台。理由：三类服务各管一件事，一个的问题和升级不影响另外两个。
+History 是由 systemd 看护的 Linux C++ 进程，拥有采集任务和正式仓库。Terminal 与 Lab 是客户端；实时行情在 [Quotes](../quotes/README.md)，Trading 独立连接柜台。理由：三类服务各管一件事，彼此没有通信，一个的问题和升级不影响另外两个。
 
 ```mermaid
 flowchart LR
-    Snapshot[Quotes 留下的每日合约快照] --> Ingest[入库]
-    Provider[Tushare / 交易所 / 期货公司 / 新浪财经] --> Ingest
+    Provider[Tushare / 交易所 / 期货公司 / 新浪财经] --> Ingest[入库]
     Ingest --> Sources[来源仓库]
     Sources --> Compose[合成]
     Compose --> Research[统一数据]
@@ -30,7 +29,7 @@ flowchart LR
 
 ## 核心类关系
 
-RPC 接入负责收发帧；`SnapshotIntake` 在自己的线程里把已结束交易日的合约快照入库；`Composer` 在自己的线程里更新统一数据。每个调用走哪条路径，只由 `service.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
+RPC 接入负责收发帧；`Composer` 在自己的线程里更新统一数据。每个调用走哪条路径，只由 `service.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
 
 | 调用 | 路径 | 权限 |
 | --- | --- | --- |
@@ -53,7 +52,6 @@ classDiagram
     class Tushare
     class Exchange
     class Guotai
-    class CatalogSource
     class Sina
     class Store {
         current()
@@ -69,7 +67,6 @@ classDiagram
     Source <|-- Tushare
     Source <|-- Exchange
     Source <|-- Guotai
-    Source <|-- CatalogSource
     Source <|-- Sina
     Manager ..> Source : 为任务创建
     Manager *-- Store : 各来源
@@ -110,8 +107,6 @@ sequenceDiagram
     end
 ```
 
-每日合约快照也走上述路径：`SnapshotIntake` 只看磁盘，发现交易日已结束且未入库就提交任务，只用 `ctp` 来源；失败的日期一小时后再试，不影响其他日期。
-
 `research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。来源顺序只在 `sources_of` 维护，`Manager` 和合成共用。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
 
 ## 生命周期与错误边界
@@ -129,7 +124,7 @@ sequenceDiagram
 | --- | --- | --- |
 | 1 | [main.cpp](../../apps/services/history/main.cpp)、[settings.cpp](../../apps/services/history/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
 | 2 | [service.cpp](../../apps/services/history/service.cpp) | 调用路径表 |
-| 3 | [manager.cpp](../../apps/services/history/acquisition/manager.cpp)、[source.hpp](../../apps/services/history/acquisition/source.hpp)、[snapshot_intake.cpp](../../apps/services/history/acquisition/snapshot_intake.cpp) | 来源扩展、任务生命周期与批量提交 |
+| 3 | [manager.cpp](../../apps/services/history/acquisition/manager.cpp)、[source.hpp](../../apps/services/history/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
 | 4 | [store.cpp](../../apps/services/history/warehouse/store.cpp)、[research.cpp](../../apps/services/history/warehouse/research.cpp)、[composer.cpp](../../apps/services/history/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
 | 5 | [通信协议](../protocol.md)、[history.proto](../../protocol/proto/asterion/history.proto) | 客户端契约与固定版本读取 |
 

@@ -1,8 +1,6 @@
 #include "sina.hpp"
-#include <asterion/quotes.pb.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
-#include <fstream>
 
 namespace asterion::history::acquisition {
 
@@ -75,12 +73,12 @@ std::string trading_day(const std::string& stamp)
 
 Sina::Sina(
     std::vector<std::string> exchanges,
-    std::filesystem::path snapshots,
+    std::filesystem::path data,
     std::shared_ptr<Budget> budget,
     std::stop_token stop,
     Fetch fetch)
     : exchanges_(std::move(exchanges)),
-      snapshots_(std::move(snapshots)),
+      data_(std::move(data)),
       budget_(std::move(budget)),
       stop_(stop),
       fetch_(std::move(fetch))
@@ -114,20 +112,19 @@ Sina::get(const std::string& service, const std::string& contract, const std::st
 
 Rows Sina::daily(const std::string& exchange, const std::string& day)
 {
-    auto compact = day;
-    std::erase(compact, '-');
-    const auto file = snapshots_ / (compact + ".pb");
-    if (!std::filesystem::exists(file))
-        return {};
-    std::ifstream input(file, std::ios::binary);
-    ::quotes::Catalog catalog;
-    if (!catalog.ParseFromIstream(&input))
-        throw SourceError("invalid_data", "damaged contract snapshot: " + file.string());
+    if (!listed_.contains(exchange)) {
+        const warehouse::Store tushare(warehouse::source_directory(data_, "tushare"), "tushare");
+        const auto version = tushare.current();
+        const auto key = "contracts/" + exchange;
+        listed_[exchange] = version.partitions.contains(key) ? tushare.read(version, key) : Rows{};
+    }
     Rows rows;
-    for (const auto& item : catalog.contracts()) {
-        const auto& contract = item.contract();
-        if (!contract.starts_with(exchange + "/"))
+    for (const auto& item : listed_.at(exchange)) {
+        const auto* listed = std::get_if<std::string>(&item[6]);
+        const auto* delisted = std::get_if<std::string>(&item[7]);
+        if (!listed || !delisted || day < *listed || day > *delisted)
             continue;
+        const auto& contract = std::get<std::string>(item[1]);
         if (!daily_.contains(contract)) {
             auto& days = daily_[contract];
             for (const auto& row : rows_of(get("getDailyKLine", contract))) {

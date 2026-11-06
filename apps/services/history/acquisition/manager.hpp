@@ -12,7 +12,7 @@ namespace wire = ::history;
 // History owns this object and every admitted task, independently of clients.
 // A task takes one table through the sources in their order of priority, each
 // filling only what the ones before it lack. Tasks run one at a time, and a full
-// queue refuses admission; contract snapshots run apart, so no provider delays them.
+// queue refuses admission.
 class Manager
 {
 public:
@@ -22,8 +22,7 @@ public:
         std::map<std::string, Factory> sources = {},
         std::function<void()> committed = {});
     ~Manager();
-    // Named `providers` replace the table's order of priority: a contract snapshot's.
-    wire::AcquisitionTask submit(wire::StartAcquisition, std::vector<std::string> providers = {});
+    wire::AcquisitionTask submit(wire::StartAcquisition);
     void cancel(const std::string& id);
     wire::AcquisitionTask get(const std::string& id) const;
     wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
@@ -56,7 +55,7 @@ private:
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;
-    ThreadPool workers_{1, 16}, snapshots_{1, 4};
+    ThreadPool workers_{1, 16};
 };
 
 } // namespace asterion::history::acquisition

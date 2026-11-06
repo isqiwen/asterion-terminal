@@ -134,7 +134,7 @@ with tempfile.TemporaryDirectory() as folder:
     before = (host.root / 'config/quotes.json').read_text()
     # Service-owned records and TLS identities survive upgrades byte for byte.
     preserved = {
-        'data/catalog/20261028.pb': b'fixture-snapshot',
+        'data/ctp-catalog.pb': b'fixture-catalog',
         'logs/market.log': b'fixture-log',
     }
     for name, content in preserved.items():
@@ -179,7 +179,7 @@ with tempfile.TemporaryDirectory() as folder:
     unit = (host.units / 'asterion-quotes.service').read_text()
     assert f'ReadWritePaths={host.root}/logs {disk}\n' in unit, unit
     assert f'The existing data stays in {host.root}/data' in result.stdout, result.stdout
-    assert (host.root / 'data/catalog/20261028.pb').read_bytes() == b'fixture-snapshot'
+    assert (host.root / 'data/ctp-catalog.pb').read_bytes() == b'fixture-catalog'
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-quotes.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-quotes.service', calls

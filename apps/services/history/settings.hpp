@@ -13,8 +13,7 @@ namespace asterion::history {
 // credential directory. TLS identities and client permissions belong to this host.
 struct Settings
 {
-    // `snapshots` holds the contract snapshots Quotes leaves, one file per trading day.
-    std::filesystem::path directory, snapshots;
+    std::filesystem::path directory;
     std::string bind;
     std::uint16_t port = 0;
     ipc::TlsIdentity tls;

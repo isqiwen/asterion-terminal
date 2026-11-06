@@ -72,18 +72,13 @@ Settings load_settings(const fs::path& root, const std::optional<fs::path>& cred
     } catch (const std::exception&) {
         throw Error(ErrorCode::invalid_request, "invalid history configuration: " + where);
     }
-    exact(document, {"bind", "port", "data", "snapshots", "clients", "acquisition"}, where);
+    exact(document, {"bind", "port", "data", "clients", "acquisition"}, where);
     Settings result;
     result.directory = text(document, "data", where);
     if (!result.directory.is_absolute())
         throw Error(
             ErrorCode::invalid_request,
             "history configuration " + where + " needs an absolute data directory");
-    result.snapshots = text(document, "snapshots", where);
-    if (!result.snapshots.is_absolute())
-        throw Error(
-            ErrorCode::invalid_request,
-            "history configuration " + where + " needs an absolute snapshots directory");
     if (!fs::is_directory(result.directory))
         throw Error(
             ErrorCode::invalid_request,

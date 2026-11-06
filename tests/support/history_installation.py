@@ -33,7 +33,7 @@ def history_host(build, root, *, exchanges=()):
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
     tls = history_tls.prepare(root)
     (root/'config/history.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'),
-        'snapshots':str(root/'data/catalog'), 'clients':history_tls.clients(tls),
+        'clients':history_tls.clients(tls),
         'acquisition':{'exchanges':list(exchanges),'tushare':None}}))
     with running(root, port, 'asterion_history') as process:
         yield port

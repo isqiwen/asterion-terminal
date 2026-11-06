@@ -782,7 +782,7 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     const auto catalog = call("reader", query);
     ASSERT_TRUE(catalog.has_get_acquisition_options()) << catalog.DebugString();
     EXPECT_FALSE(catalog.get_acquisition_options().can_manage());
-    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 5);
+    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 4);
     EXPECT_TRUE(call("manager", query).get_acquisition_options().can_manage());
     auto* start = query.mutable_start_acquisition();
     *start = request("remote");

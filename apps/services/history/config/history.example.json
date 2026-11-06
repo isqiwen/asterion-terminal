@@ -2,7 +2,6 @@
   "bind": "0.0.0.0",
   "port": 7450,
   "data": "/srv/asterion-history/data",
-  "snapshots": "/opt/asterion/quotes/data/catalog",
   "clients": [
     {
       "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

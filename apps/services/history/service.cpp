@@ -1,9 +1,8 @@
 #include "service.hpp"
 #include "acquisition/exchanges.hpp"
 #include "acquisition/guotai.hpp"
-#include "acquisition/catalog_source.hpp"
+#include "acquisition/manager.hpp"
 #include "acquisition/sina.hpp"
-#include "acquisition/snapshot_intake.hpp"
 #include "acquisition/tushare.hpp"
 #include "warehouse/composer.hpp"
 #include "warehouse/reader.hpp"
@@ -115,9 +114,6 @@ Reply waiting(std::future<Message> result, std::uint64_t id)
 std::map<std::string, acquisition::Factory> sources(const Settings& settings)
 {
     std::map<std::string, acquisition::Factory> result;
-    result["ctp"] = [root = settings.snapshots](std::stop_token stop) {
-        return std::make_unique<acquisition::CatalogSource>(root, stop);
-    };
     std::vector<std::string> reference_exchanges;
     for (const auto& exchange : settings.exchanges) {
         auto id = exchange;
@@ -133,7 +129,7 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
     if (!settings.exchanges.empty()) {
         // Sina answers by contract and is known to block heavy use.
         auto budget = std::make_shared<acquisition::Budget>(60);
-        result["sina"] = [exchanges = settings.exchanges, root = settings.snapshots, budget](
+        result["sina"] = [exchanges = settings.exchanges, root = settings.directory, budget](
                              std::stop_token stop) {
             return std::make_unique<acquisition::Sina>(exchanges, root, budget, stop);
         };
@@ -228,7 +224,6 @@ struct HistoryService::Running
                                         .count();
     warehouse::Composer composer;
     acquisition::Manager acquisitions;
-    acquisition::SnapshotIntake intake;
     ThreadPool readers{1, 8}, analysis{1, 8};
     std::promise<void> completion;
     std::shared_future<void> stopped = completion.get_future().share();
@@ -237,13 +232,9 @@ struct HistoryService::Running
     explicit Running(Settings settings)
         : settings(std::move(settings)),
           composer(this->settings.directory),
-          acquisitions(
-              this->settings.directory,
-              sources(this->settings),
-              [this] {
-                  composer.request();
-              }),
-          intake(this->settings.snapshots, this->settings.directory, acquisitions)
+          acquisitions(this->settings.directory, sources(this->settings), [this] {
+              composer.request();
+          })
     {}
 
     Reply ask(ThreadPool& pool, wire::Request request, bool can_manage)
@@ -308,7 +299,6 @@ void HistoryService::stop()
         return;
     // Tasks may take a while to notice; the I/O owner keeps serving meanwhile.
     running_->closing = std::jthread([running = running_.get()] {
-        running->intake.stop();
         running->acquisitions.stop();
         running->composer.stop();
         running->completion.set_value();

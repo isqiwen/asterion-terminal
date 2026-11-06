@@ -17,7 +17,7 @@ source, build = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
 sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python'),
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
-from asterion import common_pb2 as common, history_pb2 as market, quotes_pb2
+from asterion import common_pb2 as common, history_pb2 as market
 from asterion.common_pb2 import Period
 from asterion.history_pb2 import Request as MarketRequest, Response as MarketResponse
 from asterion_lab.backtest import COSTS
@@ -83,16 +83,12 @@ class RemoteResearch(unittest.TestCase):
     def count(self, dataset, version):
         return dataset.query(version, 'select count(*) from daily', ('daily',))[0][0]
 
-    def test_a_days_price_ticks_reach_research_over_tls_and_stay_fixed_for_two_clients(self):
-        from datetime import date
-        snapshots = self.data / 'catalog'
-        snapshots.mkdir(parents=True, exist_ok=True)
-        def snapshot(day, tick):
-            catalog = quotes_pb2.Catalog()
-            item = catalog.contracts.add()
-            item.contract = 'SHFE/rb/2027-01'
-            item.price_tick.text = tick
-            (snapshots / (day + '.pb')).write_bytes(catalog.SerializeToString())
+    def test_versions_reach_two_research_clients_over_tls_and_stay_fixed(self):
+        symbol = 'SHFE/rb/2027-01'
+        def publish(tick):
+            writer = Warehouse(self.data).writer()
+            writer.put_rows('price_ticks/SHFE', 'price_ticks', [price_tick(symbol, tick)])
+            return writer.commit().identity
         def rpc(operation, role='reader', **values):
             request = MarketRequest(id=1)
             call = getattr(request, operation)
@@ -111,30 +107,19 @@ class RemoteResearch(unittest.TestCase):
                 return MarketResponse.FromString(read(int.from_bytes(read(4), 'big')))
         left = Dataset(self.lab, history=self.history)
         right = Dataset(self.node / 'second-lab', history=self.history)
-        def composed_with(day):
-            # History composes research from the snapshot soon after taking it in.
-            deadline = time.monotonic() + 15
-            while True:
-                identity = left.current().identity
-                if identity and any(key.endswith(day) for key in left.version(identity).keys('price_ticks')):
-                    return identity
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(.02)
         # Reading needs no permission to manage; starting a task does.
         values = dict(id='denied', table=market.TABLE_PRICE_TICKS,
                       first_day='2026-10-28', last_day='2026-10-28')
         self.assertEqual(rpc('start_acquisition', **values).error.code,
                          common.ERROR_CODE_PERMISSION_DENIED)
-        snapshot('20261028', '1')
-        identity = composed_with('2026-10-28')
-        sql = ("select effective_from, price_tick from price_ticks "
-               "where effective_from = date '2026-10-28'")
-        expected = [(date(2026, 10, 28), Decimal('1'))]
+        identity = publish('1')
+        sql = 'select price_tick from price_ticks'
+        expected = [(Decimal('1'),)]
         for dataset in (left, right):
             self.assertEqual(dataset.query(dataset.version(identity), sql, ('price_ticks',)), expected)
-        snapshot('20261029', '2')
-        updated = composed_with('2026-10-29')
-        self.assertNotEqual(updated, identity)
+        publish('2')
+        self.assertEqual(left.current().identity, Warehouse(self.data).current().identity)
+        self.assertNotEqual(left.current().identity, identity)
         self.assertEqual(right.query(right.version(identity), sql, ('price_ticks',)), expected)
         # A new cache also downloads the old version after a new one becomes current.
         cold = Dataset(self.node / 'cold-lab', history=self.history)

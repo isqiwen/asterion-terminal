@@ -38,7 +38,7 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 只支持冷备份：先停止资料的拥有者，再复制。
 
 - 本机：等研究运行结束，关闭 Terminal，确认 Lab 已退出，再复制本机根目录。
-- Quotes 主机：停止 `asterion-quotes.service`，复制安装目录（配置、TLS 身份）和数据目录（合约快照）。
+- Quotes 主机：停止 `asterion-quotes.service`，复制安装目录（配置、TLS 身份）。
 - History 主机：停止 `asterion-history.service`，复制安装目录（配置、TLS 身份）和 `history.json` 里 `data` 指定的数据目录（仓库、采集任务；默认在安装目录里，放到别的磁盘时要单独复制）。恢复时数据目录回到原来的路径，或者改 `data` 指向新位置。
 - Trading 主机：停止全部账户，复制安装目录（账户记录及 `archives/`、策略包和实例记录）和账户归属目录。停止服务不等于撤单。
 - Lab 的 `history-cache/` 可以从 History 重新下载，不必备份。

@@ -22,7 +22,6 @@ struct Installation
     std::string configuration;
     static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
     "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"read"}],
-    "snapshots":"/opt/asterion/quotes/data/catalog",
     "acquisition":{"exchanges":[],"tushare":null}})";
 
     Installation()
@@ -59,13 +58,12 @@ bool names(const std::string& text, const std::string& part)
 
 } // namespace
 
-TEST(HistorySettings, DataAndSnapshotsComeFromItsFileAndNoCounterSettingsExist)
+TEST(HistorySettings, DataComesFromItsFileAndNoCounterSettingsExist)
 {
     Installation installation;
     write_file_durably(installation.file, installation.configuration);
     const auto settings = load_settings(installation.root, std::nullopt);
     EXPECT_EQ(settings.directory, installation.root / "data");
-    EXPECT_EQ(settings.snapshots, "/opt/asterion/quotes/data/catalog");
     EXPECT_EQ(settings.bind, "0.0.0.0");
     EXPECT_EQ(settings.port, 7450);
     // Data may live on another disk; the path must be absolute and exist.
@@ -80,10 +78,6 @@ TEST(HistorySettings, DataAndSnapshotsComeFromItsFileAndNoCounterSettingsExist)
     moved["data"] = "relative/data";
     replace_file_durably(installation.file, moved.dump());
     EXPECT_TRUE(names(installation.refusal(std::nullopt), "absolute data directory"));
-    auto snapshots = nlohmann::json::parse(installation.configuration);
-    snapshots["snapshots"] = "relative";
-    replace_file_durably(installation.file, snapshots.dump());
-    EXPECT_TRUE(names(installation.refusal(std::nullopt), "absolute snapshots directory"));
     auto counter = nlohmann::json::parse(installation.configuration);
     counter["counter"] = nlohmann::json::object();
     replace_file_durably(installation.file, counter.dump());

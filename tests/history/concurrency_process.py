@@ -59,14 +59,6 @@ def main():
             initial = call('get_status')
             file_query = dict(dataset=dict(version=fixed), key='daily/SHFE/2026-10')
             baseline = call('read_dataset_file', **file_query)
-            # The day's contract snapshot is taken in while a slow client stalls and others read.
-            from asterion import quotes_pb2
-            catalog = quotes_pb2.Catalog()
-            item = catalog.contracts.add()
-            item.contract = 'SHFE/rb/2027-01'
-            item.price_tick.text = '1'
-            (root / 'data/catalog').mkdir(parents=True, exist_ok=True)
-            (root / 'data/catalog/20261028.pb').write_bytes(catalog.SerializeToString())
             with history_tls.connect(tls, port) as slow:
                 slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
                 # Pipelined one-MiB replies exceed the sender's socket buffer.
@@ -75,30 +67,22 @@ def main():
                     send(slow, 'read_dataset_file', **file_query)
                 for _ in range(12):
                     assert call('read_dataset_file', **file_query) == baseline
-                publication = until(lambda: call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset={}),
-                                    lambda v: v.partitions, timeout=30)
-            recorder = dict(version=publication.dataset.version)
+            publication = call('get_dataset_version', dataset=dict(version=fixed))
             assert call('read_dataset_file', **file_query) == baseline
-        # Reopen it, then kill a running task.
-        with running(root, port) as process:
-            assert call('get_status').started_ms != initial.started_ms
-            call('start_acquisition', role='manager', id='interrupted',
-                 table=market.TABLE_PRICE_TICKS, first_day='1990-01-01', last_day='2026-10-27')
-            progress = until(lambda: call('get_acquisition_task', id='interrupted'),
-                             lambda t: t.state == market.TASK_STATE_RUNNING and t.items_done > 0)
-            # The submitting client has gone; collection and task work continue.
-            assert progress.items_done < progress.items
-            process.kill()
-            process.wait(timeout=10)
+        # A task still running when the process died comes back interrupted.
+        unfinished = market.AcquisitionTask(state=market.TASK_STATE_RUNNING, started_ms=1)
+        unfinished.request.id = 'interrupted'
+        (root / 'data/acquisition/interrupted.pb').write_bytes(unfinished.SerializeToString())
         with running(root, port):
             recovered = call('get_acquisition_task', id='interrupted')
             assert recovered.state == market.TASK_STATE_INTERRUPTED, recovered
-            assert call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset=recorder) == publication
+            assert call('get_status').started_ms != initial.started_ms
+            assert call('get_dataset_version', dataset=dict(version=fixed)) == publication
             assert call('read_dataset_file', **file_query) == baseline
             stable = recovered.SerializeToString()
             time.sleep(.2)
             assert call('get_acquisition_task', id='interrupted').SerializeToString() == stable
-        print('Live intake, slow/history clients, autonomous publication and crash recovery passed')
+        print('Slow clients, fixed versions and crash recovery passed')
 
 
 if __name__ == '__main__':

@@ -92,7 +92,7 @@ class Host:
 
 
 client_pin = 'a' * 64
-shipped = {'bind': '0.0.0.0', 'port': 7450, 'snapshots': '/opt/asterion/quotes/data/catalog',
+shipped = {'bind': '0.0.0.0', 'port': 7450,
            'clients': [dict(fingerprint=client_pin, role='manage')],
            'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 100}}}
 with tempfile.TemporaryDirectory() as folder:
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as folder:
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', '', client_pin + '=manage', '', '100', 'fixture-token'])
+                             ['', 'abc', '7451', '', client_pin + '=manage', '', '100', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_history').read_text().endswith('1"\n')
@@ -155,7 +155,7 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', '0'])
+                             ['', '', str(disk), '', '', '0'])
     assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -182,7 +182,7 @@ with tempfile.TemporaryDirectory() as folder:
     result = subprocess.run(
         namespace + ['bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',
          'setup', str(host.root / 'bin/setup.sh'), str(host.root), str(host.units), str(host.credentials),
-         str(setup)], input='\n' * 4, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
+         str(setup)], input='\n' * 3, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
         timeout=60)
     assert result.returncode != 0, result.stdout + result.stderr
     assert (host.root / 'config/history.json').read_bytes() == before

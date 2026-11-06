@@ -168,15 +168,13 @@ void Manager::reap()
     }
 }
 
-wire::AcquisitionTask
-Manager::submit(wire::StartAcquisition request, std::vector<std::string> providers)
+wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
 {
     validate(request);
-    const bool snapshot = !providers.empty();
-    if (providers.empty())
-        for (const auto& provider : warehouse::sources_of(table(request)))
-            if (sources_.contains(provider))
-                providers.push_back(provider);
+    std::vector<std::string> providers;
+    for (const auto& provider : warehouse::sources_of(table(request)))
+        if (sources_.contains(provider))
+            providers.push_back(provider);
     if (providers.empty())
         throw std::invalid_argument("no source provides this table");
     std::lock_guard lock(mutex_);
@@ -185,7 +183,7 @@ Manager::submit(wire::StartAcquisition request, std::vector<std::string> provide
     reap();
     if (fs::exists(directory_ / (request.id() + ".pb")))
         throw Error(ErrorCode::conflict, "acquisition task id already exists");
-    if (!snapshot && active_.size() >= 16)
+    if (active_.size() >= 16)
         throw Error(ErrorCode::resource_exhausted, "acquisition queue is full");
     auto active = std::make_unique<Active>();
     *active->task.mutable_request() = request;
@@ -195,7 +193,7 @@ Manager::submit(wire::StartAcquisition request, std::vector<std::string> provide
     const auto accepted = active->task;
     auto* current = active.get();
     active_.emplace(request.id(), std::move(active));
-    current->finished = (snapshot ? snapshots_ : workers_)
+    current->finished = workers_
                             .submit([this, current, request, providers](std::stop_token shutdown) {
                                 std::stop_callback cancel(shutdown, [&] {
                                     current->cancel.request_stop();
@@ -394,9 +392,7 @@ void Manager::run(
     // A provider's day so far would be stored as the whole day and never taken
     // again: other sources stop at yesterday.
     const auto first = day_of(request.first_day()),
-               last = std::min(
-                   day_of(request.last_day()),
-                   source.marks_partial_days() ? today : today - std::chrono::days{1});
+               last = std::min(day_of(request.last_day()), today - std::chrono::days{1});
     if (last < first)
         return;
     auto writer = store.writer();

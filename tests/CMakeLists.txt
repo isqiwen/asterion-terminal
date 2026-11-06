@@ -120,7 +120,7 @@ target_link_libraries(asterion_warehouse_tests PRIVATE asterion_bar_parquet duck
 target_compile_definitions(asterion_warehouse_tests PRIVATE ASTERION_HISTORY_PATH="$<TARGET_FILE:asterion_history>")
 add_dependencies(asterion_warehouse_tests asterion_history)
 asterion_unit_tests(asterion_acquisition_tests history/acquisition_test.cpp asterion_history_acquisition)
-target_sources(asterion_acquisition_tests PRIVATE history/exchange_source_test.cpp history/guotai_source_test.cpp history/catalog_source_test.cpp history/sina_source_test.cpp)
+target_sources(asterion_acquisition_tests PRIVATE history/exchange_source_test.cpp history/guotai_source_test.cpp history/sina_source_test.cpp)
 target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_EXCHANGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/history/fixtures")
 target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_HISTORY_PATH="$<TARGET_FILE:asterion_history>")
 add_dependencies(asterion_acquisition_tests asterion_history)

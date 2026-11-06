@@ -38,7 +38,6 @@ SELF=$(readlink -f "${BASH_SOURCE[0]}")
 declare -Ar DEFAULTS=(
     [bind]='0.0.0.0'
     [port]='7450'
-    [snapshots]='/opt/asterion/quotes/data/catalog'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
     [acquisition.tushare]='0'
@@ -130,14 +129,13 @@ secret() {
 }
 
 configure() {
-    local bind port data previous snapshots settings
+    local bind port data previous settings
     local clients exchanges budget token='' encrypted_token=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask data "Data directory (warehouse)" '^/[^[:space:]]*$')
-    snapshots=$(ask snapshots "Contract snapshots Quotes leaves" '^/[^[:space:]]*$')
     echo "Register Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)."
     clients=$(ask clients "Permitted clients" '^[0-9A-Fa-f:=[:space:]readmng]+$')
     exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
@@ -152,7 +150,7 @@ configure() {
     stage settings "$ROOT/config/history.json"
     python3 -I -c '
 import json, sys
-bind, port, data, snapshots, clients, exchanges, budget = sys.argv[2:]
+bind, port, data, clients, exchanges, budget = sys.argv[2:]
 import re
 peers = []
 for item in clients.split():
@@ -166,11 +164,11 @@ if not 1 <= len(peers) <= 64:
 exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("Invalid or duplicate acquisition exchanges")
-settings = {"bind": bind, "port": int(port), "data": data, "snapshots": snapshots, "clients": peers,
+settings = {"bind": bind, "port": int(port), "data": data, "clients": peers,
     "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$snapshots" \
+    output.write("\n")' "$settings" "$bind" "$port" "$data" \
         "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
