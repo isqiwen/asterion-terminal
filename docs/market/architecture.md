@@ -8,29 +8,36 @@ Market 是由 systemd 看护的 Linux C++ 进程，拥有共享行情、录制�
 
 ```mermaid
 flowchart LR
-    CTP[CTP 行情与合约目录] --> Live[实时状态与分钟聚合]
-    subgraph Market[Market 进程]
-        RPC[TLS / Protobuf RPC]
-        Live --> Record[录制]
-        Record --> Archive[录制 Parquet]
-        Archive --> Merge[盘后合并]
-        Merge --> Publish[自录发布待办]
-        Publish --> Acquire[采集管理]
-        Archive --> Acquire
-        Acquire --> Store[来源仓库]
-        Store --> Research[research 固定版本]
-        Live --> RPC
-        Research --> RPC
-        RPC --> Acquire
-    end
-    Provider[Tushare / 交易所 / 期货公司] --> Acquire
-    Terminal[Terminal] <-->|请求与报价流| RPC
-    Lab[Lab] <-->|固定版本读取| RPC
+    CTP[CTP 行情与合约目录] --> Record[录制]
+    Record --> Files[录制文件]
+    CTP --> Live[实时行情] --> Terminal[Terminal]
+    Files --> Ingest[入库]
+    Provider[Tushare / 交易所 / 期货公司] --> Ingest
+    Ingest --> Sources[来源仓库]
+    Sources --> Compose[合成]
+    Compose --> Research[research]
+    Research --> Read[读取]
+    Sources --> Read
+    Read --> Terminal
+    Read --> Lab[Lab]
 ```
 
+箭头只往右走，后面的模块不调用前面的模块。理由：录制丢失不可恢复，入库和合成都可以重做，所以它们的等待和故障不能影响录制。
+
+| 模块 | 代码 | 只回答 | 不管 |
+| --- | --- | --- | --- |
+| 录制 | `live`、`recording`、`recording/` | 行情落盘了吗 | 数据之后怎么用 |
+| 入库 | `acquisition/`、`recorded/` | 这个来源这一天的数据取回来了吗 | 研究该用哪份 |
+| 合成 | `warehouse/composer`、`warehouse/research` | 研究该用哪份 | 数据从哪取、怎么取 |
+| 读取 | `warehouse/reader`、`market.cpp` | 这个固定版本里有什么 | 数据缺了怎么办 |
+
+录制文件只是入库的一个来源，和 Tushare、交易所走同一条路径，差别只在触发方式：交易日结束后自动入库，外部来源按需提交。
+
+- 录制的构建目标（`asterion_market_live`、`asterion_market_recording`）不链接入库和仓库，违反时编译失败。
+- 每个来源只写自己的仓库，`research` 只由合成写入，Lab 只读 `research`。
 - 实时报价快照供界面展示，有序行情事件供聚合和录制，避免界面合并报价时丢掉录制输入。
 - 行情状态只由行情线程更新；SDK 回调只把事件放进队列，SDK 调用和释放交给其执行器，避免柜台调用拖住行情线程。
-- 历史读取、采集、录制写入和合并通过各自的后台执行路径完成。录制与仓库使用不同的 Parquet 执行通道，避免历史查询占住录制写入。
+- 录制与仓库使用不同的 Parquet 执行通道，避免历史查询占住录制写入。
 - 合并替换录制文件时与录制历史读取互斥；固定仓库版本引用不可变文件，因此后续合并不会改变研究已选的数据。
 
 ## 核心类关系
