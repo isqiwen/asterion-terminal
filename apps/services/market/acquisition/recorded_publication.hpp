@@ -8,8 +8,8 @@
 
 namespace asterion::market_data::acquisition {
 
-// Merged trading days (YYYYMMDD) whose recorded minutes are still to reach
-// research. They are kept in `file`, so a restart publishes them again, and a
+// Merged trading days (YYYYMMDD) whose recorded minutes and price ticks are
+// still to reach research. They are kept in `file`, so a restart publishes them again, and a
 // day leaves only when a publication that started after its last merge
 // succeeded. One publication runs at a time; a busy service is tried again each
 // minute, a day whose publication failed an hour later, without holding back
@@ -35,6 +35,7 @@ private:
     Manager& manager_;
     std::set<std::string> days_;
     std::string task_, day_;
+    std::size_t table_ = 0;
     // The day was merged again while its publication ran: publish it again.
     bool merged_again_ = false;
     Clock::time_point next_{};

@@ -1,6 +1,8 @@
 #include "recorded.hpp"
 #include "recorded/reader.hpp"
+#include <asterion/market.pb.h>
 #include <algorithm>
+#include <fstream>
 #include <set>
 #include <thread>
 
@@ -18,7 +20,7 @@ Recorded::Recorded(
 bool Recorded::supports(std::string_view table, std::string_view exchange) const
 {
     require_exchange(exchange);
-    return table == "minutes";
+    return table == "minutes" || table == "price_ticks";
 }
 
 MinuteBatch Recorded::minutes(const std::string& contract, const std::string& day)
@@ -101,6 +103,39 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
                 segment.end});
     }
     return result;
+}
+
+Rows Recorded::price_ticks(const std::string& exchange, const std::string& day)
+{
+    require_exchange(exchange);
+    const auto date = day_of(day);
+    check_stop(stop_);
+    auto compact = day;
+    std::erase(compact, '-');
+    const auto file = root_ / "catalog" / (compact + ".pb");
+    if (!std::filesystem::exists(file))
+        return {};
+    ++requests_;
+    std::ifstream input(file, std::ios::binary);
+    ::market::Catalog catalog;
+    if (!catalog.ParseFromIstream(&input))
+        throw SourceError("invalid_data", "damaged contract snapshot: " + file.string());
+    Rows rows;
+    for (const auto& item : catalog.contracts()) {
+        // A delivery month CTP did not state names no contract.
+        if (!item.contract().starts_with(exchange + "/"))
+            continue;
+        const auto first = item.contract().find('/'), last = item.contract().rfind('/');
+        rows.push_back(
+            {exchange,
+                item.contract().substr(first + 1, last - first - 1),
+                item.contract(),
+                day,
+                day_text(date + std::chrono::days(1)),
+                item.price_tick().text(),
+                std::string("ctp")});
+    }
+    return rows;
 }
 
 std::vector<std::string> Recorded::minute_contracts(const std::string& day)

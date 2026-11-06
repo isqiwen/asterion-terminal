@@ -26,6 +26,9 @@ Version compose_research(const std::filesystem::path& data, Store& research)
     }
     const auto recorded = recorder.current();
     for (const auto& [key, part] : recorded.partitions) {
+        // What CTP itself stated that day outranks a later report of it.
+        if (table(key) == "price_ticks")
+            writer.adopt(key, recorder, recorded);
         if (table(key) != "minutes" || primary.partitions.contains(key))
             continue;
         writer.adopt(key, recorder, recorded);

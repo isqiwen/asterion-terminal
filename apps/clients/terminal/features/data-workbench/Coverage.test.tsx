@@ -93,6 +93,50 @@ test("switching providers submits directly to Market without configuring Lab or 
   expect(props.trade).not.toHaveBeenCalled();
 });
 
+test("market data also asks each other source for its exchange's price ticks", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "listSources":
+        return {
+          sources: [
+            source("shfe", [Table.SETTLEMENT]),
+            { provider: "gtja", tables: [Table.PRICE_TICKS], exchanges: ["SHFE", "DCE"] },
+            { provider: "czce", tables: [Table.PRICE_TICKS], exchanges: ["CZCE"] },
+            { provider: "recorder", tables: [Table.PRICE_TICKS], exchanges: ["SHFE"] },
+          ],
+          canManage: true,
+        };
+      case "listDatasets":
+        return { datasets: [] };
+      case "getDatasetSummary":
+        return { tables: [] };
+      case "listAcquisitionTasks":
+        return { tasks: [], nextId: "" };
+      default:
+        return {};
+    }
+  });
+  render(<Coverage {...context()} />);
+  await screen.findByRole("option", { name: "gtja" });
+  fireEvent.change(screen.getByLabelText("数据源"), { target: { value: "shfe" } });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "开始采集" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  await waitFor(() => {
+    const started = request.mock.calls
+      .map(([body]) => body)
+      .filter(body => body.case === "startAcquisition")
+      .map(body => [body.value.provider, body.value.table, body.value.exchanges]);
+    expect(started).toEqual([
+      ["shfe", Table.SETTLEMENT, ["SHFE"]],
+      ["gtja", Table.PRICE_TICKS, ["SHFE"]],
+    ]);
+  });
+});
+
 test("read-only clients see shared tasks but cannot start or cancel them", async () => {
   serve(false);
   render(<Coverage {...context()} />);

@@ -174,6 +174,7 @@ function DataPage({ context }: { context: TerminalContext }) {
         <SourceCoverage
           key={`${provider}/${source.tables.join()}/${source.exchanges.join()}/${opened?.version}`}
           source={source}
+          sources={sources}
           canManage={canManage === true}
           opened={opened?.provider === provider ? (opened.version ?? "") : ""}
         />
@@ -184,10 +185,12 @@ function DataPage({ context }: { context: TerminalContext }) {
 
 function SourceCoverage({
   source,
+  sources,
   canManage,
   opened,
 }: {
   source: Source;
+  sources: Source[];
   canManage: boolean;
   opened: string;
 }) {
@@ -333,6 +336,39 @@ function SourceCoverage({
           lastDay: end,
         },
       });
+      // Market data is usable only with its price ticks: each source's are a task of its own.
+      if (
+        [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
+        provider !== "recorder"
+      ) {
+        const wanted =
+          table !== Table.MINUTES ? [exchange] : contracts.map(contract => contract.split("/")[0]);
+        for (const reference of sources) {
+          if (
+            reference.provider === provider ||
+            reference.provider === "recorder" ||
+            !reference.tables.includes(Table.PRICE_TICKS)
+          )
+            continue;
+          const exchanges = reference.exchanges.filter(
+            item => wanted.length === 0 || wanted.includes(item),
+          );
+          if (exchanges.length === 0) continue;
+          await marketData({
+            case: "startAcquisition",
+            value: {
+              id: `${reference.provider}-${crypto.randomUUID()}`,
+              provider: reference.provider,
+              table: Table.PRICE_TICKS,
+              refetch: replace,
+              exchanges,
+              contracts: [],
+              firstDay: begin,
+              lastDay: end,
+            },
+          });
+        }
+      }
       await refresh();
     });
     if (mounted.current) setSubmitting(false);

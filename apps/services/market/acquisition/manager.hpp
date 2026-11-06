@@ -9,8 +9,9 @@ namespace asterion::market_data::acquisition {
 namespace wire = ::market;
 
 // Market owns this object and every admitted task, independently of clients.
-// Two fixed workers; at most one admitted task per configured source. A full
-// service refuses admission instead of accumulating an unbounded task queue.
+// A task takes one table from one source; at most one runs per source. Three
+// workers serve clients and a fourth the recorder. A full service refuses
+// admission instead of accumulating an unbounded task queue.
 class Manager
 {
 public:
@@ -31,7 +32,6 @@ private:
     struct Active
     {
         wire::AcquisitionTask task;
-        std::set<std::string> providers;
         std::stop_source cancel;
         std::shared_future<void> finished;
     };
@@ -48,7 +48,7 @@ private:
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;
-    ThreadPool workers_{2, 2};
+    ThreadPool workers_{4, 4};
 };
 
 } // namespace asterion::market_data::acquisition

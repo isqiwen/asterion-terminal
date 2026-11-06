@@ -13,6 +13,12 @@ namespace asterion::market_data::acquisition {
 
 using namespace std::chrono_literals;
 
+namespace {
+
+constexpr wire::Table tables[] = {wire::TABLE_MINUTES, wire::TABLE_PRICE_TICKS};
+
+} // namespace
+
 RecordedPublication::RecordedPublication(std::filesystem::path file, Manager& manager)
     : file_(std::move(file)),
       manager_(manager)
@@ -50,43 +56,49 @@ void RecordedPublication::poll(Clock::time_point now)
         const auto task = manager_.get(task_);
         if (task.state() == wire::TASK_STATE_QUEUED || task.state() == wire::TASK_STATE_RUNNING)
             return;
-        if (task.state() == wire::TASK_STATE_SUCCEEDED && !merged_again_) {
-            days_.erase(day_);
-            save();
-        } else if (task.state() != wire::TASK_STATE_SUCCEEDED) {
+        task_.clear();
+        const bool succeeded = task.state() == wire::TASK_STATE_SUCCEEDED;
+        if (!succeeded) {
             log::error(
-                "recorded minutes of {} did not reach research: {}",
+                "recorded data of {} did not reach research: {}",
                 day_,
                 task.error().message());
             retry_[day_] = now + 1h;
         }
-        task_.clear();
-        day_.clear();
-        merged_again_ = false;
+        if (!succeeded || ++table_ == std::size(tables)) {
+            if (succeeded && !merged_again_) {
+                days_.erase(day_);
+                save();
+            }
+            day_.clear();
+            table_ = 0;
+            merged_again_ = false;
+        }
     }
     if (now < next_)
         return;
-    const auto due = std::find_if(days_.begin(), days_.end(), [&](const std::string& item) {
-        const auto retry = retry_.find(item);
-        return retry == retry_.end() || retry->second <= now;
-    });
-    if (due == days_.end())
-        return;
-    const auto day = *due;
+    if (day_.empty()) {
+        const auto due = std::find_if(days_.begin(), days_.end(), [&](const std::string& item) {
+            const auto retry = retry_.find(item);
+            return retry == retry_.end() || retry->second <= now;
+        });
+        if (due == days_.end())
+            return;
+        day_ = *due;
+    }
     wire::StartAcquisition request;
-    request.set_id("recorded-" + day + "-" + unique_process_id().substr(0, 8));
+    request.set_id("recorded-" + day_ + "-" + unique_process_id().substr(0, 8));
     request.set_provider("recorder");
-    request.set_table(wire::TABLE_MINUTES);
-    request.set_first_day(protocol::iso_day(day));
+    request.set_table(tables[table_]);
+    request.set_first_day(protocol::iso_day(day_));
     request.set_last_day(request.first_day());
     request.set_refetch(true);
     try {
         manager_.submit(request);
         task_ = request.id();
-        day_ = day;
     } catch (const Error& error) {
-        // Another task of the recorder is running.
-        if (error.code() != ErrorCode::conflict && error.code() != ErrorCode::resource_exhausted)
+        // A client's publication of the recorder is running.
+        if (error.code() != ErrorCode::conflict)
             throw;
         next_ = now + 1min;
     }

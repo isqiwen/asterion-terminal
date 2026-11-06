@@ -44,6 +44,7 @@ sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
     │   ├── ticks/
     │   ├── minutes/
     │   ├── segments/           # 连续观测段与中断原因
+    │   ├── catalog/            # 每个交易日的合约快照
     │   └── unpublished.json    # 等待发布的交易日
     ├── warehouse/              # Tushare 正式仓库
     └── sources/
@@ -110,10 +111,12 @@ CTP 密码、授权码和 Tushare token 由 `systemd-creds` 加密保存，不�
 recordings/ticks/trading_day=<YYYYMMDD>/<实例>-<序号>.parquet
 recordings/minutes/trading_day=<YYYYMMDD>/<实例>-<序号>.parquet
 recordings/segments/trading_day=<YYYYMMDD>/<实例>.parquet
+recordings/catalog/<YYYYMMDD>.pb
 ```
 
 - **ticks**：分批写入；价格是精确小数，缺失保持为空；乱序报价也写入并标记。
 - **minutes**：与实时分钟线是同一份聚合。`partial` 表示这一分钟的观测可能不完整（从分钟中间开始观测、期间丢过观测、累计量回退、停止时还在形成）。一根分钟线在下一根出现或交易日结束（北京时间 15:30）后写入，所以收盘前的最后一分钟在合并前就已写入文件。
+- **catalog**：每个交易日最后一次成功查询到的 CTP 合约目录，含合约、乘数和最小价位，永久保留。
 - **segments**：一段是一次不间断的观测，记首末时间、报价数和结束原因：断线（如 `reconnecting`）、`events_lost`、`feed_failed`、`write_backlog`（磁盘跟不上，这一段时间的数据被丢弃）、`stopped`。两段之间就是缺口，不补造。
 - 写入异步执行。磁盘写入积压达到上限时，丢弃待写区间并计入丢失行数，实时行情继续处理。重启后以新的实例名续写，不改已有文件。
 
@@ -132,7 +135,7 @@ Market 的 TLS 端口上（见[通信协议](../protocol.md#7-market)）：
 
 ## 发布研究版本
 
-每个交易日合并完成后，Market 自动把当天全部合约的录制分钟线和对应观测段提交为 `recorder` 来源的新版本，再合成研究数据集（见 [Market](README.md#仓库与固定版本)）：Tushare 没有的合约交易日就用这些录制数据。待发布的交易日记在 `recordings/unpublished.json`，发布成功后才移除，所以重启后会接着发布；采集正忙时每分钟重试；某一天发布失败时这一天每小时重试，不影响其他日期，原因写进主机日志。收盘后迟到的报价再次合并时，这一天会重新发布。
+每个交易日合并完成后，Market 自动把当天全部合约的录制分钟线、对应观测段和当天的合约快照提交为 `recorder` 来源的新版本，不依赖任何外部来源，再合成研究数据集（见 [Market](README.md#仓库与固定版本)）：Tushare 没有的合约交易日就用这些录制数据。待发布的交易日记在 `recordings/unpublished.json`，发布成功后才移除，所以重启后会接着发布；采集正忙时每分钟重试；某一天发布失败时这一天每小时重试，不影响其他日期，原因写进主机日志。收盘后迟到的报价再次合并时，这一天会重新发布。
 
 - 也可以在 Terminal「数据」页选择「自录」来源，按合约和交易日范围手动发布或重新发布（需要 `manage` 权限）。
 - 柜台给出的交易日、`partial` 标记和缺失字段原样保留，不补缺口。

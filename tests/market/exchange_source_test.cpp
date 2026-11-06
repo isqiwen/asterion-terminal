@@ -291,37 +291,7 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     EXPECT_EQ(store.current().identity, original.identity);
 }
 
-class MinuteSource : public ac::Source
-{
-public:
-    bool supports(std::string_view table, std::string_view exchange) const override
-    {
-        return table == "minutes" && exchange == "CZCE";
-    }
-
-    ac::MinuteBatch minutes(const std::string& contract, const std::string& day) override
-    {
-        ++requests_;
-        return {
-            {{"CZCE",
-                "ap",
-                contract,
-                day,
-                std::int64_t{0},
-                false,
-                "1",
-                "2",
-                "1",
-                "2",
-                "1",
-                "2",
-                "1"}},
-            {}
-        };
-    }
-};
-
-TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVersions)
+TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
 {
     auto raw = reference_fixture();
     bool available = false;
@@ -330,33 +300,21 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
             ? ac::HttpReply{200, raw}
             : ac::HttpReply{404, {}};
     };
-    ac::Manager manager(
-        root,
-        {{"tushare",
-             [](auto) {
-                 return std::make_unique<MinuteSource>();
-             }},
-            {"czce", [&](auto stop) {
-                 return std::make_unique<ac::Exchange>("CZCE", stop, fetch);
-             }}});
+    ac::Manager manager(root, {{"czce", [&](auto stop) {
+                                    return std::make_unique<ac::Exchange>("CZCE", stop, fetch);
+                                }}});
     ac::wire::StartAcquisition request;
-    request.set_id("minutes");
-    request.set_provider("tushare");
-    request.set_table(::market::TABLE_MINUTES);
-    request.add_contracts("CZCE/ap/2022-01");
+    request.set_id("ticks");
+    request.set_provider("czce");
+    request.set_table(::market::TABLE_PRICE_TICKS);
+    request.add_exchanges("CZCE");
     request.set_first_day("2022-01-04");
     request.set_last_day("2022-01-05");
     manager.submit(request);
     auto task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
-    EXPECT_EQ(task.items(), 4);
-    EXPECT_EQ(task.items_done(), 4);
-    EXPECT_EQ(task.requests_sent(), 4);
+    EXPECT_EQ(task.items(), 2);
     EXPECT_EQ(task.items_empty(), 1);
-    EXPECT_EQ(task.request().provider(), "tushare");
-    EXPECT_EQ(task.request().table(), ::market::TABLE_MINUTES);
-    wh::Store bars(wh::source_directory(root, "tushare"), "tushare");
-    EXPECT_EQ(task.published_version(), bars.current_identity());
     wh::Store research(wh::source_directory(root, "research"), "research");
     wh::compose_research(root, research);
     const auto fixed = research.current();
@@ -371,17 +329,16 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 1);
     EXPECT_EQ(task.items_empty(), 0);
-    EXPECT_EQ(bars.current_identity(), task.published_version());
     wh::compose_research(root, research);
     EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
 
     raw.replace(raw.find("1.00元/吨"), std::string("1.00元/吨").size(), "0.005元/吨");
-    request.set_id("refresh");
+    request.set_id("refetch");
     request.set_refetch(true);
     manager.submit(request);
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
-    EXPECT_EQ(task.requests_sent(), 4);
+    EXPECT_EQ(task.requests_sent(), 2);
     wh::compose_research(root, research);
     EXPECT_EQ(
         research.read(fixed, "price_ticks/CZCE/2022-01-04")[0][5],
@@ -389,100 +346,6 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
     EXPECT_EQ(
         research.read(research.current(), "price_ticks/CZCE/2022-01-04")[0][5],
         wh::Cell{std::string("0.00500000")});
-}
-
-TEST_F(ExchangeSources, AutomaticPriceTickFailureKeepsAcquiredDataForRetry)
-{
-    const auto raw = reference_fixture();
-    bool refused = true;
-    ac::Manager manager(
-        root,
-        {{"tushare",
-             [](auto) {
-                 return std::make_unique<MinuteSource>();
-             }},
-            {"czce", [&](auto stop) {
-                 return std::make_unique<ac::Exchange>(
-                     "CZCE",
-                     stop,
-                     [&](const ac::HttpRequest& request, auto) {
-                         return refused && request.path.find("20220105") != std::string::npos
-                             ? ac::HttpReply{503, {}}
-                             : ac::HttpReply{200, raw};
-                     });
-             }}});
-    ac::wire::StartAcquisition request;
-    request.set_id("minutes");
-    request.set_provider("tushare");
-    request.set_table(::market::TABLE_MINUTES);
-    request.add_contracts("CZCE/ap/2022-01");
-    request.set_first_day("2022-01-04");
-    request.set_last_day("2022-01-05");
-    manager.submit(request);
-    auto task = wait(manager, request.id());
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_FAILED);
-    EXPECT_EQ(task.error().code(), ::common::ERROR_CODE_UNAVAILABLE);
-    EXPECT_EQ(task.requests_sent(), 4);
-    wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose_research(root, research);
-    const auto partial = research.current();
-    EXPECT_TRUE(partial.partitions.contains("minutes/CZCE/2022-01-05/ap/2022-01"));
-    EXPECT_TRUE(partial.partitions.contains("price_ticks/CZCE/2022-01-04"));
-    EXPECT_FALSE(partial.partitions.contains("price_ticks/CZCE/2022-01-05"));
-
-    refused = false;
-    request.set_id("retry");
-    manager.submit(request);
-    task = wait(manager, request.id());
-    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
-    EXPECT_EQ(task.requests_sent(), 1);
-    wh::compose_research(root, research);
-    EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
-}
-
-TEST_F(ExchangeSources, AutomaticPriceTicksShareSourceAdmissionAndCancellation)
-{
-    std::promise<void> entered;
-    auto block = [&](const auto&, std::stop_token stop) -> ac::HttpReply {
-        entered.set_value();
-        std::mutex mutex;
-        std::unique_lock lock(mutex);
-        std::condition_variable_any changed;
-        changed.wait(lock, stop, [] {
-            return false;
-        });
-        ac::check_stop(stop);
-        return {};
-    };
-    ac::Manager manager(
-        root,
-        {{"tushare",
-             [](auto) {
-                 return std::make_unique<MinuteSource>();
-             }},
-            {"czce", [&](auto stop) {
-                 return std::make_unique<ac::Exchange>("CZCE", stop, block);
-             }}});
-    ac::wire::StartAcquisition request;
-    request.set_id("minutes");
-    request.set_provider("tushare");
-    request.set_table(::market::TABLE_MINUTES);
-    request.add_contracts("CZCE/ap/2022-01");
-    request.set_first_day("2022-01-04");
-    request.set_last_day("2022-01-04");
-    manager.submit(request);
-    ASSERT_EQ(entered.get_future().wait_for(5s), std::future_status::ready);
-    request.set_id("ticks");
-    request.set_provider("czce");
-    request.set_table(::market::TABLE_PRICE_TICKS);
-    request.clear_contracts();
-    EXPECT_THROW(manager.submit(request), Error);
-    manager.cancel("minutes");
-    EXPECT_EQ(wait(manager, "minutes").state(), ac::wire::TASK_STATE_CANCELLED);
-    request.set_first_day("2022-01-08");
-    request.set_last_day("2022-01-08");
-    manager.submit(request);
-    EXPECT_EQ(wait(manager, "ticks").state(), ac::wire::TASK_STATE_SUCCEEDED);
 }
 
 TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure)

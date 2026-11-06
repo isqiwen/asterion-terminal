@@ -22,6 +22,8 @@ public:
     bool supports(std::string_view table, std::string_view exchange) const override;
     MinuteBatch minutes(const std::string& contract, const std::string& day) override;
     std::vector<std::string> minute_contracts(const std::string& day) override;
+    // The tick each contract of the day's CTP snapshot stated, for that day alone.
+    Rows price_ticks(const std::string& exchange, const std::string& day) override;
 
 private:
     std::filesystem::path root_;

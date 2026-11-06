@@ -25,7 +25,10 @@ Live::Live(const Settings& settings)
     : settings_(settings),
       started_ms_(now_ms()),
       feed_(sdk_, settings.ctp_library, settings.directory / "ctp-flow"),
-      catalog_(sdk_, settings.directory / "ctp-catalog.pb")
+      catalog_(
+          sdk_,
+          settings.directory / "ctp-catalog.pb",
+          settings.directory / "recordings" / "catalog")
 {
     login();
 }

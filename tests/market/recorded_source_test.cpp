@@ -365,6 +365,44 @@ TEST_F(RecordedSource, ResearchFollowsACommitWithoutTheTaskDoingTheWork)
         "recorder");
 }
 
+TEST_F(RecordedSource, ADaysContractSnapshotBecomesThatDaysPriceTicksAndOutranksReports)
+{
+    ::market::Catalog catalog;
+    auto* contract = catalog.add_contracts();
+    contract->set_contract("SHFE/rb/2027-01");
+    contract->mutable_price_tick()->set_text("1");
+    fs::create_directories(root / "recordings/catalog");
+    std::ofstream(root / "recordings/catalog/20261028.pb", std::ios::binary)
+        << catalog.SerializeAsString();
+    ac::Manager manager(root, {{"recorder", factory()}});
+    ac::wire::StartAcquisition request;
+    request.set_id("ticks");
+    request.set_provider("recorder");
+    request.set_table(::market::TABLE_PRICE_TICKS);
+    request.set_first_day("2026-10-28");
+    request.set_last_day("2026-10-28");
+    manager.submit(request);
+    auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (manager.get("ticks").state() != ac::wire::TASK_STATE_SUCCEEDED
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(5ms);
+    wh::Store report(wh::source_directory(root, "gtja"), "gtja");
+    {
+        auto writer = report.writer();
+        writer.put("price_ticks/SHFE/2026-10-28", std::vector<wh::Row>{}, {"2026-10-28"});
+        writer.commit();
+    }
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto version = wh::compose_research(root, research);
+    EXPECT_EQ(version.partitions.at("price_ticks/SHFE/2026-10-28").source, "recorder");
+    const auto rows = research.read(version, "price_ticks/SHFE/2026-10-28");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(std::get<std::string>(rows[0][2]), "SHFE/rb/2027-01");
+    EXPECT_EQ(std::get<std::string>(rows[0][3]), "2026-10-28");
+    EXPECT_EQ(std::get<std::string>(rows[0][4]), "2026-10-29");
+    EXPECT_EQ(std::get<std::string>(rows[0][5]), "1.00000000");
+}
+
 TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)
 {
     record("average", base, {"SHFE", "rb2701"}, "3100.123456", "666.66733333");
@@ -384,16 +422,11 @@ TEST_F(RecordedSource, AMergedDayStaysPendingAcrossARestartUntilItsPublicationSu
     const auto file = root / "unpublished.json";
     const auto settle = [&](ac::RecordedPublication& queue) {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
-        for (;;) {
+        while (!queue.pending().empty()) {
             queue.poll(std::chrono::steady_clock::now());
-            const auto tasks = manager.list({});
-            if (!tasks.tasks().empty() && tasks.tasks(0).state() != ac::wire::TASK_STATE_QUEUED
-                && tasks.tasks(0).state() != ac::wire::TASK_STATE_RUNNING)
-                break;
             ASSERT_LT(std::chrono::steady_clock::now(), deadline);
             std::this_thread::sleep_for(5ms);
         }
-        queue.poll(std::chrono::steady_clock::now());
     };
     {
         ac::RecordedPublication queue(file, manager);

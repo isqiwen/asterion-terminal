@@ -124,43 +124,22 @@ TEST_F(GuotaiSource, MissingHistoryStaysUncoveredAndWrongDatedReportsFail)
     EXPECT_THROW(refused.price_ticks("GFEX", "2024-12-17"), ac::SourceError);
 }
 
-class DailySource : public ac::Source
+TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
 {
-public:
-    bool supports(std::string_view table, std::string_view exchange) const override
-    {
-        return table == "daily"
-            && std::find(exchanges.begin(), exchanges.end(), exchange) != exchanges.end();
-    }
-
-    ac::Rows daily(const std::string&, const std::string&) override
-    {
-        return {};
-    }
-};
-
-TEST_F(GuotaiSource, MarketAutomaticallyPublishesFiveExchangesAndSkipsStoredDays)
-{
-    ac::Manager manager(
-        root,
-        {{"gtja",
-             [](auto stop) {
-                 return std::make_unique<ac::Guotai>(exchanges, stop, fetch);
-             }},
-            {"shfe", [](auto) {
-                 return std::make_unique<DailySource>();
-             }}});
+    ac::Manager manager(root, {{"gtja", [](auto stop) {
+                                    return std::make_unique<ac::Guotai>(exchanges, stop, fetch);
+                                }}});
     ac::wire::StartAcquisition request;
-    request.set_id("daily");
-    request.set_provider("shfe");
-    request.set_table(::market::TABLE_DAILY);
+    request.set_id("ticks");
+    request.set_provider("gtja");
+    request.set_table(::market::TABLE_PRICE_TICKS);
     request.set_first_day("2024-12-17");
     request.set_last_day("2024-12-18");
     manager.submit(request);
     auto task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 2);
-    EXPECT_EQ(task.items_done(), 20);
+    EXPECT_EQ(task.items_done(), 10);
     wh::Store research(wh::source_directory(root, "research"), "research");
     wh::compose_research(root, research);
     const auto fixed = research.current();

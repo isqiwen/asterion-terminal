@@ -314,6 +314,8 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         assert minutes and number(minutes[0], 4) >= 1, partitions
         assert segments and number(segments[0], 4) >= 1, partitions
         assert text(minutes[0], 5) == trading_day, minutes
+        # The day's contract catalog is on record for its price ticks.
+        assert list((root / "data/recordings/catalog").glob("*.pb"))
     finally:
         second.send_signal(signal.SIGTERM)
         second.wait(timeout=30)

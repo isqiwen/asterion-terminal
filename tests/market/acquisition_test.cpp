@@ -443,7 +443,7 @@ TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)
 TEST_F(Acquisition, SourceConcurrencyIsBoundedAndShutdownInterruptsProviderWaits)
 {
     auto one = std::make_shared<Vendor>(), two = std::make_shared<Vendor>(),
-         three = std::make_shared<Vendor>();
+         three = std::make_shared<Vendor>(), four = std::make_shared<Vendor>();
     std::atomic<int> entered = 0;
     auto block = [&](const Json&, std::stop_token stop) {
         ++entered;
@@ -457,16 +457,21 @@ TEST_F(Acquisition, SourceConcurrencyIsBoundedAndShutdownInterruptsProviderWaits
     };
     one->before = block;
     two->before = block;
+    three->before = block;
     ac::Manager manager(
         root,
-        {{"first", factory(one)}, {"second", factory(two)}, {"third", factory(three)}});
+        {{"first", factory(one)},
+            {"second", factory(two)},
+            {"third", factory(three)},
+            {"fourth", factory(four)}});
     manager.submit(request("one", "first"));
     manager.submit(request("two", "second"));
+    manager.submit(request("three", "third"));
     const auto deadline = std::chrono::steady_clock::now() + 5s;
-    while (entered < 2 && std::chrono::steady_clock::now() < deadline)
+    while (entered < 3 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(5ms);
-    ASSERT_EQ(entered, 2);
-    EXPECT_THROW(manager.submit(request("three", "third")), Error);
+    ASSERT_EQ(entered, 3);
+    EXPECT_THROW(manager.submit(request("four", "fourth")), Error);
     const auto start = std::chrono::steady_clock::now();
     manager.stop();
     EXPECT_LT(std::chrono::steady_clock::now() - start, 2s);
