@@ -9,6 +9,10 @@
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
 #include <cerrno>
+#include <chrono>
+#include <cstdint>
+#include <ctime>
+#include <fmt/chrono.h>
 #include <csignal>
 #include <cstring>
 #include <cstdlib>
@@ -51,6 +55,10 @@ void write_text(const char* text)
 
 void fatal_signal(int signal, siginfo_t*, void* context)
 {
+    timespec now{};
+    ::clock_gettime(CLOCK_REALTIME, &now);
+    const std::int64_t crashed_at =
+        static_cast<std::int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
     const char* name = "unknown";
     switch (signal) {
         case SIGSEGV:
@@ -72,8 +80,9 @@ void fatal_signal(int signal, siginfo_t*, void* context)
     write_text("fatal signal: ");
     write_text(name);
     write_text("\n");
-    // Separate diagnostic text from the binary frame records.
+    // Separate diagnostic text from the crash timestamp and binary frames.
     write_text("\0", 1);
+    write_bytes(output, reinterpret_cast<const char*>(&crashed_at), sizeof(crashed_at));
     unw_cursor_t cursor;
     if (unw_init_local2(&cursor, static_cast<unw_context_t*>(context), UNW_INIT_SIGNAL_FRAME)
         >= 0) {
@@ -135,9 +144,10 @@ void install_crash_logging(const std::filesystem::path& directory, std::string_v
         &warmup);
     if (!cpptrace::can_get_safe_object_frame())
         throw std::runtime_error("signal-safe object lookup is unavailable");
-    const auto file = directory
-        / (std::string(program) + "-" + std::to_string(::getpid()) + "-" + unique_process_id()
-            + "-crash");
+    const auto started_at =
+        std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
+    const auto file =
+        directory / fmt::format("{}-{:%Y%m%dT%H%M%S}Z-{}-crash", program, started_at, ::getpid());
     const auto helper = current_executable().parent_path() / "asterion_crash_reporter";
     if (!std::filesystem::is_regular_file(helper))
         throw std::runtime_error("crash reporter is missing: " + helper.string());
@@ -153,7 +163,8 @@ void install_crash_logging(const std::filesystem::path& directory, std::string_v
     write_file_durably(
         partial_frames_path,
         "Asterion " + std::string(build::description) + "\nprogram: " + std::string(program)
-            + "\nexecutable: " + current_executable().string() + "\n");
+            + "\nexecutable: " + current_executable().string()
+            + fmt::format("\nstarted_at: {:%Y-%m-%dT%H:%M:%S}Z\n", started_at));
     output = ::open(partial_frames_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
     if (output < 0)
         throw std::runtime_error("cannot open crash record: " + file.string());

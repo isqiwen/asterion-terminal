@@ -54,7 +54,7 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 
 ### 崩溃诊断
 
-- Linux Market、Trading 崩溃后，由随包提供的独立解析器自动生成安装目录 `logs/*-crash.report.log`，包含版本、提交、信号、函数名和源码行号。现场只保留一份 `*-crash.frames`，函数名和源码行号统一由解析器生成。若解析被系统关停打断，下次服务启动会补齐同次构建的待解析报告。Trading 仍需重新授权。
+- Linux Market、Trading 崩溃后，由随包提供的独立解析器自动生成安装目录 `logs/*-crash.report.log`，包含版本、提交、信号、函数名和源码行号。文件名使用 UTC 启动时间（毫秒）和 PID；报告分别记录启动时间和实际崩溃时间，补解析保留原始时间。现场只保留一份 `*-crash.frames`，函数名和源码行号统一由解析器生成。若解析被系统关停打断，下次服务启动会补齐同次构建的待解析报告。Trading 仍需重新授权。
 - Lab 捕获的异常在日常日志中保留 Python traceback；解释器启动错误、线程未捕获异常和原生扩展崩溃写入 `lab/logs/python-*.log`。回测子进程的标准错误保留在 Lab 的失败记录中。
 - Trading 策略子进程的 traceback 和解释器崩溃信息写入服务的 `logs/strategy-*.log`，服务日志记录实例与文件的对应关系。
 - Terminal 的 JavaScript 异常堆栈及子进程退出原因写入 `terminal/logs/electron-*.log`；主进程未捕获异常后退出。

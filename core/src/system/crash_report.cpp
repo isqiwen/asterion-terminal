@@ -3,6 +3,9 @@
 #include <asterion/version.hpp>
 #include <cpptrace/basic.hpp>
 #include <cstring>
+#include <chrono>
+#include <cstdint>
+#include <fmt/chrono.h>
 #include <fstream>
 #include <stdexcept>
 
@@ -24,6 +27,13 @@ void write_crash_report(const std::filesystem::path& frames)
     std::string details;
     if (!std::getline(input, details, '\0') || input.eof())
         throw std::runtime_error("incomplete crash record: " + frames.string());
+    std::int64_t crashed_at;
+    if (!input.read(reinterpret_cast<char*>(&crashed_at), sizeof(crashed_at)))
+        throw std::runtime_error("missing crash timestamp: " + frames.string());
+    const std::chrono::sys_time<std::chrono::milliseconds> timestamp{
+        std::chrono::milliseconds{crashed_at}
+    };
+    details += fmt::format("crashed_at: {:%Y-%m-%dT%H:%M:%S}Z\n", timestamp);
     cpptrace::object_trace trace;
     cpptrace::safe_object_frame frame;
     while (input.read(reinterpret_cast<char*>(&frame), sizeof(frame))) {
