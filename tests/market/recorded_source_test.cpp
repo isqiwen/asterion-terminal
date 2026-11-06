@@ -4,6 +4,7 @@
 #include "acquisition/recorded_intake.hpp"
 #include "acquisition/recorded_publication.hpp"
 #include "acquisition/manager.hpp"
+#include "recorded/reader.hpp"
 #include "recording/recorder.hpp"
 #include "recorded/compaction.hpp"
 #include "recorded/compactor.hpp"
@@ -401,6 +402,17 @@ TEST_F(RecordedSource, ADaysContractSnapshotBecomesThatDaysPriceTicksAndOutranks
     EXPECT_EQ(std::get<std::string>(rows[0][3]), "2026-10-28");
     EXPECT_EQ(std::get<std::string>(rows[0][4]), "2026-10-29");
     EXPECT_EQ(std::get<std::string>(rows[0][5]), "1.00000000");
+}
+
+TEST_F(RecordedSource, ARestartWithinAMinuteLeavesOneBarOfIt)
+{
+    record("before");
+    record("after");
+    const auto bars =
+        recording::Reader(root / "recordings").minutes("20261028", InstrumentId{"SHFE", "rb2701"});
+    ASSERT_EQ(bars.size(), 2);
+    EXPECT_NE(bars[0].start_ms, bars[1].start_ms);
+    EXPECT_TRUE(bars[1].partial);
 }
 
 TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)

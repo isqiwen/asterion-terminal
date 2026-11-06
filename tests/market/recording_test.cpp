@@ -2,6 +2,7 @@
 #include "recording/recorder.hpp"
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
+#include <fstream>
 #include <thread>
 
 using namespace asterion;
@@ -52,7 +53,9 @@ TEST(Recorder, AStalledDiskDropsAnIntervalInsteadOfBlockingTheMarketThread)
         recording::hold_writes_for_testing(true);
         for (int interval = 1; interval <= 6; ++interval) {
             const auto at = base + interval * 30000;
-            recorder.observe(quote(at - 1000, "3100", "20261029"), false, minutes);
+            const auto q = quote(at - 1000, "3100", "20261029");
+            recorder.observe(q, false, minutes);
+            minutes.observe(q);
             const auto started = std::chrono::steady_clock::now();
             recorder.poll(at, minutes);
             EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
@@ -68,6 +71,67 @@ TEST(Recorder, AStalledDiskDropsAnIntervalInsteadOfBlockingTheMarketThread)
             "SELECT \"end\" FROM read_parquet('" + (root / "segments/*/*.parquet").string()
             + "') ORDER BY segment"),
         "write_backlog\nwrite_backlog\n");
+    // The minutes of the dropped intervals still reached the disk.
+    EXPECT_EQ(
+        query(
+            "SELECT count(DISTINCT start_ms) FROM read_parquet('"
+            + (root / "minutes/*/*.parquet").string() + "')"),
+        "3\n");
+    fs::remove_all(root);
+}
+
+TEST(Recorder, MinutesOfAFailedWriteAreWrittenOnceTheDiskRecovers)
+{
+    const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
+    fs::create_directories(root);
+    std::ofstream(root / "minutes") << "blocks the minutes folder";
+    {
+        recording::Recorder recorder(root, "instance");
+        IntradayBars minutes;
+        recorder.poll(base, minutes);
+        for (const auto at : {base, base + 60000}) {
+            const auto q = quote(at, "3100", "20261029");
+            recorder.observe(q, false, minutes);
+            minutes.observe(q);
+        }
+        recorder.poll(base + 60000, minutes);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (recorder.status().error.empty() && std::chrono::steady_clock::now() < deadline) {
+            recorder.poll(base + 60001, minutes);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        ASSERT_FALSE(recorder.status().error.empty());
+        // Only the minutes failed: the ticks are on the disk and nothing is lost.
+        EXPECT_EQ(recorder.status().lost, 0u);
+        fs::remove(root / "minutes");
+        recorder.close("stopped", base + 120000, minutes);
+        EXPECT_EQ(recorder.status().lost, 0u);
+    }
+    EXPECT_EQ(
+        query(
+            "SELECT count(DISTINCT start_ms) FROM read_parquet('"
+            + (root / "minutes/*/*.parquet").string() + "')"),
+        "2\n");
+    fs::remove_all(root);
+}
+
+TEST(Recorder, TicksKeepTheProvidersTurnoverSettlementAndClose)
+{
+    const auto root = fs::temp_directory_path() / ("recorder-" + unique_process_id());
+    {
+        recording::Recorder recorder(root, "instance");
+        IntradayBars minutes;
+        auto q = quote(base, "3100", "20261029");
+        q.turnover = 123456789012.5;
+        q.close = Decimal::parse("3101");
+        recorder.observe(q, false, minutes);
+        recorder.close("stopped", base + 1000, minutes);
+    }
+    EXPECT_EQ(
+        query(
+            "SELECT turnover, close::VARCHAR, settlement FROM read_parquet('"
+            + (root / "ticks/*/*.parquet").string() + "')"),
+        "123456789012.5 3101.00000000 NULL\n");
     fs::remove_all(root);
 }
 

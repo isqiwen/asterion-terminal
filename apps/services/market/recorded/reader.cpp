@@ -4,6 +4,7 @@
 #include <asterion/futures/market.hpp>
 #include <asterion/base/decimal.hpp>
 #include <asterion/base/error.hpp>
+#include <algorithm>
 #include <map>
 #include <set>
 #include <regex>
@@ -110,7 +111,25 @@ std::vector<MinuteBar> Reader::minutes(const std::string& trading_day, const Ins
                 decimal(6, row),
                 decimal(7, row),
                 result->GetValue(8, row).GetValue<bool>()});
-    return out;
+    // A restart within a minute leaves two parts of it, one from each process.
+    std::vector<MinuteBar> joined;
+    for (auto& bar : out) {
+        if (joined.empty() || joined.back().start_ms != bar.start_ms) {
+            joined.push_back(std::move(bar));
+            continue;
+        }
+        auto& whole = joined.back();
+        whole.high = std::max(whole.high, bar.high);
+        whole.low = std::min(whole.low, bar.low);
+        whole.close = bar.close;
+        whole.volume += bar.volume;
+        if (bar.average_price)
+            whole.average_price = bar.average_price;
+        if (bar.open_interest)
+            whole.open_interest = bar.open_interest;
+        whole.partial = true;
+    }
+    return joined;
 }
 
 std::vector<InstrumentId> Reader::instruments(const std::string& trading_day)

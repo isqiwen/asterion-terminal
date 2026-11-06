@@ -28,8 +28,9 @@ namespace asterion::recording {
 // to a process that stopped before it could say why. The time between two
 // segments is a gap: nothing is filled in. A segment counts the quotes it
 // observed, so fewer rows in its files means a write failed. Files are
-// written on a worker. When four writes are behind, an interval is dropped and
-// its segment ends with `write_backlog`: the market thread never waits for the disk.
+// written on a worker. When four writes are behind, an interval's ticks are
+// dropped and its segment ends with `write_backlog`: the market thread never
+// waits for the disk. Minutes wait in memory until a write succeeds.
 // Whether a trading day (YYYYMMDD) has ended at `now`: days before today in
 // Beijing, and today from 15:30 Beijing time on. A night session belongs to
 // the next trading day, so it never ends a day early.
@@ -91,7 +92,9 @@ private:
     struct Written
     {
         std::string trading_day, error;
-        std::uint64_t rows = 0, bytes = 0, files = 0;
+        std::uint64_t rows = 0, bytes = 0, files = 0, lost = 0;
+        // Minutes a failed write did not reach the disk with.
+        std::vector<Minute> bars = {};
     };
 
     // What each instrument's minutes have reached in the files.

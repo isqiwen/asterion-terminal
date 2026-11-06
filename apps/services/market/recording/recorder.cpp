@@ -18,7 +18,7 @@ constexpr std::size_t writes_behind = 4;
 
 // Prices are DECIMAL(18,8): exactly Decimal::raw(), readable by any Parquet tool.
 constexpr auto
-    tick_schema = "segment BIGINT NOT NULL, received_ms BIGINT NOT NULL, source_ms BIGINT," " venue VARCHAR NOT NULL, symbol VARCHAR NOT NULL, action_day VARCHAR NOT NULL," " update_time VARCHAR NOT NULL, out_of_order BOOLEAN NOT NULL," " last DECIMAL(18,8), volume BIGINT NOT NULL, open_interest DECIMAL(18,8)," " average_price DECIMAL(18,8)," " bid DECIMAL(18,8), bid_quantity BIGINT NOT NULL," " ask DECIMAL(18,8), ask_quantity BIGINT NOT NULL," " bid_price_2 DECIMAL(18,8), bid_quantity_2 BIGINT," " bid_price_3 DECIMAL(18,8), bid_quantity_3 BIGINT," " bid_price_4 DECIMAL(18,8), bid_quantity_4 BIGINT," " bid_price_5 DECIMAL(18,8), bid_quantity_5 BIGINT," " ask_price_2 DECIMAL(18,8), ask_quantity_2 BIGINT," " ask_price_3 DECIMAL(18,8), ask_quantity_3 BIGINT," " ask_price_4 DECIMAL(18,8), ask_quantity_4 BIGINT," " ask_price_5 DECIMAL(18,8), ask_quantity_5 BIGINT," " open DECIMAL(18,8), high DECIMAL(18,8), low DECIMAL(18,8)," " upper_limit DECIMAL(18,8), lower_limit DECIMAL(18,8)," " previous_settlement DECIMAL(18,8), previous_close DECIMAL(18,8)";
+    tick_schema = "segment BIGINT NOT NULL, received_ms BIGINT NOT NULL, source_ms BIGINT," " venue VARCHAR NOT NULL, symbol VARCHAR NOT NULL, action_day VARCHAR NOT NULL," " update_time VARCHAR NOT NULL, out_of_order BOOLEAN NOT NULL," " last DECIMAL(18,8), volume BIGINT NOT NULL, open_interest DECIMAL(18,8)," " average_price DECIMAL(18,8)," " bid DECIMAL(18,8), bid_quantity BIGINT NOT NULL," " ask DECIMAL(18,8), ask_quantity BIGINT NOT NULL," " bid_price_2 DECIMAL(18,8), bid_quantity_2 BIGINT," " bid_price_3 DECIMAL(18,8), bid_quantity_3 BIGINT," " bid_price_4 DECIMAL(18,8), bid_quantity_4 BIGINT," " bid_price_5 DECIMAL(18,8), bid_quantity_5 BIGINT," " ask_price_2 DECIMAL(18,8), ask_quantity_2 BIGINT," " ask_price_3 DECIMAL(18,8), ask_quantity_3 BIGINT," " ask_price_4 DECIMAL(18,8), ask_quantity_4 BIGINT," " ask_price_5 DECIMAL(18,8), ask_quantity_5 BIGINT," " open DECIMAL(18,8), high DECIMAL(18,8), low DECIMAL(18,8)," " upper_limit DECIMAL(18,8), lower_limit DECIMAL(18,8)," " previous_settlement DECIMAL(18,8), previous_close DECIMAL(18,8)," " settlement DECIMAL(18,8), close DECIMAL(18,8), turnover DOUBLE";
 
 constexpr auto minute_schema =
     "venue VARCHAR NOT NULL, symbol VARCHAR NOT NULL, start_ms BIGINT NOT NULL," " open DECIMAL(18,8) NOT NULL, high DECIMAL(18,8) NOT NULL, low DECIMAL(18,8) NOT NULL," " close DECIMAL(18,8) NOT NULL, volume BIGINT NOT NULL, average_price DECIMAL(18,8)," " open_interest DECIMAL(18,8), partial BOOLEAN NOT NULL";
@@ -75,8 +75,13 @@ void write_ticks(const fs::path& path, const std::vector<Recorder::Row>& rows)
                     &q.upper_limit,
                     &q.lower_limit,
                     &q.previous_settlement,
-                    &q.previous_close})
+                    &q.previous_close,
+                    &q.settlement,
+                    &q.close})
                 appender.Append(price(*value));
+            appender.Append(
+                q.turnover ? duckdb::Value::DOUBLE(*q.turnover)
+                           : duckdb::Value(duckdb::LogicalType::DOUBLE));
             appender.EndRow();
         }
         appender.Close();
@@ -230,6 +235,9 @@ void Recorder::close(std::string_view reason, std::int64_t now_ms, const Intrada
     flush(now_ms);
     while (!pending_.empty())
         collect();
+    for (const auto& [day, bars] : minutes_)
+        status_.lost += bars.size();
+    minutes_.clear();
 }
 
 void Recorder::take(const InstrumentId& id, const IntradaySeries& series)
@@ -294,7 +302,7 @@ void Recorder::flush(std::int64_t now_ms)
         status_.error = "recording writes fell behind; an interval was dropped";
         log::error("recording writes fell behind: dropped rows={}", rows_.size());
         rows_.clear();
-        minutes_.clear();
+        // Minutes wait for the disk: they are few and cannot be observed again.
         interrupt("write_backlog");
         return;
     }
@@ -334,6 +342,8 @@ void Recorder::flush(std::int64_t now_ms)
                            rows = std::move(rows)](std::stop_token) {
             held_writes.wait(true);
             Written written{day, {}, rows.size(), 0, 0};
+            written.lost = rows.size();
+            written.bars = bars;
             try {
                 if (!ticks.empty()) {
                     create_directories_durably(ticks.parent_path());
@@ -341,12 +351,14 @@ void Recorder::flush(std::int64_t now_ms)
                     written.bytes += fs::file_size(ticks);
                     ++written.files;
                 }
+                written.lost = 0;
                 if (!minutes.empty()) {
                     create_directories_durably(minutes.parent_path());
                     write_minutes(minutes, bars);
                     written.bytes += fs::file_size(minutes);
                     ++written.files;
                 }
+                written.bars.clear();
                 create_directories_durably(segments.parent_path());
                 write_segments(segments, instance, listed);
             } catch (const std::exception& error) {
@@ -364,11 +376,14 @@ void Recorder::collect()
     pending_.pop_front();
     if (!written.error.empty()) {
         status_.error = written.error;
-        status_.lost += written.rows;
+        status_.lost += written.lost;
+        // The next flush writes these minutes again.
+        auto& waiting = minutes_[written.trading_day];
+        waiting.insert(waiting.end(), written.bars.begin(), written.bars.end());
         log::error(
             "recording write failed: trading_day={} rows={}: {}",
             written.trading_day,
-            written.rows,
+            written.lost,
             written.error);
         return;
     }

@@ -198,6 +198,9 @@ public:
             tick.OpenInterest = 100;
             tick.PreOpenInterest = 125.25;
             tick.PreClosePrice = 3480.125;
+            tick.Turnover = 123456789012.5;
+            tick.SettlementPrice = std::numeric_limits<double>::max();
+            tick.ClosePrice = 3481.5;
             tick.OpenPrice = 3490.25;
             tick.UpperLimitPrice = 3800.5;
             tick.LowerLimitPrice = std::numeric_limits<double>::max();
