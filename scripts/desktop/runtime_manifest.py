@@ -20,6 +20,7 @@ import tempfile
 import tomllib
 import urllib.request
 from pathlib import Path
+from packaging.markers import Marker
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
@@ -53,15 +54,12 @@ def normal(name: str) -> str:
 
 
 def applies(marker: str | None, target: dict) -> bool:
-    """Whether an environment marker of the lock holds on the target. The lock
-    names only the platform, the machine and the implementation."""
     if not marker:
         return True
-    names = {"sys_platform": target["sys_platform"], "platform_machine": target["platform_machine"],
-             "implementation_name": "cpython"}
-    if set(re.findall(r"[a-z_]+(?= *[=!]=)", marker)) - set(names):
-        raise SystemExit(f"unsupported marker: {marker}")
-    return bool(eval(marker, {"__builtins__": {}}, names))
+    return Marker(marker).evaluate({
+        "sys_platform": target["sys_platform"], "platform_machine": target["platform_machine"],
+        "implementation_name": "cpython", "python_version": "3.12", "python_full_version": PYTHON,
+    })
 
 
 def wheel_rank(filename: str, target: dict):
@@ -142,7 +140,7 @@ def main():
     lock = tomllib.loads((PROJECT / "uv.lock").read_text())
     packages = {normal(item["name"]): item for item in lock["package"]}
     exported = subprocess.run(
-        ["uv", "export", "--project", str(PROJECT), "--frozen", "--no-dev", "--no-emit-project",
+        ["uv", "export", "--project", str(PROJECT), "--frozen", "--only-group", "runtime",
          "--no-hashes", "--quiet"], check=True, capture_output=True, text=True).stdout
     wanted = {}
     for line in exported.splitlines():

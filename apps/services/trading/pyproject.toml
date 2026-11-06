@@ -1,11 +1,6 @@
 # Trading's independently shipped strategy runtime. Packages cannot add dependencies.
-[project]
-name = "asterion-trading-runtime"
-# Dependency-only project; the product version comes from VERSION.
-version = "0"
-requires-python = "==3.12.*"
-dependencies = ["numpy==2.3.5", "protobuf==5.29.3"]
+[dependency-groups]
+runtime = ["numpy==2.3.5", "protobuf==5.29.3"]
 
 [tool.uv]
-package = false
-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+environments = ["python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'"]

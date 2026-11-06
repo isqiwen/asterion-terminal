@@ -25,8 +25,8 @@ def prepare(destination):
     found = run('uv', 'python', 'find', '--managed-python', '--no-project', PYTHON,
                 capture_output=True, text=True).stdout.strip()
     standalone = Path(found).resolve().parents[1]
-    requirements = run('uv', 'export', '--project', PROJECT, '--locked', '--no-dev',
-        '--no-emit-project', '--quiet', capture_output=True, text=True).stdout
+    requirements = run('uv', 'export', '--project', PROJECT, '--locked', '--only-group', 'runtime',
+        '--quiet', capture_output=True, text=True).stdout
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='prepare-', dir=destination.parent) as folder:
         folder = Path(folder)

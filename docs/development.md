@@ -3,7 +3,7 @@
 ## 环境
 
 - macOS（Apple Silicon）配 Xcode 26 及以上的 Command Line Tools，或 Linux x86_64 配 GCC 13 及以上。
-- Node.js 22+、pnpm 10、Python 3、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
+- Node.js 22+、pnpm 10、Python 3（安装 `packaging==25.0`）、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
 - clang-format 23.1.1（与 CI 相同；其他版本排版结果不同）。
 - 可选：Docker 或 OrbStack，用于构建 Market 和 Trading 主机的安装脚本。Linux 上当前用户要能不经 `sudo` 运行 `docker`（加入 `docker` 组后重新登录，此前可用 `sg docker -c '<命令>'`）。
 - Linux 桌面需要图形会话。Electron 沙箱需要非特权用户命名空间：Ubuntu 24.04 起要放开 AppArmor 限制（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox`。具体权限取决于系统的 AppArmor 配置。
@@ -141,4 +141,4 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 
 根目录 `VERSION` 是唯一产品版本来源，四个安装包共用该版本。CMake 生成 C++ 版本信息和 `product.json`，桌面打包与 Lab 运行时读取生成结果；Conan 直接读取 `VERSION`。每次构建更新 Git 短提交号，服务 `--version`、Terminal 诊断快照和 Lab 运行记录带上提交号，安装包版本保持纯产品版本。
 
-Lab 与 Trading 的 `pyproject.toml` 只声明运行时依赖，不发布 Python 包，其虚拟项目版本固定为 `0`，不代表产品版本。修改产品版本只需更新 `VERSION` 后重新构建、打包。
+Lab 与 Trading 的 `pyproject.toml` 只声明 `runtime` 依赖组，不包含产品名称和版本；导出使用 `uv export --only-group runtime`。修改产品版本只需更新 `VERSION` 后重新构建、打包。

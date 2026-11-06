@@ -114,8 +114,8 @@ def prepare(build=None):
     # The backtest engine is built for this interpreter's headers.
     run(["cmake", build, f"-DASTERION_PYTHON_HOME={standalone}"])
     run(["cmake", "--build", build, "--target", "asterion_python_protocol", "asterion_engine"])
-    requirements = run(["uv", "export", "--project", PROJECT, "--frozen", "--no-dev",
-                        "--no-emit-project", "--quiet"], capture_output=True, text=True).stdout
+    requirements = run(["uv", "export", "--project", PROJECT, "--frozen", "--only-group", "runtime",
+                        "--quiet"], capture_output=True, text=True).stdout
     staging = ROOT / "build/python"
     staging.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="prepare-", dir=staging) as temporary:

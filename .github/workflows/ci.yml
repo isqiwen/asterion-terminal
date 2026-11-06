@@ -49,7 +49,7 @@ jobs:
       - uses: pnpm/action-setup@v5
         with:
           version: "10.32.1"
-      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9 packaging==25.0
       - &conan-cache
         name: Cache Conan packages
         id: conan-cache
@@ -106,7 +106,7 @@ jobs:
       - uses: pnpm/action-setup@v5
         with:
           version: "10.32.1"
-      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9 packaging==25.0
       - *conan-cache
       - *conan-restore
       - run: conan profile detect
@@ -189,7 +189,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
+      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9 packaging==25.0
       - *conan-cache
       - *conan-restore
       - run: conan profile detect
