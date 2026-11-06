@@ -28,8 +28,7 @@ set(asterion_process_test_targets
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
   asterion_kernel_tests asterion_live_tests
   asterion_rpc_host_tests asterion_terminal_application_tests)
-# Optional arguments: a timeout in seconds, then SERIAL for tests whose
-# timing depends on the machine not being shared with other tests.
+# Optional argument: a timeout in seconds.
 function(asterion_unit_tests target source library)
   add_executable(${target} ${source})
   target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -43,10 +42,6 @@ function(asterion_unit_tests target source library)
   if(ASTERION_SANITIZERS)
     math(EXPR test_timeout "${test_timeout} * 5")
   endif()
-  set(run_serial FALSE)
-  if(ARGC GREATER 4 AND "${ARGV4}" STREQUAL "SERIAL")
-    set(run_serial TRUE)
-  endif()
   # Instrumented binaries can need more than CMake's five-second default to
   # start while other targets run. This changes discovery, not case budgets.
   set(label unit)
@@ -54,7 +49,7 @@ function(asterion_unit_tests target source library)
     set(label process)
   endif()
   gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-    PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial} LABELS ${label}
+    PROPERTIES TIMEOUT ${test_timeout} LABELS ${label}
     ${asterion_test_environment})
 endfunction()
 # core: foundation, kernel, domain and protocol
@@ -143,8 +138,8 @@ add_library(asterion_test_ctp_trader SHARED trading/ctp_fake_trader.cpp)
 target_include_directories(asterion_test_ctp_trader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(asterion_test_ctp_trader PRIVATE ctp::ctp Threads::Threads)
 target_compile_features(asterion_test_ctp_trader PRIVATE cxx_std_20)
-# The SDK double enforces CTP's one-query-per-second limit in wall-clock time.
-asterion_unit_tests(asterion_ctp_trader_tests trading/ctp_trader_test.cpp asterion_ctp_trader 60 SERIAL)
+# Each test process owns its SDK double and query throttle.
+asterion_unit_tests(asterion_ctp_trader_tests trading/ctp_trader_test.cpp asterion_ctp_trader)
 target_include_directories(asterion_ctp_trader_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/common/market/ctp)
 target_link_libraries(asterion_ctp_trader_tests PRIVATE ctp::ctp)
 target_compile_definitions(asterion_ctp_trader_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
@@ -178,7 +173,8 @@ if(ASTERION_PYTHON_HOME)
   add_test(NAME strategy_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
   set_tests_properties(strategy_process PROPERTIES TIMEOUT 90)
   add_test(NAME strategy_stream_process COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_stream_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
-  set_tests_properties(strategy_stream_process PROPERTIES TIMEOUT 360)
+  # Start the real-clock minute stream first so other tests fill its waits.
+  set_tests_properties(strategy_stream_process PROPERTIES TIMEOUT 360 COST 240)
 endif()
 add_test(NAME lab_log COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lab/log_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)
 add_test(NAME lab_sessions COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/sessions_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab)

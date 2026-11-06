@@ -2240,7 +2240,11 @@ TEST_F(StrategyTarget, ManualCancellationDropsTheBatchWithoutReplacingItsOrder)
     auto owner = session.register_strategy().get();
     session.accept_target(owner, lots(3), {quote()});
     session.advance_target(owner).get();
-    const auto id = session.snapshot().at("orders")[0].at("id");
+    const auto state = wait_for(session, [](const Json& s) {
+        return !s.at("orders").empty() && s.at("orders")[0].at("status") == "accepted";
+    });
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    const auto id = state.at("orders")[0].at("id");
     act(session, {{"request_id", "cancel.target"}, {"action", "cancel"}, {"order_id", id}});
     wait_for(session, [](const Json& s) {
         return s.at("orders")[0].at("status") == "cancelled";
