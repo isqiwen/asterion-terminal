@@ -97,6 +97,18 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
             assert "authorizedMs" not in opened["session"]
         wait(lambda: all(session(terminal, a)["brokerState"] == "BROKER_STATE_READY"
                          for a in ("real", "simulation")))
+        # A different instance, port, front and environment still owns the same funds.
+        port = host.account("duplicate", terminals=[fingerprint], environment="simulation", user="000001")
+        duplicate_config = host.root / "config/accounts/duplicate.json"
+        duplicate = json.loads(duplicate_config.read_text())
+        duplicate["broker"].update(front="tcp://127.0.0.1:41206", app_id="another_app")
+        duplicate_config.write_text(json.dumps(duplicate))
+        children["duplicate"] = host.start("duplicate")
+        call(terminal, "trading.connections.save", dict(id="duplicate", revision="",
+            host="127.0.0.1", port=port, instance="duplicate", fingerprint=host.server))
+        rejected = trading(terminal, "duplicate", create, error=True)
+        assert "account execution owner" in str(rejected), rejected
+        assert not (host.root / "data/duplicate/journal.sqlite").exists()
         # Authorizing one account cannot authorize the other.
         reviewed = {"accountId": "simulation",
                     "policyRevision": session(terminal, "simulation")["policyRevision"]}
@@ -134,8 +146,11 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         terminal.communicate(timeout=15)
         terminal = launch()
         assert account_of(terminal, "simulation")["id"] == "simulation"
-        # Changing a configured account must not silently reuse an existing journal.
         children["real"].terminate(); children["real"].wait(timeout=15)
+        rejected = trading(terminal, "duplicate", create, error=True)
+        assert str(host.root / "data/real") in str(rejected), rejected
+        assert not (host.root / "data/duplicate/journal.sqlite").exists()
+        # Changing a configured account must not silently reuse an existing journal.
         config = host.root / "config/accounts/real.json"
         original = config.read_text()
         changed = json.loads(original); changed["broker"]["user_id"] = "000009"

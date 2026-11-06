@@ -100,7 +100,7 @@ LiveAccountState::LiveAccountState(
     trade_front_ = broker.at("front");
     app_id_ = broker.at("app_id");
     create_directories_durably(ownership_directory);
-    const auto owner_key = sha256_bytes(account_id);
+    const auto owner_key = sha256_bytes(broker_id_ + '\n' + investor_id_);
     try {
         account_owner_ = std::make_unique<FileLock>(ownership_directory, owner_key);
     } catch (const std::runtime_error&) {
@@ -125,7 +125,10 @@ LiveAccountState::LiveAccountState(
         if (!stored.at("initialized").is_boolean())
             throw std::invalid_argument("invalid account ownership binding");
         if (stored.at("directory") != binding.at("directory"))
-            throw Error(ErrorCode::conflict, "this account is bound to another trading directory");
+            throw Error(
+                ErrorCode::conflict,
+                "this broker account is bound to trading directory "
+                    + stored.at("directory").get<std::string>());
         if (stored.at("initialized") == true && !create_manifest.is_null())
             throw Error(
                 ErrorCode::conflict,

@@ -582,10 +582,14 @@ TEST_F(Live, AccountRecordOwnershipSurvivesConnectionChangesAndProcessLifetimes)
 {
     Directory alias;
     auto alternative = manifest();
+    alternative["account_id"] = "another-account";
+    alternative["environment"] = "real";
     alternative["broker"]["front"] = "tcp://127.0.0.1:41206";
     alternative["broker"]["app_id"] = "another_app";
     {
         LiveSession owner(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(owner).at("phase"), "ready");
+        act(owner, authorize());
         EXPECT_THROW(
             (LiveSession{alias.path, ASTERION_TEST_CTP_TRADER, owners.path, alternative}),
             Error);
@@ -598,9 +602,20 @@ TEST_F(Live, AccountRecordOwnershipSurvivesConnectionChangesAndProcessLifetimes)
     EXPECT_TRUE(fs::is_empty(alias.path));
     LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_FALSE(recovered.snapshot().contains("authorization"));
-    // Separate account records can connect with the same broker/investor details.
-    alternative["account_id"] = "another-account";
-    EXPECT_NO_THROW((LiveSession{alias.path, ASTERION_TEST_CTP_TRADER, owners.path, alternative}));
+}
+
+TEST_F(Live, DifferentBrokerAccountsCanRunTogether)
+{
+    LiveSession first(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    Directory other_investor, other_broker;
+    auto investor = manifest();
+    investor["account_id"] = "other-investor";
+    investor["broker"]["user_id"] = "000002";
+    LiveSession second(other_investor.path, ASTERION_TEST_CTP_TRADER, owners.path, investor);
+    auto broker = manifest();
+    broker["account_id"] = "other-broker";
+    broker["broker"]["broker_id"] = "8888";
+    LiveSession third(other_broker.path, ASTERION_TEST_CTP_TRADER, owners.path, broker);
 }
 
 TEST_F(Live, MissingInitializedJournalCannotBeRecreatedAsAnEmptyAccount)
