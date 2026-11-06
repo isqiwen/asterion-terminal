@@ -129,21 +129,21 @@ jobs:
       - name: Repeat Market process tests on one CPU
         run: |
           cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
-          taskset -c "$cpu" ctest --preset conan-release --output-on-failure -j 1 --repeat until-fail:5 -R '^(market_recording_process|market_process)$'
+          taskset -c "$cpu" ctest --preset conan-release --output-on-failure -j 1 --repeat until-fail:5 -R '^(market_recording_process|history_process)$'
       - name: Build service installers
         run: |
-          cmake --build build/Release --target asterion_trading_setup asterion_market_setup
+          cmake --build build/Release --target asterion_trading_setup asterion_history_setup
           echo "PRODUCT_VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
       - name: Verify service executables
         run: |
           ./build/Release/asterion_trading --version
           ldd build/Release/asterion_trading
-          ./build/Release/asterion_market --version
-          ldd build/Release/asterion_market
+          ./build/Release/asterion_history --version
+          ldd build/Release/asterion_history
       - name: Offline Trading runtime and strategy limits
         run: python tests/trading/package_test.py build/Release/Asterion-Trading-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
       - name: Market release without a Python runtime
-        run: build/electron-resources/python/bin/python3 tests/market/package_test.py build/Release/Asterion-Market-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
+        run: build/electron-resources/python/bin/python3 tests/history/package_test.py build/Release/Asterion-History-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
       - name: Upload Trading installer
         uses: actions/upload-artifact@v7
         with:
@@ -155,7 +155,7 @@ jobs:
         with:
           archive: false
           if-no-files-found: error
-          path: build/Release/Asterion-Market-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
+          path: build/Release/Asterion-History-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
       - run: pnpm exec playwright install --with-deps chromium
       - name: Trading browser tests
         run: pnpm run test:e2e --grep @trading

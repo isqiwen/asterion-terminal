@@ -5,7 +5,7 @@
 - macOS（Apple Silicon）配 Xcode 26 及以上的 Command Line Tools，或 Linux x86_64 配 GCC 13 及以上。
 - Node.js 22+、pnpm 10、Python 3（安装 `packaging==25.0`）、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
 - clang-format 23.1.1（与 CI 相同；其他版本排版结果不同）。
-- 可选：Docker 或 OrbStack，用于构建 Market 和 Trading 主机的安装脚本。Linux 上当前用户要能不经 `sudo` 运行 `docker`（加入 `docker` 组后重新登录，此前可用 `sg docker -c '<命令>'`）。
+- 可选：Docker 或 OrbStack，用于构建 History 和 Trading 主机的安装脚本。Linux 上当前用户要能不经 `sudo` 运行 `docker`（加入 `docker` 组后重新登录，此前可用 `sg docker -c '<命令>'`）。
 - Linux 桌面需要图形会话。Electron 沙箱需要非特权用户命名空间：Ubuntu 24.04 起要放开 AppArmor 限制（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox`。具体权限取决于系统的 AppArmor 配置。
 
 首次准备：
@@ -28,9 +28,9 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 
 Code Spell Checker 使用根目录的 `cspell.json`；项目名、交易所和供应商缩写放在 `words` 中，生成代码和依赖不做拼写检查。
 
-Market 和 Trading 从启动路径的 `bin/` 上级确定安装目录，配置、库和日志共用这个目录，不接受 `--installation`。Trading 仍用 `--account` 选择账户。
+History 和 Trading 从启动路径的 `bin/` 上级确定安装目录，配置、库和日志共用这个目录，不接受 `--installation`。Trading 仍用 `--account` 选择账户。
 
-Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug installation`，输入已准备的开发安装目录；其中配置、证书和真实供应商库按服务安装规则准备。将该目录的 `bin/asterion_market` 或 `bin/asterion_trading` 链接到本地 Debug 构建产物，程序仍以启动链接所在目录定位配置。不要直接选择 `build/Debug` 中的服务程序运行。
+Linux 本地调试选择 `History: debug installation` 或 `Trading: debug installation`，输入已准备的开发安装目录；其中配置、证书和真实供应商库按服务安装规则准备。将该目录的 `bin/asterion_history` 或 `bin/asterion_trading` 链接到本地 Debug 构建产物，程序仍以启动链接所在目录定位配置。不要直接选择 `build/Debug` 中的服务程序运行。
 
 真实凭据由 systemd 提供，普通 VS Code 启动不会自动获得它们；有真实凭据的服务通过 systemd 启动后，使用 `C++: attach to process` 调试。隔离测试自行准备临时安装目录和测试凭据。
 
@@ -57,7 +57,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 | `pnpm desktop:package-test` | Release 验收安装包；macOS 使用临时签名，不做公证 |
 | `pnpm dev` | 只开发界面：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build --preset conan-debug` | 只重建 C++ |
-| `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `Asterion-Trading-<版本>-linux-x86_64.sh` 和 `Asterion-Market-<版本>-linux-x86_64.sh`，输出到 `build/linux-bundles/` |
+| `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `Asterion-Trading-<版本>-linux-x86_64.sh` 和 `Asterion-History-<版本>-linux-x86_64.sh`，输出到 `build/linux-bundles/` |
 
 - 公共告警设置由 `asterion_target_defaults(target)` 在目标所在目录调用。测试集中登记在 `tests/CMakeLists.txt`。
 - 平台只支持 macOS armv8 和 Linux x86_64。主机程序的基线是 Ubuntu 24.04（glibc 2.39、GCC 13.3）。
@@ -95,9 +95,9 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 - 组件测试用 `src/testing/core.ts` 提供核心通道替身；`@journey` 标记关键端到端场景。
 - 端到端测试只能用 `pnpm run test:e2e`：它用临时根目录、测试凭据和测试 CTP SDK；直接运行 `playwright test` 会操作本机正在使用的服务。首次运行先 `pnpm exec playwright install chromium`；运行前确认 1423 端口空闲。需要 Electron 窗口的测试要有图形会话（无显示器时用 `xvfb-run -a`）。
 - macOS 上 CTest 用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。
-- CI 在两平台使用 Release 构建运行 CTest、浏览器、Electron 和安装包验收；Sanitizer 使用 Debug 检查内存错误和数据竞争，Linux Release 还运行单 CPU Market 重复检查和交易恢复检查，并复用同一构建打包、验收和上传 Market 与 Trading 安装包。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
+- CI 在两平台使用 Release 构建运行 CTest、浏览器、Electron 和安装包验收；Sanitizer 使用 Debug 检查内存错误和数据竞争，Linux Release 还运行单 CPU History 重复检查和交易恢复检查，并复用同一构建打包、验收和上传 History 与 Trading 安装包。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
 - CI Artifacts 直接提供四个安装文件（两个 `.sh`、一个 `.deb`、一个 `.dmg`），以实际文件名显示，下载后无需解压额外的 ZIP。
-- 主机安装包的隔离测试：`python3 tests/market/package_test.py <market 安装包>`、`python3 tests/trading/package_test.py <trading 安装包>`，在断网的 Ubuntu 24.04 容器里安装、升级并运行。
+- 主机安装包的隔离测试：`python3 tests/history/package_test.py <market 安装包>`、`python3 tests/trading/package_test.py <trading 安装包>`，在断网的 Ubuntu 24.04 容器里安装、升级并运行。
 - 真实柜台的验收见 [CTP 仿真验收](acceptance/ctp-simulation.md)。
 
 ## 本机数据目录
@@ -112,10 +112,10 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 | 内置策略的来源（从项目启动） | 项目的 `research/` | 同左 |
 | 内置策略的来源（安装的应用） | `Asterion Terminal.app/Contents/Resources/research/` | `/opt/Asterion Terminal/resources/research/` |
 
-- 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 Market 和 Trading 连接与客户端证书。
+- 每个程序的配置在自己的 `config/`，状态在 `data/`；`terminal/data/` 保存 History 和 Trading 连接与客户端证书。
 - 策略目录固定，不能更换。每次 Lab 启动时，内置的策略和因子复制进去并设为只读：新版本替换它们，不再自带的删掉；同名的用户模块不动。
 - 隔离测试通过 `ASTERION_ROOT` 指定临时目录，同时使用独立的 `--user-data-dir`。
-- 关闭开发窗口或按 Ctrl+C 会停止本机 Lab；Market 和 Trading 不受影响。
+- 关闭开发窗口或按 Ctrl+C 会停止本机 Lab；History 和 Trading 不受影响。
 
 ## 发行
 
@@ -123,7 +123,7 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 
 | 发布包 | 构建 | 安装 |
 | --- | --- | --- |
-| Market：`Asterion-Market-<版本>-linux-x86_64.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"`，见[部署](market/deployment.md) |
+| History：`Asterion-History-<版本>-linux-x86_64.sh` | `scripts/services/build_linux_services.sh` | History 主机上 `sudo bash "Asterion-History-<版本>-linux-x86_64.sh"`，见[部署](history/deployment.md) |
 | Trading：`Asterion-Trading-<版本>-linux-x86_64.sh` | 同上 | Trading 主机上 `sudo bash "Asterion-Trading-<版本>-linux-x86_64.sh"`，见[交易](trading/deployment.md#安装与账户配置) |
 | Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
 

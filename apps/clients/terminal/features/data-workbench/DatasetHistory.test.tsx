@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { Table } from "../../src/generated/asterion/market_pb";
+import { Table } from "../../src/generated/asterion/history_pb";
 import type { TerminalContext } from "../contract";
 import { Coverage } from "./Coverage";
 

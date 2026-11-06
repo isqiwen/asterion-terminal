@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FeedState, type Status } from "../../src/generated/asterion/market_pb";
+import { FeedState, type Status } from "../../src/generated/asterion/history_pb";
 import { useMarket } from "../../src/host/market";
 import {
   ActionError,

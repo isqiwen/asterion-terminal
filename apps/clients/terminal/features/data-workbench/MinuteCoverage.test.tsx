@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test } from "vitest";
-import { DatasetCoverageSchema } from "../../src/generated/asterion/market_pb";
+import { DatasetCoverageSchema } from "../../src/generated/asterion/history_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { feature } from "./feature";

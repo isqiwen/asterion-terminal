@@ -7,7 +7,7 @@ import {
   FeedState,
   StatusSchema,
   type Status,
-} from "../../src/generated/asterion/market_pb";
+} from "../../src/generated/asterion/history_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { useMarket, type MarketView } from "../../src/host/market";
 import { readySnapshot } from "../../src/testing/core";

@@ -1,6 +1,6 @@
 import { create, fromJson, toJson } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
-import { RequestSchema, ResponseSchema, Table } from "../generated/asterion/market_pb";
+import { RequestSchema, ResponseSchema, Table } from "../generated/asterion/history_pb";
 import { BackendError } from "../i18n/errors";
 import { marketData } from "./market-data";
 

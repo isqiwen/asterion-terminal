@@ -17,7 +17,7 @@
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" --max-warnings 0",
     "test:desktop": "python3 tests/support/e2e.py sh -c \"node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs && node tests/desktop/electron_crash.cjs\"",
     "prepare:python": "python3 scripts/desktop/python_runtime.py",
-    "generate:protocol": "buf generate protocol/proto --template protocol/buf.gen.yaml --path protocol/proto/asterion/lab.proto --path protocol/proto/asterion/market.proto --path protocol/proto/asterion/trading.proto --include-imports"
+    "generate:protocol": "buf generate protocol/proto --template protocol/buf.gen.yaml --path protocol/proto/asterion/lab.proto --path protocol/proto/asterion/history.proto --path protocol/proto/asterion/trading.proto --include-imports"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",

@@ -4,12 +4,12 @@
 
 ## 服务边界
 
-Lab 是本机研究服务，由 Terminal 启动和看护。它拥有研究记录与可删除的数据缓存；Market 拥有正式数据版本，Trading 拥有账户与实盘策略。理由：研究计算和数据准备不参与交易执行。
+Lab 是本机研究服务，由 Terminal 启动和看护。它拥有研究记录与可删除的数据缓存；History 拥有正式数据版本，Trading 拥有账户与实盘策略。理由：研究计算和数据准备不参与交易执行。
 
 ```mermaid
 flowchart LR
     terminal[Terminal 页面] -->|Protobuf 请求| service[Lab Service]
-    service -->|固定版本| market[远程 Market]
+    service -->|固定版本| market[远程 History]
     market --> cache[本机 Parquet 缓存]
     source[research 策略目录] -->|接纳时复制| snapshot[源码副本]
     service -->|启动与取消| child[研究子进程]
@@ -43,7 +43,7 @@ classDiagram
         succeed()
         interrupt()
     }
-    class Market {
+    class History {
         selected()
     }
     class Dataset {
@@ -62,15 +62,15 @@ classDiagram
         read()
     }
     Service *-- Runs
-    Service --> Market
+    Service --> History
     Service ..> Dataset
     Dataset --|> ParquetTables
-    Dataset --> Market
+    Dataset --> History
     Dataset ..> Client
     Dataset ..> Version
 ```
 
-`Market` 在这里是远程连接配置的读取器；`Dataset` 是研究数据集客户端，`Version` 描述固定版本的分区清单。它们都不是 Market 服务端的仓库写入器。
+`History` 在这里是远程连接配置的读取器；`Dataset` 是研究数据集客户端，`Version` 描述固定版本的分区清单。它们都不是 History 服务端的仓库写入器。
 
 ## 回测通信时序
 
@@ -78,18 +78,18 @@ classDiagram
 sequenceDiagram
     participant UI as Terminal
     participant Service
-    participant Market as Market 服务
+    participant History as History 服务
     participant Child as 回测子进程
     participant Runs
     UI->>Service: start_backtest
     Service->>Service: 校验设置与运行 ID
-    Service->>Market: get_dataset_version
-    Market-->>Service: 固定版本与分区清单
+    Service->>History: get_dataset_version
+    History-->>Service: 固定版本与分区清单
     Service->>Service: 复制源码，形成 AdmittedRun
     Service->>Child: 启动并传入已接纳请求
     Child->>Runs: 记录运行开始
     Service-->>UI: start_backtest 成功
-    Child->>Market: 按固定版本下载缺少的分区
+    Child->>History: 按固定版本下载缺少的分区
     Child->>Child: 回放、计算与生成结果
     Child->>Runs: 写入结果表和完成状态
     UI->>Service: list_runs / get_run
@@ -105,12 +105,12 @@ sequenceDiagram
 
 | 情况 | 行为 |
 | --- | --- |
-| 未配置 Market | 需要数据的请求失败；已有研究记录可继续查看 |
+| 未配置 History | 需要数据的请求失败；已有研究记录可继续查看 |
 | 分区下载失败 | 本次读取失败，未完成的临时文件清理；完成的缓存保留 |
 | 研究子进程失败 | 记录失败或中断及诊断，Lab 继续接收其他请求 |
 | 取消扫描 | 取消等待项并终止运行中的候选和滚动验证 |
 | Lab 重启 | 先将遗留的运行中记录标为中断，不自动重跑 |
-| Terminal 退出 | Lab 随拥有者退出；Market 与 Trading 继续运行 |
+| Terminal 退出 | Lab 随拥有者退出；History 与 Trading 继续运行 |
 
 ## 代码阅读路线
 

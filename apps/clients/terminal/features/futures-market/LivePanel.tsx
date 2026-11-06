@@ -1,6 +1,6 @@
 import { MarketBoard } from "./MarketBoard";
 import { MarketUnavailable } from "./MarketUnavailable";
-import { CatalogState, FeedState } from "../../src/generated/asterion/market_pb";
+import { CatalogState, FeedState } from "../../src/generated/asterion/history_pb";
 import { useMarket } from "../../src/host/market";
 import { useState } from "react";
 import {

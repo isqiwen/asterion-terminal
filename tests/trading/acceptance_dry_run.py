@@ -6,18 +6,18 @@ import subprocess
 import sys
 import tempfile
 sys.path.insert(0,str(Path(__file__).parents[1]/'support'))
-from market_installation import market_host
-import market_tls
+from history_installation import history_host
+import history_tls
 build=Path(sys.argv[1]).resolve()
 script=Path(__file__).parents[1]/'acceptance/ctp_market.py'
 with tempfile.TemporaryDirectory(prefix='ast-market-acceptance-test-') as folder:
-    with market_host(build,Path(folder)/'market') as port:
+    with history_host(build,Path(folder)/'market') as port:
         tls = Path(folder) / 'market/config/tls'
-        market_tls.install_client(tls, Path(folder) / 'client')
+        history_tls.install_client(tls, Path(folder) / 'client')
         for symbol, success in [('rb2610',True),('rb2999',False)]:
             report=Path(folder)/(symbol+'.json')
             result=subprocess.run([sys.executable,str(script),'--build',str(build),'--host','127.0.0.1',
-                '--port',str(port),'--fingerprint',market_tls.fingerprint(tls),
+                '--port',str(port),'--fingerprint',history_tls.fingerprint(tls),
                 '--client-identity',str(Path(folder)/'client/terminal/data/tls'),'--instrument','SHFE:'+symbol,'--timeout','4','--report',str(report)],
                 capture_output=True,text=True,timeout=30)
             assert result.returncode==(0 if success else 1),result.stdout+result.stderr

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Table, type TableRows } from "../../src/generated/asterion/market_pb";
+import { Table, type TableRows } from "../../src/generated/asterion/history_pb";
 import {
   ErrorNotice,
   asDisplayError,

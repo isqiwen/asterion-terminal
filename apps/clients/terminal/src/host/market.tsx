@@ -6,7 +6,7 @@ import {
   type Board,
   type QuoteFrame,
   type QuoteRow,
-} from "../generated/asterion/market_pb";
+} from "../generated/asterion/history_pb";
 import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since

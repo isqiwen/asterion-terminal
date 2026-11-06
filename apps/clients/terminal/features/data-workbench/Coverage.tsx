@@ -1,4 +1,4 @@
-import { Table, TaskState } from "../../src/generated/asterion/market_pb";
+import { Table, TaskState } from "../../src/generated/asterion/history_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContractPicker } from "./ContractPicker";
 import { DatasetHistory, changeText } from "./DatasetHistory";

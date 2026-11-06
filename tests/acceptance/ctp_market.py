@@ -31,7 +31,7 @@ report = {'host':args.host,'port':args.port,'instruments':args.instrument,'passe
 def step(name, ok, detail=''):
     report['steps'].append({'step':name,'ok':ok,'detail':detail})
     print(('ok: ' if ok else 'FAIL: ')+name+' '+detail)
-with tempfile.TemporaryDirectory(prefix='asterion-market-acceptance-') as root:
+with tempfile.TemporaryDirectory(prefix='asterion-history-acceptance-') as root:
     target = Path(root) / 'terminal/data/tls'
     target.mkdir(parents=True, mode=0o700)
     for name in ('client.crt', 'client.key'):

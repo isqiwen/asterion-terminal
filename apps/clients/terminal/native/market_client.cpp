@@ -1,5 +1,5 @@
 #include "market_client.hpp"
-#include <asterion/market.pb.h>
+#include <asterion/history.pb.h>
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/system/ipc/rpc_client.hpp>
@@ -9,7 +9,7 @@
 #include <deque>
 
 namespace asterion::terminal {
-namespace wire = ::market;
+namespace wire = ::history;
 using namespace std::chrono_literals;
 
 namespace {

@@ -11,10 +11,10 @@ export type {
   DatasetCoverage as MarketCoverage,
   DatasetChange as MarketChange,
   MinuteBar,
-} from "../src/generated/asterion/market_pb";
+} from "../src/generated/asterion/history_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export { protocolPeriod, type ChartPeriod } from "../src/ui/periods";
-export type { DatasetSummary as LabSummary } from "../src/generated/asterion/market_pb";
+export type { DatasetSummary as LabSummary } from "../src/generated/asterion/history_pb";
 export type {
   RunDetail as LabRunDetail,
   RunReport as LabRunReport,

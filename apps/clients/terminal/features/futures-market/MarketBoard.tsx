@@ -5,7 +5,7 @@ import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/history_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
   contractName,

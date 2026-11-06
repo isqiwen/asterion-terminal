@@ -1,0 +1,413 @@
+syntax = "proto3";
+package history;
+import "asterion/common.proto";
+
+// Market: live quotes, historical acquisition and the warehouse.
+
+message Request {
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_status = 10;
+    StreamQuotes stream_quotes = 11;
+    common.Instrument get_minutes = 12;
+    common.Empty get_board = 13;
+
+    GetDatasetVersion get_dataset_version = 21;
+    ReadDatasetFile read_dataset_file = 22;
+    DatasetRef get_dataset_summary = 23;
+    DatasetRef get_dataset_coverage = 24;
+    ListDatasetVersions list_dataset_versions = 27;
+    CompareDatasetVersions compare_dataset_versions = 28;
+    GetTableRows get_table_rows = 29;
+
+    common.Empty get_acquisition_options = 30;
+    StartAcquisition start_acquisition = 31;
+    TaskId get_acquisition_task = 32;
+    ListAcquisitionTasks list_acquisition_tasks = 33;
+    TaskId cancel_acquisition = 34;
+  }
+}
+
+message Response {
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Status get_status = 10;
+    QuoteFrame stream_quotes = 11;
+    Minutes get_minutes = 12;
+    Board get_board = 13;
+
+    DatasetVersion get_dataset_version = 21;
+    DatasetFile read_dataset_file = 22;
+    DatasetSummary get_dataset_summary = 23;
+    DatasetCoverage get_dataset_coverage = 24;
+    DatasetVersions list_dataset_versions = 27;
+    DatasetChange compare_dataset_versions = 28;
+    TableRows get_table_rows = 29;
+
+    AcquisitionOptions get_acquisition_options = 30;
+    AcquisitionTask start_acquisition = 31;
+    AcquisitionTask get_acquisition_task = 32;
+    AcquisitionTasks list_acquisition_tasks = 33;
+    AcquisitionTask cancel_acquisition = 34;
+  }
+}
+
+// ---- Status
+
+message Status {
+  string version = 1;
+  int64 started_ms = 2;
+  Feed feed = 3;
+  CatalogStatus catalog = 4;
+  uint32 subscribed = 5;
+  optional int64 last_quote_ms = 6;
+  uint64 out_of_order_quotes = 7;
+  uint64 disk_free_bytes = 8;
+  // Listed contracts the provider refused to subscribe; retried every few minutes.
+  uint32 failed_subscriptions = 9;
+}
+
+enum FeedState {
+  FEED_STATE_UNSPECIFIED = 0;
+  FEED_STATE_NO_SDK = 1;
+  FEED_STATE_DISCONNECTED = 2;
+  FEED_STATE_CONNECTING = 3;
+  FEED_STATE_LOGGING_IN = 4;
+  FEED_STATE_CONNECTED = 5;
+  FEED_STATE_RECONNECTING = 6;
+  FEED_STATE_FAILED = 7;
+}
+
+message Feed {
+  FeedState state = 1;
+  int32 ctp_error = 2;
+}
+
+enum CatalogState {
+  CATALOG_STATE_UNSPECIFIED = 0;
+  CATALOG_STATE_NONE = 1;
+  CATALOG_STATE_LOADING = 2;
+  CATALOG_STATE_CACHED = 3;
+  CATALOG_STATE_READY = 4;
+  CATALOG_STATE_FAILED = 5;
+}
+
+message CatalogStatus {
+  CatalogState state = 1;
+  string trading_day = 2;
+  string error = 3;
+}
+
+// ---- Live quotes
+
+// No instruments streams every contract.
+message StreamQuotes {
+  repeated common.Instrument instruments = 1;
+}
+
+// The first frame is full; a later frame is full again or holds changes.
+message QuoteFrame {
+  oneof frame {
+    Board full = 1;
+    Board changed = 2;
+  }
+}
+
+// In a changed frame, rows replace the rows of the same instrument and a
+// catalog, when present, replaces the catalog.
+message Board {
+  Feed feed = 1;
+  repeated QuoteRow rows = 2;
+  Catalog catalog = 3;
+}
+
+enum Subscription {
+  SUBSCRIPTION_UNSPECIFIED = 0;
+  SUBSCRIPTION_PENDING = 1;
+  SUBSCRIPTION_ACTIVE = 2;
+  SUBSCRIPTION_FAILED = 3;
+}
+
+message QuoteRow {
+  common.Instrument instrument = 1;
+  Subscription subscription = 2;
+  int32 ctp_error = 3;
+  Quote quote = 4;
+  common.Decimal change_1m_percent = 5;
+}
+
+message Quote {
+  common.Decimal last = 1;
+  common.Decimal open = 2;
+  common.Decimal high = 3;
+  common.Decimal low = 4;
+  common.Decimal average_price = 5;
+  common.Decimal previous_close = 6;
+  common.Decimal previous_settlement = 7;
+  common.Decimal upper_limit = 8;
+  common.Decimal lower_limit = 9;
+  int64 volume = 10;
+  common.Decimal open_interest = 11;
+  common.Decimal open_interest_change = 12;
+  // Five levels, best first; a level nobody quotes has no price.
+  repeated Level bids = 13;
+  repeated Level asks = 14;
+  string trading_day = 15;
+  optional int64 exchange_ms = 16;
+  int64 received_ms = 17;
+}
+
+message Level {
+  common.Decimal price = 1;
+  optional int64 lots = 2;
+}
+
+message Catalog {
+  CatalogStatus status = 1;
+  repeated CatalogContract contracts = 2;
+}
+
+message CatalogContract {
+  common.Instrument instrument = 1;
+  string contract = 2;
+  string product = 3;
+  string name = 4;
+  string expiry_day = 5;
+  int32 multiplier = 6;
+  common.Decimal price_tick = 7;
+}
+
+// ---- Minutes
+
+message Minutes {
+  common.Instrument instrument = 1;
+  string trading_day = 2;
+  common.Decimal previous_settlement = 3;
+  optional int64 observed_from_ms = 4;
+  bool interrupted = 5;
+  repeated MinuteBar bars = 6;
+}
+
+message MinuteBar {
+  int64 start_ms = 1;
+  common.Decimal open = 2;
+  common.Decimal high = 3;
+  common.Decimal low = 4;
+  common.Decimal close = 5;
+  int64 volume = 6;
+  common.Decimal average_price = 7;
+  common.Decimal open_interest = 8;
+  bool partial = 9;
+}
+
+// ---- Datasets
+
+enum Table {
+  TABLE_UNSPECIFIED = 0;
+  TABLE_CALENDAR = 1;
+  TABLE_CONTRACTS = 2;
+  TABLE_DAILY = 3;
+  TABLE_MINUTES = 4;
+  TABLE_SETTLEMENT = 5;
+  TABLE_PRICE_TICKS = 6;
+}
+
+// An empty version names the current one.
+message DatasetRef {
+  string version = 1;
+}
+
+message Dataset {
+  string version = 1;
+  int64 created_ms = 2;
+}
+
+message GetDatasetVersion {
+  DatasetRef dataset = 1;
+  Table table = 2;
+  string exchange = 3;
+  string after_key = 4;
+}
+
+message DatasetVersion {
+  Dataset dataset = 1;
+  string parent = 2;
+  repeated Partition partitions = 3;
+  string next_key = 4;
+}
+
+message Partition {
+  string key = 1;
+  Table table = 2;
+  string sha256 = 3;
+  uint64 rows = 4;
+  repeated string days = 5;
+  // Where it came from, for tracing only.
+  string taken_from = 6;
+}
+
+message ReadDatasetFile {
+  DatasetRef dataset = 1;
+  string key = 2;
+  uint64 offset = 3;
+}
+
+message DatasetFile {
+  string sha256 = 1;
+  uint64 size = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+}
+
+message DatasetSummary {
+  Dataset dataset = 1;
+  repeated TableSummary tables = 2;
+}
+
+message TableSummary {
+  Table table = 1;
+  uint64 partitions = 2;
+  uint64 rows = 3;
+  string first_day = 4;
+  string last_day = 5;
+}
+
+// Versions, newest first: from the current one, or after `after_version` when paging.
+message ListDatasetVersions {
+  string after_version = 1;
+}
+
+message DatasetVersions {
+  // Each compared with its parent.
+  repeated DatasetChange versions = 1;
+  // Empty on the last page.
+  string next_version = 2;
+}
+
+message CompareDatasetVersions {
+  string version = 1;
+  string base = 2;
+}
+
+// The partitions `dataset` adds to `base`, replaces in it and removes from it.
+message DatasetChange {
+  Dataset dataset = 1;
+  // Empty for a source's first version.
+  string base = 2;
+  uint32 added = 3;
+  uint32 replaced = 4;
+  uint32 removed = 5;
+}
+
+// A page of a reference table of one exchange, limited to the days given;
+// price tick rules are selected by overlap with their effective interval.
+message GetTableRows {
+  DatasetRef dataset = 1;
+  Table table = 2;
+  string exchange = 3;
+  string first_day = 4;
+  string last_day = 5;
+  uint32 offset = 6;
+}
+
+message TableRows {
+  repeated string columns = 1;
+  // At most 100, as text; an absent value is empty.
+  repeated TableRow rows = 2;
+  uint32 total = 3;
+}
+
+message TableRow {
+  repeated string values = 1;
+}
+
+message DatasetCoverage {
+  // Daily bars.
+  repeated ProductCoverage products = 1;
+  // Minute bars, from the version's partition list.
+  repeated ContractCoverage contracts = 2;
+}
+
+message ProductCoverage {
+  string product = 1;
+  repeated MonthCoverage months = 2;
+}
+
+message MonthCoverage {
+  string month = 1;
+  uint32 days = 2;
+  uint32 open_days = 3;
+}
+
+message ContractCoverage {
+  // EXCHANGE/product/YYYY-MM
+  string contract = 1;
+  repeated MinuteMonth months = 2;
+}
+
+// Trading days with minutes in one month.
+message MinuteMonth {
+  string month = 1;
+  uint32 days = 2;
+}
+
+// ---- Acquisition
+
+// What this client may ask Market to acquire.
+message AcquisitionOptions {
+  bool can_manage = 1;
+  repeated Table tables = 2;
+  repeated string exchanges = 3;
+}
+
+// The client chooses the id. Market takes what it lacks from its sources in order
+// of priority. No exchanges means all of them. Minutes name their contracts.
+message StartAcquisition {
+  string id = 1;
+  Table table = 2;
+  string first_day = 3;
+  string last_day = 4;
+  repeated string exchanges = 5;
+  // Minutes only: EXCHANGE/product/YYYY-MM each.
+  repeated string contracts = 6;
+  bool refetch = 7;
+}
+
+message TaskId {
+  string id = 1;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_QUEUED = 1;
+  TASK_STATE_RUNNING = 2;
+  TASK_STATE_SUCCEEDED = 3;
+  TASK_STATE_FAILED = 4;
+  TASK_STATE_CANCELLED = 5;
+  TASK_STATE_INTERRUPTED = 6;
+}
+
+// Items are exchange-days, or contract-days for minutes.
+message AcquisitionTask {
+  StartAcquisition request = 1;
+  TaskState state = 2;
+  uint64 items = 3;
+  uint64 items_done = 4;
+  uint64 items_empty = 5;
+  uint64 requests_sent = 6;
+  common.Error error = 7;
+  int64 started_ms = 8;
+  optional int64 finished_ms = 9;
+}
+
+// Newest first; 20 a page.
+message ListAcquisitionTasks {
+  string after_id = 1;
+}
+
+message AcquisitionTasks {
+  repeated AcquisitionTask tasks = 1;
+  // Empty on the last page.
+  string next_id = 2;
+}

@@ -2,7 +2,7 @@
 #include <asterion/system/durable_file.hpp>
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
-#include "support/market_host.hpp"
+#include "support/history_host.hpp"
 #include <fstream>
 #include <asterion/system/environment.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -580,12 +580,12 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     testing_support::MarketHost host(root);
     terminal::Application app;
     const auto identity = app.dispatch(request("runtime.snapshot"));
-    std::ifstream input(root / "config/market.json");
+    std::ifstream input(root / "config/history.json");
     auto config = Json::parse(input);
     config["clients"].push_back(
         {{"fingerprint", identity.at("client_fingerprint")}, {"role", "read"}});
     config["acquisition"]["exchanges"] = {"SHFE", "GFEX"};
-    replace_file_durably(root / "config/market.json", config.dump());
+    replace_file_durably(root / "config/history.json", config.dump());
     host.start();
     {
         auto ready = host.open();

@@ -9,7 +9,7 @@ import {
   QuoteRowSchema,
   Subscription,
   type Minutes,
-} from "../../src/generated/asterion/market_pb";
+} from "../../src/generated/asterion/history_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import type { MarketView } from "../../src/host/market";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";

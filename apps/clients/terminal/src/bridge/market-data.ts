@@ -8,7 +8,7 @@ import {
   type JsonValue,
   type MessageInitShape,
 } from "@bufbuild/protobuf";
-import { RequestSchema, ResponseSchema, type Response } from "../generated/asterion/market_pb";
+import { RequestSchema, ResponseSchema, type Response } from "../generated/asterion/history_pb";
 import { BackendError } from "../i18n/errors";
 import { call } from "./client";
 

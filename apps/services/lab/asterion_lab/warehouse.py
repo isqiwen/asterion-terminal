@@ -1,6 +1,6 @@
 """Typed research views of immutable cached Parquet partitions.
 
-Market owns publication. This module contains no acquisition or warehouse writer.
+History owns publication. This module contains no acquisition or warehouse writer.
 """
 from dataclasses import dataclass
 import json

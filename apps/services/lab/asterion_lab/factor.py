@@ -33,7 +33,7 @@ import polars as pl
 
 from asterion_lab import repository
 from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw, rolls
-from asterion_lab.market import Dataset
+from asterion_lab.history import Dataset
 from asterion_strategy import FIELDS, KINDS, Context, observe
 
 MINIMUM = 3  # symbols a day's IC needs

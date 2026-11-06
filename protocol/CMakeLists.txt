@@ -3,7 +3,7 @@ set(ASTERION_PROTO_GEN ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${ASTERION_PROTO_GEN})
 set(ASTERION_PROTO_SOURCES)
 file(GLOB ASTERION_PROTO_FILES CONFIGURE_DEPENDS ${ASTERION_PROTO_ROOT}/asterion/*.proto)
-foreach(schema common trading market lab strategy)
+foreach(schema common trading history lab strategy)
   add_custom_command(
     OUTPUT ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.cc ${ASTERION_PROTO_GEN}/asterion/${schema}.pb.h
     COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --cpp_out=${ASTERION_PROTO_GEN} ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto
@@ -12,7 +12,7 @@ foreach(schema common trading market lab strategy)
 endforeach()
 # Python IPC bindings use the same locked protoc as the C++ transport.
 set(ASTERION_PYTHON_PROTOCOL)
-foreach(schema common lab market strategy trading)
+foreach(schema common lab history strategy trading)
   set(output "${CMAKE_BINARY_DIR}/generated-python/asterion/${schema}_pb2.py")
   add_custom_command(OUTPUT ${output}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated-python"
@@ -26,7 +26,7 @@ add_library(asterion_protocol STATIC
   ${ASTERION_PROTO_SOURCES}
   src/trading.cpp
   src/common.cpp
-  src/market.cpp
+  src/history.cpp
 )
 target_include_directories(asterion_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Futures protobuf::libprotobuf)

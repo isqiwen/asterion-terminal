@@ -1,4 +1,4 @@
-import type { QuoteRow } from "../../src/generated/asterion/market_pb";
+import type { QuoteRow } from "../../src/generated/asterion/history_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 
 // This is a view of real month contracts, not a provider's continuous series.

@@ -1,4 +1,4 @@
-import { CatalogState } from "../../src/generated/asterion/market_pb";
+import { CatalogState } from "../../src/generated/asterion/history_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";

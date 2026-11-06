@@ -38,7 +38,7 @@ def frame(table: str, rows: list) -> pl.DataFrame:
 
 class Dataset(ParquetTables):
     """Read the test writer's local publication, not a production fallback.
-    `directory` is Market's data directory; research reads provider "research"."""
+    `directory` is History's data directory; research reads provider "research"."""
     def __init__(self, directory, provider="research"):
         self.directory, self.provider = Path(directory), provider
         source = self.directory if provider == "tushare" else self.directory / "sources" / provider
@@ -112,7 +112,7 @@ class Writer:
     def commit(self) -> Version:
         if self.partitions == self.base.manifest["partitions"]:
             return self.base
-        # Market's layout: partitions in shards of one table, exchange and month.
+        # History's layout: partitions in shards of one table, exchange and month.
         shards = {}
         for key, entry in self.partitions.items():
             table, exchange, *rest = key.split("/")
@@ -137,7 +137,7 @@ class Writer:
 
 
 def cache_version(lab, store, provider, version):
-    """The version as Lab in `lab` would have cached it from Market."""
+    """The version as Lab in `lab` would have cached it from History."""
     target = lab / "market-cache" / provider
     parts = {}
     for key, part in version.manifest["partitions"].items():

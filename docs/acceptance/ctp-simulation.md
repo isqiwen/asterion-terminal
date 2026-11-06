@@ -5,10 +5,10 @@
 ## 准备
 
 - 使用当前 macOS 或 Linux Terminal 安装包及独立 Linux 服务包，记录 Git 提交、安装包 SHA-256、操作系统版本、CTP SDK 版本、运行时间和交易日。
-- 只在对应 Market/Trading 主机的安装脚本中输入密码和授权码，不写进报告、截图、终端命令或源码。报告中的账户、前置地址和委托编号脱敏。
+- 只在对应 History/Trading 主机的安装脚本中输入密码和授权码，不写进报告、截图、终端命令或源码。报告中的账户、前置地址和委托编号脱敏。
 - 创建一个命名的专用测试账户，系统自动管理记录目录；保留全部原有账户。选定可交易的实际月份合约；核对最小变动价位、乘数、价格限制和一手风险限额。
 - 在交易主机配置明确标记为仿真的账户，Terminal 只读取该身份；核对账号及前置地址，系统无法自动验证资金性质。
-- 可先运行 `python3 tests/acceptance/ctp_market.py --help`，按参数提供已登记的客户端证书目录和 Market 服务证书指纹，连接只读行情；该工具使用隔离 Terminal 连接已有 Market，不收取密码、不报单。工具成功不能代替下列交易验收。
+- 可先运行 `python3 tests/acceptance/ctp_market.py --help`，按参数提供已登记的客户端证书目录和 History 服务证书指纹，连接只读行情；该工具使用隔离 Terminal 连接已有 History，不收取密码、不报单。工具成功不能代替下列交易验收。
 - 交易的自动验收见下文“自动验收脚本”。它会向你指定的柜台发送真实委托，只能用于仿真环境。
 
 ## 首次配置
@@ -16,15 +16,15 @@
 先在交易主机安装交易服务并登记连接，再完成 CTP 连接。
 
 1. 从仿真服务提供商取得同一环境的行情前置、交易前置、经纪商代码、投资者账号、AppID、密码和授权码。地址和可交易时段以提供商为准。
-2. 在 Market 主机安装 `Asterion-Market-<版本>-linux-x86_64.sh`，输入行情所需配置与凭据。在 Trading 主机独立配置专用仿真账户与凭据，登记 Terminal 证书指纹。
-3. Terminal 的 **设置 → 数据源 → Market 行情服务** 保存 Market 地址，连接后读取目录。在 **设置 → 交易连接** 保存 Trading 地址和服务证书指纹，选择账户。
+2. 在 History 主机安装 `Asterion-History-<版本>-linux-x86_64.sh`，输入行情所需配置与凭据。在 Trading 主机独立配置专用仿真账户与凭据，登记 Terminal 证书指纹。
+3. Terminal 的 **设置 → 数据源 → History 行情服务** 保存 History 地址，连接后读取目录。在 **设置 → 交易连接** 保存 Trading 地址和服务证书指纹，选择账户。
 4. 从目录选取待验收的实际月份合约，设置单笔数量、总持仓、在途委托上限和价格偏离比例，核对摘要后创建账户政策。凭据不进入桌面表单。
 5. 等待 **已就绪**，核对资金、持仓和账户费率。保持未授权，完成核对后确认账户并点击 **允许发送委托**，按下表验收。
 
-Market 与 Trading 由 systemd 独立启动。关闭 Terminal 或客户端连接不会停止服务，也不会自动撤权、撤单或平仓。
-重连读取原服务状态；Trading 重启后须重新授权。主机安装见[Market](../market/deployment.md)与[Trading](../trading/deployment.md)。
+History 与 Trading 由 systemd 独立启动。关闭 Terminal 或客户端连接不会停止服务，也不会自动撤权、撤单或平仓。
+重连读取原服务状态；Trading 重启后须重新授权。主机安装见[History](../history/deployment.md)与[Trading](../trading/deployment.md)。
 
-只读行情脚本要求全部合约收到报价，关闭并重新连接后服务实例仍相同，随后清理隔离 Terminal；不停止 Market。
+只读行情脚本要求全部合约收到报价，关闭并重新连接后服务实例仍相同，随后清理隔离 Terminal；不停止 History。
 报告含服务地址，分享前须脱敏，不包含柜台密码。
 
 ## 顺序与通过条件
@@ -46,7 +46,7 @@ Market 与 Trading 由 systemd 独立启动。关闭 Terminal 或客户端连接
 
 ## 自动验收脚本
 
-`tests/acceptance/ctp_trading.py` 用隔离 Terminal 连接已部署的 Market 与专用 Trading 仿真账户。
+`tests/acceptance/ctp_trading.py` 用隔离 Terminal 连接已部署的 History 与专用 Trading 仿真账户。
 它复制指定 Terminal 的 TLS 身份与连接引用，不创建第二个 Trading 进程；凭据仍留在服务主机。
 脚本会实际报单，必须显式提供 `--simulation`，并核对账户的环境、前置、经纪商和投资者身份。
 

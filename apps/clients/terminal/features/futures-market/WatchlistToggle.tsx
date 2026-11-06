@@ -1,4 +1,4 @@
-import { FeedState } from "../../src/generated/asterion/market_pb";
+import { FeedState } from "../../src/generated/asterion/history_pb";
 import type { MarketView } from "../../src/host/market";
 import { ActionError, translate, useActionError, type TerminalContext } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);

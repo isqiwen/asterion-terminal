@@ -19,7 +19,7 @@ from asterion.lab_pb2 import Request
 
 from asterion_lab.log import ProcessLog
 from asterion_lab.service import MODULE, Service
-from asterion_lab.market import Market
+from asterion_lab.history import History
 from asterion_lab.version import VERSION, COMMIT
 
 MAX_REQUEST = 1024 * 1024
@@ -97,7 +97,7 @@ def main():
             raise ValueError("invalid owner process")
         if not directory.is_absolute() or not directory.is_dir():
             raise ValueError(f"service directory is missing: {directory}")
-        service = Service(arguments.session, directory, log, Market(Path(arguments.terminal_data)))
+        service = Service(arguments.session, directory, log, History(Path(arguments.terminal_data)))
         # Not asyncio.run: its teardown waits for worker threads, and a thread
         # blocked on a vendor or a peer would keep this process alive after its
         # owner is gone. Completed cache files and research results stay.

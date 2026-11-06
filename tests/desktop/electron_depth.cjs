@@ -42,7 +42,7 @@ const { createInterface } = require("node:readline");
     market = spawn(
       "python3",
       [
-        "tests/support/market_installation.py",
+        "tests/support/history_installation.py",
         path.resolve(process.env.ASTERION_CPP_BUILD || "build/Release"),
         path.join(temp, "market"),
       ],

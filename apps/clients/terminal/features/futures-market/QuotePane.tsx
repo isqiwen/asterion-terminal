@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/terminal/charts/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { Minutes, QuoteRow } from "../../src/generated/asterion/market_pb";
+import type { Minutes, QuoteRow } from "../../src/generated/asterion/history_pb";
 import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,

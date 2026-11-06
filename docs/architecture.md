@@ -4,9 +4,9 @@
 
 ```mermaid
 flowchart TB
-  Providers[CTP 行情与历史数据提供方] --> Market[远程 Market：单个 C++ 进程，实时流、采集、历史仓库]
-  Market --> Terminal[Terminal：看盘、研究操作、发布、监控]
-  Market --> Lab[本机 Lab：回测、因子、研究结果]
+  Providers[CTP 行情与历史数据提供方] --> History[远程 History：单个 C++ 进程，实时流、采集、历史仓库]
+  History --> Terminal[Terminal：看盘、研究操作、发布、监控]
+  History --> Lab[本机 Lab：回测、因子、研究结果]
   Terminal -.启动和看护.-> Lab
   Lab --> Package[策略代码包]
   Package --> Terminal
@@ -18,11 +18,11 @@ flowchart TB
 
 | 组件 | 拥有 | 说明 |
 | --- | --- | --- |
-| **Market** | 行情连接、合约目录和每日快照、正式仓库、采集任务 | Linux 上一个 C++ 进程，systemd 看护。多个客户端共享同一份数据；一个客户端的订阅、断开或退出不影响其他客户端，也不影响采集 |
-| **Lab** | 研究记录、数据缓存 | Terminal 启动的本机 Python 服务，只读 Market 的固定版本；回测、扫描、因子和报表在子进程中运行 |
-| **Trading** | 授权、风控、交易记录、柜台连接、策略实例 | 每个账户一个 Linux C++ 进程，自己连接柜台的行情和交易前置，不依赖 Terminal、Lab 或 Market 在线 |
+| **History** | 行情连接、合约目录和每日快照、正式仓库、采集任务 | Linux 上一个 C++ 进程，systemd 看护。多个客户端共享同一份数据；一个客户端的订阅、断开或退出不影响其他客户端，也不影响采集 |
+| **Lab** | 研究记录、数据缓存 | Terminal 启动的本机 Python 服务，只读 History 的固定版本；回测、扫描、因子和报表在子进程中运行 |
+| **Trading** | 授权、风控、交易记录、柜台连接、策略实例 | 每个账户一个 Linux C++ 进程，自己连接柜台的行情和交易前置，不依赖 Terminal、Lab 或 History 在线 |
 | **策略子进程** | 策略对象和它的状态 | Trading 管理，每个实例一个；没有凭据，不能下单，只把目标交给账户 |
-| **Terminal** | 界面偏好、连接设置、客户端证书 | Electron + React + C++ 原生层；只启动 Lab，直连 Market 和 Trading |
+| **Terminal** | 界面偏好、连接设置、客户端证书 | Electron + React + C++ 原生层；只启动 Lab，直连 History 和 Trading |
 
 设计决策：
 
@@ -30,7 +30,7 @@ flowchart TB
 - **策略只用 Trading 自己收到的行情**：实例使用启动后自行聚合的 K 线预热；结束后可以用自己的记录热重启，但不读其他来源的历史数据。
 - **安全由 C++ 账户保证**：策略只输出目标，授权、风控、先记录后发送都在 Trading 的同一条下单路径上，见[交易规则](safety.md)。
 - **账户执行归属**：Trading 在指定安装目录内用经纪商代码和投资者账号取得独占锁并绑定原交易记录，避免配置别名分裂风控账本，见[部署与运行](trading/deployment.md#安装与账户配置)。
-- **Market 是一个进程**：内部按实时行情、入库、合成、读取单向组织，见 [Market 架构](market/architecture.md#服务边界与数据流)。进程崩溃会同时中断这些模块，由 systemd 重启；Trading 的行情和执行不受影响。
+- **History 是一个进程**：内部按实时行情、入库、合成、读取单向组织，见 [History 架构](history/architecture.md#服务边界与数据流)。进程崩溃会同时中断这些模块，由 systemd 重启；Trading 的行情和执行不受影响。
 - **研究可复现**：研究被接纳时固定数据版本和策略代码副本，见 [Lab](lab/README.md)。
 - **凭据只在服务主机**：柜台密码、授权码和数据源 token 以 systemd 加密凭据保存；Terminal 只保存地址、证书指纹和自己的客户端证书。
 
@@ -58,12 +58,12 @@ flowchart TB
 | `apps/clients/terminal/features/` | 行情、研究、交易、数据页面 |
 
 - 原生层定时汇总服务状态，发布带修订号的快照；界面按修订号读取，没变化时不返回内容。
-- 页面用 `pnpm generate:protocol` 生成的 TS 类型直接组装和读取消息。Lab 由 Electron 主进程转发字节；Market 和 Trading 由原生层按保存的连接原样转发（`market.call`、`trading.call`），TLS 私钥不离开原生层。
-- 实时行情：原生层为页面保持一条 Market `stream_quotes` 流，把帧按顺序排队；页面定期取走新帧（`market.watch`），自己维护报价表（首帧完整，之后只有变化的行）。页面没有完整的首帧时要求重开一条流。理由：桌面和浏览器开发桥都只有请求/应答，没有推送。
+- 页面用 `pnpm generate:protocol` 生成的 TS 类型直接组装和读取消息。Lab 由 Electron 主进程转发字节；History 和 Trading 由原生层按保存的连接原样转发（`market.call`、`trading.call`），TLS 私钥不离开原生层。
+- 实时行情：原生层为页面保持一条 History `stream_quotes` 流，把帧按顺序排队；页面定期取走新帧（`market.watch`），自己维护报价表（首帧完整，之后只有变化的行）。页面没有完整的首帧时要求重开一条流。理由：桌面和浏览器开发桥都只有请求/应答，没有推送。
 
 ## 进程与安装目录
 
-- 本机用 Unix socket；Market 和 Trading 用双向固定证书指纹 TLS，Market 按客户端证书区分只读和采集管理权限。
+- 本机用 Unix socket；History 和 Trading 用双向固定证书指纹 TLS，History 按客户端证书区分只读和采集管理权限。
 - Lab 是 Terminal 的子进程，没有启停按钮：退出或持续心跳失败后自动重启，直到恢复；Terminal 退出（包括被强制结束）后 Lab 随之退出。一个根目录同时只能有一个 Terminal。
 - 每个程序有自己的安装目录：
 
@@ -79,8 +79,8 @@ flowchart TB
 | 根目录 | 位置 |
 | --- | --- |
 | 本机 | Linux `~/.local/share/asterion/`，macOS `~/Library/Application Support/Asterion/`，从项目启动和安装后相同；隔离测试为 `ASTERION_ROOT` |
-| 服务主机 | `/opt/asterion/market/`、`/opt/asterion/trading/` |
+| 服务主机 | `/opt/asterion/history/`、`/opt/asterion/trading/` |
 
 - 程序从自己的路径（`bin/` 的上一级）找到安装目录，开发和测试可以用符号链接把构建产物放进 `bin/`。
-- 默认配置位于各子项目的 `config/`，首次安装或启动时复制，之后保留用户配置。Market 和 Trading 的业务配置由安装脚本生成；缺少或无效的业务配置会使程序启动失败并报告路径。文件清单见[配置文件](configuration.md)，日志配置的缺省行为见[运行日志](services.md#运行日志)。
+- 默认配置位于各子项目的 `config/`，首次安装或启动时复制，之后保留用户配置。History 和 Trading 的业务配置由安装脚本生成；缺少或无效的业务配置会使程序启动失败并报告路径。文件清单见[配置文件](configuration.md)，日志配置的缺省行为见[运行日志](services.md#运行日志)。
 - 不做旧格式兼容或迁移；读不懂的记录明确拒绝，不自动改写或删除用户数据。

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
-import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/market_pb";
+import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/history_pb";
 import type { TerminalContext } from "../contract";
 import { Coverage } from "./Coverage";
 

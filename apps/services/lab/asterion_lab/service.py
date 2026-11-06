@@ -1,5 +1,5 @@
 """Requests of the lab service. One asyncio loop owns the connections; reads of
-fixed Market versions run on a small thread pool."""
+fixed History versions run on a small thread pool."""
 import asyncio
 import collections
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, NightSess
 from asterion_lab import backtest, chart, dominant, repository, package
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
-from asterion_lab.market import Client, Dataset, MarketError
+from asterion_lab.history import Client, Dataset, HistoryError
 
 MODULE = "lab-service"
 # Keep child deadlines inside Terminal's 65 s reply budget. QuantStats imports
@@ -97,12 +97,12 @@ def summary(item, row):
 
 
 class Service:
-    def __init__(self, name: str, directory: Path, log, market=None):
+    def __init__(self, name: str, directory: Path, log, history=None):
         self.name = name
         self.log = log
         self.initialized = False
         self.directory = directory
-        self.market = market
+        self.history = history
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
         self.sessions = Sessions()
         self.runs = Runs(directory)
@@ -131,7 +131,7 @@ class Service:
             else:
                 await handler(getattr(request, call), result)
             result.SetInParent()
-        except MarketError as error:
+        except HistoryError as error:
             response.error.code, response.error.message = error_code(error.code), str(error)
         except ValueError as error:
             response.error.code, response.error.message = ErrorCode.ERROR_CODE_INVALID_REQUEST, str(error)
@@ -151,14 +151,14 @@ class Service:
         result.ready = self.initialized
 
     def dataset(self):
-        return Dataset(self.directory, self.market)
+        return Dataset(self.directory, self.history)
 
     def data_version(self, identity, tables):
         """The research dataset's version, which must hold each of `tables`."""
         dataset = self.dataset()
         version = dataset.version(identity) if identity else dataset.current()
         if not version.identity:
-            raise ValueError("Market has no research dataset yet")
+            raise ValueError("History has no research dataset yet")
         for table in tables:
             if not any(key.startswith(table + "/") for key in version.manifest["partitions"]):
                 raise ValueError(f"research version {version.identity} has no {table} partitions")
@@ -177,9 +177,9 @@ class Service:
 
     async def on_get_dataset_summary(self, _, result):
         def read_summary():
-            if self.market is None:
-                raise ValueError("configure the remote Market address first")
-            with Client(self.market.selected()) as client:
+            if self.history is None:
+                raise ValueError("configure the remote History address first")
+            with Client(self.history.selected()) as client:
                 return client.call("get_dataset_summary", provider=Dataset.provider)
         result.CopyFrom(await self.read(read_summary))
 
