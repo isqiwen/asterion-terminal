@@ -140,6 +140,12 @@ export function RecordingStatus({ context }: { context: TerminalContext }) {
               <dd>{clock(recording?.writtenMs)}</dd>
             </div>
           </dl>
+          {status.failedSubscriptions > 0 && (
+            <p role="alert">
+              {t("合约订阅失败，每 5 分钟重试")}:{" "}
+              {status.failedSubscriptions.toLocaleString(getLocale())}
+            </p>
+          )}
           {recording && (recording.lostRows > 0n || recording.writeError) && (
             <p role="alert">
               {t("录制写入异常，部分数据可能丢失。")} {t("丢失 Tick")}:{" "}

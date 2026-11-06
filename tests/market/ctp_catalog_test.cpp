@@ -78,15 +78,23 @@ TEST_F(CtpCatalog, AuthAndLoginErrorsRejectRatherThanReturnAnEmptyCatalog)
     EXPECT_EQ(read().contracts.size(), 1U);
 }
 
-TEST_F(CtpCatalog, RejectsPartialInvalidAndDuplicateResults)
+TEST_F(CtpCatalog, RejectsPartialAndDuplicateResults)
 {
-    for (const auto* mode : {"catalog-error", "catalog-invalid", "catalog-dup"}) {
+    for (const auto* mode : {"catalog-error", "catalog-dup"}) {
         SCOPED_TRACE(mode);
         config.user = mode;
         EXPECT_THROW(read(), Error);
     }
     config.user = "catalog-empty";
     EXPECT_TRUE(read().contracts.empty());
+}
+
+TEST_F(CtpCatalog, AnOddListingIsSkippedAndTheRestOfTheCatalogKept)
+{
+    config.user = "catalog-invalid";
+    const auto result = read();
+    ASSERT_EQ(result.contracts.size(), 1U);
+    EXPECT_EQ(result.contracts.front().instrument.symbol, "rb2610");
 }
 
 TEST_F(CtpCatalog, TheFirstInstrumentResponseMayTakeLongerThanTheStepTimeout)

@@ -28,9 +28,10 @@ const market = (online = true): MarketView => ({
   generation: 1,
   interrupted: false,
 });
-const reply = (recording = {}) =>
+const reply = (recording = {}, failedSubscriptions = 0) =>
   create(StatusSchema, {
     feed: { state: FeedState.CONNECTED },
+    failedSubscriptions,
     recording: { rows: 1234n, ...recording },
   });
 let replies: ((status: Status) => void)[] = [];
@@ -106,4 +107,11 @@ test("write failures preserve exact counts", async () => {
   expect(screen.getByText("行情服务失联，录制状态未知。")).toBeDefined();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(1);
+});
+
+test("contracts the feed refused are counted", async () => {
+  vi.useFakeTimers();
+  mount(market());
+  await act(async () => replies[0]!(reply({}, 3)));
+  expect(screen.getByRole("alert").textContent).toContain("合约订阅失败，每 5 分钟重试: 3");
 });

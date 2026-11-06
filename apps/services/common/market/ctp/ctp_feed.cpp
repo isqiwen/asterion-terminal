@@ -226,6 +226,7 @@ struct Feed::Impl final
         wanted = std::move(next_wanted);
     }
 
+    std::vector<std::string> retrying;
     std::map<InstrumentId, int> multipliers;
     bool closing = true, logged_in = false;
     bool login_pending = false, subscription_pending = false;
@@ -392,6 +393,7 @@ struct Feed::Impl final
     {
         CThostFtdcReqUserLoginField request{};
         bool login = false, subscribe = false;
+        std::vector<std::string> retry;
         std::vector<InstrumentId> desired;
         {
             std::lock_guard lock(mutex);
@@ -407,6 +409,8 @@ struct Feed::Impl final
             subscribe = logged_in && std::exchange(subscription_pending, false);
             if (subscribe)
                 desired = wanted;
+            if (logged_in)
+                retry = std::exchange(retrying, {});
         }
         if (login) {
             const int code = sdk.api->ReqUserLogin(&request, 1);
@@ -447,6 +451,16 @@ struct Feed::Impl final
                 deliver(sdk_generation, SubscriptionFailure{code});
             sent = std::move(desired);
         }
+        std::vector<char*> names;
+        for (auto& name : retry)
+            names.push_back(name.data());
+        int code = 0;
+        for (std::size_t offset = 0; !code && offset < names.size(); offset += 50)
+            code = sdk.api->SubscribeMarketData(
+                names.data() + offset,
+                static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+        if (code)
+            deliver(sdk_generation, SubscriptionFailure{code});
     }
 
     void advance_sdk(std::stop_token stop)
@@ -715,6 +729,24 @@ void Feed::subscribe(const std::vector<InstrumentId>& ids)
     impl_->subscription_pending = true;
     ++impl_->state.sequence;
     impl_->record_status();
+}
+
+void Feed::retry_failed_subscriptions()
+{
+    std::lock_guard lock(impl_->mutex);
+    for (auto& subscription : impl_->state.subscriptions)
+        if (subscription.state == SubscriptionState::error) {
+            subscription.state = SubscriptionState::pending;
+            impl_->retrying.push_back(subscription.instrument.symbol);
+        }
+}
+
+std::uint32_t Feed::failed_subscriptions() const
+{
+    std::uint32_t failed = 0;
+    for (const auto& subscription : impl_->state.subscriptions)
+        failed += subscription.state == SubscriptionState::error;
+    return failed;
 }
 
 void Feed::set_multipliers(std::map<InstrumentId, int> values)

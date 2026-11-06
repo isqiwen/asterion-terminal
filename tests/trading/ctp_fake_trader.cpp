@@ -865,7 +865,7 @@ public:
                 item.ProductClass = THOST_FTDC_PC_Futures;
                 item.IsTrading = 1;
                 item.VolumeMultiple = 10;
-                item.PriceTick = mode == "catalog-invalid" ? 0 : 0.5;
+                item.PriceTick = 0.5;
                 if (mode == "publication" || mode == "catalog-large") {
                     const int count = mode == "publication" ? 50 : 20000;
                     for (int index = 0; index < count; ++index) {
@@ -880,6 +880,15 @@ public:
                     spi->OnRspQryInstrument(&item, &status, id, false);
                 if (mode == "catalog-dup")
                     spi->OnRspQryInstrument(&item, &status, id, false);
+                if (mode == "catalog-invalid") {
+                    auto odd = item;
+                    put(odd.InstrumentID, "rb2699");
+                    odd.PriceTick = 0;
+                    spi->OnRspQryInstrument(&odd, &status, id, false);
+                    put(odd.InstrumentID, "rb26.99");
+                    odd.PriceTick = 0.5;
+                    spi->OnRspQryInstrument(&odd, &status, id, false);
+                }
                 put(item.InstrumentID, "rb2609");
                 item.IsTrading = 0;
                 spi->OnRspQryInstrument(&item, &status, id, false);

@@ -26,8 +26,9 @@ public:
     ~Live();
 
     // Logs in again a minute after a failed login, refreshes the catalog after
-    // each login and five minutes after a failed refresh, and subscribes once
-    // the catalog lists contracts.
+    // each login, on each new trading day and five minutes after a failed
+    // refresh, subscribes once the catalog lists contracts, and retries refused
+    // subscriptions every five minutes.
     void maintain(Clock::time_point now);
     // The feed's changes since the last call, in order.
     ctp::FeedEvents poll();
@@ -64,7 +65,8 @@ private:
     std::int64_t last_quote_ms_ = 0;
     std::uint64_t out_of_order_ = 0;
     bool refresh_wanted_ = false;
-    Clock::time_point next_login_{}, next_refresh_{};
+    std::string trading_day_;
+    Clock::time_point next_login_{}, next_refresh_{}, next_retry_{};
 };
 
 } // namespace asterion::market_data

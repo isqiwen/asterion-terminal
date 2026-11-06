@@ -9,6 +9,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <thread>
 
 class Fake final : public CThostFtdcMdApi
@@ -41,6 +42,8 @@ class Fake final : public CThostFtdcMdApi
     bool publication = false, flood = false;
     bool strategy_stream = false, offline = false;
     std::optional<CThostFtdcDepthMarketDataField> publication_tick;
+    // The connection stays up while its quotes move on to the next trading day.
+    bool next_day = false;
 
 public:
     explicit Fake(const char* path)
@@ -105,7 +108,10 @@ public:
                     std::tm tm{};
                     gmtime_r(&epoch, &tm);
                     std::strftime(tick.ActionDay, sizeof(tick.ActionDay), "%Y%m%d", &tm);
-                    std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &tm);
+                    auto day = epoch + (next_day && n > 20 ? 86400 : 0);
+                    std::tm trading{};
+                    gmtime_r(&day, &trading);
+                    std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &trading);
                     std::strftime(tick.UpdateTime, sizeof(tick.UpdateTime), "%H:%M:%S", &tm);
                     tick.UpdateMillisec = std::chrono::duration_cast<std::chrono::milliseconds>(
                                               now.time_since_epoch())
@@ -161,6 +167,10 @@ public:
             std::strncpy(instrument.InstrumentID, names[i], sizeof(instrument.InstrumentID) - 1);
             CThostFtdcRspInfoField info{};
             if (std::string(names[i]).starts_with("bad"))
+                info.ErrorID = 31;
+            // Refused once, then accepted.
+            static std::set<std::string> refused;
+            if (std::string(names[i]).starts_with("fla") && refused.insert(names[i]).second)
                 info.ErrorID = 31;
             if (spi)
                 spi->OnRspSubMarketData(&instrument, &info, 1, i == count - 1);
@@ -253,7 +263,8 @@ public:
         const std::string user(login->UserID);
         publication = user == "publication" || user == "concurrency";
         flood = user == "flood";
-        strategy_stream = user == "strategy";
+        next_day = user == "next-day";
+        strategy_stream = user == "strategy" || next_day;
         reconnect = user != "steady" && user != "catalog-large" && !publication && !flood
             && !strategy_stream;
         CThostFtdcRspInfoField info{};

@@ -49,6 +49,10 @@ void Live::login()
 void Live::maintain(Clock::time_point now)
 {
     catalog_.poll();
+    if (feed_.phase() == MarketPhase::connected && now >= next_retry_) {
+        feed_.retry_failed_subscriptions();
+        next_retry_ = now + 5min;
+    }
     if (feed_.phase() == MarketPhase::error && now >= next_login_)
         login();
     const auto catalog = catalog_.state().status().state();
@@ -105,6 +109,12 @@ void Live::apply(const ctp::FeedEvent& event)
         phase_ = status->phase;
     } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event)) {
         last_quote_ms_ = quote->quote.received_ms;
+        // A connection can outlast a trading day: its contracts and their
+        // parameters are read for the new day too.
+        if (quote->quote.trading_day > trading_day_) {
+            refresh_wanted_ = refresh_wanted_ || !trading_day_.empty();
+            trading_day_ = quote->quote.trading_day;
+        }
         out_of_order_ += quote->out_of_order;
         if (!quote->out_of_order)
             minutes_.observe(quote->quote);
@@ -126,6 +136,7 @@ void Live::status(wire::Status& out) const
     *out.mutable_feed() = feed_state();
     *out.mutable_catalog() = catalog_.state().status();
     out.set_subscribed(subscribed_);
+    out.set_failed_subscriptions(feed_.failed_subscriptions());
     if (last_quote_ms_)
         out.set_last_quote_ms(last_quote_ms_);
     out.set_out_of_order_quotes(out_of_order_);

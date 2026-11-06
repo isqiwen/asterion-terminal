@@ -233,7 +233,13 @@ struct Reader final : CThostFtdcTraderSpi
             CatalogContract entry;
             entry.instrument = {field(item->ExchangeID), field(item->InstrumentID)};
             entry.name = name_utf8(field(item->InstrumentName));
-            validate_instruments({entry.instrument});
+            // One odd listing must not cost the whole market its subscription.
+            try {
+                validate_instruments({entry.instrument});
+            } catch (const std::exception&) {
+                log::warn("CTP catalog contract skipped: {}", field(item->InstrumentID));
+                return;
+            }
             entry.product = field(item->ProductID);
             entry.expiry = field(item->ExpireDate);
             if (item->DeliveryYear >= 1990 && item->DeliveryYear <= 2100 && item->DeliveryMonth >= 1
@@ -253,8 +259,10 @@ struct Reader final : CThostFtdcTraderSpi
             entry.multiplier = item->VolumeMultiple;
             const auto tick = price(item->PriceTick);
             if (!tick || *tick <= Decimal{} || entry.multiplier <= 0 || entry.product.empty()
-                || !std::regex_match(entry.expiry, std::regex("[0-9]{8}")))
-                throw Error(ErrorCode::operation_failed, "invalid CTP catalog contract metadata");
+                || !std::regex_match(entry.expiry, std::regex("[0-9]{8}"))) {
+                log::warn("CTP catalog contract skipped: {}", field(item->InstrumentID));
+                return;
+            }
             entry.price_tick = *tick;
             if (contracts.size() >= 20000)
                 throw Error(ErrorCode::resource_exhausted, "CTP catalog exceeds contract limit");

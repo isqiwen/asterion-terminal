@@ -320,6 +320,24 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         second.send_signal(signal.SIGTERM)
         second.wait(timeout=30)
 
+    # A connection that outlasts a trading day reads the catalog for the new day.
+    endpoint = free_port()
+    continuing = start(root, endpoint, "next-day")
+    try:
+        snapshots = root / "data/recordings/catalog"
+        begun = time.time_ns()
+        deadline = time.monotonic() + 40
+        reads = set()
+        while len(reads) < 2:
+            assert continuing.poll() is None, continuing.stderr.read()
+            assert time.monotonic() < deadline, reads
+            reads |= {snapshot.stat().st_mtime_ns for snapshot in snapshots.glob("*.pb")
+                      if snapshot.stat().st_mtime_ns > begun}
+            time.sleep(.05)
+    finally:
+        continuing.send_signal(signal.SIGTERM)
+        continuing.wait(timeout=30)
+
     # A refresh that stalls or fails must not erase the last usable catalog.
     # The restarted host can still collect and record while reporting the query state.
     for mode, state in (("catalog-stall", CATALOG_LOADING), ("catalog-error", CATALOG_FAILED)):

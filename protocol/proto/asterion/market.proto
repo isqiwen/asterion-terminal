@@ -72,6 +72,8 @@ message Status {
   optional int64 last_quote_ms = 6;
   uint64 out_of_order_quotes = 7;
   Recording recording = 8;
+  // Listed contracts the provider refused to subscribe; retried every few minutes.
+  uint32 failed_subscriptions = 9;
 }
 
 enum FeedState {

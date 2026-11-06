@@ -307,6 +307,30 @@ TEST(CtpEvents, SubscriptionReorderingAndVenueReplacementKeepQuotesBoundToExactC
     EXPECT_EQ(replaced.subscriptions[0].quote->instrument.symbol, "rb2610");
 }
 
+TEST(CtpEvents, ARefusedSubscriptionIsCountedAndRetriedAlone)
+{
+    CtpDirectory directory;
+    asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
+    feed.connect({"tcp://localhost:12345", "test", "test", "test-only"}, {{"SHFE", "fla2610"}});
+    const auto until = [&](auto predicate) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!predicate() && std::chrono::steady_clock::now() < deadline) {
+            feed.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return predicate();
+    };
+    ASSERT_TRUE(until([&] {
+        return feed.failed_subscriptions() == 1;
+    }));
+    feed.retry_failed_subscriptions();
+    EXPECT_TRUE(until([&] {
+        return feed.snapshot().subscriptions.at(0).state == asterion::SubscriptionState::subscribed;
+    }));
+    EXPECT_EQ(feed.failed_subscriptions(), 0U);
+    feed.disconnect();
+}
+
 TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract)
 {
     using namespace asterion;

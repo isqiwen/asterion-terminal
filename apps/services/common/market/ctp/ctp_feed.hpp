@@ -59,6 +59,9 @@ public:
     // Contract multipliers from the trading catalog; required to normalize
     // non-CZCE average prices. Unknown contracts report no average price.
     void set_multipliers(std::map<InstrumentId, int> multipliers);
+    // Subscribes again only the contracts the provider refused.
+    void retry_failed_subscriptions();
+    std::uint32_t failed_subscriptions() const;
     LiveMarketSnapshot snapshot(
         std::optional<std::uint64_t> after = {},
         std::span<const InstrumentId> forced = {}) const;

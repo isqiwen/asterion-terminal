@@ -120,6 +120,7 @@
   "最后落盘（北京时间）": "Last write (Beijing time)",
   "录制写入异常，部分数据可能丢失。": "Recording writes failed; some data may be lost.",
   "丢失 Tick": "Lost ticks",
+  "合约订阅失败，每 5 分钟重试": "Contracts refused by the feed, retried every 5 minutes",
   "合约目录查询失败": "Contract catalog query failed",
   "正在合并交易日": "Merging trading day",
   "历史文件合并失败": "Historical file merge failed",
