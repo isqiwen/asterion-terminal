@@ -10,16 +10,16 @@ for kind, expected, symbol in (("segfault", signal.SIGSEGV, "crash_site"),
     with tempfile.TemporaryDirectory() as directory:
         child = subprocess.run([sys.argv[1], directory, kind], capture_output=True, timeout=15)
         assert child.returncode == -expected, (child.returncode, child.stderr)
-        files = list(Path(directory).glob("*-crash.log"))
+        files = list(Path(directory).glob("*-crash.frames"))
         assert len(files) == 1, files
-        text = files[0].read_text()
-        assert "Asterion " in text and "stack (address function+offset):" in text, text
-        assert signal.Signals(expected).name in text and symbol in text, text
         assert files[0].stat().st_mode & 0o777 == 0o600
-        report = files[0].with_name(files[0].stem + ".report.log")
+        report = files[0].with_suffix(".report.log")
         rendered = report.read_text()
+        assert "Asterion " in rendered and signal.Signals(expected).name in rendered, rendered
         assert "crash_process.cpp:" in rendered and symbol in rendered, rendered
-        print(rendered.split("modules (/proc/self/maps):")[0])
+        assert set(Path(directory).iterdir()) == {files[0], report}
+        print(rendered)
         report.unlink()
         subprocess.run([sys.argv[1], directory, "recover"], check=True, capture_output=True, timeout=15)
         assert report.read_text() == rendered
+        assert set(Path(directory).iterdir()) == {files[0], report}

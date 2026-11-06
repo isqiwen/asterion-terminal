@@ -22,7 +22,6 @@ namespace asterion {
 namespace {
 
 int output = -1;
-int frames_output = -1;
 char reporter[PATH_MAX];
 char frames_path[PATH_MAX];
 char partial_frames_path[PATH_MAX];
@@ -50,18 +49,6 @@ void write_text(const char* text)
     write_text(text, std::strlen(text));
 }
 
-void write_hex(unw_word_t value)
-{
-    char buffer[2 * sizeof(value)];
-    auto position = sizeof(buffer);
-    do {
-        buffer[--position] = "0123456789abcdef"[value % 16];
-        value /= 16;
-    } while (value);
-    write_text("0x");
-    write_text(buffer + position, sizeof(buffer) - position);
-}
-
 void fatal_signal(int signal, siginfo_t*, void* context)
 {
     const char* name = "unknown";
@@ -84,41 +71,25 @@ void fatal_signal(int signal, siginfo_t*, void* context)
     }
     write_text("fatal signal: ");
     write_text(name);
-    write_text("\nstack (address function+offset):\n");
+    write_text("\n");
+    // Separate diagnostic text from the binary frame records.
+    write_text("\0", 1);
     unw_cursor_t cursor;
     if (unw_init_local2(&cursor, static_cast<unw_context_t*>(context), UNW_INIT_SIGNAL_FRAME)
         >= 0) {
         // Bound output when a corrupted stack cannot be unwound to its end.
         for (int frame = 0; frame < 128; ++frame) {
-            unw_word_t address = 0, offset = 0;
+            unw_word_t address = 0;
             if (unw_get_reg(&cursor, UNW_REG_IP, &address) < 0 || !address)
                 break;
             cpptrace::safe_object_frame object{};
             cpptrace::get_safe_object_frame(frame == 0 ? address : address - 1, &object);
-            write_bytes(frames_output, reinterpret_cast<const char*>(&object), sizeof(object));
-            write_hex(address);
-            char function[512]{};
-            if (unw_get_proc_name(&cursor, function, sizeof(function), &offset) == 0) {
-                write_text(" ");
-                write_text(function);
-                write_text("+");
-                write_hex(offset);
-            }
-            write_text("\n");
+            write_bytes(output, reinterpret_cast<const char*>(&object), sizeof(object));
             if (unw_step(&cursor) <= 0)
                 break;
         }
     }
-    write_text("modules (/proc/self/maps):\n");
-    const auto maps = ::open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
-    if (maps >= 0) {
-        char buffer[4096];
-        for (ssize_t size; (size = ::read(maps, buffer, sizeof(buffer))) > 0;)
-            write_text(buffer, static_cast<std::size_t>(size));
-        ::close(maps);
-    }
     ::fsync(output);
-    ::fsync(frames_output);
     if (::rename(partial_frames_path, frames_path) == 0 && ::_Fork() == 0) {
         ::execl(reporter, reporter, frames_path, static_cast<char*>(nullptr));
         ::_exit(127);
@@ -166,14 +137,7 @@ void install_crash_logging(const std::filesystem::path& directory, std::string_v
         throw std::runtime_error("signal-safe object lookup is unavailable");
     const auto file = directory
         / (std::string(program) + "-" + std::to_string(::getpid()) + "-" + unique_process_id()
-            + "-crash.log");
-    write_file_durably(
-        file,
-        "Asterion " + std::string(build::description) + "\nprogram: " + std::string(program)
-            + "\nexecutable: " + current_executable().string() + "\n");
-    output = ::open(file.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
-    if (output < 0)
-        throw std::runtime_error("cannot open crash log: " + file.string());
+            + "-crash");
     const auto helper = current_executable().parent_path() / "asterion_crash_reporter";
     if (!std::filesystem::is_regular_file(helper))
         throw std::runtime_error("crash reporter is missing: " + helper.string());
@@ -186,10 +150,13 @@ void install_crash_logging(const std::filesystem::path& directory, std::string_v
     copy_path(helper, reporter);
     copy_path(file.string() + ".frames", frames_path);
     copy_path(file.string() + ".frames.tmp", partial_frames_path);
-    write_file_durably(partial_frames_path, "");
-    frames_output = ::open(partial_frames_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
-    if (frames_output < 0)
-        throw std::runtime_error("cannot open crash frame file");
+    write_file_durably(
+        partial_frames_path,
+        "Asterion " + std::string(build::description) + "\nprogram: " + std::string(program)
+            + "\nexecutable: " + current_executable().string() + "\n");
+    output = ::open(partial_frames_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
+    if (output < 0)
+        throw std::runtime_error("cannot open crash record: " + file.string());
     std::atexit([] {
         ::unlink(partial_frames_path);
     });
