@@ -263,7 +263,7 @@
   "conflicting historical price ticks": "Historical price ticks conflict for this contract and trading day. Check their sources.",
   "invalid price tick interval": "A historical price tick must take effect before its exclusive end date.",
   "price tick must be positive": "A historical price tick must be positive.",
-  "invalid historical price tick source data": "The exchange's historical price tick data failed validation. Check the source file.",
+  "invalid historical price tick source data": "The provider's historical price tick data failed validation. Check the source file.",
   "date must be YYYY-MM-DD": "Dates must use YYYY-MM-DD format.",
   "invalid calendar date": "The calendar date is invalid. Check the year, month and day.",
   "unknown futures exchange": "The futures exchange is invalid. Select a supported exchange.",

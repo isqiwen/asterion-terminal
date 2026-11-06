@@ -447,8 +447,8 @@ void Manager::run(
                         day_text(day),
                         contract);
         else
-            for (const auto& exchange : request.exchanges())
-                for (auto day = first; day <= last; day += std::chrono::days(1)) {
+            for (auto day = first; day <= last; day += std::chrono::days(1))
+                for (const auto& exchange : request.exchanges()) {
                     if (std::chrono::weekday(day).iso_encoding() < 6)
                         plan.emplace_back(exchange, day_text(day), "");
                 }

@@ -2,6 +2,7 @@
 #include "live.hpp"
 #include "recording.hpp"
 #include "acquisition/exchanges.hpp"
+#include "acquisition/guotai.hpp"
 #include "acquisition/recorded.hpp"
 #include "acquisition/tushare.hpp"
 #include "recording/compaction.hpp"
@@ -159,6 +160,7 @@ sources(const Settings& settings, std::shared_ptr<std::shared_mutex> archive)
     result["recorder"] = [root = settings.directory / "recordings", archive](std::stop_token stop) {
         return std::make_unique<acquisition::Recorded>(root, archive, stop);
     };
+    std::vector<std::string> reference_exchanges;
     for (const auto& exchange : settings.exchanges) {
         auto id = exchange;
         std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
@@ -167,7 +169,13 @@ sources(const Settings& settings, std::shared_ptr<std::shared_mutex> archive)
         result[id] = [exchange](std::stop_token stop) {
             return std::make_unique<acquisition::Exchange>(exchange, stop);
         };
+        if (exchange != "CZCE")
+            reference_exchanges.push_back(exchange);
     }
+    if (!reference_exchanges.empty())
+        result["gtja"] = [reference_exchanges](std::stop_token stop) {
+            return std::make_unique<acquisition::Guotai>(reference_exchanges, stop);
+        };
     if (!settings.tushare_token.empty()) {
         auto budget = std::make_shared<acquisition::Budget>(settings.tushare_requests_per_minute);
         result["tushare"] = [token = settings.tushare_token, budget](std::stop_token stop) {

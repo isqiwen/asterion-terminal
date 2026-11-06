@@ -154,6 +154,17 @@ class Backtests(unittest.TestCase):
                 self.assertEqual([item["price_increment"] for item in contracts], ticks)
                 self.assertEqual([item["increments"] for item in contracts], [[], []])
 
+    def test_product_price_ticks_apply_to_each_delivery_month(self):
+        symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [
+            {**price_tick(symbols[0], "2"), "contract": None},
+            {**price_tick("SHFE/cu/2026-05", "10"), "contract": None}])
+        writer.commit()
+        config = self.config(symbols)
+        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
+        self.assertEqual([item["price_increment"] for item in contracts], [2 * backtest.R] * 2)
+
     def test_a_backtest_requires_price_ticks_for_each_trading_day(self):
         symbol = "SHFE/rb/2026-05"
         first, second, third = [day.isoformat() for day in DAYS[:3]]
@@ -161,6 +172,7 @@ class Backtests(unittest.TestCase):
                  ([price_tick(symbol, end=second)], second),
                  ([price_tick(symbol, end=second), price_tick(symbol, begin=third)], second),
                  ([price_tick(symbol), price_tick(symbol, "2", begin=second)], second),
+                 ([price_tick(symbol), {**price_tick(symbol, "2"), "contract": None}], first),
                  ([price_tick(symbol, "0")], first),
                  ([price_tick(symbol, begin=first, end=first)], first),
                  ([{**price_tick(symbol), "effective_until": None}], first)]
@@ -180,7 +192,8 @@ class Backtests(unittest.TestCase):
         first, second = [day.isoformat() for day in DAYS[:2]]
         writer = Warehouse(self.directory).writer()
         writer.put_rows("price_ticks/SHFE", "price_ticks", [
-            price_tick(symbol, "1", end=second), price_tick(symbol, "2", begin=second),
+            {**price_tick(symbol, "1", end=second), "contract": None},
+            {**price_tick(symbol, "2", begin=second), "contract": None},
             price_tick(symbol, "2", begin=second, source="https://example.test/second-source")])
         for day, closes in zip(DAYS[:2], ((3030, 3020), (3030, 3040))):
             evening = day - datetime.timedelta(days=3 if day.weekday() == 0 else 1)

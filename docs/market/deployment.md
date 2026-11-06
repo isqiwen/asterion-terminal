@@ -91,6 +91,7 @@ CTP 密码、授权码和 Tushare token 由 `systemd-creds` 加密保存，不�
 
 - `data` 是仓库、录制、采集任务和合约目录缓存所在的目录，必须是绝对路径。改目录请用 `setup.sh`：它创建新目录并允许服务写入；旧目录里的数据不搬动，要继续使用就先停服务再自己移过去。
 - `tushare` 为 `null` 时不采集 Tushare，否则为 `{"requests_per_minute": 100}`，token 来自主机凭据 `asterion.market.tushare.token`。
+- `exchanges` 启用对应交易所的公开来源及[历史报价单位](README.md#历史最小变动价位)来源；非郑商所品种自动启用 `gtja`，无需额外凭据。
 - 缺少配置、TLS 文件或已启用来源的凭据时拒绝启动，并报告路径；多出不认识的键同样拒绝。
 - 默认日志在 `logs/asterion_market_YYYY-MM-DD.log`，保留 30 天；输出方式由 `config/logging.json` 控制。默认关闭控制台日志，`journalctl -u asterion-market -f` 用于查看服务启停和标准输出、错误，业务日志应读取日志文件。
 

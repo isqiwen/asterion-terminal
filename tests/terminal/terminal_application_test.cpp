@@ -605,14 +605,17 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     const auto catalog = first.get();
     const auto& sources = catalog.at("market").at("listSources");
     EXPECT_FALSE(sources.value("canManage", false));
-    ASSERT_EQ(sources.at("sources").size(), 3);
+    ASSERT_EQ(sources.at("sources").size(), 4);
     EXPECT_EQ(sources.at("sources")[0].at("provider"), "gfex");
     EXPECT_EQ(sources.at("sources")[0].at("tables"), Json::array({"TABLE_DAILY"}));
-    EXPECT_EQ(sources.at("sources")[1].at("provider"), "recorder");
-    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"TABLE_MINUTES"}));
-    EXPECT_EQ(sources.at("sources")[2].at("provider"), "shfe");
+    EXPECT_EQ(sources.at("sources")[1].at("provider"), "gtja");
+    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"TABLE_PRICE_TICKS"}));
+    EXPECT_EQ(sources.at("sources")[1].at("exchanges"), Json::array({"GFEX", "SHFE"}));
+    EXPECT_EQ(sources.at("sources")[2].at("provider"), "recorder");
+    EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"TABLE_MINUTES"}));
+    EXPECT_EQ(sources.at("sources")[3].at("provider"), "shfe");
     EXPECT_EQ(
-        sources.at("sources")[2].at("tables"),
+        sources.at("sources")[3].at("tables"),
         Json::array({"TABLE_DAILY", "TABLE_SETTLEMENT"}));
     EXPECT_TRUE(second.get().at("market").contains("listDatasets"));
     try {

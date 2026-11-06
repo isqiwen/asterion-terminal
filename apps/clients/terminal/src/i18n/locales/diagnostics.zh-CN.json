@@ -263,7 +263,7 @@
   "conflicting historical price ticks": "同一合约在该交易日的历史报价单位冲突，请核对来源。",
   "invalid price tick interval": "历史报价单位的生效日期必须早于失效日期。",
   "price tick must be positive": "历史报价单位必须是正数。",
-  "invalid historical price tick source data": "交易所返回的历史报价单位未通过校验，请检查来源文件。",
+  "invalid historical price tick source data": "数据源返回的历史报价单位未通过校验，请检查来源文件。",
   "date must be YYYY-MM-DD": "日期必须使用 YYYY-MM-DD 格式。",
   "invalid calendar date": "日期不存在，请检查年月日。",
   "unknown futures exchange": "交易所无效，请选择支持的期货交易所。",

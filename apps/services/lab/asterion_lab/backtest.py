@@ -162,8 +162,8 @@ class Data:
     def price_increments(self, exchange: str, contract: str, days: list) -> dict:
         rows = self.warehouse.query(self.version, """
             select effective_from, effective_until, price_tick from price_ticks
-            where exchange = ? and contract = ?""", ("price_ticks",),
-            (exchange, contract), exchange=exchange)
+            where exchange = ? and (contract = ? or (contract is null and product = ?))""", ("price_ticks",),
+            (exchange, contract, contract.split("/")[1]), exchange=exchange)
         values = {day: set() for day in days}
         for begin, end, tick in rows:
             if begin is None or end is None or begin >= end:

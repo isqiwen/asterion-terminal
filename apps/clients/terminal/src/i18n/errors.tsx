@@ -140,6 +140,7 @@ const prefixedDiagnostics = [
   ["invalid price tick of ", "price tick must be positive"],
   ["invalid price tick interval", "invalid price tick interval"],
   ["invalid exchange price_ticks file: ", "invalid historical price tick source data"],
+  ["invalid Guotai price tick report: ", "invalid historical price tick source data"],
   ["invalid decimal: ", "invalid decimal"],
   [
     "futures.daily has no settlement price for ",

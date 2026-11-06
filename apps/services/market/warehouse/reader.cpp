@@ -257,7 +257,7 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         engine.run("SELECT count(*) FROM t")->GetValue(0, 0).GetValue<std::uint32_t>());
     const auto rows = engine.run(
         std::string("SELECT * FROM t ORDER BY ")
-        + (table == "price_ticks" ? "effective_from, "
+        + (table == "price_ticks" ? "effective_from, product, "
                 : dated           ? "day, "
                                   : "")
         + (table == "calendar" ? "exchange" : "contract") + " LIMIT 100 OFFSET "

@@ -23,7 +23,7 @@ flowchart LR
         Research --> RPC
         RPC --> Acquire
     end
-    Provider[Tushare / 交易所] --> Acquire
+    Provider[Tushare / 交易所 / 期货公司] --> Acquire
     Terminal[Terminal] <-->|请求与报价流| RPC
     Lab[Lab] <-->|固定版本读取| RPC
 ```
@@ -110,6 +110,7 @@ classDiagram
     }
     class Tushare
     class Exchange
+    class Guotai
     class Recorded
     class RecordingReader["recording::Reader"]
     class WarehouseReader["warehouse::Reader"]
@@ -126,6 +127,7 @@ classDiagram
     }
     Source <|-- Tushare
     Source <|-- Exchange
+    Source <|-- Guotai
     Source <|-- Recorded
     Manager ..> Source : 为任务创建
     Manager *-- Store : 来源与 research
