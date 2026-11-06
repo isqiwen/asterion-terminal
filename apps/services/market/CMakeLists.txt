@@ -21,7 +21,7 @@ asterion_target_defaults(asterion_market)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(stage ${CMAKE_CURRENT_BINARY_DIR}/setup)
-  set(release ${CMAKE_BINARY_DIR}/asterion-market-setup.sh)
+  set(release ${CMAKE_BINARY_DIR}/Asterion-Market-${PROJECT_VERSION}-linux-x86_64.sh)
   set(layout ${stage}/asterion-market)
   add_custom_command(OUTPUT ${release}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${stage}

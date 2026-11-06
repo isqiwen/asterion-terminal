@@ -35,7 +35,7 @@ esac
 
 
 def release(folder, version):
-    """A release script like asterion-market-setup.sh: setup.sh, the line
+    """A release script like Asterion-Market-VERSION-linux-x86_64.sh: setup.sh, the line
     __ARCHIVE__, then the installation as a tar.gz. Its market only answers
     --version."""
     top = Path(folder) / f'stage-{version}' / 'asterion-market'
@@ -51,7 +51,7 @@ def release(folder, version):
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-market')
-    script = Path(folder) / f'asterion-market-setup-{version}.sh'
+    script = Path(folder) / f'Asterion-Market-{version}-linux-x86_64.sh'
     script.write_bytes(setup.read_bytes() + b'__ARCHIVE__\n' + payload.getvalue())
     return script
 
@@ -212,5 +212,5 @@ with tempfile.TemporaryDirectory() as folder:
     # The plain script elsewhere carries no programs.
     result = subprocess.run(namespace + ['bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',
                              str(setup), str(host.root)], capture_output=True, text=True, env=host.env, timeout=60)
-    assert result.returncode != 0 and 'asterion-market-setup.sh' in result.stderr, result.stderr
+    assert result.returncode != 0 and 'Asterion-Market-VERSION-linux-x86_64.sh' in result.stderr, result.stderr
 print('installed, upgraded, deferred and configured from a self-extracting script')

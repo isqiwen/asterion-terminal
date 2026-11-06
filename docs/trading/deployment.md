@@ -5,7 +5,7 @@ Trading 运行于 Ubuntu 24.04 x86_64，每个账户一个 systemd 服务实例�
 ## 安装与账户配置
 
 ```sh
-sudo bash asterion-trading-setup.sh
+sudo bash "Asterion-Trading-<版本>-linux-x86_64.sh"
 sudo /opt/asterion/trading/bin/setup.sh
 ```
 

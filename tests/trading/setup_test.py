@@ -67,7 +67,7 @@ IDENTITY = dict(market_front='tcp://127.0.0.1:41213', environment='simulation', 
 
 
 def release(folder, version):
-    """A release like asterion-trading-setup.sh whose program only answers --version."""
+    """A release like Asterion-Trading-VERSION-linux-x86_64.sh whose program only answers --version."""
     top = Path(folder) / f'stage-{version}' / 'asterion-trading'
     for part in ('bin', 'lib'):
         (top / part).mkdir(parents=True)
@@ -93,7 +93,7 @@ def release(folder, version):
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-trading')
-    script = Path(folder) / f'asterion-trading-setup-{version}.sh'
+    script = Path(folder) / f'Asterion-Trading-{version}-linux-x86_64.sh'
     script.write_bytes(setup.read_bytes() + b'__ARCHIVE__\n' + payload.getvalue())
     return script
 
@@ -300,5 +300,5 @@ with tempfile.TemporaryDirectory() as folder:
     # The plain script elsewhere carries no programs.
     result = subprocess.run(['unshare', '-r', 'bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',
                              str(setup), str(host.root)], capture_output=True, text=True, env=host.env, timeout=60)
-    assert result.returncode != 0 and 'asterion-trading-setup.sh' in result.stderr, result.stderr
+    assert result.returncode != 0 and 'Asterion-Trading-VERSION-linux-x86_64.sh' in result.stderr, result.stderr
 print('installed, upgraded, deferred, added, changed and disabled accounts from a self-extracting script')

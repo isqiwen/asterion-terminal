@@ -4,10 +4,10 @@
 
 ## 安装
 
-Market 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/market/`。发布物是一个自解压脚本 `asterion-market-setup.sh`（CMake 目标 `asterion_market_setup`；本地用 `scripts/services/build_linux_services.sh` 构建，输出到 `build/linux-bundles/`），包含服务程序、安装脚本、默认日志配置和两个 CTP 库；服务运行不依赖 Python，安装脚本使用主机的 Python 3 处理配置。
+Market 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/market/`。发布物是一个自解压脚本 `Asterion-Market-<版本>-linux-x86_64.sh`（CMake 目标 `asterion_market_setup`；本地用 `scripts/services/build_linux_services.sh` 构建，输出到 `build/linux-bundles/`），包含服务程序、安装脚本、默认日志配置和两个 CTP 库；服务运行不依赖 Python，安装脚本使用主机的 Python 3 处理配置。
 
 ```sh
-sudo bash asterion-market-setup.sh         # 第一次：安装并配置；以后：升级
+sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"         # 第一次：安装并配置；以后：升级
 sudo /opt/asterion/market/bin/setup.sh     # 只修改配置
 ```
 

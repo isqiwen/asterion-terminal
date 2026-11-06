@@ -33,7 +33,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
       ${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml ${CMAKE_CURRENT_SOURCE_DIR}/uv.lock
     VERBATIM)
   set(stage ${CMAKE_CURRENT_BINARY_DIR}/setup)
-  set(release ${CMAKE_BINARY_DIR}/asterion-trading-setup.sh)
+  set(release ${CMAKE_BINARY_DIR}/Asterion-Trading-${PROJECT_VERSION}-linux-x86_64.sh)
   set(layout ${stage}/asterion-trading)
   add_custom_command(OUTPUT ${release}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${stage}

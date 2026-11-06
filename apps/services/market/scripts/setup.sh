@@ -1,10 +1,10 @@
 #!/bin/bash
 # Installs, upgrades and configures the market on a recording host.
 #
-#   sudo bash asterion-market-setup.sh       install, or upgrade an installation
+#   sudo bash Asterion-Market-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/market/bin/setup.sh   change the settings
 #
-# The release, asterion-market-setup.sh, is this script with the
+# The release, Asterion-Market-VERSION-linux-x86_64.sh, is this script with the
 # installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
 # CMake target asterion_market_setup); it unpacks that into a temporary
 # directory. The installed copy, bin/setup.sh, carries nothing and only
@@ -364,7 +364,7 @@ main() {
     elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
         source=$ROOT
     else
-        fail "This copy carries no programs: install or upgrade with the released asterion-market-setup.sh"
+        fail "This copy carries no programs: install or upgrade with the released Asterion-Market-VERSION-linux-x86_64.sh"
     fi
     if [[ -d $ROOT/config ]]; then
         ACCOUNT=$(stat -c %U "$ROOT/config")

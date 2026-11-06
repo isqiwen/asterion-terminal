@@ -57,7 +57,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 | `pnpm desktop:package-test` | Release 验收安装包；macOS 使用临时签名，不做公证 |
 | `pnpm dev` | 只开发界面：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build --preset conan-debug` | 只重建 C++ |
-| `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `asterion-trading-setup.sh` 和 `asterion-market-setup.sh`，输出到 `build/linux-bundles/` |
+| `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `Asterion-Trading-<版本>-linux-x86_64.sh` 和 `Asterion-Market-<版本>-linux-x86_64.sh`，输出到 `build/linux-bundles/` |
 
 - 公共告警设置由 `asterion_target_defaults(target)` 在目标所在目录调用。测试集中登记在 `tests/CMakeLists.txt`。
 - 平台只支持 macOS armv8 和 Linux x86_64。主机程序的基线是 Ubuntu 24.04（glibc 2.39、GCC 13.3）。
@@ -122,8 +122,8 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 
 | 发布包 | 构建 | 安装 |
 | --- | --- | --- |
-| Market：`asterion-market-setup.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash asterion-market-setup.sh`，见[录制与部署](market/deployment.md) |
-| Trading：`asterion-trading-setup.sh` | 同上 | Trading 主机上 `sudo bash asterion-trading-setup.sh`，见[交易](trading/deployment.md#安装与账户配置) |
+| Market：`Asterion-Market-<版本>-linux-x86_64.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"`，见[录制与部署](market/deployment.md) |
+| Trading：`Asterion-Trading-<版本>-linux-x86_64.sh` | 同上 | Trading 主机上 `sudo bash "Asterion-Trading-<版本>-linux-x86_64.sh"`，见[交易](trading/deployment.md#安装与账户配置) |
 | Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
 
 - Terminal 升级就是装新版本，卸载就是删除应用（Linux 用 `sudo apt remove asterion-terminal`）。用户资料在程序根目录，第一次启动时由 Terminal 创建，卸载时保留。

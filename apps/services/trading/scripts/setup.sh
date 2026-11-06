@@ -1,10 +1,10 @@
 #!/bin/bash
 # Installs, upgrades and configures the trading service on a Linux host.
 #
-#   sudo bash asterion-trading-setup.sh       install, or upgrade an installation
+#   sudo bash Asterion-Trading-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/trading/bin/setup.sh   add, change or disable an account
 #
-# The release, asterion-trading-setup.sh, is this script with the
+# The release, Asterion-Trading-VERSION-linux-x86_64.sh, is this script with the
 # installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
 # CMake target asterion_trading_setup); it unpacks that into a temporary
 # directory. The installed copy, bin/setup.sh, carries nothing and only
@@ -408,7 +408,7 @@ main() {
     elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
         source=$ROOT
     else
-        fail "This copy carries no programs: install or upgrade with the released asterion-trading-setup.sh"
+        fail "This copy carries no programs: install or upgrade with the released Asterion-Trading-VERSION-linux-x86_64.sh"
     fi
     if [[ -d $ROOT/data ]]; then
         ACCOUNT=$(stat -c %U "$ROOT/data")

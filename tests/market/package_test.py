@@ -2,7 +2,7 @@
 
 The harness and test-only archive writer run on the host using prepared Lab
 Python. The container runs the shipped C++ executable and vendor libraries.
-Usage: <prepared-python> package_test.py <asterion-market-setup.sh>
+Usage: <prepared-python> package_test.py <Asterion-Market-VERSION-linux-x86_64.sh>
 """
 from contextlib import contextmanager
 from decimal import Decimal

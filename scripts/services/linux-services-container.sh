@@ -17,4 +17,5 @@ cmake --preset conan-release
 # The recording and trading hosts' own releases, one self-extracting script each.
 CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_market_setup asterion_trading_setup
 mkdir -p /output
-cp build/Release/asterion-market-setup.sh build/Release/asterion-trading-setup.sh /output/
+version=$(cat VERSION)
+cp "build/Release/Asterion-Market-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/

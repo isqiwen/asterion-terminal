@@ -14,8 +14,8 @@ Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`�
 
 ## 远程服务
 
-- **Market**：用 `asterion-market-setup.sh` 安装到 `/opt/asterion/market`，服务 `asterion-market.service`，见[录制与部署](market/deployment.md)。
-- **Trading**：用 `asterion-trading-setup.sh` 安装到 `/opt/asterion/trading`，每个账户一个 `asterion-trading@<账户>.service`，见[交易](trading/deployment.md#安装与账户配置)。安装包自带策略用的 Python 运行时。升级程序前必须停止全部账户。
+- **Market**：用 `Asterion-Market-<版本>-linux-x86_64.sh` 安装到 `/opt/asterion/market`，服务 `asterion-market.service`，见[录制与部署](market/deployment.md)。
+- **Trading**：用 `Asterion-Trading-<版本>-linux-x86_64.sh` 安装到 `/opt/asterion/trading`，每个账户一个 `asterion-trading@<账户>.service`，见[交易](trading/deployment.md#安装与账户配置)。安装包自带策略用的 Python 运行时。升级程序前必须停止全部账户。
 - 两个服务都以执行 `sudo` 的普通账户运行，凭据是 systemd 加密凭据，启动时自动登录柜台。Trading 重启不恢复授权。
 - Terminal 只是客户端：不安装、启动、升级或备份远程服务。
 
