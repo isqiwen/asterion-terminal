@@ -1,3 +1,4 @@
+#include "warehouse/research.hpp"
 #include <asterion/protocol/market.hpp>
 #include "acquisition/guotai.hpp"
 #include "acquisition/manager.hpp"
@@ -161,6 +162,7 @@ TEST_F(GuotaiSource, MarketAutomaticallyPublishesFiveExchangesAndSkipsStoredDays
     EXPECT_EQ(task.requests_sent(), 2);
     EXPECT_EQ(task.items_done(), 20);
     wh::Store research(wh::source_directory(root, "research"), "research");
+    wh::compose_research(root, research);
     const auto fixed = research.current();
     ASSERT_EQ(fixed.partitions.size(), 10);
     for (const auto& [key, part] : fixed.partitions)
@@ -176,7 +178,7 @@ TEST_F(GuotaiSource, MarketAutomaticallyPublishesFiveExchangesAndSkipsStoredDays
     task = wait(manager, request.id());
     EXPECT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 0);
-    EXPECT_EQ(research.current_identity(), fixed.identity);
+    EXPECT_EQ(wh::compose_research(root, research).identity, fixed.identity);
 }
 
 TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
@@ -187,6 +189,7 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
                                     return std::make_unique<ac::Guotai>(exchanges, stop);
                                 }}});
     wh::Store research(wh::source_directory(root, "research"), "research");
+    wh::compose_research(root, research);
     for (const auto* first : {"2023-11-06", "2024-12-17"}) {
         ac::wire::StartAcquisition request;
         request.set_id(first);

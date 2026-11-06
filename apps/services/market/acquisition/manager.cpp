@@ -1,5 +1,4 @@
 #include "manager.hpp"
-#include "warehouse/research.hpp"
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/system/log.hpp>
@@ -102,10 +101,13 @@ wire::Sources Manager::sources() const
     return result;
 }
 
-Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
+Manager::Manager(
+    fs::path directory,
+    std::map<std::string, Factory> sources,
+    std::function<void()> committed)
     : directory_(std::move(directory) / "acquisition"),
       sources_(std::move(sources)),
-      research_(warehouse::source_directory(directory_.parent_path(), "research"), "research")
+      committed_(std::move(committed))
 {
     create_directories_durably(directory_);
     for (const auto& [provider, factory] : sources_) {
@@ -114,13 +116,6 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
         stores_[provider] = std::make_unique<warehouse::Store>(
             warehouse::source_directory(directory_.parent_path(), provider),
             provider);
-    }
-    // Research reads what the sources hold now, whatever stopped composing
-    // before. Recording must start even if it cannot; the next commit retries.
-    try {
-        warehouse::compose_research(directory_.parent_path(), research_);
-    } catch (const std::exception& error) {
-        log::error("market research dataset not composed: {}", error.what());
     }
     // An accepted task never silently resumes network requests after a restart.
     for (const auto& entry : fs::directory_iterator(directory_)) {
@@ -431,7 +426,8 @@ void Manager::run(
         task.set_published_version(version.identity);
     const auto commit = [&] {
         version = writer.commit();
-        warehouse::compose_research(directory_.parent_path(), research_);
+        if (committed_)
+            committed_();
         if (request.provider() == task.request().provider())
             task.set_published_version(version.identity);
         task.set_requests_sent(previous_requests + source.requests());

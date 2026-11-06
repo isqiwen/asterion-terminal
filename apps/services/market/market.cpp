@@ -8,6 +8,7 @@
 #include "acquisition/tushare.hpp"
 #include "recorded/compaction.hpp"
 #include "recorded/reader.hpp"
+#include "warehouse/composer.hpp"
 #include "warehouse/reader.hpp"
 #include "warehouse/research.hpp"
 #include <asterion/base/bounded_queue.hpp>
@@ -332,6 +333,7 @@ struct Market::Running
     const Settings settings;
     const std::string instance;
     const std::shared_ptr<std::shared_mutex> archive = std::make_shared<std::shared_mutex>();
+    warehouse::Composer composer;
     acquisition::Manager acquisitions;
     acquisition::RecordedIntake intake;
     ThreadPool readers{1, 8};
@@ -346,7 +348,13 @@ struct Market::Running
     Running(Settings settings, std::string instance)
         : settings(std::move(settings)),
           instance(std::move(instance)),
-          acquisitions(this->settings.directory, sources(this->settings, archive)),
+          composer(this->settings.directory),
+          acquisitions(
+              this->settings.directory,
+              sources(this->settings, archive),
+              [this] {
+                  composer.request();
+              }),
           intake(
               this->settings.directory / "recordings",
               archive,
@@ -359,6 +367,7 @@ struct Market::Running
                 // Recording closed with run(); only now may history take its time.
                 intake.stop();
                 acquisitions.stop();
+                composer.stop();
                 completion.set_value();
             } catch (...) {
                 completion.set_exception(std::current_exception());

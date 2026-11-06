@@ -72,6 +72,7 @@ classDiagram
     class IntradayBars
     class Recorder
     class RecordedIntake
+    class Composer
     class Compactor
     class RecordedPublication
     class Manager
@@ -81,6 +82,7 @@ classDiagram
     Market *-- Recording : 行情线程
     Market *-- Manager
     Market *-- RecordedIntake
+    Market *-- Composer
     Market *-- QuoteStream : 每条报价流
     Live *-- Feed
     Live *-- Catalog
@@ -132,7 +134,8 @@ classDiagram
     Source <|-- Guotai
     Source <|-- Recorded
     Manager ..> Source : 为任务创建
-    Manager *-- Store : 来源与 research
+    Manager *-- Store : 各来源
+    Composer *-- Store : research
     Manager ..> Writer
     Recorded ..> RecordingReader
     WarehouseReader ..> Store
@@ -183,7 +186,7 @@ sequenceDiagram
     participant Manager
     participant Source
     participant Writer
-    participant Research as compose_research
+    participant Research as Composer
     Client->>RPC: start_acquisition
     RPC->>RPC: 由已验证证书检查 manage 权限
     RPC->>Manager: submit(request)
@@ -194,9 +197,9 @@ sequenceDiagram
     Manager->>Writer: put() / merge_days()
     Manager->>Writer: commit()
     Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
-    Manager->>Research: 合成 research
-    Research->>Research: 持有研究写锁，读取来源版本并发布
+    Manager-->>Research: 通知合成，不等待
     Manager->>Manager: 持久化任务进度或完成状态
+    Research->>Research: 在自己的线程读取来源版本并发布
     Client->>RPC: get_dataset_version(research，当前版本)
     RPC-->>Client: 固定版本 ID、分区与摘要
     loop 分页与文件下载
@@ -207,7 +210,7 @@ sequenceDiagram
 
 录制自动发布复用上述采集路径：`RecordedIntake` 只看磁盘文件，`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办，这一天一小时后再试，不影响后面的日期，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
 
-`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
+`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
 
 ## 生命周期与错误边界
 

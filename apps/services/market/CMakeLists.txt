@@ -7,7 +7,7 @@ add_library(asterion_market_recorded STATIC
 target_include_directories(asterion_market_recorded PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_market_recorded PUBLIC asterion_market_recording)
 asterion_target_defaults(asterion_market_recorded)
-add_library(asterion_market_warehouse STATIC warehouse/store.cpp warehouse/reader.cpp warehouse/research.cpp)
+add_library(asterion_market_warehouse STATIC warehouse/store.cpp warehouse/reader.cpp warehouse/research.cpp warehouse/composer.cpp)
 target_include_directories(asterion_market_warehouse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_market_warehouse PUBLIC asterion_protocol PRIVATE asterion_bar_parquet duckdb::duckdb)
 asterion_target_defaults(asterion_market_warehouse)

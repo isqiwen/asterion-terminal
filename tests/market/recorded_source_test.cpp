@@ -1,4 +1,6 @@
 #include "acquisition/recorded.hpp"
+#include "warehouse/composer.hpp"
+#include "warehouse/research.hpp"
 #include "acquisition/recorded_intake.hpp"
 #include "acquisition/recorded_publication.hpp"
 #include "acquisition/manager.hpp"
@@ -218,7 +220,8 @@ TEST_F(RecordedSource, AMergedDayIsReportedAndEveryContractOfItReachesResearch)
     const auto task = publish(manager, "day", true, "");
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     std::map<std::string, std::string> research;
-    const wh::Store store(wh::source_directory(root, "research"), "research");
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    wh::compose_research(root, store);
     for (const auto& [key, part] : store.current().partitions)
         research[key] = part.source;
     EXPECT_EQ(
@@ -343,6 +346,23 @@ TEST_F(RecordedSource, IntakeTakesAFinishedDayFromTheDiskAlone)
     EXPECT_TRUE(store.current().partitions.contains("minutes/SHFE/2026-10-28/rb/2027-01"));
     EXPECT_TRUE(fs::exists(root / "recordings/minutes/trading_day=20261028/SHFE.parquet"));
     intake.stop();
+}
+
+TEST_F(RecordedSource, ResearchFollowsACommitWithoutTheTaskDoingTheWork)
+{
+    record("first");
+    wh::Composer composer(root);
+    ac::Manager manager(root, {{"recorder", factory()}}, [&] {
+        composer.request();
+    });
+    ASSERT_EQ(publish(manager, "first").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    const wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (research.current().partitions.empty() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(5ms);
+    EXPECT_EQ(
+        research.current().partitions.at("minutes/SHFE/2026-10-28/rb/2027-01").source,
+        "recorder");
 }
 
 TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)

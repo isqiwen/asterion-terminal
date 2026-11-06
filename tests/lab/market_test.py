@@ -138,12 +138,19 @@ class RemoteResearch(unittest.TestCase):
                     return task.published_version
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
-        record('first', base, '3100.123456')
-        publish('recorded-first')
-        # Market composes research from the publication.
         left = Dataset(self.lab, market=self.market)
         right = Dataset(self.node / 'second-lab', market=self.market)
-        identity = left.current().identity
+        def composed_after(previous):
+            # Market composes research from the publication soon after it.
+            deadline = time.monotonic() + 10
+            while (identity := left.current().identity) == previous:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(.02)
+            return identity
+        before = left.current().identity
+        record('first', base, '3100.123456')
+        publish('recorded-first')
+        identity = composed_after(before)
         sql = 'select day, start_ms, close, volume, average_price, partial from minutes order by start_ms'
         expected = [(date(2026, 10, 28), base, Decimal('3100.123456'),
                      Decimal('9007199254740993'), None, True)]
@@ -156,7 +163,7 @@ class RemoteResearch(unittest.TestCase):
         publish('recorded-skip')
         self.assertEqual(left.current().identity, identity)
         publish('recorded-refresh', True)
-        updated = left.current().identity
+        updated = composed_after(identity)
         self.assertNotEqual(updated, identity)
         self.assertEqual(len(left.query(left.version(updated), sql, ('minutes',))), 2)
         self.assertEqual(right.query(right.version(identity), sql, ('minutes',)), expected)

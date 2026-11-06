@@ -1,3 +1,4 @@
+#include "warehouse/research.hpp"
 #include <asterion/protocol/market.hpp>
 #include "acquisition/exchanges.hpp"
 #include "acquisition/manager.hpp"
@@ -357,6 +358,7 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
     wh::Store bars(wh::source_directory(root, "tushare"), "tushare");
     EXPECT_EQ(task.published_version(), bars.current_identity());
     wh::Store research(wh::source_directory(root, "research"), "research");
+    wh::compose_research(root, research);
     const auto fixed = research.current();
     ASSERT_TRUE(fixed.partitions.contains("price_ticks/CZCE/2022-01-04"));
     EXPECT_EQ(fixed.partitions.at("price_ticks/CZCE/2022-01-04").source, "czce");
@@ -370,6 +372,7 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
     EXPECT_EQ(task.requests_sent(), 1);
     EXPECT_EQ(task.items_empty(), 0);
     EXPECT_EQ(bars.current_identity(), task.published_version());
+    wh::compose_research(root, research);
     EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
 
     raw.replace(raw.find("1.00元/吨"), std::string("1.00元/吨").size(), "0.005元/吨");
@@ -379,6 +382,7 @@ TEST_F(ExchangeSources, MinuteAcquisitionBackfillsPriceTickGapsAndKeepsFixedVers
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 4);
+    wh::compose_research(root, research);
     EXPECT_EQ(
         research.read(fixed, "price_ticks/CZCE/2022-01-04")[0][5],
         wh::Cell{std::string("1.00000000")});
@@ -420,6 +424,7 @@ TEST_F(ExchangeSources, AutomaticPriceTickFailureKeepsAcquiredDataForRetry)
     EXPECT_EQ(task.error().code(), ::common::ERROR_CODE_UNAVAILABLE);
     EXPECT_EQ(task.requests_sent(), 4);
     wh::Store research(wh::source_directory(root, "research"), "research");
+    wh::compose_research(root, research);
     const auto partial = research.current();
     EXPECT_TRUE(partial.partitions.contains("minutes/CZCE/2022-01-05/ap/2022-01"));
     EXPECT_TRUE(partial.partitions.contains("price_ticks/CZCE/2022-01-04"));
@@ -431,6 +436,7 @@ TEST_F(ExchangeSources, AutomaticPriceTickFailureKeepsAcquiredDataForRetry)
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 1);
+    wh::compose_research(root, research);
     EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
 }
 
