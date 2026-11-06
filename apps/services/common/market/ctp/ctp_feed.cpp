@@ -193,7 +193,7 @@ struct Feed::Impl final
     void record_status()
     {
         std::fill(subscription_revisions.begin(), subscription_revisions.end(), state.sequence);
-        events.push_back(FeedStatus{state.phase, state.error_code});
+        events.emplace_back(FeedStatus{state.phase, state.error_code});
     }
 
     std::vector<InstrumentId> wanted;
@@ -537,7 +537,7 @@ struct Feed::Impl final
             depth_level(tick->AskPrice5, tick->AskVolume5)
         };
         const bool out_of_order = s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
-        events.push_back(MarketQuoteObservation{q, out_of_order});
+        events.emplace_back(MarketQuoteObservation{q, out_of_order});
         if (out_of_order) {
             ++state.out_of_order;
             ++state.sequence;
@@ -597,7 +597,7 @@ struct Feed::Impl final
                             value.code ? SubscriptionState::error : SubscriptionState::subscribed;
                         ++state.sequence;
                         subscription_revisions[found->second] = state.sequence;
-                        events.push_back(
+                        events.emplace_back(
                             MarketSubscription{sub.instrument, sub.state, sub.error_code, {}});
                         return;
                     } else if constexpr (std::is_same_v<T, Failure>) {
