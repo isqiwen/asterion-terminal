@@ -53,9 +53,7 @@ module.exports = {
   electronDist,
   npmRebuild: false,
   nodeGypRebuild: false,
-  artifactName: distribution
-    ? "Asterion-Terminal-${version}-${os}-${arch}.${ext}"
-    : "Asterion-Terminal-TEST-${version}-${os}-${arch}.${ext}",
+  artifactName: "Asterion-Terminal-${version}-${os}-${arch}.${ext}",
   forceCodeSigning: mac && distribution,
   mac: {
     target: ["dmg"],
