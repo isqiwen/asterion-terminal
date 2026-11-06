@@ -14,7 +14,6 @@ public:
           page_(page)
     {}
 
-    ::market::Datasets datasets() const;
     ::market::DatasetVersion version(const ::market::GetDatasetVersion&) const;
     ::market::DatasetFile file(const ::market::ReadDatasetFile&) const;
     ::market::DatasetSummary summary(const ::market::DatasetRef&) const;

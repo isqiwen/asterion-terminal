@@ -598,31 +598,23 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     const auto call = [](Json operation) {
         return request("market.call", {{"request", std::move(operation)}});
     };
-    auto first =
-        terminal::ApplicationTestAccess::submit(app, call({{"listSources", Json::object()}}));
+    auto first = terminal::ApplicationTestAccess::submit(
+        app,
+        call({{"getAcquisitionOptions", Json::object()}}));
     auto second =
-        terminal::ApplicationTestAccess::submit(app, call({{"listDatasets", Json::object()}}));
+        terminal::ApplicationTestAccess::submit(app, call({{"getDatasetVersion", Json::object()}}));
     const auto catalog = first.get();
-    const auto& sources = catalog.at("market").at("listSources");
-    EXPECT_FALSE(sources.value("canManage", false));
-    ASSERT_EQ(sources.at("sources").size(), 4);
-    EXPECT_EQ(sources.at("sources")[0].at("provider"), "ctp");
-    EXPECT_EQ(sources.at("sources")[0].at("tables"), Json::array({"TABLE_PRICE_TICKS"}));
-    EXPECT_EQ(sources.at("sources")[1].at("provider"), "gfex");
-    EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"TABLE_DAILY"}));
-    EXPECT_EQ(sources.at("sources")[2].at("provider"), "gtja");
-    EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"TABLE_PRICE_TICKS"}));
-    EXPECT_EQ(sources.at("sources")[2].at("exchanges"), Json::array({"GFEX", "SHFE"}));
-    EXPECT_EQ(sources.at("sources")[3].at("provider"), "shfe");
+    const auto& options = catalog.at("market").at("getAcquisitionOptions");
+    EXPECT_FALSE(options.value("canManage", false));
     EXPECT_EQ(
-        sources.at("sources")[3].at("tables"),
-        Json::array({"TABLE_DAILY", "TABLE_SETTLEMENT"}));
-    EXPECT_TRUE(second.get().at("market").contains("listDatasets"));
+        options.at("tables"),
+        Json::array({"TABLE_DAILY", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
+    EXPECT_EQ(options.at("exchanges").size(), 6);
+    EXPECT_TRUE(second.get().at("market").contains("getDatasetVersion"));
     try {
         app.dispatch(call(
             {{"startAcquisition",
                 {{"id", "forbidden"},
-                    {"provider", "shfe"},
                     {"table", "TABLE_DAILY"},
                     {"firstDay", "2026-10-30"},
                     {"lastDay", "2026-10-30"}}}}));

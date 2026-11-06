@@ -97,7 +97,7 @@ def main():
         for name in ('password', 'auth_code'):
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):
-            dataset = dict(provider='ctp')
+            dataset = dict()
             deadline = time.monotonic() + 30
             while not rpc(tls, port, 'get_dataset_version', dataset=dataset).partitions:
                 assert time.monotonic() < deadline

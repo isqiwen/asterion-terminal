@@ -219,9 +219,6 @@ void answer_reader(
 {
     const warehouse::Reader datasets(directory);
     switch (request.call_case()) {
-        case wire::Request::kListDatasets:
-            *response.mutable_list_datasets() = datasets.datasets();
-            break;
         case wire::Request::kGetDatasetVersion:
             *response.mutable_get_dataset_version() =
                 datasets.version(request.get_dataset_version());
@@ -248,9 +245,9 @@ void answer_reader(
             *response.mutable_compare_dataset_versions() =
                 datasets.change(request.compare_dataset_versions());
             break;
-        case wire::Request::kListSources:
-            *response.mutable_list_sources() = tasks.sources();
-            response.mutable_list_sources()->set_can_manage(can_manage);
+        case wire::Request::kGetAcquisitionOptions:
+            *response.mutable_get_acquisition_options() = tasks.options();
+            response.mutable_get_acquisition_options()->set_can_manage(can_manage);
             break;
         case wire::Request::kStartAcquisition:
             *response.mutable_start_acquisition() = tasks.submit(request.start_acquisition());

@@ -16,7 +16,7 @@ import {
   type MarketCoverage,
   type MarketSummary,
   type MarketTask,
-  type MarketSource,
+  type AcquisitionOptions,
   type MessageValues,
   type TerminalContext,
   ActionError,
@@ -51,9 +51,7 @@ const tables: Partial<Record<Table, string>> = {
   [Table.PRICE_TICKS]: "历史报价单位",
 };
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
-// Sources such as research list no exchanges of their own.
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
-type Source = Pick<MarketSource, "provider" | "tables" | "exchanges">;
 
 // Every read and acquisition goes to the saved remote Market. Browsing a
 // source changes only this component, never the service's collection lifecycle.
@@ -82,52 +80,25 @@ export function Coverage(context: TerminalContext) {
   );
 }
 
-// Another page can open a source's version: params `provider` and `version`.
+// Another page can open a version: param `version`.
 function DataPage({ context }: { context: TerminalContext }) {
   const opened = context.workspaceParams;
-  const [sources, setSources] = useState<Source[]>([]);
-  const [provider, setProvider] = useState(opened?.provider ?? "");
-  useEffect(() => {
-    if (opened?.provider) setProvider(opened.provider);
-  }, [opened?.provider, opened?.version]);
-  const [canManage, setCanManage] = useState<boolean | null>(null);
+  const [options, setOptions] = useState<AcquisitionOptions>();
   const [error, setError] = useState<DisplayError>("");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    const load = async () => {
-      try {
-        const catalog = await marketData({ case: "listSources", value: {} });
-        const listed = new Map<string, Source>(catalog.sources.map(item => [item.provider, item]));
-        const stored = await marketData({ case: "listDatasets", value: {} });
-        for (const item of stored.datasets) {
-          // A disabled provider's already stored dataset is still readable.
-          if (!listed.has(item.provider))
-            listed.set(item.provider, { provider: item.provider, tables: [], exchanges: [] });
-        }
+    marketData({ case: "getAcquisitionOptions", value: {} })
+      .then(next => {
         if (!active) return;
-        // What research reads comes first.
-        const next = [...listed.values()].sort(
-          (a, b) =>
-            Number(b.provider === "research") - Number(a.provider === "research") ||
-            a.provider.localeCompare(b.provider),
-        );
-        setSources(next);
-        setProvider(current =>
-          next.some(item => item.provider === current) ? current : (next[0]?.provider ?? ""),
-        );
-        setCanManage(catalog.canManage);
+        setOptions(next);
         setError("");
-      } catch (failure) {
-        if (active) setError(asDisplayError(failure));
-      }
-    };
-    void load();
+      })
+      .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
       active = false;
     };
   }, [retry]);
-  const source = sources.find(item => item.provider === provider);
   if (error)
     return (
       <div className="workspace-empty" role="alert">
@@ -141,57 +112,25 @@ function DataPage({ context }: { context: TerminalContext }) {
   return (
     <div className="page-body data-body">
       <MarketStatus context={context} />
-      <div className="data-source">
-        <label>
-          {t("数据源")}
-          <select value={provider} onChange={event => setProvider(event.target.value)}>
-            {sources.map(item => (
-              <option key={item.provider} value={item.provider}>
-                {item.provider === "research" ? t("研究数据") : item.provider}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="subtle">
-          {t(
-            "各来源分别采集和保存。研究只读「研究数据」：行情服务按规则合成，日线和分钟线以 Tushare 为准。",
-          )}
-        </p>
-      </div>
-      {!source && canManage !== null && (
-        <p className="data-card">{t("行情服务尚未启用采集来源，也没有已保存的数据集。")}</p>
-      )}
-      {source && (
-        <SourceCoverage
-          key={`${provider}/${source.tables.join()}/${source.exchanges.join()}/${opened?.version}`}
-          source={source}
-          sources={sources}
-          canManage={canManage === true}
-          opened={opened?.provider === provider ? (opened.version ?? "") : ""}
+      {options && (
+        <DataCoverage
+          key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}
+          options={options}
+          opened={opened?.version ?? ""}
         />
       )}
     </div>
   );
 }
 
-function SourceCoverage({
-  source,
-  sources,
-  canManage,
-  opened,
-}: {
-  source: Source;
-  sources: Source[];
-  canManage: boolean;
-  opened: string;
-}) {
-  const provider = source.provider;
+function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened: string }) {
+  const canManage = options.canManage;
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
   const [change, setChange] = useState<MarketChange>();
-  const [table, setTable] = useState(source.tables[0] ?? Table.UNSPECIFIED);
-  const [exchange, setExchange] = useState(source.exchanges[0] ?? "");
+  const [table, setTable] = useState(options.tables[0] ?? Table.UNSPECIFIED);
+  const [exchange, setExchange] = useState(options.exchanges[0] ?? "");
   const [contracts, setContracts] = useState<string[]>([]);
   const catalog = useMarket()?.board.catalog?.contracts;
   const [replace, setReplace] = useState(false);
@@ -215,23 +154,22 @@ function SourceCoverage({
     if (pending.current) return;
     pending.current = true;
     try {
-      const stored = await marketData({ case: "listDatasets", value: {} });
-      const nextLatest = stored.datasets.find(item => item.provider === provider)?.version ?? "";
-      const nextSummary = await marketData({
-        case: "getDatasetSummary",
-        value: { provider, version: viewed },
-      });
+      const current = await marketData({ case: "getDatasetSummary", value: {} });
+      const nextLatest = current.dataset?.version ?? "";
+      const nextSummary = viewed
+        ? await marketData({ case: "getDatasetSummary", value: { version: viewed } })
+        : current;
       const version = nextSummary.dataset?.version;
       const nextCoverage = version
-        ? await marketData({ case: "getDatasetCoverage", value: { provider, version } })
+        ? await marketData({ case: "getDatasetCoverage", value: { version } })
         : undefined;
-      // Market lists this source's tasks newest first; read as many pages as shown.
+      // Market lists tasks newest first; read as many pages as shown.
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
         const page = await marketData({
           case: "listAcquisitionTasks",
-          value: { provider, afterId },
+          value: { afterId },
         });
         nextTasks.push(...page.tasks);
         afterId = page.nextId;
@@ -248,21 +186,21 @@ function SourceCoverage({
     } finally {
       pending.current = false;
     }
-  }, [provider, viewed]);
+  }, [viewed]);
   useEffect(() => {
     let active = true;
     setChange(undefined);
     if (viewed && latest && viewed !== latest)
       void marketData({
         case: "compareDatasetVersions",
-        value: { provider, version: latest, base: viewed },
+        value: { version: latest, base: viewed },
       })
         .then(next => active && setChange(next))
         .catch(reason => active && setError(asDisplayError(reason)));
     return () => {
       active = false;
     };
-  }, [provider, viewed, latest]);
+  }, [viewed, latest]);
   useEffect(() => {
     mounted.current = true;
     void refresh();
@@ -275,13 +213,12 @@ function SourceCoverage({
       clearInterval(timer);
     };
   }, [refresh]);
-  const running = tasks.some(activeTask);
   // The reference tables this version holds rows of.
   const stored = referenceTables.filter(table =>
     summary?.tables.some(item => item.table === table && item.rows > 0n),
   );
   // Contracts a minute task can choose from: those Market lists now and those
-  // this source already holds minutes of.
+  // the dataset already holds minutes of.
   const known = useMemo(
     () => [
       ...new Set([
@@ -292,7 +229,7 @@ function SourceCoverage({
     [catalog, coverage],
   );
   const form = useRef<HTMLElement>(null);
-  const fillsDaily = canManage && source.tables.includes(Table.DAILY);
+  const fillsDaily = canManage && options.tables.includes(Table.DAILY);
   // Fills the form with one coverage gap; stored partitions are skipped, so the
   // whole month can be asked for.
   const fill = (
@@ -310,14 +247,13 @@ function SourceCoverage({
   };
   const acquire = async () => {
     setSubmitting(true);
-    const id = `${provider}-${crypto.randomUUID()}`;
+    const id = crypto.randomUUID();
     setSubmitted(id);
     await started.attempt(async () => {
       await marketData({
         case: "startAcquisition",
         value: {
           id,
-          provider,
           table,
           refetch: replace,
           // A minute task's exchanges follow from its contracts.
@@ -327,36 +263,26 @@ function SourceCoverage({
           lastDay: end,
         },
       });
-      // Market data is usable only with its price ticks: each source's are a task of its own.
-      if ([Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) && provider !== "ctp") {
-        const wanted =
-          table !== Table.MINUTES ? [exchange] : contracts.map(contract => contract.split("/")[0]);
-        for (const reference of sources) {
-          if (
-            reference.provider === provider ||
-            reference.provider === "ctp" ||
-            !reference.tables.includes(Table.PRICE_TICKS)
-          )
-            continue;
-          const exchanges = reference.exchanges.filter(
-            item => wanted.length === 0 || wanted.includes(item),
-          );
-          if (exchanges.length === 0) continue;
-          await marketData({
-            case: "startAcquisition",
-            value: {
-              id: `${reference.provider}-${crypto.randomUUID()}`,
-              provider: reference.provider,
-              table: Table.PRICE_TICKS,
-              refetch: replace,
-              exchanges,
-              contracts: [],
-              firstDay: begin,
-              lastDay: end,
-            },
-          });
-        }
-      }
+      // Market data is usable only with its price ticks.
+      if (
+        [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
+        options.tables.includes(Table.PRICE_TICKS)
+      )
+        await marketData({
+          case: "startAcquisition",
+          value: {
+            id: crypto.randomUUID(),
+            table: Table.PRICE_TICKS,
+            refetch: replace,
+            exchanges:
+              table === Table.MINUTES
+                ? [...new Set(contracts.map(contract => contract.split("/")[0]!))]
+                : [exchange],
+            contracts: [],
+            firstDay: begin,
+            lastDay: end,
+          },
+        });
       await refresh();
     });
     if (mounted.current) setSubmitting(false);
@@ -415,21 +341,21 @@ function SourceCoverage({
           <p className="subtle">{t("仓库里还没有数据。")}</p>
         )}
       </section>
-      <DatasetHistory provider={provider} latest={latest} viewed={viewed} onView={setViewed} />
-      {source.tables.length > 0 && (
+      <DatasetHistory latest={latest} viewed={viewed} onView={setViewed} />
+      {options.tables.length > 0 && (
         <section ref={form} className="data-card" aria-label={t("采集")}>
           <header>
             <h3>{t("采集")}</h3>
           </header>
           <p className="subtle">
             {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
-            {t("来源配置和凭据由行情服务主机管理；关闭此页面不会停止采集。")}
+            {t("行情服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>
               {t("表")}
               <select value={table} onChange={event => setTable(Number(event.target.value))}>
-                {source.tables.map(item => (
+                {options.tables.map(item => (
                   <option key={item} value={item}>
                     {tableName(item)}
                   </option>
@@ -440,7 +366,7 @@ function SourceCoverage({
               <label>
                 {t("交易所")}
                 <select value={exchange} onChange={event => setExchange(event.target.value)}>
-                  {source.exchanges.map(item => (
+                  {options.exchanges.map(item => (
                     <option key={item}>{item}</option>
                   ))}
                 </select>
@@ -473,7 +399,6 @@ function SourceCoverage({
               disabled={
                 !canManage ||
                 submitting ||
-                running ||
                 !begin ||
                 !end ||
                 begin > end ||
@@ -628,16 +553,15 @@ function SourceCoverage({
       {stored.length > 0 && (
         <ReferenceTables
           key={summary!.dataset!.version}
-          provider={provider}
           version={summary!.dataset!.version}
           tables={stored}
-          exchanges={source.exchanges.length ? source.exchanges : exchanges}
+          exchanges={options.exchanges.length ? options.exchanges : exchanges}
         />
       )}
       <MinuteCoverage
         contracts={coverage?.contracts ?? []}
         onFill={
-          canManage && source.tables.includes(Table.MINUTES)
+          canManage && options.tables.includes(Table.MINUTES)
             ? (contract, month) => fill(Table.MINUTES, month, { contracts: [contract] })
             : undefined
         }

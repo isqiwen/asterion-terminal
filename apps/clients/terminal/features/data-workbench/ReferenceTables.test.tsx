@@ -19,7 +19,6 @@ request.mockImplementation(async (body: { value: { exchange: string } }) => ({
 test("the contract table shows the chosen exchange's contracts", async () => {
   render(
     <ReferenceTables
-      provider="tushare"
       version="v"
       tables={[Table.CONTRACTS, Table.CALENDAR]}
       exchanges={["SHFE", "DCE"]}
@@ -32,7 +31,7 @@ test("the contract table shows the chosen exchange's contracts", async () => {
     expect(request).toHaveBeenLastCalledWith({
       case: "getTableRows",
       value: expect.objectContaining({
-        dataset: { provider: "tushare", version: "v" },
+        dataset: { version: "v" },
         table: Table.CONTRACTS,
         exchange: "DCE",
         offset: 0,
@@ -45,7 +44,6 @@ test("the contract table shows the chosen exchange's contracts", async () => {
 test("historical price ticks are browsed in the chosen fixed version and date range", async () => {
   render(
     <ReferenceTables
-      provider="research"
       version="historical-version"
       tables={[Table.PRICE_TICKS]}
       exchanges={["SHFE"]}
@@ -58,7 +56,7 @@ test("historical price ticks are browsed in the chosen fixed version and date ra
     expect(request).toHaveBeenLastCalledWith({
       case: "getTableRows",
       value: {
-        dataset: { provider: "research", version: "historical-version" },
+        dataset: { version: "historical-version" },
         table: Table.PRICE_TICKS,
         exchange: "SHFE",
         firstDay: "2014-01-01",

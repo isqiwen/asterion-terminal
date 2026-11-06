@@ -1,5 +1,6 @@
 #pragma once
 #include "source.hpp"
+#include "warehouse/research.hpp"
 #include <asterion/market.pb.h>
 #include <asterion/system/thread_pool.hpp>
 #include <functional>
@@ -9,9 +10,9 @@ namespace asterion::market_data::acquisition {
 namespace wire = ::market;
 
 // Market owns this object and every admitted task, independently of clients.
-// A task takes one table from one source; at most one runs per source. Three
-// workers serve clients and a fourth the contract snapshots. A full service refuses
-// admission instead of accumulating an unbounded task queue.
+// A task takes one table through the sources in their order of priority, each
+// filling only what the ones before it lack. Tasks run one at a time, and a full
+// queue refuses admission; contract snapshots run apart, so no provider delays them.
 class Manager
 {
 public:
@@ -21,11 +22,12 @@ public:
         std::map<std::string, Factory> sources = {},
         std::function<void()> committed = {});
     ~Manager();
-    wire::AcquisitionTask submit(wire::StartAcquisition);
+    // Named `providers` replace the table's order of priority: a contract snapshot's.
+    wire::AcquisitionTask submit(wire::StartAcquisition, std::vector<std::string> providers = {});
     void cancel(const std::string& id);
     wire::AcquisitionTask get(const std::string& id) const;
     wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
-    wire::Sources sources() const;
+    wire::AcquisitionOptions options() const;
     void stop();
 
 private:
@@ -36,7 +38,13 @@ private:
         std::shared_future<void> finished;
     };
 
-    void run(Active&, Source&, warehouse::Store&, const wire::StartAcquisition&);
+    void work(Active&, const wire::StartAcquisition&, const std::vector<std::string>& providers);
+    void run(
+        Active&,
+        Source&,
+        warehouse::Store&,
+        const wire::StartAcquisition&,
+        const std::set<std::string>& covered);
     void persist(const wire::AcquisitionTask&) const;
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();
@@ -48,7 +56,7 @@ private:
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;
-    ThreadPool workers_{4, 4};
+    ThreadPool workers_{1, 16}, snapshots_{1, 4};
 };
 
 } // namespace asterion::market_data::acquisition

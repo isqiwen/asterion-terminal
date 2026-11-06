@@ -84,11 +84,10 @@ void SnapshotIntake::poll(
             continue;
         wire::StartAcquisition request;
         request.set_id("snapshot-" + day + "-" + unique_process_id().substr(0, 8));
-        request.set_provider("ctp");
         request.set_table(wire::TABLE_PRICE_TICKS);
         request.set_first_day(iso);
         request.set_last_day(iso);
-        manager_.submit(request);
+        manager_.submit(request, {"ctp"});
         task_ = request.id();
         day_ = day;
         return;

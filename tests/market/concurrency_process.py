@@ -39,12 +39,12 @@ def history(root):
     rows = [daily(f'SHFE/x{i // 28}/2027-01', date(2026, 10, i % 28 + 1),
                   Decimal(rng.randrange(1000000000, 1000000000000)).scaleb(-6), 2000)
             for i in range(60000)]
-    writer = Warehouse(root / 'data', 'tushare').writer()
+    writer = Warehouse(root / 'data', 'research').writer()
     writer.put_rows('daily/SHFE/2026-10', 'daily', rows,
                     days=[f'2026-10-{day:02}' for day in range(1, 29)])
     version = writer.commit()
     part = version.manifest['partitions']['daily/SHFE/2026-10']
-    assert (root / 'data/warehouse' / part['file']).stat().st_size > 1024 * 1024
+    assert (root / 'data/sources/research/warehouse' / part['file']).stat().st_size > 1024 * 1024
     return version.identity
 
 
@@ -61,7 +61,7 @@ def main():
             with market_tls.connect(tls, port) as first:
                 send(first, 'stream_quotes')
                 selected = receive(first).stream_quotes.full.rows[0].instrument
-            file_query = dict(dataset=dict(provider='tushare', version=fixed), key='daily/SHFE/2026-10')
+            file_query = dict(dataset=dict(version=fixed), key='daily/SHFE/2026-10')
             baseline = call('read_dataset_file', **file_query)
             with market_tls.connect(tls, port) as slow, market_tls.connect(tls, port) as watch:
                 slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
@@ -90,14 +90,14 @@ def main():
             time.sleep(.4)
             assert call('get_status').last_quote_ms > before
             # The day's contract snapshot is taken in while readers and the watch proceed.
-            publication = until(lambda: call('get_dataset_version', dataset=dict(provider='ctp')),
+            publication = until(lambda: call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset={}),
                                 lambda v: v.partitions, timeout=30)
-            recorder = dict(provider='ctp', version=publication.dataset.version)
+            recorder = dict(version=publication.dataset.version)
             assert call('read_dataset_file', **file_query) == baseline
         # Reopen it, then kill a running task.
         with running_market(root, port) as process:
             assert call('get_status').started_ms != initial.started_ms
-            call('start_acquisition', role='manager', id='interrupted', provider='ctp',
+            call('start_acquisition', role='manager', id='interrupted',
                  table=market.TABLE_PRICE_TICKS, first_day='1990-01-01', last_day='2026-10-28')
             progress = until(lambda: call('get_acquisition_task', id='interrupted'),
                              lambda t: t.state == market.TASK_STATE_RUNNING and t.items_done > 0)
@@ -108,7 +108,7 @@ def main():
         with running_market(root, port):
             recovered = call('get_acquisition_task', id='interrupted')
             assert recovered.state == market.TASK_STATE_INTERRUPTED, recovered
-            assert call('get_dataset_version', dataset=recorder) == publication
+            assert call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset=recorder) == publication
             assert call('read_dataset_file', **file_query) == baseline
             stable = recovered.SerializeToString()
             time.sleep(.2)

@@ -131,7 +131,6 @@ TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
                                 }}});
     ac::wire::StartAcquisition request;
     request.set_id("ticks");
-    request.set_provider("gtja");
     request.set_table(::market::TABLE_PRICE_TICKS);
     request.set_first_day("2024-12-17");
     request.set_last_day("2024-12-18");
@@ -172,7 +171,6 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
     for (const auto* first : {"2023-11-06", "2024-12-17"}) {
         ac::wire::StartAcquisition request;
         request.set_id(first);
-        request.set_provider("gtja");
         request.set_table(::market::TABLE_PRICE_TICKS);
         request.set_first_day(first);
         request.set_last_day(ac::day_text(ac::day_of(first) + std::chrono::days(1)));

@@ -12,7 +12,6 @@ message Request {
     common.Instrument get_minutes = 12;
     common.Empty get_board = 13;
 
-    common.Empty list_datasets = 20;
     GetDatasetVersion get_dataset_version = 21;
     ReadDatasetFile read_dataset_file = 22;
     DatasetRef get_dataset_summary = 23;
@@ -21,7 +20,7 @@ message Request {
     CompareDatasetVersions compare_dataset_versions = 28;
     GetTableRows get_table_rows = 29;
 
-    common.Empty list_sources = 30;
+    common.Empty get_acquisition_options = 30;
     StartAcquisition start_acquisition = 31;
     TaskId get_acquisition_task = 32;
     ListAcquisitionTasks list_acquisition_tasks = 33;
@@ -38,7 +37,6 @@ message Response {
     Minutes get_minutes = 12;
     Board get_board = 13;
 
-    Datasets list_datasets = 20;
     DatasetVersion get_dataset_version = 21;
     DatasetFile read_dataset_file = 22;
     DatasetSummary get_dataset_summary = 23;
@@ -47,7 +45,7 @@ message Response {
     DatasetChange compare_dataset_versions = 28;
     TableRows get_table_rows = 29;
 
-    Sources list_sources = 30;
+    AcquisitionOptions get_acquisition_options = 30;
     AcquisitionTask start_acquisition = 31;
     AcquisitionTask get_acquisition_task = 32;
     AcquisitionTasks list_acquisition_tasks = 33;
@@ -215,20 +213,14 @@ enum Table {
   TABLE_PRICE_TICKS = 6;
 }
 
-// An empty version names the provider's current version.
+// An empty version names the current one.
 message DatasetRef {
-  string provider = 1;
-  string version = 2;
-}
-
-message Datasets {
-  repeated Dataset datasets = 1;
+  string version = 1;
 }
 
 message Dataset {
-  string provider = 1;
-  string version = 2;
-  int64 created_ms = 3;
+  string version = 1;
+  int64 created_ms = 2;
 }
 
 message GetDatasetVersion {
@@ -251,7 +243,7 @@ message Partition {
   string sha256 = 3;
   uint64 rows = 4;
   repeated string days = 5;
-  // In the research dataset: the provider it is taken from.
+  // Where it came from, for tracing only.
   string taken_from = 6;
 }
 
@@ -281,11 +273,9 @@ message TableSummary {
   string last_day = 5;
 }
 
-// A source's versions, newest first: from the current one, or after
-// `after_version` when paging.
+// Versions, newest first: from the current one, or after `after_version` when paging.
 message ListDatasetVersions {
-  string provider = 1;
-  string after_version = 2;
+  string after_version = 1;
 }
 
 message DatasetVersions {
@@ -296,9 +286,8 @@ message DatasetVersions {
 }
 
 message CompareDatasetVersions {
-  string provider = 1;
-  string version = 2;
-  string base = 3;
+  string version = 1;
+  string base = 2;
 }
 
 // The partitions `dataset` adds to `base`, replaces in it and removes from it.
@@ -365,30 +354,24 @@ message MinuteMonth {
 
 // ---- Acquisition
 
-message Sources {
-  repeated Source sources = 1;
-  bool can_manage = 2;
-}
-
-message Source {
-  string provider = 1;
+// What this client may ask Market to acquire.
+message AcquisitionOptions {
+  bool can_manage = 1;
   repeated Table tables = 2;
   repeated string exchanges = 3;
 }
 
-// The client chooses the id. No exchanges means all of the source's.
-// Contract only for minutes; the recorder takes none to mean every contract.
+// The client chooses the id. Market takes what it lacks from its sources in order
+// of priority. No exchanges means all of them. Minutes name their contracts.
 message StartAcquisition {
   string id = 1;
-  string provider = 2;
-  Table table = 3;
-  string first_day = 4;
-  string last_day = 5;
-  repeated string exchanges = 6;
-  // Minutes only: EXCHANGE/product/YYYY-MM each; none means every contract
-  // the source holds on those days.
-  repeated string contracts = 7;
-  bool refetch = 8;
+  Table table = 2;
+  string first_day = 3;
+  string last_day = 4;
+  repeated string exchanges = 5;
+  // Minutes only: EXCHANGE/product/YYYY-MM each.
+  repeated string contracts = 6;
+  bool refetch = 7;
 }
 
 message TaskId {
@@ -413,17 +396,14 @@ message AcquisitionTask {
   uint64 items_done = 4;
   uint64 items_empty = 5;
   uint64 requests_sent = 6;
-  string published_version = 7;
-  common.Error error = 8;
-  int64 started_ms = 9;
-  optional int64 finished_ms = 10;
+  common.Error error = 7;
+  int64 started_ms = 8;
+  optional int64 finished_ms = 9;
 }
 
 // Newest first; 20 a page.
 message ListAcquisitionTasks {
   string after_id = 1;
-  // Empty for every source.
-  string provider = 2;
 }
 
 message AcquisitionTasks {

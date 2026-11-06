@@ -84,7 +84,7 @@ classDiagram
 | 摘要、覆盖、参考表、版本历史与比较 | 分析线程 | `read` |
 | 其余调用 | 读取线程 | `read` |
 
-来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。
+来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。客户端看不到来源：协议只有一份数据集。
 
 ```mermaid
 classDiagram
@@ -108,7 +108,6 @@ classDiagram
     }
     class Writer {
         put()
-        merge_days()
         adopt()
         commit()
     }
@@ -164,15 +163,17 @@ sequenceDiagram
     RPC->>Manager: submit(request)
     Manager->>Manager: 持久化 QUEUED 任务
     Manager-->>Client: 经 RPC 返回已接纳任务
-    Manager->>Source: 后台读取供应商数据
-    Source-->>Manager: 标准化行
-    Manager->>Writer: put() / merge_days()
+    loop 按优先级每个来源，只取前面没有的分区
+        Manager->>Source: 后台读取供应商数据
+        Source-->>Manager: 标准化行
+    end
+    Manager->>Writer: put()
     Manager->>Writer: commit()
     Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
     Manager-->>Research: 通知合成，不等待
     Manager->>Manager: 持久化任务进度或完成状态
     Research->>Research: 在自己的线程读取来源版本并发布
-    Client->>RPC: get_dataset_version(research，当前版本)
+    Client->>RPC: get_dataset_version(当前版本)
     RPC-->>Client: 固定版本 ID、分区与摘要
     loop 分页与文件下载
         Client->>RPC: get_dataset_version / read_dataset_file，携带同一版本 ID
@@ -180,9 +181,9 @@ sequenceDiagram
     end
 ```
 
-每日合约快照也走上述路径：`SnapshotIntake` 只看磁盘，发现交易日已结束且未入库就提交 `ctp` 任务；失败的日期一小时后再试，不影响其他日期。
+每日合约快照也走上述路径：`SnapshotIntake` 只看磁盘，发现交易日已结束且未入库就提交任务，只用 `ctp` 来源；失败的日期一小时后再试，不影响其他日期。
 
-`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
+`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。来源顺序只在 `sources_of` 维护，`Manager` 和合成共用。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
 
 ## 生命周期与错误边界
 

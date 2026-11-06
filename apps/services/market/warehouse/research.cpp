@@ -1,32 +1,49 @@
 #include "research.hpp"
+#include <map>
+#include <memory>
+#include <set>
 
 namespace asterion::market_data::warehouse {
 
+const std::vector<std::string>& sources_of(std::string_view table)
+{
+    static const std::map<std::string_view, std::vector<std::string>> order{
+        {"contracts", {"tushare"}},
+        {"calendar", {"tushare"}},
+        {"daily", {"tushare", "shfe", "ine", "czce", "dce", "cffex", "gfex", "sina"}},
+        {"minutes", {"tushare", "sina"}},
+        {"settlement", {"shfe", "ine", "czce"}},
+        // What CTP itself stated that day outranks a later report of it.
+        {"price_ticks", {"ctp", "czce", "gtja"}},
+    };
+    return order.at(table);
+}
+
 Version compose_research(const std::filesystem::path& data, Store& research)
 {
-    const auto table = [](const std::string& key) {
-        return key.substr(0, key.find('/'));
-    };
     // Sources are read under the writer's lock, so a later composition never
     // publishes older source versions than an earlier one.
     auto writer = research.writer();
-    Store tushare(source_directory(data, "tushare"), "tushare");
-    Store catalog(source_directory(data, "ctp"), "ctp");
-    const auto primary = tushare.current();
     writer.clear();
-    for (const auto& [key, part] : primary.partitions)
-        writer.adopt(key, tushare, primary);
-    for (const auto* provider : {"shfe", "ine", "czce", "dce", "cffex", "gfex", "gtja"}) {
-        Store exchange(source_directory(data, provider), provider);
-        const auto version = exchange.current();
-        for (const auto& [key, part] : version.partitions)
-            if (table(key) == "settlement" || table(key) == "price_ticks")
-                writer.adopt(key, exchange, version);
+    std::map<std::string, std::pair<std::unique_ptr<Store>, Version>> sources;
+    for (const auto* table :
+        {"contracts", "calendar", "daily", "minutes", "settlement", "price_ticks"}) {
+        std::set<std::string> taken;
+        const auto prefix = std::string(table) + "/";
+        for (const auto& provider : sources_of(table)) {
+            auto& source = sources[provider];
+            if (!source.first) {
+                source.first = std::make_unique<Store>(source_directory(data, provider), provider);
+                source.second = source.first->current();
+            }
+            const auto& version = source.second;
+            for (auto at = version.partitions.lower_bound(prefix);
+                at != version.partitions.end() && at->first.starts_with(prefix);
+                ++at)
+                if (taken.insert(at->first).second)
+                    writer.adopt(at->first, *source.first, version);
+        }
     }
-    // What CTP itself stated that day outranks a later report of it.
-    const auto stated = catalog.current();
-    for (const auto& [key, part] : stated.partitions)
-        writer.adopt(key, catalog, stated);
     return writer.commit();
 }
 

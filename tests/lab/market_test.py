@@ -121,7 +121,7 @@ class RemoteResearch(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
         # Reading needs no permission to manage; starting a task does.
-        values = dict(id='denied', provider='ctp', table=market.TABLE_PRICE_TICKS,
+        values = dict(id='denied', table=market.TABLE_PRICE_TICKS,
                       first_day='2026-10-28', last_day='2026-10-28')
         self.assertEqual(rpc('start_acquisition', **values).error.code,
                          common.ERROR_CODE_PERMISSION_DENIED)
@@ -288,7 +288,7 @@ class RemoteResearch(unittest.TestCase):
         wrong = self.market.selected()
         wrong['fingerprint'] = '0' * 64
         with Client(wrong) as client, self.assertRaisesRegex(MarketError, 'fingerprint'):
-            client.call('get_dataset_version', dataset=dict(provider='research'))
+            client.call('get_dataset_version', dataset=dict())
 
     def base(self):
         request = Request(id=1)

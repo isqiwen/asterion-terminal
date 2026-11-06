@@ -14,14 +14,14 @@ namespace wire = ::market;
 
 namespace {
 
+Store dataset(const fs::path& directory)
+{
+    return Store(source_directory(directory, "research"), "research");
+}
+
 Version selected(const Store& store, const std::string& identity)
 {
     return identity.empty() ? store.current() : store.version(identity);
-}
-
-Store open_store(const fs::path& directory, const wire::DatasetRef& ref)
-{
-    return Store(source_directory(directory, ref.provider()), ref.provider());
 }
 
 wire::DatasetChange
@@ -29,7 +29,6 @@ change_of(const Store& store, const VersionHead& version, const VersionHead& bas
 {
     const auto counts = store.compare(version, base);
     wire::DatasetChange out;
-    out.mutable_dataset()->set_provider(store.provider());
     out.mutable_dataset()->set_version(version.identity);
     out.mutable_dataset()->set_created_ms(version.created_ns / 1'000'000);
     out.set_base(base.identity);
@@ -42,32 +41,12 @@ change_of(const Store& store, const VersionHead& version, const VersionHead& bas
 wire::Dataset dataset_of(const Version& version)
 {
     wire::Dataset out;
-    out.set_provider(version.provider);
     out.set_version(version.identity);
     out.set_created_ms(version.created_ns / 1'000'000);
     return out;
 }
 
 } // namespace
-
-wire::Datasets Reader::datasets() const
-{
-    std::set<std::string> providers;
-    if (fs::exists(directory_ / "warehouse/current"))
-        providers.insert("tushare");
-    const auto sources = directory_ / "sources";
-    if (fs::is_directory(sources)) {
-        for (const auto& entry : fs::directory_iterator(sources)) {
-            if (entry.is_directory() && fs::exists(entry.path() / "warehouse/current"))
-                providers.insert(entry.path().filename().string());
-        }
-    }
-    wire::Datasets result;
-    for (const auto& provider : providers)
-        *result.add_datasets() =
-            dataset_of(Store(source_directory(directory_, provider), provider).current());
-    return result;
-}
 
 wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
 {
@@ -78,11 +57,10 @@ wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
     const auto wanted = query.table() == wire::TABLE_UNSPECIFIED
         ? std::string{}
         : protocol::table_name(query.table());
-    const auto store = open_store(directory_, query.dataset());
+    const auto store = dataset(directory_);
     const auto identity =
         query.dataset().version().empty() ? store.current_identity() : query.dataset().version();
     wire::DatasetVersion result;
-    result.mutable_dataset()->set_provider(store.provider());
     if (identity.empty())
         return result;
     const auto top = store.head(identity);
@@ -128,7 +106,7 @@ wire::DatasetFile Reader::file(const wire::ReadDatasetFile& query) const
 {
     const std::uint64_t count = 1024 * 1024;
     require_identity(query.dataset().version());
-    const auto store = open_store(directory_, query.dataset());
+    const auto store = dataset(directory_);
     const auto [part, path] = store.locate(query.dataset().version(), query.key());
     const auto size = fs::file_size(path);
     if (query.offset() > size)
@@ -148,7 +126,7 @@ wire::DatasetFile Reader::file(const wire::ReadDatasetFile& query) const
 
 wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
 {
-    const auto store = open_store(directory_, query);
+    const auto store = dataset(directory_);
     const auto version = selected(store, query.version());
     wire::DatasetSummary result;
     *result.mutable_dataset() = dataset_of(version);
@@ -191,8 +169,7 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
 
 wire::DatasetVersions Reader::versions(const wire::ListDatasetVersions& query) const
 {
-    require_provider(query.provider());
-    const Store store(source_directory(directory_, query.provider()), query.provider());
+    const auto store = dataset(directory_);
     auto next = query.after_version().empty() ? store.current_identity()
                                               : store.head(query.after_version()).parent;
     wire::DatasetVersions result;
@@ -211,8 +188,7 @@ wire::DatasetVersions Reader::versions(const wire::ListDatasetVersions& query) c
 
 wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) const
 {
-    require_provider(query.provider());
-    const Store store(source_directory(directory_, query.provider()), query.provider());
+    const auto store = dataset(directory_);
     return change_of(store, store.head(query.version()), store.head(query.base()));
 }
 
@@ -227,7 +203,7 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         require_day(query.first_day());
         require_day(query.last_day());
     }
-    const auto store = open_store(directory_, query.dataset());
+    const auto store = dataset(directory_);
     const auto version = selected(store, query.dataset().version());
     wire::TableRows result;
     for (const auto& column : columns(table))
@@ -279,7 +255,7 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
 wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
 {
     require_identity(query.version());
-    const auto store = open_store(directory_, query);
+    const auto store = dataset(directory_);
     const auto version = store.version(query.version());
     wire::DatasetCoverage result;
     // minutes/<exchange>/<day>/<product>/<month>

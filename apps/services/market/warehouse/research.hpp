@@ -3,11 +3,13 @@
 
 namespace asterion::market_data::warehouse {
 
-// The one dataset clients read, provider "research", composed from the sources
-// in the data directory: Tushare's contracts, calendars, daily bars and minutes;
-// the exchanges' settlement parameters; and each day's price ticks from the CTP
-// snapshot, or else the historical sources. Every partition comes whole from one
-// source. Unchanged sources publish no new version.
+// The sources of a table, first the one whose data counts: each later one only
+// fills what those before it lack.
+const std::vector<std::string>& sources_of(std::string_view table);
+
+// The one dataset clients read, composed from the sources in the data directory
+// in that order, table by table. Every partition comes whole from one source.
+// Unchanged sources publish no new version.
 Version compose_research(const std::filesystem::path& data, Store& research);
 
 } // namespace asterion::market_data::warehouse

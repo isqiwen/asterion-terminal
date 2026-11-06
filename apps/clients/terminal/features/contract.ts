@@ -5,7 +5,7 @@ export { save } from "../src/bridge/desktop";
 export { lab } from "../src/bridge/lab";
 export { marketData } from "../src/bridge/market-data";
 export type {
-  Source as MarketSource,
+  AcquisitionOptions,
   AcquisitionTask as MarketTask,
   DatasetSummary as MarketSummary,
   DatasetCoverage as MarketCoverage,

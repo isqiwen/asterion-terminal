@@ -23,7 +23,7 @@ test("Market's generated mapping preserves 64-bit counts across the native bound
       ),
     };
   });
-  const result = await marketData({ case: "getDatasetSummary", value: { provider: "shfe" } });
+  const result = await marketData({ case: "getDatasetSummary", value: {} });
   expect(result.tables[0].rows).toBe(9007199254740993n);
 });
 

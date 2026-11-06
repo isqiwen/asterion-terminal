@@ -41,7 +41,7 @@ message Response {
 | 对象 | 规则 | 例子 |
 | --- | --- | --- |
 | 包 | 服务名，或 `common` | `market`、`lab`、`trading`、`strategy` |
-| 操作 | 动词_名词 | `get_status`、`list_datasets`、`start_acquisition` |
+| 操作 | 动词_名词 | `get_status`、`get_dataset_version`、`start_acquisition` |
 | 动词 | `get` 读一项，`list` 读一组，`read` 读字节，`start`/`cancel` 改变任务，`stream` 持续接收 | |
 | 参数消息 | 操作名的 PascalCase；无参数用 `common.Empty`；只有一个标识用 `TaskId` 这类消息 | `GetDatasetVersion` |
 | 结果消息 | 返回的东西本身 | `DatasetVersion`、`AcquisitionTask` |
@@ -102,18 +102,17 @@ message Response {
 | `get_board` | — | 当前全部合约行与完整目录，与报价流首帧相同 |
 | `stream_quotes` | 要看的合约，不填表示全部，最多 50 个 | 连续的 `QuoteFrame` |
 | `get_minutes` | `Instrument` | 本进程观测到的当前交易日分钟线 |
-| `list_datasets` | — | 每个来源的当前版本 |
-| `get_dataset_version` | 来源与版本、表、交易所、分页游标 | 版本信息与一页分区 |
-| `read_dataset_file` | 来源与版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
-| `get_dataset_summary` | 来源与版本 | 各表的分区数、行数和日期范围 |
-| `get_table_rows` | 来源与版本、合约表/交易日历/结算参数/历史报价单位、交易所、日期范围、偏移 | 一页至多 100 行，值都是文本，另给总行数；报价单位按有效区间相交选择 |
-| `list_dataset_versions` | 来源、分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
-| `compare_dataset_versions` | 来源、两个版本 | 前者相比后者新增、替换、删除的分区数 |
-| `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
-| `list_sources` | — | 可采集的来源、表、交易所，及当前证书能否管理 |
+| `get_dataset_version` | 版本（不填为当前）、表、交易所、分页游标 | 版本信息与一页分区 |
+| `read_dataset_file` | 版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
+| `get_dataset_summary` | 版本（不填为当前） | 各表的分区数、行数和日期范围 |
+| `get_table_rows` | 版本、合约表/交易日历/结算参数/历史报价单位、交易所、日期范围、偏移 | 一页至多 100 行，值都是文本，另给总行数；报价单位按有效区间相交选择 |
+| `list_dataset_versions` | 分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
+| `compare_dataset_versions` | 两个版本 | 前者相比后者新增、替换、删除的分区数 |
+| `get_dataset_coverage` | 版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
+| `get_acquisition_options` | — | 可采集的表和交易所，及当前证书能否管理 |
 | `start_acquisition` | 任务参数（`manage`） | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |
-| `list_acquisition_tasks` | 来源（不填为全部）、分页游标 | 一页任务，新的在前，每页 20 个 |
+| `list_acquisition_tasks` | 分页游标 | 一页任务，新的在前，每页 20 个 |
 | `cancel_acquisition` | 任务 ID（`manage`） | 取消请求发出时的任务现状 |
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。

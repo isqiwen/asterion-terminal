@@ -261,13 +261,11 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     ac::Manager manager(root, {{"czce", [&](auto stop) {
                                     return std::make_unique<ac::Exchange>("CZCE", stop, fetch);
                                 }}});
-    const auto sources = manager.sources();
-    ASSERT_EQ(sources.sources_size(), 1);
-    const auto& tables = sources.sources(0).tables();
+    const auto options = manager.options();
+    const auto& tables = options.tables();
     EXPECT_NE(std::find(tables.begin(), tables.end(), ::market::TABLE_PRICE_TICKS), tables.end());
     ac::wire::StartAcquisition request;
     request.set_id("ticks");
-    request.set_provider("czce");
     request.set_table(::market::TABLE_PRICE_TICKS);
     request.set_first_day("2022-01-03");
     request.set_last_day("2022-01-05");
@@ -305,7 +303,6 @@ TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
                                 }}});
     ac::wire::StartAcquisition request;
     request.set_id("ticks");
-    request.set_provider("czce");
     request.set_table(::market::TABLE_PRICE_TICKS);
     request.add_exchanges("CZCE");
     request.set_first_day("2022-01-04");
@@ -366,7 +363,6 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
                                 }}});
     ac::wire::StartAcquisition request;
     request.set_id("fees");
-    request.set_provider("shfe");
     request.set_table(::market::TABLE_SETTLEMENT);
     request.set_first_day("2026-10-29");
     request.set_last_day("2026-10-30");
@@ -374,7 +370,6 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     auto task = wait(manager, "fees");
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.items_empty(), 1);
-    EXPECT_EQ(task.request().exchanges_size(), 1);
     wh::Store store(wh::source_directory(root, "shfe"), "shfe");
     const auto original = store.current();
     ASSERT_EQ(original.partitions.size(), 1);
@@ -395,7 +390,6 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     EXPECT_EQ(failed.items_done(), 1);
     EXPECT_EQ(store.current().partitions.size(), 2);
     EXPECT_EQ(store.version(original.identity).partitions.size(), 1);
-    EXPECT_EQ(store.current().identity, failed.published_version());
     request.set_id("wrong");
     request.add_exchanges("DCE");
     manager.submit(request);
@@ -473,7 +467,6 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
             continue;
         ac::wire::StartAcquisition request;
         request.set_id(table);
-        request.set_provider(provider);
         request.set_table(asterion::protocol::table_of(table));
         request.set_first_day(day);
         request.set_last_day(day);

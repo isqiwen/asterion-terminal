@@ -27,10 +27,8 @@ request.mockImplementation(
   async (body: { case: string; value: { version?: string; afterVersion?: string } }) => {
     const version = body.value.version || current;
     switch (body.case) {
-      case "listSources":
-        return { sources: [], canManage: false };
-      case "listDatasets":
-        return { datasets: [{ provider: "research", version: current }] };
+      case "getAcquisitionOptions":
+        return { tables: [], exchanges: [], canManage: false };
       case "listDatasetVersions":
         return {
           versions: [
@@ -74,7 +72,7 @@ test("viewing an earlier version shows its summary and coverage and what changed
   expect(screen.queryByRole("rowheader", { name: "SHFE/rb" })).toBeNull();
   expect(request).toHaveBeenCalledWith({
     case: "getDatasetSummary",
-    value: { provider: "research", version: older },
+    value: { version: older },
   });
   await waitFor(() =>
     expect(screen.getByRole("status").textContent).toContain("新增 1 · 替换 0 · 删除 0"),
@@ -84,6 +82,6 @@ test("viewing an earlier version shows its summary and coverage and what changed
 });
 
 test("a research run's version opens on the data page", async () => {
-  render(<Coverage {...context({ provider: "research", version: older })} />);
+  render(<Coverage {...context({ version: older })} />);
   await screen.findByRole("rowheader", { name: "SHFE/cu" });
 });

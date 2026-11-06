@@ -28,12 +28,10 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 // Browse one exchange in a fixed version, limited to the selected dates.
 export function ReferenceTables({
-  provider,
   version,
   tables,
   exchanges,
 }: {
-  provider: string;
   version: string;
   tables: Table[];
   exchanges: string[];
@@ -50,7 +48,7 @@ export function ReferenceTables({
     void marketData({
       case: "getTableRows",
       value: {
-        dataset: { provider, version },
+        dataset: { version },
         table,
         exchange,
         firstDay: table === Table.CONTRACTS ? "" : first,
@@ -67,7 +65,7 @@ export function ReferenceTables({
     return () => {
       active = false;
     };
-  }, [provider, version, table, exchange, first, last, offset]);
+  }, [version, table, exchange, first, last, offset]);
   // Any change of what is shown starts from its first page.
   const choose = (apply: () => void) => {
     apply();

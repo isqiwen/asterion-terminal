@@ -26,18 +26,15 @@ test(
       await page.goto("/");
       await openView(page, "coverage");
       await rpc(page.request, "market.close");
-      await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("shfe");
       await expect(
         page.getByText("当前连接只有读取权限，不能启动或取消采集。", { exact: true }),
       ).toBeVisible();
       await expect(page.getByRole("button", { name: "开始采集", exact: true })).toBeDisabled();
-      await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("research");
       await expect(
         page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),
       ).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "开始采集", exact: true })).toHaveCount(0);
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });

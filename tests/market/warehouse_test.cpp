@@ -67,7 +67,7 @@ wh::Version publish(wh::Store& store, const std::string& key, std::size_t count 
 
 TEST_F(Warehouse, ImmutableVersionsAndAbandonedWrites)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     EXPECT_TRUE(store.current().identity.empty());
     EXPECT_FALSE(fs::exists(root));
     const auto first = publish(store, "daily/SHFE/202610");
@@ -98,7 +98,7 @@ TEST_F(Warehouse, ImmutableVersionsAndAbandonedWrites)
 
 TEST_F(Warehouse, ACommitWritesOnlyTheMonthsItChanged)
 {
-    wh::Store store(root, "shfe");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     const auto shards = [&] {
         return std::distance(
             fs::directory_iterator(store.root() / "shards"),
@@ -118,7 +118,7 @@ TEST_F(Warehouse, ACommitWritesOnlyTheMonthsItChanged)
 
 TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     auto writer = store.writer();
     for (const auto* table :
         {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
@@ -165,7 +165,7 @@ TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
 
 TEST_F(Warehouse, RefusesLossyInputAndDoesNotPublishIt)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     auto writer = store.writer();
     for (const auto* invalid : {"1.0000001", "10000000000000000000000", "nan", "1e3"}) {
         auto data = row("daily");
@@ -223,6 +223,7 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndTheDaysOwnPriceTicks)
         (std::map<std::string, std::string>{
             {"contracts/SHFE", "tushare"},
             {"daily/SHFE/2026-10", "tushare"},
+            {"daily/SHFE/2026-10-30", "shfe"},
             {mine, "tushare"},
             {"price_ticks/SHFE/2026-10-29", "gtja"},
             {tick, "ctp"},
@@ -251,7 +252,6 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
     publish(*tushare, "minutes/SHFE/2026-10-30/cu/2026-12", 2);
     wh::Store composed(wh::source_directory(root, "research"), "research");
     wire::DatasetRef query;
-    query.set_provider("research");
     query.set_version(wh::compose_research(root, composed).identity);
     const auto coverage = wh::Reader(root).coverage(query);
     ASSERT_EQ(coverage.contracts_size(), 2);
@@ -267,7 +267,7 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
 
 TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     const auto commit = [&](bool clear, std::vector<std::pair<std::string, std::size_t>> parts) {
         auto writer = store.writer();
         if (clear)
@@ -281,7 +281,6 @@ TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
     const auto third = commit(true, {{"daily/SHFE/2026-09", 1}});
     wh::Reader reader(root);
     wire::ListDatasetVersions query;
-    query.set_provider("tushare");
     const auto listed = reader.versions(query);
     ASSERT_EQ(listed.versions_size(), 3);
     EXPECT_TRUE(listed.next_version().empty());
@@ -298,7 +297,6 @@ TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
     query.set_after_version(third);
     EXPECT_EQ(reader.versions(query).versions(0).dataset().version(), second);
     wire::CompareDatasetVersions compare;
-    compare.set_provider("tushare");
     compare.set_version(second);
     compare.set_base(first);
     const auto change = reader.change(compare);
@@ -309,7 +307,7 @@ TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
 
 TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     const auto with = [](const char* table, std::size_t column, wh::Cell value) {
         auto out = row(table);
         out[column] = std::move(value);
@@ -334,7 +332,6 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
     }
     wh::Reader reader(root);
     wire::GetTableRows query;
-    query.mutable_dataset()->set_provider("tushare");
     query.set_table(wire::TABLE_CONTRACTS);
     query.set_exchange("SHFE");
     const auto contracts = reader.rows(query);
@@ -353,7 +350,7 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
 
 TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     publish(store, "minutes/SHFE/2026-10-28/rb/2027-01");
     const auto version = publish(store, "minutes/DCE/2026-10-28/i/2027-01");
     // Without the other month's shard, the full version can no longer be read.
@@ -363,7 +360,6 @@ TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
     EXPECT_THROW(store.version(version.identity), Error);
     wh::Reader reader(root);
     wire::ReadDatasetFile file;
-    file.mutable_dataset()->set_provider("tushare");
     file.mutable_dataset()->set_version(version.identity);
     file.set_key("minutes/SHFE/2026-10-28/rb/2027-01");
     EXPECT_FALSE(reader.file(file).data().empty());
@@ -375,12 +371,11 @@ TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
 
 TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     publish(store, "daily/SHFE/202610");
     const auto old = publish(store, "calendar/SHFE/all");
     wh::Reader reader(root, 1);
     wire::GetDatasetVersion query;
-    query.mutable_dataset()->set_provider("tushare");
     const auto page = reader.version(query);
     ASSERT_EQ(page.partitions_size(), 1);
     EXPECT_EQ(page.dataset().version(), old.identity);
@@ -400,7 +395,6 @@ TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)
     EXPECT_EQ(reader.version(query).partitions_size(), 0);
 
     wire::ReadDatasetFile file;
-    file.mutable_dataset()->set_provider("tushare");
     file.mutable_dataset()->set_version(old.identity);
     file.set_key("daily/SHFE/202610");
     const auto whole = reader.file(file);
@@ -425,18 +419,12 @@ TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)
 TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
 {
     wh::Reader reader(root);
-    EXPECT_EQ(reader.datasets().datasets_size(), 0);
+    EXPECT_FALSE(
+        reader.version({}).has_dataset() && !reader.version({}).dataset().version().empty());
     EXPECT_FALSE(fs::exists(root));
-    wh::Store first(root, "tushare");
+    wh::Store first(wh::source_directory(root, "research"), "research");
     const auto version = publish(first, "daily/SHFE/202610", 2);
-    wh::Store other(wh::source_directory(root, "exchange"), "exchange");
-    publish(other, "settlement/SHFE/202610");
-    const auto datasets = reader.datasets();
-    ASSERT_EQ(datasets.datasets_size(), 2);
-    EXPECT_EQ(datasets.datasets(0).provider(), "exchange");
-    EXPECT_EQ(datasets.datasets(1).version(), version.identity);
     wire::DatasetRef summary;
-    summary.set_provider("tushare");
     summary.set_version(version.identity);
     publish(first, "daily/SHFE/202610", 3);
     const auto coverage = reader.summary(summary);
@@ -451,7 +439,7 @@ TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
 
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)
 {
-    wh::Store store(root, "tushare");
+    wh::Store store(wh::source_directory(root, "research"), "research");
     const auto daily = [](const std::string& product, const std::string& day) {
         auto value = row("daily");
         value[0] = std::string("SHFE");
@@ -478,7 +466,6 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
     }
     wh::Reader reader(root);
     wire::DatasetRef query;
-    query.set_provider("tushare");
     EXPECT_THROW(reader.coverage(query), std::invalid_argument);
     query.set_version(first.identity);
     const auto coverage = reader.coverage(query);
@@ -502,14 +489,6 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
     EXPECT_EQ(reader.coverage(query).products_size(), 2);
     query.set_version(current.identity);
     EXPECT_EQ(reader.coverage(query).products(0).product(), "SHFE/al");
-    wh::Store public_source(wh::source_directory(root, "shfe"), "shfe");
-    {
-        auto writer = public_source.writer();
-        writer.put("daily/SHFE/2026-10", std::vector<wh::Row>{daily("cu", "2026-10-30")});
-        query.set_version(writer.commit().identity);
-    }
-    query.set_provider("shfe");
-    EXPECT_EQ(reader.coverage(query).products(0).months(0).open_days(), 0);
     query.set_version(std::string(64, '0'));
     EXPECT_THROW(reader.coverage(query), Error);
 }
@@ -527,27 +506,23 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
 TEST_F(Warehouse, RemoteClientsKeepIndependentVersionsAndReconnect)
 {
     testing_support::MarketHost host(root);
-    wh::Store store(root / "data", "tushare");
+    wh::Store store(wh::source_directory(root / "data", "research"), "research");
     const auto old = publish(store, "daily/SHFE/202610");
     host.start();
     auto first = host.open();
     auto second = host.open();
     ::market::Request request;
-    request.mutable_get_dataset_version()->mutable_dataset()->set_provider("tushare");
+    request.mutable_get_dataset_version()->mutable_dataset()->set_version(old.identity);
     const auto baseline = call(first, request);
     ASSERT_TRUE(baseline.has_get_dataset_version()) << baseline.DebugString();
     EXPECT_EQ(baseline.get_dataset_version().dataset().version(), old.identity);
-    const auto latest = publish(store, "daily/SHFE/202610", 2);
-    EXPECT_EQ(call(second, request).get_dataset_version().dataset().version(), latest.identity);
-    request.mutable_get_dataset_version()->mutable_dataset()->set_version(old.identity);
-    EXPECT_EQ(call(first, request).get_dataset_version().partitions(0).rows(), 1);
+    EXPECT_EQ(call(second, request).get_dataset_version().partitions(0).rows(), 1);
     request.mutable_get_dataset_version()->mutable_dataset()->set_version(std::string(64, '0'));
     EXPECT_TRUE(call(first, request).has_error());
     request.mutable_get_status();
     EXPECT_TRUE(call(second, request).has_get_status());
     first = host.open();
     auto* file = request.mutable_read_dataset_file();
-    file->mutable_dataset()->set_provider("tushare");
     file->mutable_dataset()->set_version(old.identity);
     file->set_key("daily/SHFE/202610");
     const auto data = call(first, request);

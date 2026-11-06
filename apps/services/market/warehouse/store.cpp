@@ -513,32 +513,6 @@ void Writer::put(std::string key, std::span<const Row> rows, std::vector<std::st
         .partitions[std::move(key)] = {file.generic_string(), digest, rows.size(), std::move(days)};
 }
 
-void Writer::merge_days(
-    const std::string& exchange,
-    const std::string& month,
-    std::vector<Row> rows,
-    std::vector<std::string> days)
-{
-    const auto key = "daily/" + exchange + "/" + month;
-    require_key(key);
-    std::set<std::string> replaced(days.begin(), days.end());
-    for (const auto& day : replaced) {
-        require_day(day);
-        if (day.substr(0, 7) != month)
-            throw std::invalid_argument("replacement day belongs to another month");
-    }
-    if (const auto at = pending_.partitions.find(key); at != pending_.partitions.end()) {
-        for (auto& row : store_.read(pending_, key))
-            if (!replaced.contains(std::get<std::string>(row[3])))
-                rows.push_back(std::move(row));
-        days.insert(days.end(), at->second.days.begin(), at->second.days.end());
-    }
-    std::sort(rows.begin(), rows.end(), [](const Row& left, const Row& right) {
-        return std::tie(left[3], left[2]) < std::tie(right[3], right[2]);
-    });
-    put(key, rows, std::move(days));
-}
-
 void Writer::adopt(const std::string& key, const Store& from, const Version& version)
 {
     const auto& part = version.partitions.at(key);

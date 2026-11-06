@@ -117,11 +117,6 @@ public:
     explicit Writer(Store&);
     // Replace a complete partition, publishing none of the transaction until commit.
     void put(std::string key, std::span<const Row> rows, std::vector<std::string> days = {});
-    void merge_days(
-        const std::string& exchange,
-        const std::string& month,
-        std::vector<Row> rows,
-        std::vector<std::string> days);
     // Takes the partition `key` of another store's version whole, linking its
     // file instead of copying it.
     void adopt(const std::string& key, const Store& from, const Version& version);

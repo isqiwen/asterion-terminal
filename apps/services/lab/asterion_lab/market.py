@@ -129,7 +129,7 @@ def locked(path):
 
 
 class Dataset(ParquetTables):
-    """The research dataset Market composes from its sources: the only one Lab reads."""
+    """The one dataset Market offers."""
     provider = "research"
 
     def __init__(self, directory: Path, market=None, origin=None):
@@ -156,13 +156,12 @@ class Dataset(ParquetTables):
         with Client(origin) as client:
             while True:
                 page = client.call("get_dataset_version", after_key=after,
-                                   dataset=dict(provider=self.provider, version=selected))
+                                   dataset=dict(version=selected))
                 dataset = page.dataset
-                if (not selected and not after and dataset.provider == self.provider
-                        and not dataset.version and not page.partitions and not page.next_key):
+                if (not selected and not after and not dataset.version
+                        and not page.partitions and not page.next_key):
                     return Version("", dict(provider=self.provider, created_ms=0, partitions={}))
-                if (dataset.provider != self.provider or not IDENTITY.fullmatch(dataset.version)
-                        or selected and dataset.version != selected):
+                if not IDENTITY.fullmatch(dataset.version) or selected and dataset.version != selected:
                     raise MarketError("invalid_data", "Market returned another dataset version")
                 if not after:
                     selected = dataset.version
@@ -203,7 +202,7 @@ class Dataset(ParquetTables):
                     with Client(version.manifest["origin"]) as client:
                         while size is None or offset < size:
                             item = client.call("read_dataset_file", key=key, offset=offset,
-                                               dataset=dict(provider=self.provider, version=version.identity))
+                                               dataset=dict(version=version.identity))
                             if ((item.sha256, item.offset) != (part["sha256"], offset)
                                     or size is not None and item.size != size
                                     or not item.data or len(item.data) > CHUNK

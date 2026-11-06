@@ -23,12 +23,10 @@ export const changeText = (change: MarketChange) =>
 // A source's versions, newest first, each with what it changed from the one
 // before. Choosing one shows its summary and coverage instead of the current.
 export function DatasetHistory({
-  provider,
   latest,
   viewed,
   onView,
 }: {
-  provider: string;
   // The current version; the list is read again when it changes.
   latest: string;
   viewed: string;
@@ -39,7 +37,7 @@ export function DatasetHistory({
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void marketData({ case: "listDatasetVersions", value: { provider } })
+    void marketData({ case: "listDatasetVersions", value: {} })
       .then(page => {
         if (!active) return;
         setVersions(page.versions);
@@ -50,12 +48,12 @@ export function DatasetHistory({
     return () => {
       active = false;
     };
-  }, [provider, latest]);
+  }, [latest]);
   const more = async () => {
     try {
       const page = await marketData({
         case: "listDatasetVersions",
-        value: { provider, afterVersion: next },
+        value: { afterVersion: next },
       });
       setVersions(current => [...current, ...page.versions]);
       setNext(page.nextVersion);
