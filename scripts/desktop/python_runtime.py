@@ -76,6 +76,8 @@ def ensure(build):
         print("Preparing Python runtime for the current project and dependencies", flush=True)
         prepare(build)
     else:
+        if not (runtime_manifest.DESTINATION / "manifest.json").is_file():
+            runtime_manifest.main()
         application_code(build, runtime_manifest.DESTINATION / "app")
 
 

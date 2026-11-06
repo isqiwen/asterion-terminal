@@ -38,7 +38,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 - Terminal 用一份可重定位的 CPython 3.12，锁定的依赖直接装进它的 `site-packages`，不建虚拟环境，也不需要系统 Python。
 - 安装包携带运行时清单（由 `scripts/desktop/runtime_manifest.py` 从 `uv.lock` 生成）：第一次启动时下载解释器和 wheel（先走国内镜像，失败退回官方源），按清单核对摘要后离线安装；升级按新清单重建，失败时保留原环境。
-- `pnpm desktop` 自动准备缺失或过期的 Python 运行时；依赖锁文件、项目位置或构建目录变化时重新准备，环境可用时直接复用。开发运行时直接读取当前项目的 Python 源码，避免运行旧副本；安装包另带一份代码副本。`pnpm prepare:python` 可单独准备测试环境。
+- `pnpm desktop` 自动准备缺失或过期的 Python 运行时；依赖锁文件、项目位置或构建目录变化时重新准备，环境可用时直接复用，并补生成缺失的运行时清单。开发运行时直接读取当前项目的 Python 源码，避免运行旧副本；安装包另带一份代码副本。`pnpm prepare:python` 可单独准备测试环境。
 - Lab 以 `python3 -I -B -m asterion_lab` 运行，不读用户的 Python 环境。
 - Trading 的策略运行时是另一份：构建时按 `apps/services/trading/uv.lock` 准备，随 Trading 安装包发布。
 

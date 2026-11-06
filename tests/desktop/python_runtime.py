@@ -57,7 +57,11 @@ class Startup(unittest.TestCase):
         source.mkdir()
         (self.build / "generated-python/asterion").mkdir(parents=True)
         destination = self.build / "runtime"
-        with patch.object(runtime, "prepare") as prepare, patch.object(runtime.runtime_manifest, "DESTINATION", destination):
+        destination.mkdir()
+        with patch.object(runtime, "prepare") as prepare, \
+                patch.object(runtime.runtime_manifest, "DESTINATION", destination), \
+                patch.object(runtime.runtime_manifest, "main", side_effect=lambda:
+                             (destination / "manifest.json").write_text("{}")) as manifest:
             for version, commit in (("1.2.3", "abc123"), ("1.2.4", "def456")):
                 (source / "repository.py").write_text(f"# {commit}\n")
                 (self.build / "product.json").write_text(json.dumps({"version": version, "commit": commit}))
@@ -68,6 +72,7 @@ class Startup(unittest.TestCase):
                 exec((packaged / "version.py").read_text(), values)
                 self.assertEqual((values["VERSION"], values["COMMIT"]), (version, commit))
             prepare.assert_not_called()
+            manifest.assert_called_once_with()
 
 
 if __name__ == "__main__":
