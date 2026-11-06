@@ -209,8 +209,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", nargs="?", default="dev", choices=("dev", "build", "package-test", "check", "verify", "verify-test"))
     parser.add_argument("--prepare-python", action="store_true", help="Explicitly download the locked Python runtime and its dependencies")
+    parser.add_argument("--debug", action="store_true", help="Use a Debug build for dev or check")
     arguments = parser.parse_args()
     mode = arguments.mode
+    if arguments.debug and mode not in {"dev", "check"}:
+        parser.error("--debug is only available for dev and check")
     if sys.platform not in {"darwin", "linux"}:
         raise SystemExit("Terminal desktop development and packaging require macOS or Linux")
     verify_package = verify_macos_bundle if MACOS else verify_linux_package
@@ -220,7 +223,7 @@ def main():
     if mode == "build" and MACOS:
         macos_release.signing_preflight(env)
     profile = ROOT / "build/local-profile"
-    configuration = "Release" if mode in {"build", "package-test"} else "Debug"
+    configuration = "Debug" if arguments.debug else "Release"
     preset = "conan-" + configuration.lower()
     install = ["conan", "install", ".", "-s", "compiler.cppstd=20", "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
     if profile.exists():

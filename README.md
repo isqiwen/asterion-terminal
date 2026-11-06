@@ -36,7 +36,8 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 
 | 命令 | 用途 |
 | --- | --- |
-| `pnpm desktop` | 构建 Debug 并启动桌面端 |
+| `pnpm desktop` | 构建 Release 并启动桌面端 |
+| `pnpm desktop --debug` | 构建 Debug 并启动，供 C++ 调试 |
 | `pnpm desktop:check` | 构建并检查桌面链路，不打开窗口 |
 | `pnpm desktop:build` | 生成发行安装包（macOS `.dmg`，Linux `.deb`） |
 | `ctest --preset conan-debug -j 6` | C++ 测试 |

@@ -50,10 +50,11 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm desktop` | Conan → CMake Debug → Node-API → Vite，启动 Electron（Vite 端口 1422） |
-| `pnpm desktop:check` | 构建并检查桌面链路，不打开窗口 |
+| `pnpm desktop` | Conan → CMake Release → Node-API → Vite，启动 Electron（Vite 端口 1422） |
+| `pnpm desktop --debug` | 使用 Debug 构建启动，供 C++ 调试 |
+| `pnpm desktop:check` | 构建 Release 并检查桌面链路，不打开窗口；`--debug` 可选择 Debug |
 | `pnpm desktop:build` | Release 构建并验证 Terminal 发布包：macOS `.dmg`（签名、公证），Linux `.deb` |
-| `pnpm desktop:package-test` | 本机测试包（名称含 `TEST`），不作发行用 |
+| `pnpm desktop:package-test` | Release 验收安装包；macOS 使用临时签名，不做公证 |
 | `pnpm dev` | 只开发界面：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build --preset conan-debug` | 只重建 C++ |
 | `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `asterion-trading-setup.sh` 和 `asterion-market-setup.sh`，输出到 `build/linux-bundles/` |
