@@ -60,7 +60,7 @@ def prepare(build):
     manifest = DESTINATION / "manifest.json"
     if manifest.is_file() and json.loads(manifest.read_text()) == identity \
             and (DESTINATION / "minidump-stackwalk").is_file() \
-            and any((DESTINATION / "symbols").glob("*/*/*.sym")):
+            and any((DESTINATION / "symbols").glob(f"{binary.name}/*/{binary.name}.sym")):
         return
     walker, dumper = tool("minidump-stackwalk"), tool("dump_syms")
     DESTINATION.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +71,9 @@ def prepare(build):
         for license in walker.parent.glob("LICENSE*"):
             shutil.copy2(license, staged / license.name)
         symbols = Path(temporary) / "native.sym"
-        source = (ROOT / "build/electron-resources/symbols/asterion_terminal.node.dSYM") if sys.platform == "darwin" else binary
+        source = binary
+        if sys.platform == "darwin":
+            source = ROOT / "build/electron-resources/symbols" / (binary.name + ".dSYM") / "Contents/Resources/DWARF" / binary.name
         with symbols.open("wb") as output:
             subprocess.run([str(dumper), str(source)], stdout=output, check=True)
         with symbols.open() as stream:

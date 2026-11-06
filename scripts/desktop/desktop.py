@@ -262,6 +262,8 @@ def main():
     else:
         # Linux uses the Conan profile's compiler. Dependencies build optimized.
         install += ["-s", "&:build_type=" + configuration, "-s", "build_type=Release"]
+        # Conan's prebuilt cpptrace lacks the host glibc's signal-safe _dl_find_object.
+        install += ["--build=cpptrace/*"]
     run(install)
     electron_version = json.loads((ROOT / "node_modules/electron/package.json").read_text())["version"]
     sdk = ROOT / "build/electron-sdk"

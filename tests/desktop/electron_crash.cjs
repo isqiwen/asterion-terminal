@@ -73,7 +73,8 @@ const { testNode } = require("./electron_startup.cjs");
     );
     const report = await fs.readFile(path.join(logs, "crashes", reports[0]), "utf8");
     assert.match(report, /Thread \d+/);
-    assert.match(report, /Crash reason:/);
+    // macOS captures a hung-renderer snapshot before terminating the process.
+    assert.match(report, process.platform === "darwin" ? /^No crash$/m : /Crash reason:/);
     const stopped = application.waitForEvent("close");
     await application.evaluate(() => {
       setTimeout(function mainFailure() {
@@ -89,6 +90,7 @@ const { testNode } = require("./electron_startup.cjs");
     if (process.platform === "darwin") {
       source = path.join(root, "fixture.dSYM");
       execFileSync("dsymutil", [fixture, "-o", source]);
+      source = path.join(source, "Contents/Resources/DWARF", path.basename(fixture));
     }
     const dumper = path.resolve(
       "build/crash-tools/dump_syms/2.3.9",
@@ -138,7 +140,7 @@ const { testNode } = require("./electron_startup.cjs");
         },
         { timeout: 30000 },
       )
-      .toMatch(/native_crash_site[\s\S]*crash_fixture.cpp/);
+      .toMatch(/Crash reason:[\s\S]*native_crash_site[\s\S]*crash_fixture.cpp/);
     console.log(
       "Desktop crashes: renderer and main stacks, automatically symbolicated native source stack, local minidump, uploads disabled passed",
     );

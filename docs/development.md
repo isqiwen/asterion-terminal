@@ -61,6 +61,7 @@ Linux 本地调试选择 `Market: debug installation` 或 `Trading: debug instal
 
 - 公共告警设置由 `asterion_target_defaults(target)` 在目标所在目录调用。测试集中登记在 `tests/CMakeLists.txt`。
 - 平台只支持 macOS armv8 和 Linux x86_64。主机程序的基线是 Ubuntu 24.04（glibc 2.39、GCC 13.3）。
+- Linux 桌面和服务构建脚本从源码编译 `cpptrace`，启用当前 glibc 的信号安全崩溃取栈支持；手动安装 Conan 依赖时也须加 `--build='cpptrace/*'`。
 - 排查正在运行的桌面时，先确认 Electron 加载的是哪个目录的原生模块；单独重编 C++ 不会替换已加载的模块，要重启 `pnpm desktop`。
 
 ## 协议代码生成
