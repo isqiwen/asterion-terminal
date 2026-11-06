@@ -46,6 +46,8 @@ flowchart TB
 
 依赖只向下。业务代码在 `apps/services/<服务>/`，跨服务共用的代码在 `apps/services/common/`。订单限额编译进 Trading 和回测扩展，两边用同一套实现。
 
+`apps/crash_reporter/` 是 Linux 服务随包提供的内部崩溃解析程序，入口独立于基础库；采集和解析能力由 `asterion_system` 提供。
+
 ## Terminal
 
 | 位置 | 内容 |

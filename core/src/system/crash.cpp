@@ -1,5 +1,5 @@
 #include <asterion/system/crash.hpp>
-#include "crash_report.hpp"
+#include <asterion/system/crash_report.hpp>
 #include <asterion/system/log.hpp>
 #include <cpptrace/basic.hpp>
 #include <limits.h>

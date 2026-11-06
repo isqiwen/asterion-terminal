@@ -1,2 +1,5 @@
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_subdirectory(crash_reporter)
+endif()
 add_subdirectory(services)
 add_subdirectory(clients)

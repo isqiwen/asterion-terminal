@@ -1,4 +1,4 @@
-#include "crash_report.hpp"
+#include <asterion/system/crash_report.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/version.hpp>
 #include <cpptrace/basic.hpp>
