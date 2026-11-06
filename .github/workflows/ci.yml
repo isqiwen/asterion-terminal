@@ -8,13 +8,13 @@ jobs:
   style:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install clang-format==23.1.1
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -38,8 +38,8 @@ jobs:
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
@@ -73,8 +73,8 @@ jobs:
             arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
@@ -91,7 +91,7 @@ jobs:
           ldd build/Release/asterion_trading
       - name: Offline Trading runtime and strategy limits
         run: python tests/trading/package_test.py build/Release/asterion-trading-setup.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: trading-linux-${{ matrix.arch }}
           if-no-files-found: error
@@ -101,7 +101,7 @@ jobs:
         run: |
           ./build/Release/asterion_market --version
           ldd build/Release/asterion_market
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: market-linux-${{ matrix.arch }}
           if-no-files-found: error
@@ -112,11 +112,11 @@ jobs:
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - uses: pnpm/action-setup@v4
@@ -140,6 +140,12 @@ jobs:
       - name: Exercise packaged macOS desktop
         timeout-minutes: 8
         run: python tests/desktop/electron_package.py build/desktop-test/*.dmg
+      - name: Upload Terminal installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: terminal-macos-arm64
+          if-no-files-found: error
+          path: build/desktop-test/*.dmg
 
   # The whole browser suite runs on the macOS job. Only the @trading tests run
   # here, because the trading service runs on Linux only and they skip elsewhere.
@@ -148,11 +154,11 @@ jobs:
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - uses: pnpm/action-setup@v4
@@ -186,6 +192,12 @@ jobs:
       - name: Exercise packaged Linux desktop
         timeout-minutes: 8
         run: xvfb-run -a python tests/desktop/electron_package.py build/desktop-test/*.deb
+      - name: Upload Terminal installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: terminal-linux-x86_64
+          if-no-files-found: error
+          path: build/desktop-test/*.deb
 
   core-sanitizers:
     strategy:
@@ -198,8 +210,8 @@ jobs:
             sanitizer: thread
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
