@@ -206,18 +206,6 @@ std::string read_text(const fs::path& root, const fs::path& path, std::uintmax_t
     return content;
 }
 
-// A partition's shard: its table, exchange and month, e.g. minutes/SHFE/2026-10.
-std::string shard_of(const std::string& key)
-{
-    const auto table = key.find('/');
-    const auto exchange = key.find('/', table + 1);
-    if (exchange == std::string::npos)
-        return key;
-    const auto end = key.find('/', exchange + 1);
-    return key.substr(0, exchange + 1)
-        + key.substr(exchange + 1, std::min<std::size_t>(7, end - exchange - 1));
-}
-
 Json entry(const Partition& part)
 {
     Json item{{"file", part.file}, {"sha256", part.sha256}, {"rows", part.rows}};
@@ -229,6 +217,18 @@ Json entry(const Partition& part)
 }
 
 } // namespace
+
+// A partition's shard: its table, exchange and month, e.g. minutes/SHFE/2026-10.
+std::string shard_of(const std::string& key)
+{
+    const auto table = key.find('/');
+    const auto exchange = key.find('/', table + 1);
+    if (exchange == std::string::npos)
+        return key;
+    const auto end = key.find('/', exchange + 1);
+    return key.substr(0, exchange + 1)
+        + key.substr(exchange + 1, std::min<std::size_t>(7, end - exchange - 1));
+}
 
 void require_day(std::string_view day)
 {
@@ -401,19 +401,37 @@ Change Store::compare(const VersionHead& version, const VersionHead& base) const
     return change;
 }
 
-fs::path Store::file(const Version& version, std::string_view key) const
+fs::path Store::path_of(const Partition& part) const
 {
-    require_key(key);
-    const auto part = version.partitions.find(std::string(key));
-    if (part == version.partitions.end())
-        throw Error(ErrorCode::not_found, "partition is absent from this dataset version");
-    const fs::path relative(part->second.file);
+    const fs::path relative(part.file);
     if (relative.is_absolute() || relative.empty() || *relative.begin() != "files")
         throw std::runtime_error("invalid partition path in dataset manifest");
     const auto path = contained(root_, root_ / relative);
     if (!fs::is_regular_file(path))
         throw Error(ErrorCode::not_found, "dataset partition file is missing");
     return path;
+}
+
+fs::path Store::file(const Version& version, std::string_view key) const
+{
+    require_key(key);
+    const auto part = version.partitions.find(std::string(key));
+    if (part == version.partitions.end())
+        throw Error(ErrorCode::not_found, "partition is absent from this dataset version");
+    return path_of(part->second);
+}
+
+std::pair<Partition, fs::path> Store::locate(std::string_view identity, std::string_view key) const
+{
+    require_key(key);
+    const auto top = head(identity);
+    const auto name = shard_of(std::string(key));
+    if (const auto digest = top.shards.find(name); digest != top.shards.end()) {
+        const auto parts = shard(name, digest->second);
+        if (const auto part = parts.find(std::string(key)); part != parts.end())
+            return {part->second, path_of(part->second)};
+    }
+    throw Error(ErrorCode::not_found, "partition is absent from this dataset version");
 }
 
 Writer Store::writer()

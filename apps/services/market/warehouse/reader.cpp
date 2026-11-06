@@ -79,32 +79,43 @@ wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
         ? std::string{}
         : protocol::table_name(query.table());
     const auto store = open_store(directory_, query.dataset());
-    const auto version = selected(store, query.dataset().version());
+    const auto identity =
+        query.dataset().version().empty() ? store.current_identity() : query.dataset().version();
     wire::DatasetVersion result;
-    *result.mutable_dataset() = dataset_of(version);
-    result.set_parent(version.parent);
-    for (auto at = version.partitions.upper_bound(query.after_key());
-        at != version.partitions.end();
-        ++at) {
-        const auto& [key, part] = *at;
-        const auto slash = key.find('/');
-        const auto table = key.substr(0, slash);
-        const auto exchange = key.substr(slash + 1, key.find('/', slash + 1) - slash - 1);
-        if ((!wanted.empty() && wanted != table)
-            || (!query.exchange().empty() && query.exchange() != exchange))
+    result.mutable_dataset()->set_provider(store.provider());
+    if (identity.empty())
+        return result;
+    const auto top = store.head(identity);
+    result.mutable_dataset()->set_version(top.identity);
+    result.mutable_dataset()->set_created_ms(top.created_ns / 1'000'000);
+    result.set_parent(top.parent);
+    const auto first = query.after_key().empty() ? std::string{} : shard_of(query.after_key());
+    // Only the shards this page can list are read.
+    for (const auto& [name, digest] : top.shards) {
+        const auto slash = name.find('/');
+        const auto end = name.find('/', slash + 1);
+        if (name < first || (!wanted.empty() && wanted != name.substr(0, slash))
+            || (!query.exchange().empty()
+                && query.exchange() != name.substr(slash + 1, end - slash - 1)))
             continue;
-        if (result.partitions_size() == page_) {
-            result.set_next_key(result.partitions(result.partitions_size() - 1).key());
-            break;
+        const auto partitions = store.shard(name, digest);
+        for (auto at = partitions.upper_bound(query.after_key()); at != partitions.end(); ++at) {
+            const auto& [key, part] = *at;
+            if (result.partitions_size() == page_) {
+                result.set_next_key(result.partitions(result.partitions_size() - 1).key());
+                break;
+            }
+            auto* item = result.add_partitions();
+            item->set_key(key);
+            item->set_table(protocol::table_of(key.substr(0, slash)));
+            item->set_sha256(part.sha256);
+            item->set_rows(part.rows);
+            for (const auto& day : part.days)
+                item->add_days(day);
+            item->set_taken_from(part.source);
         }
-        auto* item = result.add_partitions();
-        item->set_key(key);
-        item->set_table(protocol::table_of(table));
-        item->set_sha256(part.sha256);
-        item->set_rows(part.rows);
-        for (const auto& day : part.days)
-            item->add_days(day);
-        item->set_taken_from(part.source);
+        if (!result.next_key().empty())
+            break;
     }
     if (result.ByteSizeLong() > 1024 * 1024)
         throw Error(
@@ -118,13 +129,12 @@ wire::DatasetFile Reader::file(const wire::ReadDatasetFile& query) const
     const std::uint64_t count = 1024 * 1024;
     require_identity(query.dataset().version());
     const auto store = open_store(directory_, query.dataset());
-    const auto version = store.version(query.dataset().version());
-    const auto path = store.file(version, query.key());
+    const auto [part, path] = store.locate(query.dataset().version(), query.key());
     const auto size = fs::file_size(path);
     if (query.offset() > size)
         throw std::invalid_argument("dataset offset exceeds the partition size");
     wire::DatasetFile result;
-    result.set_sha256(version.partitions.at(query.key()).sha256);
+    result.set_sha256(part.sha256);
     result.set_offset(query.offset());
     result.set_size(size);
     auto* data = result.mutable_data();

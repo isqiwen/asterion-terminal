@@ -35,7 +35,7 @@ flowchart LR
 
 ## 核心类关系
 
-RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；`RecordedIntake` 在自己的线程里从磁盘取走已结束的交易日；后台读取路径访问仓库并管理采集任务。录制的构建目标不链接入库和仓库，理由：录制丢失不可恢复，其他工作都可以重做。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
+RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；`RecordedIntake` 在自己的线程里从磁盘取走已结束的交易日；后台读取路径访问仓库并管理采集任务。录制的构建目标不链接入库和仓库，理由：录制丢失不可恢复，其他工作都可以重做。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
 
 ```mermaid
 classDiagram
@@ -98,8 +98,9 @@ classDiagram
 | --- | --- | --- |
 | `get_status`、`get_board`、`get_minutes` | 行情线程 | `read` |
 | `stream_quotes` | 行情执行路径持续生成报价帧 | `read` |
-| `start_acquisition`、`cancel_acquisition` | 读取线程池 | `manage` |
-| 其余调用 | 读取线程池 | `read` |
+| `start_acquisition`、`cancel_acquisition` | 读取线程 | `manage` |
+| 摘要、覆盖、分钟对比、参考表、录制日、版本历史与比较 | 分析线程 | `read` |
+| 其余调用 | 读取线程 | `read` |
 
 采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。`recording::Reader` 读取录制归档，`warehouse::Reader` 读取正式仓库。
 

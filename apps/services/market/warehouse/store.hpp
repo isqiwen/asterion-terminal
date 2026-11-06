@@ -83,6 +83,11 @@ public:
     // Only shards whose digests differ are read.
     Change compare(const VersionHead& version, const VersionHead& base) const;
     std::filesystem::path file(const Version&, std::string_view key) const;
+    // One partition of a version, reading only the shard that holds it.
+    std::pair<Partition, std::filesystem::path>
+    locate(std::string_view identity, std::string_view key) const;
+    std::map<std::string, Partition>
+    shard(const std::string& name, const std::string& digest) const;
     std::vector<Row> read(const Version&, std::string_view key) const;
 
     const std::filesystem::path& root() const
@@ -99,8 +104,7 @@ public:
 
 private:
     friend class Writer;
-    std::map<std::string, Partition>
-    shard(const std::string& name, const std::string& digest) const;
+    std::filesystem::path path_of(const Partition&) const;
 
     std::filesystem::path root_;
     std::string provider_;
@@ -134,6 +138,9 @@ private:
 // Data paths are service-owned; provider/partition/version identities arrive
 // from clients. Validate them before any filesystem access.
 void require_provider(std::string_view provider);
+// The shard a partition belongs to: its table, exchange and month. Shards sort
+// as their partitions do.
+std::string shard_of(const std::string& key);
 void require_identity(std::string_view identity);
 void require_key(std::string_view key);
 void require_day(std::string_view day);

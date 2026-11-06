@@ -23,6 +23,13 @@ bool Recorded::supports(std::string_view table, std::string_view exchange) const
     return table == "minutes" || table == "price_ticks";
 }
 
+recording::Reader& Recorded::reader()
+{
+    if (!reader_)
+        reader_.emplace(root_);
+    return *reader_;
+}
+
 MinuteBatch Recorded::minutes(const std::string& contract, const std::string& day)
 {
     require_contract(contract);
@@ -55,7 +62,7 @@ MinuteBatch Recorded::minutes(const std::string& contract, const std::string& da
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     check_stop(stop_);
-    recording::Reader reader(root_);
+    auto& reader = this->reader();
     ++requests_;
     const auto bars = reader.minutes(compact, {exchange, symbol});
     if (bars.empty())
@@ -150,7 +157,7 @@ std::vector<std::string> Recorded::minute_contracts(const std::string& day)
     }
     std::set<std::string> contracts;
     // A symbol that names no delivery on that day is left out, as minutes() would refuse it.
-    for (const auto& id : recording::Reader(root_).instruments(compact))
+    for (const auto& id : reader().instruments(compact))
         if (const auto contract = contract_of(id.venue, id.symbol, day))
             contracts.insert(*contract);
     return {contracts.begin(), contracts.end()};

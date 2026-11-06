@@ -430,6 +430,28 @@ TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
     EXPECT_THROW(wh::minute_differences(root, query), std::exception);
 }
 
+TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
+{
+    wh::Store store(root, "tushare");
+    publish(store, "minutes/SHFE/2026-10-28/rb/2027-01");
+    const auto version = publish(store, "minutes/DCE/2026-10-28/i/2027-01");
+    // Without the other month's shard, the full version can no longer be read.
+    fs::remove(
+        store.root() / "shards"
+        / (store.head(version.identity).shards.at("minutes/DCE/2026-10") + ".json"));
+    EXPECT_THROW(store.version(version.identity), Error);
+    wh::Reader reader(root);
+    wire::ReadDatasetFile file;
+    file.mutable_dataset()->set_provider("tushare");
+    file.mutable_dataset()->set_version(version.identity);
+    file.set_key("minutes/SHFE/2026-10-28/rb/2027-01");
+    EXPECT_FALSE(reader.file(file).data().empty());
+    wire::GetDatasetVersion query;
+    query.mutable_dataset()->CopyFrom(file.dataset());
+    query.set_exchange("SHFE");
+    EXPECT_EQ(reader.version(query).partitions_size(), 1);
+}
+
 TEST_F(Warehouse, PagedMetadataAndChunkedFilesStayOnSelectedVersion)
 {
     wh::Store store(root, "tushare");

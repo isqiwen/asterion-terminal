@@ -1,5 +1,7 @@
 #pragma once
+#include "recorded/reader.hpp"
 #include "source.hpp"
+#include <optional>
 #include <shared_mutex>
 
 namespace asterion::market_data::acquisition {
@@ -26,6 +28,10 @@ public:
     Rows price_ticks(const std::string& exchange, const std::string& day) override;
 
 private:
+    // One database per task: starting one costs far more than a query.
+    recording::Reader& reader();
+
+    std::optional<recording::Reader> reader_;
     std::filesystem::path root_;
     std::shared_ptr<std::shared_mutex> archive_;
     std::stop_token stop_;

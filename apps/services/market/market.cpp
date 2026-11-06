@@ -34,8 +34,10 @@ enum class Lane
     market,
     // A frame every 250 ms from the market thread until the connection closes.
     stream,
-    // From files, on the reader pool.
-    reader
+    // Quick lookups and file chunks, on the reader thread.
+    reader,
+    // Scans that can take long, on their own thread so lookups never wait for them.
+    analysis
 };
 
 struct Route
@@ -56,6 +58,15 @@ Route route(const wire::Request& request)
         case wire::Request::kStartAcquisition:
         case wire::Request::kCancelAcquisition:
             return {Lane::reader, true};
+        case wire::Request::kGetDatasetSummary:
+        case wire::Request::kGetDatasetCoverage:
+        case wire::Request::kCompareMinutes:
+        case wire::Request::kGetMinuteDifferences:
+        case wire::Request::kGetTableRows:
+        case wire::Request::kListRecordedDays:
+        case wire::Request::kListDatasetVersions:
+        case wire::Request::kCompareDatasetVersions:
+            return {Lane::analysis};
         default:
             return {Lane::reader};
     }
@@ -336,7 +347,7 @@ struct Market::Running
     warehouse::Composer composer;
     acquisition::Manager acquisitions;
     acquisition::RecordedIntake intake;
-    ThreadPool readers{1, 8};
+    ThreadPool readers{1, 8}, analysis{1, 8};
     BoundedQueue<Call> calls{64};
     std::mutex streams_mutex;
     std::vector<std::weak_ptr<QuoteStream>> streams;
@@ -472,12 +483,12 @@ struct Market::Running
         return waiting(std::move(result), id);
     }
 
-    Reply ask_readers(wire::Request request, bool can_manage)
+    Reply ask_readers(ThreadPool& pool, wire::Request request, bool can_manage)
     {
         const auto id = request.id();
         auto promise = std::make_shared<std::promise<Message>>();
         auto result = promise->get_future();
-        readers.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
+        pool.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
                 answer_reader(request, out, settings.directory, *archive, acquisitions, can_manage);
             })));
@@ -515,7 +526,9 @@ Market::Reply Market::serve(std::string frame, std::optional<bool> can_manage)
             case Lane::stream:
                 return running_->open_stream(std::move(request));
             case Lane::reader:
-                return running_->ask_readers(std::move(request), *can_manage);
+                return running_->ask_readers(running_->readers, std::move(request), *can_manage);
+            case Lane::analysis:
+                return running_->ask_readers(running_->analysis, std::move(request), *can_manage);
         }
     } catch (const std::exception& error) {
         wire::Response response;
