@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { openView } from "./navigation-helper";
 import { rpc } from "./rpc-fixture";
@@ -14,6 +14,10 @@ test(
     const source = resolve(__dirname, "../../../..");
     const host = resolve(process.env.ASTERION_TEST_MARKET_TLS!, "../..");
     const data = join(host, "data");
+    // Market takes its first contract snapshot in by itself; let that settle first.
+    await expect
+      .poll(() => existsSync(join(data, "sources/research/warehouse/current")), { timeout: 30000 })
+      .toBe(true);
     execFileSync(join(source, "build/electron-resources/python/bin/python3"), [
       "-I",
       "-B",
